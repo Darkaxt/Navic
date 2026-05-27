@@ -84,6 +84,7 @@
 	<string name="subtitle_smart_rewind">After this point, Previous restarts the current song instead of jumping back</string>
 	<string name="subtitle_pause_playback_on_volume_zero">Pause when Android media volume is muted, then resume if Navic paused it. Takes effect after playback restarts</string>
 	<string name="subtitle_audio_fade">Fade volume when pausing or resuming playback</string>
+	<string name="subtitle_bass_boost">Boost low frequencies for the active Android player session</string>
 	<string name="subtitle_persistent_queue">Save and restore the current queue between app launches</string>
 	<string name="subtitle_resume_playback_on_startup">Start playing the restored queue when the app reconnects to the player</string>
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
@@ -168,6 +169,8 @@
 	<string name="option_smart_rewind">Smart rewind</string>
 	<string name="option_pause_playback_on_volume_zero">Pause when volume reaches zero</string>
 	<string name="option_audio_fade">Audio fade</string>
+	<string name="option_bass_boost">Bass boost</string>
+	<string name="option_bass_boost_strength">Bass boost strength</string>
 	<string name="option_persistent_queue">Persistent queue</string>
 	<string name="option_resume_playback_on_startup">Resume playback on startup</string>
 	<string name="option_audio_offload">Audio offload</string>

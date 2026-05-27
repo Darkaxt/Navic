@@ -169,6 +169,20 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun bassBoostDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.bassBoostEnabled)
+		assertEquals(500, manager.bassBoostStrength)
+
+		manager.bassBoostEnabled = true
+		manager.bassBoostStrength = 800
+
+		assertTrue(manager.bassBoostEnabled)
+		assertEquals(800, manager.bassBoostStrength)
+	}
+
+	@Test
 	fun pauseBetweenSongsDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

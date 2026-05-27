@@ -33,6 +33,8 @@ import navic.composeapp.generated.resources.action_lyrics
 import navic.composeapp.generated.resources.action_system_equalizer
 import navic.composeapp.generated.resources.option_audio_fade
 import navic.composeapp.generated.resources.option_audio_offload
+import navic.composeapp.generated.resources.option_bass_boost
+import navic.composeapp.generated.resources.option_bass_boost_strength
 import navic.composeapp.generated.resources.option_enable_scrobbling
 import navic.composeapp.generated.resources.option_gapless_playback
 import navic.composeapp.generated.resources.option_lyrics_autoscroll
@@ -56,6 +58,7 @@ import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_audio_fade
+import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
@@ -212,6 +215,42 @@ fun SettingsPlaybackScreen() {
 							selection = preferenceManager.audioFadeDurationMs,
 							onSelect = { preferenceManager.audioFadeDurationMs = it }
 						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_bass_boost)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_bass_boost)) },
+							value = preferenceManager.bassBoostEnabled,
+							onSetValue = {
+								preferenceManager.bassBoostEnabled = it
+								player.refreshAudioEffects()
+							}
+						)
+						AnimatedVisibility(preferenceManager.bassBoostEnabled) {
+							FormRow {
+								Column(Modifier.fillMaxWidth()) {
+									Row(
+										modifier = Modifier.fillMaxWidth(),
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(stringResource(Res.string.option_bass_boost_strength))
+										Text(
+											"${preferenceManager.bassBoostStrength / 10}%",
+											fontFamily = FontFamily.Monospace,
+											fontWeight = FontWeight(400),
+											fontSize = 13.sp,
+											color = MaterialTheme.colorScheme.onSurfaceVariant,
+										)
+									}
+									Slider(
+										value = preferenceManager.bassBoostStrength.toFloat(),
+										onValueChange = { value ->
+											preferenceManager.bassBoostStrength = value.roundToInt()
+											player.refreshAudioEffects()
+										},
+										valueRange = 0f..1000f,
+									)
+								}
+							}
+						}
 						FormRow(
 							onClick = {
 								player.openSystemEqualizer()

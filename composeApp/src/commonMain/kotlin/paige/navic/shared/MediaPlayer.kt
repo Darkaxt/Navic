@@ -65,6 +65,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun shufflePlay(collection: DomainSongCollection)
 	abstract fun setPlaybackSpeed(value: Float)
 	abstract fun openSystemEqualizer(): Boolean
+	abstract fun refreshAudioEffects()
 
 	fun togglePlay() {
 		if (!_uiState.value.isPaused) {
