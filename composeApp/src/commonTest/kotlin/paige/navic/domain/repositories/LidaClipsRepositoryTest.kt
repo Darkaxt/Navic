@@ -1,9 +1,12 @@
 package paige.navic.domain.repositories
 
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import paige.navic.domain.models.DomainLidaClip
 
 class LidaClipsRepositoryTest {
@@ -118,6 +121,36 @@ class LidaClipsRepositoryTest {
 			requestHeaders = mapOf("X-Api-Key" to "first"),
 			songId = "song-2"
 		)))
+	}
+
+	@Test
+	fun lidaClipsServiceStatusUsesDashboardCountsAndControlRuntimeState() {
+		val status = lidaClipsServiceStatus(
+			dashboard = LidaClipsDashboardDto(
+				activeClips = 12,
+				officialClips = 7,
+				fallbackClips = 5,
+				syncPaused = false
+			),
+			control = LidaClipsControlDto(
+				syncPaused = true,
+				syncRunning = true
+			)
+		)
+
+		assertEquals(12, status.activeClips)
+		assertEquals(7, status.officialClips)
+		assertEquals(5, status.fallbackClips)
+		assertTrue(status.syncPaused)
+		assertTrue(status.syncRunning)
+	}
+
+	@Test
+	fun lidaClipsControlRequestBodyUsesBackendFieldName() {
+		assertEquals(
+			"""{"sync_paused":true}""",
+			Json.encodeToString(LidaClipsControlRequestDto(syncPaused = true))
+		)
 	}
 
 	private fun lidaClip() = DomainLidaClip(

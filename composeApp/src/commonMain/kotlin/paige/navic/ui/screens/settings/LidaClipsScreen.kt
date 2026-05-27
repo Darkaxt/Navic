@@ -16,6 +16,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,12 +26,19 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lida_clips_connected
 import navic.composeapp.generated.resources.info_lida_clips_failed
 import navic.composeapp.generated.resources.info_lida_clips_invalid_url
 import navic.composeapp.generated.resources.info_lida_clips_missing_url
 import navic.composeapp.generated.resources.info_lida_clips_not_tested
+import navic.composeapp.generated.resources.info_lida_clips_service_status_counts
+import navic.composeapp.generated.resources.info_lida_clips_service_status_failed
+import navic.composeapp.generated.resources.info_lida_clips_service_status_loading
+import navic.composeapp.generated.resources.info_lida_clips_service_status_unavailable
+import navic.composeapp.generated.resources.info_lida_clips_sync_idle
+import navic.composeapp.generated.resources.info_lida_clips_sync_running
 import navic.composeapp.generated.resources.info_lida_clips_testing
 import navic.composeapp.generated.resources.info_lida_clips_unauthorized
 import navic.composeapp.generated.resources.option_lida_clips_api_key
@@ -40,24 +48,29 @@ import navic.composeapp.generated.resources.option_lida_clips_landscape_video_mo
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
+import navic.composeapp.generated.resources.option_lida_clips_sync_paused
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_landscape_video_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
+import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
 import navic.composeapp.generated.resources.title_lida_clips
+import navic.composeapp.generated.resources.title_lida_clips_service_status
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.LidaClipsConnectionResult
+import paige.navic.domain.repositories.LidaClipsServiceStatus
 import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 
@@ -68,6 +81,21 @@ fun SettingsLidaClipsScreen() {
 	val viewModel = koinViewModel<SettingsLidaClipsViewModel>()
 	val connectionResult by viewModel.connectionResult.collectAsStateWithLifecycle()
 	val isTestingConnection by viewModel.isTestingConnection.collectAsStateWithLifecycle()
+	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
+	val isUpdatingSyncPaused by viewModel.isUpdatingSyncPaused.collectAsStateWithLifecycle()
+	val isLidaClipsUrlConfigured =
+		configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl) != null
+
+	LaunchedEffect(
+		preferenceManager.lidaClipsEnabled,
+		preferenceManager.lidaClipsBaseUrl
+	) {
+		if (preferenceManager.lidaClipsEnabled && isLidaClipsUrlConfigured) {
+			viewModel.refreshServiceStatus()
+		} else {
+			viewModel.clearServiceStatus()
+		}
+	}
 
 	Scaffold(
 		topBar = {
@@ -93,6 +121,7 @@ fun SettingsLidaClipsScreen() {
 						onSetValue = {
 							preferenceManager.lidaClipsEnabled = it
 							viewModel.clearConnectionResult()
+							viewModel.clearServiceStatus()
 						}
 					)
 					AnimatedVisibility(
@@ -105,6 +134,7 @@ fun SettingsLidaClipsScreen() {
 								onValueChange = {
 									preferenceManager.lidaClipsBaseUrl = it
 									viewModel.clearConnectionResult()
+									viewModel.clearServiceStatus()
 								},
 								placeholder = stringResource(Res.string.option_lida_clips_base_url),
 								keyboardType = KeyboardType.Uri
@@ -114,6 +144,7 @@ fun SettingsLidaClipsScreen() {
 								onValueChange = {
 									preferenceManager.lidaClipsApiKey = it
 									viewModel.clearConnectionResult()
+									viewModel.clearServiceStatus()
 								},
 								placeholder = stringResource(Res.string.option_lida_clips_api_key),
 								keyboardType = KeyboardType.Password,
@@ -169,6 +200,27 @@ fun SettingsLidaClipsScreen() {
 						Text(stringResource(Res.string.action_test_connection))
 					}
 				}
+				AnimatedVisibility(
+					visible = preferenceManager.lidaClipsEnabled && isLidaClipsUrlConfigured,
+					modifier = Modifier.fillMaxWidth()
+				) {
+					Column(Modifier.fillMaxWidth()) {
+						FormTitle(stringResource(Res.string.title_lida_clips_service_status))
+						Form(Modifier.fillMaxWidth()) {
+							LidaClipsServiceStatusContent(
+								state = serviceStatus,
+								isUpdatingSyncPaused = isUpdatingSyncPaused,
+								onSetSyncPaused = viewModel::setSyncPaused
+							)
+						}
+						FormButton(
+							onClick = { viewModel.refreshServiceStatus() },
+							enabled = serviceStatus !is UiState.Loading && !isUpdatingSyncPaused
+						) {
+							Text(stringResource(Res.string.action_refresh))
+						}
+					}
+				}
 			}
 		}
 	}
@@ -197,6 +249,80 @@ private fun connectionStatusText(
 		is LidaClipsConnectionResult.Failed ->
 			stringResource(Res.string.info_lida_clips_failed, connectionResult.message)
 	}
+}
+
+@Composable
+private fun LidaClipsServiceStatusContent(
+	state: UiState<LidaClipsServiceStatus?>,
+	isUpdatingSyncPaused: Boolean,
+	onSetSyncPaused: (Boolean) -> Unit
+) {
+	val status = state.data
+	if (status == null) {
+		FormRow {
+			Text(
+				when (state) {
+					is UiState.Error ->
+						stringResource(
+							Res.string.info_lida_clips_service_status_failed,
+							state.error.message ?: state.error::class.simpleName ?: "Unknown error"
+						)
+
+					is UiState.Loading ->
+						stringResource(Res.string.info_lida_clips_service_status_loading)
+
+					is UiState.Success ->
+						stringResource(Res.string.info_lida_clips_service_status_unavailable)
+				}
+			)
+		}
+		return
+	}
+
+	FormRow {
+		Column(Modifier.weight(1f)) {
+			Text(
+				stringResource(
+					Res.string.info_lida_clips_service_status_counts,
+					status.activeClips,
+					status.officialClips,
+					status.fallbackClips
+				)
+			)
+			Text(
+				if (status.syncRunning) {
+					stringResource(Res.string.info_lida_clips_sync_running)
+				} else {
+					stringResource(Res.string.info_lida_clips_sync_idle)
+				},
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant
+			)
+		}
+	}
+	if (state is UiState.Error) {
+		FormRow {
+			Text(
+				stringResource(
+					Res.string.info_lida_clips_service_status_failed,
+					state.error.message ?: state.error::class.simpleName ?: "Unknown error"
+				)
+			)
+		}
+	}
+	if (state is UiState.Loading || isUpdatingSyncPaused) {
+		FormRow {
+			Text(stringResource(Res.string.info_lida_clips_service_status_loading))
+		}
+	}
+	SettingSwitchRow(
+		title = { Text(stringResource(Res.string.option_lida_clips_sync_paused)) },
+		subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_sync_paused)) },
+		value = status.syncPaused,
+		onSetValue = {
+			if (!isUpdatingSyncPaused) onSetSyncPaused(it)
+		}
+	)
 }
 
 @Composable

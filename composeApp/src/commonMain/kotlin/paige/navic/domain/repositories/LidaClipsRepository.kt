@@ -7,6 +7,8 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
@@ -82,6 +84,41 @@ class LidaClipsRepository(
 		findClipByNavidromeSongId(songId)
 	}
 
+	suspend fun getServiceStatus(): Result<LidaClipsServiceStatus> {
+		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
+			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+
+		return runCatching {
+			lidaClipsServiceStatus(
+				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
+				control = fetchServiceControl(baseUrl, requestHeaders)
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "LidaClips service status failed", error)
+		}
+	}
+
+	suspend fun setSyncPaused(syncPaused: Boolean): Result<LidaClipsServiceStatus> {
+		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
+			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+
+		return runCatching {
+			val control = updateServiceControl(baseUrl, requestHeaders, syncPaused)
+			lidaClipsServiceStatus(
+				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
+				control = control
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "LidaClips sync control failed", error)
+		}
+	}
+
 	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -120,6 +157,57 @@ class LidaClipsRepository(
 			else -> error("LidaClips returned HTTP ${response.status.value}")
 		}
 	}
+
+	private suspend fun fetchServiceDashboard(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsDashboardDto {
+		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/dashboard")) {
+			accept(ContentType.Application.Json)
+			requestHeaders.forEach { (key, value) ->
+				header(key, value)
+			}
+		}
+		if (!response.status.isSuccess()) {
+			error("LidaClips dashboard returned HTTP ${response.status.value}")
+		}
+		return response.body()
+	}
+
+	private suspend fun fetchServiceControl(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsControlDto {
+		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/control")) {
+			accept(ContentType.Application.Json)
+			requestHeaders.forEach { (key, value) ->
+				header(key, value)
+			}
+		}
+		if (!response.status.isSuccess()) {
+			error("LidaClips control returned HTTP ${response.status.value}")
+		}
+		return response.body()
+	}
+
+	private suspend fun updateServiceControl(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		syncPaused: Boolean
+	): LidaClipsControlDto {
+		val response = client.post(lidaClipsEndpoint(baseUrl, "api/v1/control")) {
+			accept(ContentType.Application.Json)
+			header("Content-Type", ContentType.Application.Json.toString())
+			requestHeaders.forEach { (key, value) ->
+				header(key, value)
+			}
+			setBody(LidaClipsControlRequestDto(syncPaused))
+		}
+		if (!response.status.isSuccess()) {
+			error("LidaClips control update returned HTTP ${response.status.value}")
+		}
+		return response.body()
+	}
 }
 
 sealed interface LidaClipsConnectionResult {
@@ -127,6 +215,45 @@ sealed interface LidaClipsConnectionResult {
 	data object Unauthorized : LidaClipsConnectionResult
 	data class Failed(val message: String) : LidaClipsConnectionResult
 }
+
+data class LidaClipsServiceStatus(
+	val activeClips: Int,
+	val officialClips: Int,
+	val fallbackClips: Int,
+	val syncPaused: Boolean,
+	val syncRunning: Boolean
+)
+
+@Serializable
+internal data class LidaClipsDashboardDto(
+	@SerialName("active_clips") val activeClips: Int = 0,
+	@SerialName("official_clips") val officialClips: Int = 0,
+	@SerialName("fallback_clips") val fallbackClips: Int = 0,
+	@SerialName("sync_paused") val syncPaused: Boolean = false
+)
+
+@Serializable
+internal data class LidaClipsControlDto(
+	@SerialName("sync_paused") val syncPaused: Boolean = false,
+	@SerialName("sync_running") val syncRunning: Boolean = false
+)
+
+@Serializable
+internal data class LidaClipsControlRequestDto(
+	@SerialName("sync_paused") val syncPaused: Boolean
+)
+
+internal fun lidaClipsServiceStatus(
+	dashboard: LidaClipsDashboardDto,
+	control: LidaClipsControlDto
+): LidaClipsServiceStatus =
+	LidaClipsServiceStatus(
+		activeClips = dashboard.activeClips,
+		officialClips = dashboard.officialClips,
+		fallbackClips = dashboard.fallbackClips,
+		syncPaused = control.syncPaused,
+		syncRunning = control.syncRunning
+	)
 
 internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
 	"${normalizeLidaClipsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"

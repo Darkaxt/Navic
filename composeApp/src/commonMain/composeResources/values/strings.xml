@@ -54,6 +54,7 @@
 	<string name="title_streaming_quality">Streaming quality</string>
 	<string name="title_reverse_proxy_auth">Reverse proxy Basic Auth</string>
 	<string name="title_lida_clips">LidaClips</string>
+	<string name="title_lida_clips_service_status">Service status</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_wifi">Wi-Fi</string>
 	<string name="title_cellular">Cellular</string>
@@ -93,6 +94,7 @@
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
 	<string name="subtitle_lida_clips_pause_music_playback">Turn off to let Navic music continue under music videos. Android only</string>
 	<string name="subtitle_lida_clips_remember_playback_position">Resume the last watched position when reopening the same music video. Android only</string>
+	<string name="subtitle_lida_clips_sync_paused">Tell the LidaClips backend to pause scheduled clip syncs</string>
 
 	<string name="option_off">Off</string>
 	<string name="option_now_playing_background_style">Background style</string>
@@ -194,6 +196,7 @@
 	<string name="option_lida_clips_landscape_video_mode">Landscape video mode</string>
 	<string name="option_lida_clips_pause_music_playback">Pause music while clips play</string>
 	<string name="option_lida_clips_remember_playback_position">Remember clip position</string>
+	<string name="option_lida_clips_sync_paused">Pause LidaClips sync</string>
 
 	<string name="info_status_idle">Idle</string>
 	<string name="info_status_calculating">Calculating...</string>
@@ -217,6 +220,12 @@
 	<string name="info_lida_clips_connected">Connected to LidaClips</string>
 	<string name="info_lida_clips_unauthorized">Unauthorized. Check the API key.</string>
 	<string name="info_lida_clips_failed">Connection failed: %1$s</string>
+	<string name="info_lida_clips_service_status_loading">Loading service status...</string>
+	<string name="info_lida_clips_service_status_unavailable">Service status not loaded</string>
+	<string name="info_lida_clips_service_status_failed">Service status failed: %1$s</string>
+	<string name="info_lida_clips_service_status_counts">Active: %1$d // Official: %2$d // Fallback: %3$d</string>
+	<string name="info_lida_clips_sync_running">Sync is running</string>
+	<string name="info_lida_clips_sync_idle">Sync is idle</string>
 	<string name="info_lida_clips_android_only">LidaClips video playback is currently available on Android only.</string>
 	<string name="info_no_lida_clip">No music video found for this track.</string>
 
