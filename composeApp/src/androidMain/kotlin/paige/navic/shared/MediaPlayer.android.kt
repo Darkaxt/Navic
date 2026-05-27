@@ -203,6 +203,7 @@ class AndroidMediaPlayerViewModel(
 	private var loadingCollectionId: String? = null
 
 	private var pendingSyncState: PlayerUiState? = null
+	private var pendingPlayIndex: Int? = null
 
 	init {
 		connectToService()
@@ -297,6 +298,7 @@ class AndroidMediaPlayerViewModel(
 				})
 				updatePlaybackState()
 				updatePlaybackProperties(currentTracks)
+				playPendingIndexIfAvailable(this)
 
 				downloadManager.allDownloads.first()
 				pendingSyncState?.let { state ->
@@ -467,7 +469,8 @@ class AndroidMediaPlayerViewModel(
 
 	override fun addToQueueSingle(song: DomainSong) {
 		viewModelScope.launch {
-			controller?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
+			val player = controller
+			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
 			_uiState.update { state ->
 				val newQueue = state.queue + song
 				state.copy(
@@ -476,6 +479,7 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) song else state.currentSong
 				)
 			}
+			player?.let(::playPendingIndexIfAvailable)
 		}
 	}
 
@@ -488,7 +492,8 @@ class AndroidMediaPlayerViewModel(
 				)) else collection.songs
 				newCollection.map { it.toMediaItem() } to newCollection
 			}
-			controller?.addMediaItems(items)
+			val player = controller
+			player?.addMediaItems(items)
 			_uiState.update { state ->
 				val newQueue = state.queue + newCollection
 				state.copy(
@@ -497,6 +502,7 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 				)
 			}
+			player?.let(::playPendingIndexIfAvailable)
 		}
 	}
 
@@ -547,6 +553,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun clearQueue() {
 		viewModelScope.launch {
+			pendingPlayIndex = null
 			_uiState.update {
 				it.copy(
 					queue = emptyList(),
@@ -561,12 +568,27 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playAt(index: Int) {
 		viewModelScope.launch {
-			controller?.let { player ->
-				if (index in 0 until player.mediaItemCount) {
-					player.seekTo(index, 0L)
-					player.play()
-				}
+			if (index < 0) return@launch
+
+			val player = controller
+			if (player == null || !playAtIfAvailable(player, index)) {
+				pendingPlayIndex = index
 			}
+		}
+	}
+
+	private fun playAtIfAvailable(player: MediaController, index: Int): Boolean {
+		if (index !in 0 until player.mediaItemCount) return false
+
+		player.seekTo(index, 0L)
+		player.play()
+		return true
+	}
+
+	private fun playPendingIndexIfAvailable(player: MediaController) {
+		val index = pendingPlayIndex ?: return
+		if (playAtIfAvailable(player, index)) {
+			pendingPlayIndex = null
 		}
 	}
 
