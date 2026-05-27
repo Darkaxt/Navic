@@ -20,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_style
+import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
+import navic.composeapp.generated.resources.option_now_playing_playback_speed_action
 import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
@@ -139,6 +141,18 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.showNowPlayingMusicVideoAction,
 						onSetValue = { preferenceManager.showNowPlayingMusicVideoAction = it }
 					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_playback_speed_action)) },
+						value = preferenceManager.showNowPlayingPlaybackSpeedAction,
+						onSetValue = { preferenceManager.showNowPlayingPlaybackSpeedAction = it }
+					)
+					if (platformContext.name.lowercase().startsWith("android")) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_now_playing_equalizer_action)) },
+							value = preferenceManager.showNowPlayingEqualizerAction,
+							onSetValue = { preferenceManager.showNowPlayingEqualizerAction = it }
+						)
+					}
 				}
 			}
 		}

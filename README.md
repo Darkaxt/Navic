@@ -44,7 +44,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Optional pause/resume behavior when Android media volume is muted to zero and then restored.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
-* Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions.
+* Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
 
 ### Library and playlist reliability
 

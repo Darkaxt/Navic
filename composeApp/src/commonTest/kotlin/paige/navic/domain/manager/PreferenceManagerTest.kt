@@ -200,14 +200,20 @@ class PreferenceManagerTest {
 		assertTrue(manager.showNowPlayingLyricsAction)
 		assertTrue(manager.showNowPlayingQueueAction)
 		assertTrue(manager.showNowPlayingMusicVideoAction)
+		assertTrue(manager.showNowPlayingPlaybackSpeedAction)
+		assertTrue(manager.showNowPlayingEqualizerAction)
 
 		manager.showNowPlayingLyricsAction = false
 		manager.showNowPlayingQueueAction = false
 		manager.showNowPlayingMusicVideoAction = false
+		manager.showNowPlayingPlaybackSpeedAction = false
+		manager.showNowPlayingEqualizerAction = false
 
 		assertFalse(manager.showNowPlayingLyricsAction)
 		assertFalse(manager.showNowPlayingQueueAction)
 		assertFalse(manager.showNowPlayingMusicVideoAction)
+		assertFalse(manager.showNowPlayingPlaybackSpeedAction)
+		assertFalse(manager.showNowPlayingEqualizerAction)
 	}
 
 	@Test

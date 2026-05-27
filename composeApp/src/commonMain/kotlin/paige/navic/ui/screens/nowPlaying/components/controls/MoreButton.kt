@@ -102,11 +102,14 @@ fun NowPlayingMoreButton(
 				},
 				rating = songRating,
 				onSetRating = onSetSongRating,
-				onOpenSystemEqualizer = if (platformContext.name.lowercase().startsWith("android")) {
+				onOpenSystemEqualizer = if (
+					platformContext.name.lowercase().startsWith("android") &&
+					preferenceManager.showNowPlayingEqualizerAction
+				) {
 					{ player.openSystemEqualizer() }
 				} else null,
 				showSleepTimer = true,
-				showPlaybackSpeed = true
+				showPlaybackSpeed = preferenceManager.showNowPlayingPlaybackSpeedAction
 			)
 		}
 	}

@@ -111,6 +111,8 @@
 	<string name="option_now_playing_lyrics_action">Show lyrics button</string>
 	<string name="option_now_playing_queue_action">Show queue button</string>
 	<string name="option_now_playing_music_video_action">Show music video action</string>
+	<string name="option_now_playing_playback_speed_action">Show playback speed action</string>
+	<string name="option_now_playing_equalizer_action">Show equalizer action</string>
 	<string name="option_now_playing_slider_style">Slider style</string>
 	<string name="option_now_playing_slider_style_flat">Flat</string>
 	<string name="option_now_playing_slider_style_squiggly">Squiggly</string>
