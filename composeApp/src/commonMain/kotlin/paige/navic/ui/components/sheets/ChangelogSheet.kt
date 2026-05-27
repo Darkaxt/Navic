@@ -57,8 +57,33 @@ import paige.navic.ui.theme.defaultFont
 data class GitHubRelease(
 	@SerialName("tag_name") val tag: String,
 	@SerialName("html_url") val url: String,
-	@SerialName("body") val body: String
+	@SerialName("body") val body: String,
+	@SerialName("assets") val assets: List<GitHubReleaseAsset> = emptyList()
+) {
+	val updateUrl: String
+		get() = assets.preferredApkAssetUrl() ?: url
+}
+
+@Serializable
+data class GitHubReleaseAsset(
+	@SerialName("name") val name: String,
+	@SerialName("content_type") val contentType: String? = null,
+	@SerialName("browser_download_url") val downloadUrl: String
 )
+
+private fun List<GitHubReleaseAsset>.preferredApkAssetUrl(): String? {
+	val exactForkApk = firstOrNull { it.name.equals("Navic.apk", ignoreCase = true) }
+	if (exactForkApk != null) return exactForkApk.downloadUrl
+
+	val androidPackageContentType = "application/vnd.android.package-archive"
+	return firstOrNull {
+		it.name.endsWith(".apk", ignoreCase = true) && it.contentType.equals(androidPackageContentType, ignoreCase = true)
+	}?.downloadUrl ?: firstOrNull {
+		it.contentType.equals(androidPackageContentType, ignoreCase = true)
+	}?.downloadUrl ?: firstOrNull {
+		it.name.endsWith(".apk", ignoreCase = true)
+	}?.downloadUrl
+}
 
 class ChangelogViewModel(
 	platformContext: PlatformContext
@@ -160,7 +185,7 @@ fun ChangelogSheet() {
 					onClick = {
 						platformContext.clickSound()
 						viewModel.clearRelease()
-						uriHandler.openUri(release.url)
+						uriHandler.openUri(release.updateUrl)
 					},
 					modifier = Modifier.fillMaxWidth(),
 					shape = ContinuousCapsule
