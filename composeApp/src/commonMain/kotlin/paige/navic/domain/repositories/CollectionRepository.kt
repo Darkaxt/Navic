@@ -43,7 +43,7 @@ class CollectionRepository(
 			is DomainPlaylist -> {
 				val playlist = sessionManager.api.getPlaylist(collection.id)
 				playlistDao.insertPlaylist(playlist.toEntity())
-				dbRepository.syncPlaylistSongs(collection.id)
+				dbRepository.syncPlaylistSongs(playlist.id).getOrThrow()
 				playlistDao.getPlaylistById(playlist.id)!!.toDomainModel()
 			}
 		}
@@ -55,7 +55,7 @@ class CollectionRepository(
 		collectionId: String
 	): Flow<UiState<DomainSongCollection>> = flow {
 		val localData = getLocalData(collectionId)
-		if (fullRefresh) {
+		if (shouldRefreshCollectionOnLoad(fullRefresh, localData)) {
 			emit(UiState.Loading(data = localData))
 			try {
 				emit(UiState.Success(data = refreshLocalData(collectionId)))
@@ -78,4 +78,11 @@ class CollectionRepository(
 	suspend fun getAlbumInfo(albumId: String): ApiAlbumInfo {
 		return sessionManager.api.getAlbumInfo(albumId)
 	}
+}
+
+internal fun shouldRefreshCollectionOnLoad(
+	fullRefresh: Boolean,
+	localData: DomainSongCollection
+): Boolean {
+	return fullRefresh || localData is DomainPlaylist && localData.songCount > localData.songs.size
 }

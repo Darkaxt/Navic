@@ -27,6 +27,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Reverse proxy Basic Auth for Navidrome/Subsonic servers behind Traefik or another proxy
 * Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
 * Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
+* Playlist detail pages auto-refresh if local playlist metadata is present but the song cache has not been hydrated yet
 
 ### Traefik Basic Auth setup
 
