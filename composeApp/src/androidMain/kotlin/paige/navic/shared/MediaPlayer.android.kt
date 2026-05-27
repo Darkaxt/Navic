@@ -74,8 +74,12 @@ import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
+import paige.navic.domain.models.queueAutoFillAppendCount
+import paige.navic.domain.models.queueAutoFillCandidateIds
+import paige.navic.domain.models.QueueAutoFillRemainingTrigger
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
+import paige.navic.domain.models.shouldAutoFillQueue
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldFadePlaybackCommand
@@ -85,6 +89,7 @@ import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
@@ -466,6 +471,7 @@ class AndroidMediaPlayerViewModel(
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
+	private val songRepository: SongRepository,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -482,6 +488,7 @@ class AndroidMediaPlayerViewModel(
 	private var pendingPlayIndex: Int? = null
 	private var playbackFadeJob: Job? = null
 	private var playbackFadeRestoreVolume: Float? = null
+	private var autoFillQueueJob: Job? = null
 
 	init {
 		connectToService()
@@ -526,11 +533,15 @@ class AndroidMediaPlayerViewModel(
 								controller?.seekToNextMediaItem()
 							}
 						}
+						maybeAutoFillQueue()
 					}
 
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
 						_uiState.update { it.copy(isPaused = !isPlaying) }
-						if (isPlaying) startProgressLoop()
+						if (isPlaying) {
+							startProgressLoop()
+							maybeAutoFillQueue()
+						}
 						val intent =
 							Intent("${application.packageName}.NOW_PLAYING_UPDATED").apply {
 								setPackage(application.packageName)
@@ -556,6 +567,9 @@ class AndroidMediaPlayerViewModel(
 					override fun onPlaybackStateChanged(playbackState: Int) {
 						_uiState.update { it.copy(isLoading = playbackState == Player.STATE_BUFFERING) }
 						updatePlaybackState()
+						if (playbackState == Player.STATE_READY) {
+							maybeAutoFillQueue()
+						}
 					}
 
 					override fun onPlayerError(error: PlaybackException) {
@@ -753,6 +767,74 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	private fun maybeAutoFillQueue() {
+		val player = controller ?: return
+		val state = _uiState.value
+		if (
+			!shouldAutoFillQueue(
+				autoFillQueue = preferenceManager.autoFillQueue,
+				isPlaying = player.isPlaying,
+				isRadioQueue = state.queue.any { it.id.startsWith("radio_") },
+				queueSize = state.queue.size,
+				currentIndex = state.currentIndex,
+				remainingTrigger = QueueAutoFillRemainingTrigger,
+				targetSize = preferenceManager.autoFillQueueTargetSize
+			)
+		) {
+			return
+		}
+		if (autoFillQueueJob?.isActive == true) return
+
+		autoFillQueueJob = viewModelScope.launch {
+			try {
+				val allSongs = withContext(Dispatchers.IO) {
+					songRepository.getAllSongs()
+				}.shuffled()
+
+				val currentPlayer = controller ?: return@launch
+				val currentState = _uiState.value
+				if (
+					!shouldAutoFillQueue(
+						autoFillQueue = preferenceManager.autoFillQueue,
+						isPlaying = currentPlayer.isPlaying,
+						isRadioQueue = currentState.queue.any { it.id.startsWith("radio_") },
+						queueSize = currentState.queue.size,
+						currentIndex = currentState.currentIndex,
+						remainingTrigger = QueueAutoFillRemainingTrigger,
+						targetSize = preferenceManager.autoFillQueueTargetSize
+					)
+				) {
+					return@launch
+				}
+
+				val appendCount = queueAutoFillAppendCount(
+					queueSize = currentState.queue.size,
+					targetSize = preferenceManager.autoFillQueueTargetSize
+				)
+				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
+				val availableSongs = allSongs.filter { isAvailable(it.id) }
+				val songById = availableSongs.associateBy { it.id }
+				val candidateIds = queueAutoFillCandidateIds(
+					candidateIds = availableSongs.map { it.id },
+					queuedIds = queuedIds,
+					limit = appendCount
+				)
+				val songsToAppend = candidateIds.mapNotNull(songById::get)
+				if (songsToAppend.isEmpty()) return@launch
+
+				val mediaItems = withContext(Dispatchers.Default) {
+					songsToAppend.map { it.toMediaItem() }
+				}
+				currentPlayer.addMediaItems(mediaItems)
+				_uiState.update { it.copy(queue = it.queue + songsToAppend) }
+			} catch (error: Exception) {
+				Logger.w("MediaPlayer", "Queue auto-fill failed", error)
+			} finally {
+				autoFillQueueJob = null
+			}
+		}
+	}
+
 	@OptIn(UnstableApi::class)
 	private fun updatePlaybackProperties(tracks: Tracks) {
 		val audioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
@@ -861,6 +943,8 @@ class AndroidMediaPlayerViewModel(
 	override fun clearQueue() {
 		viewModelScope.launch {
 			pendingPlayIndex = null
+			autoFillQueueJob?.cancel()
+			autoFillQueueJob = null
 			_uiState.update {
 				it.copy(
 					queue = emptyList(),
@@ -1197,6 +1281,8 @@ class AndroidMediaPlayerViewModel(
 	override fun onCleared() {
 		viewModelScope.launch {
 			cancelPlaybackFade()
+			autoFillQueueJob?.cancel()
+			autoFillQueueJob = null
 			super.onCleared()
 			controllerFuture?.let { MediaController.releaseFuture(it) }
 		}

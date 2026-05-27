@@ -91,6 +91,8 @@ class PreferenceManager(
 	var bassBoostStrength by preference(500)
 	var audioReverbPreset by preference(AudioReverbPreset.Off)
 	var pauseBetweenSongsSeconds by preference(0)
+	var autoFillQueue by preference(false)
+	var autoFillQueueTargetSize by preference(25)
 	var smartRewindSeconds by preference(1)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)

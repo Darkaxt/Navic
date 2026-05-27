@@ -34,6 +34,8 @@ import navic.composeapp.generated.resources.action_system_equalizer
 import navic.composeapp.generated.resources.option_audio_fade
 import navic.composeapp.generated.resources.option_audio_offload
 import navic.composeapp.generated.resources.option_audio_reverb
+import navic.composeapp.generated.resources.option_auto_fill_queue
+import navic.composeapp.generated.resources.option_auto_fill_queue_target_size
 import navic.composeapp.generated.resources.option_bass_boost
 import navic.composeapp.generated.resources.option_bass_boost_strength
 import navic.composeapp.generated.resources.option_enable_scrobbling
@@ -60,6 +62,8 @@ import navic.composeapp.generated.resources.option_skip_silence
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_audio_fade
 import navic.composeapp.generated.resources.subtitle_audio_reverb
+import navic.composeapp.generated.resources.subtitle_auto_fill_queue
+import navic.composeapp.generated.resources.subtitle_auto_fill_queue_target_size
 import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
@@ -282,6 +286,22 @@ fun SettingsPlaybackScreen() {
 							}
 						}
 						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_auto_fill_queue)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_auto_fill_queue)) },
+							value = preferenceManager.autoFillQueue,
+							onSetValue = { preferenceManager.autoFillQueue = it }
+						)
+						AnimatedVisibility(preferenceManager.autoFillQueue) {
+							SettingSelectionRow(
+								title = { Text(stringResource(Res.string.option_auto_fill_queue_target_size)) },
+								items = autoFillQueueTargetSizeOptions.toImmutableList(),
+								label = { "$it songs" },
+								description = stringResource(Res.string.subtitle_auto_fill_queue_target_size),
+								selection = preferenceManager.autoFillQueueTargetSize,
+								onSelect = { preferenceManager.autoFillQueueTargetSize = it }
+							)
+						}
+						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_persistent_queue)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_persistent_queue)) },
 							value = preferenceManager.persistentQueue,
@@ -416,3 +436,4 @@ fun SettingsPlaybackScreen() {
 private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
 private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)
 private val audioFadeDurationOptions = listOf(0, 250, 500, 1000, 2000)
+private val autoFillQueueTargetSizeOptions = listOf(10, 25, 50, 100)

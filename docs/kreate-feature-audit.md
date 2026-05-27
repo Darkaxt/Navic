@@ -19,6 +19,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Audio fade: Navic now exposes an Android Playback setting for Kreate-style pause/resume fade durations while keeping immediate pause/resume as the default.
 * Bass boost: Navic now exposes an Android Playback toggle and strength slider, then applies Android `BassBoost` to the active Media3 audio session when available.
 * Reverb presets: Navic now exposes an Android Playback setting for Kreate-style `PresetReverb` choices and applies the selected auxiliary effect through the playback service's ExoPlayer session.
+* Queue auto-fill: Navic now adapts Kreate's queue auto-append concept as an Android Playback setting that appends random synced Navidrome songs from the local library cache when active playback gets near the end of a non-radio queue. It skips duplicates, skips radio items, and exposes a target queue size.
 * Search history controls: Navic now persists recent searches across app restarts, lets the user clear or remove entries from Search, and exposes a Data & Storage setting that hides history while stopping newly submitted queries from being recorded.
 * LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API-key/header fingerprint, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, prefetches the now-playing song while LidaClips is enabled, and avoids embedding the raw API key in internal cache/prefetch keys.
 * LidaClips action availability policy: Navic now keeps the now-playing Music Video action visible whenever LidaClips is enabled, configured, and not hidden by the user, so cached misses still let the user open the refreshable clip screen.
@@ -39,22 +40,22 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 
 ## Best Next Transplants
 
-1. Queue radio / auto-append behavior
-   * Kreate can extend the queue from related songs. Navic needs a Navidrome-native version, probably based on similar songs/artists or server random-song endpoints rather than Kreate's YouTube radio source.
-2. Device-event controls
+1. Device-event controls
    * Kreate-style volume-button skip and shake-to-skip are useful but should be opt-in and conservative because they affect background device behavior.
-3. Loudness normalization
+2. Loudness normalization
    * Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain, so this should not be copied directly without deciding how the two gain systems interact.
+3. Smarter radio sources
+   * Current queue auto-fill is random-library based. A future pass could use Navidrome similar-song or similar-artist data when available, but should stay separate from Kreate's YouTube radio implementation.
 
 ## Higher-Risk Candidates
 
 * Loudness normalization: Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain support, so this needs design work to avoid conflicting gain paths.
 * Volume buttons change song and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
-* Queue auto-append and Discover-style queue generation: valuable, but product behavior needs more definition for a Navidrome library client.
+* Discover-style queue generation: valuable, but product behavior needs more definition for a Navidrome library client beyond the first random-library auto-fill pass.
 * Visualizers, thumbnail animations, and extensive player layout variants: high UI churn and likely not worth transplanting until core playback/video behavior is stable.
 
 ## Recommended Order
 
 1. Smoke-test bass boost, reverb, and the system equalizer launcher on a real Android device.
-2. Design a Navidrome-native queue auto-append/radio feature instead of copying Kreate's YouTube radio logic directly.
-3. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
+2. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
+3. Design a smarter Navidrome-native radio source for queue auto-fill if random-library refill is not enough.

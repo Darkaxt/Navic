@@ -206,6 +206,20 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun queueAutoFillDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.autoFillQueue)
+		assertEquals(25, manager.autoFillQueueTargetSize)
+
+		manager.autoFillQueue = true
+		manager.autoFillQueueTargetSize = 50
+
+		assertTrue(manager.autoFillQueue)
+		assertEquals(50, manager.autoFillQueueTargetSize)
+	}
+
+	@Test
 	fun smartRewindDefaultsToCurrentPreviousButtonBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

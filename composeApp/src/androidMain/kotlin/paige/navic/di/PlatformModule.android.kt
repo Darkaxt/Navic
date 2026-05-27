@@ -53,6 +53,7 @@ actual val platformModule = module {
 			downloadManager = get(),
 			connectivityManager = get(),
 			sessionManager = get(),
+			songRepository = get(),
 			preferenceManager = get()
 		)
 	}

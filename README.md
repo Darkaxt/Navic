@@ -45,6 +45,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android audio fade durations for smoother pause and resume.
 * Kreate-inspired Android bass boost with an adjustable strength slider.
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
+* Kreate-inspired `Auto-fill queue` can append random synced Navidrome songs when playback reaches the end of the current queue.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
@@ -106,6 +107,10 @@ Open Settings -> Playback and turn `Bass boost` on. Use `Bass boost strength` to
 ### Audio reverb setup
 
 Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the default. Android device audio-effect support can vary, and the setting applies to the active player service.
+
+### Auto-fill queue setup
+
+Open Settings -> Playback and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. Navic uses random songs from the synced local Navidrome library cache, skips duplicate queued songs and live radio streams, and leaves the setting off by default.
 
 ### LidaClips setup
 
