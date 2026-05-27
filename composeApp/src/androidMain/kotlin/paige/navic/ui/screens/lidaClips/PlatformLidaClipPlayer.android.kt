@@ -30,9 +30,11 @@ actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
 	onPlaybackError: (String) -> Unit,
+	onPlaybackPositionChange: (Long) -> Unit,
 	modifier: Modifier
 ) {
 	val context = LocalContext.current
@@ -48,7 +50,7 @@ actual fun PlatformLidaClipPlayer(
 			.setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
 			.build()
 			.apply {
-				setMediaItem(MediaItem.fromUri(clip.streamUrl))
+				setMediaItem(MediaItem.fromUri(clip.streamUrl), startPositionMs.coerceAtLeast(0L))
 				prepare()
 				playWhenReady = true
 		}
@@ -59,6 +61,14 @@ actual fun PlatformLidaClipPlayer(
 			override fun onPlaybackStateChanged(playbackState: Int) {
 				if (playbackState == Player.STATE_READY) {
 					onPlaybackReady()
+				} else if (playbackState == Player.STATE_ENDED) {
+					onPlaybackPositionChange(player.currentPosition)
+				}
+			}
+
+			override fun onIsPlayingChanged(isPlaying: Boolean) {
+				if (!isPlaying) {
+					onPlaybackPositionChange(player.currentPosition)
 				}
 			}
 
@@ -94,6 +104,7 @@ actual fun PlatformLidaClipPlayer(
 
 	DisposableEffect(player) {
 		onDispose {
+			onPlaybackPositionChange(player.currentPosition)
 			player.release()
 		}
 	}

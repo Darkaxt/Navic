@@ -35,6 +35,8 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipPlaybackState
+import paige.navic.domain.models.lidaClipStartPositionMs
+import paige.navic.domain.models.nextRememberedLidaClipPosition
 import paige.navic.domain.models.shouldPauseMusicForLidaClip
 import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
 import paige.navic.icons.Icons
@@ -92,6 +94,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							requestHeaders = preferenceManager.lidaClipsRequestHeadersMap(),
 							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
 							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
+							rememberPlaybackPosition = preferenceManager.lidaClipsRememberPlaybackPosition,
 							modifier = Modifier.fillMaxSize()
 						)
 					}
@@ -107,11 +110,25 @@ private fun LidaClipPlayerContent(
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
 	pauseMusicPlayback: Boolean,
+	rememberPlaybackPosition: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
 	var playbackState by remember(clip.streamUrl) {
 		mutableStateOf(LidaClipPlaybackState())
+	}
+	val durationMs = remember(clip.durationSeconds) {
+		clip.durationSeconds?.toLong()?.times(1000L)
+	}
+	val preferenceManager = koinInject<PreferenceManager>()
+	val startPositionMs = remember(clip.id, rememberPlaybackPosition) {
+		lidaClipStartPositionMs(
+			rememberPosition = rememberPlaybackPosition,
+			clipId = clip.id,
+			lastClipId = preferenceManager.lidaClipsLastClipId,
+			lastPositionMs = preferenceManager.lidaClipsLastPositionMs,
+			durationMs = durationMs
+		)
 	}
 
 	DisposableEffect(clip.id, pauseMusicPlayback, player) {
@@ -151,12 +168,24 @@ private fun LidaClipPlayerContent(
 			clip = clip,
 			requestHeaders = requestHeaders,
 			pictureInPictureEnabled = pictureInPictureEnabled,
+			startPositionMs = startPositionMs,
 			retryKey = playbackState.retryKey,
 			onPlaybackReady = {
 				playbackState = playbackState.onReady()
 			},
 			onPlaybackError = { message ->
 				playbackState = playbackState.onError(message)
+			},
+			onPlaybackPositionChange = { positionMs ->
+				nextRememberedLidaClipPosition(
+					rememberPosition = rememberPlaybackPosition,
+					clipId = clip.id,
+					positionMs = positionMs,
+					durationMs = durationMs
+				)?.let { rememberedPosition ->
+					preferenceManager.lidaClipsLastClipId = rememberedPosition.clipId
+					preferenceManager.lidaClipsLastPositionMs = rememberedPosition.positionMs
+				}
 			},
 			modifier = Modifier
 				.fillMaxWidth()

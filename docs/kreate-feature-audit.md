@@ -17,11 +17,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips action availability state: Navic now keeps the now-playing Music Video action visible while availability is unknown, keeps it visible for cached hits, and hides it for cached misses.
 * LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
 * LidaClips music-session coordination: Navic now defaults to Feishin-style clip playback on Android by pausing Navic music while a clip is open and resuming the same paused song when the clip screen closes; a setting can opt out and keep music under clip audio.
+* LidaClips remembered clip position: Kreate remembers the last YouTube video id and current second. Navic now adapts that as an Android LidaClips setting that resumes the last watched position for the same clip while avoiding near-start and near-end positions.
 
 ## Best Next Transplants
 
 1. LidaClips playback/session polish
-   * The current player is functional and retryable, and now defaults to Navic music pause/resume while clips play. It does not yet remember per-clip position or offer a full-screen orientation flow.
+   * The current player is functional and retryable, and now defaults to Navic music pause/resume while clips play. It remembers the last clip position, but it does not yet offer a full-screen orientation flow.
    * These should be based on real-device testing so the video player does not fight the music session or Android PiP behavior.
 
 ## Higher-Risk Candidates

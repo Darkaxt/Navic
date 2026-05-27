@@ -36,9 +36,11 @@ import navic.composeapp.generated.resources.option_lida_clips_base_url
 import navic.composeapp.generated.resources.option_lida_clips_enabled
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
+import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
+import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.title_lida_clips
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -124,6 +126,12 @@ fun SettingsLidaClipsScreen() {
 									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_pause_music_playback)) },
 									value = preferenceManager.lidaClipsPauseMusicPlayback,
 									onSetValue = { preferenceManager.lidaClipsPauseMusicPlayback = it }
+								)
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_remember_playback_position)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_remember_playback_position)) },
+									value = preferenceManager.lidaClipsRememberPlaybackPosition,
+									onSetValue = { preferenceManager.lidaClipsRememberPlaybackPosition = it }
 								)
 							}
 							FormRow {

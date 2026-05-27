@@ -15,9 +15,11 @@ actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
 	onPlaybackError: (String) -> Unit,
+	onPlaybackPositionChange: (Long) -> Unit,
 	modifier: Modifier
 ) {
 	ContentUnavailable(
