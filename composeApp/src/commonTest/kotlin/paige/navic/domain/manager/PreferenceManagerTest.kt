@@ -95,6 +95,9 @@ class PreferenceManagerTest {
 		assertFalse(manager.lidaClipsEnabled)
 		assertEquals("https://clips.remaxku.eu", manager.lidaClipsBaseUrl)
 		assertEquals(emptyMap(), manager.lidaClipsRequestHeadersMap())
+		assertFalse(manager.lidaClipsPictureInPicture)
+		manager.lidaClipsPictureInPicture = true
+		assertTrue(manager.lidaClipsPictureInPicture)
 	}
 
 	@Test

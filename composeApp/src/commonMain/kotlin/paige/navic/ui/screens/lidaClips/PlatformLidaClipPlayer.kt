@@ -8,5 +8,6 @@ import paige.navic.domain.models.DomainLidaClip
 expect fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
+	pictureInPictureEnabled: Boolean,
 	modifier: Modifier
 )

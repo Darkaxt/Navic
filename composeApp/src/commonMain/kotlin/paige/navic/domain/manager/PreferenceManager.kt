@@ -68,6 +68,7 @@ class PreferenceManager(
 	var lidaClipsEnabled by preference(false)
 	var lidaClipsBaseUrl by preference("https://clips.remaxku.eu")
 	var lidaClipsApiKey by preference("")
+	var lidaClipsPictureInPicture by preference(false)
 	var respectAudioFocus by preference(true)
 	var skipSilence by preference(false)
 	var skipMediaOnError by preference(false)

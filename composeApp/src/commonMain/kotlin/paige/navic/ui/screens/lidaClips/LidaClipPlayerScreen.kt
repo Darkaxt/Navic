@@ -81,6 +81,7 @@ fun LidaClipPlayerScreen(songId: String) {
 						LidaClipPlayerContent(
 							clip = clip,
 							requestHeaders = preferenceManager.lidaClipsRequestHeadersMap(),
+							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
 							modifier = Modifier.fillMaxSize()
 						)
 					}
@@ -94,6 +95,7 @@ fun LidaClipPlayerScreen(songId: String) {
 private fun LidaClipPlayerContent(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
+	pictureInPictureEnabled: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	Column(
@@ -103,6 +105,7 @@ private fun LidaClipPlayerContent(
 		PlatformLidaClipPlayer(
 			clip = clip,
 			requestHeaders = requestHeaders,
+			pictureInPictureEnabled = pictureInPictureEnabled,
 			modifier = Modifier
 				.fillMaxWidth()
 				.aspectRatio(16f / 9f)

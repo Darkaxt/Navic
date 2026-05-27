@@ -11,15 +11,11 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 * Audio-device resume: Navic now exposes an Android playback toggle and resumes a paused queue when a supported output device is added.
 * Player action visibility: Navic now exposes Now Playing settings for Lyrics, Queue, and Music Video actions.
 * Persistent queue and startup resume: Navic now exposes Playback settings to save/restore the queue and optionally resume playback on startup. Persistent queue defaults on to preserve Navic's existing restore behavior; resume-on-start defaults off.
+* LidaClips Picture-in-Picture: Navic now exposes a LidaClips Android PiP toggle under Settings -> Data & Storage -> Music video clips. The Android video surface provides PiP source bounds, uses Android 12+ auto-enter params, and falls back to `onUserLeaveHint` on Android 8-11.
 
 ## Best Next Transplants
 
-1. LidaClips Picture-in-Picture
-   * Kreate has PiP support around its video surface.
-   * Navic should adapt this specifically for the LidaClips video player, not for the audio-only now-playing screen.
-   * Setting should live in Settings -> Data & Storage -> Music video clips or Settings -> Now Playing once video becomes a first-class player view.
-
-2. Android system equalizer shortcut
+1. Android system equalizer shortcut
    * Kreate opens Android's audio effect control panel for the active audio session.
    * This is useful and contained, but it needs careful handling because not all devices provide an equalizer.
    * Setting/action should live in Playback or the song/player menu.
@@ -33,6 +29,6 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 
 ## Recommended Order
 
-1. Finish LidaClips smoke testing and add PiP only after in-app video playback is verified on device.
-2. Add LidaClips PiP after in-app video playback is tested on device.
-3. Consider Android system equalizer access once the active audio-session path is cleanly exposed.
+1. Smoke-test LidaClips playback and PiP on a real Android device.
+2. Consider Android system equalizer access once the active audio-session path is cleanly exposed.
+3. Revisit higher-risk playback device-event options only after core LidaClips playback has been tested on-device.

@@ -34,7 +34,9 @@ import navic.composeapp.generated.resources.info_lida_clips_unauthorized
 import navic.composeapp.generated.resources.option_lida_clips_api_key
 import navic.composeapp.generated.resources.option_lida_clips_base_url
 import navic.composeapp.generated.resources.option_lida_clips_enabled
+import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
+import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.title_lida_clips
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -108,6 +110,14 @@ fun SettingsLidaClipsScreen() {
 								keyboardType = KeyboardType.Password,
 								isPassword = true
 							)
+							if (platformContext.name.lowercase().startsWith("android")) {
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_picture_in_picture)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_picture_in_picture)) },
+									value = preferenceManager.lidaClipsPictureInPicture,
+									onSetValue = { preferenceManager.lidaClipsPictureInPicture = it }
+								)
+							}
 							FormRow {
 								Column(Modifier.weight(1f)) {
 									Text(connectionStatusText(connectionResult, isTestingConnection))

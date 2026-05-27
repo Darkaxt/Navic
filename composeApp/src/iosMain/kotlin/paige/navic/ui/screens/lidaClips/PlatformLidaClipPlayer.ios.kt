@@ -14,6 +14,7 @@ import paige.navic.ui.components.common.ContentUnavailable
 actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
+	pictureInPictureEnabled: Boolean,
 	modifier: Modifier
 ) {
 	ContentUnavailable(

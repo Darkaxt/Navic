@@ -1,12 +1,17 @@
 package paige.navic.ui.screens.lidaClips
 
 import androidx.annotation.OptIn
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toAndroidRectF
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.toRect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -21,9 +26,11 @@ import paige.navic.domain.models.DomainLidaClip
 actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
+	pictureInPictureEnabled: Boolean,
 	modifier: Modifier
 ) {
 	val context = LocalContext.current
+	val activity = LocalActivity.current
 	val player = remember(context, clip.streamUrl, requestHeaders) {
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(requestHeaders)
@@ -38,7 +45,22 @@ actual fun PlatformLidaClipPlayer(
 				setMediaItem(MediaItem.fromUri(clip.streamUrl))
 				prepare()
 				playWhenReady = true
+		}
+	}
+
+	DisposableEffect(activity, pictureInPictureEnabled, player) {
+		if (activity != null) {
+			LidaClipPictureInPictureCoordinator.register(
+				activity = activity,
+				enabled = pictureInPictureEnabled
+			)
+		}
+
+		onDispose {
+			if (activity != null) {
+				LidaClipPictureInPictureCoordinator.unregister(activity)
 			}
+		}
 	}
 
 	DisposableEffect(player) {
@@ -48,7 +70,16 @@ actual fun PlatformLidaClipPlayer(
 	}
 
 	AndroidView(
-		modifier = modifier,
+		modifier = if (activity != null) {
+			modifier.onGloballyPositioned { layoutCoordinates ->
+				LidaClipPictureInPictureCoordinator.updateSourceRect(
+					activity = activity,
+					sourceRect = layoutCoordinates.boundsInWindow().toAndroidRectF().toRect()
+				)
+			}
+		} else {
+			modifier
+		},
 		factory = { context ->
 			PlayerView(context).apply {
 				this.player = player
