@@ -28,7 +28,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
 * Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
 * Playlist detail pages and playlist list/library play actions auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet
-* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, retryable playback errors, Feishin-style music pause/resume while clips play, remembered clip positions, and Android Picture-in-Picture
+* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, retryable playback errors, Feishin-style music pause/resume while clips play, remembered clip positions, Android Picture-in-Picture, and optional landscape video mode
 * Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
 * Android can optionally resume a paused queue when headphones, USB audio, or Bluetooth audio connect
 * Kreate-style Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions
@@ -52,12 +52,12 @@ Open Settings -> Playback and turn `Respect audio focus` off. Restart playback i
 
 1. Open Settings -> Data & Storage -> Music video clips.
 2. Enable `LidaClips`.
-3. Keep `https://clips.remaxku.eu` or enter your LidaClips base URL.
+3. Enter your LidaClips base URL, for example `https://clips.remaxku.eu`.
 4. Enter the LidaClips API key and use `Test connection`.
-5. Optionally enable `Picture-in-Picture` on Android. `Pause music while clips play` and `Remember clip position` are on by default and can be turned off.
+5. Optionally enable `Picture-in-Picture` or `Landscape video mode` on Android. `Pause music while clips play` and `Remember clip position` are on by default and can be turned off.
 6. From the now-playing song menu, use `Play music video` when a matching clip exists.
 
-Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup. The now-playing Music Video action remains visible while availability is unknown, then hides once the cache confirms that no clip exists for the track. If the video stream fails, the player shows a retryable error with the Media3 error code. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. By default, Navic follows the Feishin clip-tab behavior: it pauses the active song when the clip opens and resumes that same song when you leave the clip. Turn `Pause music while clips play` off to keep Navic music playing under clip audio. `Remember clip position` resumes the last watched position when reopening the same video, while avoiding positions near the beginning or end. iOS currently shows an unsupported message until a native video player is added.
+Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup. The now-playing Music Video action remains visible while availability is unknown, then hides once the cache confirms that no clip exists for the track. If the video stream fails, the player shows a retryable error with the Media3 error code. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. `Landscape video mode` rotates the clip screen to landscape and hides system bars until you leave the screen. By default, Navic follows the Feishin clip-tab behavior: it pauses the active song when the clip opens and resumes that same song when you leave the clip. Turn `Pause music while clips play` off to keep Navic music playing under clip audio. `Remember clip position` resumes the last watched position when reopening the same video, while avoiding positions near the beginning or end. iOS currently shows an unsupported message until a native video player is added.
 
 ## Screenshots
 

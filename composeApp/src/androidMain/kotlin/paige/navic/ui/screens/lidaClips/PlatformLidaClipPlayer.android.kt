@@ -30,6 +30,7 @@ actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	landscapeVideoModeEnabled: Boolean,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
@@ -98,6 +99,21 @@ actual fun PlatformLidaClipPlayer(
 		onDispose {
 			if (activity != null) {
 				LidaClipPictureInPictureCoordinator.unregister(activity)
+			}
+		}
+	}
+
+	DisposableEffect(activity, landscapeVideoModeEnabled, player) {
+		if (activity != null) {
+			LidaClipVideoModeCoordinator.register(
+				activity = activity,
+				enabled = landscapeVideoModeEnabled
+			)
+		}
+
+		onDispose {
+			if (activity != null) {
+				LidaClipVideoModeCoordinator.unregister(activity)
 			}
 		}
 	}

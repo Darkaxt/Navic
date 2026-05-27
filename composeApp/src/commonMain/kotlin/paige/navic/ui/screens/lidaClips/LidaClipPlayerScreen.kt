@@ -93,6 +93,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							clip = clip,
 							requestHeaders = preferenceManager.lidaClipsRequestHeadersMap(),
 							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
+							landscapeVideoModeEnabled = preferenceManager.lidaClipsLandscapeVideoMode,
 							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
 							rememberPlaybackPosition = preferenceManager.lidaClipsRememberPlaybackPosition,
 							modifier = Modifier.fillMaxSize()
@@ -109,6 +110,7 @@ private fun LidaClipPlayerContent(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	landscapeVideoModeEnabled: Boolean,
 	pauseMusicPlayback: Boolean,
 	rememberPlaybackPosition: Boolean,
 	modifier: Modifier = Modifier
@@ -168,6 +170,7 @@ private fun LidaClipPlayerContent(
 			clip = clip,
 			requestHeaders = requestHeaders,
 			pictureInPictureEnabled = pictureInPictureEnabled,
+			landscapeVideoModeEnabled = landscapeVideoModeEnabled,
 			startPositionMs = startPositionMs,
 			retryKey = playbackState.retryKey,
 			onPlaybackReady = {

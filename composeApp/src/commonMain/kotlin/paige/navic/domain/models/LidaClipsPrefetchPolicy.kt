@@ -13,7 +13,7 @@ fun nextLidaClipsPrefetchKey(
 	songId: String?,
 	lastPrefetchKey: String?
 ): String? {
-	if (!enabled || songId.isNullOrBlank()) return null
+	if (!enabled || baseUrl.isBlank() || songId.isNullOrBlank()) return null
 
 	val key = "${baseUrl.trim().trimEnd('/')}|${apiKey.trim()}|$songId"
 	return key.takeIf { it != lastPrefetchKey }
@@ -24,9 +24,11 @@ fun lidaClipAvailability(clip: DomainLidaClip?): LidaClipAvailability =
 
 fun shouldShowLidaClipsMusicVideoAction(
 	lidaClipsEnabled: Boolean,
+	lidaClipsBaseUrl: String,
 	userActionEnabled: Boolean,
 	clipAvailability: LidaClipAvailability
 ): Boolean =
 	lidaClipsEnabled &&
+		lidaClipsBaseUrl.isNotBlank() &&
 		userActionEnabled &&
 		clipAvailability != LidaClipAvailability.Unavailable

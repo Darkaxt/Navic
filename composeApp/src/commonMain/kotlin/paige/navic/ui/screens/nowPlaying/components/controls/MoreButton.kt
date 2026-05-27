@@ -87,6 +87,7 @@ fun NowPlayingMoreButton(
 				},
 				onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
 						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
 						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
 						clipAvailability = lidaClipAvailability
 					)

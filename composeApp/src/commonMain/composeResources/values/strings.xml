@@ -88,6 +88,7 @@
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
 	<string name="subtitle_lida_clips_enabled">Show music-video actions for matching tracks</string>
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
+	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
 	<string name="subtitle_lida_clips_pause_music_playback">Turn off to let Navic music continue under music videos. Android only</string>
 	<string name="subtitle_lida_clips_remember_playback_position">Resume the last watched position when reopening the same music video. Android only</string>
 
@@ -186,6 +187,7 @@
 	<string name="option_lida_clips_base_url">LidaClips URL</string>
 	<string name="option_lida_clips_api_key">API key</string>
 	<string name="option_lida_clips_picture_in_picture">Picture-in-Picture</string>
+	<string name="option_lida_clips_landscape_video_mode">Landscape video mode</string>
 	<string name="option_lida_clips_pause_music_playback">Pause music while clips play</string>
 	<string name="option_lida_clips_remember_playback_position">Remember clip position</string>
 

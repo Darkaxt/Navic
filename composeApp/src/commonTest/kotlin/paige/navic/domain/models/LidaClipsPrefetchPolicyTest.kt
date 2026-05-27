@@ -21,6 +21,13 @@ class LidaClipsPrefetchPolicyTest {
 			songId = null,
 			lastPrefetchKey = null
 		))
+		assertNull(nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = " ",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = null
+		))
 
 		val key = nextLidaClipsPrefetchKey(
 			enabled = true,
@@ -56,6 +63,7 @@ class LidaClipsPrefetchPolicyTest {
 			false,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = false,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
 				userActionEnabled = true,
 				clipAvailability = LidaClipAvailability.Available
 			)
@@ -64,6 +72,16 @@ class LidaClipsPrefetchPolicyTest {
 			false,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = " ",
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
 				userActionEnabled = false,
 				clipAvailability = LidaClipAvailability.Available
 			)
@@ -72,6 +90,7 @@ class LidaClipsPrefetchPolicyTest {
 			true,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
 				userActionEnabled = true,
 				clipAvailability = LidaClipAvailability.Unknown
 			)
@@ -80,6 +99,7 @@ class LidaClipsPrefetchPolicyTest {
 			true,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
 				userActionEnabled = true,
 				clipAvailability = LidaClipAvailability.Available
 			)
@@ -88,6 +108,7 @@ class LidaClipsPrefetchPolicyTest {
 			false,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
 				userActionEnabled = true,
 				clipAvailability = LidaClipAvailability.Unavailable
 			)

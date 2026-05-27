@@ -15,6 +15,7 @@ actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	landscapeVideoModeEnabled: Boolean,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,

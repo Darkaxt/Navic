@@ -93,11 +93,14 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.lidaClipsEnabled)
-		assertEquals("https://clips.remaxku.eu", manager.lidaClipsBaseUrl)
+		assertEquals("", manager.lidaClipsBaseUrl)
 		assertEquals(emptyMap(), manager.lidaClipsRequestHeadersMap())
 		assertFalse(manager.lidaClipsPictureInPicture)
+		assertFalse(manager.lidaClipsLandscapeVideoMode)
 		manager.lidaClipsPictureInPicture = true
+		manager.lidaClipsLandscapeVideoMode = true
 		assertTrue(manager.lidaClipsPictureInPicture)
+		assertTrue(manager.lidaClipsLandscapeVideoMode)
 	}
 
 	@Test

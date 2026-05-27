@@ -34,10 +34,12 @@ import navic.composeapp.generated.resources.info_lida_clips_unauthorized
 import navic.composeapp.generated.resources.option_lida_clips_api_key
 import navic.composeapp.generated.resources.option_lida_clips_base_url
 import navic.composeapp.generated.resources.option_lida_clips_enabled
+import navic.composeapp.generated.resources.option_lida_clips_landscape_video_mode
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
+import navic.composeapp.generated.resources.subtitle_lida_clips_landscape_video_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
@@ -120,6 +122,12 @@ fun SettingsLidaClipsScreen() {
 									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_picture_in_picture)) },
 									value = preferenceManager.lidaClipsPictureInPicture,
 									onSetValue = { preferenceManager.lidaClipsPictureInPicture = it }
+								)
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_landscape_video_mode)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_landscape_video_mode)) },
+									value = preferenceManager.lidaClipsLandscapeVideoMode,
+									onSetValue = { preferenceManager.lidaClipsLandscapeVideoMode = it }
 								)
 								SettingSwitchRow(
 									title = { Text(stringResource(Res.string.option_lida_clips_pause_music_playback)) },
