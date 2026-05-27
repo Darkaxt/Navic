@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -254,6 +255,23 @@ class PreferenceManagerTest {
 		manager.smartRewindSeconds = 3
 
 		assertEquals(3, manager.smartRewindSeconds)
+	}
+
+	@Test
+	fun songSwipeActionsDefaultToCurrentGestures() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.songSwipeActionsEnabled)
+		assertEquals(SongSwipeAction.AddToQueue, manager.songSwipeStartToEndAction)
+		assertEquals(SongSwipeAction.PlayNext, manager.songSwipeEndToStartAction)
+
+		manager.songSwipeActionsEnabled = false
+		manager.songSwipeStartToEndAction = SongSwipeAction.Disabled
+		manager.songSwipeEndToStartAction = SongSwipeAction.AddToQueue
+
+		assertFalse(manager.songSwipeActionsEnabled)
+		assertEquals(SongSwipeAction.Disabled, manager.songSwipeStartToEndAction)
+		assertEquals(SongSwipeAction.AddToQueue, manager.songSwipeEndToStartAction)
 	}
 
 	@Test

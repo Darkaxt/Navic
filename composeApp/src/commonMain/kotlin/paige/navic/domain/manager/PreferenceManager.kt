@@ -20,6 +20,7 @@ import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.domain.models.settings.StreamingQuality
 import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
@@ -98,6 +99,9 @@ class PreferenceManager(
 	var shakeToSkip by preference(false)
 	var volumeKeysSkipTracks by preference(false)
 	var smartRewindSeconds by preference(1)
+	var songSwipeActionsEnabled by preference(true)
+	var songSwipeStartToEndAction by preference(SongSwipeAction.AddToQueue)
+	var songSwipeEndToStartAction by preference(SongSwipeAction.PlayNext)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)
 	var checkForUpdates by preference(true)

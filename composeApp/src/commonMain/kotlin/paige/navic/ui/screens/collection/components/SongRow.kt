@@ -37,8 +37,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_add_to_queue
-import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_downloaded
 import navic.composeapp.generated.resources.info_not_available_offline
@@ -46,8 +44,12 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.SongSwipeDirection
+import paige.navic.domain.models.settings.SongSwipeAction
+import paige.navic.domain.models.songSwipeActionForDirection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
@@ -76,8 +78,21 @@ fun CollectionDetailScreenSongRow(
 	download: DownloadEntity? = null,
 	isOffline: Boolean = false
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()
+	val startToEndSwipeAction = songSwipeActionForDirection(
+		enabled = preferenceManager.songSwipeActionsEnabled,
+		startToEndAction = preferenceManager.songSwipeStartToEndAction,
+		endToStartAction = preferenceManager.songSwipeEndToStartAction,
+		direction = SongSwipeDirection.StartToEnd
+	)
+	val endToStartSwipeAction = songSwipeActionForDirection(
+		enabled = preferenceManager.songSwipeActionsEnabled,
+		startToEndAction = preferenceManager.songSwipeStartToEndAction,
+		endToStartAction = preferenceManager.songSwipeEndToStartAction,
+		direction = SongSwipeDirection.EndToStart
+	)
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
 	val isCurrentTrack = playerState.currentSong?.id == song.id
@@ -96,8 +111,17 @@ fun CollectionDetailScreenSongRow(
 		modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
 		state = dismissState,
 		onDismiss = {
-			if (it == SwipeToDismissBoxValue.StartToEnd) onAddToQueue()
-			if (it == SwipeToDismissBoxValue.EndToStart) onPlayNext()
+			when (
+				if (it == SwipeToDismissBoxValue.StartToEnd) {
+					startToEndSwipeAction
+				} else {
+					endToStartSwipeAction
+				}
+			) {
+				SongSwipeAction.AddToQueue -> onAddToQueue()
+				SongSwipeAction.PlayNext -> onPlayNext()
+				SongSwipeAction.Disabled -> Unit
+			}
 			scope.launch { dismissState.reset() }
 		},
 		backgroundContent = {
@@ -110,20 +134,38 @@ fun CollectionDetailScreenSongRow(
 			) {
 				when (dismissState.dismissDirection) {
 					SwipeToDismissBoxValue.StartToEnd -> {
-						Icon(
-							imageVector = Icons.Outlined.Queue,
-							contentDescription = stringResource(Res.string.action_add_to_queue),
-							tint = MaterialTheme.colorScheme.onPrimaryContainer,
-							modifier = Modifier.align(Alignment.CenterStart)
-						)
+						when (startToEndSwipeAction) {
+							SongSwipeAction.AddToQueue -> Icon(
+								imageVector = Icons.Outlined.Queue,
+								contentDescription = stringResource(startToEndSwipeAction.displayName),
+								tint = MaterialTheme.colorScheme.onPrimaryContainer,
+								modifier = Modifier.align(Alignment.CenterStart)
+							)
+							SongSwipeAction.PlayNext -> Icon(
+								imageVector = Icons.Outlined.QueuePlayNext,
+								contentDescription = stringResource(startToEndSwipeAction.displayName),
+								tint = MaterialTheme.colorScheme.onPrimaryContainer,
+								modifier = Modifier.align(Alignment.CenterStart)
+							)
+							SongSwipeAction.Disabled -> Unit
+						}
 					}
 					SwipeToDismissBoxValue.EndToStart -> {
-						Icon(
-							imageVector = Icons.Outlined.QueuePlayNext,
-							contentDescription = stringResource(Res.string.action_play_next),
-							tint = MaterialTheme.colorScheme.onPrimaryContainer,
-							modifier = Modifier.align(Alignment.CenterEnd)
-						)
+						when (endToStartSwipeAction) {
+							SongSwipeAction.AddToQueue -> Icon(
+								imageVector = Icons.Outlined.Queue,
+								contentDescription = stringResource(endToStartSwipeAction.displayName),
+								tint = MaterialTheme.colorScheme.onPrimaryContainer,
+								modifier = Modifier.align(Alignment.CenterEnd)
+							)
+							SongSwipeAction.PlayNext -> Icon(
+								imageVector = Icons.Outlined.QueuePlayNext,
+								contentDescription = stringResource(endToStartSwipeAction.displayName),
+								tint = MaterialTheme.colorScheme.onPrimaryContainer,
+								modifier = Modifier.align(Alignment.CenterEnd)
+							)
+							SongSwipeAction.Disabled -> Unit
+						}
 					}
 					else -> {}
 				}

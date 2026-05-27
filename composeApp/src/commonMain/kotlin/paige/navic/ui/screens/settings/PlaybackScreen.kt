@@ -58,6 +58,9 @@ import navic.composeapp.generated.resources.option_resume_playback_on_audio_devi
 import navic.composeapp.generated.resources.option_resume_playback_on_startup
 import navic.composeapp.generated.resources.option_scrobble_percentage
 import navic.composeapp.generated.resources.option_shake_to_skip
+import navic.composeapp.generated.resources.option_song_swipe_actions
+import navic.composeapp.generated.resources.option_song_swipe_end_to_start_action
+import navic.composeapp.generated.resources.option_song_swipe_start_to_end_action
 import navic.composeapp.generated.resources.option_smart_rewind
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
@@ -78,6 +81,9 @@ import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_startup
 import navic.composeapp.generated.resources.subtitle_shake_to_skip
+import navic.composeapp.generated.resources.subtitle_song_swipe_actions
+import navic.composeapp.generated.resources.subtitle_song_swipe_end_to_start_action
+import navic.composeapp.generated.resources.subtitle_song_swipe_start_to_end_action
 import navic.composeapp.generated.resources.subtitle_smart_rewind
 import navic.composeapp.generated.resources.subtitle_skip_media_on_error
 import navic.composeapp.generated.resources.subtitle_skip_silence
@@ -95,6 +101,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Equalizer
@@ -315,6 +322,32 @@ fun SettingsPlaybackScreen() {
 									description = stringResource(Res.string.subtitle_auto_fill_queue_source),
 									selection = preferenceManager.autoFillQueueSource,
 									onSelect = { preferenceManager.autoFillQueueSource = it }
+								)
+							}
+						}
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_song_swipe_actions)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_song_swipe_actions)) },
+							value = preferenceManager.songSwipeActionsEnabled,
+							onSetValue = { preferenceManager.songSwipeActionsEnabled = it }
+						)
+						AnimatedVisibility(preferenceManager.songSwipeActionsEnabled) {
+							Column {
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_song_swipe_start_to_end_action)) },
+									items = SongSwipeAction.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_song_swipe_start_to_end_action),
+									selection = preferenceManager.songSwipeStartToEndAction,
+									onSelect = { preferenceManager.songSwipeStartToEndAction = it }
+								)
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_song_swipe_end_to_start_action)) },
+									items = SongSwipeAction.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_song_swipe_end_to_start_action),
+									selection = preferenceManager.songSwipeEndToStartAction,
+									onSelect = { preferenceManager.songSwipeEndToStartAction = it }
 								)
 							}
 						}
