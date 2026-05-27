@@ -41,7 +41,9 @@ import navic.composeapp.generated.resources.option_lyrics_bright_inactive
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
+import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
+import navic.composeapp.generated.resources.option_pause_between_songs
 import navic.composeapp.generated.resources.option_persistent_queue
 import navic.composeapp.generated.resources.option_replay_gain
 import navic.composeapp.generated.resources.option_respect_audio_focus
@@ -53,6 +55,7 @@ import navic.composeapp.generated.resources.option_skip_silence
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
+import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
@@ -162,6 +165,20 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_resume_playback_on_audio_device_connect)) },
 							value = preferenceManager.resumePlaybackOnAudioDeviceConnect,
 							onSetValue = { preferenceManager.resumePlaybackOnAudioDeviceConnect = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_pause_between_songs)) },
+							items = pauseBetweenSongsOptions.toImmutableList(),
+							label = { seconds ->
+								if (seconds == 0) {
+									stringResource(Res.string.option_off)
+								} else {
+									"${seconds}s"
+								}
+							},
+							description = stringResource(Res.string.subtitle_pause_between_songs),
+							selection = preferenceManager.pauseBetweenSongsSeconds,
+							onSelect = { preferenceManager.pauseBetweenSongsSeconds = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_pause_playback_on_volume_zero)) },
@@ -316,3 +333,5 @@ fun SettingsPlaybackScreen() {
 		)
 	}
 }
+
+private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)

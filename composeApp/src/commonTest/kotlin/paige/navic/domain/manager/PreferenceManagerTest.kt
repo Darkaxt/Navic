@@ -151,6 +151,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun pauseBetweenSongsDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(0, manager.pauseBetweenSongsSeconds)
+
+		manager.pauseBetweenSongsSeconds = 5
+
+		assertEquals(5, manager.pauseBetweenSongsSeconds)
+	}
+
+	@Test
 	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

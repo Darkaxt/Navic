@@ -42,6 +42,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -66,6 +67,8 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.pauseBetweenSongsDelayMs
+import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
@@ -89,6 +92,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var audioManager: AudioManager? = null
 	private var audioDeviceCallback: AudioDeviceCallback? = null
 	private var volumeZeroObserver: ContentObserver? = null
+	private var pauseBetweenSongsJob: Job? = null
 
 	private val connectivityManager: ConnectivityManager by inject()
 
@@ -151,6 +155,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 					).build()
 			}
 
+		registerPauseBetweenSongsListener(player)
 		registerAudioDeviceCallback(player)
 		registerVolumeZeroObserver(player)
 
@@ -231,6 +236,39 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		audioDeviceCallback = null
 		audioManager = null
+	}
+
+	private fun registerPauseBetweenSongsListener(player: ExoPlayer) {
+		player.addListener(object : Player.Listener {
+			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+				if (
+					!shouldPauseBetweenSongsAfterTransition(
+						pauseBetweenSongsSeconds = preferenceManager.pauseBetweenSongsSeconds,
+						isAutomaticTransition = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+						isPlaying = player.isPlaying,
+						hasMediaItem = mediaItem != null
+					)
+				) {
+					return
+				}
+
+				pauseBetweenSongsJob?.cancel()
+				val mediaItemIndex = player.currentMediaItemIndex
+				val delayMs = pauseBetweenSongsDelayMs(preferenceManager.pauseBetweenSongsSeconds)
+
+				player.pause()
+				pauseBetweenSongsJob = serviceScope.launch {
+					delay(delayMs)
+					if (
+						player.currentMediaItemIndex == mediaItemIndex &&
+						player.mediaItemCount > 0 &&
+						player.playbackState != Player.STATE_ENDED
+					) {
+						player.play()
+					}
+				}
+			}
+		})
 	}
 
 	private fun registerVolumeZeroObserver(player: ExoPlayer) {

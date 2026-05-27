@@ -77,6 +77,7 @@
 	<string name="subtitle_skip_silence">Skip silent parts during playback. Takes effect after playback restarts</string>
 	<string name="subtitle_skip_media_on_error">Move to the next queued song if the current stream fails</string>
 	<string name="subtitle_resume_playback_on_audio_device_connect">Resume a paused queue when headphones, USB audio, or Bluetooth audio connect. Takes effect after playback restarts</string>
+	<string name="subtitle_pause_between_songs">Pause briefly after automatic track changes. Manual skips stay immediate</string>
 	<string name="subtitle_pause_playback_on_volume_zero">Pause when Android media volume is muted, then resume if Navic paused it. Takes effect after playback restarts</string>
 	<string name="subtitle_persistent_queue">Save and restore the current queue between app launches</string>
 	<string name="subtitle_resume_playback_on_startup">Start playing the restored queue when the app reconnects to the player</string>
@@ -151,6 +152,7 @@
 	<string name="option_skip_silence">Skip silence</string>
 	<string name="option_skip_media_on_error">Skip media on error</string>
 	<string name="option_resume_playback_on_audio_device_connect">Resume when audio device connects</string>
+	<string name="option_pause_between_songs">Pause between songs</string>
 	<string name="option_pause_playback_on_volume_zero">Pause when volume reaches zero</string>
 	<string name="option_persistent_queue">Persistent queue</string>
 	<string name="option_resume_playback_on_startup">Resume playback on startup</string>

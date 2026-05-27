@@ -79,6 +79,7 @@ class PreferenceManager(
 	var skipMediaOnError by preference(false)
 	var resumePlaybackOnAudioDeviceConnect by preference(false)
 	var pausePlaybackOnVolumeZero by preference(false)
+	var pauseBetweenSongsSeconds by preference(0)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)
 	var checkForUpdates by preference(true)
