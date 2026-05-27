@@ -1,11 +1,5 @@
 package paige.navic.domain.models
 
-enum class LidaClipAvailability {
-	Unknown,
-	Available,
-	Unavailable
-}
-
 const val LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS = 10 * 60 * 1000L
 
 fun nextLidaClipsPrefetchKey(
@@ -27,19 +21,14 @@ fun nextLidaClipsPrefetchKey(
 	return key.takeIf { currentTimeMillis - lastPrefetchTime > refreshAfterMillis }
 }
 
-fun lidaClipAvailability(clip: DomainLidaClip?): LidaClipAvailability =
-	if (clip == null) LidaClipAvailability.Unavailable else LidaClipAvailability.Available
-
 fun shouldShowLidaClipsMusicVideoAction(
 	lidaClipsEnabled: Boolean,
 	lidaClipsBaseUrl: String,
-	userActionEnabled: Boolean,
-	clipAvailability: LidaClipAvailability
+	userActionEnabled: Boolean
 ): Boolean =
 	lidaClipsEnabled &&
 		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
-		userActionEnabled &&
-		clipAvailability != LidaClipAvailability.Unavailable
+		userActionEnabled
 
 private fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
 	baseUrl.trim().trimEnd('/').takeIf {

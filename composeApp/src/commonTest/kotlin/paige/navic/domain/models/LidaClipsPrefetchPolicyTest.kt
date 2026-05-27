@@ -108,14 +108,13 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
-	fun musicVideoActionIsHiddenOnlyForKnownMissingClips() {
+	fun musicVideoActionDependsOnConfiguration() {
 		assertEquals(
 			false,
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = false,
 				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Available
+				userActionEnabled = true
 			)
 		)
 		assertEquals(
@@ -123,8 +122,7 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = " ",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Available
+				userActionEnabled = true
 			)
 		)
 		assertEquals(
@@ -132,8 +130,7 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = "clips.remaxku.eu",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Available
+				userActionEnabled = true
 			)
 		)
 		assertEquals(
@@ -141,8 +138,7 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = false,
-				clipAvailability = LidaClipAvailability.Available
+				userActionEnabled = false
 			)
 		)
 		assertEquals(
@@ -150,26 +146,7 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Unknown
-			)
-		)
-		assertEquals(
-			true,
-			shouldShowLidaClipsMusicVideoAction(
-				lidaClipsEnabled = true,
-				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Available
-			)
-		)
-		assertEquals(
-			false,
-			shouldShowLidaClipsMusicVideoAction(
-				lidaClipsEnabled = true,
-				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = true,
-				clipAvailability = LidaClipAvailability.Unavailable
+				userActionEnabled = true
 			)
 		)
 	}

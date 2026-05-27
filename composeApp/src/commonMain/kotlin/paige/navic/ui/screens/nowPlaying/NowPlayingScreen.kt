@@ -69,7 +69,6 @@ fun NowPlayingScreen() {
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
-	val lidaClipAvailability by viewModel.lidaClipAvailability.collectAsStateWithLifecycle()
 
 	SheetScaffold(
 		toolbar = { windowInsets ->
@@ -168,8 +167,7 @@ fun NowPlayingScreen() {
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) },
-							lidaClipAvailability = lidaClipAvailability
+							onSetSongRating = { viewModel.rateSong(it) }
 						)
 					}
 				} else {
@@ -188,8 +186,7 @@ fun NowPlayingScreen() {
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) },
-							lidaClipAvailability = lidaClipAvailability
+							onSetSongRating = { viewModel.rateSong(it) }
 						)
 					}
 				}

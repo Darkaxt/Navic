@@ -10,8 +10,6 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
-import paige.navic.domain.models.LidaClipAvailability
-import paige.navic.domain.models.lidaClipAvailability
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.SongRepository
@@ -30,9 +28,6 @@ class NowPlayingViewModel(
 
 	private val _songRating = MutableStateFlow(0)
 	val songRating = _songRating.asStateFlow()
-
-	private val _lidaClipAvailability = MutableStateFlow(LidaClipAvailability.Unknown)
-	val lidaClipAvailability = _lidaClipAvailability.asStateFlow()
 
 	private var lastLidaClipsPrefetchKey: String? = null
 	private var lastLidaClipsPrefetchTimeMillis: Long? = null
@@ -90,15 +85,8 @@ class NowPlayingViewModel(
 
 		lastLidaClipsPrefetchKey = nextPrefetchKey
 		lastLidaClipsPrefetchTimeMillis = nowMillis
-		_lidaClipAvailability.value = LidaClipAvailability.Unknown
 		viewModelScope.launch(Dispatchers.IO) {
-			val availability = lidaClipsRepository.findClipByNavidromeSongId(songId).fold(
-				onSuccess = ::lidaClipAvailability,
-				onFailure = { LidaClipAvailability.Unknown }
-			)
-			if (lastLidaClipsPrefetchKey == nextPrefetchKey) {
-				_lidaClipAvailability.value = availability
-			}
+			lidaClipsRepository.prefetchClipByNavidromeSongId(songId)
 		}
 	}
 }
