@@ -34,6 +34,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.shouldOpenLyricsFromNowPlayingArtworkTap
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
@@ -69,6 +70,14 @@ fun NowPlayingScreen() {
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
+	val onArtworkTap: (() -> Unit)? = if (
+		shouldOpenLyricsFromNowPlayingArtworkTap(
+			tapArtworkForLyrics = preferenceManager.tapArtworkForLyrics,
+			hasCurrentSong = song != null
+		)
+	) {
+		{ backStack.add(Screen.Lyrics) }
+	} else null
 
 	SheetScaffold(
 		toolbar = { windowInsets ->
@@ -159,7 +168,8 @@ fun NowPlayingScreen() {
 					) {
 						NowPlayingArtworkPager(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
-							isLandscape = true
+							isLandscape = true,
+							onArtworkTap = onArtworkTap
 						)
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -178,7 +188,8 @@ fun NowPlayingScreen() {
 					) {
 						NowPlayingArtworkPager(
 							modifier = Modifier.weight(1f).fillMaxWidth(),
-							isLandscape = false
+							isLandscape = false,
+							onArtworkTap = onArtworkTap
 						)
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f),

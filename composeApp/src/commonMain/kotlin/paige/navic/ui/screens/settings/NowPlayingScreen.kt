@@ -29,6 +29,7 @@ import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_swipe_to_skip
+import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.title_actions
 import navic.composeapp.generated.resources.title_layout
@@ -74,6 +75,12 @@ fun SettingsNowPlayingScreen() {
 						title = { Text(stringResource(Res.string.option_swipe_to_skip)) },
 						value = preferenceManager.swipeToSkip,
 						onSetValue = { preferenceManager.swipeToSkip = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_tap_artwork_for_lyrics)) },
+						value = preferenceManager.tapArtworkForLyrics,
+						onSetValue = { preferenceManager.tapArtworkForLyrics = it }
 					)
 
 					SettingSelectionRow(

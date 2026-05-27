@@ -31,7 +31,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun NowPlayingArtworkPager(
 	modifier: Modifier = Modifier,
-	isLandscape: Boolean
+	isLandscape: Boolean,
+	onArtworkTap: (() -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -84,7 +85,8 @@ fun NowPlayingArtworkPager(
 		) {
 			NowPlayingArtwork(
 				song = song,
-				isLandscape = isLandscape
+				isLandscape = isLandscape,
+				onClick = onArtworkTap
 			)
 		}
 	}

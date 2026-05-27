@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.nowPlaying.components
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -27,7 +28,8 @@ import paige.navic.ui.components.common.CoverArt
 fun NowPlayingArtwork(
 	modifier: Modifier = Modifier,
 	isLandscape: Boolean,
-	song: DomainSong
+	song: DomainSong,
+	onClick: (() -> Unit)? = null
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
@@ -41,7 +43,9 @@ fun NowPlayingArtwork(
 	)
 	Box(
 		contentAlignment = Alignment.Center,
-		modifier = modifier
+		modifier = modifier.then(
+			if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)
+		)
 	) {
 		CoverArt(
 			coverArtId = song.coverArtId,

@@ -217,6 +217,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun tapArtworkForLyricsDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.tapArtworkForLyrics)
+
+		manager.tapArtworkForLyrics = true
+
+		assertTrue(manager.tapArtworkForLyrics)
+	}
+
+	@Test
 	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
 		val manager = PreferenceManager(MapSettings())
 

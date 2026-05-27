@@ -45,6 +45,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
+* Optional Now Playing artwork tap action that opens Lyrics.
 
 ### Library and playlist reliability
 
