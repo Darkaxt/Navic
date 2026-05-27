@@ -4,13 +4,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -26,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.info_no_lida_clip
 import navic.composeapp.generated.resources.title_music_video
 import org.jetbrains.compose.resources.stringResource
@@ -41,6 +47,7 @@ import paige.navic.domain.models.shouldPauseMusicForLidaClip
 import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
+import paige.navic.icons.outlined.Refresh
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
@@ -76,7 +83,7 @@ fun LidaClipPlayerScreen(songId: String) {
 				is UiState.Error -> {
 					ErrorBox(
 						error = currentState,
-						onRetry = { viewModel.load() },
+						onRetry = { viewModel.load(forceRefresh = true) },
 						modifier = Modifier.align(Alignment.Center)
 					)
 				}
@@ -84,11 +91,30 @@ fun LidaClipPlayerScreen(songId: String) {
 				is UiState.Success -> {
 					val clip = currentState.data
 					if (clip == null) {
-						ContentUnavailable(
+						Column(
 							modifier = Modifier.fillMaxSize(),
-							icon = Icons.Filled.Play,
-							label = stringResource(Res.string.info_no_lida_clip)
-						)
+							horizontalAlignment = Alignment.CenterHorizontally,
+							verticalArrangement = Arrangement.spacedBy(
+								16.dp,
+								Alignment.CenterVertically
+							)
+						) {
+							ContentUnavailable(
+								modifier = Modifier.fillMaxWidth(),
+								icon = Icons.Filled.Play,
+								label = stringResource(Res.string.info_no_lida_clip)
+							)
+							Button(onClick = { viewModel.load(forceRefresh = true) }) {
+								Row(verticalAlignment = Alignment.CenterVertically) {
+									Icon(
+										imageVector = Icons.Outlined.Refresh,
+										contentDescription = null
+									)
+									Spacer(Modifier.width(8.dp))
+									Text(stringResource(Res.string.action_refresh))
+								}
+							}
+						}
 					} else {
 						LidaClipPlayerContent(
 							clip = clip,

@@ -123,7 +123,10 @@ class LidaClipsRepository(
 		}
 	}
 
-	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> {
+	suspend fun findClipByNavidromeSongId(
+		songId: String,
+		forceRefresh: Boolean = false
+	): Result<DomainLidaClip?> {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
@@ -131,7 +134,7 @@ class LidaClipsRepository(
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 		val cacheKey = lidaClipsLookupCacheKey(baseUrl, requestHeaders, songId)
 
-		lookupCache.get(cacheKey)?.let { cached ->
+		lookupCache.get(cacheKey, bypass = forceRefresh)?.let { cached ->
 			return Result.success(cached.clip)
 		}
 
@@ -418,7 +421,11 @@ internal class LidaClipsLookupCache(
 	private val lock = Any()
 	private val clips = mutableMapOf<LidaClipsLookupCacheKey, Entry>()
 
-	fun get(key: LidaClipsLookupCacheKey): Hit? = synchronized(lock) {
+	fun get(
+		key: LidaClipsLookupCacheKey,
+		bypass: Boolean = false
+	): Hit? = synchronized(lock) {
+		if (bypass) return@synchronized null
 		val entry = clips[key] ?: return@synchronized null
 		if (entry.isExpired(currentTimeMillis())) {
 			clips.remove(key)

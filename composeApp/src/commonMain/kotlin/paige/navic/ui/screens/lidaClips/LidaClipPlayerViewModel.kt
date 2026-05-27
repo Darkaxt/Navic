@@ -22,10 +22,13 @@ class LidaClipPlayerViewModel(
 		load()
 	}
 
-	fun load() {
+	fun load(forceRefresh: Boolean = false) {
 		viewModelScope.launch(Dispatchers.IO) {
 			_clipState.value = UiState.Loading(_clipState.value.data)
-			val result = repository.findClipByNavidromeSongId(songId)
+			val result = repository.findClipByNavidromeSongId(
+				songId = songId,
+				forceRefresh = forceRefresh
+			)
 			_clipState.value = result.fold(
 				onSuccess = { UiState.Success(it) },
 				onFailure = { UiState.Error(Exception(it), _clipState.value.data) }
