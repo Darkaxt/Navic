@@ -18,6 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.lidaClipsKeyFingerprint
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
 import kotlin.time.Clock
@@ -429,6 +430,7 @@ internal fun lidaClipsLookupCacheKey(
 		requestHeaders = requestHeaders.entries
 			.map { it.key.trim() to it.value.trim() }
 			.filter { (key, value) -> key.isNotEmpty() && value.isNotEmpty() }
+			.map { (key, value) -> key to lidaClipsKeyFingerprint(value) }
 			.sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second }),
 		songId = songId
 	)

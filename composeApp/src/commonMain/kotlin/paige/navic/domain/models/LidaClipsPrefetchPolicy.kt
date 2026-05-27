@@ -15,7 +15,7 @@ fun nextLidaClipsPrefetchKey(
 	val normalizedBaseUrl = normalizedLidaClipsBaseUrlOrNull(baseUrl)
 	if (!enabled || normalizedBaseUrl == null || songId.isNullOrBlank()) return null
 
-	val key = "$normalizedBaseUrl|${apiKey.trim()}|$songId"
+	val key = "$normalizedBaseUrl|${lidaClipsKeyFingerprint(apiKey.trim())}|$songId"
 	if (key != lastPrefetchKey) return key
 	val lastPrefetchTime = lastPrefetchTimeMillis ?: return null
 	return key.takeIf { currentTimeMillis - lastPrefetchTime > refreshAfterMillis }

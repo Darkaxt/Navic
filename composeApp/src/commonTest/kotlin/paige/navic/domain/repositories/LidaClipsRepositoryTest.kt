@@ -142,6 +142,26 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsLookupCacheKeyDoesNotExposeRawHeaderValues() {
+		val key = lidaClipsLookupCacheKey(
+			baseUrl = "https://clips.remaxku.eu",
+			requestHeaders = mapOf("X-Api-Key" to "secret"),
+			songId = "song-1"
+		)
+		val changedKey = lidaClipsLookupCacheKey(
+			baseUrl = "https://clips.remaxku.eu",
+			requestHeaders = mapOf("X-Api-Key" to "different-secret"),
+			songId = "song-1"
+		)
+
+		assertEquals(
+			false,
+			key.requestHeaders.any { (_, value) -> value.contains("secret") }
+		)
+		assertEquals(false, key == changedKey)
+	}
+
+	@Test
 	fun lidaClipsLookupCacheDistinguishesApiKeysAndCachesMissingClips() {
 		val cache = LidaClipsLookupCache()
 		val firstKey = lidaClipsLookupCacheKey(

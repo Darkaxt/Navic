@@ -17,7 +17,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Smart rewind: Navic now exposes an Android Playback setting for the Previous-button threshold. The default remains Navic's old 1 second behavior, while 3 seconds matches Kreate's default.
 * Pause on zero volume: Navic now exposes an Android Playback setting that pauses when Android media volume reaches zero and resumes only when Navic paused itself and media volume is restored.
 * Search history controls: Navic now persists recent searches across app restarts, lets the user clear or remove entries from Search, and exposes a Data & Storage setting that hides history while stopping newly submitted queries from being recorded.
-* LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API key/header set, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, and prefetches the now-playing song while LidaClips is enabled.
+* LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API-key/header fingerprint, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, prefetches the now-playing song while LidaClips is enabled, and avoids embedding the raw API key in internal cache/prefetch keys.
 * LidaClips action availability policy: Navic now keeps the now-playing Music Video action visible whenever LidaClips is enabled, configured, and not hidden by the user, so cached misses still let the user open the refreshable clip screen.
 * LidaClips no-clip refresh: Navic now shows a Refresh action on the music-video screen when no clip is found and bypasses the short lookup cache for that manual retry.
 * LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
@@ -31,6 +31,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips stream header scoping: Navic now sends the LidaClips API key to Android video stream requests only when the resolved stream URL is on the configured LidaClips origin, avoiding API-key leakage to absolute external stream URLs while preserving the normal authenticated stream endpoint.
 * LidaClips audio focus: Navic now applies the existing `Respect audio focus` playback setting to the Android LidaClips Media3 player, so clip audio follows the same WhatsApp/co-playback choice as normal music playback.
 * LidaClips API diagnostics: Navic now centralizes LidaClips repository HTTP error messages and explains unauthorized lookup/status/control failures as likely API-key problems instead of only surfacing raw HTTP 401s.
+* LidaClips cache-key privacy: Navic now fingerprints sensitive LidaClips key material before using it in in-memory lookup cache and now-playing prefetch keys, while still separating cache entries for different API keys.
 * Tap artwork for lyrics: Kreate exposes a thumbnail-tap lyrics option. Navic now adapts that as an opt-in Now Playing setting so tapping the artwork opens Lyrics without changing the default artwork behavior.
 
 ## Best Next Transplants

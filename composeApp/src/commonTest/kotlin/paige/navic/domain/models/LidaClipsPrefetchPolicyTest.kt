@@ -37,7 +37,16 @@ class LidaClipsPrefetchPolicyTest {
 			lastPrefetchKey = null
 		)
 
-		assertEquals("https://clips.remaxku.eu|secret|song-1", key)
+		assertEquals(
+			key,
+			nextLidaClipsPrefetchKey(
+				enabled = true,
+				baseUrl = "https://clips.remaxku.eu",
+				apiKey = "secret",
+				songId = "song-1",
+				lastPrefetchKey = null
+			)
+		)
 		assertNull(nextLidaClipsPrefetchKey(
 			enabled = true,
 			baseUrl = "https://clips.remaxku.eu",
@@ -46,13 +55,47 @@ class LidaClipsPrefetchPolicyTest {
 			lastPrefetchKey = key
 		))
 		assertEquals(
-			"https://clips.remaxku.eu|new-secret|song-1",
-			nextLidaClipsPrefetchKey(
+			false,
+			key == nextLidaClipsPrefetchKey(
 				enabled = true,
 				baseUrl = "https://clips.remaxku.eu",
 				apiKey = "new-secret",
 				songId = "song-1",
 				lastPrefetchKey = key
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsPrefetchKeyDoesNotExposeRawApiKey() {
+		val key = nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "https://clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = null
+		)
+
+		assertEquals(false, key?.contains("secret") == true)
+		assertEquals(false, key?.contains("X-Api-Key") == true)
+		assertEquals(
+			key,
+			nextLidaClipsPrefetchKey(
+				enabled = true,
+				baseUrl = "https://clips.remaxku.eu",
+				apiKey = " secret ",
+				songId = "song-1",
+				lastPrefetchKey = null
+			)
+		)
+		assertEquals(
+			false,
+			key == nextLidaClipsPrefetchKey(
+				enabled = true,
+				baseUrl = "https://clips.remaxku.eu",
+				apiKey = "different-secret",
+				songId = "song-1",
+				lastPrefetchKey = null
 			)
 		)
 	}
@@ -70,7 +113,13 @@ class LidaClipsPrefetchPolicyTest {
 
 	@Test
 	fun lidaClipsPrefetchAllowsSameKeyAfterFreshnessWindow() {
-		val key = "https://clips.remaxku.eu|secret|song-1"
+		val key = nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "https://clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = null
+		)
 
 		assertNull(nextLidaClipsPrefetchKey(
 			enabled = true,
