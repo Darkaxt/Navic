@@ -9,12 +9,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.LidaClipAvailability
 import paige.navic.domain.models.lidaClipAvailability
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
+import kotlin.time.Clock
 
 class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
@@ -33,6 +35,7 @@ class NowPlayingViewModel(
 	val lidaClipAvailability = _lidaClipAvailability.asStateFlow()
 
 	private var lastLidaClipsPrefetchKey: String? = null
+	private var lastLidaClipsPrefetchTimeMillis: Long? = null
 
 	init {
 		viewModelScope.launch {
@@ -73,15 +76,20 @@ class NowPlayingViewModel(
 	}
 
 	private fun prefetchLidaClip(songId: String) {
+		val nowMillis = Clock.System.now().toEpochMilliseconds()
 		val nextPrefetchKey = nextLidaClipsPrefetchKey(
 			enabled = preferenceManager.lidaClipsEnabled,
 			baseUrl = preferenceManager.lidaClipsBaseUrl,
 			apiKey = preferenceManager.lidaClipsApiKey,
 			songId = songId,
-			lastPrefetchKey = lastLidaClipsPrefetchKey
+			lastPrefetchKey = lastLidaClipsPrefetchKey,
+			lastPrefetchTimeMillis = lastLidaClipsPrefetchTimeMillis,
+			currentTimeMillis = nowMillis,
+			refreshAfterMillis = LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 		) ?: return
 
 		lastLidaClipsPrefetchKey = nextPrefetchKey
+		lastLidaClipsPrefetchTimeMillis = nowMillis
 		_lidaClipAvailability.value = LidaClipAvailability.Unknown
 		viewModelScope.launch(Dispatchers.IO) {
 			val availability = lidaClipsRepository.findClipByNavidromeSongId(songId).fold(

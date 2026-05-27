@@ -38,9 +38,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_downloading_update
 import navic.composeapp.generated.resources.action_dont_show_again
 import navic.composeapp.generated.resources.action_update_app
 import navic.composeapp.generated.resources.info_update
+import navic.composeapp.generated.resources.info_update_install_failed
 import navic.composeapp.generated.resources.title_update
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -62,6 +64,9 @@ data class GitHubRelease(
 ) {
 	val updateUrl: String
 		get() = assets.preferredApkAssetUrl() ?: url
+
+	val hasDirectApkUpdate: Boolean
+		get() = updateUrl.isApkDownloadUrl()
 }
 
 @Serializable
@@ -85,11 +90,20 @@ private fun List<GitHubReleaseAsset>.preferredApkAssetUrl(): String? {
 	}?.downloadUrl
 }
 
+private fun String.isApkDownloadUrl(): Boolean =
+	substringBefore('?')
+		.substringBefore('#')
+		.endsWith(".apk", ignoreCase = true)
+
 class ChangelogViewModel(
 	platformContext: PlatformContext
 ) : ViewModel() {
 	private val _release = MutableStateFlow<GitHubRelease?>(null)
 	val release = _release.asStateFlow()
+	private val _isInstallingUpdate = MutableStateFlow(false)
+	val isInstallingUpdate = _isInstallingUpdate.asStateFlow()
+	private val _updateInstallError = MutableStateFlow<String?>(null)
+	val updateInstallError = _updateInstallError.asStateFlow()
 
 	private val updateClient = HttpClient {
 		install(ContentNegotiation) {
@@ -124,7 +138,25 @@ class ChangelogViewModel(
 	}
 
 	fun clearRelease() {
+		_updateInstallError.value = null
 		_release.value = null
+	}
+
+	fun installUpdate(updateUrl: String, updateInstaller: UpdateInstaller) {
+		if (_isInstallingUpdate.value) return
+		viewModelScope.launch {
+			_isInstallingUpdate.value = true
+			_updateInstallError.value = null
+			updateInstaller.installApk(updateUrl)
+				.onSuccess {
+					clearRelease()
+				}
+				.onFailure { error ->
+					Logger.e("ChangelogViewModel", "couldn't install update", error)
+					_updateInstallError.value = error.message
+				}
+			_isInstallingUpdate.value = false
+		}
 	}
 }
 
@@ -134,10 +166,13 @@ fun ChangelogSheet() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val uriHandler = LocalUriHandler.current
+	val updateInstaller = rememberUpdateInstaller()
 	val viewModel = koinViewModel<ChangelogViewModel>(
 		parameters = { parametersOf(platformContext) }
 	)
 	val release by viewModel.release.collectAsStateWithLifecycle()
+	val isInstallingUpdate by viewModel.isInstallingUpdate.collectAsStateWithLifecycle()
+	val updateInstallError by viewModel.updateInstallError.collectAsStateWithLifecycle()
 
 	release?.let { release ->
 		ModalBottomSheet(
@@ -181,17 +216,36 @@ fun ChangelogSheet() {
 				Spacer(Modifier.height(8.dp))
 				Spacer(Modifier.weight(1f))
 
+				updateInstallError?.let { error ->
+					Text(
+						text = stringResource(Res.string.info_update_install_failed, error),
+						color = MaterialTheme.colorScheme.error,
+						style = MaterialTheme.typography.bodySmall,
+						modifier = Modifier
+							.fillMaxWidth()
+							.padding(bottom = 8.dp)
+					)
+				}
+
 				Button(
 					onClick = {
 						platformContext.clickSound()
-						viewModel.clearRelease()
-						uriHandler.openUri(release.updateUrl)
+						if (release.hasDirectApkUpdate && updateInstaller.canInstallApk) {
+							viewModel.installUpdate(release.updateUrl, updateInstaller)
+						} else {
+							viewModel.clearRelease()
+							uriHandler.openUri(release.updateUrl)
+						}
 					},
 					modifier = Modifier.fillMaxWidth(),
-					shape = ContinuousCapsule
+					shape = ContinuousCapsule,
+					enabled = !isInstallingUpdate
 				) {
 					Text(
-						text = stringResource(Res.string.action_update_app),
+						text = stringResource(
+							if (isInstallingUpdate) Res.string.action_downloading_update
+							else Res.string.action_update_app
+						),
 						fontFamily = defaultFont(100)
 					)
 				}
@@ -203,7 +257,8 @@ fun ChangelogSheet() {
 						preferenceManager.checkForUpdates = false
 					},
 					modifier = Modifier.fillMaxWidth(),
-					shape = ContinuousCapsule
+					shape = ContinuousCapsule,
+					enabled = !isInstallingUpdate
 				) {
 					Text(
 						text = stringResource(Res.string.action_dont_show_again),

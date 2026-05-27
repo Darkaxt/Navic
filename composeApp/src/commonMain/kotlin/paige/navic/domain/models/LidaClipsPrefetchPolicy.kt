@@ -6,18 +6,25 @@ enum class LidaClipAvailability {
 	Unavailable
 }
 
+const val LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS = 10 * 60 * 1000L
+
 fun nextLidaClipsPrefetchKey(
 	enabled: Boolean,
 	baseUrl: String,
 	apiKey: String,
 	songId: String?,
-	lastPrefetchKey: String?
+	lastPrefetchKey: String?,
+	lastPrefetchTimeMillis: Long? = null,
+	currentTimeMillis: Long = 0L,
+	refreshAfterMillis: Long = LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 ): String? {
 	val normalizedBaseUrl = normalizedLidaClipsBaseUrlOrNull(baseUrl)
 	if (!enabled || normalizedBaseUrl == null || songId.isNullOrBlank()) return null
 
 	val key = "$normalizedBaseUrl|${apiKey.trim()}|$songId"
-	return key.takeIf { it != lastPrefetchKey }
+	if (key != lastPrefetchKey) return key
+	val lastPrefetchTime = lastPrefetchTimeMillis ?: return null
+	return key.takeIf { currentTimeMillis - lastPrefetchTime > refreshAfterMillis }
 }
 
 fun lidaClipAvailability(clip: DomainLidaClip?): LidaClipAvailability =

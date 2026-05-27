@@ -69,6 +69,45 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipsPrefetchAllowsSameKeyAfterFreshnessWindow() {
+		val key = "https://clips.remaxku.eu|secret|song-1"
+
+		assertNull(nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "https://clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = key,
+			lastPrefetchTimeMillis = 1_000L,
+			currentTimeMillis = 1_000L,
+			refreshAfterMillis = 1_000L
+		))
+		assertNull(nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "https://clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = key,
+			lastPrefetchTimeMillis = 1_000L,
+			currentTimeMillis = 2_000L,
+			refreshAfterMillis = 1_000L
+		))
+		assertEquals(
+			key,
+			nextLidaClipsPrefetchKey(
+				enabled = true,
+				baseUrl = "https://clips.remaxku.eu",
+				apiKey = "secret",
+				songId = "song-1",
+				lastPrefetchKey = key,
+				lastPrefetchTimeMillis = 1_000L,
+				currentTimeMillis = 2_001L,
+				refreshAfterMillis = 1_000L
+			)
+		)
+	}
+
+	@Test
 	fun musicVideoActionIsHiddenOnlyForKnownMissingClips() {
 		assertEquals(
 			false,

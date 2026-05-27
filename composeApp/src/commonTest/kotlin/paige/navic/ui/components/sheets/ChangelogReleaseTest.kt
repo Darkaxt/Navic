@@ -31,6 +31,24 @@ class ChangelogReleaseTest {
 	}
 
 	@Test
+	fun updateReleaseReportsDirectApkWhenApkAssetIsAvailable() {
+		val release = GitHubRelease(
+			tag = "v1.0.0-alpha40-proxy12",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			body = "Release notes",
+			assets = listOf(
+				GitHubReleaseAsset(
+					name = "Navic.apk",
+					contentType = "application/vnd.android.package-archive",
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.apk"
+				)
+			)
+		)
+
+		assertEquals(true, release.hasDirectApkUpdate)
+	}
+
+	@Test
 	fun updateUrlFallsBackToReleasePageWhenApkAssetIsMissing() {
 		val release = GitHubRelease(
 			tag = "v1.0.0-alpha40-proxy12",
@@ -49,5 +67,23 @@ class ChangelogReleaseTest {
 			"https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
 			release.updateUrl
 		)
+	}
+
+	@Test
+	fun updateReleaseReportsNoDirectApkWhenFallingBackToReleasePage() {
+		val release = GitHubRelease(
+			tag = "v1.0.0-alpha40-proxy12",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			body = "Release notes",
+			assets = listOf(
+				GitHubReleaseAsset(
+					name = "Navic.ipa",
+					contentType = "application/octet-stream",
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.ipa"
+				)
+			)
+		)
+
+		assertEquals(false, release.hasDirectApkUpdate)
 	}
 }

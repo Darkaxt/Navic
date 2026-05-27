@@ -75,7 +75,7 @@
 	<string name="subtitle_playlist">Playlist</string>
 	<string name="subtitle_enable_scrobbling">Scrobble played tracks to your Navidrome server</string>
 	<string name="subtitle_gapless_playback">Experimental. Requires application restart. May conflict with audio offload on some devices</string>
-	<string name="subtitle_audio_offload">Experimental. Requires application restart. May conflict with gapless playback on some devices</string>
+	<string name="subtitle_audio_offload">Uses low-power hardware decoding for supported audio to reduce battery use. May break gapless playback on some devices. Restart playback for changes to apply</string>
 	<string name="subtitle_respect_audio_focus">Turn off to keep Navic playing while WhatsApp or other apps play audio. Takes effect after playback restarts</string>
 	<string name="subtitle_skip_silence">Skip silent parts during playback. Takes effect after playback restarts</string>
 	<string name="subtitle_skip_media_on_error">Move to the next queued song if the current stream fails</string>
@@ -364,6 +364,7 @@
 	<string name="action_lyrics">Lyrics</string>
 	<string name="action_share_lyrics">Share Lyrics</string>
 	<string name="action_update_app">Update</string>
+	<string name="action_downloading_update">Downloading update...</string>
 	<string name="action_play_next">Play next</string>
 	<string name="action_play_music_video">Play music video</string>
 	<string name="action_system_equalizer">Equalizer</string>
@@ -423,6 +424,7 @@
 	<string name="info_album_replay_gain">Album ReplayGain</string>
 	<string name="info_track_replay_gain_effective">ReplayGain effective value</string>
 	<string name="info_update">Version "%1$s" has been released</string>
+	<string name="info_update_install_failed">Update install failed: %1$s</string>
 	<string name="info_shared_by">Shared by %1$s</string>
 	<string name="info_share_expires_in">Expires in %1$s</string>
 	<string name="info_share_expires_never">Never expires</string>
