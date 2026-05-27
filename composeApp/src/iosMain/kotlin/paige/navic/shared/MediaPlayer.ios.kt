@@ -77,7 +77,8 @@ class IOSMediaPlayerViewModel(
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
-	connectivityManager = connectivityManager
+	connectivityManager = connectivityManager,
+	preferenceManager = preferenceManager
 ) {
 	private val player = AVPlayer()
 	private var timeObserver: Any? = null
@@ -549,6 +550,9 @@ class IOSMediaPlayerViewModel(
 		}
 
 		updateNowPlayingInfo(song)
+		if (!state.isPaused) {
+			player.play()
+		}
 	}
 
 	private fun createAVPlayerItem(url: NSURL): AVPlayerItem {

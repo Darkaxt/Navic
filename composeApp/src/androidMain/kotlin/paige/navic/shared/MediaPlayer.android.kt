@@ -253,7 +253,8 @@ class AndroidMediaPlayerViewModel(
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
-	connectivityManager = connectivityManager
+	connectivityManager = connectivityManager,
+	preferenceManager = preferenceManager
 ) {
 	private var controller: MediaController? = null
 	private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -492,6 +493,9 @@ class AndroidMediaPlayerViewModel(
 
 			player.seekTo(index, position)
 			player.prepare()
+			if (!state.isPaused) {
+				player.play()
+			}
 		}
 	}
 

@@ -32,6 +32,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
 * Android can optionally resume a paused queue when headphones, USB audio, or Bluetooth audio connect
 * Kreate-style Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions
+* Persistent queue controls adapted from Kreate, including optional playback resume on startup
 
 ### Traefik Basic Auth setup
 

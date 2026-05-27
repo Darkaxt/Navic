@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
@@ -17,13 +18,15 @@ import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.core.PlayerUiState
+import paige.navic.ui.core.restoredPlayerStateForPreferences
 import paige.navic.util.core.Logger
 import kotlin.time.Duration.Companion.seconds
 
 abstract class MediaPlayerViewModel(
 	private val stateRepository: PlayerStateRepository,
 	protected val connectivityManager: ConnectivityManager,
-	protected val downloadManager: DownloadManager
+	protected val downloadManager: DownloadManager,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 
 	@Suppress("PropertyName")
@@ -79,7 +82,11 @@ abstract class MediaPlayerViewModel(
 				val restoredState = Json.decodeFromJsonElement<PlayerUiState>(
 					Json.parseToJsonElement(savedJson)
 				)
-				val stateToApply = restoredState.copy(isPaused = true, isLoading = false)
+				val stateToApply = restoredPlayerStateForPreferences(
+					restoredState = restoredState,
+					persistentQueue = preferenceManager.persistentQueue,
+					resumePlaybackOnStartup = preferenceManager.resumePlaybackOnStartup
+				) ?: return
 
 				_uiState.value = stateToApply
 
@@ -99,6 +106,11 @@ abstract class MediaPlayerViewModel(
 				.debounce(1.seconds)
 				.collect { state ->
 					try {
+						if (!preferenceManager.persistentQueue) {
+							stateRepository.clearState()
+							return@collect
+						}
+
 						val jsonString = Json.encodeToString(state)
 						stateRepository.saveState(jsonString)
 					} catch (e: Exception) {

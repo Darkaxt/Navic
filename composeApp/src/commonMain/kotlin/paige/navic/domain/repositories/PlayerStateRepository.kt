@@ -27,6 +27,12 @@ class PlayerStateRepository(
 		}.firstOrNull()
 	}
 
+	suspend fun clearState() {
+		dataStore.edit { prefs ->
+			prefs.remove(stateKey)
+		}
+	}
+
 	companion object {
 		const val DATASTORE_FILE_NAME = "playback_session.preferences_pb"
 

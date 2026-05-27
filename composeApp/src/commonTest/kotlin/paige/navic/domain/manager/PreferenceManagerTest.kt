@@ -149,4 +149,18 @@ class PreferenceManagerTest {
 		assertFalse(manager.showNowPlayingQueueAction)
 		assertFalse(manager.showNowPlayingMusicVideoAction)
 	}
+
+	@Test
+	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.persistentQueue)
+		assertFalse(manager.resumePlaybackOnStartup)
+
+		manager.persistentQueue = false
+		manager.resumePlaybackOnStartup = true
+
+		assertFalse(manager.persistentQueue)
+		assertTrue(manager.resumePlaybackOnStartup)
+	}
 }
