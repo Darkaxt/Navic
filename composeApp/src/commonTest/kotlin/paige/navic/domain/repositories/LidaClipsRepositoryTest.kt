@@ -1,5 +1,6 @@
 package paige.navic.domain.repositories
 
+import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -303,6 +304,18 @@ class LidaClipsRepositoryTest {
 		assertEquals(
 			"""{"sync_paused":true}""",
 			Json.encodeToString(LidaClipsControlRequestDto(syncPaused = true))
+		)
+	}
+
+	@Test
+	fun lidaClipsHttpErrorMessagesExplainUnauthorizedApiKeyFailures() {
+		assertEquals(
+			"LidaClips clip lookup unauthorized. Check the LidaClips API key.",
+			lidaClipsHttpErrorMessage("LidaClips clip lookup", HttpStatusCode.Unauthorized)
+		)
+		assertEquals(
+			"LidaClips dashboard returned HTTP 500",
+			lidaClipsHttpErrorMessage("LidaClips dashboard", HttpStatusCode.InternalServerError)
 		)
 	}
 

@@ -73,7 +73,7 @@ class LidaClipsRepository(
 				health.status.isSuccess() -> LidaClipsConnectionResult.Connected
 				health.status == HttpStatusCode.Unauthorized -> LidaClipsConnectionResult.Unauthorized
 				else -> LidaClipsConnectionResult.Failed(
-					"Health check returned HTTP ${health.status.value}"
+					lidaClipsHttpErrorMessage("LidaClips health check", health.status)
 				)
 			}
 		} catch (e: Exception) {
@@ -161,7 +161,7 @@ class LidaClipsRepository(
 			response.status == HttpStatusCode.NotFound -> null
 			response.status.isSuccess() -> response.body<LidaClipsClipEnvelope>().clip
 				?.toDomainModel(baseUrl)
-			else -> error("LidaClips returned HTTP ${response.status.value}")
+			else -> error(lidaClipsHttpErrorMessage("LidaClips clip lookup", response.status))
 		}
 	}
 
@@ -176,7 +176,7 @@ class LidaClipsRepository(
 			}
 		}
 		if (!response.status.isSuccess()) {
-			error("LidaClips dashboard returned HTTP ${response.status.value}")
+			error(lidaClipsHttpErrorMessage("LidaClips dashboard", response.status))
 		}
 		return response.body()
 	}
@@ -192,7 +192,7 @@ class LidaClipsRepository(
 			}
 		}
 		if (!response.status.isSuccess()) {
-			error("LidaClips control returned HTTP ${response.status.value}")
+			error(lidaClipsHttpErrorMessage("LidaClips control", response.status))
 		}
 		return response.body()
 	}
@@ -208,7 +208,7 @@ class LidaClipsRepository(
 			}
 		}
 		if (!response.status.isSuccess() && response.status != HttpStatusCode.ServiceUnavailable) {
-			error("LidaClips health returned HTTP ${response.status.value}")
+			error(lidaClipsHttpErrorMessage("LidaClips health", response.status))
 		}
 		return response.body()
 	}
@@ -227,7 +227,7 @@ class LidaClipsRepository(
 			setBody(LidaClipsControlRequestDto(syncPaused))
 		}
 		if (!response.status.isSuccess()) {
-			error("LidaClips control update returned HTTP ${response.status.value}")
+			error(lidaClipsHttpErrorMessage("LidaClips control update", response.status))
 		}
 		return response.body()
 	}
@@ -376,6 +376,16 @@ internal fun lidaClipsBaseUrlConfigurationError(baseUrl: String): String? {
 		else -> null
 	}
 }
+
+internal fun lidaClipsHttpErrorMessage(
+	operation: String,
+	status: HttpStatusCode
+): String =
+	if (status == HttpStatusCode.Unauthorized) {
+		"$operation unauthorized. Check the LidaClips API key."
+	} else {
+		"$operation returned HTTP ${status.value}"
+	}
 
 internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String =
 	lidaClipsEndpoint(
