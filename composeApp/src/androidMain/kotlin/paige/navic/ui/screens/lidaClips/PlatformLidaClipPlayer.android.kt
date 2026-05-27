@@ -12,6 +12,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toRect
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -26,6 +28,7 @@ import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.lidaClipPlaybackErrorMessage
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.shouldCropLidaClipsVideoFrame
+import paige.navic.domain.models.shouldHandleLidaClipAudioFocus
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -35,6 +38,7 @@ actual fun PlatformLidaClipPlayer(
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
 	videoFitMode: LidaClipsVideoFitMode,
+	respectAudioFocus: Boolean,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
@@ -55,6 +59,13 @@ actual fun PlatformLidaClipPlayer(
 			.setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
 			.build()
 			.apply {
+				setAudioAttributes(
+					AudioAttributes.Builder()
+						.setUsage(C.USAGE_MEDIA)
+						.setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+						.build(),
+					shouldHandleLidaClipAudioFocus(respectAudioFocus)
+				)
 				setMediaItem(MediaItem.fromUri(clip.streamUrl), startPositionMs.coerceAtLeast(0L))
 				prepare()
 				playWhenReady = true

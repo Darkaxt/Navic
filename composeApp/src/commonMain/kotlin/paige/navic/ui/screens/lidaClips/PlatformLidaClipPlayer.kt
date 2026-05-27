@@ -12,6 +12,7 @@ expect fun PlatformLidaClipPlayer(
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
 	videoFitMode: LidaClipsVideoFitMode,
+	respectAudioFocus: Boolean,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,

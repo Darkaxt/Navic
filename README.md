@@ -36,7 +36,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 ### Android playback controls
 
-* `Respect audio focus` can be turned off so Navic keeps playing while WhatsApp or another app plays audio.
+* `Respect audio focus` can be turned off so Navic music and LidaClips video playback can keep playing while WhatsApp or another app plays audio.
 * Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
 * Optional resume of a paused queue when headphones, USB audio, or Bluetooth audio connect.
 * Optional pause between songs after automatic track changes.
@@ -66,7 +66,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * The Music Video action stays visible whenever LidaClips is enabled and configured, so cached misses do not hide the refreshable clip screen.
 * The no-clip player state has a Refresh action that bypasses the temporary lookup cache after backend sync changes.
 * Android Media3 playback shows retryable stream errors with diagnostic error codes.
-* Android Picture-in-Picture, optional landscape video mode, video fit/crop mode, keep-screen-on, remembered clip positions, and Feishin-style music pause/resume are available from the LidaClips settings screen.
+* Android Picture-in-Picture, optional landscape video mode, video fit/crop mode, keep-screen-on, remembered clip positions, Playback audio-focus behavior, and Feishin-style music pause/resume are available from existing Playback and LidaClips settings.
 * iOS currently shows an unsupported message until a native video player is added.
 
 ### Maintenance
@@ -86,7 +86,7 @@ Advanced users can leave the Basic Auth toggle off and add a manual `Authorizati
 
 ### WhatsApp training audio setup
 
-Open Settings -> Playback and turn `Respect audio focus` off. Restart playback if the player service was already running.
+Open Settings -> Playback and turn `Respect audio focus` off. Restart music playback if the player service was already running; LidaClips video playback uses the setting when the clip screen opens.
 
 ### Smart rewind setup
 
@@ -102,7 +102,7 @@ Open Settings -> Playback -> `Smart rewind` to choose the point where the Previo
 6. Optionally enable `Picture-in-Picture`, `Landscape video mode`, or `Video fit` crop mode on Android. `Pause music while clips play`, `Remember clip position`, and `Keep screen on` are on by default and can be turned off.
 7. From the now-playing song menu, use `Play music video` when a matching clip exists.
 
-Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup while still expiring stale hits and misses after a short window. The now-playing Music Video action remains visible whenever LidaClips is enabled, configured, and not hidden in Now Playing settings; if a track initially has no clip, the music-video screen's Refresh action bypasses the temporary lookup cache so a newly synced backend match can be checked immediately. The LidaClips settings screen reads `/api/v1/health`, `/api/v1/dashboard`, and `/api/v1/control` to show backend health, clip counts, recent sync failures, and sync state, refreshes status after configured URL/API-key changes settle, and writes `/api/v1/control` when `Pause LidaClips sync` changes. Degraded LidaClips health responses are still shown as diagnostics when the backend returns dependency-check details. LidaClips stream requests include the API key only when the resolved stream URL is on the configured LidaClips origin; absolute external stream URLs do not receive the key. If the video stream fails, the player shows a retryable error with the Media3 error code. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. `Landscape video mode` rotates the clip screen to landscape and hides system bars until you leave the screen. `Video fit` defaults to Fit for the full frame; Crop fills the player and may trim edges. By default, Navic follows the Feishin clip-tab behavior: it pauses the active song when the clip opens and resumes that same song when you leave the clip. Turn `Pause music while clips play` off to keep Navic music playing under clip audio. `Remember clip position` resumes the last watched position when reopening the same video, while avoiding positions near the beginning or end. `Keep screen on` keeps the display awake while the clip screen is open. iOS currently shows an unsupported message until a native video player is added.
+Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup while still expiring stale hits and misses after a short window. The now-playing Music Video action remains visible whenever LidaClips is enabled, configured, and not hidden in Now Playing settings; if a track initially has no clip, the music-video screen's Refresh action bypasses the temporary lookup cache so a newly synced backend match can be checked immediately. The LidaClips settings screen reads `/api/v1/health`, `/api/v1/dashboard`, and `/api/v1/control` to show backend health, clip counts, recent sync failures, and sync state, refreshes status after configured URL/API-key changes settle, and writes `/api/v1/control` when `Pause LidaClips sync` changes. Degraded LidaClips health responses are still shown as diagnostics when the backend returns dependency-check details. LidaClips stream requests include the API key only when the resolved stream URL is on the configured LidaClips origin; absolute external stream URLs do not receive the key. If the video stream fails, the player shows a retryable error with the Media3 error code. LidaClips video playback follows Settings -> Playback -> `Respect audio focus`, so turning that setting off also lets clip audio continue when another app takes audio focus. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. `Landscape video mode` rotates the clip screen to landscape and hides system bars until you leave the screen. `Video fit` defaults to Fit for the full frame; Crop fills the player and may trim edges. By default, Navic follows the Feishin clip-tab behavior: it pauses the active song when the clip opens and resumes that same song when you leave the clip. Turn `Pause music while clips play` off to keep Navic music playing under clip audio. `Remember clip position` resumes the last watched position when reopening the same video, while avoiding positions near the beginning or end. `Keep screen on` keeps the display awake while the clip screen is open. iOS currently shows an unsupported message until a native video player is added.
 
 ## Screenshots
 

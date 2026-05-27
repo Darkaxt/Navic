@@ -128,6 +128,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
 							landscapeVideoModeEnabled = preferenceManager.lidaClipsLandscapeVideoMode,
 							videoFitMode = preferenceManager.lidaClipsVideoFitMode,
+							respectAudioFocus = preferenceManager.respectAudioFocus,
 							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
 							rememberPlaybackPosition = preferenceManager.lidaClipsRememberPlaybackPosition,
 							keepScreenOn = preferenceManager.lidaClipsKeepScreenOn,
@@ -147,6 +148,7 @@ private fun LidaClipPlayerContent(
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
 	videoFitMode: LidaClipsVideoFitMode,
+	respectAudioFocus: Boolean,
 	pauseMusicPlayback: Boolean,
 	rememberPlaybackPosition: Boolean,
 	keepScreenOn: Boolean,
@@ -213,6 +215,7 @@ private fun LidaClipPlayerContent(
 			pictureInPictureEnabled = pictureInPictureEnabled,
 			landscapeVideoModeEnabled = landscapeVideoModeEnabled,
 			videoFitMode = videoFitMode,
+			respectAudioFocus = respectAudioFocus,
 			startPositionMs = startPositionMs,
 			retryKey = playbackState.retryKey,
 			onPlaybackReady = {

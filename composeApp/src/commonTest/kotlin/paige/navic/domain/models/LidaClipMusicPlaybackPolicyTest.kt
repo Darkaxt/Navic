@@ -80,4 +80,10 @@ class LidaClipMusicPlaybackPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun lidaClipAudioFocusHandlingFollowsPlaybackPreference() {
+		assertTrue(shouldHandleLidaClipAudioFocus(respectAudioFocus = true))
+		assertFalse(shouldHandleLidaClipAudioFocus(respectAudioFocus = false))
+	}
 }

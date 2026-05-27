@@ -16,3 +16,6 @@ fun shouldResumeMusicAfterLidaClip(
 		pausedSongId != null &&
 		currentSongId == pausedSongId &&
 		musicIsPaused
+
+fun shouldHandleLidaClipAudioFocus(respectAudioFocus: Boolean): Boolean =
+	respectAudioFocus
