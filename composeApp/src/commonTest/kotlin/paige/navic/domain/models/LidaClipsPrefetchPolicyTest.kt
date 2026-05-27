@@ -49,4 +49,48 @@ class LidaClipsPrefetchPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun musicVideoActionIsHiddenOnlyForKnownMissingClips() {
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = false,
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				userActionEnabled = false,
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			true,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Unknown
+			)
+		)
+		assertEquals(
+			true,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Unavailable
+			)
+		)
+	}
 }

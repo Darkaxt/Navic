@@ -22,6 +22,8 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.LidaClipAvailability
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreHoriz
@@ -35,7 +37,8 @@ import kotlin.time.Duration
 @Composable
 fun NowPlayingMoreButton(
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit
+	onSetSongRating: (Int) -> Unit,
+	lidaClipAvailability: LidaClipAvailability
 ) {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
@@ -82,9 +85,11 @@ fun NowPlayingMoreButton(
 				onShare = {
 					shareId = song.id
 				},
-				onPlayMusicVideo = if (
-					preferenceManager.lidaClipsEnabled &&
-					preferenceManager.showNowPlayingMusicVideoAction
+				onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
+						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
+						clipAvailability = lidaClipAvailability
+					)
 				) {
 					dropUnlessResumed {
 						backStack.add(Screen.LidaClipPlayer(song.id))

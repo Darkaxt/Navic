@@ -22,6 +22,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.LidaClipAvailability
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButton
@@ -33,7 +34,8 @@ fun NowPlayingInfoRow(
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit
+	onSetSongRating: (Int) -> Unit,
+	lidaClipAvailability: LidaClipAvailability
 ) {
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -111,7 +113,8 @@ fun NowPlayingInfoRow(
 			)
 			NowPlayingMoreButton(
 				songRating = songRating,
-				onSetSongRating = onSetSongRating
+				onSetSongRating = onSetSongRating,
+				lidaClipAvailability = lidaClipAvailability
 			)
 		}
 	}

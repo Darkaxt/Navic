@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.LidaClipAvailability
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -31,7 +32,8 @@ fun NowPlayingControlsRow(
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit
+	onSetSongRating: (Int) -> Unit,
+	lidaClipAvailability: LidaClipAvailability
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	var visible by rememberSaveable { mutableStateOf(false) }
@@ -55,7 +57,8 @@ fun NowPlayingControlsRow(
 				songIsStarred = songIsStarred,
 				onSetSongIsStarred = onSetSongIsStarred,
 				songRating = songRating,
-				onSetSongRating = onSetSongRating
+				onSetSongRating = onSetSongRating,
+				lidaClipAvailability = lidaClipAvailability
 			)
 			NowPlayingProgressBar()
 			NowPlayingDurationsRow()
