@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.materialkolor.rememberDynamicColorScheme
@@ -73,6 +74,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.icons.Icons
@@ -89,6 +91,7 @@ import paige.navic.ui.theme.positive
 import paige.navic.ui.theme.purple
 import paige.navic.ui.theme.red
 import paige.navic.ui.theme.warning
+import paige.navic.util.core.toNetworkHeaders
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,13 +109,16 @@ fun LyricsShareSheet(
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
-	val model = remember(song.coverArtId) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
+	val model = remember(song.coverArtId, serverRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(song.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(song.coverArtId)
 			.diskCacheKey(song.coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
+			.httpHeaders(serverRequestHeaders.toNetworkHeaders())
 			.build()
 	}
 

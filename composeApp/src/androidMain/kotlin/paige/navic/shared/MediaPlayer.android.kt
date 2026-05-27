@@ -94,10 +94,10 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
 			.build().apply {
 				setSmallIcon(resourceProvider.icNavic)
-			}
+		}
 
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-			.setDefaultRequestProperties(preferenceManager.customHeadersMap())
+			.setDefaultRequestProperties(preferenceManager.serverRequestHeadersMap())
 		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
 		val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
@@ -113,7 +113,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 						.setUsage(C.USAGE_MEDIA)
 						.setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
 						.build(),
-					true
+					preferenceManager.respectAudioFocus
 				)
 				setMediaNotificationProvider(notificationProvider)
 				trackSelectionParameters =
@@ -151,7 +151,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		mediaSession = MediaSession.Builder(this, player)
 			.setSessionActivity(sessionPendingIntent)
-			.setBitmapLoader(CoilBitmapLoader(this))
+			.setBitmapLoader(CoilBitmapLoader(this, preferenceManager::serverRequestHeadersMap))
 			.build()
 	}
 

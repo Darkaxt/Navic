@@ -115,6 +115,7 @@ extensions.configure<KotlinMultiplatformExtension> {
 		namespace = "paige.navic"
 		compileSdk = libs.versions.android.compileSdk.get().toInt()
 		minSdk = libs.versions.android.minSdk.get().toInt()
+		withHostTest {}
 
 		androidResources.enable = true
 
@@ -152,6 +153,11 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.coil.gif)
 
 			implementation(libs.subsonicKotlin)
+		}
+
+		commonTest.dependencies {
+			implementation(kotlin("test"))
+			implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
 		}
 
 		androidMain.dependencies {

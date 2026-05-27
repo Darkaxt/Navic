@@ -493,10 +493,10 @@ class IOSMediaPlayerViewModel(
 						?.let { NSURL.URLWithString(it) } ?: return@runCatching null
 
 					val request = NSMutableURLRequest.requestWithURL(url).apply {
-						val customHeaders = preferenceManager.customHeadersMap()
-						if (customHeaders.isNotEmpty()) {
-							customHeaders.forEach { (key, value) ->
-								addValue(key, forHTTPHeaderField = value)
+						val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
+						if (serverRequestHeaders.isNotEmpty()) {
+							serverRequestHeaders.forEach { (key, value) ->
+								addValue(value, forHTTPHeaderField = key)
 							}
 						}
 					}
@@ -552,7 +552,7 @@ class IOSMediaPlayerViewModel(
 	}
 
 	private fun createAVPlayerItem(url: NSURL): AVPlayerItem {
-		val headers = preferenceManager.customHeadersMap()
+		val headers = preferenceManager.serverRequestHeadersMap()
 		if (headers.isEmpty() || url.isFileURL()) {
 			return AVPlayerItem(url)
 		}

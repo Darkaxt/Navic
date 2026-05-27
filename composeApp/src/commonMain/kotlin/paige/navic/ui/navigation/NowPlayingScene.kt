@@ -11,6 +11,7 @@ import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,8 +32,11 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
 import io.ktor.http.Url
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.ModalBottomSheet
@@ -141,18 +145,33 @@ class NowPlayingSceneStrategy<T : Any> : SceneStrategy<T> {
 private fun colorSchemeForCurrentSong(): ColorScheme {
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
 	val coverUri = remember(song?.coverArtId) {
 		song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
-	val networkLoader = rememberNetworkLoader(HttpClient().config {
-		install(HttpTimeout) {
-			requestTimeoutMillis = 60_000
-			connectTimeoutMillis = 60_000
-			socketTimeoutMillis = 60_000
+	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
+	val httpClient = remember(serverRequestHeaders) {
+		HttpClient {
+			install(HttpTimeout) {
+				requestTimeoutMillis = 60_000
+				connectTimeoutMillis = 60_000
+				socketTimeoutMillis = 60_000
+			}
+			if (serverRequestHeaders.isNotEmpty()) {
+				defaultRequest {
+					serverRequestHeaders.forEach { (key, value) -> header(key, value) }
+				}
+			}
 		}
-	})
+	}
+	DisposableEffect(httpClient) {
+		onDispose {
+			httpClient.close()
+		}
+	}
+	val networkLoader = rememberNetworkLoader(httpClient)
 	val dominantColorState = rememberDominantColorState(loader = networkLoader)
 	val scheme = rememberDynamicColorScheme(
 		seedColor = dominantColorState.color,

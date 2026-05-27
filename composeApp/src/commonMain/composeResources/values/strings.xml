@@ -51,6 +51,7 @@
 	<string name="title_changelog">Release notes</string>
 	<string name="title_network">Network</string>
 	<string name="title_streaming_quality">Streaming quality</string>
+	<string name="title_reverse_proxy_auth">Reverse proxy Basic Auth</string>
 	<string name="title_wifi">Wi-Fi</string>
 	<string name="title_cellular">Cellular</string>
 	<string name="title_select_lyrics">Select Lyrics</string>
@@ -69,6 +70,7 @@
 	<string name="subtitle_enable_scrobbling">Scrobble played tracks to your Navidrome server</string>
 	<string name="subtitle_gapless_playback">Experimental. Requires application restart. May conflict with audio offload on some devices</string>
 	<string name="subtitle_audio_offload">Experimental. Requires application restart. May conflict with gapless playback on some devices</string>
+	<string name="subtitle_respect_audio_focus">Turn off to keep Navic playing while WhatsApp or other apps play audio. Takes effect after playback restarts</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
@@ -126,6 +128,7 @@
 	<string name="option_choose_theme">Application theme</string>
 	<string name="option_replay_gain">ReplayGain</string>
 	<string name="option_gapless_playback">Gapless playback</string>
+	<string name="option_respect_audio_focus">Respect audio focus</string>
 	<string name="option_audio_offload">Audio offload</string>
 	<string name="option_live_status">Live status</string>
 	<string name="option_image_cache_size">Image cache size</string>
@@ -133,6 +136,10 @@
 	<string name="option_pending_actions">Pending sync actions</string>
 	<string name="option_downloaded_songs">Downloaded songs</string>
 	<string name="option_custom_headers">Custom server headers</string>
+	<string name="option_reverse_proxy_basic_auth">Reverse proxy Basic Auth</string>
+	<string name="subtitle_reverse_proxy_basic_auth">For Traefik or another proxy in front of Navidrome</string>
+	<string name="option_reverse_proxy_username">Proxy username</string>
+	<string name="option_reverse_proxy_password">Proxy password</string>
 	<string name="option_check_for_updates">Check for updates</string>
 	<string name="option_radio_name">Name</string>
 	<string name="option_radio_stream_url">Stream URL</string>

@@ -40,10 +40,12 @@ import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
 import navic.composeapp.generated.resources.option_replay_gain
+import navic.composeapp.generated.resources.option_respect_audio_focus
 import navic.composeapp.generated.resources.option_scrobble_percentage
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
+import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_streaming_quality
 import navic.composeapp.generated.resources.title_behaviour
 import navic.composeapp.generated.resources.title_playback
@@ -118,6 +120,12 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_gapless_playback)) },
 							value = preferenceManager.gaplessPlayback,
 							onSetValue = { preferenceManager.gaplessPlayback = it }
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_respect_audio_focus)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_respect_audio_focus)) },
+							value = preferenceManager.respectAudioFocus,
+							onSetValue = { preferenceManager.respectAudioFocus = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_audio_offload)) },

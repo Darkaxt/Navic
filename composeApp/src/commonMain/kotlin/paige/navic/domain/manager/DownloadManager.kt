@@ -1,11 +1,11 @@
 package paige.navic.domain.manager
 
 import coil3.SingletonImageLoader
+import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Size
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
@@ -41,6 +41,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
+import paige.navic.util.core.toNetworkHeaders
 import coil3.PlatformContext as CoilPlatformContext
 
 class DownloadManager(
@@ -54,14 +55,7 @@ class DownloadManager(
 	private val preferenceManager: PreferenceManager
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-	private val client = HttpClient {
-		val customHeaders = preferenceManager.customHeadersMap()
-		if (customHeaders.isNotEmpty()) {
-			defaultRequest {
-				customHeaders.forEach { (key, value) -> header(key, value) }
-			}
-		}
-	}
+	private val client = HttpClient()
 	private val activeDownloadsMutex = Mutex()
 	private val activeDownloads = mutableMapOf<String, Job>()
 	private val downloadSemaphore =
@@ -292,6 +286,7 @@ class DownloadManager(
 			.diskCacheKey(coverId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.DISABLED)
+			.httpHeaders(preferenceManager.serverRequestHeadersMap().toNetworkHeaders())
 			.build()
 
 		SingletonImageLoader.get(coilPlatformContext).execute(imageRequest)
@@ -341,6 +336,7 @@ class DownloadManager(
 
 		val request = client.prepareRequest(sessionManager.api.getStreamUrl(song.id)) {
 			method = HttpMethod.Get
+			preferenceManager.serverRequestHeadersMap().forEach { (key, value) -> header(key, value) }
 			onDownload { bytesSentTotal, contentLength ->
 				if (contentLength != null && contentLength > 0L) {
 					val progress = (bytesSentTotal.toDouble() / contentLength).toFloat()

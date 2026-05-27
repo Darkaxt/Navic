@@ -22,6 +22,8 @@ import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.domain.models.settings.ToolbarPosition
 import com.russhwolf.settings.Settings as KmpSettings
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 class PreferenceManager(
 	settings: KmpSettings
@@ -57,6 +59,10 @@ class PreferenceManager(
 	var nowPlayingSongInfo by preference(true)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
 	var customHeaders by preference("")
+	var reverseProxyBasicAuthEnabled by preference(false)
+	var reverseProxyBasicAuthUsername by preference("")
+	var reverseProxyBasicAuthPassword by preference("")
+	var respectAudioFocus by preference(true)
 	var checkForUpdates by preference(true)
 
 	// navigation bar settings
@@ -96,6 +102,21 @@ class PreferenceManager(
 			val key = rawKey.trim()
 			val value = rawValue.trim()
 			if (key.isNotEmpty() && value.isNotEmpty()) put(key, value)
+		}
+	}
+
+	@OptIn(ExperimentalEncodingApi::class)
+	fun serverRequestHeadersMap(): Map<String, String> = buildMap {
+		putAll(customHeadersMap())
+
+		if (
+			reverseProxyBasicAuthEnabled &&
+			reverseProxyBasicAuthUsername.isNotEmpty() &&
+			reverseProxyBasicAuthPassword.isNotEmpty()
+		) {
+			val credentials = "${reverseProxyBasicAuthUsername}:${reverseProxyBasicAuthPassword}"
+			keys.filter { it.equals("Authorization", ignoreCase = true) }.forEach { remove(it) }
+			put("Authorization", "Basic ${Base64.encode(credentials.encodeToByteArray())}")
 		}
 	}
 

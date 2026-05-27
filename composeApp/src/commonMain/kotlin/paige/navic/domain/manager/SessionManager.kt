@@ -45,10 +45,10 @@ class SessionManager(
 				agent = "Navic"
 			}
 
-			val customHeaders = preferenceManager.customHeadersMap()
-			if (customHeaders.isNotEmpty()) {
+			val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
+			if (serverRequestHeaders.isNotEmpty()) {
 				defaultRequest {
-					customHeaders.forEach { (key, value) -> header(key, value) }
+					serverRequestHeaders.forEach { (key, value) -> header(key, value) }
 				}
 			}
 		}

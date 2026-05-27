@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.media3.common.util.BitmapLoader
 import androidx.media3.common.util.UnstableApi
 import coil3.imageLoader
+import coil3.network.httpHeaders
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -17,9 +18,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import paige.navic.util.core.toNetworkHeaders
 
 @UnstableApi
-class CoilBitmapLoader(context: Context) : BitmapLoader {
+class CoilBitmapLoader(
+	context: Context,
+	private val requestHeaders: () -> Map<String, String> = { emptyMap() }
+) : BitmapLoader {
 	private val applicationContext = context.applicationContext
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -43,6 +48,7 @@ class CoilBitmapLoader(context: Context) : BitmapLoader {
 			val result = runCatching {
 				val request = ImageRequest.Builder(applicationContext)
 					.data(uri)
+					.httpHeaders(requestHeaders().toNetworkHeaders())
 					.apply {
 						uri.getQueryParameter("cacheKey")?.let { key ->
 							memoryCacheKey(key)

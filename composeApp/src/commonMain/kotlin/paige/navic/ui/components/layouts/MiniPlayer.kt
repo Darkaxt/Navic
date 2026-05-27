@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import coil3.compose.AsyncImage
+import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.kyant.capsule.ContinuousRoundedRectangle
@@ -78,6 +79,7 @@ import paige.navic.ui.components.common.playPauseIconPainter
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
+import paige.navic.util.core.toNetworkHeaders
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -104,13 +106,15 @@ fun MiniPlayer(
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
-	val model = remember(song?.coverArtId) {
+	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
+	val model = remember(song?.coverArtId, serverRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(song?.coverArtId)
 			.diskCacheKey(song?.coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
+			.httpHeaders(serverRequestHeaders.toNetworkHeaders())
 			.build()
 	}
 

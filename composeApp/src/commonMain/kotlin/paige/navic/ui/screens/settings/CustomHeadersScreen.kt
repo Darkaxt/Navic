@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilledTonalButton
@@ -27,11 +28,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_delete
 import navic.composeapp.generated.resources.action_new
 import navic.composeapp.generated.resources.option_custom_headers
+import navic.composeapp.generated.resources.option_reverse_proxy_basic_auth
+import navic.composeapp.generated.resources.option_reverse_proxy_password
+import navic.composeapp.generated.resources.option_reverse_proxy_username
+import navic.composeapp.generated.resources.subtitle_reverse_proxy_basic_auth
+import navic.composeapp.generated.resources.title_reverse_proxy_auth
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
@@ -44,6 +53,7 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.theme.defaultFont
 import kotlin.random.Random
 
@@ -95,6 +105,45 @@ fun SettingsCustomHeadersScreen() {
 					.verticalScroll(rememberScrollState())
 					.padding(top = 16.dp, end = 16.dp, start = 16.dp)
 			) {
+				FormTitle(stringResource(Res.string.title_reverse_proxy_auth))
+				Form(
+					Modifier.fillMaxWidth(),
+					bottomPadding = 16.dp
+				) {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_reverse_proxy_basic_auth)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_reverse_proxy_basic_auth)) },
+						value = preferenceManager.reverseProxyBasicAuthEnabled,
+						onSetValue = {
+							preferenceManager.reverseProxyBasicAuthEnabled = it
+							sessionManager.refreshClient()
+						}
+					)
+					AnimatedVisibility(
+						modifier = Modifier.fillMaxWidth(),
+						visible = preferenceManager.reverseProxyBasicAuthEnabled
+					) {
+						Column(Modifier.fillMaxWidth()) {
+							ProxyAuthField(
+								value = preferenceManager.reverseProxyBasicAuthUsername,
+								onValueChange = {
+									preferenceManager.reverseProxyBasicAuthUsername = it
+									sessionManager.refreshClient()
+								},
+								placeholder = stringResource(Res.string.option_reverse_proxy_username)
+							)
+							ProxyAuthField(
+								value = preferenceManager.reverseProxyBasicAuthPassword,
+								onValueChange = {
+									preferenceManager.reverseProxyBasicAuthPassword = it
+									sessionManager.refreshClient()
+								},
+								placeholder = stringResource(Res.string.option_reverse_proxy_password),
+								isPassword = true
+							)
+						}
+					}
+				}
 				FormTitle(stringResource(Res.string.option_custom_headers))
 				Form(
 					Modifier.animateContentSize().fillMaxWidth(),
@@ -141,6 +190,37 @@ fun SettingsCustomHeadersScreen() {
 				}
 			}
 		}
+	}
+}
+
+@Composable
+private fun ProxyAuthField(
+	value: String,
+	onValueChange: (String) -> Unit,
+	placeholder: String,
+	isPassword: Boolean = false
+) {
+	FormRow {
+		TextField(
+			value = value,
+			onValueChange = onValueChange,
+			placeholder = { Text(placeholder) },
+			modifier = Modifier.fillMaxWidth(),
+			singleLine = true,
+			visualTransformation = if (isPassword) {
+				PasswordVisualTransformation()
+			} else {
+				VisualTransformation.None
+			},
+			keyboardOptions = KeyboardOptions(
+				keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text
+			),
+			colors = TextFieldDefaults.colors(
+				focusedIndicatorColor = Color.Transparent,
+				unfocusedIndicatorColor = Color.Transparent
+			),
+			shape = MaterialTheme.shapes.medium
+		)
 	}
 }
 
