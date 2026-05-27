@@ -80,7 +80,9 @@ val viewModelModule = module {
 	viewModel { params ->
 		NowPlayingViewModel(
 			player = params.get(),
-			songRepository = get()
+			songRepository = get(),
+			lidaClipsRepository = get(),
+			preferenceManager = get()
 		)
 	}
 	viewModel { params ->

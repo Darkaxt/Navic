@@ -17,12 +17,14 @@ import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.util.core.Logger
+import paige.navic.util.core.synchronized
 
 private const val TAG = "LidaClipsRepository"
 
 class LidaClipsRepository(
 	private val preferenceManager: PreferenceManager
 ) {
+	private val lookupCache = LidaClipsLookupCache()
 	private val client = HttpClient {
 		install(HttpTimeout) {
 			requestTimeoutMillis = 30000
@@ -69,11 +71,34 @@ class LidaClipsRepository(
 		}
 	}
 
-	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> = runCatching {
+	suspend fun prefetchClipByNavidromeSongId(songId: String) {
+		findClipByNavidromeSongId(songId)
+	}
+
+	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> {
 		val baseUrl = preferenceManager.lidaClipsBaseUrl
+		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+		val cacheKey = lidaClipsLookupCacheKey(baseUrl, requestHeaders, songId)
+
+		lookupCache.get(cacheKey)?.let { cached ->
+			return Result.success(cached.clip)
+		}
+
+		return fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
+			.onSuccess { clip -> lookupCache.put(cacheKey, clip) }
+			.onFailure { error ->
+				Logger.w(TAG, "Clip lookup failed for Navidrome song $songId", error)
+			}
+	}
+
+	private suspend fun fetchClipByNavidromeSongId(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		songId: String
+	): Result<DomainLidaClip?> = runCatching {
 		val response = client.get(lidaClipsNavidromeClipUrl(baseUrl, songId)) {
 			accept(ContentType.Application.Json)
-			preferenceManager.lidaClipsRequestHeadersMap().forEach { (key, value) ->
+			requestHeaders.forEach { (key, value) ->
 				header(key, value)
 			}
 		}
@@ -84,8 +109,6 @@ class LidaClipsRepository(
 				?.toDomainModel(baseUrl)
 			else -> error("LidaClips returned HTTP ${response.status.value}")
 		}
-	}.onFailure { error ->
-		Logger.w(TAG, "Clip lookup failed for Navidrome song $songId", error)
 	}
 }
 
@@ -107,6 +130,43 @@ internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String 
 internal fun lidaClipsRequestHeaders(apiKey: String): Map<String, String> {
 	val trimmed = apiKey.trim()
 	return if (trimmed.isEmpty()) emptyMap() else mapOf("X-Api-Key" to trimmed)
+}
+
+internal data class LidaClipsLookupCacheKey(
+	val baseUrl: String,
+	val requestHeaders: List<Pair<String, String>>,
+	val songId: String
+)
+
+internal fun lidaClipsLookupCacheKey(
+	baseUrl: String,
+	requestHeaders: Map<String, String>,
+	songId: String
+): LidaClipsLookupCacheKey =
+	LidaClipsLookupCacheKey(
+		baseUrl = normalizeLidaClipsBaseUrl(baseUrl),
+		requestHeaders = requestHeaders.entries
+			.map { it.key.trim() to it.value.trim() }
+			.filter { (key, value) -> key.isNotEmpty() && value.isNotEmpty() }
+			.sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second }),
+		songId = songId
+	)
+
+internal class LidaClipsLookupCache {
+	data class Hit(val clip: DomainLidaClip?)
+
+	private val lock = Any()
+	private val clips = mutableMapOf<LidaClipsLookupCacheKey, DomainLidaClip?>()
+
+	fun get(key: LidaClipsLookupCacheKey): Hit? = synchronized(lock) {
+		if (clips.containsKey(key)) Hit(clips[key]) else null
+	}
+
+	fun put(key: LidaClipsLookupCacheKey, clip: DomainLidaClip?) {
+		synchronized(lock) {
+			clips[key] = clip
+		}
+	}
 }
 
 internal fun resolveLidaClipsStreamUrl(

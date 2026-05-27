@@ -2,16 +2,23 @@ package paige.navic.ui.screens.nowPlaying.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.nextLidaClipsPrefetchKey
+import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
 
 class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
-	private val songRepository: SongRepository
+	private val songRepository: SongRepository,
+	private val lidaClipsRepository: LidaClipsRepository,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
 
 	private val _songIsStarred = MutableStateFlow(false)
@@ -20,12 +27,15 @@ class NowPlayingViewModel(
 	private val _songRating = MutableStateFlow(0)
 	val songRating = _songRating.asStateFlow()
 
+	private var lastLidaClipsPrefetchKey: String? = null
+
 	init {
 		viewModelScope.launch {
 			player.uiState.collect { state ->
 				state.currentSong?.let { song ->
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
+					prefetchLidaClip(song.id)
 				}
 			}
 		}
@@ -54,6 +64,21 @@ class NowPlayingViewModel(
 					songRepository.rateSong(song, rating)
 				}
 			}
+		}
+	}
+
+	private fun prefetchLidaClip(songId: String) {
+		val nextPrefetchKey = nextLidaClipsPrefetchKey(
+			enabled = preferenceManager.lidaClipsEnabled,
+			baseUrl = preferenceManager.lidaClipsBaseUrl,
+			apiKey = preferenceManager.lidaClipsApiKey,
+			songId = songId,
+			lastPrefetchKey = lastLidaClipsPrefetchKey
+		) ?: return
+
+		lastLidaClipsPrefetchKey = nextPrefetchKey
+		viewModelScope.launch(Dispatchers.IO) {
+			lidaClipsRepository.prefetchClipByNavidromeSongId(songId)
 		}
 	}
 }
