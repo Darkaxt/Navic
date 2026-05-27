@@ -1,7 +1,6 @@
 package paige.navic.domain.repositories
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -16,10 +15,10 @@ class CollectionRepositoryTest {
 	}
 
 	@Test
-	fun emptyRemotePlaylistDoesNotRequestRefresh() {
+	fun playlistWithNoLocalSongsRequestsRefreshEvenWhenCachedSongCountIsZero() {
 		val playlist = playlist(songCount = 0)
 
-		assertFalse(shouldRefreshCollectionOnLoad(fullRefresh = false, localData = playlist))
+		assertTrue(shouldRefreshCollectionOnLoad(fullRefresh = false, localData = playlist))
 	}
 
 	@Test
