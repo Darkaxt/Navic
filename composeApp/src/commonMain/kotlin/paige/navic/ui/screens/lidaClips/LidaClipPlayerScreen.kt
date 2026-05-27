@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +35,11 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipPlaybackState
+import paige.navic.domain.models.shouldPauseMusicForLidaClip
+import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -87,6 +91,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							clip = clip,
 							requestHeaders = preferenceManager.lidaClipsRequestHeadersMap(),
 							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
+							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
 							modifier = Modifier.fillMaxSize()
 						)
 					}
@@ -101,10 +106,41 @@ private fun LidaClipPlayerContent(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	pauseMusicPlayback: Boolean,
 	modifier: Modifier = Modifier
 ) {
+	val player = koinInject<MediaPlayerViewModel>()
 	var playbackState by remember(clip.streamUrl) {
 		mutableStateOf(LidaClipPlaybackState())
+	}
+
+	DisposableEffect(clip.id, pauseMusicPlayback, player) {
+		val playerState = player.uiState.value
+		val pausedSongId = playerState.currentSong?.id?.takeIf {
+			shouldPauseMusicForLidaClip(
+				pauseMusicPlayback = pauseMusicPlayback,
+				hasCurrentSong = true,
+				musicIsPaused = playerState.isPaused
+			)
+		}
+
+		if (pausedSongId != null) {
+			player.pause()
+		}
+
+		onDispose {
+			val currentState = player.uiState.value
+			if (
+				shouldResumeMusicAfterLidaClip(
+					pauseMusicPlayback = pauseMusicPlayback,
+					pausedSongId = pausedSongId,
+					currentSongId = currentState.currentSong?.id,
+					musicIsPaused = currentState.isPaused
+				)
+			) {
+				player.resume()
+			}
+		}
 	}
 
 	Column(
