@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toRect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -20,6 +22,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.lidaClipPlaybackErrorMessage
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -27,11 +30,14 @@ actual fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	retryKey: Int,
+	onPlaybackReady: () -> Unit,
+	onPlaybackError: (String) -> Unit,
 	modifier: Modifier
 ) {
 	val context = LocalContext.current
 	val activity = LocalActivity.current
-	val player = remember(context, clip.streamUrl, requestHeaders) {
+	val player = remember(context, clip.streamUrl, requestHeaders, retryKey) {
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(requestHeaders)
 		val dataSourceFactory = DefaultDataSource.Factory(
@@ -45,6 +51,29 @@ actual fun PlatformLidaClipPlayer(
 				setMediaItem(MediaItem.fromUri(clip.streamUrl))
 				prepare()
 				playWhenReady = true
+		}
+	}
+
+	DisposableEffect(player, onPlaybackReady, onPlaybackError) {
+		val listener = object : Player.Listener {
+			override fun onPlaybackStateChanged(playbackState: Int) {
+				if (playbackState == Player.STATE_READY) {
+					onPlaybackReady()
+				}
+			}
+
+			override fun onPlayerError(error: PlaybackException) {
+				onPlaybackError(
+					lidaClipPlaybackErrorMessage(
+						errorCodeName = error.errorCodeName,
+						message = error.message
+					)
+				)
+			}
+		}
+		player.addListener(listener)
+		onDispose {
+			player.removeListener(listener)
 		}
 	}
 

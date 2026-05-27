@@ -28,7 +28,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
 * Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
 * Playlist detail pages auto-refresh if local playlist metadata is present but the song cache has not been hydrated yet
-* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, and Android Picture-in-Picture
+* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, retryable playback errors, and Android Picture-in-Picture
 * Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
 * Android can optionally resume a paused queue when headphones, USB audio, or Bluetooth audio connect
 * Kreate-style Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions
@@ -57,7 +57,7 @@ Open Settings -> Playback and turn `Respect audio focus` off. Restart playback i
 5. Optionally enable `Picture-in-Picture` on Android.
 6. From the now-playing song menu, use `Play music video` when a matching clip exists.
 
-Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup. The now-playing Music Video action remains visible while availability is unknown, then hides once the cache confirms that no clip exists for the track. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. iOS currently shows an unsupported message until a native video player is added.
+Android plays the clip in-app through Media3. Navic caches clip lookup results for the active LidaClips URL/API key and prefetches the current now-playing song, so repeated video opens avoid another lookup. The now-playing Music Video action remains visible while availability is unknown, then hides once the cache confirms that no clip exists for the track. If the video stream fails, the player shows a retryable error with the Media3 error code. With Picture-in-Picture enabled, the video can stay visible when you leave Navic. iOS currently shows an unsupported message until a native video player is added.
 
 ## Screenshots
 

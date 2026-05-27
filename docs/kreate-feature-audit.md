@@ -15,12 +15,13 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
 * LidaClips clip lookup cache/prefetch: Navic now caches clip lookup hits and misses by LidaClips base URL, API key/header set, and Navidrome song id, and prefetches the now-playing song while LidaClips is enabled.
 * LidaClips action availability state: Navic now keeps the now-playing Music Video action visible while availability is unknown, keeps it visible for cached hits, and hides it for cached misses.
+* LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
 
 ## Best Next Transplants
 
-1. LidaClips playback diagnostics and retry affordances
-   * The video screen currently reports a missing clip, but stream/playback failures rely mostly on platform player behavior.
-   * A small retry/open-again path and clearer failed-stream state would make LidaClips easier to test on-device.
+1. LidaClips playback/session polish
+   * The current player is functional and retryable, but it does not yet coordinate music playback, remember per-clip position, or offer a full-screen orientation flow.
+   * These should be based on real-device testing so the video player does not fight the music session or Android PiP behavior.
 
 ## Higher-Risk Candidates
 
@@ -32,5 +33,5 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 ## Recommended Order
 
 1. Smoke-test LidaClips playback, PiP, and the system equalizer launcher on a real Android device.
-2. Add LidaClips playback diagnostics/retry affordances if on-device testing shows stream failures that are hard to recover from.
+2. Use real-device LidaClips testing to decide whether video should pause/resume music, keep independent audio, or expose a setting.
 3. Revisit higher-risk playback device-event options only after core LidaClips playback has been tested on-device.

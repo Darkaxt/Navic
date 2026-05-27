@@ -9,5 +9,8 @@ expect fun PlatformLidaClipPlayer(
 	clip: DomainLidaClip,
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
+	retryKey: Int,
+	onPlaybackReady: () -> Unit,
+	onPlaybackError: (String) -> Unit,
 	modifier: Modifier
 )
