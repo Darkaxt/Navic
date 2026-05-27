@@ -13,6 +13,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Persistent queue and startup resume: Navic now exposes Playback settings to save/restore the queue and optionally resume playback on startup. Persistent queue defaults on to preserve Navic's existing restore behavior; resume-on-start defaults off.
 * LidaClips Picture-in-Picture: Navic now exposes a LidaClips Android PiP toggle under Settings -> Data & Storage -> Music video clips. The Android video surface provides PiP source bounds, uses Android 12+ auto-enter params, and falls back to `onUserLeaveHint` on Android 8-11.
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
+* Pause on zero volume: Navic now exposes an Android Playback setting that pauses when Android media volume reaches zero and resumes only when Navic paused itself and media volume is restored.
 * LidaClips clip lookup cache/prefetch: Navic now caches clip lookup hits and misses by LidaClips base URL, API key/header set, and Navidrome song id, and prefetches the now-playing song while LidaClips is enabled.
 * LidaClips action availability state: Navic now keeps the now-playing Music Video action visible while availability is unknown, keeps it visible for cached hits, and hides it for cached misses.
 * LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
@@ -29,7 +30,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 ## Higher-Risk Candidates
 
 * Loudness normalization, bass boost, and reverb: Kreate uses Android audio effects and/or track loudness metadata. Navic already has ReplayGain support, so this needs design work to avoid conflicting gain paths.
-* Pause on volume zero, volume buttons change song, and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
+* Volume buttons change song and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
 * Queue auto-append and Discover-style queue generation: valuable, but product behavior needs more definition for a Navidrome library client.
 * Visualizers, thumbnail animations, and extensive player layout variants: high UI churn and likely not worth transplanting until core playback/video behavior is stable.
 

@@ -39,6 +39,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * `Respect audio focus` can be turned off so Navic keeps playing while WhatsApp or another app plays audio.
 * Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
 * Optional resume of a paused queue when headphones, USB audio, or Bluetooth audio connect.
+* Optional pause/resume behavior when Android media volume is muted to zero and then restored.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions.

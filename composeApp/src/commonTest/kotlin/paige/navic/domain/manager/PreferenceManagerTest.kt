@@ -140,6 +140,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun volumeZeroPauseDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.pausePlaybackOnVolumeZero)
+
+		manager.pausePlaybackOnVolumeZero = true
+
+		assertTrue(manager.pausePlaybackOnVolumeZero)
+	}
+
+	@Test
 	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

@@ -10,9 +10,11 @@ import android.media.audiofx.AudioEffect
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
@@ -64,7 +66,9 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
+import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
@@ -84,6 +88,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val resourceProvider: ResourceProvider by inject()
 	private var audioManager: AudioManager? = null
 	private var audioDeviceCallback: AudioDeviceCallback? = null
+	private var volumeZeroObserver: ContentObserver? = null
 
 	private val connectivityManager: ConnectivityManager by inject()
 
@@ -147,6 +152,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}
 
 		registerAudioDeviceCallback(player)
+		registerVolumeZeroObserver(player)
 
 		scrobbleManager =
 			AndroidScrobbleManager(player, serviceScope, connectivityManager, syncManager, sessionManager, preferenceManager)
@@ -181,6 +187,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 	override fun onDestroy() {
 		unregisterAudioDeviceCallback()
+		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
 		serviceScope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)
@@ -224,6 +231,45 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		audioDeviceCallback = null
 		audioManager = null
+	}
+
+	private fun registerVolumeZeroObserver(player: ExoPlayer) {
+		if (!preferenceManager.pausePlaybackOnVolumeZero) return
+
+		val manager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+		val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+			private var pausedByZeroVolume = false
+
+			override fun onChange(selfChange: Boolean) {
+				val volume = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+				if (
+					shouldPausePlaybackWhenVolumeZero(
+						pausePlaybackOnVolumeZero = preferenceManager.pausePlaybackOnVolumeZero,
+						isPlaying = player.isPlaying,
+						volume = volume
+					)
+				) {
+					player.pause()
+					pausedByZeroVolume = true
+				} else if (
+					shouldResumePlaybackAfterVolumeRestored(
+						pausePlaybackOnVolumeZero = preferenceManager.pausePlaybackOnVolumeZero,
+						pausedByZeroVolume = pausedByZeroVolume,
+						volume = volume
+					)
+				) {
+					player.play()
+					pausedByZeroVolume = false
+				}
+			}
+		}
+		volumeZeroObserver = observer
+		contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, observer)
+	}
+
+	private fun unregisterVolumeZeroObserver() {
+		volumeZeroObserver?.let(contentResolver::unregisterContentObserver)
+		volumeZeroObserver = null
 	}
 
 	private fun AudioDeviceInfo.canPlayMusic(): Boolean {
