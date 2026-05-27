@@ -62,6 +62,9 @@ class PreferenceManager(
 	var reverseProxyBasicAuthEnabled by preference(false)
 	var reverseProxyBasicAuthUsername by preference("")
 	var reverseProxyBasicAuthPassword by preference("")
+	var lidaClipsEnabled by preference(false)
+	var lidaClipsBaseUrl by preference("https://clips.remaxku.eu")
+	var lidaClipsApiKey by preference("")
 	var respectAudioFocus by preference(true)
 	var checkForUpdates by preference(true)
 
@@ -119,6 +122,9 @@ class PreferenceManager(
 			put("Authorization", "Basic ${Base64.encode(credentials.encodeToByteArray())}")
 		}
 	}
+
+	fun lidaClipsRequestHeadersMap(): Map<String, String> =
+		paige.navic.domain.repositories.lidaClipsRequestHeaders(lidaClipsApiKey)
 
 	var offlineMode by preference(OfflineMode.Auto)
 }

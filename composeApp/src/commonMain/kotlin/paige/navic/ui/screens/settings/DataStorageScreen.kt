@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import coil3.SingletonImageLoader
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -71,10 +72,12 @@ import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
+import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_offline_mode
+import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.subtitle_pending_actions
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
@@ -88,17 +91,20 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.icons.Icons
+import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.layouts.NestedTopBar
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import kotlin.time.Clock
@@ -109,6 +115,7 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 fun SettingsDataStorageScreen() {
 	val viewModel = koinViewModel<SettingsDataStorageViewModel>()
 
+	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val scope = rememberCoroutineScope()
@@ -221,6 +228,21 @@ fun SettingsDataStorageScreen() {
 							}
 						}
 					)
+					FormRow(
+						onClick = dropUnlessResumed {
+							backStack.add(Screen.Settings.LidaClips)
+						}
+					) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.option_lida_clips))
+							Text(
+								stringResource(Res.string.subtitle_lida_clips),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Icon(Icons.Outlined.ChevronForward, null)
+					}
 				}
 
 				FormTitle(stringResource(Res.string.title_sync_control))

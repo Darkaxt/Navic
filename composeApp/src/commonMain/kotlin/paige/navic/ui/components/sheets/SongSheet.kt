@@ -39,6 +39,7 @@ import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_play_next
+import navic.composeapp.generated.resources.action_play_music_video
 import navic.composeapp.generated.resources.action_remove_from_playlist
 import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_share
@@ -64,6 +65,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Star
+import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Bedtime
@@ -96,6 +98,7 @@ fun SongSheet(
 	starred: Boolean? = null,
 	onSetStarred: ((Boolean) -> Unit)? = null,
 	onShare: (() -> Unit)? = null,
+	onPlayMusicVideo: (() -> Unit)? = null,
 	onPlayNext: (() -> Unit)? = null,
 	onAddToQueue: (() -> Unit)? = null,
 	onTrackInfo: (() -> Unit)? = null,
@@ -186,6 +189,20 @@ fun SongSheet(
 					onClick = {
 						platformContext.clickSound()
 						onShare()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onPlayMusicVideo != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_play_music_video)) },
+					leadingContent = { Icon(Icons.Filled.Play, null) },
+					onClick = {
+						platformContext.clickSound()
+						onPlayMusicVideo()
 						onDismissRequest()
 					},
 					colors = colors,

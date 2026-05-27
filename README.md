@@ -28,6 +28,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
 * Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
 * Playlist detail pages auto-refresh if local playlist metadata is present but the song cache has not been hydrated yet
+* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams
 
 ### Traefik Basic Auth setup
 
@@ -41,6 +42,16 @@ Advanced users can leave the Basic Auth toggle off and add a manual `Authorizati
 ### WhatsApp training audio setup
 
 Open Settings -> Playback and turn `Respect audio focus` off. Restart playback if the player service was already running.
+
+### LidaClips setup
+
+1. Open Settings -> Data & Storage -> Music video clips.
+2. Enable `LidaClips`.
+3. Keep `https://clips.remaxku.eu` or enter your LidaClips base URL.
+4. Enter the LidaClips API key and use `Test connection`.
+5. From the now-playing song menu, use `Play music video` when a matching clip exists.
+
+Android plays the clip in-app through Media3. iOS currently shows an unsupported message until a native video player is added.
 
 ## Screenshots
 

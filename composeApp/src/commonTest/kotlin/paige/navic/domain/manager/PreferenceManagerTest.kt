@@ -87,4 +87,24 @@ class PreferenceManagerTest {
 		manager.respectAudioFocus = false
 		assertFalse(manager.respectAudioFocus)
 	}
+
+	@Test
+	fun lidaClipsPreferencesDefaultToConfiguredServiceButDisabled() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.lidaClipsEnabled)
+		assertEquals("https://clips.remaxku.eu", manager.lidaClipsBaseUrl)
+		assertEquals(emptyMap(), manager.lidaClipsRequestHeadersMap())
+	}
+
+	@Test
+	fun lidaClipsRequestHeadersMapIncludesTrimmedApiKey() {
+		val manager = PreferenceManager(MapSettings())
+		manager.lidaClipsApiKey = " secret "
+
+		assertEquals(
+			mapOf("X-Api-Key" to "secret"),
+			manager.lidaClipsRequestHeadersMap()
+		)
+	}
 }

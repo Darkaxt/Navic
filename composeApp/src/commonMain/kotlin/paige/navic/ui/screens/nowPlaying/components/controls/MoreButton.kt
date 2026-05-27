@@ -21,6 +21,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreHoriz
@@ -38,6 +39,7 @@ fun NowPlayingMoreButton(
 ) {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
@@ -80,6 +82,11 @@ fun NowPlayingMoreButton(
 				onShare = {
 					shareId = song.id
 				},
+				onPlayMusicVideo = if (preferenceManager.lidaClipsEnabled) {
+					dropUnlessResumed {
+						backStack.add(Screen.LidaClipPlayer(song.id))
+					}
+				} else null,
 				onAddToPlaylist = {
 					playlistDialogShown = true
 				},

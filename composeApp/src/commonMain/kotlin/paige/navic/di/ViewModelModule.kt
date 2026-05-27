@@ -14,6 +14,7 @@ import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
+import paige.navic.ui.screens.lidaClips.LidaClipPlayerViewModel
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistCreateDialogViewModel
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistUpdateDialogViewModel
@@ -24,6 +25,7 @@ import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
+import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareListViewModel
 import paige.navic.ui.screens.song.viewmodels.SongDetailViewModel
@@ -73,11 +75,18 @@ val viewModelModule = module {
 	viewModelOf(::CollectionDetailViewModel)
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
+	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->
 		NowPlayingViewModel(
 			player = params.get(),
 			songRepository = get()
+		)
+	}
+	viewModel { params ->
+		LidaClipPlayerViewModel(
+			songId = params.get(),
+			repository = get()
 		)
 	}
 	viewModelOf(::NavtabsViewModel)

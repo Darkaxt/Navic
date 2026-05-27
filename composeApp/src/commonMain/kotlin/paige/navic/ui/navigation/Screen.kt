@@ -83,6 +83,9 @@ sealed interface Screen : NavKey {
 	data object PlaybackSpeed : Screen
 	@Immutable
 	@Serializable
+	data class LidaClipPlayer(val songId: String) : Screen
+	@Immutable
+	@Serializable
 	data class CollectionDetail(
 		val collectionId: String,
 		val tab: String
@@ -135,6 +138,9 @@ sealed interface Screen : NavKey {
 		@Immutable
 		@Serializable
 		data object DataStorage : Settings
+		@Immutable
+		@Serializable
+		data object LidaClips : Settings
 		@Immutable
 		@Serializable
 		data object Fonts : Settings
