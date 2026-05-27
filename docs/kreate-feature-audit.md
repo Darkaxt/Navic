@@ -18,6 +18,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Pause on zero volume: Navic now exposes an Android Playback setting that pauses when Android media volume reaches zero and resumes only when Navic paused itself and media volume is restored.
 * Audio fade: Navic now exposes an Android Playback setting for Kreate-style pause/resume fade durations while keeping immediate pause/resume as the default.
 * Bass boost: Navic now exposes an Android Playback toggle and strength slider, then applies Android `BassBoost` to the active Media3 audio session when available.
+* Reverb presets: Navic now exposes an Android Playback setting for Kreate-style `PresetReverb` choices and applies the selected auxiliary effect through the playback service's ExoPlayer session.
 * Search history controls: Navic now persists recent searches across app restarts, lets the user clear or remove entries from Search, and exposes a Data & Storage setting that hides history while stopping newly submitted queries from being recorded.
 * LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API-key/header fingerprint, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, prefetches the now-playing song while LidaClips is enabled, and avoids embedding the raw API key in internal cache/prefetch keys.
 * LidaClips action availability policy: Navic now keeps the now-playing Music Video action visible whenever LidaClips is enabled, configured, and not hidden by the user, so cached misses still let the user open the refreshable clip screen.
@@ -38,12 +39,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 
 ## Best Next Transplants
 
-1. Reverb presets
-   * Kreate applies Android `PresetReverb` to the player session. Navic can likely expose the Android preset list in Playback settings, but it needs real-device testing because auxiliary effects are device/ROM dependent.
-2. Queue radio / auto-append behavior
+1. Queue radio / auto-append behavior
    * Kreate can extend the queue from related songs. Navic needs a Navidrome-native version, probably based on similar songs/artists or server random-song endpoints rather than Kreate's YouTube radio source.
-3. Device-event controls
+2. Device-event controls
    * Kreate-style volume-button skip and shake-to-skip are useful but should be opt-in and conservative because they affect background device behavior.
+3. Loudness normalization
+   * Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain, so this should not be copied directly without deciding how the two gain systems interact.
 
 ## Higher-Risk Candidates
 
@@ -54,6 +55,6 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 
 ## Recommended Order
 
-1. Smoke-test bass boost and the system equalizer launcher on a real Android device.
-2. Add reverb presets if Android auxiliary effects behave reliably on the target device.
-3. Design a Navidrome-native queue auto-append/radio feature instead of copying Kreate's YouTube radio logic directly.
+1. Smoke-test bass boost, reverb, and the system equalizer launcher on a real Android device.
+2. Design a Navidrome-native queue auto-append/radio feature instead of copying Kreate's YouTube radio logic directly.
+3. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.

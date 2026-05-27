@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import paige.navic.domain.manager.base.BasePreferenceManager
+import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AnimationStyle
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -88,6 +89,7 @@ class PreferenceManager(
 	var audioFadeDurationMs by preference(0)
 	var bassBoostEnabled by preference(false)
 	var bassBoostStrength by preference(500)
+	var audioReverbPreset by preference(AudioReverbPreset.Off)
 	var pauseBetweenSongsSeconds by preference(0)
 	var smartRewindSeconds by preference(1)
 	var persistentQueue by preference(true)

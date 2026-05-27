@@ -44,6 +44,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Optional pause/resume behavior when Android media volume is muted to zero and then restored.
 * Kreate-inspired Android audio fade durations for smoother pause and resume.
 * Kreate-inspired Android bass boost with an adjustable strength slider.
+* Kreate-inspired Android reverb presets for room, hall, and plate effects.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
@@ -101,6 +102,10 @@ Open Settings -> Playback -> `Audio fade` to choose a pause/resume fade duration
 ### Bass boost setup
 
 Open Settings -> Playback and turn `Bass boost` on. Use `Bass boost strength` to adjust the effect from 0% to 100%; the default stored strength is 50%, but the effect stays off until enabled. Android device audio-effect support can vary.
+
+### Audio reverb setup
+
+Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the default. Android device audio-effect support can vary, and the setting applies to the active player service.
 
 ### LidaClips setup
 

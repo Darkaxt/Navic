@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import com.russhwolf.settings.MapSettings
+import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -180,6 +181,17 @@ class PreferenceManagerTest {
 
 		assertTrue(manager.bassBoostEnabled)
 		assertEquals(800, manager.bassBoostStrength)
+	}
+
+	@Test
+	fun audioReverbDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(AudioReverbPreset.Off, manager.audioReverbPreset)
+
+		manager.audioReverbPreset = AudioReverbPreset.MediumHall
+
+		assertEquals(AudioReverbPreset.MediumHall, manager.audioReverbPreset)
 	}
 
 	@Test

@@ -8,6 +8,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
+import android.media.audiofx.PresetReverb
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,6 +21,7 @@ import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -67,11 +69,13 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.shouldEnableBassBoost
+import paige.navic.domain.models.shouldEnableAudioReverb
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldFadePlaybackCommand
@@ -99,6 +103,11 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var audioDeviceCallback: AudioDeviceCallback? = null
 	private var volumeZeroObserver: ContentObserver? = null
 	private var pauseBetweenSongsJob: Job? = null
+	private var exoPlayer: ExoPlayer? = null
+	private var bassBoost: BassBoost? = null
+	private var bassBoostAudioSessionId: Int? = null
+	private var reverb: PresetReverb? = null
+	private var reverbAudioSessionId: Int? = null
 
 	private val connectivityManager: ConnectivityManager by inject()
 
@@ -160,7 +169,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 							.build()
 					).build()
 			}
+		exoPlayer = player
 
+		registerAudioEffectsListener(player)
 		registerPauseBetweenSongsListener(player)
 		registerAudioDeviceCallback(player)
 		registerVolumeZeroObserver(player)
@@ -192,6 +203,13 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		return mediaSession
 	}
 
+	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+		if (intent?.action == ACTION_REFRESH_AUDIO_EFFECTS) {
+			applyAudioEffects()
+		}
+		return super.onStartCommand(intent, flags, startId)
+	}
+
 	override fun onTaskRemoved(rootIntent: Intent?) {
 		onDestroy()
 	}
@@ -200,6 +218,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		unregisterAudioDeviceCallback()
 		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
+		releaseAudioEffects()
 		serviceScope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)
 		mediaSession?.run {
@@ -209,7 +228,102 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		super.onDestroy()
 		mediaSession = null
+		exoPlayer = null
 		stopSelf()
+	}
+
+	private fun registerAudioEffectsListener(player: ExoPlayer) {
+		player.addListener(object : Player.Listener {
+			override fun onAudioSessionIdChanged(audioSessionId: Int) {
+				applyAudioEffects(player)
+			}
+		})
+		applyAudioEffects(player)
+	}
+
+	private fun applyAudioEffects(player: ExoPlayer? = exoPlayer) {
+		applyBassBoost(player)
+		applyReverb(player)
+	}
+
+	private fun applyBassBoost(player: ExoPlayer?) {
+		val audioSessionId = player?.audioSessionId
+		if (
+			!shouldEnableBassBoost(
+				bassBoostEnabled = preferenceManager.bassBoostEnabled,
+				audioSessionId = audioSessionId
+			)
+		) {
+			releaseBassBoost()
+			return
+		}
+
+		val sessionId = audioSessionId ?: return
+		runCatching {
+			if (bassBoostAudioSessionId != sessionId) {
+				releaseBassBoost()
+				bassBoost = BassBoost(0, sessionId)
+				bassBoostAudioSessionId = sessionId
+			}
+			bassBoost?.setStrength(bassBoostStrengthPermille(preferenceManager.bassBoostStrength))
+			bassBoost?.enabled = true
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "Bass boost unavailable", error)
+			releaseBassBoost()
+		}
+	}
+
+	private fun releaseBassBoost() {
+		runCatching {
+			bassBoost?.enabled = false
+			bassBoost?.release()
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "Failed to release bass boost", error)
+		}
+		bassBoost = null
+		bassBoostAudioSessionId = null
+	}
+
+	private fun applyReverb(player: ExoPlayer?) {
+		val audioSessionId = player?.audioSessionId
+		val preset = preferenceManager.audioReverbPreset
+		if (!shouldEnableAudioReverb(preset, audioSessionId)) {
+			releaseReverb(player)
+			return
+		}
+
+		val sessionId = audioSessionId ?: return
+		runCatching {
+			if (reverbAudioSessionId != sessionId) {
+				releaseReverb(player)
+				reverb = PresetReverb(1, sessionId)
+				reverbAudioSessionId = sessionId
+			}
+			val effect = reverb ?: return
+			effect.preset = audioReverbPresetValue(preset)
+			effect.enabled = true
+			player.setAuxEffectInfo(AuxEffectInfo(effect.id, 1f))
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "Reverb unavailable", error)
+			releaseReverb(player)
+		}
+	}
+
+	private fun releaseReverb(player: ExoPlayer? = exoPlayer) {
+		runCatching {
+			player?.clearAuxEffectInfo()
+			reverb?.enabled = false
+			reverb?.release()
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "Failed to release reverb", error)
+		}
+		reverb = null
+		reverbAudioSessionId = null
+	}
+
+	private fun releaseAudioEffects(player: ExoPlayer? = exoPlayer) {
+		releaseBassBoost()
+		releaseReverb(player)
 	}
 
 	private fun registerAudioDeviceCallback(player: ExoPlayer) {
@@ -329,8 +443,18 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	companion object {
+		private const val ACTION_REFRESH_AUDIO_EFFECTS =
+			"paige.navic.shared.action.REFRESH_AUDIO_EFFECTS"
+
 		fun newSessionToken(context: Context): SessionToken {
 			return SessionToken(context, ComponentName(context, PlaybackService::class.java))
+		}
+
+		fun refreshAudioEffects(context: Context) {
+			context.startService(
+				Intent(context, PlaybackService::class.java)
+					.setAction(ACTION_REFRESH_AUDIO_EFFECTS)
+			)
 		}
 	}
 }
@@ -358,8 +482,6 @@ class AndroidMediaPlayerViewModel(
 	private var pendingPlayIndex: Int? = null
 	private var playbackFadeJob: Job? = null
 	private var playbackFadeRestoreVolume: Float? = null
-	private var bassBoost: BassBoost? = null
-	private var bassBoostAudioSessionId: Int? = null
 
 	init {
 		connectToService()
@@ -462,7 +584,7 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onAudioSessionIdChanged(audioSessionId: Int) {
-						applyBassBoost()
+						refreshAudioEffects()
 					}
 
 					override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -471,7 +593,7 @@ class AndroidMediaPlayerViewModel(
 				})
 				updatePlaybackState()
 				updatePlaybackProperties(currentTracks)
-				applyBassBoost()
+				refreshAudioEffects()
 				playPendingIndexIfAvailable(this)
 
 				downloadManager.allDownloads.first()
@@ -508,48 +630,11 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun refreshAudioEffects() {
-		viewModelScope.launch(Dispatchers.Main.immediate) {
-			applyBassBoost()
-		}
-	}
-
-	private fun applyBassBoost() {
-		val player = controller
-		val audioSessionId = player?.audioSessionId
-		if (
-			!shouldEnableBassBoost(
-				bassBoostEnabled = preferenceManager.bassBoostEnabled,
-				audioSessionId = audioSessionId
-			)
-		) {
-			releaseBassBoost()
-			return
-		}
-
-		val sessionId = audioSessionId ?: return
 		runCatching {
-			if (bassBoostAudioSessionId != sessionId) {
-				releaseBassBoost()
-				bassBoost = BassBoost(0, sessionId)
-				bassBoostAudioSessionId = sessionId
-			}
-			bassBoost?.setStrength(bassBoostStrengthPermille(preferenceManager.bassBoostStrength))
-			bassBoost?.enabled = true
+			PlaybackService.refreshAudioEffects(application)
 		}.onFailure { error ->
-			Logger.w("MediaPlayer", "Bass boost unavailable", error)
-			releaseBassBoost()
+			Logger.w("MediaPlayer", "Failed to refresh audio effects", error)
 		}
-	}
-
-	private fun releaseBassBoost() {
-		runCatching {
-			bassBoost?.enabled = false
-			bassBoost?.release()
-		}.onFailure { error ->
-			Logger.w("MediaPlayer", "Failed to release bass boost", error)
-		}
-		bassBoost = null
-		bassBoostAudioSessionId = null
 	}
 
 	private fun refreshCurrentCollection(albumId: String) {
@@ -1112,7 +1197,6 @@ class AndroidMediaPlayerViewModel(
 	override fun onCleared() {
 		viewModelScope.launch {
 			cancelPlaybackFade()
-			releaseBassBoost()
 			super.onCleared()
 			controllerFuture?.let { MediaController.releaseFuture(it) }
 		}
