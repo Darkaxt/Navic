@@ -147,8 +147,8 @@ fun LibraryScreen() {
 				onSelectPlaylist = { playlistsViewModel.selectPlaylist(it) },
 				onClearPlaylistSelection = { playlistsViewModel.clearSelection() },
 				onDeletePlaylist = { playlistDeletionId = it },
-				onPlayPlaylistNext = { if (selectedPlaylist != null) player.playNext(selectedPlaylist as DomainSongCollection)},
-				onAddPlaylistToQueue = { if (selectedPlaylist != null) player.addToQueue(selectedPlaylist as DomainSongCollection)},
+				onPlayPlaylistNext = { playlistsViewModel.playSelectedPlaylistNext(player) },
+				onAddPlaylistToQueue = { playlistsViewModel.addSelectedPlaylistToQueue(player) },
 
 				genresState = genresState
 			)

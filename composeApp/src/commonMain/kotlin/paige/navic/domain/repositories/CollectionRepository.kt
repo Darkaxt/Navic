@@ -84,8 +84,13 @@ internal fun shouldRefreshCollectionOnLoad(
 	fullRefresh: Boolean,
 	localData: DomainSongCollection
 ): Boolean {
-	return fullRefresh || localData is DomainPlaylist && (
-		localData.songs.isEmpty() ||
-			localData.songCount > localData.songs.size
-		)
+	return fullRefresh || localData is DomainPlaylist &&
+		shouldRefreshPlaylistSongsBeforePlayback(localData)
+}
+
+internal fun shouldRefreshPlaylistSongsBeforePlayback(
+	playlist: DomainPlaylist
+): Boolean {
+	return playlist.songs.isEmpty() ||
+		playlist.songCount > playlist.songs.size
 }

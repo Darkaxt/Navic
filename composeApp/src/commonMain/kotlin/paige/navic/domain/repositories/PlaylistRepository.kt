@@ -55,6 +55,15 @@ class PlaylistRepository(
 		return getLocalData(listType, reversed)
 	}
 
+	suspend fun getPlaylistForPlayback(playlist: DomainPlaylist): DomainPlaylist {
+		if (!shouldRefreshPlaylistSongsBeforePlayback(playlist)) {
+			return playlist
+		}
+
+		dbRepository.syncPlaylistSongs(playlist.id).getOrThrow()
+		return playlistDao.getPlaylistById(playlist.id)?.toDomainModel() ?: playlist
+	}
+
 	fun getPlaylistsFlow(
 		fullRefresh: Boolean,
 		listType: DomainPlaylistListType,

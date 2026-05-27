@@ -45,7 +45,6 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
@@ -190,8 +189,8 @@ fun PlaylistListScreen(
 					onSetDeletionId = { newDeletionId ->
 						deletionId = newDeletionId
 					},
-					onPlayNext = { if (selectedPlaylist != null) player.playNext(selectedPlaylist as DomainSongCollection)},
-					onAddToQueue = { if (selectedPlaylist != null) player.addToQueue(selectedPlaylist as DomainSongCollection)}
+					onPlayNext = { viewModel.playSelectedPlaylistNext(player) },
+					onAddToQueue = { viewModel.addSelectedPlaylistToQueue(player) }
 				)
 			}
 		}

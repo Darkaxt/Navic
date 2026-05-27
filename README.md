@@ -27,7 +27,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Reverse proxy Basic Auth for Navidrome/Subsonic servers behind Traefik or another proxy
 * Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
 * Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
-* Playlist detail pages auto-refresh if local playlist metadata is present but the song cache has not been hydrated yet
+* Playlist detail pages and playlist list/library play actions auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet
 * Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, retryable playback errors, and Android Picture-in-Picture
 * Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
 * Android can optionally resume a paused queue when headphones, USB audio, or Bluetooth audio connect
