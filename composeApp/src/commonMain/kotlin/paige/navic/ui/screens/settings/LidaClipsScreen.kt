@@ -28,6 +28,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lida_clips_connected
 import navic.composeapp.generated.resources.info_lida_clips_failed
+import navic.composeapp.generated.resources.info_lida_clips_invalid_url
 import navic.composeapp.generated.resources.info_lida_clips_missing_url
 import navic.composeapp.generated.resources.info_lida_clips_not_tested
 import navic.composeapp.generated.resources.info_lida_clips_testing
@@ -51,6 +52,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.LidaClipsConnectionResult
+import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
@@ -161,7 +163,8 @@ fun SettingsLidaClipsScreen() {
 				) {
 					FormButton(
 						onClick = { viewModel.testConnection() },
-						enabled = !isTestingConnection && preferenceManager.lidaClipsBaseUrl.isNotBlank()
+						enabled = !isTestingConnection &&
+							configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl) != null
 					) {
 						Text(stringResource(Res.string.action_test_connection))
 					}
@@ -179,6 +182,9 @@ private fun connectionStatusText(
 ): String {
 	if (isTestingConnection) return stringResource(Res.string.info_lida_clips_testing)
 	if (baseUrl.isBlank()) return stringResource(Res.string.info_lida_clips_missing_url)
+	if (configuredLidaClipsBaseUrl(baseUrl) == null) {
+		return stringResource(Res.string.info_lida_clips_invalid_url)
+	}
 
 	return when (connectionResult) {
 		null -> stringResource(Res.string.info_lida_clips_not_tested)

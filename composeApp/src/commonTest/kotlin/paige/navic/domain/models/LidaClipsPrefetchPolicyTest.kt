@@ -58,6 +58,17 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipsPrefetchRequiresHttpOrHttpsBaseUrl() {
+		assertNull(nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = null
+		))
+	}
+
+	@Test
 	fun musicVideoActionIsHiddenOnlyForKnownMissingClips() {
 		assertEquals(
 			false,
@@ -73,6 +84,15 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = " ",
+				userActionEnabled = true,
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "clips.remaxku.eu",
 				userActionEnabled = true,
 				clipAvailability = LidaClipAvailability.Available
 			)

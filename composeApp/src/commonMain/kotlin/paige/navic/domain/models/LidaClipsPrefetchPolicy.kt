@@ -13,9 +13,10 @@ fun nextLidaClipsPrefetchKey(
 	songId: String?,
 	lastPrefetchKey: String?
 ): String? {
-	if (!enabled || baseUrl.isBlank() || songId.isNullOrBlank()) return null
+	val normalizedBaseUrl = normalizedLidaClipsBaseUrlOrNull(baseUrl)
+	if (!enabled || normalizedBaseUrl == null || songId.isNullOrBlank()) return null
 
-	val key = "${baseUrl.trim().trimEnd('/')}|${apiKey.trim()}|$songId"
+	val key = "$normalizedBaseUrl|${apiKey.trim()}|$songId"
 	return key.takeIf { it != lastPrefetchKey }
 }
 
@@ -29,6 +30,12 @@ fun shouldShowLidaClipsMusicVideoAction(
 	clipAvailability: LidaClipAvailability
 ): Boolean =
 	lidaClipsEnabled &&
-		lidaClipsBaseUrl.isNotBlank() &&
+		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
 		userActionEnabled &&
 		clipAvailability != LidaClipAvailability.Unavailable
+
+private fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
+	baseUrl.trim().trimEnd('/').takeIf {
+		it.startsWith("http://", ignoreCase = true) ||
+			it.startsWith("https://", ignoreCase = true)
+	}

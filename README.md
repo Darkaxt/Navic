@@ -52,7 +52,7 @@ Open Settings -> Playback and turn `Respect audio focus` off. Restart playback i
 
 1. Open Settings -> Data & Storage -> Music video clips.
 2. Enable `LidaClips`.
-3. Enter your LidaClips base URL, for example `https://clips.remaxku.eu`.
+3. Enter your LidaClips base URL with `http://` or `https://`, for example `https://clips.remaxku.eu`.
 4. Enter the LidaClips API key and use `Test connection`.
 5. Optionally enable `Picture-in-Picture` or `Landscape video mode` on Android. `Pause music while clips play` and `Remember clip position` are on by default and can be turned off.
 6. From the now-playing song menu, use `Play music video` when a matching clip exists.

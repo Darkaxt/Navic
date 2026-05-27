@@ -21,6 +21,8 @@ import paige.navic.util.core.synchronized
 
 private const val TAG = "LidaClipsRepository"
 internal const val LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE = "Enter the LidaClips URL first."
+internal const val LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE =
+	"LidaClips URL must start with http:// or https://."
 
 class LidaClipsRepository(
 	private val preferenceManager: PreferenceManager
@@ -43,6 +45,8 @@ class LidaClipsRepository(
 	}
 
 	suspend fun testConnection(): LidaClipsConnectionResult {
+		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
+		if (baseUrlError != null) return LidaClipsConnectionResult.Failed(baseUrlError)
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
 			?: return LidaClipsConnectionResult.Failed(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
 
@@ -79,6 +83,8 @@ class LidaClipsRepository(
 	}
 
 	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> {
+		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
 			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
@@ -126,7 +132,18 @@ internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
 	"${normalizeLidaClipsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"
 
 internal fun configuredLidaClipsBaseUrl(baseUrl: String): String? =
-	baseUrl.trim().trimEnd('/').takeIf { it.isNotEmpty() }
+	baseUrl.trim().trimEnd('/').takeIf {
+		it.isNotEmpty() && it.hasSupportedHttpScheme()
+	}
+
+internal fun lidaClipsBaseUrlConfigurationError(baseUrl: String): String? {
+	val trimmed = baseUrl.trim().trimEnd('/')
+	return when {
+		trimmed.isEmpty() -> LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE
+		!trimmed.hasSupportedHttpScheme() -> LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE
+		else -> null
+	}
+}
 
 internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String =
 	lidaClipsEndpoint(
@@ -192,7 +209,12 @@ internal fun resolveLidaClipsStreamUrl(
 
 private fun normalizeLidaClipsBaseUrl(baseUrl: String): String =
 	configuredLidaClipsBaseUrl(baseUrl)
-		?: error(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
+		?: error(lidaClipsBaseUrlConfigurationError(baseUrl)
+			?: LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
+
+private fun String.hasSupportedHttpScheme(): Boolean =
+	startsWith("http://", ignoreCase = true) ||
+		startsWith("https://", ignoreCase = true)
 
 private fun encodePathSegment(value: String): String {
 	val hex = "0123456789ABCDEF"

@@ -208,6 +208,7 @@
 	<string name="info_bitrate_default_zero">Leaving this empty defaults to 0. Letting the server pick.</string>
 	<string name="info_lida_clips_not_tested">Connection not tested</string>
 	<string name="info_lida_clips_missing_url">Enter the LidaClips URL first</string>
+	<string name="info_lida_clips_invalid_url">LidaClips URL must start with http:// or https://</string>
 	<string name="info_lida_clips_testing">Testing connection...</string>
 	<string name="info_lida_clips_connected">Connected to LidaClips</string>
 	<string name="info_lida_clips_unauthorized">Unauthorized. Check the API key.</string>
