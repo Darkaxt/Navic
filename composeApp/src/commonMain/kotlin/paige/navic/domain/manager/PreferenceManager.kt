@@ -19,6 +19,7 @@ import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
+import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.domain.models.settings.StreamingQuality
@@ -102,6 +103,9 @@ class PreferenceManager(
 	var songSwipeActionsEnabled by preference(true)
 	var songSwipeStartToEndAction by preference(SongSwipeAction.AddToQueue)
 	var songSwipeEndToStartAction by preference(SongSwipeAction.PlayNext)
+	var queueSwipeActionsEnabled by preference(true)
+	var queueSwipeStartToEndAction by preference(QueueSwipeAction.RemoveFromQueue)
+	var queueSwipeEndToStartAction by preference(QueueSwipeAction.RemoveFromQueue)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)
 	var checkForUpdates by preference(true)

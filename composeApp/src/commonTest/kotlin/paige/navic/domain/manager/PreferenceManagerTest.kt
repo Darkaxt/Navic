@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -272,6 +273,23 @@ class PreferenceManagerTest {
 		assertFalse(manager.songSwipeActionsEnabled)
 		assertEquals(SongSwipeAction.Disabled, manager.songSwipeStartToEndAction)
 		assertEquals(SongSwipeAction.AddToQueue, manager.songSwipeEndToStartAction)
+	}
+
+	@Test
+	fun queueSwipeActionsDefaultToCurrentRemoveGestures() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.queueSwipeActionsEnabled)
+		assertEquals(QueueSwipeAction.RemoveFromQueue, manager.queueSwipeStartToEndAction)
+		assertEquals(QueueSwipeAction.RemoveFromQueue, manager.queueSwipeEndToStartAction)
+
+		manager.queueSwipeActionsEnabled = false
+		manager.queueSwipeStartToEndAction = QueueSwipeAction.Disabled
+		manager.queueSwipeEndToStartAction = QueueSwipeAction.PlayNext
+
+		assertFalse(manager.queueSwipeActionsEnabled)
+		assertEquals(QueueSwipeAction.Disabled, manager.queueSwipeStartToEndAction)
+		assertEquals(QueueSwipeAction.PlayNext, manager.queueSwipeEndToStartAction)
 	}
 
 	@Test

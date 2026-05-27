@@ -35,6 +35,8 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.queuePlayNextTargetIndex
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
@@ -53,6 +55,7 @@ fun QueueScreen() {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsStateWithLifecycle()
@@ -163,6 +166,19 @@ fun QueueScreen() {
 						haptic.performHapticFeedback(HapticFeedbackType.LongPress)
 						player.removeFromQueue(index)
 					},
+					onPlayNext = {
+						val targetIndex = queuePlayNextTargetIndex(
+							fromIndex = index,
+							currentIndex = playerState.currentIndex,
+							queueSize = queue.size
+						) ?: return@QueueScreenItem
+
+						haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+						player.moveQueueItem(index, targetIndex)
+					},
+					queueSwipeActionsEnabled = preferenceManager.queueSwipeActionsEnabled,
+					queueSwipeStartToEndAction = preferenceManager.queueSwipeStartToEndAction,
+					queueSwipeEndToStartAction = preferenceManager.queueSwipeEndToStartAction,
 					isOffline = !isOnline,
 					isDownloaded = downloadedSongs.containsKey(song.id)
 				)

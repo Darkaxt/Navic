@@ -48,6 +48,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources. Similar mode now prefers live Navidrome similar-song results when available.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired song-row swipe actions can keep the default swipe-right/add-to-queue and swipe-left/play-next gestures, swap them, or disable either side.
+* Kreate-inspired queue-row swipe actions can keep the default remove-from-queue gestures, move a queued song to play next, or disable either side.
 * Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
 * Kreate-inspired `Volume keys skip tracks` can use Android volume up/down for next/previous while Navic is open.
 * Persistent queue controls, including optional playback resume on startup.

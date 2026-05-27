@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,10 +35,14 @@ import navic.composeapp.generated.resources.action_reorder
 import navic.composeapp.generated.resources.info_not_available_offline
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.SongSwipeDirection
+import paige.navic.domain.models.queueSwipeActionForDirection
+import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.DragHandle
 import paige.navic.icons.outlined.Offline
+import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.Waveform
@@ -57,6 +62,10 @@ fun QueueScreenItem(
 	draggableState: DraggableListState,
 	onClick: () -> Unit,
 	onRemove: () -> Unit,
+	onPlayNext: () -> Unit,
+	queueSwipeActionsEnabled: Boolean = true,
+	queueSwipeStartToEndAction: QueueSwipeAction = QueueSwipeAction.RemoveFromQueue,
+	queueSwipeEndToStartAction: QueueSwipeAction = QueueSwipeAction.RemoveFromQueue,
 	isOffline: Boolean = false,
 	isDownloaded: Boolean = false
 ) {
@@ -87,11 +96,43 @@ fun QueueScreenItem(
 		count = count,
 		dismissDirection = dismissState.dismissDirection
 	)
+	val startToEndSwipeAction = queueSwipeActionForDirection(
+		enabled = queueSwipeActionsEnabled,
+		startToEndAction = queueSwipeStartToEndAction,
+		endToStartAction = queueSwipeEndToStartAction,
+		direction = SongSwipeDirection.StartToEnd
+	)
+	val endToStartSwipeAction = queueSwipeActionForDirection(
+		enabled = queueSwipeActionsEnabled,
+		startToEndAction = queueSwipeStartToEndAction,
+		endToStartAction = queueSwipeEndToStartAction,
+		direction = SongSwipeDirection.EndToStart
+	)
+	val visibleSwipeAction = when (dismissState.dismissDirection) {
+		SwipeToDismissBoxValue.StartToEnd -> startToEndSwipeAction
+		SwipeToDismissBoxValue.EndToStart -> endToStartSwipeAction
+		else -> QueueSwipeAction.Disabled
+	}
+	val swipeBackgroundColor = when (visibleSwipeAction) {
+		QueueSwipeAction.RemoveFromQueue -> MaterialTheme.colorScheme.errorContainer
+		QueueSwipeAction.PlayNext -> MaterialTheme.colorScheme.primaryContainer
+		QueueSwipeAction.Disabled -> MaterialTheme.colorScheme.surfaceVariant
+	}
 
 	SwipeToDismissBox(
 		state = dismissState,
 		onDismiss = {
-			onRemove()
+			when (
+				if (it == SwipeToDismissBoxValue.StartToEnd) {
+					startToEndSwipeAction
+				} else {
+					endToStartSwipeAction
+				}
+			) {
+				QueueSwipeAction.RemoveFromQueue -> onRemove()
+				QueueSwipeAction.PlayNext -> onPlayNext()
+				QueueSwipeAction.Disabled -> Unit
+			}
 			scope.launch {
 				dismissState.reset()
 			}
@@ -101,18 +142,20 @@ fun QueueScreenItem(
 				modifier = Modifier
 					.fillMaxSize()
 					.clip(itemShape.shape)
-					.background(MaterialTheme.colorScheme.errorContainer)
+					.background(swipeBackgroundColor)
 					.padding(horizontal = 20.dp)
 			) {
-				Icon(
-					imageVector = Icons.Outlined.Delete,
-					contentDescription = stringResource(Res.string.action_remove_from_queue),
-					tint = MaterialTheme.colorScheme.onErrorContainer,
-					modifier = Modifier.align(when (dismissState.dismissDirection) {
-						SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-						else -> Alignment.CenterEnd
-					})
-				)
+				when (dismissState.dismissDirection) {
+					SwipeToDismissBoxValue.StartToEnd -> QueueSwipeActionIcon(
+						action = startToEndSwipeAction,
+						alignment = Alignment.CenterStart
+					)
+					SwipeToDismissBoxValue.EndToStart -> QueueSwipeActionIcon(
+						action = endToStartSwipeAction,
+						alignment = Alignment.CenterEnd
+					)
+					else -> Unit
+				}
 			}
 		},
 		content = {
@@ -176,4 +219,26 @@ fun QueueScreenItem(
 			}
 		}
 	)
+}
+
+@Composable
+private fun BoxScope.QueueSwipeActionIcon(
+	action: QueueSwipeAction,
+	alignment: Alignment
+) {
+	when (action) {
+		QueueSwipeAction.RemoveFromQueue -> Icon(
+			imageVector = Icons.Outlined.Delete,
+			contentDescription = stringResource(action.displayName),
+			tint = MaterialTheme.colorScheme.onErrorContainer,
+			modifier = Modifier.align(alignment)
+		)
+		QueueSwipeAction.PlayNext -> Icon(
+			imageVector = Icons.Outlined.QueuePlayNext,
+			contentDescription = stringResource(action.displayName),
+			tint = MaterialTheme.colorScheme.onPrimaryContainer,
+			modifier = Modifier.align(alignment)
+		)
+		QueueSwipeAction.Disabled -> Unit
+	}
 }

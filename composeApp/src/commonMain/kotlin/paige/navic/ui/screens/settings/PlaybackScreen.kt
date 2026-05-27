@@ -52,6 +52,9 @@ import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.option_pause_between_songs
 import navic.composeapp.generated.resources.option_persistent_queue
+import navic.composeapp.generated.resources.option_queue_swipe_actions
+import navic.composeapp.generated.resources.option_queue_swipe_end_to_start_action
+import navic.composeapp.generated.resources.option_queue_swipe_start_to_end_action
 import navic.composeapp.generated.resources.option_replay_gain
 import navic.composeapp.generated.resources.option_respect_audio_focus
 import navic.composeapp.generated.resources.option_resume_playback_on_audio_device_connect
@@ -77,6 +80,9 @@ import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
+import navic.composeapp.generated.resources.subtitle_queue_swipe_actions
+import navic.composeapp.generated.resources.subtitle_queue_swipe_end_to_start_action
+import navic.composeapp.generated.resources.subtitle_queue_swipe_start_to_end_action
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_startup
@@ -100,6 +106,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AudioReverbPreset
+import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.icons.Icons
@@ -348,6 +355,32 @@ fun SettingsPlaybackScreen() {
 									description = stringResource(Res.string.subtitle_song_swipe_end_to_start_action),
 									selection = preferenceManager.songSwipeEndToStartAction,
 									onSelect = { preferenceManager.songSwipeEndToStartAction = it }
+								)
+							}
+						}
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_queue_swipe_actions)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_queue_swipe_actions)) },
+							value = preferenceManager.queueSwipeActionsEnabled,
+							onSetValue = { preferenceManager.queueSwipeActionsEnabled = it }
+						)
+						AnimatedVisibility(preferenceManager.queueSwipeActionsEnabled) {
+							Column {
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_queue_swipe_start_to_end_action)) },
+									items = QueueSwipeAction.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_queue_swipe_start_to_end_action),
+									selection = preferenceManager.queueSwipeStartToEndAction,
+									onSelect = { preferenceManager.queueSwipeStartToEndAction = it }
+								)
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_queue_swipe_end_to_start_action)) },
+									items = QueueSwipeAction.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_queue_swipe_end_to_start_action),
+									selection = preferenceManager.queueSwipeEndToStartAction,
+									onSelect = { preferenceManager.queueSwipeEndToStartAction = it }
 								)
 							}
 						}
