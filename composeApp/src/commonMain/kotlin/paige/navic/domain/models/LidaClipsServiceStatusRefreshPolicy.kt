@@ -8,5 +8,5 @@ fun nextLidaClipsServiceStatusRefreshKey(
 	val normalizedBaseUrl = normalizedLidaClipsBaseUrlOrNull(baseUrl)
 	if (!enabled || normalizedBaseUrl == null) return null
 
-	return "$normalizedBaseUrl|${apiKey.trim()}"
+	return "$normalizedBaseUrl|${lidaClipsKeyFingerprint(apiKey.trim())}"
 }

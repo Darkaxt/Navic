@@ -26,21 +26,39 @@ class LidaClipsServiceStatusRefreshPolicyTest {
 
 	@Test
 	fun serviceStatusRefreshKeyFollowsBaseUrlAndApiKeyChanges() {
+		val key = nextLidaClipsServiceStatusRefreshKey(
+			enabled = true,
+			baseUrl = " https://clips.remaxku.eu/ ",
+			apiKey = " secret "
+		)
+
 		assertEquals(
-			"https://clips.remaxku.eu|secret",
+			key,
 			nextLidaClipsServiceStatusRefreshKey(
 				enabled = true,
-				baseUrl = " https://clips.remaxku.eu/ ",
-				apiKey = " secret "
+				baseUrl = "https://clips.remaxku.eu",
+				apiKey = "secret"
 			)
 		)
 		assertEquals(
-			"https://clips.remaxku.eu|new-secret",
-			nextLidaClipsServiceStatusRefreshKey(
+			false,
+			key == nextLidaClipsServiceStatusRefreshKey(
 				enabled = true,
 				baseUrl = "https://clips.remaxku.eu",
 				apiKey = "new-secret"
 			)
 		)
+	}
+
+	@Test
+	fun serviceStatusRefreshKeyDoesNotExposeRawApiKey() {
+		val key = nextLidaClipsServiceStatusRefreshKey(
+			enabled = true,
+			baseUrl = "https://clips.remaxku.eu",
+			apiKey = "secret"
+		)
+
+		assertEquals(false, key?.contains("secret") == true)
+		assertEquals(false, key?.contains("X-Api-Key") == true)
 	}
 }
