@@ -7,15 +7,19 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.SyncActionType
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.shouldAutoDownloadStarredSong
 import paige.navic.ui.core.UiState
 import paige.navic.util.core.sortedByListType
 import kotlin.time.Clock
@@ -25,7 +29,10 @@ class SongRepository(
 	private val albumDao: AlbumDao,
 	private val downloadDao: DownloadDao,
 	private val dbRepository: DbRepository,
-	private val syncManager: SyncManager
+	private val syncManager: SyncManager,
+	private val preferenceManager: PreferenceManager,
+	private val connectivityManager: ConnectivityManager,
+	private val downloadManager: DownloadManager
 ) {
 	suspend fun getAllSongs(): List<DomainSong> {
 		return songDao.getAllSongs().map { it.toDomainModel() }
@@ -92,6 +99,15 @@ class SongRepository(
 		)
 		songDao.insertSong(starredEntity)
 		syncManager.enqueueAction(SyncActionType.STAR, song.id)
+		if (shouldAutoDownloadStarredSong(
+				autoDownloadStarredSongs = preferenceManager.autoDownloadStarredSongs,
+				isStarring = true,
+				isOnline = connectivityManager.isOnline.value,
+				isDownloaded = downloadManager.isDownloaded(song.id)
+			)
+		) {
+			downloadManager.downloadSong(song)
+		}
 	}
 
 	suspend fun unstarSong(song: DomainSong) {

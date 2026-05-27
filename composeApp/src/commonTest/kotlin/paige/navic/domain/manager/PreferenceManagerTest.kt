@@ -335,4 +335,15 @@ class PreferenceManagerTest {
 		assertFalse(manager.persistentQueue)
 		assertTrue(manager.resumePlaybackOnStartup)
 	}
+
+	@Test
+	fun autoDownloadStarredSongsDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.autoDownloadStarredSongs)
+
+		manager.autoDownloadStarredSongs = true
+
+		assertTrue(manager.autoDownloadStarredSongs)
+	}
 }

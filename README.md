@@ -63,6 +63,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 ### Data and privacy controls
 
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
+* Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 
 ### LidaClips music videos
 

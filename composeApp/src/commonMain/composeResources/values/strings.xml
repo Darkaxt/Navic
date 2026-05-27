@@ -104,6 +104,7 @@
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
+	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_lida_clips_enabled">Show music-video actions for matching tracks</string>
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
@@ -234,6 +235,7 @@
 	<string name="option_max_bitrate_cellular">Max Bitrate Cellular (kbps)</string>
 	<string name="option_cover_art_quality">Cover art quality</string>
 	<string name="option_lida_clips">Music video clips</string>
+	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_lida_clips_enabled">Enable LidaClips</string>
 	<string name="option_lida_clips_base_url">LidaClips URL</string>
 	<string name="option_lida_clips_api_key">API key</string>
