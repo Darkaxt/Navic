@@ -45,6 +45,7 @@ import navic.composeapp.generated.resources.action_remove_star
 import navic.composeapp.generated.resources.action_share
 import navic.composeapp.generated.resources.action_sleep_timer
 import navic.composeapp.generated.resources.action_sleep_timer_enabled
+import navic.composeapp.generated.resources.action_start_song_radio
 import navic.composeapp.generated.resources.action_star
 import navic.composeapp.generated.resources.action_system_equalizer
 import navic.composeapp.generated.resources.action_track_info
@@ -80,6 +81,7 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
+import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Speed
 import paige.navic.icons.outlined.Star
@@ -101,6 +103,7 @@ fun SongSheet(
 	onSetStarred: ((Boolean) -> Unit)? = null,
 	onShare: (() -> Unit)? = null,
 	onPlayMusicVideo: (() -> Unit)? = null,
+	onStartSongRadio: (() -> Unit)? = null,
 	onPlayNext: (() -> Unit)? = null,
 	onAddToQueue: (() -> Unit)? = null,
 	onTrackInfo: (() -> Unit)? = null,
@@ -224,6 +227,20 @@ fun SongSheet(
 					onClick = {
 						platformContext.clickSound()
 						onSetStarred(!starred)
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onStartSongRadio != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_start_song_radio)) },
+					leadingContent = { Icon(Icons.Outlined.Radio, null) },
+					onClick = {
+						platformContext.clickSound()
+						onStartSongRadio()
 						onDismissRequest()
 					},
 					colors = colors,

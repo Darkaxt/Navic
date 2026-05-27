@@ -3,6 +3,7 @@ package paige.navic.domain.models
 import paige.navic.domain.models.settings.AutoFillQueueSource
 
 const val QueueAutoFillRemainingTrigger = 10
+const val SongRadioQueueDefaultSize = 50
 
 fun shouldAutoFillQueue(
 	autoFillQueue: Boolean,
@@ -71,6 +72,23 @@ fun queueAutoFillCandidateSongs(
 	return ordered.take(limit.coerceAtLeast(0))
 }
 
+fun songRadioQueue(
+	seedSong: DomainSong,
+	candidateSongs: List<DomainSong>,
+	limit: Int = SongRadioQueueDefaultSize
+): List<DomainSong> {
+	val queueLimit = limit.coerceAtLeast(0)
+	if (queueLimit == 0 || seedSong.id.startsWith("radio_")) return emptyList()
+
+	return listOf(seedSong) + queueAutoFillCandidateSongs(
+		candidateSongs = candidateSongs,
+		queuedIds = setOf(seedSong.id),
+		limit = queueLimit - 1,
+		source = AutoFillQueueSource.SimilarToCurrentSong,
+		currentSong = seedSong
+	)
+}
+
 private fun queueAutoFillSimilarityScore(
 	currentSong: DomainSong?,
 	candidateSong: DomainSong
@@ -98,5 +116,6 @@ private fun queueAutoFillSimilarityScore(
 
 private fun DomainSong.normalizedGenres(): Set<String> =
 	(genres + listOfNotNull(genre))
-		.mapTo(mutableSetOf()) { it.trim().lowercase() }
-		.filterTo(mutableSetOf()) { it.isNotEmpty() }
+		.map { it.trim().lowercase() }
+		.filter { it.isNotEmpty() }
+		.toSet()

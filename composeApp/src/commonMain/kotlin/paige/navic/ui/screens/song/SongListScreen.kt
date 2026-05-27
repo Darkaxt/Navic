@@ -133,6 +133,9 @@ fun SongListScreen(
 						shareId = newShareId
 					},
 					onSetStarred = { viewModel.starSong(it) },
+					onStartSongRadio = { song ->
+						player.startSongRadio(song)
+					},
 					onPlayNext = { song ->
 						if (player.uiState.value.queue.any { it.id == song.id }) {
 							songToQueue = song

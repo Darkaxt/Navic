@@ -187,6 +187,9 @@ fun SongRow(
 				if (starred) onAddStar() else onRemoveStar()
 			},
 			onShare = onShare,
+			onStartSongRadio = if (!song.id.startsWith("radio_")) {
+				{ player.startSongRadio(song) }
+			} else null,
 			onPlayNext = {
 				if (player.uiState.value.queue.any { it.id == song.id }) {
 					duplicateQueueDialogShown = true

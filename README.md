@@ -46,6 +46,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android bass boost with an adjustable strength slider.
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources.
+* Kreate-inspired `Start song radio` builds a fresh queue from a selected song plus locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
 * Kreate-inspired `Volume keys skip tracks` can use Android volume up/down for next/previous while Navic is open.
 * Persistent queue controls, including optional playback resume on startup.
@@ -113,6 +114,10 @@ Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the de
 ### Auto-fill queue setup
 
 Open Settings -> Playback and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. Use `Auto-fill queue source` to keep the default random-library refill or prefer songs similar to the current song by artist, genre, album, and mood. Navic uses the synced local Navidrome library cache, skips duplicate queued songs and live radio streams, and leaves the setting off by default.
+
+### Song radio setup
+
+Open a song's action sheet or the now-playing menu and choose `Start song radio`. Navic starts the selected song, then queues up to 49 locally synced songs that best match by artist, album, genre, and mood metadata. This does not require a new setting and does not call a live similar-song API yet.
 
 ### Shake to skip setup
 

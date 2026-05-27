@@ -405,6 +405,7 @@
 	<string name="action_downloading_update">Downloading update...</string>
 	<string name="action_play_next">Play next</string>
 	<string name="action_play_music_video">Play music video</string>
+	<string name="action_start_song_radio">Start song radio</string>
 	<string name="action_system_equalizer">Equalizer</string>
 	<string name="action_add_to_queue">Add to Queue</string>
 	<string name="action_queue">Queue</string>

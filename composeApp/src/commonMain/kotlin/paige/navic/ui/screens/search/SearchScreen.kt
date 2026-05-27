@@ -302,6 +302,9 @@ fun SearchScreen(
 											SongSheet(
 												onDismissRequest = { viewModel.clearSelectedSong() },
 												song = song,
+												onStartSongRadio = if (!song.id.startsWith("radio_")) {
+													{ player.startSongRadio(song) }
+												} else null,
 												onPlayNext = {
 													if (player.uiState.value.queue.any { it.id == song.id }) {
 														songToQueue = song

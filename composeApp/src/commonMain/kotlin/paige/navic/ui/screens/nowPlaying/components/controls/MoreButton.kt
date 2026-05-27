@@ -93,6 +93,9 @@ fun NowPlayingMoreButton(
 						backStack.add(Screen.LidaClipPlayer(song.id))
 					}
 				} else null,
+				onStartSongRadio = if (!song.id.startsWith("radio_")) {
+					{ player.startSongRadio(song) }
+				} else null,
 				onAddToPlaylist = {
 					playlistDialogShown = true
 				},

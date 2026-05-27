@@ -68,6 +68,7 @@ fun SongListScreenItem(
 	onDeselect: () -> Unit,
 	onSetStarred: (starred: Boolean) -> Unit,
 	onSetShareId: (String) -> Unit,
+	onStartSongRadio: () -> Unit,
 	onPlayNext: () -> Unit,
 	onAddToQueue: () -> Unit,
 	onClick: () -> Unit,
@@ -196,6 +197,7 @@ fun SongListScreenItem(
 					rating = rating,
 					onSetStarred = onSetStarred,
 					onShare = { onSetShareId(song.id) },
+					onStartSongRadio = if (!song.id.startsWith("radio_")) onStartSongRadio else null,
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,
 					onTrackInfo = dropUnlessResumed {

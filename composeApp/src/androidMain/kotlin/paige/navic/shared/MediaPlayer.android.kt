@@ -87,6 +87,8 @@ import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
+import paige.navic.domain.models.songRadioQueue
+import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
@@ -1026,6 +1028,48 @@ class AndroidMediaPlayerViewModel(
 					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
 					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 				)
+			}
+		}
+	}
+
+	override fun startSongRadio(song: DomainSong) {
+		viewModelScope.launch {
+			try {
+				val songs = withContext(Dispatchers.IO) {
+					songRepository.getAllSongs()
+				}.filter { isAvailable(it.id) }.shuffled()
+				val radioQueue = songRadioQueue(
+					seedSong = song,
+					candidateSongs = songs,
+					limit = SongRadioQueueDefaultSize
+				)
+				if (radioQueue.isEmpty()) return@launch
+
+				val mediaItems = withContext(Dispatchers.Default) {
+					radioQueue.map { it.toMediaItem() }
+				}
+				pendingPlayIndex = null
+				autoFillQueueJob?.cancel()
+				autoFillQueueJob = null
+				controller?.let { player ->
+					player.shuffleModeEnabled = false
+					player.setMediaItems(mediaItems, 0, 0L)
+					player.prepare()
+					player.play()
+				}
+
+				_uiState.update {
+					it.copy(
+						queue = radioQueue,
+						currentIndex = 0,
+						currentSong = radioQueue.firstOrNull(),
+						currentCollection = null,
+						isPaused = false,
+						progress = 0f
+					)
+				}
+			} catch (error: Exception) {
+				Logger.w("MediaPlayer", "Song radio failed", error)
 			}
 		}
 	}

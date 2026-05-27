@@ -3,6 +3,7 @@
 package paige.navic.shared
 
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.flow.update
 import paige.navic.domain.manager.ConnectivityManager
@@ -16,7 +17,10 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.SongRadioQueueDefaultSize
+import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import platform.AVFAudio.AVAudioSession
@@ -73,6 +77,7 @@ class IOSMediaPlayerViewModel(
 	connectivityManager: ConnectivityManager,
 	syncManager: SyncManager,
 	private val sessionManager: SessionManager,
+	private val songRepository: SongRepository,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -236,6 +241,33 @@ class IOSMediaPlayerViewModel(
 				currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
 				currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 			)
+		}
+	}
+
+	override fun startSongRadio(song: DomainSong) {
+		viewModelScope.launch {
+			val songs = songRepository
+				.getAllSongs()
+				.filter { isAvailable(it.id) }
+				.shuffled()
+			val radioQueue = songRadioQueue(
+				seedSong = song,
+				candidateSongs = songs,
+				limit = SongRadioQueueDefaultSize
+			)
+			if (radioQueue.isEmpty()) return@launch
+
+			player.pause()
+			_uiState.update {
+				it.copy(
+					queue = radioQueue,
+					currentIndex = -1,
+					currentSong = null,
+					currentCollection = null,
+					progress = 0f
+				)
+			}
+			playAt(0)
 		}
 	}
 
