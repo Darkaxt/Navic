@@ -86,6 +86,7 @@ class PreferenceManager(
 	var resumePlaybackOnStartup by preference(false)
 	var checkForUpdates by preference(true)
 	var pauseSearchHistory by preference(false)
+	var searchHistoryEntries by preference("")
 
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)

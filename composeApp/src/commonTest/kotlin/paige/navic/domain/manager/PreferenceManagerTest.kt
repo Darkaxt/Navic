@@ -180,10 +180,13 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.pauseSearchHistory)
+		assertEquals("", manager.searchHistoryEntries)
 
 		manager.pauseSearchHistory = true
+		manager.searchHistoryEntries = "artist"
 
 		assertTrue(manager.pauseSearchHistory)
+		assertEquals("artist", manager.searchHistoryEntries)
 	}
 
 	@Test

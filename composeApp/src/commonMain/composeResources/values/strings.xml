@@ -380,6 +380,7 @@
 	<string name="action_remove_from_queue">Remove from queue</string>
 	<string name="action_clear_queue">Clear queue</string>
 	<string name="action_search_history">Recent Searches</string>
+	<string name="action_clear_search_history">Clear search history</string>
 	<string name="action_remove_from_history">Remove from history</string>
 	<string name="action_clear_image_cache">Clear image cache</string>
 	<string name="action_clear_pending_actions">Clear pending sync actions</string>

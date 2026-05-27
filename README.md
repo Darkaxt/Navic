@@ -53,7 +53,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 ### Data and privacy controls
 
-* Kreate-inspired `Pause search history` setting under Data & Storage hides recent searches and stops recording newly submitted queries.
+* Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 
 ### LidaClips music videos
 

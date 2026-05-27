@@ -32,7 +32,9 @@ class SearchViewModel(
 	private val _searchState = MutableStateFlow<UiState<List<Any>>>(UiState.Success(emptyList()))
 	val searchState = _searchState.asStateFlow()
 
-	private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+	private val _searchHistory = MutableStateFlow<List<String>>(
+		decodeSearchHistory(preferenceManager.searchHistoryEntries)
+	)
 	val searchHistory = _searchHistory.asStateFlow()
 
 	private val _selectedSong = MutableStateFlow<DomainSong?>(null)
@@ -74,26 +76,31 @@ class SearchViewModel(
 	}
 
 	fun addToSearchHistory(query: String) {
-		if (
-			!shouldSaveSearchHistory(
+		setSearchHistory(
+			updatedSearchHistoryAfterSubmit(
 				query = query,
+				history = _searchHistory.value,
 				pauseSearchHistory = preferenceManager.pauseSearchHistory
 			)
-		) {
-			return
-		}
-		val current = _searchHistory.value.toMutableList()
-		if (current.contains(query)) {
-			current.remove(query)
-		}
-		current.add(0, query)
-		_searchHistory.value = current.take(10)
+		)
 	}
 
 	fun removeFromSearchHistory(query: String) {
-		val current = _searchHistory.value.toMutableList()
-		current.remove(query)
-		_searchHistory.value = current
+		setSearchHistory(
+			updatedSearchHistoryAfterRemoval(
+				query = query,
+				history = _searchHistory.value
+			)
+		)
+	}
+
+	fun clearSearchHistory() {
+		setSearchHistory(emptyList())
+	}
+
+	private fun setSearchHistory(history: List<String>) {
+		_searchHistory.value = history
+		preferenceManager.searchHistoryEntries = encodeSearchHistory(history)
 	}
 
 	fun selectSong(song: DomainSong) {

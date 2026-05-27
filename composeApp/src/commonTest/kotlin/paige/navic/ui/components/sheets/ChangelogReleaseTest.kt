@@ -7,25 +7,25 @@ class ChangelogReleaseTest {
 	@Test
 	fun updateUrlPrefersNavicApkAsset() {
 		val release = GitHubRelease(
-			tag = "v1.0.0-alpha40-proxy12",
-			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			tag = "v1.0.0-alpha47",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha47",
 			body = "Release notes",
 			assets = listOf(
 				GitHubReleaseAsset(
 					name = "Navic.ipa",
 					contentType = "application/octet-stream",
-					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.ipa"
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.ipa"
 				),
 				GitHubReleaseAsset(
 					name = "Navic.apk",
 					contentType = "application/vnd.android.package-archive",
-					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.apk"
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.apk"
 				)
 			)
 		)
 
 		assertEquals(
-			"https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.apk",
+			"https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.apk",
 			release.updateUrl
 		)
 	}
@@ -33,14 +33,14 @@ class ChangelogReleaseTest {
 	@Test
 	fun updateReleaseReportsDirectApkWhenApkAssetIsAvailable() {
 		val release = GitHubRelease(
-			tag = "v1.0.0-alpha40-proxy12",
-			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			tag = "v1.0.0-alpha47",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha47",
 			body = "Release notes",
 			assets = listOf(
 				GitHubReleaseAsset(
 					name = "Navic.apk",
 					contentType = "application/vnd.android.package-archive",
-					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.apk"
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.apk"
 				)
 			)
 		)
@@ -51,20 +51,20 @@ class ChangelogReleaseTest {
 	@Test
 	fun updateUrlFallsBackToReleasePageWhenApkAssetIsMissing() {
 		val release = GitHubRelease(
-			tag = "v1.0.0-alpha40-proxy12",
-			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			tag = "v1.0.0-alpha47",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha47",
 			body = "Release notes",
 			assets = listOf(
 				GitHubReleaseAsset(
 					name = "Navic.ipa",
 					contentType = "application/octet-stream",
-					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.ipa"
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.ipa"
 				)
 			)
 		)
 
 		assertEquals(
-			"https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			"https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha47",
 			release.updateUrl
 		)
 	}
@@ -72,14 +72,14 @@ class ChangelogReleaseTest {
 	@Test
 	fun updateReleaseReportsNoDirectApkWhenFallingBackToReleasePage() {
 		val release = GitHubRelease(
-			tag = "v1.0.0-alpha40-proxy12",
-			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha40-proxy12",
+			tag = "v1.0.0-alpha47",
+			url = "https://github.com/Darkaxt/Navic/releases/tag/v1.0.0-alpha47",
 			body = "Release notes",
 			assets = listOf(
 				GitHubReleaseAsset(
 					name = "Navic.ipa",
 					contentType = "application/octet-stream",
-					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha40-proxy12/Navic.ipa"
+					downloadUrl = "https://github.com/Darkaxt/Navic/releases/download/v1.0.0-alpha47/Navic.ipa"
 				)
 			)
 		)

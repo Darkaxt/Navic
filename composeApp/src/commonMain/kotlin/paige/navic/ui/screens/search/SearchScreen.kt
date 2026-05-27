@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_add_to_queue
+import navic.composeapp.generated.resources.action_clear_search_history
 import navic.composeapp.generated.resources.action_remove_from_history
 import navic.composeapp.generated.resources.action_search_history
 import navic.composeapp.generated.resources.info_not_available_offline
@@ -390,15 +393,34 @@ fun SearchScreen(
 						} else {
 							if (searchHistory.isNotEmpty()) {
 								item(span = { GridItemSpan(maxLineSpan) }) {
-									Text(
-										text = stringResource(Res.string.action_search_history),
-										style = MaterialTheme.typography.titleMedium,
-										color = MaterialTheme.colorScheme.primary,
-										modifier = Modifier.padding(
-											horizontal = 20.dp,
-											vertical = 12.dp
+									Row(
+										modifier = Modifier
+											.fillMaxWidth()
+											.padding(
+												start = 20.dp,
+												top = 4.dp,
+												end = 8.dp,
+												bottom = 4.dp
+											),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											text = stringResource(Res.string.action_search_history),
+											style = MaterialTheme.typography.titleMedium,
+											color = MaterialTheme.colorScheme.primary
 										)
-									)
+										IconButton(onClick = {
+											platformContext.clickSound()
+											viewModel.clearSearchHistory()
+										}) {
+											Icon(
+												imageVector = Icons.Outlined.Close,
+												contentDescription = stringResource(Res.string.action_clear_search_history),
+												tint = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										}
+									}
 								}
 								items(
 									searchHistory.size,
