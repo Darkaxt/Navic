@@ -72,6 +72,34 @@ class SongRadioQueuePolicyTest {
 		)
 	}
 
+	@Test
+	fun songRadioQueuePrefersServerSimilarSongOrderBeforeLocalSimilarity() {
+		val seed = song(
+			id = "seed",
+			artistId = "artist-a",
+			albumId = "album-a",
+			genres = listOf("training")
+		)
+		val serverSecond = song(id = "server-second", artistId = "artist-x")
+		val strongestLocalMatch = song(
+			id = "strongest-local-match",
+			artistId = "artist-a",
+			albumId = "album-a",
+			genres = listOf("training")
+		)
+		val serverFirst = song(id = "server-first", artistId = "artist-y")
+
+		assertEquals(
+			listOf("seed", "server-first", "server-second", "strongest-local-match"),
+			songRadioQueue(
+				seedSong = seed,
+				candidateSongs = listOf(serverSecond, strongestLocalMatch, serverFirst),
+				limit = 4,
+				preferredSongIds = listOf("server-first", "server-second")
+			).map { it.id }
+		)
+	}
+
 	private fun song(
 		id: String,
 		artistId: String,

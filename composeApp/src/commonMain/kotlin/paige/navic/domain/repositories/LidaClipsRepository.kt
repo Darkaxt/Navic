@@ -311,7 +311,7 @@ internal data class LidaClipsHealthDto(
 ) {
 	fun toDomainModel() = LidaClipsHealthStatus(
 		status = status,
-		checks = checks.toSortedMap().map { (name, check) ->
+		checks = checks.entries.sortedBy { it.key }.map { (name, check) ->
 			check.toDomainModel(name)
 		}
 	)

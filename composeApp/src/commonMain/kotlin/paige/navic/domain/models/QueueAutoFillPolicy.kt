@@ -46,9 +46,14 @@ fun queueAutoFillCandidateSongs(
 	queuedIds: Set<String>,
 	limit: Int,
 	source: AutoFillQueueSource,
-	currentSong: DomainSong?
+	currentSong: DomainSong?,
+	preferredSongIds: List<String> = emptyList()
 ): List<DomainSong> {
 	val seen = queuedIds.toMutableSet()
+	val preferredRanks = preferredSongIds
+		.distinct()
+		.withIndex()
+		.associate { it.value to it.index }
 	val filtered = candidateSongs
 		.asSequence()
 		.filterNot { it.id.startsWith("radio_") }
@@ -60,10 +65,16 @@ fun queueAutoFillCandidateSongs(
 		AutoFillQueueSource.SimilarToCurrentSong ->
 			filtered
 				.mapIndexed { index, song ->
-					IndexedValue(index, song) to queueAutoFillSimilarityScore(currentSong, song)
+					IndexedValue(index, song) to QueueAutoFillCandidateRank(
+						preferredIndex = preferredRanks[song.id],
+						similarityScore = queueAutoFillSimilarityScore(currentSong, song)
+					)
 				}
 				.sortedWith(
-					compareByDescending<Pair<IndexedValue<DomainSong>, Int>> { it.second }
+					compareBy<Pair<IndexedValue<DomainSong>, QueueAutoFillCandidateRank>> {
+						it.second.preferredIndex ?: Int.MAX_VALUE
+					}
+						.thenByDescending { it.second.similarityScore }
 						.thenBy { it.first.index }
 				)
 				.map { it.first.value }
@@ -75,7 +86,8 @@ fun queueAutoFillCandidateSongs(
 fun songRadioQueue(
 	seedSong: DomainSong,
 	candidateSongs: List<DomainSong>,
-	limit: Int = SongRadioQueueDefaultSize
+	limit: Int = SongRadioQueueDefaultSize,
+	preferredSongIds: List<String> = emptyList()
 ): List<DomainSong> {
 	val queueLimit = limit.coerceAtLeast(0)
 	if (queueLimit == 0 || seedSong.id.startsWith("radio_")) return emptyList()
@@ -85,9 +97,15 @@ fun songRadioQueue(
 		queuedIds = setOf(seedSong.id),
 		limit = queueLimit - 1,
 		source = AutoFillQueueSource.SimilarToCurrentSong,
-		currentSong = seedSong
+		currentSong = seedSong,
+		preferredSongIds = preferredSongIds
 	)
 }
+
+private data class QueueAutoFillCandidateRank(
+	val preferredIndex: Int?,
+	val similarityScore: Int
+)
 
 private fun queueAutoFillSimilarityScore(
 	currentSong: DomainSong?,

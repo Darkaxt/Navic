@@ -3,9 +3,14 @@
 package paige.navic.shared
 
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.IOSScrobbleManager
@@ -246,14 +251,20 @@ class IOSMediaPlayerViewModel(
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
-			val songs = songRepository
-				.getAllSongs()
-				.filter { isAvailable(it.id) }
-				.shuffled()
+			val serverSimilarSongs = withContext(Dispatchers.IO) {
+				fetchServerSimilarSongs(
+					songId = song.id,
+					limit = SongRadioQueueDefaultSize
+				)
+			}.filter { isAvailable(it.id) }
+			val songs = withContext(Dispatchers.IO) {
+				songRepository.getAllSongs()
+			}.filter { isAvailable(it.id) }.shuffled()
 			val radioQueue = songRadioQueue(
 				seedSong = song,
-				candidateSongs = songs,
-				limit = SongRadioQueueDefaultSize
+				candidateSongs = serverSimilarSongs + songs,
+				limit = SongRadioQueueDefaultSize,
+				preferredSongIds = serverSimilarSongs.map { it.id }
 			)
 			if (radioQueue.isEmpty()) return@launch
 
@@ -270,6 +281,18 @@ class IOSMediaPlayerViewModel(
 			playAt(0)
 		}
 	}
+
+	private suspend fun fetchServerSimilarSongs(
+		songId: String,
+		limit: Int
+	): List<DomainSong> =
+		runCatching {
+			sessionManager.api
+				.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
+				.map { it.toEntity().toDomainModel() }
+		}.onFailure { error ->
+			Logger.w("IOSMediaPlayerViewModel", "Navidrome similar-song lookup failed", error)
+		}.getOrDefault(emptyList())
 
 	override fun playRadio(radio: DomainRadio) {
 		val radioId = "radio_${radio.name.hashCode()}"

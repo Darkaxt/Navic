@@ -177,6 +177,36 @@ class QueueAutoFillPolicyTest {
 		)
 	}
 
+	@Test
+	fun similarAutoFillSourcePrefersServerSimilarSongOrderBeforeLocalSimilarity() {
+		val current = song(
+			id = "song-current",
+			artistId = "artist-a",
+			albumId = "album-a",
+			genres = listOf("training")
+		)
+		val serverSecond = song(id = "server-second", artistId = "artist-x")
+		val strongestLocalMatch = song(
+			id = "strongest-local-match",
+			artistId = "artist-a",
+			albumId = "album-a",
+			genres = listOf("training")
+		)
+		val serverFirst = song(id = "server-first", artistId = "artist-y")
+
+		assertEquals(
+			listOf("server-first", "server-second", "strongest-local-match"),
+			queueAutoFillCandidateSongs(
+				candidateSongs = listOf(serverSecond, strongestLocalMatch, serverFirst),
+				queuedIds = setOf(current.id),
+				limit = 10,
+				source = AutoFillQueueSource.SimilarToCurrentSong,
+				currentSong = current,
+				preferredSongIds = listOf("server-first", "server-second")
+			).map { it.id }
+		)
+	}
+
 	private fun song(
 		id: String,
 		artistId: String,

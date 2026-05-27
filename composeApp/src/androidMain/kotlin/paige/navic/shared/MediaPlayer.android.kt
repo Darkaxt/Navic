@@ -57,6 +57,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.data.database.dao.AlbumDao
+import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
 import paige.navic.domain.manager.ConnectivityManager
@@ -89,6 +90,7 @@ import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
+import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
@@ -813,13 +815,28 @@ class AndroidMediaPlayerViewModel(
 					queueSize = currentState.queue.size,
 					targetSize = preferenceManager.autoFillQueueTargetSize
 				)
+				val serverSimilarSongs = if (
+					preferenceManager.autoFillQueueSource == AutoFillQueueSource.SimilarToCurrentSong &&
+					currentState.currentSong != null
+				) {
+					withContext(Dispatchers.IO) {
+						fetchServerSimilarSongs(
+							songId = currentState.currentSong.id,
+							limit = appendCount * 2
+						)
+					}
+				} else {
+					emptyList()
+				}
+				val preferredSongIds = serverSimilarSongs.map { it.id }
 				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
 				val songsToAppend = queueAutoFillCandidateSongs(
-					candidateSongs = allSongs.filter { isAvailable(it.id) },
+					candidateSongs = (serverSimilarSongs + allSongs).filter { isAvailable(it.id) },
 					queuedIds = queuedIds,
 					limit = appendCount,
 					source = preferenceManager.autoFillQueueSource,
-					currentSong = currentState.currentSong
+					currentSong = currentState.currentSong,
+					preferredSongIds = preferredSongIds
 				)
 				if (songsToAppend.isEmpty()) return@launch
 
@@ -1035,13 +1052,20 @@ class AndroidMediaPlayerViewModel(
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
 			try {
+				val serverSimilarSongs = withContext(Dispatchers.IO) {
+					fetchServerSimilarSongs(
+						songId = song.id,
+						limit = SongRadioQueueDefaultSize
+					)
+				}.filter { isAvailable(it.id) }
 				val songs = withContext(Dispatchers.IO) {
 					songRepository.getAllSongs()
 				}.filter { isAvailable(it.id) }.shuffled()
 				val radioQueue = songRadioQueue(
 					seedSong = song,
-					candidateSongs = songs,
-					limit = SongRadioQueueDefaultSize
+					candidateSongs = serverSimilarSongs + songs,
+					limit = SongRadioQueueDefaultSize,
+					preferredSongIds = serverSimilarSongs.map { it.id }
 				)
 				if (radioQueue.isEmpty()) return@launch
 
@@ -1073,6 +1097,18 @@ class AndroidMediaPlayerViewModel(
 			}
 		}
 	}
+
+	private suspend fun fetchServerSimilarSongs(
+		songId: String,
+		limit: Int
+	): List<DomainSong> =
+		runCatching {
+			sessionManager.api
+				.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
+				.map { it.toEntity().toDomainModel() }
+		}.onFailure { error ->
+			Logger.w("MediaPlayer", "Navidrome similar-song lookup failed", error)
+		}.getOrDefault(emptyList())
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
