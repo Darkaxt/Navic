@@ -94,7 +94,8 @@ class LidaClipsRepository(
 		return runCatching {
 			lidaClipsServiceStatus(
 				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
-				control = fetchServiceControl(baseUrl, requestHeaders)
+				control = fetchServiceControl(baseUrl, requestHeaders),
+				health = fetchServiceHealth(baseUrl, requestHeaders)
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips service status failed", error)
@@ -112,7 +113,8 @@ class LidaClipsRepository(
 			val control = updateServiceControl(baseUrl, requestHeaders, syncPaused)
 			lidaClipsServiceStatus(
 				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
-				control = control
+				control = control,
+				health = fetchServiceHealth(baseUrl, requestHeaders)
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips sync control failed", error)
@@ -190,6 +192,22 @@ class LidaClipsRepository(
 		return response.body()
 	}
 
+	private suspend fun fetchServiceHealth(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsHealthDto {
+		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
+			accept(ContentType.Application.Json)
+			requestHeaders.forEach { (key, value) ->
+				header(key, value)
+			}
+		}
+		if (!response.status.isSuccess() && response.status != HttpStatusCode.ServiceUnavailable) {
+			error("LidaClips health returned HTTP ${response.status.value}")
+		}
+		return response.body()
+	}
+
 	private suspend fun updateServiceControl(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -222,7 +240,22 @@ data class LidaClipsServiceStatus(
 	val fallbackClips: Int,
 	val syncPaused: Boolean,
 	val syncRunning: Boolean,
+	val health: LidaClipsHealthStatus = LidaClipsHealthStatus(),
 	val recentFailures: List<LidaClipsRecentFailure> = emptyList()
+)
+
+data class LidaClipsHealthStatus(
+	val status: String = "unknown",
+	val checks: List<LidaClipsHealthCheck> = emptyList()
+)
+
+data class LidaClipsHealthCheck(
+	val name: String,
+	val ok: Boolean,
+	val error: String?,
+	val address: String?,
+	val path: String?,
+	val skipped: Boolean
 )
 
 data class LidaClipsRecentFailure(
@@ -266,6 +299,37 @@ internal data class LidaClipsRecentFailureDto(
 }
 
 @Serializable
+internal data class LidaClipsHealthDto(
+	val status: String = "unknown",
+	val checks: Map<String, LidaClipsHealthCheckDto> = emptyMap()
+) {
+	fun toDomainModel() = LidaClipsHealthStatus(
+		status = status,
+		checks = checks.toSortedMap().map { (name, check) ->
+			check.toDomainModel(name)
+		}
+	)
+}
+
+@Serializable
+internal data class LidaClipsHealthCheckDto(
+	val ok: Boolean = false,
+	val error: String? = null,
+	val address: String? = null,
+	val path: String? = null,
+	val skipped: Boolean = false
+) {
+	fun toDomainModel(name: String) = LidaClipsHealthCheck(
+		name = name,
+		ok = ok,
+		error = error,
+		address = address,
+		path = path,
+		skipped = skipped
+	)
+}
+
+@Serializable
 internal data class LidaClipsControlDto(
 	@SerialName("sync_paused") val syncPaused: Boolean = false,
 	@SerialName("sync_running") val syncRunning: Boolean = false
@@ -278,7 +342,8 @@ internal data class LidaClipsControlRequestDto(
 
 internal fun lidaClipsServiceStatus(
 	dashboard: LidaClipsDashboardDto,
-	control: LidaClipsControlDto
+	control: LidaClipsControlDto,
+	health: LidaClipsHealthDto = LidaClipsHealthDto()
 ): LidaClipsServiceStatus =
 	LidaClipsServiceStatus(
 		activeClips = dashboard.activeClips,
@@ -286,6 +351,7 @@ internal fun lidaClipsServiceStatus(
 		fallbackClips = dashboard.fallbackClips,
 		syncPaused = control.syncPaused,
 		syncRunning = control.syncRunning,
+		health = health.toDomainModel(),
 		recentFailures = dashboard.recentFailures.map { it.toDomainModel() }
 	)
 

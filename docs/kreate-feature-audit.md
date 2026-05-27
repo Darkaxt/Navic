@@ -21,12 +21,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips music-session coordination: Navic now defaults to Feishin-style clip playback on Android by pausing Navic music while a clip is open and resuming the same paused song when the clip screen closes; a setting can opt out and keep music under clip audio.
 * LidaClips remembered clip position: Kreate remembers the last YouTube video id and current second. Navic now adapts that as an Android LidaClips setting that resumes the last watched position for the same clip while avoiding near-start and near-end positions.
 * LidaClips landscape video mode: Navic now exposes an Android opt-in setting that rotates the clip screen to landscape and hides system bars while the LidaClips player is active, then restores the prior activity orientation and bars when the screen closes.
-* LidaClips service status/control: Navic now reads LidaClips dashboard/control endpoints from Settings -> Data & Storage -> Music video clips, shows active/official/fallback clip counts, recent backend sync failures, and sync runtime state, and can pause or resume scheduled backend clip sync.
+* LidaClips service status/control: Navic now reads LidaClips health/dashboard/control endpoints from Settings -> Data & Storage -> Music video clips, shows backend health-check failures, active/official/fallback clip counts, recent backend sync failures, and sync runtime state, and can pause or resume scheduled backend clip sync.
 
 ## Best Next Transplants
 
 1. LidaClips playback/session polish
-   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, has an opt-in landscape video mode, and exposes backend service status/control with recent backend failure diagnostics.
+   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, has an opt-in landscape video mode, and exposes backend service status/control with health and recent backend failure diagnostics.
    * These should be based on real-device testing so the video player does not fight the music session or Android PiP behavior.
 
 ## Higher-Risk Candidates

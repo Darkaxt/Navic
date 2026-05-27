@@ -30,8 +30,13 @@ import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lida_clips_connected
 import navic.composeapp.generated.resources.info_lida_clips_failed
+import navic.composeapp.generated.resources.info_lida_clips_health_all_ok
+import navic.composeapp.generated.resources.info_lida_clips_health_check_failed
+import navic.composeapp.generated.resources.info_lida_clips_health_check_failed_with_detail
+import navic.composeapp.generated.resources.info_lida_clips_health_status
 import navic.composeapp.generated.resources.info_lida_clips_invalid_url
 import navic.composeapp.generated.resources.info_lida_clips_lidarr_track_id
+import navic.composeapp.generated.resources.info_lida_clips_more_health_failures
 import navic.composeapp.generated.resources.info_lida_clips_missing_url
 import navic.composeapp.generated.resources.info_lida_clips_more_recent_failures
 import navic.composeapp.generated.resources.info_lida_clips_no_recent_failures
@@ -63,6 +68,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_pictu
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
 import navic.composeapp.generated.resources.title_lida_clips
+import navic.composeapp.generated.resources.title_lida_clips_health_checks
 import navic.composeapp.generated.resources.title_lida_clips_recent_failures
 import navic.composeapp.generated.resources.title_lida_clips_service_status
 import org.jetbrains.compose.resources.stringResource
@@ -71,6 +77,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.LidaClipsConnectionResult
+import paige.navic.domain.repositories.LidaClipsHealthCheck
 import paige.navic.domain.repositories.LidaClipsRecentFailure
 import paige.navic.domain.repositories.LidaClipsServiceStatus
 import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
@@ -84,6 +91,7 @@ import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 
 private const val RECENT_FAILURE_DISPLAY_LIMIT = 3
+private const val HEALTH_FAILURE_DISPLAY_LIMIT = 4
 
 @Composable
 fun SettingsLidaClipsScreen() {
@@ -326,6 +334,10 @@ private fun LidaClipsServiceStatusContent(
 			Text(stringResource(Res.string.info_lida_clips_service_status_loading))
 		}
 	}
+	LidaClipsHealthChecks(
+		status = status.health.status,
+		checks = status.health.checks
+	)
 	LidaClipsRecentFailures(status.recentFailures)
 	SettingSwitchRow(
 		title = { Text(stringResource(Res.string.option_lida_clips_sync_paused)) },
@@ -335,6 +347,70 @@ private fun LidaClipsServiceStatusContent(
 			if (!isUpdatingSyncPaused) onSetSyncPaused(it)
 		}
 	)
+}
+
+@Composable
+private fun LidaClipsHealthChecks(
+	status: String,
+	checks: List<LidaClipsHealthCheck>
+) {
+	val failedChecks = checks.filter { !it.ok && !it.skipped }
+
+	FormRow {
+		Column(Modifier.weight(1f)) {
+			Text(
+				text = stringResource(Res.string.title_lida_clips_health_checks),
+				style = MaterialTheme.typography.titleSmall
+			)
+			Text(
+				text = stringResource(
+					Res.string.info_lida_clips_health_status,
+					status.cleanForDisplay() ?: "unknown"
+				),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant
+			)
+			if (failedChecks.isEmpty()) {
+				Text(
+					text = stringResource(Res.string.info_lida_clips_health_all_ok),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			} else {
+				failedChecks.take(HEALTH_FAILURE_DISPLAY_LIMIT).forEach { check ->
+					Text(
+						text = lidaClipsHealthFailureText(check),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+				val hiddenFailureCount = failedChecks.size - HEALTH_FAILURE_DISPLAY_LIMIT
+				if (hiddenFailureCount > 0) {
+					Text(
+						text = stringResource(
+							Res.string.info_lida_clips_more_health_failures,
+							hiddenFailureCount
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun lidaClipsHealthFailureText(check: LidaClipsHealthCheck): String {
+	val name = check.name.replace('_', ' ')
+	val detail = check.error.cleanForDisplay()
+		?: check.address.cleanForDisplay()
+		?: check.path.cleanForDisplay()
+	return if (detail == null) {
+		stringResource(Res.string.info_lida_clips_health_check_failed, name)
+	} else {
+		stringResource(Res.string.info_lida_clips_health_check_failed_with_detail, name, detail)
+	}
 }
 
 @Composable

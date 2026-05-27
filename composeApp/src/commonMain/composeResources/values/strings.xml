@@ -55,6 +55,7 @@
 	<string name="title_reverse_proxy_auth">Reverse proxy Basic Auth</string>
 	<string name="title_lida_clips">LidaClips</string>
 	<string name="title_lida_clips_service_status">Service status</string>
+	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_wifi">Wi-Fi</string>
@@ -227,6 +228,11 @@
 	<string name="info_lida_clips_service_status_counts">Active: %1$d // Official: %2$d // Fallback: %3$d</string>
 	<string name="info_lida_clips_sync_running">Sync is running</string>
 	<string name="info_lida_clips_sync_idle">Sync is idle</string>
+	<string name="info_lida_clips_health_status">Health: %1$s</string>
+	<string name="info_lida_clips_health_all_ok">No failed health checks</string>
+	<string name="info_lida_clips_health_check_failed">%1$s failed</string>
+	<string name="info_lida_clips_health_check_failed_with_detail">%1$s failed: %2$s</string>
+	<string name="info_lida_clips_more_health_failures">More failed health checks: %1$d</string>
 	<string name="info_lida_clips_no_recent_failures">No recent sync failures</string>
 	<string name="info_lida_clips_unknown_track">Unknown track</string>
 	<string name="info_lida_clips_lidarr_track_id">Lidarr track #%1$d</string>

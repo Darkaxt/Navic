@@ -146,6 +146,17 @@ class LidaClipsRepositoryTest {
 			control = LidaClipsControlDto(
 				syncPaused = true,
 				syncRunning = true
+			),
+			health = LidaClipsHealthDto(
+				status = "degraded",
+				checks = mapOf(
+					"database" to LidaClipsHealthCheckDto(ok = true),
+					"youtube_proxy" to LidaClipsHealthCheckDto(
+						ok = false,
+						error = "proxy unavailable",
+						address = "http://proxy:8888"
+					)
+				)
 			)
 		)
 
@@ -154,6 +165,28 @@ class LidaClipsRepositoryTest {
 		assertEquals(5, status.fallbackClips)
 		assertTrue(status.syncPaused)
 		assertTrue(status.syncRunning)
+		assertEquals("degraded", status.health.status)
+		assertEquals(
+			listOf(
+				LidaClipsHealthCheck(
+					name = "database",
+					ok = true,
+					error = null,
+					address = null,
+					path = null,
+					skipped = false
+				),
+				LidaClipsHealthCheck(
+					name = "youtube_proxy",
+					ok = false,
+					error = "proxy unavailable",
+					address = "http://proxy:8888",
+					path = null,
+					skipped = false
+				)
+			),
+			status.health.checks
+		)
 		assertEquals(
 			listOf(
 				LidaClipsRecentFailure(
