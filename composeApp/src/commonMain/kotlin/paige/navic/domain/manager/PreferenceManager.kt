@@ -72,6 +72,7 @@ class PreferenceManager(
 	var lidaClipsLandscapeVideoMode by preference(false)
 	var lidaClipsPauseMusicPlayback by preference(true)
 	var lidaClipsRememberPlaybackPosition by preference(true)
+	var lidaClipsKeepScreenOn by preference(true)
 	var lidaClipsLastClipId by preference("")
 	var lidaClipsLastPositionMs by preference(0L)
 	var respectAudioFocus by preference(true)

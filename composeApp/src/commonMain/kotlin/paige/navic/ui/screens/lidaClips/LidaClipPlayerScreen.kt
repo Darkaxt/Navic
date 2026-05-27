@@ -44,6 +44,7 @@ import paige.navic.icons.filled.Play
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 
@@ -96,6 +97,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							landscapeVideoModeEnabled = preferenceManager.lidaClipsLandscapeVideoMode,
 							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
 							rememberPlaybackPosition = preferenceManager.lidaClipsRememberPlaybackPosition,
+							keepScreenOn = preferenceManager.lidaClipsKeepScreenOn,
 							modifier = Modifier.fillMaxSize()
 						)
 					}
@@ -113,6 +115,7 @@ private fun LidaClipPlayerContent(
 	landscapeVideoModeEnabled: Boolean,
 	pauseMusicPlayback: Boolean,
 	rememberPlaybackPosition: Boolean,
+	keepScreenOn: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
@@ -160,6 +163,10 @@ private fun LidaClipPlayerContent(
 				player.resume()
 			}
 		}
+	}
+
+	if (keepScreenOn) {
+		KeepScreenOn()
 	}
 
 	Column(

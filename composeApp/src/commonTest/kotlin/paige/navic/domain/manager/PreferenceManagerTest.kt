@@ -97,10 +97,13 @@ class PreferenceManagerTest {
 		assertEquals(emptyMap(), manager.lidaClipsRequestHeadersMap())
 		assertFalse(manager.lidaClipsPictureInPicture)
 		assertFalse(manager.lidaClipsLandscapeVideoMode)
+		assertTrue(manager.lidaClipsKeepScreenOn)
 		manager.lidaClipsPictureInPicture = true
 		manager.lidaClipsLandscapeVideoMode = true
+		manager.lidaClipsKeepScreenOn = false
 		assertTrue(manager.lidaClipsPictureInPicture)
 		assertTrue(manager.lidaClipsLandscapeVideoMode)
+		assertFalse(manager.lidaClipsKeepScreenOn)
 	}
 
 	@Test
