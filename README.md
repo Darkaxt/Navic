@@ -51,6 +51,10 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 
+### Data and privacy controls
+
+* Kreate-inspired `Pause search history` setting under Data & Storage hides recent searches and stops recording newly submitted queries.
+
 ### LidaClips music videos
 
 * Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams.

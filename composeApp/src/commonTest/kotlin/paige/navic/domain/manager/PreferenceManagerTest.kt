@@ -176,6 +176,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun pauseSearchHistoryDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.pauseSearchHistory)
+
+		manager.pauseSearchHistory = true
+
+		assertTrue(manager.pauseSearchHistory)
+	}
+
+	@Test
 	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

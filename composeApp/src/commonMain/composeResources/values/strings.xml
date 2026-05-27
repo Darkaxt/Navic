@@ -89,6 +89,7 @@
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
+	<string name="subtitle_pause_search_history">Do not save new search queries or show recent searches</string>
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
@@ -175,6 +176,7 @@
 	<string name="option_reverse_proxy_username">Proxy username</string>
 	<string name="option_reverse_proxy_password">Proxy password</string>
 	<string name="option_check_for_updates">Check for updates</string>
+	<string name="option_pause_search_history">Pause search history</string>
 	<string name="option_radio_name">Name</string>
 	<string name="option_radio_stream_url">Stream URL</string>
 	<string name="option_radio_homepage_url">Homepage URL</string>

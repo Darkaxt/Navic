@@ -17,6 +17,7 @@ import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.core.UiState
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -25,7 +26,8 @@ class SearchViewModel(
 	private val repository: SearchRepository,
 	private val songRepository: SongRepository,
 	connectivityManager: ConnectivityManager,
-	downloadManager: DownloadManager
+	downloadManager: DownloadManager,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _searchState = MutableStateFlow<UiState<List<Any>>>(UiState.Success(emptyList()))
 	val searchState = _searchState.asStateFlow()
@@ -72,7 +74,14 @@ class SearchViewModel(
 	}
 
 	fun addToSearchHistory(query: String) {
-		if (query.isBlank()) return
+		if (
+			!shouldSaveSearchHistory(
+				query = query,
+				pauseSearchHistory = preferenceManager.pauseSearchHistory
+			)
+		) {
+			return
+		}
 		val current = _searchHistory.value.toMutableList()
 		if (current.contains(query)) {
 			current.remove(query)

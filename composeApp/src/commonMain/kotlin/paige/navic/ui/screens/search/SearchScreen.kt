@@ -92,6 +92,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
+import paige.navic.ui.screens.search.viewmodels.visibleSearchHistory
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),
@@ -128,7 +129,11 @@ fun SearchScreen(
 
 	val query = viewModel.searchQuery
 	val state by viewModel.searchState.collectAsState()
-	val searchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
+	val rawSearchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
+	val searchHistory = visibleSearchHistory(
+		history = rawSearchHistory,
+		pauseSearchHistory = preferenceManager.pauseSearchHistory
+	)
 	val isOnline by viewModel.isOnline.collectAsState()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsState()
 

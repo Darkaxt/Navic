@@ -55,6 +55,7 @@ import navic.composeapp.generated.resources.action_clear_downloads
 import navic.composeapp.generated.resources.action_clear_image_cache
 import navic.composeapp.generated.resources.action_clear_pending_actions
 import navic.composeapp.generated.resources.action_rebuild_database
+import navic.composeapp.generated.resources.action_search_history
 import navic.composeapp.generated.resources.action_trigger_sync
 import navic.composeapp.generated.resources.count_songs
 import navic.composeapp.generated.resources.info_library_download
@@ -75,9 +76,11 @@ import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
+import navic.composeapp.generated.resources.option_pause_search_history
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips
+import navic.composeapp.generated.resources.subtitle_pause_search_history
 import navic.composeapp.generated.resources.subtitle_pending_actions
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
@@ -106,6 +109,7 @@ import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
+import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -243,6 +247,16 @@ fun SettingsDataStorageScreen() {
 						}
 						Icon(Icons.Outlined.ChevronForward, null)
 					}
+				}
+
+				FormTitle(stringResource(Res.string.action_search_history))
+				Form {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_pause_search_history)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_pause_search_history)) },
+						value = preferenceManager.pauseSearchHistory,
+						onSetValue = { preferenceManager.pauseSearchHistory = it }
+					)
 				}
 
 				FormTitle(stringResource(Res.string.title_sync_control))
