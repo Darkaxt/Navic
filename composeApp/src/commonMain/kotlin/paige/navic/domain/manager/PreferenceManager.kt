@@ -8,6 +8,7 @@ import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.MarqueeSpeed
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
@@ -70,6 +71,7 @@ class PreferenceManager(
 	var lidaClipsApiKey by preference("")
 	var lidaClipsPictureInPicture by preference(false)
 	var lidaClipsLandscapeVideoMode by preference(false)
+	var lidaClipsVideoFitMode by preference(LidaClipsVideoFitMode.Fit)
 	var lidaClipsPauseMusicPlayback by preference(true)
 	var lidaClipsRememberPlaybackPosition by preference(true)
 	var lidaClipsKeepScreenOn by preference(true)

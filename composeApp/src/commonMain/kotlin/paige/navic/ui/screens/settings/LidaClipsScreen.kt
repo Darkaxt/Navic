@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
@@ -62,6 +63,7 @@ import navic.composeapp.generated.resources.option_lida_clips_pause_music_playba
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.option_lida_clips_sync_paused
+import navic.composeapp.generated.resources.option_lida_clips_video_fit
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_lida_clips_landscape_video_mode
@@ -69,6 +71,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_play
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
+import navic.composeapp.generated.resources.subtitle_lida_clips_video_fit
 import navic.composeapp.generated.resources.title_lida_clips
 import navic.composeapp.generated.resources.title_lida_clips_health_checks
 import navic.composeapp.generated.resources.title_lida_clips_recent_failures
@@ -78,6 +81,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.repositories.LidaClipsConnectionResult
 import paige.navic.domain.repositories.LidaClipsHealthCheck
 import paige.navic.domain.repositories.LidaClipsRecentFailure
@@ -89,6 +93,7 @@ import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 
@@ -183,6 +188,14 @@ fun SettingsLidaClipsScreen() {
 									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_landscape_video_mode)) },
 									value = preferenceManager.lidaClipsLandscapeVideoMode,
 									onSetValue = { preferenceManager.lidaClipsLandscapeVideoMode = it }
+								)
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_video_fit)) },
+									items = LidaClipsVideoFitMode.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_lida_clips_video_fit),
+									selection = preferenceManager.lidaClipsVideoFitMode,
+									onSelect = { preferenceManager.lidaClipsVideoFitMode = it }
 								)
 								SettingSwitchRow(
 									title = { Text(stringResource(Res.string.option_lida_clips_pause_music_playback)) },

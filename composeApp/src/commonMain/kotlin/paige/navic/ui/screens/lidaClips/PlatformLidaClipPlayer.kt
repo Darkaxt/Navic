@@ -3,6 +3,7 @@ package paige.navic.ui.screens.lidaClips
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 
 @Composable
 expect fun PlatformLidaClipPlayer(
@@ -10,6 +11,7 @@ expect fun PlatformLidaClipPlayer(
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
+	videoFitMode: LidaClipsVideoFitMode,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,

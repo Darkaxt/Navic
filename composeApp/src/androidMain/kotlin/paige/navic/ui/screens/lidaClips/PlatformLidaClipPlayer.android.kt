@@ -20,9 +20,12 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.lidaClipPlaybackErrorMessage
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.shouldCropLidaClipsVideoFrame
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -31,6 +34,7 @@ actual fun PlatformLidaClipPlayer(
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
+	videoFitMode: LidaClipsVideoFitMode,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
@@ -140,10 +144,19 @@ actual fun PlatformLidaClipPlayer(
 			PlayerView(context).apply {
 				this.player = player
 				useController = true
+				resizeMode = lidaClipResizeMode(videoFitMode)
 			}
 		},
 		update = {
 			it.player = player
+			it.resizeMode = lidaClipResizeMode(videoFitMode)
 		}
 	)
 }
+
+private fun lidaClipResizeMode(videoFitMode: LidaClipsVideoFitMode): Int =
+	if (shouldCropLidaClipsVideoFrame(videoFitMode)) {
+		AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+	} else {
+		AspectRatioFrameLayout.RESIZE_MODE_FIT
+	}

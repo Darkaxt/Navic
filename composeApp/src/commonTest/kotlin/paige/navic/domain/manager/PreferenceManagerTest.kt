@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import com.russhwolf.settings.MapSettings
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -98,12 +99,15 @@ class PreferenceManagerTest {
 		assertFalse(manager.lidaClipsPictureInPicture)
 		assertFalse(manager.lidaClipsLandscapeVideoMode)
 		assertTrue(manager.lidaClipsKeepScreenOn)
+		assertEquals(LidaClipsVideoFitMode.Fit, manager.lidaClipsVideoFitMode)
 		manager.lidaClipsPictureInPicture = true
 		manager.lidaClipsLandscapeVideoMode = true
 		manager.lidaClipsKeepScreenOn = false
+		manager.lidaClipsVideoFitMode = LidaClipsVideoFitMode.Crop
 		assertTrue(manager.lidaClipsPictureInPicture)
 		assertTrue(manager.lidaClipsLandscapeVideoMode)
 		assertFalse(manager.lidaClipsKeepScreenOn)
+		assertEquals(LidaClipsVideoFitMode.Crop, manager.lidaClipsVideoFitMode)
 	}
 
 	@Test

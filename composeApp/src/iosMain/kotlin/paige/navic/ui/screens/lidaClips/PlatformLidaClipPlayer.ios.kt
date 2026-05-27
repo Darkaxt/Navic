@@ -6,6 +6,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_lida_clips_android_only
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.ui.components.common.ContentUnavailable
@@ -16,6 +17,7 @@ actual fun PlatformLidaClipPlayer(
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
+	videoFitMode: LidaClipsVideoFitMode,
 	startPositionMs: Long,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,

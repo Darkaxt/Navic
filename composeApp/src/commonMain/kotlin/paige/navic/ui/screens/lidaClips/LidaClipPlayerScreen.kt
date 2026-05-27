@@ -45,6 +45,7 @@ import paige.navic.domain.models.lidaClipStartPositionMs
 import paige.navic.domain.models.nextRememberedLidaClipPosition
 import paige.navic.domain.models.shouldPauseMusicForLidaClip
 import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
+import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Refresh
@@ -121,6 +122,7 @@ fun LidaClipPlayerScreen(songId: String) {
 							requestHeaders = preferenceManager.lidaClipsRequestHeadersMap(),
 							pictureInPictureEnabled = preferenceManager.lidaClipsPictureInPicture,
 							landscapeVideoModeEnabled = preferenceManager.lidaClipsLandscapeVideoMode,
+							videoFitMode = preferenceManager.lidaClipsVideoFitMode,
 							pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
 							rememberPlaybackPosition = preferenceManager.lidaClipsRememberPlaybackPosition,
 							keepScreenOn = preferenceManager.lidaClipsKeepScreenOn,
@@ -139,6 +141,7 @@ private fun LidaClipPlayerContent(
 	requestHeaders: Map<String, String>,
 	pictureInPictureEnabled: Boolean,
 	landscapeVideoModeEnabled: Boolean,
+	videoFitMode: LidaClipsVideoFitMode,
 	pauseMusicPlayback: Boolean,
 	rememberPlaybackPosition: Boolean,
 	keepScreenOn: Boolean,
@@ -204,6 +207,7 @@ private fun LidaClipPlayerContent(
 			requestHeaders = requestHeaders,
 			pictureInPictureEnabled = pictureInPictureEnabled,
 			landscapeVideoModeEnabled = landscapeVideoModeEnabled,
+			videoFitMode = videoFitMode,
 			startPositionMs = startPositionMs,
 			retryKey = playbackState.retryKey,
 			onPlaybackReady = {
