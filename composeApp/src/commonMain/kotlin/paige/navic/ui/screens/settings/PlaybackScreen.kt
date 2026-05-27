@@ -50,6 +50,7 @@ import navic.composeapp.generated.resources.option_respect_audio_focus
 import navic.composeapp.generated.resources.option_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.option_resume_playback_on_startup
 import navic.composeapp.generated.resources.option_scrobble_percentage
+import navic.composeapp.generated.resources.option_smart_rewind
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
 import navic.composeapp.generated.resources.subtitle_audio_offload
@@ -61,6 +62,7 @@ import navic.composeapp.generated.resources.subtitle_persistent_queue
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_startup
+import navic.composeapp.generated.resources.subtitle_smart_rewind
 import navic.composeapp.generated.resources.subtitle_skip_media_on_error
 import navic.composeapp.generated.resources.subtitle_skip_silence
 import navic.composeapp.generated.resources.subtitle_streaming_quality
@@ -179,6 +181,14 @@ fun SettingsPlaybackScreen() {
 							description = stringResource(Res.string.subtitle_pause_between_songs),
 							selection = preferenceManager.pauseBetweenSongsSeconds,
 							onSelect = { preferenceManager.pauseBetweenSongsSeconds = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_smart_rewind)) },
+							items = smartRewindOptions.toImmutableList(),
+							label = { "${it}s" },
+							description = stringResource(Res.string.subtitle_smart_rewind),
+							selection = preferenceManager.smartRewindSeconds,
+							onSelect = { preferenceManager.smartRewindSeconds = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_pause_playback_on_volume_zero)) },
@@ -335,3 +345,4 @@ fun SettingsPlaybackScreen() {
 }
 
 private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
+private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)

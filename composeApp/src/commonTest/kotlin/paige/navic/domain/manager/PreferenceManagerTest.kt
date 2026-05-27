@@ -165,6 +165,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun smartRewindDefaultsToCurrentPreviousButtonBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(1, manager.smartRewindSeconds)
+
+		manager.smartRewindSeconds = 3
+
+		assertEquals(3, manager.smartRewindSeconds)
+	}
+
+	@Test
 	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

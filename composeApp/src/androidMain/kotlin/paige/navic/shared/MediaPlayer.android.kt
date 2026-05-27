@@ -70,6 +70,7 @@ import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
+import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
@@ -920,10 +921,16 @@ class AndroidMediaPlayerViewModel(
 	override fun previous() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val controller = controller ?: return@launch
-			if (controller.hasPreviousMediaItem() && controller.currentPosition <= 1000) {
-				controller.seekToPreviousMediaItem()
-			} else {
+			if (
+				shouldRestartCurrentOnPrevious(
+					smartRewindSeconds = preferenceManager.smartRewindSeconds,
+					hasPreviousMediaItem = controller.hasPreviousMediaItem(),
+					currentPositionMs = controller.currentPosition
+				)
+			) {
 				controller.seekTo(0)
+			} else {
+				controller.seekToPreviousMediaItem()
 			}
 		}
 	}

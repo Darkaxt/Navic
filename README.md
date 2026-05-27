@@ -2,7 +2,7 @@
 
 # Navic
 
-A fork of Navic with reverse-proxy Basic Auth support and configurable Android audio focus.
+A personalized Navidrome client fork with Android playback controls, LidaClips music videos, and reverse-proxy auth.
 
 [![Add to Obtainium](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/obtainium.svg)][ADD_TO_OBTAINIUM]
 [![AltSource provides links for most sideloading apps, like Feather](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/altsource.svg)][ALTSOURCE]
@@ -40,6 +40,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
 * Optional resume of a paused queue when headphones, USB audio, or Bluetooth audio connect.
 * Optional pause between songs after automatic track changes.
+* Kreate-inspired `Smart rewind` setting for when the Previous button restarts the current song instead of jumping back.
 * Optional pause/resume behavior when Android media volume is muted to zero and then restored.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
@@ -81,6 +82,10 @@ Advanced users can leave the Basic Auth toggle off and add a manual `Authorizati
 ### WhatsApp training audio setup
 
 Open Settings -> Playback and turn `Respect audio focus` off. Restart playback if the player service was already running.
+
+### Smart rewind setup
+
+Open Settings -> Playback -> `Smart rewind` to choose the point where the Previous button restarts the current song. The default is `1s`, matching Navic's previous hardcoded behavior. Raising it to `3s` matches Kreate's default.
 
 ### LidaClips setup
 
