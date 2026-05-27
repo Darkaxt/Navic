@@ -35,6 +35,7 @@ import navic.composeapp.generated.resources.option_audio_fade
 import navic.composeapp.generated.resources.option_audio_offload
 import navic.composeapp.generated.resources.option_audio_reverb
 import navic.composeapp.generated.resources.option_auto_fill_queue
+import navic.composeapp.generated.resources.option_auto_fill_queue_source
 import navic.composeapp.generated.resources.option_auto_fill_queue_target_size
 import navic.composeapp.generated.resources.option_bass_boost
 import navic.composeapp.generated.resources.option_bass_boost_strength
@@ -65,6 +66,7 @@ import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_audio_fade
 import navic.composeapp.generated.resources.subtitle_audio_reverb
 import navic.composeapp.generated.resources.subtitle_auto_fill_queue
+import navic.composeapp.generated.resources.subtitle_auto_fill_queue_source
 import navic.composeapp.generated.resources.subtitle_auto_fill_queue_target_size
 import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
@@ -90,6 +92,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.icons.Icons
@@ -296,14 +299,24 @@ fun SettingsPlaybackScreen() {
 							onSetValue = { preferenceManager.autoFillQueue = it }
 						)
 						AnimatedVisibility(preferenceManager.autoFillQueue) {
-							SettingSelectionRow(
-								title = { Text(stringResource(Res.string.option_auto_fill_queue_target_size)) },
-								items = autoFillQueueTargetSizeOptions.toImmutableList(),
-								label = { "$it songs" },
-								description = stringResource(Res.string.subtitle_auto_fill_queue_target_size),
-								selection = preferenceManager.autoFillQueueTargetSize,
-								onSelect = { preferenceManager.autoFillQueueTargetSize = it }
-							)
+							Column {
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_auto_fill_queue_target_size)) },
+									items = autoFillQueueTargetSizeOptions.toImmutableList(),
+									label = { "$it songs" },
+									description = stringResource(Res.string.subtitle_auto_fill_queue_target_size),
+									selection = preferenceManager.autoFillQueueTargetSize,
+									onSelect = { preferenceManager.autoFillQueueTargetSize = it }
+								)
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_auto_fill_queue_source)) },
+									items = AutoFillQueueSource.entries.toImmutableList(),
+									label = { stringResource(it.displayName) },
+									description = stringResource(Res.string.subtitle_auto_fill_queue_source),
+									selection = preferenceManager.autoFillQueueSource,
+									onSelect = { preferenceManager.autoFillQueueSource = it }
+								)
+							}
 						}
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_shake_to_skip)) },

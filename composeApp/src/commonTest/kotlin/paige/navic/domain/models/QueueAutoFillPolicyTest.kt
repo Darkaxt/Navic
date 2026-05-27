@@ -1,9 +1,11 @@
 package paige.navic.domain.models
 
+import paige.navic.domain.models.settings.AutoFillQueueSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class QueueAutoFillPolicyTest {
 	@Test
@@ -103,4 +105,117 @@ class QueueAutoFillPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun randomAutoFillSourcePreservesCandidateOrderAfterFiltering() {
+		val songs = listOf(
+			song(id = "song-1", artistId = "artist-a"),
+			song(id = "radio_live", artistId = "artist-a"),
+			song(id = "song-2", artistId = "artist-b"),
+			song(id = "song-3", artistId = "artist-c")
+		)
+
+		assertEquals(
+			listOf("song-2", "song-3"),
+			queueAutoFillCandidateSongs(
+				candidateSongs = songs,
+				queuedIds = setOf("song-1"),
+				limit = 10,
+				source = AutoFillQueueSource.RandomLibrary,
+				currentSong = songs.first()
+			).map { it.id }
+		)
+	}
+
+	@Test
+	fun similarAutoFillSourcePrefersCurrentArtistGenreAndAlbum() {
+		val current = song(
+			id = "song-current",
+			artistId = "artist-a",
+			albumId = "album-a",
+			genres = listOf("house", "training")
+		)
+		val unrelated = song(
+			id = "song-unrelated",
+			artistId = "artist-x",
+			albumId = "album-x",
+			genres = listOf("jazz")
+		)
+		val sameGenre = song(
+			id = "song-same-genre",
+			artistId = "artist-y",
+			albumId = "album-y",
+			genres = listOf("house")
+		)
+		val sameArtist = song(
+			id = "song-same-artist",
+			artistId = "artist-a",
+			albumId = "album-z",
+			genres = listOf("ambient")
+		)
+		val sameAlbumAndGenre = song(
+			id = "song-same-album-genre",
+			artistId = "artist-z",
+			albumId = "album-a",
+			genres = listOf("training")
+		)
+
+		assertEquals(
+			listOf(
+				"song-same-artist",
+				"song-same-album-genre",
+				"song-same-genre",
+				"song-unrelated"
+			),
+			queueAutoFillCandidateSongs(
+				candidateSongs = listOf(unrelated, sameGenre, sameArtist, sameAlbumAndGenre),
+				queuedIds = setOf(current.id),
+				limit = 10,
+				source = AutoFillQueueSource.SimilarToCurrentSong,
+				currentSong = current
+			).map { it.id }
+		)
+	}
+
+	private fun song(
+		id: String,
+		artistId: String,
+		albumId: String? = null,
+		genres: List<String> = emptyList()
+	) = DomainSong(
+		id = id,
+		title = "Song $id",
+		artistName = "Artist",
+		artistId = artistId,
+		albumTitle = null,
+		albumId = albumId,
+		parentId = null,
+		comment = null,
+		trackNumber = null,
+		discNumber = null,
+		isrc = emptyList(),
+		year = null,
+		genre = genres.firstOrNull(),
+		genres = genres,
+		moods = emptyList(),
+		duration = 0.seconds,
+		bpm = null,
+		contributors = emptyList(),
+		playCount = 0,
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "mp3",
+		mimeType = "audio/mpeg",
+		filePath = null,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = null,
+		explicitStatus = DomainExplicitStatus.Unknown
+	)
 }

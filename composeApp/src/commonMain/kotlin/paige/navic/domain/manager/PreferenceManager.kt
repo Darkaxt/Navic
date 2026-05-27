@@ -2,6 +2,7 @@ package paige.navic.domain.manager
 
 import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AudioReverbPreset
+import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AnimationStyle
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -93,6 +94,7 @@ class PreferenceManager(
 	var pauseBetweenSongsSeconds by preference(0)
 	var autoFillQueue by preference(false)
 	var autoFillQueueTargetSize by preference(25)
+	var autoFillQueueSource by preference(AutoFillQueueSource.RandomLibrary)
 	var shakeToSkip by preference(false)
 	var volumeKeysSkipTracks by preference(false)
 	var smartRewindSeconds by preference(1)

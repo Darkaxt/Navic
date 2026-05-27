@@ -2,6 +2,7 @@ package paige.navic.domain.manager
 
 import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
+import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -211,12 +212,15 @@ class PreferenceManagerTest {
 
 		assertFalse(manager.autoFillQueue)
 		assertEquals(25, manager.autoFillQueueTargetSize)
+		assertEquals(AutoFillQueueSource.RandomLibrary, manager.autoFillQueueSource)
 
 		manager.autoFillQueue = true
 		manager.autoFillQueueTargetSize = 50
+		manager.autoFillQueueSource = AutoFillQueueSource.SimilarToCurrentSong
 
 		assertTrue(manager.autoFillQueue)
 		assertEquals(50, manager.autoFillQueueTargetSize)
+		assertEquals(AutoFillQueueSource.SimilarToCurrentSong, manager.autoFillQueueSource)
 	}
 
 	@Test

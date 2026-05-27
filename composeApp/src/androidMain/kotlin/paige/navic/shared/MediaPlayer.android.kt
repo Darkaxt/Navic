@@ -75,7 +75,7 @@ import paige.navic.domain.models.bassBoostStrengthPermille
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.queueAutoFillAppendCount
-import paige.navic.domain.models.queueAutoFillCandidateIds
+import paige.navic.domain.models.queueAutoFillCandidateSongs
 import paige.navic.domain.models.QueueAutoFillRemainingTrigger
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
@@ -812,14 +812,13 @@ class AndroidMediaPlayerViewModel(
 					targetSize = preferenceManager.autoFillQueueTargetSize
 				)
 				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
-				val availableSongs = allSongs.filter { isAvailable(it.id) }
-				val songById = availableSongs.associateBy { it.id }
-				val candidateIds = queueAutoFillCandidateIds(
-					candidateIds = availableSongs.map { it.id },
+				val songsToAppend = queueAutoFillCandidateSongs(
+					candidateSongs = allSongs.filter { isAvailable(it.id) },
 					queuedIds = queuedIds,
-					limit = appendCount
+					limit = appendCount,
+					source = preferenceManager.autoFillQueueSource,
+					currentSong = currentState.currentSong
 				)
-				val songsToAppend = candidateIds.mapNotNull(songById::get)
 				if (songsToAppend.isEmpty()) return@launch
 
 				val mediaItems = withContext(Dispatchers.Default) {
