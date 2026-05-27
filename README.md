@@ -2,7 +2,7 @@
 
 # Navic
 
-A modern Navidrome client for Android and iOS.
+A fork of Navic with reverse-proxy Basic Auth support and configurable Android audio focus.
 
 [![Add to Obtainium](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/obtainium.svg)][ADD_TO_OBTAINIUM]
 [![AltSource provides links for most sideloading apps, like Feather](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/altsource.svg)][ALTSOURCE]
@@ -21,6 +21,25 @@ A modern Navidrome client for Android and iOS.
 * Lightweight & fast: zero bloat
 * Feature rich: covers almost the entirety of the Subsonic API
 * Works offline: syncs your entire library locally, and allows you to download songs
+
+## Fork additions
+
+* Reverse proxy Basic Auth for Navidrome/Subsonic servers behind Traefik or another proxy
+* Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
+* Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
+
+### Traefik Basic Auth setup
+
+1. Open the login screen and tap `Custom server headers`.
+2. Enable `Reverse proxy Basic Auth`.
+3. Enter the Traefik Basic Auth username and password.
+4. Return to login and enter the normal Navidrome URL, username, and password.
+
+Advanced users can leave the Basic Auth toggle off and add a manual `Authorization: Basic <base64(username:password)>` custom header instead.
+
+### WhatsApp training audio setup
+
+Open Settings -> Playback and turn `Respect audio focus` off. Restart playback if the player service was already running.
 
 ## Screenshots
 
@@ -44,8 +63,8 @@ You can help translate Navic by contributing on [Weblate](https://hosted.weblate
  </picture>
 </a>
 
-[ADD_TO_OBTAINIUM]: https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22paige.navic%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fssalggnikool%2FNavic%22%2C%22author%22%3A%22ssalggnikool%22%2C%22name%22%3A%22Navic%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%7D%22%2C%22overrideSource%22%3Anull%7D "Add to Obtainium"
+[ADD_TO_OBTAINIUM]: https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22darkaxt.navic%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FDarkaxt%2FNavic%22%2C%22author%22%3A%22Darkaxt%22%2C%22name%22%3A%22Navic%20Reverse%20Proxy%20Fork%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22Navic.%2A%5C%5C.apk%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%7D%22%2C%22overrideSource%22%3Anull%7D "Add to Obtainium"
 
 [ALTSOURCE]: https://stikstore.app/altdirect/?url=https://raw.githubusercontent.com/ssalggnikool/Navic/refs/heads/master/app-repo.json
 
-[LATEST_RELEASE]: https://github.com/ssalggnikool/Navic/releases/latest
+[LATEST_RELEASE]: https://github.com/Darkaxt/Navic/releases/latest

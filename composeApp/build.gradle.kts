@@ -72,32 +72,6 @@ tasks {
 
 		}
 	}
-	matching { it.name.startsWith("compileKotlinIos") }.configureEach {
-		// “truly horrifying workaround” for a crash in SearchScreen.kt
-		// https://youtrack.jetbrains.com/issue/KT-84055/Reference-to-lambda-in-lambda-in-function-TextField-can-not-be-evaluated#focus=Comments-27-13188532.0-0
-		val tmp = layout.buildDirectory.dir("generated/iosWorkaround/commonMain/kotlin").get()
-		kotlin.sourceSets["commonMain"].kotlin.srcDir(tmp)
-
-		doFirst {
-			tmp.asFile.mkdirs()
-			tmp.file("TextFieldDecorator.kt").asFile.writeText(
-				"""
-package androidx.compose.foundation.text.input
-
-import androidx.compose.runtime.Composable
-
-public fun interface TextFieldDecorator {
-    @Suppress("ComposableLambdaParameterNaming")
-    @Composable
-    public fun Decoration(innerTextField: @Composable () -> Unit)
-}
-"""
-			)
-		}
-		doLast {
-			tmp.asFile.deleteRecursively()
-		}
-	}
 }
 
 extensions.configure<KotlinMultiplatformExtension> {
@@ -168,6 +142,37 @@ extensions.configure<KotlinMultiplatformExtension> {
 
 		iosMain.dependencies {
 			implementation(libs.bundles.ktor.ios)
+		}
+	}
+
+	val iosWorkaroundSource = layout.buildDirectory.dir("generated/iosWorkaround/iosMain/kotlin")
+	sourceSets.named("iosMain") {
+		kotlin.srcDir(iosWorkaroundSource)
+	}
+
+	tasks.matching { it.name.startsWith("compileKotlinIos") }.configureEach {
+		// “truly horrifying workaround” for a crash in SearchScreen.kt
+		// https://youtrack.jetbrains.com/issue/KT-84055/Reference-to-lambda-in-lambda-in-function-TextField-can-not-be-evaluated#focus=Comments-27-13188532.0-0
+		val tmp = iosWorkaroundSource.get()
+
+		doFirst {
+			tmp.asFile.mkdirs()
+			tmp.file("TextFieldDecorator.kt").asFile.writeText(
+				"""
+package androidx.compose.foundation.text.input
+
+import androidx.compose.runtime.Composable
+
+public fun interface TextFieldDecorator {
+    @Suppress("ComposableLambdaParameterNaming")
+    @Composable
+    public fun Decoration(innerTextField: @Composable () -> Unit)
+}
+"""
+			)
+		}
+		doLast {
+			tmp.asFile.deleteRecursively()
 		}
 	}
 

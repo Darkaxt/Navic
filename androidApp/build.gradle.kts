@@ -17,11 +17,11 @@ extensions.configure<ApplicationExtension> {
 	}
 
 	defaultConfig {
-		applicationId = "paige.navic"
+		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 40
-		versionName = "v1.0.0-alpha40"
+		versionCode = 41
+		versionName = "v1.0.0-alpha40-proxy1"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
