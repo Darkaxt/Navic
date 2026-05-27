@@ -24,16 +24,45 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 
 ## Fork additions
 
-* Reverse proxy Basic Auth for Navidrome/Subsonic servers behind Traefik or another proxy
-* Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading
-* Android playback setting to respect or ignore audio focus, useful when music should keep playing while WhatsApp or another app plays audio
-* Playlist detail pages and playlist list/library play actions auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet
-* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams, including cached now-playing lookups, automatic hiding for known missing clips, retryable playback errors, Feishin-style music pause/resume while clips play, remembered clip positions, Android Picture-in-Picture, and optional landscape video mode
-* Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
-* Android can optionally resume a paused queue when headphones, USB audio, or Bluetooth audio connect
-* Kreate-style Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions
-* Persistent queue controls adapted from Kreate, including optional playback resume on startup
-* Android system equalizer shortcut adapted from Kreate in Playback settings and the now-playing song menu
+This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, and LidaClips music-video playback.
+
+### Reverse proxy and server access
+
+* Reverse proxy Basic Auth fields for Navidrome/Subsonic servers behind Traefik or another proxy.
+* Generated `Authorization: Basic ...` headers override a manual custom `Authorization` header only while the Basic Auth toggle is enabled.
+* Existing custom server headers remain available for advanced setups.
+* Server headers are applied to login, API calls, streaming, downloads, artwork, notifications, lyrics sharing, and now-playing artwork/color loading.
+* The Android package id is `darkaxt.navic`, so the fork can install separately from upstream Navic.
+
+### Android playback controls
+
+* `Respect audio focus` can be turned off so Navic keeps playing while WhatsApp or another app plays audio.
+* Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
+* Optional resume of a paused queue when headphones, USB audio, or Bluetooth audio connect.
+* Persistent queue controls, including optional playback resume on startup.
+* Android system equalizer shortcut in Playback settings and the now-playing song menu.
+* Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions.
+
+### Library and playlist reliability
+
+* Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
+* Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
+
+### LidaClips music videos
+
+* Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams.
+* The LidaClips URL defaults to blank, must start with `http://` or `https://`, and is validated before connection tests or clip lookup.
+* LidaClips API keys are sent as `X-Api-Key` for connection checks, clip lookups, and Android video stream playback.
+* Now-playing clip availability is cached and prefetched by LidaClips URL, API key/header set, and Navidrome song id.
+* The Music Video action stays visible while availability is unknown, stays visible for cached hits, and hides for cached misses.
+* Android Media3 playback shows retryable stream errors with diagnostic error codes.
+* Android Picture-in-Picture, optional landscape video mode, remembered clip positions, and Feishin-style music pause/resume are available from the LidaClips settings screen.
+* iOS currently shows an unsupported message until a native video player is added.
+
+### Maintenance
+
+* GitHub Actions permissions and vulnerable transitive build dependencies were hardened for the fork's Security & Quality findings.
+* The Kreate transplant tracking notes live in [docs/kreate-feature-audit.md](docs/kreate-feature-audit.md).
 
 ### Traefik Basic Auth setup
 
