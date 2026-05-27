@@ -29,6 +29,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -134,6 +137,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: [ build-apk, build-ipa ]
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - uses: actions/download-artifact@v7
       - name: Post artifacts to Discord webhook
