@@ -528,6 +528,8 @@ class IOSMediaPlayerViewModel(
 		player.replaceCurrentItemWithPlayerItem(null)
 	}
 
+	override fun openSystemEqualizer(): Boolean = false
+
 	override fun syncPlayerWithState(state: PlayerUiState) {
 		if (state.queue.isEmpty() || player.currentItem != null) return
 

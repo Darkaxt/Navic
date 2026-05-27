@@ -99,6 +99,9 @@ fun NowPlayingMoreButton(
 				},
 				rating = songRating,
 				onSetRating = onSetSongRating,
+				onOpenSystemEqualizer = if (platformContext.name.lowercase().startsWith("android")) {
+					{ player.openSystemEqualizer() }
+				} else null,
 				showSleepTimer = true,
 				showPlaybackSpeed = true
 			)

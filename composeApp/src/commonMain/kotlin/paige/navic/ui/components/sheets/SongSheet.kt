@@ -46,6 +46,7 @@ import navic.composeapp.generated.resources.action_share
 import navic.composeapp.generated.resources.action_sleep_timer
 import navic.composeapp.generated.resources.action_sleep_timer_enabled
 import navic.composeapp.generated.resources.action_star
+import navic.composeapp.generated.resources.action_system_equalizer
 import navic.composeapp.generated.resources.action_track_info
 import navic.composeapp.generated.resources.action_view_album
 import navic.composeapp.generated.resources.action_view_artist
@@ -73,6 +74,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.Equalizer
 import paige.navic.icons.outlined.Info
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.PlaylistRemove
@@ -112,6 +114,7 @@ fun SongSheet(
 	onDeleteDownload: (() -> Unit)? = null,
 	rating: Int? = null,
 	onSetRating: ((Int) -> Unit)? = null,
+	onOpenSystemEqualizer: (() -> Unit)? = null,
 	showSleepTimer: Boolean = false,
 	showPlaybackSpeed: Boolean = false
 ) {
@@ -477,6 +480,20 @@ fun SongSheet(
 					onClick = dropUnlessResumed {
 						platformContext.clickSound()
 						backStack.add(Screen.PlaybackSpeed)
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onOpenSystemEqualizer != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_system_equalizer)) },
+					leadingContent = { Icon(Icons.Outlined.Equalizer, null) },
+					onClick = {
+						platformContext.clickSound()
+						onOpenSystemEqualizer()
+						onDismissRequest()
 					},
 					colors = colors,
 					contentPadding = contentPadding

@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
+import navic.composeapp.generated.resources.action_system_equalizer
 import navic.composeapp.generated.resources.option_audio_offload
 import navic.composeapp.generated.resources.option_enable_scrobbling
 import navic.composeapp.generated.resources.option_gapless_playback
@@ -58,6 +59,7 @@ import navic.composeapp.generated.resources.subtitle_resume_playback_on_startup
 import navic.composeapp.generated.resources.subtitle_skip_media_on_error
 import navic.composeapp.generated.resources.subtitle_skip_silence
 import navic.composeapp.generated.resources.subtitle_streaming_quality
+import navic.composeapp.generated.resources.subtitle_system_equalizer
 import navic.composeapp.generated.resources.title_behaviour
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_streaming_quality
@@ -69,6 +71,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
+import paige.navic.icons.outlined.Equalizer
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
@@ -85,6 +89,7 @@ fun SettingsPlaybackScreen() {
 	val backStack = LocalNavStack.current
 	var showLyricsPriorityDialog by rememberSaveable { mutableStateOf(false) }
 	val preferenceManager = koinInject<PreferenceManager>()
+	val player = koinInject<MediaPlayerViewModel>()
 
 	Scaffold(
 		topBar = {
@@ -156,6 +161,22 @@ fun SettingsPlaybackScreen() {
 							value = preferenceManager.resumePlaybackOnAudioDeviceConnect,
 							onSetValue = { preferenceManager.resumePlaybackOnAudioDeviceConnect = it }
 						)
+						FormRow(
+							onClick = {
+								player.openSystemEqualizer()
+							},
+							horizontalArrangement = Arrangement.spacedBy(14.dp)
+						) {
+							Icon(Icons.Outlined.Equalizer, null)
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.action_system_equalizer))
+								Text(
+									text = stringResource(Res.string.subtitle_system_equalizer),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+						}
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_persistent_queue)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_persistent_queue)) },

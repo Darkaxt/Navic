@@ -12,13 +12,13 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 * Player action visibility: Navic now exposes Now Playing settings for Lyrics, Queue, and Music Video actions.
 * Persistent queue and startup resume: Navic now exposes Playback settings to save/restore the queue and optionally resume playback on startup. Persistent queue defaults on to preserve Navic's existing restore behavior; resume-on-start defaults off.
 * LidaClips Picture-in-Picture: Navic now exposes a LidaClips Android PiP toggle under Settings -> Data & Storage -> Music video clips. The Android video surface provides PiP source bounds, uses Android 12+ auto-enter params, and falls back to `onUserLeaveHint` on Android 8-11.
+* Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
 
 ## Best Next Transplants
 
-1. Android system equalizer shortcut
-   * Kreate opens Android's audio effect control panel for the active audio session.
-   * This is useful and contained, but it needs careful handling because not all devices provide an equalizer.
-   * Setting/action should live in Playback or the song/player menu.
+1. LidaClips clip availability prefetch/caching
+   * The current music-video action opens a detail screen and then discovers whether a clip exists.
+   * A small cache around lookup results would make the action faster after first use and could eventually hide actions only for missing clips.
 
 ## Higher-Risk Candidates
 
@@ -29,6 +29,6 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 
 ## Recommended Order
 
-1. Smoke-test LidaClips playback and PiP on a real Android device.
-2. Consider Android system equalizer access once the active audio-session path is cleanly exposed.
+1. Smoke-test LidaClips playback, PiP, and the system equalizer launcher on a real Android device.
+2. Add LidaClips clip lookup caching/prefetch once the live API behavior is verified on-device.
 3. Revisit higher-risk playback device-event options only after core LidaClips playback has been tested on-device.

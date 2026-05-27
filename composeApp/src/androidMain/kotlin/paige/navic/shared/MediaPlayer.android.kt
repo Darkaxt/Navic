@@ -2,9 +2,11 @@ package paige.navic.shared
 
 import android.app.Application
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.audiofx.AudioEffect
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -64,6 +66,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
+import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
@@ -885,6 +888,25 @@ class AndroidMediaPlayerViewModel(
 			controller?.setPlaybackSpeed(value)
 		}
 		_uiState.update { it.copy(playbackSpeed = value) }
+	}
+
+	override fun openSystemEqualizer(): Boolean {
+		val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
+			systemEqualizerAudioSessionId(controller?.audioSessionId)?.let { audioSessionId ->
+				putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)
+			}
+			putExtra(AudioEffect.EXTRA_PACKAGE_NAME, application.packageName)
+			putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+			addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+		}
+
+		return try {
+			application.startActivity(intent)
+			true
+		} catch (error: ActivityNotFoundException) {
+			Logger.w("MediaPlayer", "System equalizer not available", error)
+			false
+		}
 	}
 
 	private fun DomainSong.toMediaItem(): MediaItem {
