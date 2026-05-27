@@ -46,7 +46,6 @@ import navic.composeapp.generated.resources.info_lida_clips_not_tested
 import navic.composeapp.generated.resources.info_lida_clips_recent_failure_reason
 import navic.composeapp.generated.resources.info_lida_clips_recent_failure_retry_after
 import navic.composeapp.generated.resources.info_lida_clips_recent_failure_updated
-import navic.composeapp.generated.resources.info_lida_clips_service_status_counts
 import navic.composeapp.generated.resources.info_lida_clips_service_status_failed
 import navic.composeapp.generated.resources.info_lida_clips_service_status_loading
 import navic.composeapp.generated.resources.info_lida_clips_service_status_unavailable
@@ -57,13 +56,17 @@ import navic.composeapp.generated.resources.info_lida_clips_unauthorized
 import navic.composeapp.generated.resources.info_lida_clips_unknown_track
 import navic.composeapp.generated.resources.option_lida_clips_api_key
 import navic.composeapp.generated.resources.option_lida_clips_base_url
+import navic.composeapp.generated.resources.option_lida_clips_active_clips
 import navic.composeapp.generated.resources.option_lida_clips_enabled
+import navic.composeapp.generated.resources.option_lida_clips_fallback_clips
 import navic.composeapp.generated.resources.option_lida_clips_keep_screen_on
 import navic.composeapp.generated.resources.option_lida_clips_landscape_video_mode
+import navic.composeapp.generated.resources.option_lida_clips_official_clips
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.option_lida_clips_sync_paused
+import navic.composeapp.generated.resources.option_lida_clips_sync_state
 import navic.composeapp.generated.resources.option_lida_clips_video_fit
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_keep_screen_on
@@ -97,6 +100,7 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 
 private const val RECENT_FAILURE_DISPLAY_LIMIT = 3
@@ -324,27 +328,26 @@ private fun LidaClipsServiceStatusContent(
 		return
 	}
 
-	FormRow {
-		Column(Modifier.weight(1f)) {
-			Text(
-				stringResource(
-					Res.string.info_lida_clips_service_status_counts,
-					status.activeClips,
-					status.officialClips,
-					status.fallbackClips
-				)
-			)
-			Text(
-				if (status.syncRunning) {
-					stringResource(Res.string.info_lida_clips_sync_running)
-				} else {
-					stringResource(Res.string.info_lida_clips_sync_idle)
-				},
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
+	SettingValueRow(
+		title = { Text(stringResource(Res.string.option_lida_clips_active_clips)) },
+		value = status.activeClips.toString()
+	)
+	SettingValueRow(
+		title = { Text(stringResource(Res.string.option_lida_clips_official_clips)) },
+		value = status.officialClips.toString()
+	)
+	SettingValueRow(
+		title = { Text(stringResource(Res.string.option_lida_clips_fallback_clips)) },
+		value = status.fallbackClips.toString()
+	)
+	SettingValueRow(
+		title = { Text(stringResource(Res.string.option_lida_clips_sync_state)) },
+		value = if (status.syncRunning) {
+			stringResource(Res.string.info_lida_clips_sync_running)
+		} else {
+			stringResource(Res.string.info_lida_clips_sync_idle)
 		}
-	}
+	)
 	if (state is UiState.Error) {
 		FormRow {
 			Text(

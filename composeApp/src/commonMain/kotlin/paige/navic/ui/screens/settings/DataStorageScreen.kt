@@ -110,6 +110,7 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -140,15 +141,7 @@ fun SettingsDataStorageScreen() {
 	val calculating = stringResource(Res.string.info_status_calculating)
 	var imageCacheSizeMb by remember { mutableStateOf(calculating) }
 
-	val downloadsSizeMb = remember(downloadSize) {
-		val mb = downloadSize.toDouble() / (1024 * 1024)
-		if (mb > 1024) {
-			val gb = mb / 1024
-			" // ${(gb * 100).toInt() / 100.0} GB"
-		} else {
-			" // ${mb.toInt()} MB"
-		}
-	}
+	val downloadedSize = remember(downloadSize) { downloadStorageSizeText(downloadSize) }
 
 	val smoothSyncProgress by animateFloatAsState(
 		if (syncState.isSyncing) syncState.progress else 0f,
@@ -344,32 +337,24 @@ fun SettingsDataStorageScreen() {
 						}
 					}
 
-					FormRow {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_downloaded_songs))
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_downloaded_songs)) },
+						subtitle = {
 							Text(
 								pluralStringResource(
 									Res.plurals.count_songs,
 									downloadCount,
 									downloadCount
 								)
-									+ downloadsSizeMb,
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
-						}
-					}
+						},
+						value = downloadedSize
+					)
 
-					FormRow {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_image_cache_size))
-							Text(
-								imageCacheSizeMb,
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-					}
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_image_cache_size)) },
+						value = imageCacheSizeMb
+					)
 
 					FormRow(
 						modifier = offlineModifier,

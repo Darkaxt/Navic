@@ -237,6 +237,10 @@
 	<string name="option_lida_clips_enabled">Enable LidaClips</string>
 	<string name="option_lida_clips_base_url">LidaClips URL</string>
 	<string name="option_lida_clips_api_key">API key</string>
+	<string name="option_lida_clips_active_clips">Active clips</string>
+	<string name="option_lida_clips_official_clips">Official clips</string>
+	<string name="option_lida_clips_fallback_clips">Fallback clips</string>
+	<string name="option_lida_clips_sync_state">Sync state</string>
 	<string name="option_lida_clips_picture_in_picture">Picture-in-Picture</string>
 	<string name="option_lida_clips_landscape_video_mode">Landscape video mode</string>
 	<string name="option_lida_clips_video_fit">Video fit</string>
@@ -272,7 +276,6 @@
 	<string name="info_lida_clips_service_status_loading">Loading service status...</string>
 	<string name="info_lida_clips_service_status_unavailable">Service status not loaded</string>
 	<string name="info_lida_clips_service_status_failed">Service status failed: %1$s</string>
-	<string name="info_lida_clips_service_status_counts">Active: %1$d // Official: %2$d // Fallback: %3$d</string>
 	<string name="info_lida_clips_sync_running">Sync is running</string>
 	<string name="info_lida_clips_sync_idle">Sync is idle</string>
 	<string name="info_lida_clips_health_status">Health: %1$s</string>
