@@ -20,6 +20,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Bass boost: Navic now exposes an Android Playback toggle and strength slider, then applies Android `BassBoost` to the active Media3 audio session when available.
 * Reverb presets: Navic now exposes an Android Playback setting for Kreate-style `PresetReverb` choices and applies the selected auxiliary effect through the playback service's ExoPlayer session.
 * Queue auto-fill: Navic now adapts Kreate's queue auto-append concept as an Android Playback setting that appends random synced Navidrome songs from the local library cache when active playback gets near the end of a non-radio queue. It skips duplicates, skips radio items, and exposes a target queue size.
+* Shake to skip: Navic now adapts Kreate's accelerometer-based skip gesture as an Android Playback setting. It registers the accelerometer only while the app is open, logged in, and the setting is enabled, then skips to the next queued song after a cooldown-protected shake event.
 * Search history controls: Navic now persists recent searches across app restarts, lets the user clear or remove entries from Search, and exposes a Data & Storage setting that hides history while stopping newly submitted queries from being recorded.
 * LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API-key/header fingerprint, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, prefetches the now-playing song while LidaClips is enabled, and avoids embedding the raw API key in internal cache/prefetch keys.
 * LidaClips action availability policy: Navic now keeps the now-playing Music Video action visible whenever LidaClips is enabled, configured, and not hidden by the user, so cached misses still let the user open the refreshable clip screen.
@@ -41,7 +42,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 ## Best Next Transplants
 
 1. Device-event controls
-   * Kreate-style volume-button skip and shake-to-skip are useful but should be opt-in and conservative because they affect background device behavior.
+   * Shake-to-skip is adapted. Volume-button skip still needs a careful Android implementation because Kreate appears to define the setting but not wire a clear runtime hook.
 2. Loudness normalization
    * Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain, so this should not be copied directly without deciding how the two gain systems interact.
 3. Smarter radio sources

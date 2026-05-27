@@ -46,6 +46,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android bass boost with an adjustable strength slider.
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
 * Kreate-inspired `Auto-fill queue` can append random synced Navidrome songs when playback reaches the end of the current queue.
+* Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
@@ -111,6 +112,10 @@ Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the de
 ### Auto-fill queue setup
 
 Open Settings -> Playback and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. Navic uses random songs from the synced local Navidrome library cache, skips duplicate queued songs and live radio streams, and leaves the setting off by default.
+
+### Shake to skip setup
+
+Open Settings -> Playback and turn `Shake to skip` on. Shake detection is available on Android while Navic is open and logged in; it is off by default.
 
 ### LidaClips setup
 

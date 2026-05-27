@@ -93,6 +93,7 @@ class PreferenceManager(
 	var pauseBetweenSongsSeconds by preference(0)
 	var autoFillQueue by preference(false)
 	var autoFillQueueTargetSize by preference(25)
+	var shakeToSkip by preference(false)
 	var smartRewindSeconds by preference(1)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)

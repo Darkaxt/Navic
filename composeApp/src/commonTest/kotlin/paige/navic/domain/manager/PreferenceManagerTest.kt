@@ -220,6 +220,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun shakeToSkipDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.shakeToSkip)
+
+		manager.shakeToSkip = true
+
+		assertTrue(manager.shakeToSkip)
+	}
+
+	@Test
 	fun smartRewindDefaultsToCurrentPreviousButtonBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
