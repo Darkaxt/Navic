@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
@@ -81,6 +82,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.nextLidaClipsServiceStatusRefreshKey
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.repositories.LidaClipsConnectionResult
 import paige.navic.domain.repositories.LidaClipsHealthCheck
@@ -111,15 +113,18 @@ fun SettingsLidaClipsScreen() {
 	val isUpdatingSyncPaused by viewModel.isUpdatingSyncPaused.collectAsStateWithLifecycle()
 	val isLidaClipsUrlConfigured =
 		configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl) != null
+	val serviceStatusRefreshKey = nextLidaClipsServiceStatusRefreshKey(
+		enabled = preferenceManager.lidaClipsEnabled,
+		baseUrl = preferenceManager.lidaClipsBaseUrl,
+		apiKey = preferenceManager.lidaClipsApiKey
+	)
 
-	LaunchedEffect(
-		preferenceManager.lidaClipsEnabled,
-		preferenceManager.lidaClipsBaseUrl
-	) {
-		if (preferenceManager.lidaClipsEnabled && isLidaClipsUrlConfigured) {
-			viewModel.refreshServiceStatus()
-		} else {
+	LaunchedEffect(serviceStatusRefreshKey) {
+		if (serviceStatusRefreshKey == null) {
 			viewModel.clearServiceStatus()
+		} else {
+			delay(500L)
+			viewModel.refreshServiceStatus()
 		}
 	}
 

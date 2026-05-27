@@ -30,7 +30,7 @@ fun shouldShowLidaClipsMusicVideoAction(
 		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
 		userActionEnabled
 
-private fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
+internal fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
 	baseUrl.trim().trimEnd('/').takeIf {
 		it.startsWith("http://", ignoreCase = true) ||
 			it.startsWith("https://", ignoreCase = true)

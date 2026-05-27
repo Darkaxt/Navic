@@ -27,13 +27,14 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips video fit mode: Navic now exposes an Android LidaClips setting that keeps the full video frame by default or crops to fill the player using Media3's zoom resize mode.
 * LidaClips keep screen on: Navic now exposes a LidaClips setting that keeps the display awake while the music-video clip screen is open, using the existing cross-platform keep-screen-on hook already used by lyrics.
 * LidaClips service status/control: Navic now reads LidaClips health/dashboard/control endpoints from Settings -> Data & Storage -> Music video clips, shows backend health-check failures, active/official/fallback clip counts, recent backend sync failures, and sync runtime state, and can pause or resume scheduled backend clip sync.
+* LidaClips settings status refresh: Navic now refreshes backend service status after enabled/base URL/API-key changes settle, so setup changes do not leave stale service diagnostics on screen.
 * LidaClips stream header scoping: Navic now sends the LidaClips API key to Android video stream requests only when the resolved stream URL is on the configured LidaClips origin, avoiding API-key leakage to absolute external stream URLs while preserving the normal authenticated stream endpoint.
 * Tap artwork for lyrics: Kreate exposes a thumbnail-tap lyrics option. Navic now adapts that as an opt-in Now Playing setting so tapping the artwork opens Lyrics without changing the default artwork behavior.
 
 ## Best Next Transplants
 
 1. LidaClips playback/session polish
-   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, keeps the screen awake by default, has opt-in landscape and video crop modes, refreshes stale clip lookup availability, and exposes backend service status/control with health and recent backend failure diagnostics.
+   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, keeps the screen awake by default, has opt-in landscape and video crop modes, refreshes stale clip lookup availability, and exposes backend service status/control with health and recent backend failure diagnostics that refresh after settings changes settle.
    * These should be based on real-device testing so the video player does not fight the music session or Android PiP behavior.
 
 ## Higher-Risk Candidates
