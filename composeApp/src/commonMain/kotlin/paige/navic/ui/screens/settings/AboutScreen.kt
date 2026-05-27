@@ -32,6 +32,8 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
 
+const val ABOUT_SOURCE_URL = "https://github.com/Darkaxt/Navic"
+
 @Composable
 fun SettingsAboutScreen() {
 	@Suppress("DEPRECATION")
@@ -69,7 +71,7 @@ fun SettingsAboutScreen() {
 			}
 			Form {
 				FormRow(onClick = {
-					uriHandler.openUri("https://github.com/ssalggnikool/Navic")
+					uriHandler.openUri(ABOUT_SOURCE_URL)
 				}) {
 					Text(stringResource(Res.string.title_source))
 					Icon(Icons.Outlined.ChevronForward, null)
