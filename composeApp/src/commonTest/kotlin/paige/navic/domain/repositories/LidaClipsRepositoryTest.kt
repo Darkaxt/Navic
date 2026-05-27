@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import paige.navic.domain.models.DomainLidaClip
 
@@ -12,6 +13,17 @@ class LidaClipsRepositoryTest {
 			"https://clips.remaxku.eu/api/v1/ping",
 			lidaClipsEndpoint(" https://clips.remaxku.eu/ ", "/api/v1/ping")
 		)
+	}
+
+	@Test
+	fun lidaClipsEndpointRequiresConfiguredBaseUrl() {
+		assertEquals(null, configuredLidaClipsBaseUrl(" "))
+		assertEquals("https://clips.remaxku.eu", configuredLidaClipsBaseUrl(" https://clips.remaxku.eu/ "))
+
+		val error = assertFailsWith<IllegalStateException> {
+			lidaClipsEndpoint(" ", "/api/v1/ping")
+		}
+		assertEquals(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE, error.message)
 	}
 
 	@Test

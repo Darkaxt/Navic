@@ -20,6 +20,7 @@ import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
 
 private const val TAG = "LidaClipsRepository"
+internal const val LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE = "Enter the LidaClips URL first."
 
 class LidaClipsRepository(
 	private val preferenceManager: PreferenceManager
@@ -42,7 +43,9 @@ class LidaClipsRepository(
 	}
 
 	suspend fun testConnection(): LidaClipsConnectionResult {
-		val baseUrl = preferenceManager.lidaClipsBaseUrl
+		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
+			?: return LidaClipsConnectionResult.Failed(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
+
 		return try {
 			val ping = client.get(lidaClipsEndpoint(baseUrl, "api/v1/ping")) {
 				accept(ContentType.Application.Json)
@@ -76,7 +79,8 @@ class LidaClipsRepository(
 	}
 
 	suspend fun findClipByNavidromeSongId(songId: String): Result<DomainLidaClip?> {
-		val baseUrl = preferenceManager.lidaClipsBaseUrl
+		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
+			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 		val cacheKey = lidaClipsLookupCacheKey(baseUrl, requestHeaders, songId)
 
@@ -120,6 +124,9 @@ sealed interface LidaClipsConnectionResult {
 
 internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
 	"${normalizeLidaClipsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"
+
+internal fun configuredLidaClipsBaseUrl(baseUrl: String): String? =
+	baseUrl.trim().trimEnd('/').takeIf { it.isNotEmpty() }
 
 internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String =
 	lidaClipsEndpoint(
@@ -184,7 +191,8 @@ internal fun resolveLidaClipsStreamUrl(
 }
 
 private fun normalizeLidaClipsBaseUrl(baseUrl: String): String =
-	baseUrl.trim().trimEnd('/')
+	configuredLidaClipsBaseUrl(baseUrl)
+		?: error(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
 
 private fun encodePathSegment(value: String): String {
 	val hex = "0123456789ABCDEF"

@@ -28,6 +28,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lida_clips_connected
 import navic.composeapp.generated.resources.info_lida_clips_failed
+import navic.composeapp.generated.resources.info_lida_clips_missing_url
 import navic.composeapp.generated.resources.info_lida_clips_not_tested
 import navic.composeapp.generated.resources.info_lida_clips_testing
 import navic.composeapp.generated.resources.info_lida_clips_unauthorized
@@ -144,7 +145,11 @@ fun SettingsLidaClipsScreen() {
 							}
 							FormRow {
 								Column(Modifier.weight(1f)) {
-									Text(connectionStatusText(connectionResult, isTestingConnection))
+									Text(connectionStatusText(
+										baseUrl = preferenceManager.lidaClipsBaseUrl,
+										connectionResult = connectionResult,
+										isTestingConnection = isTestingConnection
+									))
 								}
 							}
 						}
@@ -156,7 +161,7 @@ fun SettingsLidaClipsScreen() {
 				) {
 					FormButton(
 						onClick = { viewModel.testConnection() },
-						enabled = !isTestingConnection
+						enabled = !isTestingConnection && preferenceManager.lidaClipsBaseUrl.isNotBlank()
 					) {
 						Text(stringResource(Res.string.action_test_connection))
 					}
@@ -168,10 +173,12 @@ fun SettingsLidaClipsScreen() {
 
 @Composable
 private fun connectionStatusText(
+	baseUrl: String,
 	connectionResult: LidaClipsConnectionResult?,
 	isTestingConnection: Boolean
 ): String {
 	if (isTestingConnection) return stringResource(Res.string.info_lida_clips_testing)
+	if (baseUrl.isBlank()) return stringResource(Res.string.info_lida_clips_missing_url)
 
 	return when (connectionResult) {
 		null -> stringResource(Res.string.info_lida_clips_not_tested)
