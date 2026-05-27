@@ -158,6 +158,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun audioFadeDefaultsToCurrentImmediatePauseResumeBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(0, manager.audioFadeDurationMs)
+
+		manager.audioFadeDurationMs = 500
+
+		assertEquals(500, manager.audioFadeDurationMs)
+	}
+
+	@Test
 	fun pauseBetweenSongsDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

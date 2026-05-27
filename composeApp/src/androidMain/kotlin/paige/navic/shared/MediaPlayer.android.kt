@@ -66,10 +66,12 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
+import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
@@ -351,6 +353,8 @@ class AndroidMediaPlayerViewModel(
 
 	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
+	private var playbackFadeJob: Job? = null
+	private var playbackFadeRestoreVolume: Float? = null
 
 	init {
 		connectToService()
@@ -902,13 +906,96 @@ class AndroidMediaPlayerViewModel(
 
 	override fun pause() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
-			controller?.pause()
+			val player = controller ?: return@launch
+			cancelPlaybackFade(player)
+			val fadeDurationMs = preferenceManager.audioFadeDurationMs
+			if (
+				!shouldFadePlaybackCommand(
+					audioFadeDurationMs = fadeDurationMs,
+					alreadyInTargetState = !player.isPlaying
+				)
+			) {
+				player.pause()
+				return@launch
+			}
+
+			val originalVolume = player.volume.coerceIn(0f, 1f)
+			startPlaybackVolumeFade(
+				player = player,
+				startVolume = originalVolume,
+				targetVolume = 0f,
+				durationMs = audioFadeDurationMs(fadeDurationMs),
+				restoreVolumeOnCancel = originalVolume,
+				onEnd = {
+					player.pause()
+					player.volume = originalVolume
+				}
+			)
 		}
 	}
 
 	override fun resume() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
-			controller?.play()
+			val player = controller ?: return@launch
+			cancelPlaybackFade(player)
+			val fadeDurationMs = preferenceManager.audioFadeDurationMs
+			if (
+				!shouldFadePlaybackCommand(
+					audioFadeDurationMs = fadeDurationMs,
+					alreadyInTargetState = player.isPlaying
+				)
+			) {
+				player.play()
+				return@launch
+			}
+
+			val targetVolume = player.volume.coerceIn(0f, 1f).takeIf { it > 0f } ?: 1f
+			startPlaybackVolumeFade(
+				player = player,
+				startVolume = 0f,
+				targetVolume = targetVolume,
+				durationMs = audioFadeDurationMs(fadeDurationMs),
+				restoreVolumeOnCancel = targetVolume,
+				onStart = {
+					player.volume = 0f
+					player.play()
+				}
+			)
+		}
+	}
+
+	private fun cancelPlaybackFade(player: MediaController? = controller) {
+		playbackFadeJob?.cancel()
+		playbackFadeJob = null
+		playbackFadeRestoreVolume?.let { volume ->
+			player?.volume = volume
+		}
+		playbackFadeRestoreVolume = null
+	}
+
+	private fun startPlaybackVolumeFade(
+		player: MediaController,
+		startVolume: Float,
+		targetVolume: Float,
+		durationMs: Long,
+		restoreVolumeOnCancel: Float,
+		onStart: () -> Unit = {},
+		onEnd: () -> Unit = {}
+	) {
+		playbackFadeJob?.cancel()
+		playbackFadeRestoreVolume = restoreVolumeOnCancel
+		playbackFadeJob = viewModelScope.launch(Dispatchers.Main.immediate) {
+			onStart()
+			val steps = (durationMs / 16L).coerceAtLeast(1L).toInt()
+			repeat(steps) { step ->
+				val progress = (step + 1).toFloat() / steps.toFloat()
+				player.volume = startVolume + ((targetVolume - startVolume) * progress)
+				delay(16L)
+			}
+			player.volume = targetVolume
+			playbackFadeJob = null
+			playbackFadeRestoreVolume = null
+			onEnd()
 		}
 	}
 
@@ -969,6 +1056,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun onCleared() {
 		viewModelScope.launch {
+			cancelPlaybackFade()
 			super.onCleared()
 			controllerFuture?.let { MediaController.releaseFuture(it) }
 		}

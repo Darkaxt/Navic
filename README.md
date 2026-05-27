@@ -42,6 +42,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Optional pause between songs after automatic track changes.
 * Kreate-inspired `Smart rewind` setting for when the Previous button restarts the current song instead of jumping back.
 * Optional pause/resume behavior when Android media volume is muted to zero and then restored.
+* Kreate-inspired Android audio fade durations for smoother pause and resume.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
@@ -91,6 +92,10 @@ Open Settings -> Playback and turn `Respect audio focus` off. Restart music play
 ### Smart rewind setup
 
 Open Settings -> Playback -> `Smart rewind` to choose the point where the Previous button restarts the current song. The default is `1s`, matching Navic's previous hardcoded behavior. Raising it to `3s` matches Kreate's default.
+
+### Audio fade setup
+
+Open Settings -> Playback -> `Audio fade` to choose a pause/resume fade duration. The default is `Off`, preserving Navic's immediate pause/resume behavior.
 
 ### LidaClips setup
 

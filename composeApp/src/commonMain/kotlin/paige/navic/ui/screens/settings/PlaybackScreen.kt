@@ -31,6 +31,7 @@ import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
 import navic.composeapp.generated.resources.action_system_equalizer
+import navic.composeapp.generated.resources.option_audio_fade
 import navic.composeapp.generated.resources.option_audio_offload
 import navic.composeapp.generated.resources.option_enable_scrobbling
 import navic.composeapp.generated.resources.option_gapless_playback
@@ -54,6 +55,7 @@ import navic.composeapp.generated.resources.option_smart_rewind
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
 import navic.composeapp.generated.resources.subtitle_audio_offload
+import navic.composeapp.generated.resources.subtitle_audio_fade
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
@@ -195,6 +197,20 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_pause_playback_on_volume_zero)) },
 							value = preferenceManager.pausePlaybackOnVolumeZero,
 							onSetValue = { preferenceManager.pausePlaybackOnVolumeZero = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_audio_fade)) },
+							items = audioFadeDurationOptions.toImmutableList(),
+							label = { durationMs ->
+								when {
+									durationMs == 0 -> stringResource(Res.string.option_off)
+									durationMs < 1000 -> "${durationMs}ms"
+									else -> "${durationMs / 1000}s"
+								}
+							},
+							description = stringResource(Res.string.subtitle_audio_fade),
+							selection = preferenceManager.audioFadeDurationMs,
+							onSelect = { preferenceManager.audioFadeDurationMs = it }
 						)
 						FormRow(
 							onClick = {
@@ -346,3 +362,4 @@ fun SettingsPlaybackScreen() {
 
 private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
 private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)
+private val audioFadeDurationOptions = listOf(0, 250, 500, 1000, 2000)
