@@ -69,6 +69,18 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsStreamUrlKeepsAbsoluteHttpSchemesCaseInsensitively() {
+		assertEquals(
+			"HTTPS://cdn.example.test/video.mp4",
+			resolveLidaClipsStreamUrl(
+				baseUrl = "https://clips.remaxku.eu",
+				clipId = 7,
+				streamUrl = "HTTPS://cdn.example.test/video.mp4"
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsStreamUrlFallsBackToClipIdWhenResponseOmitsStreamUrl() {
 		assertEquals(
 			"https://clips.remaxku.eu/api/v1/stream/7",
@@ -76,6 +88,38 @@ class LidaClipsRepositoryTest {
 				baseUrl = "https://clips.remaxku.eu",
 				clipId = 7,
 				streamUrl = null
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsStreamRequestHeadersKeepApiKeyForSameOriginStreams() {
+		assertEquals(
+			mapOf("X-Api-Key" to "secret"),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://clips.remaxku.eu",
+				streamUrl = "https://clips.remaxku.eu/api/v1/stream/7",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
+			)
+		)
+		assertEquals(
+			mapOf("X-Api-Key" to "secret"),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://CLIPS.remaxku.eu:443/",
+				streamUrl = "HTTPS://clips.remaxku.eu/api/v1/stream/7",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsStreamRequestHeadersDropApiKeyForExternalStreams() {
+		assertEquals(
+			emptyMap(),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://clips.remaxku.eu",
+				streamUrl = "https://cdn.example.test/video.mp4",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
 			)
 		)
 	}

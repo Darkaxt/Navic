@@ -388,6 +388,21 @@ internal fun lidaClipsRequestHeaders(apiKey: String): Map<String, String> {
 	return if (trimmed.isEmpty()) emptyMap() else mapOf("X-Api-Key" to trimmed)
 }
 
+internal fun lidaClipsStreamRequestHeaders(
+	baseUrl: String,
+	streamUrl: String,
+	requestHeaders: Map<String, String>
+): Map<String, String> {
+	val streamOrigin = httpOrigin(streamUrl) ?: return emptyMap()
+	val baseOrigin = configuredLidaClipsBaseUrl(baseUrl)?.let(::httpOrigin) ?: return emptyMap()
+	if (streamOrigin != baseOrigin) return emptyMap()
+
+	return requestHeaders
+		.map { (key, value) -> key.trim() to value.trim() }
+		.filter { (key, value) -> key.isNotEmpty() && value.isNotEmpty() }
+		.toMap()
+}
+
 internal data class LidaClipsLookupCacheKey(
 	val baseUrl: String,
 	val requestHeaders: List<Pair<String, String>>,
@@ -453,10 +468,62 @@ internal fun resolveLidaClipsStreamUrl(
 	val trimmed = streamUrl?.trim()
 	return when {
 		trimmed.isNullOrEmpty() -> lidaClipsEndpoint(baseUrl, "api/v1/stream/$clipId")
-		trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+		trimmed.hasSupportedHttpScheme() -> trimmed
 		trimmed.startsWith("/") -> "${normalizeLidaClipsBaseUrl(baseUrl)}$trimmed"
 		else -> lidaClipsEndpoint(baseUrl, trimmed)
 	}
+}
+
+private data class HttpOrigin(
+	val scheme: String,
+	val host: String,
+	val port: Int
+)
+
+private fun httpOrigin(url: String): HttpOrigin? {
+	val trimmed = url.trim()
+	val schemeSeparator = trimmed.indexOf("://")
+	if (schemeSeparator <= 0) return null
+
+	val scheme = trimmed.substring(0, schemeSeparator).lowercase()
+	if (scheme != "http" && scheme != "https") return null
+
+	val authority = trimmed
+		.drop(schemeSeparator + 3)
+		.takeWhile { it != '/' && it != '?' && it != '#' }
+		.substringAfterLast('@')
+	if (authority.isBlank()) return null
+
+	val host: String
+	val portText: String?
+	if (authority.startsWith("[")) {
+		val closingBracket = authority.indexOf(']')
+		if (closingBracket == -1) return null
+
+		host = authority.substring(1, closingBracket)
+		portText = authority
+			.drop(closingBracket + 1)
+			.takeIf { it.startsWith(":") }
+			?.drop(1)
+	} else {
+		val firstColon = authority.indexOf(':')
+		val lastColon = authority.lastIndexOf(':')
+		if (firstColon != -1 && firstColon != lastColon) return null
+
+		host = if (lastColon == -1) authority else authority.substring(0, lastColon)
+		portText = if (lastColon == -1) null else authority.substring(lastColon + 1)
+	}
+
+	val normalizedHost = host.trim().trimEnd('.').lowercase().takeIf { it.isNotEmpty() }
+		?: return null
+	val explicitPortText = portText?.takeIf { it.isNotBlank() }
+	val port = explicitPortText?.toIntOrNull()
+		?: if (explicitPortText == null) when (scheme) {
+			"http" -> 80
+			else -> 443
+		} else return null
+
+	return HttpOrigin(scheme, normalizedHost, port)
 }
 
 private fun normalizeLidaClipsBaseUrl(baseUrl: String): String =
