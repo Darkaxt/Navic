@@ -20,11 +20,13 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
+import kotlin.time.Clock
 
 private const val TAG = "LidaClipsRepository"
 internal const val LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE = "Enter the LidaClips URL first."
 internal const val LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"LidaClips URL must start with http:// or https://."
+private const val LIDA_CLIPS_LOOKUP_CACHE_MAX_AGE_MILLIS = 10 * 60 * 1000L
 
 class LidaClipsRepository(
 	private val preferenceManager: PreferenceManager
@@ -403,21 +405,37 @@ internal fun lidaClipsLookupCacheKey(
 		songId = songId
 	)
 
-internal class LidaClipsLookupCache {
+internal class LidaClipsLookupCache(
+	private val maxAgeMillis: Long = LIDA_CLIPS_LOOKUP_CACHE_MAX_AGE_MILLIS,
+	private val currentTimeMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() }
+) {
 	data class Hit(val clip: DomainLidaClip?)
+	private data class Entry(
+		val clip: DomainLidaClip?,
+		val createdAtMillis: Long
+	)
 
 	private val lock = Any()
-	private val clips = mutableMapOf<LidaClipsLookupCacheKey, DomainLidaClip?>()
+	private val clips = mutableMapOf<LidaClipsLookupCacheKey, Entry>()
 
 	fun get(key: LidaClipsLookupCacheKey): Hit? = synchronized(lock) {
-		if (clips.containsKey(key)) Hit(clips[key]) else null
+		val entry = clips[key] ?: return@synchronized null
+		if (entry.isExpired(currentTimeMillis())) {
+			clips.remove(key)
+			null
+		} else {
+			Hit(entry.clip)
+		}
 	}
 
 	fun put(key: LidaClipsLookupCacheKey, clip: DomainLidaClip?) {
 		synchronized(lock) {
-			clips[key] = clip
+			clips[key] = Entry(clip, currentTimeMillis())
 		}
 	}
+
+	private fun Entry.isExpired(nowMillis: Long): Boolean =
+		nowMillis - createdAtMillis > maxAgeMillis
 }
 
 internal fun resolveLidaClipsStreamUrl(

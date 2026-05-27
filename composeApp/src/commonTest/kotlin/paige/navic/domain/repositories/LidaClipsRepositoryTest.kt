@@ -124,6 +124,33 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsLookupCacheExpiresHitsAndMissingClips() {
+		var nowMillis = 1_000L
+		val cache = LidaClipsLookupCache(
+			maxAgeMillis = 1_000L,
+			currentTimeMillis = { nowMillis }
+		)
+		val key = lidaClipsLookupCacheKey(
+			baseUrl = "https://clips.remaxku.eu",
+			requestHeaders = mapOf("X-Api-Key" to "secret"),
+			songId = "song-1"
+		)
+		val clip = lidaClip()
+
+		cache.put(key, null)
+		assertEquals(LidaClipsLookupCache.Hit(null), cache.get(key))
+		nowMillis = 2_000L
+		assertEquals(LidaClipsLookupCache.Hit(null), cache.get(key))
+		nowMillis = 2_001L
+		assertNull(cache.get(key))
+
+		cache.put(key, clip)
+		assertEquals(LidaClipsLookupCache.Hit(clip), cache.get(key))
+		nowMillis = 3_002L
+		assertNull(cache.get(key))
+	}
+
+	@Test
 	fun lidaClipsServiceStatusUsesDashboardCountsAndControlRuntimeState() {
 		val status = lidaClipsServiceStatus(
 			dashboard = LidaClipsDashboardDto(

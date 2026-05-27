@@ -15,7 +15,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
 * Pause between songs: Navic now exposes an Android Playback setting that pauses briefly after automatic track transitions while leaving manual skips immediate.
 * Pause on zero volume: Navic now exposes an Android Playback setting that pauses when Android media volume reaches zero and resumes only when Navic paused itself and media volume is restored.
-* LidaClips clip lookup cache/prefetch: Navic now caches clip lookup hits and misses by LidaClips base URL, API key/header set, and Navidrome song id, and prefetches the now-playing song while LidaClips is enabled.
+* LidaClips clip lookup cache/prefetch: Navic now briefly caches clip lookup hits and misses by LidaClips base URL, API key/header set, and Navidrome song id, expires stale entries so backend sync changes can surface without app restart, and prefetches the now-playing song while LidaClips is enabled.
 * LidaClips action availability state: Navic now keeps the now-playing Music Video action visible while availability is unknown, keeps it visible for cached hits, and hides it for cached misses.
 * LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
 * LidaClips music-session coordination: Navic now defaults to Feishin-style clip playback on Android by pausing Navic music while a clip is open and resuming the same paused song when the clip screen closes; a setting can opt out and keep music under clip audio.
@@ -26,7 +26,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 ## Best Next Transplants
 
 1. LidaClips playback/session polish
-   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, has an opt-in landscape video mode, and exposes backend service status/control with health and recent backend failure diagnostics.
+   * The current player is functional and retryable, defaults to Navic music pause/resume while clips play, remembers the last clip position, has an opt-in landscape video mode, refreshes stale clip lookup availability, and exposes backend service status/control with health and recent backend failure diagnostics.
    * These should be based on real-device testing so the video player does not fight the music session or Android PiP behavior.
 
 ## Higher-Risk Candidates
