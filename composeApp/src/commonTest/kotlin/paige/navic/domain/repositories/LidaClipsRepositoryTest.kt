@@ -130,7 +130,18 @@ class LidaClipsRepositoryTest {
 				activeClips = 12,
 				officialClips = 7,
 				fallbackClips = 5,
-				syncPaused = false
+				syncPaused = false,
+				recentFailures = listOf(
+					LidaClipsRecentFailureDto(
+						lidarrTrackId = 42,
+						artist = "Artist",
+						album = "Album",
+						track = "Track",
+						reason = "no_video_found",
+						retryAfter = "2026-05-28T10:30:00Z",
+						updatedAt = "2026-05-27T10:30:00Z"
+					)
+				)
 			),
 			control = LidaClipsControlDto(
 				syncPaused = true,
@@ -143,6 +154,20 @@ class LidaClipsRepositoryTest {
 		assertEquals(5, status.fallbackClips)
 		assertTrue(status.syncPaused)
 		assertTrue(status.syncRunning)
+		assertEquals(
+			listOf(
+				LidaClipsRecentFailure(
+					lidarrTrackId = 42,
+					artist = "Artist",
+					album = "Album",
+					track = "Track",
+					reason = "no_video_found",
+					retryAfter = "2026-05-28T10:30:00Z",
+					updatedAt = "2026-05-27T10:30:00Z"
+				)
+			),
+			status.recentFailures
+		)
 	}
 
 	@Test

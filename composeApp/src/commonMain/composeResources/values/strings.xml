@@ -55,6 +55,7 @@
 	<string name="title_reverse_proxy_auth">Reverse proxy Basic Auth</string>
 	<string name="title_lida_clips">LidaClips</string>
 	<string name="title_lida_clips_service_status">Service status</string>
+	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_wifi">Wi-Fi</string>
 	<string name="title_cellular">Cellular</string>
@@ -226,6 +227,13 @@
 	<string name="info_lida_clips_service_status_counts">Active: %1$d // Official: %2$d // Fallback: %3$d</string>
 	<string name="info_lida_clips_sync_running">Sync is running</string>
 	<string name="info_lida_clips_sync_idle">Sync is idle</string>
+	<string name="info_lida_clips_no_recent_failures">No recent sync failures</string>
+	<string name="info_lida_clips_unknown_track">Unknown track</string>
+	<string name="info_lida_clips_lidarr_track_id">Lidarr track #%1$d</string>
+	<string name="info_lida_clips_recent_failure_reason">Reason: %1$s</string>
+	<string name="info_lida_clips_recent_failure_retry_after">Retry after: %1$s</string>
+	<string name="info_lida_clips_recent_failure_updated">Updated: %1$s</string>
+	<string name="info_lida_clips_more_recent_failures">More recent failures: %1$d</string>
 	<string name="info_lida_clips_android_only">LidaClips video playback is currently available on Android only.</string>
 	<string name="info_no_lida_clip">No music video found for this track.</string>
 

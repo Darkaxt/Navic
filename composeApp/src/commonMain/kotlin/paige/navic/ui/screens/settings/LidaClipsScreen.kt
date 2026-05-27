@@ -31,8 +31,14 @@ import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lida_clips_connected
 import navic.composeapp.generated.resources.info_lida_clips_failed
 import navic.composeapp.generated.resources.info_lida_clips_invalid_url
+import navic.composeapp.generated.resources.info_lida_clips_lidarr_track_id
 import navic.composeapp.generated.resources.info_lida_clips_missing_url
+import navic.composeapp.generated.resources.info_lida_clips_more_recent_failures
+import navic.composeapp.generated.resources.info_lida_clips_no_recent_failures
 import navic.composeapp.generated.resources.info_lida_clips_not_tested
+import navic.composeapp.generated.resources.info_lida_clips_recent_failure_reason
+import navic.composeapp.generated.resources.info_lida_clips_recent_failure_retry_after
+import navic.composeapp.generated.resources.info_lida_clips_recent_failure_updated
 import navic.composeapp.generated.resources.info_lida_clips_service_status_counts
 import navic.composeapp.generated.resources.info_lida_clips_service_status_failed
 import navic.composeapp.generated.resources.info_lida_clips_service_status_loading
@@ -41,6 +47,7 @@ import navic.composeapp.generated.resources.info_lida_clips_sync_idle
 import navic.composeapp.generated.resources.info_lida_clips_sync_running
 import navic.composeapp.generated.resources.info_lida_clips_testing
 import navic.composeapp.generated.resources.info_lida_clips_unauthorized
+import navic.composeapp.generated.resources.info_lida_clips_unknown_track
 import navic.composeapp.generated.resources.option_lida_clips_api_key
 import navic.composeapp.generated.resources.option_lida_clips_base_url
 import navic.composeapp.generated.resources.option_lida_clips_enabled
@@ -56,6 +63,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_pictu
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
 import navic.composeapp.generated.resources.title_lida_clips
+import navic.composeapp.generated.resources.title_lida_clips_recent_failures
 import navic.composeapp.generated.resources.title_lida_clips_service_status
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -63,6 +71,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.LidaClipsConnectionResult
+import paige.navic.domain.repositories.LidaClipsRecentFailure
 import paige.navic.domain.repositories.LidaClipsServiceStatus
 import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 import paige.navic.ui.components.common.Form
@@ -73,6 +82,8 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
+
+private const val RECENT_FAILURE_DISPLAY_LIMIT = 3
 
 @Composable
 fun SettingsLidaClipsScreen() {
@@ -315,6 +326,7 @@ private fun LidaClipsServiceStatusContent(
 			Text(stringResource(Res.string.info_lida_clips_service_status_loading))
 		}
 	}
+	LidaClipsRecentFailures(status.recentFailures)
 	SettingSwitchRow(
 		title = { Text(stringResource(Res.string.option_lida_clips_sync_paused)) },
 		subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_sync_paused)) },
@@ -323,6 +335,87 @@ private fun LidaClipsServiceStatusContent(
 			if (!isUpdatingSyncPaused) onSetSyncPaused(it)
 		}
 	)
+}
+
+@Composable
+private fun LidaClipsRecentFailures(failures: List<LidaClipsRecentFailure>) {
+	FormRow {
+		Column(Modifier.weight(1f)) {
+			Text(
+				text = stringResource(Res.string.title_lida_clips_recent_failures),
+				style = MaterialTheme.typography.titleSmall
+			)
+			if (failures.isEmpty()) {
+				Text(
+					text = stringResource(Res.string.info_lida_clips_no_recent_failures),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			} else {
+				failures.take(RECENT_FAILURE_DISPLAY_LIMIT).forEach { failure ->
+					LidaClipsRecentFailureItem(failure)
+				}
+				val hiddenFailureCount = failures.size - RECENT_FAILURE_DISPLAY_LIMIT
+				if (hiddenFailureCount > 0) {
+					Text(
+						text = stringResource(
+							Res.string.info_lida_clips_more_recent_failures,
+							hiddenFailureCount
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun LidaClipsRecentFailureItem(failure: LidaClipsRecentFailure) {
+	Text(
+		text = lidaClipsRecentFailureTitle(failure),
+		style = MaterialTheme.typography.bodyMedium
+	)
+	failure.reason.cleanForDisplay()?.let { reason ->
+		Text(
+			text = stringResource(Res.string.info_lida_clips_recent_failure_reason, reason),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
+	failure.retryAfter.cleanForDisplay()?.let { retryAfter ->
+		Text(
+			text = stringResource(Res.string.info_lida_clips_recent_failure_retry_after, retryAfter),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
+	failure.updatedAt.cleanForDisplay()?.let { updatedAt ->
+		Text(
+			text = stringResource(Res.string.info_lida_clips_recent_failure_updated, updatedAt),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
+}
+
+@Composable
+private fun lidaClipsRecentFailureTitle(failure: LidaClipsRecentFailure): String {
+	val artist = failure.artist.cleanForDisplay()
+	val track = failure.track.cleanForDisplay()
+	val album = failure.album.cleanForDisplay()
+	return when {
+		artist != null && track != null -> "$artist - $track"
+		track != null -> track
+		artist != null && album != null -> "$artist - $album"
+		artist != null -> artist
+		album != null -> album
+		failure.lidarrTrackId != null ->
+			stringResource(Res.string.info_lida_clips_lidarr_track_id, failure.lidarrTrackId)
+
+		else -> stringResource(Res.string.info_lida_clips_unknown_track)
+	}
 }
 
 @Composable
@@ -354,3 +447,6 @@ private fun LidaClipsField(
 		)
 	}
 }
+
+private fun String?.cleanForDisplay(): String? =
+	this?.trim()?.takeIf { it.isNotEmpty() }

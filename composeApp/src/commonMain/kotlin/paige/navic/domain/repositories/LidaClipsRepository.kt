@@ -221,7 +221,18 @@ data class LidaClipsServiceStatus(
 	val officialClips: Int,
 	val fallbackClips: Int,
 	val syncPaused: Boolean,
-	val syncRunning: Boolean
+	val syncRunning: Boolean,
+	val recentFailures: List<LidaClipsRecentFailure> = emptyList()
+)
+
+data class LidaClipsRecentFailure(
+	val lidarrTrackId: Int?,
+	val artist: String?,
+	val album: String?,
+	val track: String?,
+	val reason: String?,
+	val retryAfter: String?,
+	val updatedAt: String?
 )
 
 @Serializable
@@ -229,8 +240,30 @@ internal data class LidaClipsDashboardDto(
 	@SerialName("active_clips") val activeClips: Int = 0,
 	@SerialName("official_clips") val officialClips: Int = 0,
 	@SerialName("fallback_clips") val fallbackClips: Int = 0,
-	@SerialName("sync_paused") val syncPaused: Boolean = false
+	@SerialName("sync_paused") val syncPaused: Boolean = false,
+	@SerialName("recent_failures") val recentFailures: List<LidaClipsRecentFailureDto> = emptyList()
 )
+
+@Serializable
+internal data class LidaClipsRecentFailureDto(
+	@SerialName("lidarr_track_id") val lidarrTrackId: Int? = null,
+	val artist: String? = null,
+	val album: String? = null,
+	val track: String? = null,
+	val reason: String? = null,
+	@SerialName("retry_after") val retryAfter: String? = null,
+	@SerialName("updated_at") val updatedAt: String? = null
+) {
+	fun toDomainModel() = LidaClipsRecentFailure(
+		lidarrTrackId = lidarrTrackId,
+		artist = artist,
+		album = album,
+		track = track,
+		reason = reason,
+		retryAfter = retryAfter,
+		updatedAt = updatedAt
+	)
+}
 
 @Serializable
 internal data class LidaClipsControlDto(
@@ -252,7 +285,8 @@ internal fun lidaClipsServiceStatus(
 		officialClips = dashboard.officialClips,
 		fallbackClips = dashboard.fallbackClips,
 		syncPaused = control.syncPaused,
-		syncRunning = control.syncRunning
+		syncRunning = control.syncRunning,
+		recentFailures = dashboard.recentFailures.map { it.toDomainModel() }
 	)
 
 internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
