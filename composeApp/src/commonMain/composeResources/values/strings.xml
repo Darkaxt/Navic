@@ -73,6 +73,8 @@
 	<string name="subtitle_gapless_playback">Experimental. Requires application restart. May conflict with audio offload on some devices</string>
 	<string name="subtitle_audio_offload">Experimental. Requires application restart. May conflict with gapless playback on some devices</string>
 	<string name="subtitle_respect_audio_focus">Turn off to keep Navic playing while WhatsApp or other apps play audio. Takes effect after playback restarts</string>
+	<string name="subtitle_skip_silence">Skip silent parts during playback. Takes effect after playback restarts</string>
+	<string name="subtitle_skip_media_on_error">Move to the next queued song if the current stream fails</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
@@ -133,6 +135,8 @@
 	<string name="option_replay_gain">ReplayGain</string>
 	<string name="option_gapless_playback">Gapless playback</string>
 	<string name="option_respect_audio_focus">Respect audio focus</string>
+	<string name="option_skip_silence">Skip silence</string>
+	<string name="option_skip_media_on_error">Skip media on error</string>
 	<string name="option_audio_offload">Audio offload</string>
 	<string name="option_live_status">Live status</string>
 	<string name="option_image_cache_size">Image cache size</string>

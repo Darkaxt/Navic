@@ -107,4 +107,18 @@ class PreferenceManagerTest {
 			manager.lidaClipsRequestHeadersMap()
 		)
 	}
+
+	@Test
+	fun kreateStylePlaybackTogglesDefaultToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.skipSilence)
+		assertFalse(manager.skipMediaOnError)
+
+		manager.skipSilence = true
+		manager.skipMediaOnError = true
+
+		assertTrue(manager.skipSilence)
+		assertTrue(manager.skipMediaOnError)
+	}
 }

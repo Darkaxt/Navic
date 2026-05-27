@@ -66,6 +66,8 @@ class PreferenceManager(
 	var lidaClipsBaseUrl by preference("https://clips.remaxku.eu")
 	var lidaClipsApiKey by preference("")
 	var respectAudioFocus by preference(true)
+	var skipSilence by preference(false)
+	var skipMediaOnError by preference(false)
 	var checkForUpdates by preference(true)
 
 	// navigation bar settings
