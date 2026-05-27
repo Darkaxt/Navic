@@ -41,6 +41,7 @@ import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
 import navic.composeapp.generated.resources.option_replay_gain
 import navic.composeapp.generated.resources.option_respect_audio_focus
+import navic.composeapp.generated.resources.option_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.option_scrobble_percentage
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
@@ -48,6 +49,7 @@ import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
+import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.subtitle_skip_media_on_error
 import navic.composeapp.generated.resources.subtitle_skip_silence
 import navic.composeapp.generated.resources.subtitle_streaming_quality
@@ -142,6 +144,12 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_skip_media_on_error)) },
 							value = preferenceManager.skipMediaOnError,
 							onSetValue = { preferenceManager.skipMediaOnError = it }
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_resume_playback_on_audio_device_connect)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_resume_playback_on_audio_device_connect)) },
+							value = preferenceManager.resumePlaybackOnAudioDeviceConnect,
+							onSetValue = { preferenceManager.resumePlaybackOnAudioDeviceConnect = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_audio_offload)) },

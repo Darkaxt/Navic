@@ -8,6 +8,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
 * Video concept: Kreate's player exposes a configurable video action, but its implementation is YouTube iframe-specific. Navic's first LidaClips pass uses LidaClips lookup plus Media3 stream playback instead.
 * Skip silence: Navic now exposes an Android playback toggle and applies it to Media3 when the playback service starts.
 * Skip media on error: Navic now exposes an Android playback toggle and advances to the next queued media item when Media3 reports a playback error and a next item exists.
+* Audio-device resume: Navic now exposes an Android playback toggle and resumes a paused queue when a supported output device is added.
 * Player action visibility: Navic now exposes Now Playing settings for Lyrics, Queue, and Music Video actions.
 
 ## Best Next Transplants
@@ -17,17 +18,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-26).
    * This maps well to Navic's existing Room/cache architecture and would improve crash/restart behavior.
    * Settings should live in Settings -> Playback.
 
-2. Audio-device resume
-   * Kreate can resume playback when an audio device connects.
-   * Useful for headphones/car sessions, but should default off to avoid surprising playback.
-   * Setting should live in Settings -> Playback.
-
-3. LidaClips Picture-in-Picture
+2. LidaClips Picture-in-Picture
    * Kreate has PiP support around its video surface.
    * Navic should adapt this specifically for the LidaClips video player, not for the audio-only now-playing screen.
    * Setting should live in Settings -> Data & Storage -> Music video clips or Settings -> Now Playing once video becomes a first-class player view.
 
-4. Android system equalizer shortcut
+3. Android system equalizer shortcut
    * Kreate opens Android's audio effect control panel for the active audio session.
    * This is useful and contained, but it needs careful handling because not all devices provide an equalizer.
    * Setting/action should live in Playback or the song/player menu.

@@ -123,6 +123,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun audioDeviceResumeDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.resumePlaybackOnAudioDeviceConnect)
+
+		manager.resumePlaybackOnAudioDeviceConnect = true
+
+		assertTrue(manager.resumePlaybackOnAudioDeviceConnect)
+	}
+
+	@Test
 	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

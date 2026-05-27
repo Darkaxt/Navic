@@ -2,10 +2,15 @@ package paige.navic.shared
 
 import android.app.Application
 import android.app.PendingIntent
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
@@ -57,6 +62,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.ReplayGainMode
+import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
@@ -73,6 +79,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val serviceScope = MainScope()
 	private var scrobbleManager: AndroidScrobbleManager? = null
 	private val resourceProvider: ResourceProvider by inject()
+	private var audioManager: AudioManager? = null
+	private var audioDeviceCallback: AudioDeviceCallback? = null
 
 	private val connectivityManager: ConnectivityManager by inject()
 
@@ -135,6 +143,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 					).build()
 			}
 
+		registerAudioDeviceCallback(player)
+
 		scrobbleManager =
 			AndroidScrobbleManager(player, serviceScope, connectivityManager, syncManager, sessionManager, preferenceManager)
 
@@ -167,6 +177,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onDestroy() {
+		unregisterAudioDeviceCallback()
 		scrobbleManager?.release()
 		serviceScope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)
@@ -178,6 +189,50 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		super.onDestroy()
 		mediaSession = null
 		stopSelf()
+	}
+
+	private fun registerAudioDeviceCallback(player: ExoPlayer) {
+		if (!preferenceManager.resumePlaybackOnAudioDeviceConnect) return
+
+		audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+		audioDeviceCallback = object : AudioDeviceCallback() {
+			override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
+				if (
+					shouldResumePlaybackWhenAudioDeviceAdded(
+						resumePlaybackOnAudioDeviceConnect = preferenceManager.resumePlaybackOnAudioDeviceConnect,
+						isPlaying = player.isPlaying,
+						hasMediaItems = player.mediaItemCount > 0,
+						hasPlayableDevice = addedDevices.any { it.canPlayMusic() }
+					)
+				) {
+					player.play()
+				}
+			}
+		}
+		audioManager?.registerAudioDeviceCallback(
+			audioDeviceCallback,
+			Handler(Looper.getMainLooper())
+		)
+	}
+
+	private fun unregisterAudioDeviceCallback() {
+		audioDeviceCallback?.let { callback ->
+			audioManager?.unregisterAudioDeviceCallback(callback)
+		}
+		audioDeviceCallback = null
+		audioManager = null
+	}
+
+	private fun AudioDeviceInfo.canPlayMusic(): Boolean {
+		if (!isSink) return false
+
+		return when (type) {
+			AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+			AudioDeviceInfo.TYPE_WIRED_HEADSET,
+			AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+			AudioDeviceInfo.TYPE_USB_HEADSET -> true
+			else -> false
+		}
 	}
 
 	companion object {

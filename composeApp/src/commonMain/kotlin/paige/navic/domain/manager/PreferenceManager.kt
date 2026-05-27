@@ -71,6 +71,7 @@ class PreferenceManager(
 	var respectAudioFocus by preference(true)
 	var skipSilence by preference(false)
 	var skipMediaOnError by preference(false)
+	var resumePlaybackOnAudioDeviceConnect by preference(false)
 	var checkForUpdates by preference(true)
 
 	// navigation bar settings
