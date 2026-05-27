@@ -60,6 +60,7 @@ import navic.composeapp.generated.resources.option_shake_to_skip
 import navic.composeapp.generated.resources.option_smart_rewind
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
+import navic.composeapp.generated.resources.option_volume_keys_skip_tracks
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_audio_fade
 import navic.composeapp.generated.resources.subtitle_audio_reverb
@@ -80,6 +81,7 @@ import navic.composeapp.generated.resources.subtitle_skip_media_on_error
 import navic.composeapp.generated.resources.subtitle_skip_silence
 import navic.composeapp.generated.resources.subtitle_streaming_quality
 import navic.composeapp.generated.resources.subtitle_system_equalizer
+import navic.composeapp.generated.resources.subtitle_volume_keys_skip_tracks
 import navic.composeapp.generated.resources.title_behaviour
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_streaming_quality
@@ -308,6 +310,12 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_shake_to_skip)) },
 							value = preferenceManager.shakeToSkip,
 							onSetValue = { preferenceManager.shakeToSkip = it }
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_volume_keys_skip_tracks)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_volume_keys_skip_tracks)) },
+							value = preferenceManager.volumeKeysSkipTracks,
+							onSetValue = { preferenceManager.volumeKeysSkipTracks = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_persistent_queue)) },

@@ -231,6 +231,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun volumeKeysSkipTracksDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.volumeKeysSkipTracks)
+
+		manager.volumeKeysSkipTracks = true
+
+		assertTrue(manager.volumeKeysSkipTracks)
+	}
+
+	@Test
 	fun smartRewindDefaultsToCurrentPreviousButtonBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
