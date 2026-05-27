@@ -82,7 +82,10 @@ fun NowPlayingMoreButton(
 				onShare = {
 					shareId = song.id
 				},
-				onPlayMusicVideo = if (preferenceManager.lidaClipsEnabled) {
+				onPlayMusicVideo = if (
+					preferenceManager.lidaClipsEnabled &&
+					preferenceManager.showNowPlayingMusicVideoAction
+				) {
 					dropUnlessResumed {
 						backStack.add(Screen.LidaClipPlayer(song.id))
 					}

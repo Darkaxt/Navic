@@ -90,18 +90,30 @@ fun NowPlayingScreen() {
 					)
 				},
 				actions = {
-					SheetActionButton(
-						icon = Icons.Outlined.Lyrics,
-						contentDescription = stringResource(Res.string.action_lyrics),
-						onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
-						isStartRounded = true
-					)
-					SheetActionButton(
-						icon = Icons.Outlined.List,
-						contentDescription = stringResource(Res.string.action_queue),
-						onClick = dropUnlessResumed { backStack.add(Screen.Queue) },
-						isEndRounded = true
-					)
+					val showLyricsAction = preferenceManager.showNowPlayingLyricsAction
+					val showQueueAction = preferenceManager.showNowPlayingQueueAction
+					val visibleActionCount = listOf(showLyricsAction, showQueueAction).count { it }
+					var actionIndex = 0
+
+					if (showLyricsAction) {
+						SheetActionButton(
+							icon = Icons.Outlined.Lyrics,
+							contentDescription = stringResource(Res.string.action_lyrics),
+							onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
+							isStartRounded = actionIndex == 0,
+							isEndRounded = actionIndex == visibleActionCount - 1
+						)
+						actionIndex++
+					}
+					if (showQueueAction) {
+						SheetActionButton(
+							icon = Icons.Outlined.List,
+							contentDescription = stringResource(Res.string.action_queue),
+							onClick = dropUnlessResumed { backStack.add(Screen.Queue) },
+							isStartRounded = actionIndex == 0,
+							isEndRounded = actionIndex == visibleActionCount - 1
+						)
+					}
 				}
 			)
 		}

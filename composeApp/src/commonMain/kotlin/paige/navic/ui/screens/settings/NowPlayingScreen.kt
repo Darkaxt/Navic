@@ -20,11 +20,15 @@ import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_style
+import navic.composeapp.generated.resources.option_now_playing_lyrics_action
+import navic.composeapp.generated.resources.option_now_playing_music_video_action
+import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
+import navic.composeapp.generated.resources.title_actions
 import navic.composeapp.generated.resources.title_layout
 import navic.composeapp.generated.resources.title_now_playing
 import org.jetbrains.compose.resources.stringResource
@@ -115,6 +119,25 @@ fun SettingsNowPlayingScreen() {
 						selection = preferenceManager.nowPlayingToolbarPosition,
 						onSelect = { preferenceManager.nowPlayingToolbarPosition = it },
 						title = { Text(stringResource(Res.string.option_now_playing_toolbar_position)) }
+					)
+				}
+
+				FormTitle(stringResource(Res.string.title_actions))
+				Form {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_lyrics_action)) },
+						value = preferenceManager.showNowPlayingLyricsAction,
+						onSetValue = { preferenceManager.showNowPlayingLyricsAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_queue_action)) },
+						value = preferenceManager.showNowPlayingQueueAction,
+						onSetValue = { preferenceManager.showNowPlayingQueueAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_music_video_action)) },
+						value = preferenceManager.showNowPlayingMusicVideoAction,
+						onSetValue = { preferenceManager.showNowPlayingMusicVideoAction = it }
 					)
 				}
 			}

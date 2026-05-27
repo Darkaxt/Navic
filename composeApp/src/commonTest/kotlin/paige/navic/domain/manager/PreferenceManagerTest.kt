@@ -121,4 +121,21 @@ class PreferenceManagerTest {
 		assertTrue(manager.skipSilence)
 		assertTrue(manager.skipMediaOnError)
 	}
+
+	@Test
+	fun nowPlayingActionVisibilityDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.showNowPlayingLyricsAction)
+		assertTrue(manager.showNowPlayingQueueAction)
+		assertTrue(manager.showNowPlayingMusicVideoAction)
+
+		manager.showNowPlayingLyricsAction = false
+		manager.showNowPlayingQueueAction = false
+		manager.showNowPlayingMusicVideoAction = false
+
+		assertFalse(manager.showNowPlayingLyricsAction)
+		assertFalse(manager.showNowPlayingQueueAction)
+		assertFalse(manager.showNowPlayingMusicVideoAction)
+	}
 }

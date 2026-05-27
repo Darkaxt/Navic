@@ -30,6 +30,7 @@ A fork of Navic with reverse-proxy Basic Auth support and configurable Android a
 * Playlist detail pages auto-refresh if local playlist metadata is present but the song cache has not been hydrated yet
 * Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams
 * Android playback toggles adapted from Kreate: skip silence and skip to the next queued song when a stream fails
+* Kreate-style Now Playing action visibility toggles for Lyrics, Queue, and Music Video actions
 
 ### Traefik Basic Auth setup
 
