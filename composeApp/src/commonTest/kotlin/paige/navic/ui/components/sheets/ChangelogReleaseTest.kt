@@ -146,4 +146,55 @@ class ChangelogReleaseTest {
 		assertEquals(null, normalizedUpdateInstallProgressPercent(null))
 		assertEquals(null, normalizedUpdateInstallProgressPercent(Float.NaN))
 	}
+
+	@Test
+	fun updateCheckDetectsNewerBetaRelease() {
+		assertEquals(
+			true,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.0-beta2",
+				remoteTag = "v1.0.0-beta3"
+			)
+		)
+	}
+
+	@Test
+	fun updateCheckDoesNotOfferSameRelease() {
+		assertEquals(
+			false,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.0-beta2",
+				remoteTag = "v1.0.0-beta2"
+			)
+		)
+	}
+
+	@Test
+	fun stableReleaseOutranksSameVersionBetaRelease() {
+		assertEquals(
+			true,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.0-beta2",
+				remoteTag = "v1.0.0"
+			)
+		)
+		assertEquals(
+			false,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.0",
+				remoteTag = "v1.0.0-beta2"
+			)
+		)
+	}
+
+	@Test
+	fun higherPatchPrereleaseOutranksLowerStableRelease() {
+		assertEquals(
+			true,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.0",
+				remoteTag = "v1.0.1-alpha1"
+			)
+		)
+	}
 }

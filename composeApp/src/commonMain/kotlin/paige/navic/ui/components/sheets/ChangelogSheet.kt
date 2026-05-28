@@ -106,6 +106,57 @@ private fun String.isApkDownloadUrl(): Boolean =
 		.substringBefore('#')
 		.endsWith(".apk", ignoreCase = true)
 
+private data class AppReleaseVersion(
+	val major: Int,
+	val minor: Int,
+	val patch: Int,
+	val preReleaseRank: Int,
+	val preReleaseNumber: Int
+) : Comparable<AppReleaseVersion> {
+	override fun compareTo(other: AppReleaseVersion): Int =
+		compareValuesBy(
+			this,
+			other,
+			AppReleaseVersion::major,
+			AppReleaseVersion::minor,
+			AppReleaseVersion::patch,
+			AppReleaseVersion::preReleaseRank,
+			AppReleaseVersion::preReleaseNumber
+		)
+}
+
+private val appReleaseVersionPattern =
+	Regex("""^v?(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)(\d*)?)?$""")
+
+private fun parseAppReleaseVersion(value: String): AppReleaseVersion? {
+	val match = appReleaseVersionPattern.matchEntire(value.trim()) ?: return null
+	val preReleaseLabel = match.groupValues[4].takeIf { it.isNotBlank() }?.lowercase()
+	val preReleaseRank = when (preReleaseLabel) {
+		null -> 3
+		"rc" -> 2
+		"beta" -> 1
+		"alpha" -> 0
+		else -> -1
+	}
+	val preReleaseNumber = match.groupValues[5]
+		.takeIf { it.isNotBlank() }
+		?.toIntOrNull()
+		?: 0
+	return AppReleaseVersion(
+		major = match.groupValues[1].toIntOrNull() ?: return null,
+		minor = match.groupValues[2].toIntOrNull() ?: return null,
+		patch = match.groupValues[3].toIntOrNull() ?: return null,
+		preReleaseRank = preReleaseRank,
+		preReleaseNumber = preReleaseNumber
+	)
+}
+
+internal fun shouldOfferReleaseUpdate(currentVersion: String, remoteTag: String): Boolean {
+	val current = parseAppReleaseVersion(currentVersion) ?: return false
+	val remote = parseAppReleaseVersion(remoteTag) ?: return false
+	return remote > current
+}
+
 internal fun GitHubReleaseAsset.normalizedSha256Digest(): String? {
 	val value = digest
 		?.trim()
@@ -147,13 +198,7 @@ class ChangelogViewModel(
 				val release: GitHubRelease =
 					updateClient.get("https://api.github.com/repos/Darkaxt/Navic/releases/latest")
 						.body()
-				val remoteVersion = release.tag
-					.filter { it.isDigit() }
-					.toIntOrNull() ?: return@launch
-				val localVersion = currentVersion
-					.filter { it.isDigit() }
-					.toIntOrNull() ?: return@launch
-				if (remoteVersion > localVersion || "$remoteVersion".length != "$localVersion".length)
+				if (shouldOfferReleaseUpdate(currentVersion, release.tag))
 					release
 				else null
 			} catch (e: Exception) {
