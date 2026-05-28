@@ -87,6 +87,10 @@ fun queueAutoFillCandidateSongs(
 						candidateSong = song
 					)
 				}
+				.let { scoredSongs ->
+					scoredSongs.filter { it.second > 0 }
+						.ifEmpty { scoredSongs }
+				}
 				.sortedWith(
 					compareByDescending<Pair<IndexedValue<DomainSong>, Int>> { it.second }
 						.thenBy { it.first.index }

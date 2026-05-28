@@ -50,7 +50,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
 * Kreate-inspired Android ReplayGain loudness boost can use `LoudnessEnhancer` to raise quiet ReplayGain tracks above normal volume.
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
-* Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, defaulting to recent-genre refill while still offering random-library and current-song-similar sources. Similar mode prefers live Navidrome similar-song results when available.
+* Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, defaulting to recent-genre refill while still offering random-library and current-song-similar sources. Recent-genre refill keeps additions inside matching genres or moods whenever matches exist, and Similar mode prefers live Navidrome similar-song results when available.
 * Kreate-inspired `Shuffle queue limit` can cap how many songs a collection shuffle starts with, while keeping the default unlimited behavior.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
@@ -146,7 +146,7 @@ Open Settings -> Playback -> Behaviour and turn `Pause listening history` on to 
 
 ### Auto-fill queue setup
 
-Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. New configurations default to `Recent genres`, which prefers local songs sharing genres or moods with the recent queue history. `Similar to current song` prefers Navidrome similar-song results and local artist/album/genre/mood matches, while `Random library` shuffles across synced songs. Navic skips duplicate queued songs and live radio streams.
+Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. New configurations default to `Recent genres`, which uses local songs sharing genres or moods with the recent queue history whenever matches exist; it falls back only when no synced candidates match the recent listening context. `Similar to current song` prefers Navidrome similar-song results and local artist/album/genre/mood matches, while `Random library` shuffles across synced songs. Navic skips duplicate queued songs and live radio streams.
 
 ### ReplayGain loudness boost setup
 

@@ -208,7 +208,7 @@ class QueueAutoFillPolicyTest {
 	}
 
 	@Test
-	fun recentGenresAutoFillSourcePrefersGenresFromRecentQueueHistory() {
+	fun recentGenresAutoFillSourceUsesOnlyMatchingGenresWhenMatchesExist() {
 		val recentHouse = song(id = "recent-house", artistId = "artist-a", genres = listOf("house"))
 		val recentTraining = song(id = "recent-training", artistId = "artist-b", genres = listOf("training"))
 		val currentAmbient = song(id = "current-ambient", artistId = "artist-c", genres = listOf("ambient"))
@@ -221,7 +221,7 @@ class QueueAutoFillPolicyTest {
 		)
 
 		assertEquals(
-			listOf("candidate-training-house", "candidate-house", "candidate-jazz"),
+			listOf("candidate-training-house", "candidate-house"),
 			queueAutoFillCandidateSongs(
 				candidateSongs = listOf(jazz, house, trainingAndHouse),
 				queuedIds = setOf(recentHouse.id, recentTraining.id, currentAmbient.id),
