@@ -10,19 +10,33 @@ class NowPlayingArtworkInteractionPolicyTest {
 		assertTrue(
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = true,
+				showNowPlayingArtwork = true,
 				hasCurrentSong = true
 			)
 		)
 		assertFalse(
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
 				hasCurrentSong = true
 			)
 		)
 		assertFalse(
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = true,
+				showNowPlayingArtwork = true,
 				hasCurrentSong = false
+			)
+		)
+	}
+
+	@Test
+	fun artworkTapDoesNotOpenLyricsWhenArtworkIsHidden() {
+		assertFalse(
+			shouldOpenLyricsFromNowPlayingArtworkTap(
+				tapArtworkForLyrics = true,
+				showNowPlayingArtwork = false,
+				hasCurrentSong = true
 			)
 		)
 	}

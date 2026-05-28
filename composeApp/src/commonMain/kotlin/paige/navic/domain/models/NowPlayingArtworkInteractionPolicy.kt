@@ -2,5 +2,6 @@ package paige.navic.domain.models
 
 fun shouldOpenLyricsFromNowPlayingArtworkTap(
 	tapArtworkForLyrics: Boolean,
+	showNowPlayingArtwork: Boolean,
 	hasCurrentSong: Boolean
-): Boolean = tapArtworkForLyrics && hasCurrentSong
+): Boolean = tapArtworkForLyrics && showNowPlayingArtwork && hasCurrentSong

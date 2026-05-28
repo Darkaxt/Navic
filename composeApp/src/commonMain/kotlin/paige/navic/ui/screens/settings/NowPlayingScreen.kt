@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_style
+import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
@@ -37,6 +38,7 @@ import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
+import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
@@ -89,11 +91,13 @@ fun SettingsNowPlayingScreen() {
 						onSetValue = { preferenceManager.swipeToSkip = it }
 					)
 
-					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_tap_artwork_for_lyrics)) },
-						value = preferenceManager.tapArtworkForLyrics,
-						onSetValue = { preferenceManager.tapArtworkForLyrics = it }
-					)
+					AnimatedVisibility(preferenceManager.showNowPlayingArtwork) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_tap_artwork_for_lyrics)) },
+							value = preferenceManager.tapArtworkForLyrics,
+							onSetValue = { preferenceManager.tapArtworkForLyrics = it }
+						)
+					}
 
 					SettingSelectionRow(
 						items = NowPlayingBackgroundStyle.entries.toImmutableList(),
@@ -128,6 +132,13 @@ fun SettingsNowPlayingScreen() {
 
 				FormTitle(stringResource(Res.string.title_layout))
 				Form {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_artwork)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_artwork)) },
+						value = preferenceManager.showNowPlayingArtwork,
+						onSetValue = { preferenceManager.showNowPlayingArtwork = it }
+					)
+
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_now_playing_song_info)) },
 						value = preferenceManager.nowPlayingSongInfo,

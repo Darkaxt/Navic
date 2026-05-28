@@ -67,6 +67,7 @@ class PreferenceManager(
 	var customMaxBitrateWifi by preference(0)
 	var customMaxBitrateCellular by preference(0)
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
+	var showNowPlayingArtwork by preference(true)
 	var nowPlayingSongInfo by preference(true)
 	var showNowPlayingUpNext by preference(false)
 	var showNowPlayingUpNextArtwork by preference(true)

@@ -70,9 +70,11 @@ fun NowPlayingScreen() {
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
+	val showArtwork = preferenceManager.showNowPlayingArtwork
 	val onArtworkTap: (() -> Unit)? = if (
 		shouldOpenLyricsFromNowPlayingArtworkTap(
 			tapArtworkForLyrics = preferenceManager.tapArtworkForLyrics,
+			showNowPlayingArtwork = showArtwork,
 			hasCurrentSong = song != null
 		)
 	) {
@@ -166,11 +168,13 @@ fun NowPlayingScreen() {
 						horizontalArrangement = Arrangement.SpaceEvenly,
 						verticalAlignment = Alignment.CenterVertically
 					) {
-						NowPlayingArtworkPager(
-							modifier = Modifier.weight(1f).fillMaxHeight(),
-							isLandscape = true,
-							onArtworkTap = onArtworkTap
-						)
+						if (showArtwork) {
+							NowPlayingArtworkPager(
+								modifier = Modifier.weight(1f).fillMaxHeight(),
+								isLandscape = true,
+								onArtworkTap = onArtworkTap
+							)
+						}
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							isLandscape = true,
@@ -186,11 +190,13 @@ fun NowPlayingScreen() {
 						horizontalAlignment = Alignment.CenterHorizontally,
 						verticalArrangement = Arrangement.Center
 					) {
-						NowPlayingArtworkPager(
-							modifier = Modifier.weight(1f).fillMaxWidth(),
-							isLandscape = false,
-							onArtworkTap = onArtworkTap
-						)
+						if (showArtwork) {
+							NowPlayingArtworkPager(
+								modifier = Modifier.weight(1f).fillMaxWidth(),
+								isLandscape = false,
+								onArtworkTap = onArtworkTap
+							)
+						}
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f),
 							isLandscape = false,
