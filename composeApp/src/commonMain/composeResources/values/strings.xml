@@ -117,6 +117,7 @@
 	<string name="subtitle_now_playing_swipe_up_controls_for_queue">Open the Queue by swiping up on the Now Playing controls area</string>
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_repeat_control">Show the repeat button in the main Now Playing controls</string>
+	<string name="subtitle_now_playing_indicator">Show the animated waveform beside the current song in lists and the queue</string>
 	<string name="subtitle_now_playing_start_radio_action">Show the Start song radio item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_discover_queue_action">Show the Discover queue cleanup item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_download_action">Show the Download item in the Now Playing song menu</string>
@@ -165,6 +166,7 @@
 	<string name="option_now_playing_swipe_up_controls_for_queue">Swipe up controls for queue</string>
 	<string name="option_now_playing_shuffle_control">Show shuffle control</string>
 	<string name="option_now_playing_repeat_control">Show repeat control</string>
+	<string name="option_now_playing_indicator">Now Playing indicator</string>
 	<string name="option_now_playing_lyrics_action">Show lyrics button</string>
 	<string name="option_now_playing_queue_action">Show queue button</string>
 	<string name="option_now_playing_music_video_action">Show music video action</string>

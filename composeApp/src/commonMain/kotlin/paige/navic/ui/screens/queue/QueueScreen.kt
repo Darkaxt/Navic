@@ -38,6 +38,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queuePlayNextTargetIndex
 import paige.navic.domain.models.queueTotalDurationLabel
+import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
@@ -130,13 +131,13 @@ fun QueueScreen() {
 				items = queue,
 				key = { index, _ -> index }
 			) { index, song, isDragging ->
+				val isCurrentQueueItem = playerState.currentIndex == index
 				QueueScreenItem(
 					index = index,
 					count = queue.count(),
 					song = song,
-					isPlaying = playerState.currentIndex == index
-						&& !playerState.isPaused,
-					isSelected = playerState.currentIndex == index,
+					isPlaying = isCurrentQueueItem && !playerState.isPaused,
+					isSelected = isCurrentQueueItem,
 					isDragging = isDragging,
 					draggableState = draggableState,
 					onClick = {
@@ -164,7 +165,11 @@ fun QueueScreen() {
 					queueSwipeStartToEndAction = preferenceManager.queueSwipeStartToEndAction,
 					queueSwipeEndToStartAction = preferenceManager.queueSwipeEndToStartAction,
 					isOffline = !isOnline,
-					isDownloaded = downloadedSongs.containsKey(song.id)
+					isDownloaded = downloadedSongs.containsKey(song.id),
+					showNowPlayingIndicator = shouldShowNowPlayingIndicator(
+						userEnabled = preferenceManager.showNowPlayingIndicator,
+						isCurrentSong = isCurrentQueueItem
+					)
 				)
 			}
 			if (queue.isEmpty()) {

@@ -441,6 +441,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingIndicatorDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.showNowPlayingIndicator)
+
+		manager.showNowPlayingIndicator = false
+
+		assertFalse(manager.showNowPlayingIndicator)
+	}
+
+	@Test
 	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

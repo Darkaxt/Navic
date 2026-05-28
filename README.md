@@ -54,6 +54,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
 * Kreate-inspired queue duration summary shows the total runtime beside the song count in the Queue sheet.
+* Kreate-inspired `Now Playing indicator` setting can hide the animated waveform beside the current song in lists and the queue.
 * Kreate-inspired song-row swipe actions can keep the default swipe-right/add-to-queue and swipe-left/play-next gestures, swap them, or disable either side.
 * Kreate-inspired queue-row swipe actions can keep the default remove-from-queue gestures, move a queued song to play next, or disable either side.
 * Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
@@ -163,6 +164,10 @@ Open the now-playing menu and choose `Discover queue`. Navic removes upcoming qu
 ### Song row swipe setup
 
 Open Settings -> Playback and turn `Song row swipe actions` on or off. When enabled, `Swipe right` and `Swipe left` can be set to `Add to queue`, `Play next`, or `Disabled`. Defaults preserve Navic's previous behavior: right adds to queue, left plays next.
+
+### Now Playing indicator setup
+
+Open Settings -> Playback and turn `Now Playing indicator` off to hide the animated waveform beside the current song in song lists and the queue. It is on by default to preserve Navic's existing behavior.
 
 ### Shake to skip setup
 

@@ -53,6 +53,7 @@ import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
 import navic.composeapp.generated.resources.option_medley_mode
 import navic.composeapp.generated.resources.option_off
+import navic.composeapp.generated.resources.option_now_playing_indicator
 import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.option_pause_between_songs
 import navic.composeapp.generated.resources.option_persistent_queue
@@ -86,6 +87,7 @@ import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_medley_mode
+import navic.composeapp.generated.resources.subtitle_now_playing_indicator
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
@@ -418,6 +420,12 @@ fun SettingsPlaybackScreen() {
 							description = stringResource(Res.string.subtitle_queue_shuffle_limit),
 							selection = preferenceManager.queueShuffleLimit,
 							onSelect = { preferenceManager.queueShuffleLimit = it }
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_now_playing_indicator)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_indicator)) },
+							value = preferenceManager.showNowPlayingIndicator,
+							onSetValue = { preferenceManager.showNowPlayingIndicator = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_song_swipe_actions)) },

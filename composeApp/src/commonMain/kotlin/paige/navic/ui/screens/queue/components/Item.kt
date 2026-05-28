@@ -67,7 +67,8 @@ fun QueueScreenItem(
 	queueSwipeStartToEndAction: QueueSwipeAction = QueueSwipeAction.RemoveFromQueue,
 	queueSwipeEndToStartAction: QueueSwipeAction = QueueSwipeAction.RemoveFromQueue,
 	isOffline: Boolean = false,
-	isDownloaded: Boolean = false
+	isDownloaded: Boolean = false,
+	showNowPlayingIndicator: Boolean = true
 ) {
 	val canPlay = !isOffline || isDownloaded
 
@@ -197,7 +198,7 @@ fun QueueScreenItem(
 									modifier = Modifier.size(20.dp)
 								)
 							}
-							if (isSelected) {
+							if (showNowPlayingIndicator) {
 								Waveform(isPlaying = isPlaying)
 							}
 							IconButton(

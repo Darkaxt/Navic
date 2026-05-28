@@ -49,6 +49,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.SongSwipeDirection
 import paige.navic.domain.models.settings.SongSwipeAction
+import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.domain.models.songSwipeActionForDirection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
@@ -96,6 +97,10 @@ fun CollectionDetailScreenSongRow(
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
 	val isCurrentTrack = playerState.currentSong?.id == song.id
+	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
+		userEnabled = preferenceManager.showNowPlayingIndicator,
+		isCurrentSong = isCurrentTrack
+	)
 	val canPlay = !isOffline || isDownloaded
 
 	val dismissState = rememberSwipeToDismissBoxState()
@@ -262,7 +267,7 @@ fun CollectionDetailScreenSongRow(
 							else -> {}
 						}
 					}
-					if (isCurrentTrack) {
+					if (showNowPlayingIndicator) {
 						Waveform(
 							modifier = Modifier.padding(end = 12.dp),
 							isPlaying = !playerState.isPaused

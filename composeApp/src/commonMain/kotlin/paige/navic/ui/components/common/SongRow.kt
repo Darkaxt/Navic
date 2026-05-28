@@ -39,6 +39,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
@@ -83,6 +84,10 @@ fun SongRow(
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
 	val isCurrentTrack = playerState.currentSong?.id == song.id
+	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
+		userEnabled = preferenceManager.showNowPlayingIndicator,
+		isCurrentSong = isCurrentTrack
+	)
 	val canPlay = isOnline || isDownloaded
 
 	ListItem(
@@ -167,7 +172,7 @@ fun SongRow(
 						else -> {}
 					}
 				}
-				if (isCurrentTrack) {
+				if (showNowPlayingIndicator) {
 					Waveform(
 						modifier = Modifier.padding(end = 12.dp),
 						isPlaying = !playerState.isPaused
