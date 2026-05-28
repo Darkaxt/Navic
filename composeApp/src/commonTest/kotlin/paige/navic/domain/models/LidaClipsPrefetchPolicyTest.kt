@@ -145,6 +145,42 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipsPrefetchRequiresValidBaseUrlPort() {
+		listOf(
+			"https://clips.remaxku.eu:",
+			"https://clips.remaxku.eu:bad",
+			"https://clips.remaxku.eu:0",
+			"https://clips.remaxku.eu:65536",
+			"http://[::1]:bad"
+		).forEach { baseUrl ->
+			assertNull(nextLidaClipsPrefetchKey(
+				enabled = true,
+				baseUrl = baseUrl,
+				apiKey = "secret",
+				songId = "song-1",
+				lastPrefetchKey = null
+			))
+		}
+
+		assertEquals(
+			true,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu:8443/lida",
+				userActionEnabled = true
+			)
+		)
+		assertEquals(
+			true,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "http://[::1]:8080/lida",
+				userActionEnabled = true
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsPrefetchAllowsSameKeyAfterFreshnessWindow() {
 		val key = nextLidaClipsPrefetchKey(
 			enabled = true,

@@ -97,7 +97,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 ### LidaClips music videos
 
 * Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams.
-* The LidaClips URL defaults to blank, must start with `http://` or `https://`, include a host, and omit query or fragment parts; it is validated before connection tests or clip lookup.
+* The LidaClips URL defaults to blank, must start with `http://` or `https://`, include a host, use a valid numeric port when a port is present, and omit query or fragment parts; it is validated before connection tests or clip lookup.
 * LidaClips API keys are sent as `X-Api-Key` for connection checks, clip lookups, and same-origin Android video stream playback.
 * LidaClips settings show backend service counts, health-check failures, recent backend sync failures, and can pause or resume scheduled backend clip syncs; status refreshes after URL or API-key changes settle without embedding the raw API key in refresh keys.
 * Now-playing clip lookups are cached briefly and prefetched by LidaClips URL, API-key/header fingerprint, and Navidrome song id, so backend sync changes can appear without restarting Navic.
@@ -236,7 +236,7 @@ Turn `Tap lyrics to seek` off if tapping synced lyric lines should not jump play
 
 1. Open Settings -> Data & Storage -> Music video clips.
 2. Enable `LidaClips`.
-3. Enter your LidaClips base URL with `http://` or `https://`, for example `https://clips.remaxku.eu`. Use only the base origin/path; do not include `?query` or `#fragment` text.
+3. Enter your LidaClips base URL with `http://` or `https://`, for example `https://clips.remaxku.eu`. Use only the base origin/path, with a numeric port only when needed; do not include `?query` or `#fragment` text.
 4. Enter the LidaClips API key and use `Test connection`.
 5. Review `Service status` to see active, official, fallback, backend health, and recent backend failure diagnostics. The status refreshes after URL or API-key edits settle; use `Pause LidaClips sync` if you want the backend to stop scheduled clip processing.
 6. Optionally enable `Picture-in-Picture`, `Landscape video mode`, or `Video fit` crop mode on Android. `Pause music while clips play`, `Remember clip position`, and `Keep screen on` are on by default and can be turned off.

@@ -54,21 +54,40 @@ internal fun normalizedLidaClipsBaseUrl(baseUrl: String): NormalizedLidaClipsBas
 	val authority = afterScheme
 		.takeWhile { it != '/' }
 		.substringAfterLast('@')
-	if (authority.isBlank()) return null
-
-	val host = when {
-		authority.startsWith("[") -> {
-			val closingBracket = authority.indexOf(']')
-			if (closingBracket == -1) return null
-			authority.substring(1, closingBracket)
-		}
-
-		else -> authority.substringBefore(':')
-	}
+	val host = parsedLidaClipsUrlHostOrNull(authority) ?: return null
 
 	return if (host.trim().trimEnd('.').isEmpty()) {
 		null
 	} else {
 		NormalizedLidaClipsBaseUrl(trimmed)
 	}
+}
+
+private fun parsedLidaClipsUrlHostOrNull(authority: String): String? {
+	if (authority.isBlank()) return null
+
+	val host: String
+	val portText: String?
+	if (authority.startsWith("[")) {
+		val closingBracket = authority.indexOf(']')
+		if (closingBracket == -1) return null
+
+		host = authority.substring(1, closingBracket)
+		val suffix = authority.drop(closingBracket + 1)
+		if (suffix.isNotEmpty() && !suffix.startsWith(":")) return null
+		portText = suffix.takeIf { it.isNotEmpty() }?.drop(1)
+	} else {
+		val firstColon = authority.indexOf(':')
+		val lastColon = authority.lastIndexOf(':')
+		if (firstColon != -1 && firstColon != lastColon) return null
+
+		host = if (lastColon == -1) authority else authority.substring(0, lastColon)
+		portText = if (lastColon == -1) null else authority.substring(lastColon + 1)
+	}
+
+	val port = portText?.toIntOrNull()
+		?.takeIf { it in 1..65535 }
+	if (portText != null && port == null) return null
+
+	return host
 }

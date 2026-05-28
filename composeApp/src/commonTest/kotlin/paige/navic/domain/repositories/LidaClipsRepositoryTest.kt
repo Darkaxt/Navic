@@ -58,6 +58,28 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsEndpointRequiresValidBaseUrlPort() {
+		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu:"))
+		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu:bad"))
+		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu:0"))
+		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu:65536"))
+		assertEquals(null, configuredLidaClipsBaseUrl("http://[::1]:bad"))
+		assertEquals(
+			"https://clips.remaxku.eu:8443/lida",
+			configuredLidaClipsBaseUrl(" https://clips.remaxku.eu:8443/lida/ ")
+		)
+		assertEquals(
+			"http://[::1]:8080/lida",
+			configuredLidaClipsBaseUrl(" http://[::1]:8080/lida/ ")
+		)
+
+		val error = assertFailsWith<IllegalStateException> {
+			lidaClipsEndpoint("https://clips.remaxku.eu:bad", "/api/v1/ping")
+		}
+		assertEquals(LIDA_CLIPS_BASE_URL_INVALID_HOST_MESSAGE, error.message)
+	}
+
+	@Test
 	fun lidaClipsNavidromeClipUrlEncodesSongIdAsPathSegment() {
 		assertEquals(
 			"https://clips.remaxku.eu/api/v1/navidrome/song%2042%2Fdemo/clip",
