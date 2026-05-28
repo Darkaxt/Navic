@@ -71,7 +71,6 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -90,6 +89,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
@@ -316,17 +316,7 @@ fun SearchScreen(
 												onStartSongRadio = if (!song.id.startsWith("radio_")) {
 													{ player.startSongRadio(song) }
 												} else null,
-												onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
-														lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-														lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-														userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-														songId = song.id
-													)
-												) {
-													dropUnlessResumed {
-														backStack.add(Screen.LidaClipPlayer(song.id))
-													}
-												} else null,
+												onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 												onPlayNext = {
 													if (player.uiState.value.queue.any { it.id == song.id }) {
 														songToQueue = song

@@ -40,7 +40,6 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.icons.Icons
@@ -51,6 +50,7 @@ import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.util.core.InlineExplicitIcon
@@ -220,17 +220,7 @@ fun SongRow(
 				if (starred) onAddStar() else onRemoveStar()
 			},
 			onShare = onShare,
-			onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
-					lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-					lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-					userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-					songId = song.id
-				)
-			) {
-				dropUnlessResumed {
-					backStack.add(Screen.LidaClipPlayer(song.id))
-				}
-			} else null,
+			onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 			onStartSongRadio = if (!song.id.startsWith("radio_")) {
 				{ player.startSongRadio(song) }
 			} else null,

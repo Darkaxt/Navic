@@ -30,7 +30,6 @@ import paige.navic.LocalSnackbarState
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowNowPlayingAddToPlaylistAction
 import paige.navic.domain.models.shouldShowNowPlayingDiscoverQueueAction
 import paige.navic.domain.models.shouldShowNowPlayingDownloadAction
@@ -40,6 +39,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreHoriz
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -106,17 +106,7 @@ fun NowPlayingMoreButton(
 				onShare = {
 					shareId = song.id
 				},
-				onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
-						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-						songId = song.id
-					)
-				) {
-					dropUnlessResumed {
-						backStack.add(Screen.LidaClipPlayer(song.id))
-					}
-				} else null,
+				onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 				onStartSongRadio = if (shouldShowNowPlayingStartRadioAction(
 						userActionEnabled = preferenceManager.showNowPlayingStartRadioAction,
 						songId = song.id

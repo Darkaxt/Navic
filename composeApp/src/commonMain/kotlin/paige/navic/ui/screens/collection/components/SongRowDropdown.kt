@@ -10,16 +10,15 @@ import kotlinx.collections.immutable.persistentListOf
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
 @Composable
@@ -43,7 +42,6 @@ fun CollectionDetailScreenSongRowDropdown(
 	onSetRating: (Int) -> Unit
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
-	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	var duplicateQueueDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -58,17 +56,7 @@ fun CollectionDetailScreenSongRowDropdown(
 				if (starred) onAddStar() else onRemoveStar()
 			},
 			onShare = onShare,
-			onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
-					lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-					lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-					userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-					songId = song.id
-				)
-			) {
-				dropUnlessResumed {
-					backStack.add(Screen.LidaClipPlayer(song.id))
-				}
-			} else null,
+			onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 			onStartSongRadio = if (!song.id.startsWith("radio_")) {
 				{ player.startSongRadio(song) }
 			} else null,

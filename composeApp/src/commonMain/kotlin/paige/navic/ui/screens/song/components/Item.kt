@@ -48,7 +48,6 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.SongSwipeDirection
 import paige.navic.domain.models.settings.SongSwipeAction
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.domain.models.songSwipeActionForDirection
 import paige.navic.icons.Icons
@@ -60,6 +59,7 @@ import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.sheets.SongSheet
+import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.util.core.InlineExplicitIcon
@@ -267,17 +267,7 @@ fun SongListScreenItem(
 					rating = rating,
 					onSetStarred = onSetStarred,
 					onShare = { onSetShareId(song.id) },
-					onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
-							lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-							lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-							userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-							songId = song.id
-						)
-					) {
-						dropUnlessResumed {
-							backStack.add(Screen.LidaClipPlayer(song.id))
-						}
-					} else null,
+					onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 					onStartSongRadio = if (!song.id.startsWith("radio_")) onStartSongRadio else null,
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,
