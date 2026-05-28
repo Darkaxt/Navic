@@ -111,7 +111,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 * Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
-* Album, playlist, station, and artist bulk downloads are queued, so you can request several collections and let Navic download them in order. If the app process restarts while songs are queued, Navic resumes queued songs that still exist in the synced library and clears stale queued entries. The queue dialog can inspect queued, downloading, and failed songs, cancel pending work, and retry failed downloads that still exist locally. `Parallel downloads` defaults to 3 songs at a time and can be adjusted under Data & Storage.
+* All song downloads route through the same download queue, including individual songs, albums, playlists, stations, artists, full-library downloads, retries, and startup recovery. If the app process restarts while songs are queued, Navic resumes queued songs that still exist in the synced library and clears stale queued entries. The queue dialog can inspect queued, downloading, and failed songs, cancel pending work, and retry failed downloads that still exist locally. `Parallel downloads` defaults to 3 songs at a time and can be adjusted under Data & Storage.
 * Destructive Data & Storage danger-zone actions now require confirmation before clearing caches, pending sync actions, downloads, or the local database.
 
 ### LidaClips music videos
@@ -166,7 +166,7 @@ Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill
 
 ### Download queue setup
 
-Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs; tap it to inspect queued, downloading, and failed rows, retry failed downloads that still exist locally, or cancel pending downloads. Use `Parallel downloads` to limit concurrent song downloads; the default is 3. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
+Use the normal Download action on songs, albums, playlists, stations, or artist pages. Navic marks pending songs as queued and routes every song through the same queue before any network download starts. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs; tap it to inspect queued, downloading, and failed rows, retry failed downloads that still exist locally, or cancel pending downloads. Use `Parallel downloads` to limit concurrent song downloads; the default is 3. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
 
 ### ReplayGain loudness boost setup
 
