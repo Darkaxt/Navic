@@ -33,7 +33,7 @@ extensions.configure<ApplicationExtension> {
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
 		versionCode = 110
-		versionName = "v1.0.0-alpha90"
+		versionName = "v1.0.0-beta1"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
