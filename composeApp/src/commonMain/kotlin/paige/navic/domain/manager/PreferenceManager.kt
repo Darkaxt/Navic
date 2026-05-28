@@ -22,6 +22,7 @@ import paige.navic.domain.models.settings.NavigationBarLabelVisibility
 import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
+import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.models.settings.QueueSwipeAction
@@ -75,6 +76,7 @@ class PreferenceManager(
 	var showNowPlayingArtwork by preference(true)
 	var nowPlayingArtworkSize by preference(NowPlayingArtworkSize.Biggest)
 	var shrinkNowPlayingArtworkOnPause by preference(true)
+	var nowPlayingInfoStyle by preference(NowPlayingInfoStyle.Essential)
 	var nowPlayingSongInfo by preference(true)
 	var showNowPlayingUpNext by preference(false)
 	var showNowPlayingUpNextArtwork by preference(true)

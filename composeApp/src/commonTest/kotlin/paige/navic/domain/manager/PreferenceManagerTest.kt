@@ -8,6 +8,7 @@ import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
+import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
@@ -413,16 +414,19 @@ class PreferenceManagerTest {
 	fun nowPlayingControlsLayoutDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
+		assertEquals(NowPlayingInfoStyle.Essential, manager.nowPlayingInfoStyle)
 		assertFalse(manager.swapNowPlayingControlsAndTimeline)
 		assertFalse(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertFalse(manager.openQueueOnNowPlayingControlsSwipeUp)
 		assertFalse(manager.openQueueOnNowPlayingControlsTap)
 
+		manager.nowPlayingInfoStyle = NowPlayingInfoStyle.AlbumAndArtist
 		manager.swapNowPlayingControlsAndTimeline = true
 		manager.spaceNowPlayingPlaybackControlsEvenly = true
 		manager.openQueueOnNowPlayingControlsSwipeUp = true
 		manager.openQueueOnNowPlayingControlsTap = true
 
+		assertEquals(NowPlayingInfoStyle.AlbumAndArtist, manager.nowPlayingInfoStyle)
 		assertTrue(manager.swapNowPlayingControlsAndTimeline)
 		assertTrue(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertTrue(manager.openQueueOnNowPlayingControlsSwipeUp)

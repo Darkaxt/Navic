@@ -36,6 +36,7 @@ import navic.composeapp.generated.resources.option_now_playing_artwork_size
 import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.option_now_playing_download_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
+import navic.composeapp.generated.resources.option_now_playing_info_style
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
 import navic.composeapp.generated.resources.option_now_playing_more_action
@@ -67,6 +68,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.subtitle_now_playing_download_action
+import navic.composeapp.generated.resources.subtitle_now_playing_info_style
 import navic.composeapp.generated.resources.subtitle_now_playing_more_action
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
@@ -95,6 +97,7 @@ import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
+import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
@@ -238,6 +241,15 @@ fun SettingsNowPlayingScreen() {
 							onSetValue = { preferenceManager.shrinkNowPlayingArtworkOnPause = it }
 						)
 					}
+
+					SettingSelectionRow(
+						items = NowPlayingInfoStyle.entries.toImmutableList(),
+						label = { stringResource(it.displayName) },
+						selection = preferenceManager.nowPlayingInfoStyle,
+						onSelect = { preferenceManager.nowPlayingInfoStyle = it },
+						description = stringResource(Res.string.subtitle_now_playing_info_style),
+						title = { Text(stringResource(Res.string.option_now_playing_info_style)) }
+					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_now_playing_song_info)) },

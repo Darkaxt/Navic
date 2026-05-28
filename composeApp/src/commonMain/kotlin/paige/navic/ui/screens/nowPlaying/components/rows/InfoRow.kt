@@ -22,6 +22,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.nowPlayingInfoSubtitle
 import paige.navic.domain.models.shouldShowNowPlayingMoreAction
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
@@ -42,6 +43,13 @@ fun NowPlayingInfoRow(
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
+	val subtitle = song?.let { currentSong ->
+		nowPlayingInfoSubtitle(
+			style = preferenceManager.nowPlayingInfoStyle,
+			albumTitle = currentSong.albumTitle,
+			artistName = currentSong.artistName
+		)
+	} ?: stringResource(Res.string.info_not_playing)
 	Row(
 		modifier = Modifier
 			.padding(horizontal = 16.dp)
@@ -102,7 +110,7 @@ fun NowPlayingInfoRow(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1
 					),
-				text = song?.artistName ?: stringResource(Res.string.info_not_playing)
+				text = subtitle
 			)
 		}
 		Row(
