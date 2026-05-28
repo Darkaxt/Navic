@@ -72,6 +72,7 @@ import navic.composeapp.generated.resources.info_sync_never
 import navic.composeapp.generated.resources.option_auto_download_starred_albums
 import navic.composeapp.generated.resources.option_auto_download_starred_songs
 import navic.composeapp.generated.resources.option_cover_art_quality
+import navic.composeapp.generated.resources.option_download_queue
 import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
@@ -82,6 +83,7 @@ import navic.composeapp.generated.resources.option_pause_search_history
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_albums
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_songs
+import navic.composeapp.generated.resources.subtitle_download_queue
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.subtitle_pause_search_history
@@ -135,6 +137,7 @@ fun SettingsDataStorageScreen() {
 	val pendingActionCount by viewModel.pendingActionCount.collectAsStateWithLifecycle()
 	val downloadCount by viewModel.downloadCount.collectAsStateWithLifecycle(0)
 	val downloadSize by viewModel.downloadSize.collectAsStateWithLifecycle(0L)
+	val pendingDownloadCount by viewModel.pendingDownloadCount.collectAsStateWithLifecycle(0)
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
 	val isDownloadingLibrary by viewModel.isDownloadingLibrary.collectAsStateWithLifecycle()
@@ -353,6 +356,16 @@ fun SettingsDataStorageScreen() {
 							)
 						},
 						value = downloadedSize
+					)
+
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_download_queue)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_download_queue)) },
+						value = pluralStringResource(
+							Res.plurals.count_songs,
+							pendingDownloadCount,
+							pendingDownloadCount
+						)
 					)
 
 					SettingValueRow(

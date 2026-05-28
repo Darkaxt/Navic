@@ -162,7 +162,7 @@ Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill
 
 ### Download queue setup
 
-Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
+Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
 
 ### ReplayGain loudness boost setup
 

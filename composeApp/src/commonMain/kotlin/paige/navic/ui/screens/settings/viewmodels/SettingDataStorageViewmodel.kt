@@ -41,6 +41,9 @@ class SettingsDataStorageViewModel(
 	val downloadSize = downloadManager.downloadSize.stateIn(
 		viewModelScope, SharingStarted.WhileSubscribed(5000), 0L
 	)
+	val pendingDownloadCount = downloadManager.pendingDownloadCount.stateIn(
+		viewModelScope, SharingStarted.WhileSubscribed(5000), 0
+	)
 
 	val isDownloadingLibrary = downloadManager.isDownloadingLibrary
 	val libraryDownloadProgress = downloadManager.libraryDownloadProgress

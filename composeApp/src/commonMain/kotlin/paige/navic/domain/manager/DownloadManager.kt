@@ -82,6 +82,9 @@ class DownloadManager(
 			.filter { it.status == DownloadStatus.DOWNLOADED && it.filePath != null }
 			.sumOf { storageManager.getFileSize(it.filePath!!) }
 	}
+	val pendingDownloadCount = allDownloads.map { downloads ->
+		paige.navic.domain.models.pendingDownloadCount(downloads)
+	}
 
 	private val _downloadedSongs = MutableStateFlow<Map<String, String>>(emptyMap())
 	val downloadedSongs: StateFlow<Map<String, String>> = _downloadedSongs.asStateFlow()
