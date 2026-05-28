@@ -58,7 +58,8 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Volume keys skip tracks` can use Android volume up/down for next/previous while Navic is open.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
-* Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
+* Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, Sleep Timer, and Equalizer actions.
+* Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs.
@@ -155,6 +156,10 @@ Open Settings -> Playback and turn `Shake to skip` on. Shake detection is availa
 ### Volume keys skip tracks setup
 
 Open Settings -> Playback and turn `Volume keys skip tracks` on. While Navic is open on Android, volume up skips to the next queued song and volume down goes to the previous song. It is off by default.
+
+### Sleep timer setup
+
+Open the now-playing song menu or the root top-bar menu and choose `Sleep timer`. Use Settings -> Now Playing -> `Show sleep timer action` to hide or show it in the Now Playing song menu.
 
 ### Now Playing Up next setup
 

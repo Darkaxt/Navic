@@ -345,12 +345,25 @@ class PreferenceManagerTest {
 		manager.showNowPlayingMusicVideoAction = false
 		manager.showNowPlayingPlaybackSpeedAction = false
 		manager.showNowPlayingEqualizerAction = false
+		manager.showNowPlayingSleepTimerAction = false
 
 		assertFalse(manager.showNowPlayingLyricsAction)
 		assertFalse(manager.showNowPlayingQueueAction)
 		assertFalse(manager.showNowPlayingMusicVideoAction)
 		assertFalse(manager.showNowPlayingPlaybackSpeedAction)
 		assertFalse(manager.showNowPlayingEqualizerAction)
+		assertFalse(manager.showNowPlayingSleepTimerAction)
+	}
+
+	@Test
+	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.showNowPlayingSleepTimerAction)
+
+		manager.showNowPlayingSleepTimerAction = false
+
+		assertFalse(manager.showNowPlayingSleepTimerAction)
 	}
 
 	@Test

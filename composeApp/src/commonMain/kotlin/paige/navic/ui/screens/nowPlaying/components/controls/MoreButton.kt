@@ -139,7 +139,7 @@ fun NowPlayingMoreButton(
 				) {
 					{ player.openSystemEqualizer() }
 				} else null,
-				showSleepTimer = true,
+				showSleepTimer = preferenceManager.showNowPlayingSleepTimerAction,
 				showPlaybackSpeed = preferenceManager.showNowPlayingPlaybackSpeedAction
 			)
 		}

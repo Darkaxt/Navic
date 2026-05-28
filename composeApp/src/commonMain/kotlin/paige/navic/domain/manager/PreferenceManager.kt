@@ -77,6 +77,7 @@ class PreferenceManager(
 	var showNowPlayingMusicVideoAction by preference(true)
 	var showNowPlayingPlaybackSpeedAction by preference(true)
 	var showNowPlayingEqualizerAction by preference(true)
+	var showNowPlayingSleepTimerAction by preference(true)
 	var customHeaders by preference("")
 	var reverseProxyBasicAuthEnabled by preference(false)
 	var reverseProxyBasicAuthUsername by preference("")

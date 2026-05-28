@@ -9,7 +9,8 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Skip silence: Navic now exposes an Android playback toggle and applies it to Media3 when the playback service starts.
 * Skip media on error: Navic now exposes an Android playback toggle and advances to the next queued media item when Media3 reports a playback error and a next item exists.
 * Audio-device resume: Navic now exposes an Android playback toggle and resumes a paused queue when a supported output device is added.
-* Player action visibility: Navic now exposes Now Playing settings for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
+* Player action visibility: Navic now exposes Now Playing settings for Lyrics, Queue, Music Video, Playback Speed, Sleep Timer, and Equalizer actions.
+* Sleep timer action visibility: Navic already had a sleep timer; the Now Playing song menu now has a Kreate-style visibility setting for that action, while the root top-bar sleep-timer access remains available.
 * Persistent queue and startup resume: Navic now exposes Playback settings to save/restore the queue and optionally resume playback on startup. Persistent queue defaults on to preserve Navic's existing restore behavior; resume-on-start defaults off.
 * LidaClips Picture-in-Picture: Navic now exposes a LidaClips Android PiP toggle under Settings -> Data & Storage -> Music video clips. The Android video surface provides PiP source bounds, uses Android 12+ auto-enter params, and falls back to `onUserLeaveHint` on Android 8-11.
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.

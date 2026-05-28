@@ -28,6 +28,7 @@ import navic.composeapp.generated.resources.option_now_playing_playback_speed_ac
 import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_remaining_time
 import navic.composeapp.generated.resources.option_now_playing_seek_buttons
+import navic.composeapp.generated.resources.option_now_playing_sleep_timer_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
@@ -193,6 +194,11 @@ fun SettingsNowPlayingScreen() {
 						title = { Text(stringResource(Res.string.option_now_playing_playback_speed_action)) },
 						value = preferenceManager.showNowPlayingPlaybackSpeedAction,
 						onSetValue = { preferenceManager.showNowPlayingPlaybackSpeedAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_sleep_timer_action)) },
+						value = preferenceManager.showNowPlayingSleepTimerAction,
+						onSetValue = { preferenceManager.showNowPlayingSleepTimerAction = it }
 					)
 					if (platformContext.name.lowercase().startsWith("android")) {
 						SettingSwitchRow(
