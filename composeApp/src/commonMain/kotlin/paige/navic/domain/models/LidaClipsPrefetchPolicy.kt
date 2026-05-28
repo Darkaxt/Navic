@@ -31,7 +31,44 @@ fun shouldShowLidaClipsMusicVideoAction(
 		userActionEnabled
 
 internal fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
-	baseUrl.trim().trimEnd('/').takeIf {
-		it.startsWith("http://", ignoreCase = true) ||
-			it.startsWith("https://", ignoreCase = true)
+	normalizedLidaClipsBaseUrl(baseUrl)?.value
+
+internal data class NormalizedLidaClipsBaseUrl(val value: String)
+
+internal fun normalizedLidaClipsBaseUrl(baseUrl: String): NormalizedLidaClipsBaseUrl? {
+	val trimmed = baseUrl.trim().trimEnd('/')
+	val schemeSeparator = trimmed.indexOf("://")
+	if (schemeSeparator <= 0) return null
+
+	val scheme = trimmed.substring(0, schemeSeparator)
+	if (!scheme.equals("http", ignoreCase = true) &&
+		!scheme.equals("https", ignoreCase = true)
+	) {
+		return null
 	}
+
+	val afterScheme = trimmed.drop(schemeSeparator + 3)
+	if (afterScheme.isBlank()) return null
+	if (afterScheme.any { it == '?' || it == '#' }) return null
+
+	val authority = afterScheme
+		.takeWhile { it != '/' }
+		.substringAfterLast('@')
+	if (authority.isBlank()) return null
+
+	val host = when {
+		authority.startsWith("[") -> {
+			val closingBracket = authority.indexOf(']')
+			if (closingBracket == -1) return null
+			authority.substring(1, closingBracket)
+		}
+
+		else -> authority.substringBefore(':')
+	}
+
+	return if (host.trim().trimEnd('.').isEmpty()) {
+		null
+	} else {
+		NormalizedLidaClipsBaseUrl(trimmed)
+	}
+}

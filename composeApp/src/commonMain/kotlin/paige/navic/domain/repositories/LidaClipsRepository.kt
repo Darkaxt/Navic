@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.lidaClipsKeyFingerprint
+import paige.navic.domain.models.normalizedLidaClipsBaseUrlOrNull
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
 import kotlin.time.Clock
@@ -27,6 +28,8 @@ private const val TAG = "LidaClipsRepository"
 internal const val LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE = "Enter the LidaClips URL first."
 internal const val LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"LidaClips URL must start with http:// or https://."
+internal const val LIDA_CLIPS_BASE_URL_INVALID_HOST_MESSAGE =
+	"LidaClips URL must include a host and cannot include a query or fragment."
 private const val LIDA_CLIPS_LOOKUP_CACHE_MAX_AGE_MILLIS = 10 * 60 * 1000L
 
 class LidaClipsRepository(
@@ -365,15 +368,14 @@ internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
 	"${normalizeLidaClipsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"
 
 internal fun configuredLidaClipsBaseUrl(baseUrl: String): String? =
-	baseUrl.trim().trimEnd('/').takeIf {
-		it.isNotEmpty() && it.hasSupportedHttpScheme()
-	}
+	normalizedLidaClipsBaseUrlOrNull(baseUrl)
 
 internal fun lidaClipsBaseUrlConfigurationError(baseUrl: String): String? {
 	val trimmed = baseUrl.trim().trimEnd('/')
 	return when {
 		trimmed.isEmpty() -> LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE
 		!trimmed.hasSupportedHttpScheme() -> LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE
+		normalizedLidaClipsBaseUrlOrNull(trimmed) == null -> LIDA_CLIPS_BASE_URL_INVALID_HOST_MESSAGE
 		else -> null
 	}
 }
