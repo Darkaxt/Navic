@@ -66,6 +66,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired configurable Now Playing dynamic background blur and dim strength.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
+* Kreate-inspired Now Playing artwork swipe control for disabling horizontal artwork swipes without disabling mini-player swipes.
 * Kreate-inspired optional Now Playing seek buttons beside the time row. Tap seeks 10 seconds; long-press seeks 30 seconds.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired Now Playing progress width selector for shorter, default-width, or full-width playback timelines.
@@ -201,6 +202,8 @@ Open Settings -> Now Playing and keep `Background style` set to `Dynamic` to use
 ### Now Playing artwork setup
 
 Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover artwork on the fullscreen player. The setting is on by default, matching current Navic behavior and Kreate's default. Use `Artwork size` to choose Small, Medium, Big, Biggest, or Expanded; `Biggest` is the default and matches the previous Navic layout. `Shrink artwork on pause` is on by default to preserve Navic's existing paused/inactive artwork shrink, and can be turned off to keep the selected artwork size. `Tap artwork for lyrics` is shown only while artwork is enabled.
+
+Turn `Swipe artwork to change songs` off to stop horizontal swipes on the main Now Playing artwork from changing tracks while leaving other swipe controls available.
 
 ### Now Playing Up next setup
 

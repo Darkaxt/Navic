@@ -581,6 +581,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingArtworkSwipeDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.nowPlayingArtworkSwipeToSkip)
+
+		manager.nowPlayingArtworkSwipeToSkip = false
+
+		assertFalse(manager.nowPlayingArtworkSwipeToSkip)
+	}
+
+	@Test
 	fun nowPlayingRemainingTimeDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

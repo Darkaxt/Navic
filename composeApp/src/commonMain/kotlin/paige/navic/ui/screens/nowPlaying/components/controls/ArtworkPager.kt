@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.shouldEnableNowPlayingArtworkSwipe
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingArtwork
 import kotlin.time.Duration.Companion.milliseconds
@@ -75,7 +76,10 @@ fun NowPlayingArtworkPager(
 		},
 		state = pagerState,
 		contentPadding = PaddingValues(horizontal = if (isLandscape) 0.dp else 8.dp),
-		userScrollEnabled = preferenceManager.swipeToSkip,
+		userScrollEnabled = shouldEnableNowPlayingArtworkSwipe(
+			swipeToSkip = preferenceManager.swipeToSkip,
+			artworkSwipeToSkip = preferenceManager.nowPlayingArtworkSwipeToSkip
+		),
 		overscrollEffect = null
 	) { page ->
 		val song = playerState.queue[page]

@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_artwork_size
+import navic.composeapp.generated.resources.option_now_playing_artwork_swipe
 import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.option_now_playing_download_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
@@ -67,6 +68,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
 import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
+import navic.composeapp.generated.resources.subtitle_now_playing_artwork_swipe
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.subtitle_now_playing_download_action
@@ -246,6 +248,15 @@ fun SettingsNowPlayingScreen() {
 							selection = preferenceManager.nowPlayingArtworkSize,
 							onSelect = { preferenceManager.nowPlayingArtworkSize = it },
 							title = { Text(stringResource(Res.string.option_now_playing_artwork_size)) }
+						)
+					}
+
+					AnimatedVisibility(preferenceManager.showNowPlayingArtwork) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_now_playing_artwork_swipe)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_artwork_swipe)) },
+							value = preferenceManager.nowPlayingArtworkSwipeToSkip,
+							onSetValue = { preferenceManager.nowPlayingArtworkSwipeToSkip = it }
 						)
 					}
 
