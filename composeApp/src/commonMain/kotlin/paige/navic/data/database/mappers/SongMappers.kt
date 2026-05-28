@@ -5,12 +5,14 @@ import paige.navic.domain.models.DomainContributor
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainReplayGain
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.songCoverArtIdWithAlbumFallback
 import kotlin.time.Duration.Companion.seconds
 import dev.zt64.subsonic.api.model.Song as ApiSong
 
 fun ApiSong.toEntity(
 	artistIdOverride: String? = null,
-	artistNameOverride: String? = null
+	artistNameOverride: String? = null,
+	albumCoverArtId: String? = null
 ) = SongEntity(
 	songId = this.id,
 	title = this.title,
@@ -19,7 +21,7 @@ fun ApiSong.toEntity(
 	artistId = artistIdOverride ?: this.artistId ?: "unknown artist",
 	albumTitle = this.albumTitle,
 	belongsToAlbumId = this.albumId,
-	coverArtId = this.coverArtId,
+	coverArtId = songCoverArtIdWithAlbumFallback(this.coverArtId, albumCoverArtId),
 	duration = this.duration ?: 0.seconds,
 	trackNumber = this.trackNumber,
 	discNumber = this.discNumber,

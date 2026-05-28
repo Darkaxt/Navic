@@ -34,6 +34,7 @@ import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_artwork_size
+import navic.composeapp.generated.resources.option_now_playing_artwork_tap_action
 import navic.composeapp.generated.resources.option_now_playing_artwork_swipe
 import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.option_now_playing_download_action
@@ -66,12 +67,12 @@ import navic.composeapp.generated.resources.option_now_playing_up_next
 import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
-import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
 import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
 import navic.composeapp.generated.resources.subtitle_now_playing_background_bottom_gradient
 import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
+import navic.composeapp.generated.resources.subtitle_now_playing_artwork_tap_action
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork_swipe
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
@@ -108,7 +109,9 @@ import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
+import paige.navic.domain.models.effectiveNowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
+import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
@@ -151,14 +154,6 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.swipeToSkip,
 						onSetValue = { preferenceManager.swipeToSkip = it }
 					)
-
-					AnimatedVisibility(preferenceManager.showNowPlayingArtwork) {
-						SettingSwitchRow(
-							title = { Text(stringResource(Res.string.option_tap_artwork_for_lyrics)) },
-							value = preferenceManager.tapArtworkForLyrics,
-							onSetValue = { preferenceManager.tapArtworkForLyrics = it }
-						)
-					}
 
 					SettingSelectionRow(
 						items = NowPlayingBackgroundStyle.entries.toImmutableList(),
@@ -265,6 +260,23 @@ fun SettingsNowPlayingScreen() {
 							selection = preferenceManager.nowPlayingArtworkSize,
 							onSelect = { preferenceManager.nowPlayingArtworkSize = it },
 							title = { Text(stringResource(Res.string.option_now_playing_artwork_size)) }
+						)
+					}
+
+					AnimatedVisibility(preferenceManager.showNowPlayingArtwork) {
+						SettingSelectionRow(
+							items = NowPlayingArtworkTapAction.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							selection = effectiveNowPlayingArtworkTapAction(
+								configuredAction = preferenceManager.nowPlayingArtworkTapAction,
+								legacyTapArtworkForLyrics = preferenceManager.tapArtworkForLyrics
+							),
+							onSelect = {
+								preferenceManager.nowPlayingArtworkTapAction = it
+								preferenceManager.tapArtworkForLyrics = it == NowPlayingArtworkTapAction.Lyrics
+							},
+							description = stringResource(Res.string.subtitle_now_playing_artwork_tap_action),
+							title = { Text(stringResource(Res.string.option_now_playing_artwork_tap_action)) }
 						)
 					}
 

@@ -38,6 +38,10 @@ import io.ktor.http.Url
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.activeArtworkUrl
+import paige.navic.domain.models.dominantColorArtworkUrl
+import paige.navic.domain.models.shouldSendServerArtworkHeaders
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.NowPlayingSceneStrategy.Companion.bottomSheet
@@ -146,20 +150,36 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val playerState by player.uiState.collectAsState()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
 	val song = playerState.currentSong
-	val coverUri = remember(song?.coverArtId) {
+	val serverCoverUri = remember(song?.coverArtId) {
 		song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
+	val externalCoverUri = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl }
+	val coverUri = remember(serverCoverUri, externalCoverUri) {
+		activeArtworkUrl(
+			serverArtworkUrl = serverCoverUri,
+			externalArtworkUrl = externalCoverUri
+		)
+	}
+	val paletteCoverUri = remember(serverCoverUri, externalCoverUri) {
+		dominantColorArtworkUrl(
+			serverArtworkUrl = serverCoverUri,
+			externalArtworkUrl = externalCoverUri
+		)
+	}
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val httpClient = remember(serverRequestHeaders) {
+	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(externalCoverUri)
+	val httpClient = remember(serverRequestHeaders, shouldSendServerHeaders) {
 		HttpClient {
 			install(HttpTimeout) {
 				requestTimeoutMillis = 60_000
 				connectTimeoutMillis = 60_000
 				socketTimeoutMillis = 60_000
 			}
-			if (serverRequestHeaders.isNotEmpty()) {
+			if (shouldSendServerHeaders && serverRequestHeaders.isNotEmpty()) {
 				defaultRequest {
 					serverRequestHeaders.forEach { (key, value) -> header(key, value) }
 				}
@@ -180,9 +200,9 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 		specVersion = ColorSpec.SpecVersion.SPEC_2021,
 	)
 
-	LaunchedEffect(coverUri) {
-		coverUri?.let {
-			dominantColorState.updateFrom(Url("$it&size=128"))
+	LaunchedEffect(paletteCoverUri) {
+		paletteCoverUri?.let {
+			dominantColorState.updateFrom(Url(it))
 		}
 	}
 

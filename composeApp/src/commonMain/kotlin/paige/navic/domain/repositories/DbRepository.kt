@@ -201,7 +201,8 @@ class DbRepository(
 					album.songs.forEach { song ->
 						val songEntity = song.toEntity(
 							artistIdOverride = albumEntity.artistId,
-							artistNameOverride = albumEntity.artistName
+							artistNameOverride = albumEntity.artistName,
+							albumCoverArtId = albumEntity.coverArtId
 						)
 						songBatch.add(songEntity)
 						allValidSongIds.add(songEntity.songId)
@@ -264,7 +265,17 @@ class DbRepository(
 				throw e
 			}
 		}
-		val songEntities = playlist.songs.map { it.toEntity() }
+		val albumCoverArtById = playlist.songs
+			.mapNotNull { it.albumId }
+			.distinct()
+			.takeIf { it.isNotEmpty() }
+			?.let { albumIds ->
+				albumDao.getAlbumsByIds(albumIds).associate { it.album.albumId to it.album.coverArtId }
+			}
+			.orEmpty()
+		val songEntities = playlist.songs.map { song ->
+			song.toEntity(albumCoverArtId = song.albumId?.let(albumCoverArtById::get))
+		}
 
 		playlistDao.deletePlaylistSongCrossRefs(playlistId)
 

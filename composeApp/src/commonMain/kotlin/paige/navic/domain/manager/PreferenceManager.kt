@@ -22,6 +22,7 @@ import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavigationBarLabelVisibility
 import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
+import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
@@ -55,6 +56,8 @@ class PreferenceManager(
 	var gridSize by preference(GridSize.TwoByTwo)
 	var coverArtShape by preference(CoverArtShape.Soft)
 	var coverArtQuality by preference(CoverArtQuality.High)
+	var musicBrainzArtworkFallbackEnabled by preference(false)
+	var musicBrainzArtworkCacheJson by preference("")
 	var artGridItemSize by preference(150f)
 	var marqueeSpeed by preference(MarqueeSpeed.Slow)
 	var alphabeticalScroll by preference(false)
@@ -84,6 +87,7 @@ class PreferenceManager(
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var showNowPlayingArtwork by preference(true)
 	var nowPlayingArtworkSize by preference(NowPlayingArtworkSize.Biggest)
+	var nowPlayingArtworkTapAction by preference(NowPlayingArtworkTapAction.Disabled)
 	var nowPlayingArtworkSwipeToSkip by preference(true)
 	var nowPlayingRotatingArtwork by preference(false)
 	var shrinkNowPlayingArtworkOnPause by preference(true)
@@ -227,6 +231,10 @@ class PreferenceManager(
 
 	fun lidaClipsRequestHeadersMap(): Map<String, String> =
 		paige.navic.domain.repositories.lidaClipsRequestHeaders(lidaClipsApiKey)
+
+	fun clearMusicBrainzArtworkCache() {
+		musicBrainzArtworkCacheJson = ""
+	}
 
 	var offlineMode by preference(OfflineMode.Auto)
 }

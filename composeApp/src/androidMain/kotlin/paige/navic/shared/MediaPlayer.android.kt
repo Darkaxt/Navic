@@ -78,6 +78,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
@@ -111,6 +112,7 @@ import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.systemEqualizerAudioSessionId
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
@@ -698,6 +700,7 @@ class AndroidMediaPlayerViewModel(
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
 	private val songRepository: SongRepository,
+	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -715,6 +718,7 @@ class AndroidMediaPlayerViewModel(
 	private var playbackFadeJob: Job? = null
 	private var playbackFadeRestoreVolume: Float? = null
 	private var autoFillQueueJob: Job? = null
+	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
 
 	init {
 		connectToService()
@@ -767,27 +771,9 @@ class AndroidMediaPlayerViewModel(
 						if (isPlaying) {
 							startProgressLoop()
 							maybeAutoFillQueue()
+							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
 						}
-						val intent =
-							Intent("${application.packageName}.NOW_PLAYING_UPDATED").apply {
-								setPackage(application.packageName)
-								putExtra("isPlaying", isPlaying)
-								putExtra(
-									"title",
-									_uiState.value.currentSong?.title ?: "Unknown song"
-								)
-								putExtra(
-									"artist",
-									_uiState.value.currentSong?.artistName ?: "Unknown artist"
-								)
-								putExtra(
-									"artUrl",
-									_uiState.value.currentSong?.coverArtId?.let {
-										sessionManager.getCoverArtUrl(it)
-									})
-							}
-
-						application.sendBroadcast(intent)
+						sendNowPlayingBroadcast(isPlaying)
 					}
 
 					override fun onPlaybackStateChanged(playbackState: Int) {
@@ -938,8 +924,50 @@ class AndroidMediaPlayerViewModel(
 			)
 		}
 		applyReplayGain()
+		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
 		updateProgress()
 	}
+
+	private fun prefetchMusicBrainzArtworkForCurrentSong(
+		currentSong: DomainSong?,
+		isPlaying: Boolean
+	) {
+		if (!isPlaying || currentSong == null) return
+		if (lastMusicBrainzArtworkPrefetchSongId == currentSong.id) return
+		lastMusicBrainzArtworkPrefetchSongId = currentSong.id
+
+		viewModelScope.launch(Dispatchers.IO) {
+			val artwork = musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(currentSong)
+				.getOrNull()
+			if (artwork?.imageUrl.isNullOrBlank()) return@launch
+
+			withContext(Dispatchers.Main.immediate) {
+				val state = _uiState.value
+				if (state.currentSong?.id == currentSong.id) {
+					sendNowPlayingBroadcast(isPlaying = !state.isPaused)
+				}
+			}
+		}
+	}
+
+	private fun sendNowPlayingBroadcast(isPlaying: Boolean) {
+		val currentSong = _uiState.value.currentSong
+		val intent = Intent("${application.packageName}.NOW_PLAYING_UPDATED").apply {
+			setPackage(application.packageName)
+			putExtra("isPlaying", isPlaying)
+			putExtra("title", currentSong?.title ?: "Unknown song")
+			putExtra("artist", currentSong?.artistName ?: "Unknown artist")
+			putExtra("artUrl", currentSong?.let(::currentArtworkUrl))
+		}
+
+		application.sendBroadcast(intent)
+	}
+
+	private fun currentArtworkUrl(song: DomainSong): String? =
+		activeArtworkUrl(
+			serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) },
+			externalArtworkUrl = musicBrainzArtworkRepository.artworkBySongId.value[song.id]?.imageUrl
+		)
 
 	private fun applyReplayGain() {
 		val replayGain = _uiState.value.currentSong?.replayGain

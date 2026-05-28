@@ -8,6 +8,7 @@ import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
+import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
@@ -156,6 +157,16 @@ class PreferenceManagerTest {
 			mapOf("X-Api-Key" to "secret"),
 			manager.lidaClipsRequestHeadersMap()
 		)
+	}
+
+	@Test
+	fun clearMusicBrainzArtworkCacheRemovesCachedFallbackArtworkAndMetadata() {
+		val manager = PreferenceManager(MapSettings())
+		manager.musicBrainzArtworkCacheJson = """{"entries":[{"songId":"song-1"}]}"""
+
+		manager.clearMusicBrainzArtworkCache()
+
+		assertEquals("", manager.musicBrainzArtworkCacheJson)
 	}
 
 	@Test
@@ -526,16 +537,19 @@ class PreferenceManagerTest {
 
 		assertTrue(manager.showNowPlayingArtwork)
 		assertEquals(NowPlayingArtworkSize.Biggest, manager.nowPlayingArtworkSize)
+		assertEquals(NowPlayingArtworkTapAction.Disabled, manager.nowPlayingArtworkTapAction)
 		assertTrue(manager.shrinkNowPlayingArtworkOnPause)
 		assertFalse(manager.tapArtworkForLyrics)
 
 		manager.showNowPlayingArtwork = false
 		manager.nowPlayingArtworkSize = NowPlayingArtworkSize.Medium
+		manager.nowPlayingArtworkTapAction = NowPlayingArtworkTapAction.TrackInfo
 		manager.shrinkNowPlayingArtworkOnPause = false
 		manager.tapArtworkForLyrics = true
 
 		assertFalse(manager.showNowPlayingArtwork)
 		assertEquals(NowPlayingArtworkSize.Medium, manager.nowPlayingArtworkSize)
+		assertEquals(NowPlayingArtworkTapAction.TrackInfo, manager.nowPlayingArtworkTapAction)
 		assertFalse(manager.shrinkNowPlayingArtworkOnPause)
 		assertTrue(manager.tapArtworkForLyrics)
 	}

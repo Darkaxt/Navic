@@ -1,7 +1,10 @@
 package paige.navic.domain.models
 
+import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class NowPlayingArtworkInteractionPolicyTest {
@@ -37,6 +40,74 @@ class NowPlayingArtworkInteractionPolicyTest {
 				tapArtworkForLyrics = true,
 				showNowPlayingArtwork = false,
 				hasCurrentSong = true
+			)
+		)
+	}
+
+	@Test
+	fun artworkTapDestinationRequiresArtworkAndCurrentSong() {
+		assertNull(
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.TrackInfo,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = false,
+				hasCurrentSong = true
+			)
+		)
+		assertNull(
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.TrackInfo,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = false
+			)
+		)
+	}
+
+	@Test
+	fun artworkTapDestinationFollowsConfiguredAction() {
+		assertNull(
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.Disabled,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = true
+			)
+		)
+		assertEquals(
+			NowPlayingArtworkTapDestination.Lyrics,
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.Lyrics,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = true
+			)
+		)
+		assertEquals(
+			NowPlayingArtworkTapDestination.TrackInfo,
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.TrackInfo,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = true
+			)
+		)
+	}
+
+	@Test
+	fun legacyTapArtworkForLyricsMapsToLyricsWhenNewActionIsUnset() {
+		assertEquals(
+			NowPlayingArtworkTapAction.Lyrics,
+			effectiveNowPlayingArtworkTapAction(
+				configuredAction = NowPlayingArtworkTapAction.Disabled,
+				legacyTapArtworkForLyrics = true
+			)
+		)
+		assertEquals(
+			NowPlayingArtworkTapAction.TrackInfo,
+			effectiveNowPlayingArtworkTapAction(
+				configuredAction = NowPlayingArtworkTapAction.TrackInfo,
+				legacyTapArtworkForLyrics = true
 			)
 		)
 	}

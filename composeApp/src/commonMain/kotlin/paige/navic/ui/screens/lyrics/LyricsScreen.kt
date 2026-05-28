@@ -70,6 +70,7 @@ import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
 import paige.navic.domain.models.shouldShowLyricsArtwork
 import paige.navic.domain.models.settings.ToolbarPosition
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Check
@@ -133,6 +134,10 @@ fun LyricsScreen(
 
 	val song = song ?: return placeholder()
 	val duration = song.duration
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
+	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
+	val musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
 
 	val progressState = playerState.progress
 	val currentDuration = duration * progressState.toDouble()
@@ -267,7 +272,8 @@ fun LyricsScreen(
 						} else -1
 						val showArtwork = shouldShowLyricsArtwork(
 							showLyricsArtwork = preferenceManager.showLyricsArtwork,
-							coverArtId = song.coverArtId
+							coverArtId = song.coverArtId,
+							imageUrl = musicBrainzArtwork?.imageUrl
 						)
 						val lyricListIndexOffset = if (showArtwork) 1 else 0
 
@@ -338,6 +344,8 @@ fun LyricsScreen(
 									) {
 										CoverArt(
 											coverArtId = song.coverArtId,
+											imageUrl = musicBrainzArtwork?.imageUrl,
+											imageCacheKey = musicBrainzArtworkCacheKey,
 											contentDescription = song.title,
 											modifier = Modifier.size(180.dp),
 											shadowElevation = 6.dp
@@ -526,6 +534,8 @@ fun LyricsScreen(
 
 				LyricsShareSheet(
 					song = song,
+					imageUrl = musicBrainzArtwork?.imageUrl,
+					imageCacheKey = musicBrainzArtworkCacheKey,
 					selectedLyrics = stringsToShare,
 					onDismiss = { showShareSheet = false },
 					onShare = {

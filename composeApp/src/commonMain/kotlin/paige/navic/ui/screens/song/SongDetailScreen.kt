@@ -14,8 +14,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.collections.immutable.persistentMapOf
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_musicbrainz_artist_credit
+import navic.composeapp.generated.resources.info_musicbrainz_country
+import navic.composeapp.generated.resources.info_musicbrainz_first_release_date
+import navic.composeapp.generated.resources.info_musicbrainz_genres
+import navic.composeapp.generated.resources.info_musicbrainz_isrcs
+import navic.composeapp.generated.resources.info_musicbrainz_recording_title
+import navic.composeapp.generated.resources.info_musicbrainz_recording_url
+import navic.composeapp.generated.resources.info_musicbrainz_release_date
+import navic.composeapp.generated.resources.info_musicbrainz_release_group_title
+import navic.composeapp.generated.resources.info_musicbrainz_release_group_url
+import navic.composeapp.generated.resources.info_musicbrainz_release_title
+import navic.composeapp.generated.resources.info_musicbrainz_release_url
+import navic.composeapp.generated.resources.info_musicbrainz_status
+import navic.composeapp.generated.resources.info_musicbrainz_tags
 import navic.composeapp.generated.resources.info_album_replay_gain
 import navic.composeapp.generated.resources.info_track_album
 import navic.composeapp.generated.resources.info_track_artist
@@ -35,11 +48,15 @@ import navic.composeapp.generated.resources.info_track_replay_gain_effective
 import navic.composeapp.generated.resources.info_track_sampling_rate
 import navic.composeapp.generated.resources.info_track_year
 import navic.composeapp.generated.resources.info_unknown
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
+import paige.navic.domain.repositories.MusicBrainzMetadataField
+import paige.navic.domain.repositories.musicBrainzMetadataDisplayFields
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -59,9 +76,12 @@ fun SongDetailScreen(songId: String) {
 	val song = songState.data
 
 	val preferenceManager = koinInject<PreferenceManager>()
-	val info = remember(song) {
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val musicBrainzMetadataBySongId by musicBrainzArtworkRepository.metadataBySongId.collectAsStateWithLifecycle()
+	val musicBrainzMetadata = musicBrainzMetadataBySongId[songId]
+	val info = remember(song, musicBrainzMetadata) {
 		song?.let {
-			persistentMapOf(
+			listOf(
 				Res.string.info_track_name to song.title,
 				Res.string.info_track_artist to song.artistName,
 				Res.string.info_track_album to song.albumTitle,
@@ -84,7 +104,9 @@ fun SongDetailScreen(songId: String) {
 				Res.string.info_track_replay_gain to song.replayGain?.trackGain?.let { "$it dB" },
 				Res.string.info_album_replay_gain to song.replayGain?.albumGain?.let { "$it dB" },
 				Res.string.info_track_replay_gain_effective to song.replayGain?.effectiveGain(preferenceManager.replayGainMode)
-			)
+			) + musicBrainzMetadataDisplayFields(musicBrainzMetadata).map { field ->
+				field.field.stringResource to field.value
+			}
 		}.orEmpty()
 	}
 
@@ -122,3 +144,21 @@ fun SongDetailScreen(songId: String) {
 		}
 	}
 }
+
+private val MusicBrainzMetadataField.stringResource: StringResource
+	get() = when (this) {
+		MusicBrainzMetadataField.RecordingTitle -> Res.string.info_musicbrainz_recording_title
+		MusicBrainzMetadataField.ArtistCredit -> Res.string.info_musicbrainz_artist_credit
+		MusicBrainzMetadataField.FirstReleaseDate -> Res.string.info_musicbrainz_first_release_date
+		MusicBrainzMetadataField.ReleaseTitle -> Res.string.info_musicbrainz_release_title
+		MusicBrainzMetadataField.ReleaseGroupTitle -> Res.string.info_musicbrainz_release_group_title
+		MusicBrainzMetadataField.ReleaseDate -> Res.string.info_musicbrainz_release_date
+		MusicBrainzMetadataField.Country -> Res.string.info_musicbrainz_country
+		MusicBrainzMetadataField.Status -> Res.string.info_musicbrainz_status
+		MusicBrainzMetadataField.Genres -> Res.string.info_musicbrainz_genres
+		MusicBrainzMetadataField.Tags -> Res.string.info_musicbrainz_tags
+		MusicBrainzMetadataField.Isrcs -> Res.string.info_musicbrainz_isrcs
+		MusicBrainzMetadataField.RecordingUrl -> Res.string.info_musicbrainz_recording_url
+		MusicBrainzMetadataField.ReleaseUrl -> Res.string.info_musicbrainz_release_url
+		MusicBrainzMetadataField.ReleaseGroupUrl -> Res.string.info_musicbrainz_release_group_url
+	}

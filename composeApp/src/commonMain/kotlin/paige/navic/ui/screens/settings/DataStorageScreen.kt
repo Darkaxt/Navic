@@ -76,6 +76,7 @@ import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_max_concurrent_downloads
+import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pause_search_history
 import navic.composeapp.generated.resources.option_pending_actions
@@ -84,6 +85,7 @@ import navic.composeapp.generated.resources.subtitle_auto_download_starred_songs
 import navic.composeapp.generated.resources.subtitle_download_queue
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.subtitle_max_concurrent_downloads
+import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_pause_search_history
 import navic.composeapp.generated.resources.subtitle_pending_actions
@@ -106,6 +108,7 @@ import paige.navic.domain.models.DangerZoneAction
 import paige.navic.domain.models.dangerZoneActions
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Delete
@@ -134,6 +137,7 @@ fun SettingsDataStorageScreen() {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val scope = rememberCoroutineScope()
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val imageLoader = SingletonImageLoader.get(coilPlatformContext)
@@ -175,6 +179,7 @@ fun SettingsDataStorageScreen() {
 		when (action) {
 			DangerZoneAction.ClearImageCache -> {
 				imageLoader.memoryCache?.clear()
+				musicBrainzArtworkRepository.clearCache()
 				scope.launch(Dispatchers.IO) {
 					imageLoader.diskCache?.clear()
 					imageCacheSizeMb = "0 MB"
@@ -272,6 +277,12 @@ fun SettingsDataStorageScreen() {
 								imageCacheSizeMb = "0 MB"
 							}
 						}
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
+						value = preferenceManager.musicBrainzArtworkFallbackEnabled,
+						onSetValue = { preferenceManager.musicBrainzArtworkFallbackEnabled = it }
 					)
 					FormRow(
 						onClick = dropUnlessResumed {

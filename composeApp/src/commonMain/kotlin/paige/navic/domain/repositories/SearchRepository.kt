@@ -29,7 +29,12 @@ class SearchRepository(
 
 				albumDao.insertAlbumsIgnoringConflicts(data.albums.map { it.toEntity() })
 				artistDao.insertArtistsIgnoringConflicts(data.artists.map { it.toEntity() })
-				songDao.insertSongsIgnoringConflicts(data.songs.map { it.toEntity() })
+				val searchAlbumCoverArtById = data.albums.associate { it.id to it.coverArtId }
+				songDao.insertSongsIgnoringConflicts(
+					data.songs.map { song ->
+						song.toEntity(albumCoverArtId = song.albumId?.let(searchAlbumCoverArtById::get))
+					}
+				)
 
 				val albums = albumDao.getAlbumsByIds(data.albums.map { it.id })
 				val artists = artistDao.getArtistsByIds(data.artists.map { it.id })

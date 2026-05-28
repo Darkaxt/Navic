@@ -2,5 +2,6 @@ package paige.navic.domain.models
 
 fun shouldShowLyricsArtwork(
 	showLyricsArtwork: Boolean,
-	coverArtId: String?
-): Boolean = showLyricsArtwork && !coverArtId.isNullOrBlank()
+	coverArtId: String?,
+	imageUrl: String? = null
+): Boolean = showLyricsArtwork && (!coverArtId.isNullOrBlank() || !imageUrl.isNullOrBlank())

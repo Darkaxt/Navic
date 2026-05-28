@@ -69,6 +69,7 @@ import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
@@ -109,15 +110,25 @@ fun MiniPlayer(
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzArtwork?.imageUrl.isNullOrBlank()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(song?.coverArtId, serverRequestHeaders) {
+	val model = remember(song?.coverArtId, musicBrainzArtwork?.imageUrl, musicBrainzArtworkCacheKey, serverRequestHeaders) {
+		val usesServerCoverArt = musicBrainzArtwork?.imageUrl.isNullOrBlank()
 		ImageRequest.Builder(coilPlatformContext)
-			.data(song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
-			.memoryCacheKey(song?.coverArtId)
-			.diskCacheKey(song?.coverArtId)
+			.data(musicBrainzArtwork?.imageUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.memoryCacheKey(musicBrainzArtworkCacheKey ?: song?.coverArtId)
+			.diskCacheKey(musicBrainzArtworkCacheKey ?: song?.coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
-			.httpHeaders(serverRequestHeaders.toNetworkHeaders())
+			.apply {
+				if (usesServerCoverArt) {
+					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				}
+			}
 			.build()
 	}
 
@@ -240,7 +251,7 @@ fun MiniPlayer(
 								)
 								.background(MaterialTheme.colorScheme.surfaceVariant)
 						)
-						if (song?.coverArtId.isNullOrEmpty()) {
+						if (!hasArtwork) {
 							Icon(
 								imageVector = if (isRadio) Icons.Outlined.Radio else Icons.Filled.Note,
 								contentDescription = null,

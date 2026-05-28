@@ -34,11 +34,13 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.shouldOpenLyricsFromNowPlayingArtworkTap
+import paige.navic.domain.models.NowPlayingArtworkTapDestination
+import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.icons.outlined.List
@@ -59,6 +61,7 @@ import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 fun NowPlayingScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val backStack = LocalNavStack.current
 
 	val currentScreen = backStack.lastOrNull()
@@ -67,22 +70,35 @@ fun NowPlayingScreen() {
 		|| currentScreen is Screen.PlaybackSpeed
 
 	val playerState by player.uiState.collectAsStateWithLifecycle()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val song = playerState.currentSong
+	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
 	val showArtwork = preferenceManager.showNowPlayingArtwork
 	val isDynamicBackground = preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
-	val onArtworkTap: (() -> Unit)? = if (
-		shouldOpenLyricsFromNowPlayingArtworkTap(
-			tapArtworkForLyrics = preferenceManager.tapArtworkForLyrics,
-			showNowPlayingArtwork = showArtwork,
-			hasCurrentSong = song != null
-		)
-	) {
-		{ backStack.add(Screen.Lyrics) }
-	} else null
+	val artworkTapDestination = nowPlayingArtworkTapDestination(
+		configuredAction = preferenceManager.nowPlayingArtworkTapAction,
+		legacyTapArtworkForLyrics = preferenceManager.tapArtworkForLyrics,
+		showNowPlayingArtwork = showArtwork,
+		hasCurrentSong = song != null
+	)
+	val onArtworkTap: (() -> Unit)? = when (artworkTapDestination) {
+		NowPlayingArtworkTapDestination.Lyrics -> {
+			{ backStack.add(Screen.Lyrics) }
+		}
+		NowPlayingArtworkTapDestination.TrackInfo -> {
+			{
+				song?.id?.let { songId ->
+					backStack.remove(Screen.NowPlaying)
+					backStack.add(Screen.SongDetail(songId))
+				}
+			}
+		}
+		null -> null
+	}
 
 	SheetScaffold(
 		toolbar = { windowInsets ->
@@ -136,6 +152,8 @@ fun NowPlayingScreen() {
 			if (isDynamicBackground) {
 				BlendBackground(
 					coverArtId = song?.coverArtId,
+					imageUrl = currentMusicBrainzArtwork?.imageUrl,
+					imageCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 					isPaused = playerState.isPaused,
 					showBottomGradient = shouldShowNowPlayingBackgroundBottomGradient(
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,

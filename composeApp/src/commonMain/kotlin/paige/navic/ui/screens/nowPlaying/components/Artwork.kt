@@ -29,6 +29,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
@@ -44,7 +45,11 @@ fun NowPlayingArtwork(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val playerState by player.uiState.collectAsState()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
+	val hasArtwork = !song.coverArtId.isNullOrEmpty() || !musicBrainzArtwork?.imageUrl.isNullOrBlank()
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -53,7 +58,7 @@ fun NowPlayingArtwork(
 			enabled = preferenceManager.nowPlayingRotatingArtwork,
 			isPaused = playerState.isPaused,
 			isActiveArtwork = isActiveArtwork,
-			hasCoverArt = !song.coverArtId.isNullOrEmpty()
+			hasCoverArt = hasArtwork
 		)
 	)
 
@@ -72,6 +77,8 @@ fun NowPlayingArtwork(
 	) {
 		CoverArt(
 			coverArtId = song.coverArtId,
+			imageUrl = musicBrainzArtwork?.imageUrl,
+			imageCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 			modifier = Modifier
 				.aspectRatio(1f)
 				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
@@ -79,7 +86,7 @@ fun NowPlayingArtwork(
 				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
 			shadowElevation = 8.dp
 		)
-		if (song.coverArtId.isNullOrEmpty()) {
+		if (!hasArtwork) {
 			Icon(
 				imageVector = if (isRadio) Icons.Outlined.Radio else Icons.Filled.Note,
 				contentDescription = null,

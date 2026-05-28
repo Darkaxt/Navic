@@ -42,6 +42,8 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 @Composable
 fun BlendBackground(
 	coverArtId: String?,
+	imageUrl: String? = null,
+	imageCacheKey: String? = null,
 	modifier: Modifier = Modifier,
 	isPaused: Boolean = false,
 	showBottomGradient: Boolean = false
@@ -65,14 +67,21 @@ fun BlendBackground(
 	val blurDp = nowPlayingBackgroundBlurDp(preferenceManager.nowPlayingBackgroundBlurDp)
 	val dimAlpha = nowPlayingBackgroundDimAlpha(preferenceManager.nowPlayingBackgroundDimPercent)
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(coverArtId, serverRequestHeaders) {
+	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
+	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
+	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+		val usesServerCoverArt = resolvedImageUrl == null
 		ImageRequest.Builder(coilPlatformContext)
-			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
-			.memoryCacheKey(coverArtId?.let { "${it}_static" })
-			.diskCacheKey(coverArtId)
+			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.memoryCacheKey(resolvedImageCacheKey?.let { "${it}_static" })
+			.diskCacheKey(resolvedImageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
-			.httpHeaders(serverRequestHeaders.toNetworkHeaders())
+			.apply {
+				if (usesServerCoverArt) {
+					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				}
+			}
 			.build()
 	}
 

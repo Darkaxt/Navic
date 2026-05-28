@@ -35,8 +35,12 @@ class CollectionRepository(
 		when (val collection = getLocalData(collectionId)) {
 			is DomainAlbum -> {
 				val album = sessionManager.api.getAlbum(collection.id)
-				songDao.updateSongsByAlbumId(album.id, album.songs.map { it.toEntity() })
-				albumDao.insertAlbum(album.toEntity())
+				val albumEntity = album.toEntity()
+				songDao.updateSongsByAlbumId(
+					album.id,
+					album.songs.map { it.toEntity(albumCoverArtId = albumEntity.coverArtId) }
+				)
+				albumDao.insertAlbum(albumEntity)
 				albumDao.getAlbumById(album.id)!!.toDomainModel()
 			}
 

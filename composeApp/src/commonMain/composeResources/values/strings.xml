@@ -111,6 +111,7 @@
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
 	<string name="subtitle_now_playing_artwork">Show the main cover artwork on Now Playing</string>
 	<string name="subtitle_now_playing_artwork_swipe">Controls horizontal swipes on the Now Playing artwork pager. The main swipe setting must also be on.</string>
+	<string name="subtitle_now_playing_artwork_tap_action">Choose what tapping the main cover opens</string>
 	<string name="subtitle_now_playing_rotating_artwork">Spin the active Now Playing cover while music is playing</string>
 	<string name="subtitle_now_playing_shrink_artwork_on_pause">Reduce artwork size while playback is paused or the artwork page is inactive</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
@@ -178,6 +179,10 @@
 	<string name="option_now_playing_artwork_size_big">Big</string>
 	<string name="option_now_playing_artwork_size_biggest">Biggest</string>
 	<string name="option_now_playing_artwork_size_expanded">Expanded</string>
+	<string name="option_now_playing_artwork_tap_action">Artwork tap action</string>
+	<string name="option_now_playing_artwork_tap_action_disabled">Nothing</string>
+	<string name="option_now_playing_artwork_tap_action_lyrics">Lyrics</string>
+	<string name="option_now_playing_artwork_tap_action_track_info">Track info</string>
 	<string name="option_accent_colour">Accent colour</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
@@ -359,6 +364,8 @@
 	<string name="option_max_bitrate_wifi">Max Bitrate WiFi (kbps)</string>
 	<string name="option_max_bitrate_cellular">Max Bitrate Cellular (kbps)</string>
 	<string name="option_cover_art_quality">Cover art quality</string>
+	<string name="option_musicbrainz_artwork_fallback">MusicBrainz artwork fallback</string>
+	<string name="subtitle_musicbrainz_artwork_fallback">Fetch missing covers from MusicBrainz/Cover Art Archive only when a song starts playing</string>
 	<string name="option_lida_clips">Music video clips</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
@@ -586,7 +593,7 @@
 
 	<string name="info_app_version">Navic %1$s</string>
 	<string name="info_action_is_permanent">This action cannot be undone</string>
-	<string name="info_clear_image_cache_confirmation">Cached artwork will be removed and downloaded again when needed.</string>
+	<string name="info_clear_image_cache_confirmation">Cached artwork, MusicBrainz fallback artwork, and cached MusicBrainz track metadata will be removed and downloaded again when needed.</string>
 	<string name="info_clear_pending_actions_confirmation">Pending offline sync actions will be discarded. Changes that have not reached your server may be lost.</string>
 	<string name="info_clear_downloads_confirmation">Downloaded songs will be removed from this device. You can download them again later.</string>
 	<string name="info_rebuild_database_confirmation">Local library data will be cleared and rebuilt from the server. Offline-only cached state may be removed.</string>
@@ -618,6 +625,20 @@
 	<string name="info_track_replay_gain">Track ReplayGain</string>
 	<string name="info_album_replay_gain">Album ReplayGain</string>
 	<string name="info_track_replay_gain_effective">ReplayGain effective value</string>
+	<string name="info_musicbrainz_recording_title">MusicBrainz recording title</string>
+	<string name="info_musicbrainz_artist_credit">MusicBrainz artist credit</string>
+	<string name="info_musicbrainz_first_release_date">MusicBrainz first release</string>
+	<string name="info_musicbrainz_release_title">MusicBrainz release</string>
+	<string name="info_musicbrainz_release_group_title">MusicBrainz release group</string>
+	<string name="info_musicbrainz_release_date">MusicBrainz release date</string>
+	<string name="info_musicbrainz_country">MusicBrainz country</string>
+	<string name="info_musicbrainz_status">MusicBrainz status</string>
+	<string name="info_musicbrainz_genres">MusicBrainz genres</string>
+	<string name="info_musicbrainz_tags">MusicBrainz tags</string>
+	<string name="info_musicbrainz_isrcs">MusicBrainz ISRCs</string>
+	<string name="info_musicbrainz_recording_url">MusicBrainz recording URL</string>
+	<string name="info_musicbrainz_release_url">MusicBrainz release URL</string>
+	<string name="info_musicbrainz_release_group_url">MusicBrainz release group URL</string>
 	<string name="info_update">Version "%1$s" has been released</string>
 	<string name="info_update_install_failed">Update install failed: %1$s</string>
 	<string name="info_shared_by">Shared by %1$s</string>

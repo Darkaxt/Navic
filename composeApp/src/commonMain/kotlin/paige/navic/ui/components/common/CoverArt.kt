@@ -47,6 +47,8 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 fun CoverArt(
 	modifier: Modifier = Modifier,
 	coverArtId: String?,
+	imageUrl: String? = null,
+	imageCacheKey: String? = null,
 	contentDescription: String? = null,
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
@@ -61,15 +63,22 @@ fun CoverArt(
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val sessionManager = koinInject<SessionManager>()
-	val model = remember(coverArtId, serverRequestHeaders) {
+	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
+	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
+	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+		val usesServerCoverArt = resolvedImageUrl == null
 		ImageRequest.Builder(coilPlatformContext)
-			.data(coverArtId?.let { sessionManager.getCoverArtUrl(it) })
-			.memoryCacheKey(coverArtId)
-			.diskCacheKey(coverArtId)
+			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.memoryCacheKey(resolvedImageCacheKey)
+			.diskCacheKey(resolvedImageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.crossfade(crossfadeMs)
-			.httpHeaders(serverRequestHeaders.toNetworkHeaders())
+			.apply {
+				if (usesServerCoverArt) {
+					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				}
+			}
 			.build()
 	}
 
@@ -89,7 +98,7 @@ fun CoverArt(
 			Modifier.indication(interactionSource, ripple())
 		else Modifier)
 
-	if (coverArtId.isNullOrBlank()) return Box(commonModifier)
+	if (coverArtId.isNullOrBlank() && resolvedImageUrl == null) return Box(commonModifier)
 	SubcomposeAsyncImage(
 		model = model,
 		contentDescription = contentDescription,

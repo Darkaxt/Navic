@@ -89,7 +89,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional mini-player queue button for opening Queue directly from the mini player.
 * Kreate-style mini-player progress can be hidden, shown as a passive bar, or made seekable from Bottom Bar settings.
 * Kreate-inspired queue auto-fill can refill with random library songs, Navidrome/local current-song similarity, or songs that match recent queue genres and moods.
-* Optional Now Playing artwork tap action that opens Lyrics.
+* Optional Now Playing artwork tap action can open Lyrics or Track Info.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
 * Kreate-inspired `Animate active lyric size` toggle can turn off the active-line grow/shrink effect while keeping lyric highlighting.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
@@ -109,6 +109,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 ### Data and privacy controls
 
+* Optional MusicBrainz/Cover Art Archive fallback can fetch missing artwork and public recording metadata only when a song starts playing. Navidrome/Subsonic artwork and album-cover fallback remain first, successful and missing external lookups are cached locally, and cached fallback artwork is reused by the now-playing artwork/background colors, mini-player, lyrics artwork/share preview, and Android now-playing broadcast.
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 * Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
@@ -169,6 +170,10 @@ Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill
 ### Download queue setup
 
 Use the normal Download action on songs, albums, playlists, stations, or artist pages. Navic marks pending songs as queued and routes every song through the same queue before any network download starts. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs; tap it to inspect queued, downloading, and failed rows, retry failed downloads that still exist locally, or cancel pending downloads. Use `Parallel downloads` to limit concurrent song downloads; the default is 3. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
+
+### MusicBrainz artwork setup
+
+Open Settings -> Data & Storage and turn `MusicBrainz artwork fallback` on. Navic only tries MusicBrainz/Cover Art Archive when the currently playing song has no song cover and no synced album cover. It caches found and missing results locally, stores public MusicBrainz recording/release metadata when a recording lookup is available, uses at most one MusicBrainz/CAA request per second, does not scan the full library, and uses a public read-only User-Agent rather than bundled OAuth credentials. Cached MusicBrainz metadata appears in Track Info after the song has been resolved during playback. Settings -> Data & Storage -> Danger Zone -> `Clear image cache` also clears the MusicBrainz fallback artwork and metadata cache.
 
 ### ReplayGain loudness boost setup
 
@@ -240,7 +245,7 @@ Open Settings -> Now Playing and keep `Background style` set to `Dynamic` to use
 
 ### Now Playing artwork setup
 
-Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover artwork on the fullscreen player. The setting is on by default, matching current Navic behavior and Kreate's default. Use `Artwork size` to choose Small, Medium, Big, Biggest, or Expanded; `Biggest` is the default and matches the previous Navic layout. `Shrink artwork on pause` is on by default to preserve Navic's existing paused/inactive artwork shrink, and can be turned off to keep the selected artwork size. `Tap artwork for lyrics` is shown only while artwork is enabled.
+Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover artwork on the fullscreen player. The setting is on by default, matching current Navic behavior and Kreate's default. Use `Artwork size` to choose Small, Medium, Big, Biggest, or Expanded; `Biggest` is the default and matches the previous Navic layout. Use `Artwork tap action` to choose whether a tap opens nothing, Lyrics, or Track Info. `Shrink artwork on pause` is on by default to preserve Navic's existing paused/inactive artwork shrink, and can be turned off to keep the selected artwork size.
 
 Turn `Swipe artwork to change songs` off to stop horizontal swipes on the main Now Playing artwork from changing tracks while leaving other swipe controls available.
 
