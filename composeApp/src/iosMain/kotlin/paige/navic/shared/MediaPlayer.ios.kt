@@ -26,6 +26,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.discoverQueueRemovalIndexes
+import paige.navic.domain.models.limitQueueShuffle
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.songRadioQueue
@@ -522,7 +523,10 @@ class IOSMediaPlayerViewModel(
 	}
 
 	override fun shufflePlay(collection: DomainSongCollection) {
-		val shuffledSongs = collection.songs.shuffled()
+		val shuffledSongs = limitQueueShuffle(
+			songs = collection.songs.shuffled(),
+			limit = preferenceManager.queueShuffleLimit
+		)
 		_uiState.update { state ->
 			state.copy(
 				queue = shuffledSongs,

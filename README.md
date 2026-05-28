@@ -48,6 +48,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android ReplayGain loudness boost can use `LoudnessEnhancer` to raise quiet ReplayGain tracks above normal volume.
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources. Similar mode now prefers live Navidrome similar-song results when available.
+* Kreate-inspired `Shuffle queue limit` can cap how many songs a collection shuffle starts with, while keeping the default unlimited behavior.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
 * Kreate-inspired queue duration summary shows the total runtime beside the song count in the Queue sheet.
@@ -125,6 +126,10 @@ Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the de
 ### Auto-fill queue setup
 
 Open Settings -> Playback and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. Use `Auto-fill queue source` to keep the default random-library refill or prefer songs similar to the current song. Similar mode asks Navidrome for live similar-song results first, then falls back to local artist, genre, album, and mood matching. Navic skips duplicate queued songs and live radio streams, and leaves the setting off by default.
+
+### Shuffle queue limit setup
+
+Open Settings -> Playback -> `Shuffle queue limit` to choose how many songs a collection shuffle should start with. `Unlimited` is the default and preserves current behavior. Limits are applied after shuffling, so large playlists and libraries can still surface different songs on later shuffles.
 
 ### Song radio setup
 

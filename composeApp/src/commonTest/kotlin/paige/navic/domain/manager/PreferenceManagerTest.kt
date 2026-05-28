@@ -237,6 +237,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun queueShuffleLimitDefaultsToUnlimited() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(0, manager.queueShuffleLimit)
+
+		manager.queueShuffleLimit = 100
+
+		assertEquals(100, manager.queueShuffleLimit)
+	}
+
+	@Test
 	fun shakeToSkipDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

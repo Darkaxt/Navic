@@ -80,6 +80,7 @@ import paige.navic.domain.models.bassBoostStrengthPermille
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
+import paige.navic.domain.models.limitQueueShuffle
 import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
 import paige.navic.domain.models.QueueAutoFillRemainingTrigger
@@ -1325,7 +1326,10 @@ class AndroidMediaPlayerViewModel(
 	override fun shufflePlay(collection: DomainSongCollection) {
 		viewModelScope.launch {
 			val (shuffledSongs, mediaItems) = withContext(Dispatchers.Default) {
-				val songs = collection.songs.shuffled()
+				val songs = limitQueueShuffle(
+					songs = collection.songs.shuffled(),
+					limit = preferenceManager.queueShuffleLimit
+				)
 				songs to songs.map { it.toMediaItem() }
 			}
 
