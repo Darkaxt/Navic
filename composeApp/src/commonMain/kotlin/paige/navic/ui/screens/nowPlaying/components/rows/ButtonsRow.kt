@@ -44,18 +44,26 @@ import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.outlined.Repeat
 import paige.navic.icons.outlined.Shuffle
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.NowPlayingPlaybackControl
+import paige.navic.domain.models.nowPlayingPlaybackControls
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.playPauseIconPainter
 
 @Composable
 fun NowPlayingButtonsRow() {
 	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val interactionSource = remember { MutableInteractionSource() }
 	val isPressed by interactionSource.collectIsPressedAsState()
 	val scale = remember { Animatable(1f) }
 	val enabled = playerState.currentSong != null
+	val controls = nowPlayingPlaybackControls(
+		showShuffleControl = preferenceManager.showNowPlayingShuffleControl,
+		showRepeatControl = preferenceManager.showNowPlayingRepeatControl
+	)
 
 	LaunchedEffect(isPressed) {
 		if (!isPressed) {
@@ -82,109 +90,117 @@ fun NowPlayingButtonsRow() {
 		horizontalArrangement = Arrangement.spacedBy(16.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
-		IconButton(
-			modifier = Modifier.weight(1f).aspectRatio(1f),
-			onClick = {
-				platformContext.clickSound()
-				player.toggleShuffle()
-			},
-			enabled = enabled,
-		) {
-			Icon(
-				imageVector = if (playerState.isShuffleEnabled)
-					Icons.Filled.ShuffleOn
-				else Icons.Outlined.Shuffle,
-				contentDescription = null,
-				modifier = Modifier.size(24.dp)
-			)
-		}
-		IconButton(
-			modifier = Modifier.weight(1f).aspectRatio(1f),
-			onClick = {
-				platformContext.clickSound()
-				player.previous()
-			},
-			enabled = enabled
-		) {
-			Icon(
-				imageVector = Icons.Filled.SkipPrevious,
-				contentDescription = null,
-				modifier = Modifier.size(32.dp)
-			)
-		}
-		IconButton(
-			modifier = Modifier
-				.weight(1.3f)
-				.aspectRatio(1f)
-				.scale(scale.value)
-				.clip(CircleShape)
-				.indication(interactionSource, ripple(color = Color.Black)),
-			colors = IconButtonDefaults.filledIconButtonColors(),
-			onClick = {
-				platformContext.clickSound()
-				player.togglePlay()
-			},
-			enabled = enabled,
-			interactionSource = interactionSource
-		) {
-			val painter = playPauseIconPainter(playerState.isPaused)
-			AnimatedContent(playerState.isLoading) { isBuffering ->
-				if (!isBuffering) {
-					if (painter != null) {
-						Icon(
-							painter = painter,
-							contentDescription = null,
-							modifier = Modifier.size(40.dp)
-						)
-					} else {
-						Icon(
-							imageVector = if (playerState.isPaused)
-								Icons.Filled.Play
-							else Icons.Filled.Pause,
-							contentDescription = null,
-							modifier = Modifier.size(40.dp)
-						)
+		controls.forEach { control ->
+			when (control) {
+				NowPlayingPlaybackControl.Shuffle -> IconButton(
+					modifier = Modifier.weight(1f).aspectRatio(1f),
+					onClick = {
+						platformContext.clickSound()
+						player.toggleShuffle()
+					},
+					enabled = enabled,
+				) {
+					Icon(
+						imageVector = if (playerState.isShuffleEnabled)
+							Icons.Filled.ShuffleOn
+						else Icons.Outlined.Shuffle,
+						contentDescription = null,
+						modifier = Modifier.size(24.dp)
+					)
+				}
+
+				NowPlayingPlaybackControl.Previous -> IconButton(
+					modifier = Modifier.weight(1f).aspectRatio(1f),
+					onClick = {
+						platformContext.clickSound()
+						player.previous()
+					},
+					enabled = enabled
+				) {
+					Icon(
+						imageVector = Icons.Filled.SkipPrevious,
+						contentDescription = null,
+						modifier = Modifier.size(32.dp)
+					)
+				}
+
+				NowPlayingPlaybackControl.PlayPause -> IconButton(
+					modifier = Modifier
+						.weight(1.3f)
+						.aspectRatio(1f)
+						.scale(scale.value)
+						.clip(CircleShape)
+						.indication(interactionSource, ripple(color = Color.Black)),
+					colors = IconButtonDefaults.filledIconButtonColors(),
+					onClick = {
+						platformContext.clickSound()
+						player.togglePlay()
+					},
+					enabled = enabled,
+					interactionSource = interactionSource
+				) {
+					val painter = playPauseIconPainter(playerState.isPaused)
+					AnimatedContent(playerState.isLoading) { isBuffering ->
+						if (!isBuffering) {
+							if (painter != null) {
+								Icon(
+									painter = painter,
+									contentDescription = null,
+									modifier = Modifier.size(40.dp)
+								)
+							} else {
+								Icon(
+									imageVector = if (playerState.isPaused)
+										Icons.Filled.Play
+									else Icons.Filled.Pause,
+									contentDescription = null,
+									modifier = Modifier.size(40.dp)
+								)
+							}
+						} else {
+							CircularProgressIndicator(
+								Modifier.size(40.dp),
+								color = MaterialTheme.colorScheme.onPrimary,
+								trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = .5f),
+							)
+						}
 					}
-				} else {
-					CircularProgressIndicator(
-						Modifier.size(40.dp),
-						color = MaterialTheme.colorScheme.onPrimary,
-						trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = .5f),
+				}
+
+				NowPlayingPlaybackControl.Next -> IconButton(
+					modifier = Modifier.weight(1f).aspectRatio(1f),
+					onClick = {
+						platformContext.clickSound()
+						player.next()
+					},
+					enabled = enabled,
+				) {
+					Icon(
+						imageVector = Icons.Filled.SkipNext,
+						contentDescription = null,
+						modifier = Modifier.size(32.dp)
+					)
+				}
+
+				NowPlayingPlaybackControl.Repeat -> IconButton(
+					modifier = Modifier.weight(1f).aspectRatio(1f),
+					onClick = {
+						platformContext.clickSound()
+						player.toggleRepeat()
+					},
+					enabled = enabled,
+				) {
+					Icon(
+						imageVector = when (playerState.repeatMode) {
+							1 -> Icons.Filled.RepeatOneOn
+							2 -> Icons.Filled.RepeatOn
+							else -> Icons.Outlined.Repeat
+						},
+						contentDescription = null,
+						modifier = Modifier.size(24.dp)
 					)
 				}
 			}
-		}
-		IconButton(
-			modifier = Modifier.weight(1f).aspectRatio(1f),
-			onClick = {
-				platformContext.clickSound()
-				player.next()
-			},
-			enabled = enabled,
-		) {
-			Icon(
-				imageVector = Icons.Filled.SkipNext,
-				contentDescription = null,
-				modifier = Modifier.size(32.dp)
-			)
-		}
-		IconButton(
-			modifier = Modifier.weight(1f).aspectRatio(1f),
-			onClick = {
-				platformContext.clickSound()
-				player.toggleRepeat()
-			},
-			enabled = enabled,
-		) {
-			Icon(
-				imageVector = when (playerState.repeatMode) {
-					1 -> Icons.Filled.RepeatOneOn
-					2 -> Icons.Filled.RepeatOn
-					else -> Icons.Outlined.Repeat
-				},
-				contentDescription = null,
-				modifier = Modifier.size(24.dp)
-			)
 		}
 	}
 }

@@ -406,6 +406,20 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingPlaybackControlVisibilityDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.showNowPlayingShuffleControl)
+		assertTrue(manager.showNowPlayingRepeatControl)
+
+		manager.showNowPlayingShuffleControl = false
+		manager.showNowPlayingRepeatControl = false
+
+		assertFalse(manager.showNowPlayingShuffleControl)
+		assertFalse(manager.showNowPlayingRepeatControl)
+	}
+
+	@Test
 	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

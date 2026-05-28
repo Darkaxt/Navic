@@ -38,7 +38,9 @@ import navic.composeapp.generated.resources.option_now_playing_music_video_actio
 import navic.composeapp.generated.resources.option_now_playing_playback_speed_action
 import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_remaining_time
+import navic.composeapp.generated.resources.option_now_playing_repeat_control
 import navic.composeapp.generated.resources.option_now_playing_seek_buttons
+import navic.composeapp.generated.resources.option_now_playing_shuffle_control
 import navic.composeapp.generated.resources.option_now_playing_shrink_artwork_on_pause
 import navic.composeapp.generated.resources.option_now_playing_sleep_timer_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
@@ -55,7 +57,9 @@ import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
+import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
+import navic.composeapp.generated.resources.subtitle_now_playing_shuffle_control
 import navic.composeapp.generated.resources.subtitle_now_playing_shrink_artwork_on_pause
 import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
@@ -244,6 +248,20 @@ fun SettingsNowPlayingScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_swap_controls_and_timeline)) },
 						value = preferenceManager.swapNowPlayingControlsAndTimeline,
 						onSetValue = { preferenceManager.swapNowPlayingControlsAndTimeline = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_shuffle_control)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_shuffle_control)) },
+						value = preferenceManager.showNowPlayingShuffleControl,
+						onSetValue = { preferenceManager.showNowPlayingShuffleControl = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_repeat_control)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_repeat_control)) },
+						value = preferenceManager.showNowPlayingRepeatControl,
+						onSetValue = { preferenceManager.showNowPlayingRepeatControl = it }
 					)
 
 					SettingSwitchRow(
