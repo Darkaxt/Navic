@@ -144,7 +144,7 @@ class PreferenceManager(
 	var playbackVolumePercent by preference(100)
 	var autoFillQueue by preference(false)
 	var autoFillQueueTargetSize by preference(25)
-	var autoFillQueueSource by preference(AutoFillQueueSource.RandomLibrary)
+	var autoFillQueueSource by preference(AutoFillQueueSource.RecentGenres)
 	var queueShuffleLimit by preference(0)
 	var shakeToSkip by preference(false)
 	var volumeKeysSkipTracks by preference(false)

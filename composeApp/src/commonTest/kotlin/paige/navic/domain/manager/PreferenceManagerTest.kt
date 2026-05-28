@@ -260,12 +260,12 @@ class PreferenceManagerTest {
 	}
 
 	@Test
-	fun queueAutoFillDefaultsToCurrentBehavior() {
+	fun queueAutoFillDefaultsToGenreAwareSource() {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.autoFillQueue)
 		assertEquals(25, manager.autoFillQueueTargetSize)
-		assertEquals(AutoFillQueueSource.RandomLibrary, manager.autoFillQueueSource)
+		assertEquals(AutoFillQueueSource.RecentGenres, manager.autoFillQueueSource)
 
 		manager.autoFillQueue = true
 		manager.autoFillQueueTargetSize = 50
