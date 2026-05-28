@@ -88,6 +88,32 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsClipSearchUrlEncodesMetadataAsQueryParameters() {
+		assertEquals(
+			"https://clips.remaxku.eu/api/v1/clips?artist=AC%2FDC&album=Live%20%26%20Rare&track=Thunderstruck%20%28Live%29",
+			lidaClipsClipSearchUrl(
+				baseUrl = "https://clips.remaxku.eu/",
+				artist = "AC/DC",
+				album = "Live & Rare",
+				track = "Thunderstruck (Live)"
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsClipSearchUrlOmitsBlankMetadata() {
+		assertEquals(
+			"https://clips.remaxku.eu/api/v1/clips?artist=Artist&track=Song",
+			lidaClipsClipSearchUrl(
+				baseUrl = "https://clips.remaxku.eu",
+				artist = " Artist ",
+				album = " ",
+				track = " Song "
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsRequestHeadersIncludeTrimmedApiKeyOnlyWhenPresent() {
 		assertEquals(
 			mapOf("X-Api-Key" to "secret"),

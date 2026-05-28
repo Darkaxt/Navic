@@ -18,6 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.lidaClipsKeyFingerprint
 import paige.navic.domain.models.normalizedLidaClipsBaseUrlOrNull
 import paige.navic.util.core.Logger
@@ -90,6 +91,10 @@ class LidaClipsRepository(
 		findClipByNavidromeSongId(songId)
 	}
 
+	suspend fun prefetchClipForSong(song: DomainSong) {
+		findClipForSong(song)
+	}
+
 	suspend fun getServiceStatus(): Result<LidaClipsServiceStatus> {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -130,6 +135,39 @@ class LidaClipsRepository(
 	suspend fun findClipByNavidromeSongId(
 		songId: String,
 		forceRefresh: Boolean = false
+	): Result<DomainLidaClip?> = findClip(
+		songId = songId,
+		forceRefresh = forceRefresh
+	) { baseUrl, requestHeaders ->
+		fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
+	}
+
+	suspend fun findClipForSong(
+		song: DomainSong,
+		forceRefresh: Boolean = false
+	): Result<DomainLidaClip?> = findClip(
+		songId = song.id,
+		forceRefresh = forceRefresh
+	) { baseUrl, requestHeaders ->
+		fetchClipByNavidromeSongId(baseUrl, requestHeaders, song.id).fold(
+			onSuccess = { clip ->
+				if (clip != null) {
+					Result.success(clip)
+				} else {
+					fetchClipByMetadata(baseUrl, requestHeaders, song)
+				}
+			},
+			onFailure = { Result.failure(it) }
+		)
+	}
+
+	private suspend fun findClip(
+		songId: String,
+		forceRefresh: Boolean,
+		fetchClip: suspend (
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		) -> Result<DomainLidaClip?>
 	): Result<DomainLidaClip?> {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -142,7 +180,7 @@ class LidaClipsRepository(
 			return Result.success(cached.clip)
 		}
 
-		return fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
+		return fetchClip(baseUrl, requestHeaders)
 			.onSuccess { clip -> lookupCache.put(cacheKey, clip) }
 			.onFailure { error ->
 				Logger.w(TAG, "Clip lookup failed for Navidrome song $songId", error)
@@ -166,6 +204,36 @@ class LidaClipsRepository(
 			response.status.isSuccess() -> response.body<LidaClipsClipEnvelope>().clip
 				?.toDomainModel(baseUrl)
 			else -> error(lidaClipsHttpErrorMessage("LidaClips clip lookup", response.status))
+		}
+	}
+
+	private suspend fun fetchClipByMetadata(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		song: DomainSong
+	): Result<DomainLidaClip?> = runCatching {
+		if (!song.hasLidaClipsMetadataSearchTerms()) return@runCatching null
+
+		val response = client.get(
+			lidaClipsClipSearchUrl(
+				baseUrl = baseUrl,
+				artist = song.artistName,
+				album = song.albumTitle,
+				track = song.title
+			)
+		) {
+			accept(ContentType.Application.Json)
+			requestHeaders.forEach { (key, value) ->
+				header(key, value)
+			}
+		}
+
+		when {
+			response.status.isSuccess() -> response.body<LidaClipsClipSearchEnvelope>().clips
+				.firstOrNull()
+				?.toDomainModel(baseUrl)
+
+			else -> error(lidaClipsHttpErrorMessage("LidaClips clip search", response.status))
 		}
 	}
 
@@ -396,6 +464,25 @@ internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String 
 		path = "api/v1/navidrome/${encodePathSegment(songId)}/clip"
 	)
 
+internal fun lidaClipsClipSearchUrl(
+	baseUrl: String,
+	artist: String?,
+	album: String?,
+	track: String?
+): String {
+	val query = listOf(
+		"artist" to artist,
+		"album" to album,
+		"track" to track
+	).mapNotNull { (key, value) ->
+		value?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.let { "$key=${encodePathSegment(it)}" }
+	}.joinToString("&")
+	val endpoint = lidaClipsEndpoint(baseUrl, "api/v1/clips")
+	return if (query.isEmpty()) endpoint else "$endpoint?$query"
+}
+
 internal fun lidaClipsRequestHeaders(apiKey: String): Map<String, String> {
 	val trimmed = apiKey.trim()
 	return if (trimmed.isEmpty()) emptyMap() else mapOf("X-Api-Key" to trimmed)
@@ -549,6 +636,9 @@ private fun String.hasSupportedHttpScheme(): Boolean =
 	startsWith("http://", ignoreCase = true) ||
 		startsWith("https://", ignoreCase = true)
 
+private fun DomainSong.hasLidaClipsMetadataSearchTerms(): Boolean =
+	title.isNotBlank() || artistName.isNotBlank() || !albumTitle.isNullOrBlank()
+
 private fun encodePathSegment(value: String): String {
 	val hex = "0123456789ABCDEF"
 	return buildString {
@@ -577,6 +667,11 @@ private fun encodePathSegment(value: String): String {
 @Serializable
 private data class LidaClipsClipEnvelope(
 	val clip: LidaClipsClipDto? = null
+)
+
+@Serializable
+private data class LidaClipsClipSearchEnvelope(
+	val clips: List<LidaClipsClipDto> = emptyList()
 )
 
 @Serializable

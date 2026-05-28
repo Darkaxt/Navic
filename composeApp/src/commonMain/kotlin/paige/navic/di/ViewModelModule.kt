@@ -90,6 +90,7 @@ val viewModelModule = module {
 	viewModel { params ->
 		LidaClipPlayerViewModel(
 			songId = params.get(),
+			collectionRepository = get(),
 			repository = get()
 		)
 	}

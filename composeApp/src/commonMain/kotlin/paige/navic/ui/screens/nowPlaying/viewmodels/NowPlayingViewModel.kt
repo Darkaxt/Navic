@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.repositories.LidaClipsRepository
@@ -38,7 +39,7 @@ class NowPlayingViewModel(
 				state.currentSong?.let { song ->
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
-					prefetchLidaClip(song.id)
+					prefetchLidaClip(song)
 				}
 			}
 		}
@@ -70,13 +71,13 @@ class NowPlayingViewModel(
 		}
 	}
 
-	private fun prefetchLidaClip(songId: String) {
+	private fun prefetchLidaClip(song: DomainSong) {
 		val nowMillis = Clock.System.now().toEpochMilliseconds()
 		val nextPrefetchKey = nextLidaClipsPrefetchKey(
 			enabled = preferenceManager.lidaClipsEnabled,
 			baseUrl = preferenceManager.lidaClipsBaseUrl,
 			apiKey = preferenceManager.lidaClipsApiKey,
-			songId = songId,
+			songId = song.id,
 			lastPrefetchKey = lastLidaClipsPrefetchKey,
 			lastPrefetchTimeMillis = lastLidaClipsPrefetchTimeMillis,
 			currentTimeMillis = nowMillis,
@@ -86,7 +87,7 @@ class NowPlayingViewModel(
 		lastLidaClipsPrefetchKey = nextPrefetchKey
 		lastLidaClipsPrefetchTimeMillis = nowMillis
 		viewModelScope.launch(Dispatchers.IO) {
-			lidaClipsRepository.prefetchClipByNavidromeSongId(songId)
+			lidaClipsRepository.prefetchClipForSong(song)
 		}
 	}
 }
