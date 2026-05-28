@@ -379,6 +379,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingControlsLayoutDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.swapNowPlayingControlsAndTimeline)
+
+		manager.swapNowPlayingControlsAndTimeline = true
+
+		assertTrue(manager.swapNowPlayingControlsAndTimeline)
+	}
+
+	@Test
 	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

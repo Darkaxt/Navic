@@ -110,6 +110,7 @@
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
 	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
+	<string name="subtitle_now_playing_swap_controls_and_timeline">Move playback buttons above the progress bar and time row</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
@@ -146,6 +147,7 @@
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
 	<string name="option_now_playing_remaining_time">Show remaining time</string>
+	<string name="option_now_playing_swap_controls_and_timeline">Swap controls and timeline</string>
 	<string name="option_now_playing_lyrics_action">Show lyrics button</string>
 	<string name="option_now_playing_queue_action">Show queue button</string>
 	<string name="option_now_playing_music_video_action">Show music video action</string>

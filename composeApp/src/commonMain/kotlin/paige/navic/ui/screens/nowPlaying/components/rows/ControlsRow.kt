@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.NowPlayingControlsLayoutBlock
+import paige.navic.domain.models.nowPlayingControlsLayoutBlocks
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -50,21 +52,38 @@ fun NowPlayingControlsRow(
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.Center
 	) {
-		Column {
-			NowPlayingInfoRow(
-				songIsStarred = songIsStarred,
-				onSetSongIsStarred = onSetSongIsStarred,
-				songRating = songRating,
-				onSetSongRating = onSetSongRating
-			)
-			NowPlayingProgressBar()
-			NowPlayingDurationsRow()
-			NowPlayingUpNextRow()
-			if (preferenceManager.nowPlayingSongInfo) {
-				NowPlayingTechnicalInfoRow()
+		NowPlayingInfoRow(
+			songIsStarred = songIsStarred,
+			onSetSongIsStarred = onSetSongIsStarred,
+			songRating = songRating,
+			onSetSongRating = onSetSongRating
+		)
+		nowPlayingControlsLayoutBlocks(preferenceManager.swapNowPlayingControlsAndTimeline)
+			.forEachIndexed { index, block ->
+				if (index > 0) {
+					Spacer(modifier = Modifier.height(if (isLandscape) 24.dp else 30.dp))
+				}
+				when (block) {
+					NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock(
+						showTechnicalInfo = preferenceManager.nowPlayingSongInfo
+					)
+
+					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow()
+				}
 			}
+	}
+}
+
+@Composable
+private fun NowPlayingTimelineBlock(
+	showTechnicalInfo: Boolean
+) {
+	Column {
+		NowPlayingProgressBar()
+		NowPlayingDurationsRow()
+		NowPlayingUpNextRow()
+		if (showTechnicalInfo) {
+			NowPlayingTechnicalInfoRow()
 		}
-		Spacer(modifier = Modifier.height(if (isLandscape) 24.dp else 30.dp))
-		NowPlayingButtonsRow()
 	}
 }

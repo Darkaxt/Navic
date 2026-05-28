@@ -65,6 +65,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
+* Kreate-inspired optional Now Playing control/timeline order swap.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
@@ -186,6 +187,10 @@ Open Settings -> Now Playing and turn `Show seek buttons` on. Navic adds 10-seco
 ### Now Playing remaining time setup
 
 Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the time left between elapsed time and total duration for finite tracks. Live streams and unknown durations keep the existing two-label display.
+
+### Now Playing controls layout setup
+
+Open Settings -> Now Playing and turn `Swap controls and timeline` on to move the playback buttons above the progress bar and time row. It is off by default, so Navic keeps the existing progress-then-buttons layout unless you change it.
 
 ### Lyrics display setup
 
