@@ -35,6 +35,7 @@ import paige.navic.domain.models.settings.StreamingQuality
 import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.domain.models.settings.ToolbarPosition
+import paige.navic.domain.models.DefaultMaxConcurrentDownloads
 import com.russhwolf.settings.Settings as KmpSettings
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -166,6 +167,7 @@ class PreferenceManager(
 	var searchHistoryEntries by preference("")
 	var autoDownloadStarredSongs by preference(false)
 	var autoDownloadStarredAlbums by preference(false)
+	var maxConcurrentDownloads by preference(DefaultMaxConcurrentDownloads)
 
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)

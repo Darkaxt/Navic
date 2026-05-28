@@ -24,6 +24,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +43,9 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.DomainPlaylistSongSortType
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.sortedForPlaylistDetail
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
@@ -83,6 +86,18 @@ fun CollectionDetailScreen(
 
 	val collectionState by viewModel.collectionState.collectAsState()
 	val collection = collectionState.data
+	var playlistSongSorting by rememberSaveable(collectionId) {
+		mutableStateOf(DomainPlaylistSongSortType.ManualOrder)
+	}
+	var playlistSongReversed by rememberSaveable(collectionId) { mutableStateOf(false) }
+	val displayedCollection = remember(collection, playlistSongSorting, playlistSongReversed) {
+		(collection as? DomainPlaylist)?.copy(
+			songs = collection.songs.sortedForPlaylistDetail(
+				sortType = playlistSongSorting,
+				reversed = playlistSongReversed
+			)
+		) ?: collection
+	}
 	val selection by viewModel.selectedSong.collectAsState()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsState()
 	val isOnline by viewModel.isOnline.collectAsState()
@@ -121,18 +136,22 @@ fun CollectionDetailScreen(
 		topBar = {
 			CollectionDetailScreenTopBar(
 				albumInfoState = albumInfoState,
-				collection = collection,
+				collection = displayedCollection,
 				titleAlpha = titleAlpha,
 				onSetShareId = { shareId = it },
 				onDownloadAll = { viewModel.downloadAll() },
 				onCancelDownloadAll = { viewModel.cancelDownloadAll() },
-				onPlayNext = { if (collection != null) player.playNext(collection) },
-				onAddToQueue = { if (collection != null) player.addToQueue(collection) },
+				onPlayNext = { displayedCollection?.let { player.playNext(it) } },
+				onAddToQueue = { displayedCollection?.let { player.addToQueue(it) } },
 				downloadStatus = downloadStatus,
 				rating = if (collection !is DomainPlaylist) rating else null,
 				onSetRating = if (collection !is DomainPlaylist) { { viewModel.rateAlbum(it) } } else null,
 				starred = if (collection !is DomainPlaylist) starred else null,
 				onSetStarred = if (collection !is DomainPlaylist) { { viewModel.starAlbum(it) } } else null,
+				selectedPlaylistSongSorting = playlistSongSorting,
+				onSetPlaylistSongSorting = { playlistSongSorting = it },
+				selectedPlaylistSongReversed = playlistSongReversed,
+				onSetPlaylistSongReversed = { playlistSongReversed = it },
 				refreshCollection = { viewModel.refreshCollection(false) }
 			)
 		},
@@ -159,11 +178,11 @@ fun CollectionDetailScreen(
 				contentPadding = contentPadding.withoutTop(),
 				state = viewModel.listState
 			) {
-				if (collection == null) return@LazyColumn
+				val contentCollection = displayedCollection ?: return@LazyColumn
 
 				item {
 					CollectionDetailScreenHeadingRow(
-						collection = collection,
+						collection = contentCollection,
 						tab = tab,
 						titleAlpha = 1f - titleAlpha
 					)
@@ -171,13 +190,13 @@ fun CollectionDetailScreen(
 
 				item {
 					CollectionDetailScreenHeadingRowButtons(
-						collection = collection
+						collection = contentCollection
 					)
 				}
 
-				if (collection is DomainAlbum) {
-					collection.copy(
-						songs = collection.songs.sortedWith(compareBy(
+				if (contentCollection is DomainAlbum) {
+					contentCollection.copy(
+						songs = contentCollection.songs.sortedWith(compareBy(
 							{ it.discNumber },
 							{ it.trackNumber }
 						))
@@ -251,7 +270,7 @@ fun CollectionDetailScreen(
 										onRemoveStar = { viewModel.unstarSelectedSong() },
 										onAddStar = { viewModel.starSelectedSong() },
 										onShare = { shareId = song.id },
-										collection = collection,
+										collection = contentCollection,
 										song = song,
 										onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
 										starred = selectedSongIsStarred,
@@ -269,18 +288,18 @@ fun CollectionDetailScreen(
 						}
 					}
 				} else {
-					itemsIndexed(collection.songs) { index, song ->
+					itemsIndexed(contentCollection.songs) { index, song ->
 						val download = allDownloads.find { it.songId == song.id }
 						Box {
 							CollectionDetailScreenSongRow(
 								song = song,
 								index = index,
-								count = collection.songs.count(),
+								count = contentCollection.songs.count(),
 								isPlaylist = true,
 								onClick = {
 									if (playerState.currentSong?.id != song.id) {
 										player.clearQueue()
-										player.addToQueue(collection)
+										player.addToQueue(contentCollection)
 										player.playAt(index)
 									} else {
 										player.togglePlay()
@@ -305,7 +324,7 @@ fun CollectionDetailScreen(
 								onRemoveStar = { viewModel.unstarSelectedSong() },
 								onAddStar = { viewModel.starSelectedSong() },
 								onShare = { shareId = song.id },
-								collection = collection,
+								collection = contentCollection,
 								song = song,
 								onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
 								starred = selectedSongIsStarred,
@@ -322,7 +341,7 @@ fun CollectionDetailScreen(
 					}
 				}
 
-				if (collection.songs.isEmpty()) {
+				if (contentCollection.songs.isEmpty()) {
 					item {
 						ContentUnavailable(
 							icon = Icons.Outlined.Note,
@@ -331,9 +350,9 @@ fun CollectionDetailScreen(
 					}
 				}
 
-				item { CollectionDetailScreenFooterRow(collection) }
+				item { CollectionDetailScreenFooterRow(contentCollection) }
 
-				(collection as? DomainAlbum)?.artistName?.let { artistName ->
+				(contentCollection as? DomainAlbum)?.artistName?.let { artistName ->
 					collectionDetailScreenMoreByArtistRow(
 						artistName = artistName,
 						artistAlbums = otherAlbums,

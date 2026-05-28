@@ -104,13 +104,14 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
 * Synthetic `[Unknown Artist]` entries are hidden from artist rows, artist lists, and artist search results while the underlying songs and albums remain available.
 * Artist lists now have a Kreate-style sort sheet for alphabetical, starred, and random artist views, including ascending/descending direction.
+* Playlist and station detail pages now have a Kreate-style song sort sheet for manual order, title, artist, album, and duration while preserving manual playlist order by default.
 
 ### Data and privacy controls
 
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 * Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
-* Album, playlist, station, and artist bulk downloads are queued, so you can request several collections and let Navic download them in order. If the app process restarts while songs are queued, Navic resumes queued songs that still exist in the synced library and clears stale queued entries. The queue dialog can inspect queued, downloading, and failed songs, cancel pending work, and retry failed downloads that still exist locally.
+* Album, playlist, station, and artist bulk downloads are queued, so you can request several collections and let Navic download them in order. If the app process restarts while songs are queued, Navic resumes queued songs that still exist in the synced library and clears stale queued entries. The queue dialog can inspect queued, downloading, and failed songs, cancel pending work, and retry failed downloads that still exist locally. `Parallel downloads` defaults to 3 songs at a time and can be adjusted under Data & Storage.
 * Destructive Data & Storage danger-zone actions now require confirmation before clearing caches, pending sync actions, downloads, or the local database.
 
 ### LidaClips music videos
@@ -165,7 +166,7 @@ Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill
 
 ### Download queue setup
 
-Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs; tap it to inspect queued, downloading, and failed rows, retry failed downloads that still exist locally, or cancel pending downloads. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
+Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start. Settings -> Data & Storage shows a `Download queue` count for queued or currently downloading songs; tap it to inspect queued, downloading, and failed rows, retry failed downloads that still exist locally, or cancel pending downloads. Use `Parallel downloads` to limit concurrent song downloads; the default is 3. Restart recovery resumes queued songs that still exist locally, but it does not yet preserve the original per-collection grouping after the app process is killed.
 
 ### ReplayGain loudness boost setup
 

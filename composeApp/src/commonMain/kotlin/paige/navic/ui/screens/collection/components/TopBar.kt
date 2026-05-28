@@ -23,6 +23,8 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
+import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.DomainPlaylistSongSortType
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreVert
@@ -47,6 +49,10 @@ fun CollectionDetailScreenTopBar(
 	onSetRating: ((Int) -> Unit)?,
 	starred: Boolean?,
 	onSetStarred: ((Boolean) -> Unit)? = null,
+	selectedPlaylistSongSorting: DomainPlaylistSongSortType,
+	onSetPlaylistSongSorting: (DomainPlaylistSongSortType) -> Unit,
+	selectedPlaylistSongReversed: Boolean,
+	onSetPlaylistSongReversed: (Boolean) -> Unit,
 	refreshCollection: () -> Unit
 ) {
 	val uriHandler = LocalUriHandler.current
@@ -63,6 +69,14 @@ fun CollectionDetailScreenTopBar(
 			)
 		},
 		actions = {
+			if (collection is DomainPlaylist) {
+				CollectionDetailScreenSortButton(
+					selectedSorting = selectedPlaylistSongSorting,
+					onSetSorting = onSetPlaylistSongSorting,
+					selectedReversed = selectedPlaylistSongReversed,
+					onSetReversed = onSetPlaylistSongReversed
+				)
+			}
 			Box {
 				var expanded by remember { mutableStateOf(false) }
 				TopBarButton({

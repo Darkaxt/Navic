@@ -75,14 +75,16 @@ import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
+import navic.composeapp.generated.resources.option_max_concurrent_downloads
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pause_search_history
 import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_albums
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_songs
 import navic.composeapp.generated.resources.subtitle_download_queue
-import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips
+import navic.composeapp.generated.resources.subtitle_max_concurrent_downloads
+import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_pause_search_history
 import navic.composeapp.generated.resources.subtitle_pending_actions
 import navic.composeapp.generated.resources.subtitle_rebuild_database
@@ -408,6 +410,17 @@ fun SettingsDataStorageScreen() {
 						onClick = { showDownloadQueueDialog = true }
 					)
 
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_max_concurrent_downloads)) },
+						items = downloadConcurrencyOptions.toImmutableList(),
+						label = { count ->
+							pluralStringResource(Res.plurals.count_songs, count, count)
+						},
+						description = stringResource(Res.string.subtitle_max_concurrent_downloads),
+						selection = preferenceManager.maxConcurrentDownloads,
+						onSelect = { preferenceManager.maxConcurrentDownloads = it }
+					)
+
 					SettingValueRow(
 						title = { Text(stringResource(Res.string.option_image_cache_size)) },
 						value = imageCacheSizeMb
@@ -582,3 +595,5 @@ private fun Instant.toRelativeString(
 		}
 	}
 }
+
+private val downloadConcurrencyOptions = listOf(1, 2, 3, 5, 10)

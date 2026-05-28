@@ -3,6 +3,12 @@ package paige.navic.domain.models
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 
+const val DefaultMaxConcurrentDownloads = 3
+const val MaxSupportedConcurrentDownloads = 10
+
+fun downloadConcurrencyLimit(configuredLimit: Int): Int =
+	configuredLimit.coerceIn(1, MaxSupportedConcurrentDownloads)
+
 fun pendingDownloadCount(downloads: List<DownloadEntity>): Int =
 	downloads.count { download ->
 		download.status == DownloadStatus.QUEUED ||
@@ -26,13 +32,26 @@ fun downloadQueueDownloads(downloads: List<DownloadEntity>): List<DownloadEntity
 			}
 		}
 
+data class FailedDownloadRetryPlan(
+	val songIdsToRetry: List<String>,
+	val staleSongIdsToDelete: List<String>
+)
+
+fun failedDownloadRetryPlan(
+	downloads: List<DownloadEntity>,
+	localSongIds: Set<String>
+): FailedDownloadRetryPlan {
+	val failedSongIds = downloads
+		.filter { it.status == DownloadStatus.FAILED }
+		.map { it.songId }
+	return FailedDownloadRetryPlan(
+		songIdsToRetry = failedSongIds.filter { it in localSongIds },
+		staleSongIdsToDelete = failedSongIds.filter { it !in localSongIds }
+	)
+}
+
 fun retryableFailedDownloadSongIds(
 	downloads: List<DownloadEntity>,
 	localSongIds: Set<String>
 ): List<String> =
-	downloads
-		.filter { download ->
-			download.status == DownloadStatus.FAILED &&
-				download.songId in localSongIds
-		}
-		.map { it.songId }
+	failedDownloadRetryPlan(downloads, localSongIds).songIdsToRetry

@@ -149,6 +149,7 @@
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
 	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_auto_download_starred_albums">Download album songs when you star an album while online. Unstarring keeps existing downloads.</string>
+	<string name="subtitle_max_concurrent_downloads">Limit how many songs download at the same time</string>
 	<string name="subtitle_download_queue">Queued or currently downloading songs. Tap to inspect, retry, or cancel</string>
 	<string name="subtitle_lida_clips_enabled">Show music-video actions for matching tracks</string>
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
@@ -264,6 +265,10 @@
 	<string name="option_sort_starred">Starred</string>
 	<string name="option_sort_by_year">By year</string>
 	<string name="option_sort_by_genre">By genre</string>
+	<string name="option_sort_playlist_song_manual">Manual order</string>
+	<string name="option_sort_playlist_song_title">Title</string>
+	<string name="option_sort_playlist_song_artist">Artist</string>
+	<string name="option_sort_playlist_song_album">Album</string>
 	<string name="option_sort_playlist_by_name">By name</string>
 	<string name="option_sort_playlist_date_added">Date added</string>
 	<string name="option_sort_playlist_duration">Duration</string>
@@ -357,6 +362,7 @@
 	<string name="option_lida_clips">Music video clips</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
+	<string name="option_max_concurrent_downloads">Parallel downloads</string>
 	<string name="option_lida_clips_enabled">Enable LidaClips</string>
 	<string name="option_lida_clips_base_url">LidaClips URL</string>
 	<string name="option_lida_clips_api_key">API key</string>

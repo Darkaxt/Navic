@@ -20,6 +20,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,9 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.LyricDao
@@ -44,8 +43,9 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
+import paige.navic.domain.models.downloadConcurrencyLimit
+import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
-import paige.navic.domain.models.retryableFailedDownloadSongIds
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
@@ -66,8 +66,8 @@ class DownloadManager(
 	private val client = HttpClient()
 	private val activeDownloadsMutex = Mutex()
 	private val activeDownloads = mutableMapOf<String, Job>()
-	private val downloadSemaphore =
-		Semaphore(10)// idk a good number, maybe u should be able to choose
+	private val runningDownloadSlotsMutex = Mutex()
+	private val runningDownloadSlots = mutableSetOf<String>()
 	private val collectionDownloadQueue = Channel<QueuedCollectionDownload>(Channel.UNLIMITED)
 	private val collectionQueueMutex = Mutex()
 	private val queuedCollectionDownloads = mutableMapOf<String, QueuedCollectionDownload>()
@@ -127,7 +127,7 @@ class DownloadManager(
 			try {
 				activeDownloadsMutex.withLock { activeDownloads[song.id] = coroutineContext[Job]!! }
 
-				downloadSemaphore.withPermit {
+				withDownloadSlot(song.id) {
 					executeDownloadProcess(song)
 				}
 			} finally {
@@ -185,13 +185,16 @@ class DownloadManager(
 				}
 
 				val downloadQueue = Channel<DomainSong>(Channel.UNLIMITED)
+				songsToDownload.forEach { song ->
+					downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.QUEUED, 0f))
+				}
 				songsToDownload.forEach { downloadQueue.trySend(it) }
 				downloadQueue.close()
 
 				var processedCount = 0
 				val progressMutex = Mutex()
 
-				val workers = List(10) {
+				val workers = List(downloadConcurrencyLimit(preferenceManager.maxConcurrentDownloads)) {
 					launch {
 						for (song in downloadQueue) {
 							downloadSong(song).join()
@@ -278,10 +281,17 @@ class DownloadManager(
 
 			val songsById = songDao.getSongsByIds(failedSongIds)
 				.associateBy { it.songId }
-			retryableFailedDownloadSongIds(
+			val retryPlan = failedDownloadRetryPlan(
 				downloads = downloads,
 				localSongIds = songsById.keys
 			)
+			retryPlan.staleSongIdsToDelete.forEach { songId ->
+				downloadDao.deleteDownload(songId)
+			}
+			retryPlan.songIdsToRetry.forEach { songId ->
+				downloadDao.insertDownload(DownloadEntity(songId, DownloadStatus.QUEUED, 0f))
+			}
+			retryPlan.songIdsToRetry
 				.mapNotNull { songId -> songsById[songId]?.toDomainModel() }
 				.map { song -> downloadSong(song) }
 				.joinAll()
@@ -407,7 +417,7 @@ class DownloadManager(
 			Logger.i("DownloadManager", "beginning download for ${song.id}")
 			downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.DOWNLOADING, 0f))
 
-			cacheCoverArt(song.coverArtId)
+			cacheSongCoverArt(song.coverArtId)
 			cacheAlbumCoverArt(song.albumId)
 			cacheLyrics(song)
 			downloadAudioFile(song)
@@ -420,6 +430,39 @@ class DownloadManager(
 			activeDownloadsMutex.withLock {
 				activeDownloads.remove(song.id)
 			}
+		}
+	}
+
+	private suspend fun <T> withDownloadSlot(songId: String, block: suspend () -> T): T {
+		var acquired = false
+		try {
+			while (!acquired) {
+				acquired = runningDownloadSlotsMutex.withLock {
+					if (runningDownloadSlots.size < downloadConcurrencyLimit(preferenceManager.maxConcurrentDownloads)) {
+						runningDownloadSlots += songId
+						true
+					} else {
+						false
+					}
+				}
+				if (!acquired) delay(DOWNLOAD_SLOT_RETRY_DELAY_MS)
+			}
+			return block()
+		} finally {
+			if (acquired) {
+				runningDownloadSlotsMutex.withLock {
+					runningDownloadSlots.remove(songId)
+				}
+			}
+		}
+	}
+
+	private suspend fun cacheSongCoverArt(coverId: String?) {
+		try {
+			cacheCoverArt(coverId)
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			Logger.e("DownloadManager", "Failed to cache cover art for $coverId; continuing audio download", e)
 		}
 	}
 
@@ -511,6 +554,11 @@ class DownloadManager(
 		}
 
 		request.execute { response ->
+			if (response.status.value !in 200..299) {
+				throw IllegalStateException(
+					"Stream request failed for ${song.id}: HTTP ${response.status.value} ${response.status.description}"
+				)
+			}
 			Logger.i("DownloadManager", "writing download for ${song.id}")
 			val path = storageManager.getDownloadPath(song.id, song.fileExtension)
 			storageManager.saveFile(path, response.bodyAsChannel())
@@ -531,5 +579,6 @@ class DownloadManager(
 
 	private companion object {
 		const val RECOVERED_COLLECTION_DOWNLOAD_ID = "__recovered_queued_downloads__"
+		const val DOWNLOAD_SLOT_RETRY_DELAY_MS = 250L
 	}
 }

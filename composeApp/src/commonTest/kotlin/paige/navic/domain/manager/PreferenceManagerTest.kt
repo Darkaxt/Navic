@@ -705,4 +705,15 @@ class PreferenceManagerTest {
 		assertTrue(manager.autoDownloadStarredSongs)
 		assertTrue(manager.autoDownloadStarredAlbums)
 	}
+
+	@Test
+	fun maxConcurrentDownloadsDefaultsToConservativeQueue() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(3, manager.maxConcurrentDownloads)
+
+		manager.maxConcurrentDownloads = 5
+
+		assertEquals(5, manager.maxConcurrentDownloads)
+	}
 }

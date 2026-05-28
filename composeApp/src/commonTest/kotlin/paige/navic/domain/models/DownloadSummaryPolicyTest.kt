@@ -53,4 +53,27 @@ class DownloadSummaryPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun failedDownloadRetryPlanRetriesLocalFailuresAndDeletesStaleFailures() {
+		val plan = failedDownloadRetryPlan(
+			downloads = listOf(
+				DownloadEntity("failed-local", DownloadStatus.FAILED),
+				DownloadEntity("failed-missing", DownloadStatus.FAILED),
+				DownloadEntity("queued-local", DownloadStatus.QUEUED),
+				DownloadEntity("downloading-local", DownloadStatus.DOWNLOADING)
+			),
+			localSongIds = setOf("failed-local", "queued-local", "downloading-local")
+		)
+
+		assertEquals(listOf("failed-local"), plan.songIdsToRetry)
+		assertEquals(listOf("failed-missing"), plan.staleSongIdsToDelete)
+	}
+
+	@Test
+	fun downloadConcurrencyLimitStaysInSupportedRange() {
+		assertEquals(1, downloadConcurrencyLimit(0))
+		assertEquals(3, downloadConcurrencyLimit(3))
+		assertEquals(10, downloadConcurrencyLimit(99))
+	}
 }
