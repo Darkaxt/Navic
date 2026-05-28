@@ -400,6 +400,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun lyricsJumpOnTapDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.lyricsJumpOnTap)
+
+		manager.lyricsJumpOnTap = false
+
+		assertFalse(manager.lyricsJumpOnTap)
+	}
+
+	@Test
 	fun nowPlayingUpNextDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

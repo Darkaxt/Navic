@@ -66,6 +66,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
+* Kreate-inspired `Tap lyrics to seek` setting can turn lyric-line seeking off while keeping lyrics sharing selection intact.
 
 ### Library and playlist reliability
 
@@ -178,6 +179,8 @@ Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the t
 Open Settings -> Playback -> Lyrics -> `Lyrics font size` to choose Small, Medium, Large, or Extra large. Medium preserves Navic's previous lyrics text size.
 
 Use `Lyrics alignment` to keep the current automatic LTR/RTL-aware alignment or force Start, Center, or End.
+
+Turn `Tap lyrics to seek` off if tapping synced lyric lines should not jump playback. Lyrics share-selection mode still uses taps to select lines.
 
 ### LidaClips setup
 

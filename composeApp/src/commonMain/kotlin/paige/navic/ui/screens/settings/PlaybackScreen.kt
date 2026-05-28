@@ -47,6 +47,7 @@ import navic.composeapp.generated.resources.option_lyrics_blur
 import navic.composeapp.generated.resources.option_lyrics_bright_inactive
 import navic.composeapp.generated.resources.option_lyrics_alignment
 import navic.composeapp.generated.resources.option_lyrics_font_size
+import navic.composeapp.generated.resources.option_lyrics_jump_on_tap
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
@@ -487,6 +488,12 @@ fun SettingsPlaybackScreen() {
 						title = { Text(stringResource(Res.string.option_lyrics_bright_inactive)) },
 						value = preferenceManager.lyricsBrightInactive,
 						onSetValue = { preferenceManager.lyricsBrightInactive = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_lyrics_jump_on_tap)) },
+						value = preferenceManager.lyricsJumpOnTap,
+						onSetValue = { preferenceManager.lyricsJumpOnTap = it }
 					)
 
 					SettingSelectionRow(

@@ -54,6 +54,7 @@ class PreferenceManager(
 	var lyricsBrightInactive by preference(false)
 	var lyricsFontSize by preference(LyricsFontSize.Medium)
 	var lyricsAlignment by preference(LyricsAlignment.Auto)
+	var lyricsJumpOnTap by preference(true)
 	var enableScrobbling by preference(true)
 	var scrobblePercentage by preference(.5f)
 	var minDurationToScrobble by preference(30f)

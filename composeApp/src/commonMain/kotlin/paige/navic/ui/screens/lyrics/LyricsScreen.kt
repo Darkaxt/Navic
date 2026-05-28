@@ -63,6 +63,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.shouldSeekLyricsLineOnTap
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
@@ -410,7 +411,12 @@ fun LyricsScreen(
 													}
 												}
 											}
-										} else {
+										} else if (
+											shouldSeekLyricsLineOnTap(
+												isSelectionMode = isSelectionMode,
+												lyricsJumpOnTap = preferenceManager.lyricsJumpOnTap
+											)
+										) {
 											player.seek((lineTime / duration).toFloat())
 											if (playerState.isPaused) {
 												player.resume()
