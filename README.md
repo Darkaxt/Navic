@@ -103,6 +103,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
 * Synthetic `[Unknown Artist]` entries are hidden from artist rows, artist lists, and artist search results while the underlying songs and albums remain available.
+* Artist lists now have a Kreate-style sort sheet for alphabetical, starred, and random artist views, including ascending/descending direction.
 
 ### Data and privacy controls
 
