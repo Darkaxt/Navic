@@ -79,6 +79,7 @@ class PreferenceManager(
 	var showNowPlayingArtwork by preference(true)
 	var nowPlayingArtworkSize by preference(NowPlayingArtworkSize.Biggest)
 	var nowPlayingArtworkSwipeToSkip by preference(true)
+	var nowPlayingRotatingArtwork by preference(false)
 	var shrinkNowPlayingArtworkOnPause by preference(true)
 	var nowPlayingInfoStyle by preference(NowPlayingInfoStyle.Essential)
 	var nowPlayingSongInfo by preference(true)

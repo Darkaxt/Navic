@@ -1,6 +1,12 @@
 package paige.navic.ui.screens.nowPlaying.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -15,11 +21,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
+import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
@@ -38,11 +47,20 @@ fun NowPlayingArtwork(
 	val playerState by player.uiState.collectAsState()
 
 	val isRadio = song.id.startsWith("radio_")
+	val isActiveArtwork = playerState.currentSong?.id == song.id
+	val rotationDegrees = rememberNowPlayingArtworkRotationDegrees(
+		enabled = shouldRotateNowPlayingArtwork(
+			enabled = preferenceManager.nowPlayingRotatingArtwork,
+			isPaused = playerState.isPaused,
+			isActiveArtwork = isActiveArtwork,
+			hasCoverArt = !song.coverArtId.isNullOrEmpty()
+		)
+	)
 
 	val padding by animateDpAsState(
 		targetValue = nowPlayingArtworkPaddingDp(
 			size = preferenceManager.nowPlayingArtworkSize,
-			isPausedOrInactive = playerState.isPaused || playerState.currentSong?.id != song.id,
+			isPausedOrInactive = playerState.isPaused || !isActiveArtwork,
 			shrinkWhenPausedOrInactive = preferenceManager.shrinkNowPlayingArtworkOnPause
 		).dp
 	)
@@ -57,7 +75,8 @@ fun NowPlayingArtwork(
 			modifier = Modifier
 				.aspectRatio(1f)
 				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
-				.padding(padding),
+				.padding(padding)
+				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
 			shadowElevation = 8.dp
 		)
 		if (song.coverArtId.isNullOrEmpty()) {
@@ -69,4 +88,24 @@ fun NowPlayingArtwork(
 			)
 		}
 	}
+}
+
+@Composable
+private fun rememberNowPlayingArtworkRotationDegrees(enabled: Boolean): Float {
+	if (!enabled) return 0f
+
+	val transition = rememberInfiniteTransition(label = "nowPlayingArtworkRotation")
+	val rotationDegrees by transition.animateFloat(
+		initialValue = 0f,
+		targetValue = 360f,
+		animationSpec = infiniteRepeatable(
+			animation = tween(
+				durationMillis = NowPlayingArtworkRotationDurationMs,
+				easing = LinearEasing
+			),
+			repeatMode = RepeatMode.Restart
+		),
+		label = "nowPlayingArtworkRotation"
+	)
+	return rotationDegrees
 }

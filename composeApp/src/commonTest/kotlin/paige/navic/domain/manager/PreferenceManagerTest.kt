@@ -592,6 +592,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingRotatingArtworkDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.nowPlayingRotatingArtwork)
+
+		manager.nowPlayingRotatingArtwork = true
+
+		assertTrue(manager.nowPlayingRotatingArtwork)
+	}
+
+	@Test
 	fun nowPlayingRemainingTimeDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
