@@ -25,3 +25,14 @@ fun downloadQueueDownloads(downloads: List<DownloadEntity>): List<DownloadEntity
 				DownloadStatus.NOT_DOWNLOADED -> 3
 			}
 		}
+
+fun retryableFailedDownloadSongIds(
+	downloads: List<DownloadEntity>,
+	localSongIds: Set<String>
+): List<String> =
+	downloads
+		.filter { download ->
+			download.status == DownloadStatus.FAILED &&
+				download.songId in localSongIds
+		}
+		.map { it.songId }

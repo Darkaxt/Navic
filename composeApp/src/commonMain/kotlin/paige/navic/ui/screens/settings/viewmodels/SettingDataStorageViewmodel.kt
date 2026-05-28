@@ -70,7 +70,8 @@ class SettingsDataStorageViewModel(
 					artistName = song?.artistName,
 					albumTitle = song?.albumTitle,
 					status = download.status,
-					progress = download.progress.coerceIn(0f, 1f)
+					progress = download.progress.coerceIn(0f, 1f),
+					canRetry = song != null && download.status == DownloadStatus.FAILED
 				)
 			}.toImmutableList()
 		}
@@ -137,6 +138,10 @@ class SettingsDataStorageViewModel(
 	fun cancelPendingDownloads() {
 		downloadManager.cancelAllActiveDownloads()
 	}
+
+	fun retryFailedDownloads() {
+		downloadManager.retryFailedDownloads()
+	}
 }
 
 data class DownloadQueueItem(
@@ -145,7 +150,8 @@ data class DownloadQueueItem(
 	val artistName: String?,
 	val albumTitle: String?,
 	val status: DownloadStatus,
-	val progress: Float
+	val progress: Float,
+	val canRetry: Boolean
 ) {
 	val canCancel: Boolean
 		get() = status == DownloadStatus.DOWNLOADING ||

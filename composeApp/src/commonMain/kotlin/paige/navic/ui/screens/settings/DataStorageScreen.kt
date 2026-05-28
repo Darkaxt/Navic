@@ -200,7 +200,8 @@ fun SettingsDataStorageScreen() {
 		items = downloadQueueItems,
 		onDismissRequest = { showDownloadQueueDialog = false },
 		onCancelDownload = viewModel::cancelDownload,
-		onCancelPendingDownloads = viewModel::cancelPendingDownloads
+		onCancelPendingDownloads = viewModel::cancelPendingDownloads,
+		onRetryFailedDownloads = viewModel::retryFailedDownloads
 	)
 
 	Scaffold(

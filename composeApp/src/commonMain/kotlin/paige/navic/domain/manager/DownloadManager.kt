@@ -45,6 +45,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.queuedDownloadRecovery
+import paige.navic.domain.models.retryableFailedDownloadSongIds
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
@@ -264,6 +265,26 @@ class DownloadManager(
 			) {
 				downloadDao.deleteDownload(songId)
 			}
+		}
+	}
+
+	fun retryFailedDownloads() {
+		scope.launch(Dispatchers.IO) {
+			val downloads = downloadDao.getAllDownloadsList()
+			val failedSongIds = downloads
+				.filter { it.status == DownloadStatus.FAILED }
+				.map { it.songId }
+			if (failedSongIds.isEmpty()) return@launch
+
+			val songsById = songDao.getSongsByIds(failedSongIds)
+				.associateBy { it.songId }
+			retryableFailedDownloadSongIds(
+				downloads = downloads,
+				localSongIds = songsById.keys
+			)
+				.mapNotNull { songId -> songsById[songId]?.toDomainModel() }
+				.map { song -> downloadSong(song) }
+				.joinAll()
 		}
 	}
 

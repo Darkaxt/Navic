@@ -37,4 +37,20 @@ class DownloadSummaryPolicyTest {
 			).map { it.songId }
 		)
 	}
+
+	@Test
+	fun retryableFailedDownloadSongIdsIncludesOnlyFailedSongsThatStillExistLocally() {
+		assertEquals(
+			listOf("failed-local"),
+			retryableFailedDownloadSongIds(
+				downloads = listOf(
+					DownloadEntity("failed-local", DownloadStatus.FAILED),
+					DownloadEntity("failed-missing", DownloadStatus.FAILED),
+					DownloadEntity("queued-local", DownloadStatus.QUEUED),
+					DownloadEntity("downloading-local", DownloadStatus.DOWNLOADING)
+				),
+				localSongIds = setOf("failed-local", "queued-local", "downloading-local")
+			)
+		)
+	}
 }

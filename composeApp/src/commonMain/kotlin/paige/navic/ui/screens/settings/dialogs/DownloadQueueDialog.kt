@@ -18,6 +18,7 @@ import navic.composeapp.generated.resources.action_cancel_pending_downloads
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_ok
+import navic.composeapp.generated.resources.action_retry_failed_downloads
 import navic.composeapp.generated.resources.info_download_queue_empty
 import navic.composeapp.generated.resources.info_download_status_downloading
 import navic.composeapp.generated.resources.info_download_status_failed
@@ -35,7 +36,8 @@ fun DownloadQueueDialog(
 	items: List<DownloadQueueItem>,
 	onDismissRequest: () -> Unit,
 	onCancelDownload: (String) -> Unit,
-	onCancelPendingDownloads: () -> Unit
+	onCancelPendingDownloads: () -> Unit,
+	onRetryFailedDownloads: () -> Unit
 ) {
 	if (!showDialog) return
 
@@ -55,6 +57,11 @@ fun DownloadQueueDialog(
 						text = stringResource(Res.string.action_cancel_pending_downloads),
 						color = MaterialTheme.colorScheme.error
 					)
+				}
+			}
+			if (items.any { it.canRetry }) {
+				FormRow(onClick = onRetryFailedDownloads) {
+					Text(stringResource(Res.string.action_retry_failed_downloads))
 				}
 			}
 			FormRow(onClick = onDismissRequest) {
