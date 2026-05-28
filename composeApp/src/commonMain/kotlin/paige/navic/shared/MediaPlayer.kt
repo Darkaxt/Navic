@@ -69,6 +69,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun setPlaybackPitch(value: Float)
 	abstract fun openSystemEqualizer(): Boolean
 	abstract fun refreshAudioEffects()
+	abstract fun refreshPlaybackVolume()
 
 	fun togglePlay() {
 		if (!_uiState.value.isPaused) {

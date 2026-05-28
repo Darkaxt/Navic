@@ -81,6 +81,7 @@ import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
+import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.limitQueueShuffle
 import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
@@ -765,6 +766,14 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override fun refreshPlaybackVolume() {
+		runCatching {
+			applyReplayGain()
+		}.onFailure { error ->
+			Logger.w("MediaPlayer", "Failed to refresh playback volume", error)
+		}
+	}
+
 	private fun refreshCurrentCollection(albumId: String) {
 		if (loadingCollectionId == albumId) return
 		loadingCollectionId = albumId
@@ -814,10 +823,13 @@ class AndroidMediaPlayerViewModel(
 		val replayGain = _uiState.value.currentSong?.replayGain
 		val replayGainMode = preferenceManager.replayGainMode
 		val loudnessBoostEnabled = preferenceManager.replayGainLoudnessBoost
-		controller?.volume = replayGainVolumeMultiplier(
-			replayGain = replayGain,
-			mode = replayGainMode,
-			loudnessBoostEnabled = loudnessBoostEnabled
+		controller?.volume = playbackVolumeMultiplier(
+			playbackVolumePercent = preferenceManager.playbackVolumePercent,
+			replayGainVolumeMultiplier = replayGainVolumeMultiplier(
+				replayGain = replayGain,
+				mode = replayGainMode,
+				loudnessBoostEnabled = loudnessBoostEnabled
+			)
 		)
 		PlaybackService.setReplayGainLoudnessBoost(
 			application,

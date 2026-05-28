@@ -186,6 +186,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun playbackVolumeDefaultsToCurrentFullVolume() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(100, manager.playbackVolumePercent)
+
+		manager.playbackVolumePercent = 60
+
+		assertEquals(60, manager.playbackVolumePercent)
+	}
+
+	@Test
 	fun bassBoostDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

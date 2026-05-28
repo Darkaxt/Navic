@@ -5,6 +5,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 ## Already Adapted
 
 * Audio focus behavior: Navic now exposes `Respect audio focus` and passes the preference into Media3 `setAudioAttributes(..., handleAudioFocus)`.
+* Playback volume: Navic now adapts Kreate's separate player-volume control as an Android Playback slider. It defaults to 100% to preserve current behavior and combines with ReplayGain attenuation instead of replacing it.
 * Video concept: Kreate's player exposes a configurable video action, but its implementation is YouTube iframe-specific. Navic's first LidaClips pass uses LidaClips lookup plus Media3 stream playback instead.
 * Skip silence: Navic now exposes an Android playback toggle and applies it to Media3 when the playback service starts.
 * Skip media on error: Navic now exposes an Android playback toggle and advances to the next queued media item when Media3 reports a playback error and a next item exists.

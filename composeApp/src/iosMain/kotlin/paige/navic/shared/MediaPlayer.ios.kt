@@ -644,6 +644,8 @@ class IOSMediaPlayerViewModel(
 
 	override fun refreshAudioEffects() = Unit
 
+	override fun refreshPlaybackVolume() = Unit
+
 	override fun syncPlayerWithState(state: PlayerUiState) {
 		if (state.queue.isEmpty() || player.currentItem != null) return
 

@@ -56,6 +56,7 @@ import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.option_pause_between_songs
 import navic.composeapp.generated.resources.option_persistent_queue
+import navic.composeapp.generated.resources.option_playback_volume
 import navic.composeapp.generated.resources.option_queue_swipe_actions
 import navic.composeapp.generated.resources.option_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.option_queue_swipe_start_to_end_action
@@ -88,6 +89,7 @@ import navic.composeapp.generated.resources.subtitle_medley_mode
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
+import navic.composeapp.generated.resources.subtitle_playback_volume
 import navic.composeapp.generated.resources.subtitle_queue_swipe_actions
 import navic.composeapp.generated.resources.subtitle_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.subtitle_queue_swipe_start_to_end_action
@@ -207,6 +209,39 @@ fun SettingsPlaybackScreen() {
 							value = preferenceManager.respectAudioFocus,
 							onSetValue = { preferenceManager.respectAudioFocus = it }
 						)
+						FormRow {
+							Column(Modifier.fillMaxWidth()) {
+								Row(
+									modifier = Modifier.fillMaxWidth(),
+									horizontalArrangement = Arrangement.SpaceBetween
+								) {
+									Column(Modifier.weight(1f)) {
+										Text(stringResource(Res.string.option_playback_volume))
+										Text(
+											text = stringResource(Res.string.subtitle_playback_volume),
+											style = MaterialTheme.typography.bodyMedium,
+											color = MaterialTheme.colorScheme.onSurfaceVariant
+										)
+									}
+									Text(
+										"${preferenceManager.playbackVolumePercent}%",
+										modifier = Modifier.padding(start = 16.dp),
+										fontFamily = FontFamily.Monospace,
+										fontWeight = FontWeight(400),
+										fontSize = 13.sp,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+									)
+								}
+								Slider(
+									value = preferenceManager.playbackVolumePercent.toFloat(),
+									onValueChange = { value ->
+										preferenceManager.playbackVolumePercent = value.roundToInt()
+										player.refreshPlaybackVolume()
+									},
+									valueRange = 0f..100f,
+								)
+							}
+						}
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_skip_silence)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_skip_silence)) },
