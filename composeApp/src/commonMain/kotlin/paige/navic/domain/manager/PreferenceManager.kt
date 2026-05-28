@@ -158,6 +158,7 @@ class PreferenceManager(
     )
 	var miniPlayerStyle by preference(MiniPlayerStyle.Detached)
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
+	var showMiniPlayerQueueAction by preference(false)
 
 	/**
 	 * If we have informed the user (on Android) about

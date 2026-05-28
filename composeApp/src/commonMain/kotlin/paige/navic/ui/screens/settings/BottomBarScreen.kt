@@ -22,11 +22,13 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_bottom_bar_collapse_mode
 import navic.composeapp.generated.resources.option_bottom_bar_visibility_mode
 import navic.composeapp.generated.resources.option_mini_player_progress_style
+import navic.composeapp.generated.resources.option_mini_player_queue_action
 import navic.composeapp.generated.resources.option_mini_player_style
 import navic.composeapp.generated.resources.option_navigation_bar_label_visibility
 import navic.composeapp.generated.resources.option_navigation_bar_style
 import navic.composeapp.generated.resources.option_navigation_bar_tabs
 import navic.composeapp.generated.resources.option_swipe_to_skip
+import navic.composeapp.generated.resources.subtitle_mini_player_queue_action
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_mini_player
 import navic.composeapp.generated.resources.title_navigation_bar
@@ -139,6 +141,13 @@ fun BottomBarScreen() {
 						selection = preferenceManager.miniPlayerProgressStyle,
 						onSelect = { preferenceManager.miniPlayerProgressStyle = it },
 						title = { Text(stringResource(Res.string.option_mini_player_progress_style)) },
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_mini_player_queue_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_mini_player_queue_action)) },
+						value = preferenceManager.showMiniPlayerQueueAction,
+						onSetValue = { preferenceManager.showMiniPlayerQueueAction = it }
 					)
 				}
 			}

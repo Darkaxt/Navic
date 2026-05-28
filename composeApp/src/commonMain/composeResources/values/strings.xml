@@ -128,6 +128,7 @@
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
+	<string name="subtitle_mini_player_queue_action">Open the Queue directly from the mini player</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
 	<string name="subtitle_pause_search_history">Do not save new search queries or show recent searches</string>
@@ -189,6 +190,7 @@
 	<string name="option_now_playing_up_next">Show Up next</string>
 	<string name="option_now_playing_up_next_artwork">Show Up next artwork</string>
 	<string name="option_now_playing_up_next_count">Up next count</string>
+	<string name="option_mini_player_queue_action">Show queue button</string>
 	<string name="option_swipe_to_skip">Swipe to change songs</string>
 	<string name="option_tap_artwork_for_lyrics">Tap artwork for lyrics</string>
 	<string name="option_artwork_shape">Artwork shape</string>

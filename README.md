@@ -74,6 +74,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional Now Playing controls tap gesture for opening Queue.
 * Kreate-inspired optional Now Playing shuffle and repeat control visibility.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
+* Kreate-inspired optional mini-player queue button for opening Queue directly from the mini player.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
@@ -210,6 +211,10 @@ Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the t
 ### Now Playing controls layout setup
 
 Open Settings -> Now Playing and turn `Swap controls and timeline` on to move the playback buttons above the progress bar and time row. It is off by default, so Navic keeps the existing progress-then-buttons layout unless you change it. Turn `Space playback controls evenly` on to spread the main playback buttons across the row instead of using the compact weighted layout. Turn `Swipe up controls for queue` on to open Queue from an upward swipe on the controls area, or turn `Tap controls for queue` on to open Queue by tapping empty space there. `Show shuffle control` and `Show repeat control` are on by default and can hide those edge buttons while leaving Previous, Play/Pause, and Next visible.
+
+### Mini-player queue button setup
+
+Open Settings -> Bottom Bar -> Mini Player and turn `Show queue button` on. Navic adds a Queue button beside the mini-player playback buttons when a song is active. It is off by default, so the existing mini-player layout stays unchanged unless you enable it.
 
 ### Song row indicators setup
 

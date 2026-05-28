@@ -569,6 +569,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun miniPlayerQueueActionDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showMiniPlayerQueueAction)
+
+		manager.showMiniPlayerQueueAction = true
+
+		assertTrue(manager.showMiniPlayerQueueAction)
+	}
+
+	@Test
 	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
 		val manager = PreferenceManager(MapSettings())
 

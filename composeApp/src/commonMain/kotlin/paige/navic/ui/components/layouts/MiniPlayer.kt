@@ -56,6 +56,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.kyant.capsule.ContinuousRoundedRectangle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_queue
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -64,6 +65,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavbarConfig
@@ -72,6 +74,7 @@ import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
 import paige.navic.icons.filled.SkipNext
+import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
@@ -141,6 +144,17 @@ fun MiniPlayer(
 	val hasSong = song != null
 	val isRadio = song?.id?.startsWith("radio_") == true
 	val isInteractive = enabled && hasSong
+	val showQueueAction = shouldShowMiniPlayerQueueAction(
+		enabled = preferenceManager.showMiniPlayerQueueAction,
+		hasCurrentSong = hasSong
+	)
+
+	fun openQueue() {
+		if (backStack.lastOrNull() !is Screen.Queue) {
+			platformContext.clickSound()
+			backStack.add(Screen.Queue)
+		}
+	}
 
 	Swiper(
 		onSwipeLeft = {
@@ -255,6 +269,21 @@ fun MiniPlayer(
 						)
 					) {
 						val colors = IconButtonDefaults.iconButtonVibrantColors()
+						if (showQueueAction) {
+							IconButton(
+								onClick = {
+									openQueue()
+								},
+								enabled = isInteractive,
+								colors = colors
+							) {
+								Icon(
+									imageVector = Icons.Outlined.Queue,
+									contentDescription = stringResource(Res.string.action_queue),
+									modifier = Modifier.size(iconSize)
+								)
+							}
+						}
 						IconButton(
 							onClick = {
 								platformContext.clickSound()
