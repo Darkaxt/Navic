@@ -45,7 +45,8 @@ val viewModelModule = module {
 		PlaylistUpdateDialogViewModel(
 			songs = songs,
 			playlistToExclude = playlistToExclude,
-			sessionManager = get()
+			sessionManager = get(),
+			dbRepository = get()
 		)
 	}
 

@@ -7,15 +7,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.playlistIdsToRefreshAfterMembershipUpdate
 import paige.navic.ui.core.UiState
+import paige.navic.util.core.Logger
 import dev.zt64.subsonic.api.model.Playlist as ApiPlaylist
 
 class PlaylistUpdateDialogViewModel(
 	private val songs: List<DomainSong>,
 	private val playlistToExclude: String?,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	private val dbRepository: DbRepository
 ) : ViewModel() {
 	private val _playlistsState = MutableStateFlow<UiState<List<ApiPlaylist>>>(UiState.Loading())
 	val playlistsState = _playlistsState.asStateFlow()
@@ -60,12 +64,24 @@ class PlaylistUpdateDialogViewModel(
 		viewModelScope.launch {
 			_confirmState.value = UiState.Loading()
 			try {
-				_selectedPlaylists.value.forEach { playlist ->
+				val selectedPlaylists = _selectedPlaylists.value
+				selectedPlaylists.forEach { playlist ->
 					sessionManager.api.updatePlaylist(
 						playlist.id,
 						songIdsToAdd = songs.map { it.id }
 					)
 				}
+				playlistIdsToRefreshAfterMembershipUpdate(selectedPlaylists.map { it.id })
+					.forEach { playlistId ->
+						dbRepository.syncPlaylistSongs(playlistId)
+							.onFailure { error ->
+								Logger.w(
+									"PlaylistUpdateDialogViewModel",
+									"Failed to refresh playlist $playlistId after update",
+									error
+								)
+							}
+					}
 				_confirmState.value = UiState.Success(null)
 				_events.send(Event.Dismiss)
 			} catch (e: Exception) {

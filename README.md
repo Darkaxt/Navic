@@ -212,7 +212,7 @@ Open Settings -> Now Playing and turn `Swap controls and timeline` on to move th
 
 ### Song row indicators setup
 
-Open Settings -> Playback and use `Now Playing indicator` to show or hide the animated waveform beside the current song. Turn `Playlist indicator` on to mark songs that are already present in one of your synced playlists. The playlist marker is hidden inside playlist detail screens and is off by default.
+Open Settings -> Playback and use `Now Playing indicator` to show or hide the animated waveform beside the current song. Turn `Playlist indicator` on to mark songs that are already present in one of your synced playlists. The playlist marker is hidden inside playlist detail screens, is off by default, and refreshes after in-app add-to-playlist actions.
 
 ### Lyrics display setup
 
