@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
@@ -372,6 +373,17 @@ class PreferenceManagerTest {
 		manager.lyricsFontSize = LyricsFontSize.Large
 
 		assertEquals(LyricsFontSize.Large, manager.lyricsFontSize)
+	}
+
+	@Test
+	fun lyricsAlignmentDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(LyricsAlignment.Auto, manager.lyricsAlignment)
+
+		manager.lyricsAlignment = LyricsAlignment.Center
+
+		assertEquals(LyricsAlignment.Center, manager.lyricsAlignment)
 	}
 
 	@Test

@@ -51,6 +51,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips cache-key privacy: Navic now fingerprints sensitive LidaClips key material before using it in in-memory lookup cache and now-playing prefetch keys, while still separating cache entries for different API keys.
 * Tap artwork for lyrics: Kreate exposes a thumbnail-tap lyrics option. Navic now adapts that as an opt-in Now Playing setting so tapping the artwork opens Lyrics without changing the default artwork behavior.
 * Lyrics font size: Navic now adapts Kreate's lyrics-size preset idea as a Playback -> Lyrics setting. Medium preserves Navic's previous 32sp lyrics text size while Small, Large, and Extra large provide readable alternatives.
+* Lyrics alignment: Navic now adapts Kreate's lyrics alignment option as a Playback -> Lyrics setting. Auto preserves Navic's current LTR/RTL-aware alignment while Start, Center, and End force an explicit alignment.
 
 ## Best Next Transplants
 

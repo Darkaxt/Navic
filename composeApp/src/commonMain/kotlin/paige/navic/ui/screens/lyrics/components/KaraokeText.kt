@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.ResolvedTextDirection
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
@@ -59,6 +58,7 @@ fun LyricsScreenKaraokeText(
 			layout.getBidiRunDirection(layout.getLineStart(lineIndex)) == ResolvedTextDirection.Rtl
 		}
 	} ?: false
+	val lyricsAlignment = preferenceManager.lyricsAlignment.textAlign(isRtl)
 
 	val inactiveAlpha = if (lyricsBrightInactive) 0.9f else 0.35f
 
@@ -72,7 +72,7 @@ fun LyricsScreenKaraokeText(
 			text = text,
 			fontSize = lyricsFontSize,
 			fontWeight = FontWeight.Bold,
-			textAlign = if (isRtl) TextAlign.End else TextAlign.Start,
+			textAlign = lyricsAlignment,
 			style = MaterialTheme.typography.headlineLargeEmphasized,
 			color = if (lyricsBrightInactive) Color.White.copy(alpha = alphaTransition * 0.4f)
 					else MaterialTheme.colorScheme.onSurface.copy(alpha = alphaTransition * 0.4f),
@@ -85,7 +85,7 @@ fun LyricsScreenKaraokeText(
 				text = text,
 				fontSize = lyricsFontSize,
 				fontWeight = FontWeight.Bold,
-				textAlign = if (isRtl) TextAlign.End else TextAlign.Start,
+				textAlign = lyricsAlignment,
 				style = MaterialTheme.typography.headlineLargeEmphasized,
 				color = Color.White,
 				modifier = Modifier

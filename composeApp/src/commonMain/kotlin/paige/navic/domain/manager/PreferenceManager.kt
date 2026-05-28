@@ -11,6 +11,7 @@ import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.MarqueeSpeed
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
@@ -52,6 +53,7 @@ class PreferenceManager(
 	var lyricsBlur by preference(false)
 	var lyricsBrightInactive by preference(false)
 	var lyricsFontSize by preference(LyricsFontSize.Medium)
+	var lyricsAlignment by preference(LyricsAlignment.Auto)
 	var enableScrobbling by preference(true)
 	var scrobblePercentage by preference(.5f)
 	var minDurationToScrobble by preference(30f)
