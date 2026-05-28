@@ -8,6 +8,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
+import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
 import android.content.ComponentName
 import android.content.Context
@@ -75,11 +76,12 @@ import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
-import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
 import paige.navic.domain.models.QueueAutoFillRemainingTrigger
+import paige.navic.domain.models.replayGainLoudnessBoostMillibels
+import paige.navic.domain.models.replayGainVolumeMultiplier
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
 import paige.navic.domain.models.shouldAutoFillQueue
@@ -100,7 +102,6 @@ import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
-import paige.navic.util.core.effectiveGain
 import java.io.File
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -119,6 +120,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var bassBoostAudioSessionId: Int? = null
 	private var reverb: PresetReverb? = null
 	private var reverbAudioSessionId: Int? = null
+	private var replayGainLoudnessEnhancer: LoudnessEnhancer? = null
+	private var replayGainLoudnessAudioSessionId: Int? = null
+	private var replayGainLoudnessTargetGainMillibels: Int? = null
 
 	private val connectivityManager: ConnectivityManager by inject()
 
@@ -215,8 +219,18 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-		if (intent?.action == ACTION_REFRESH_AUDIO_EFFECTS) {
-			applyAudioEffects()
+		when (intent?.action) {
+			ACTION_REFRESH_AUDIO_EFFECTS -> applyAudioEffects()
+			ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST -> {
+				replayGainLoudnessTargetGainMillibels = if (
+					intent.getBooleanExtra(EXTRA_REPLAY_GAIN_LOUDNESS_ENABLED, false)
+				) {
+					intent.getIntExtra(EXTRA_REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB, 0)
+				} else {
+					null
+				}
+				applyReplayGainLoudnessBoost()
+			}
 		}
 		return super.onStartCommand(intent, flags, startId)
 	}
@@ -253,8 +267,42 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	private fun applyAudioEffects(player: ExoPlayer? = exoPlayer) {
+		applyReplayGainLoudnessBoost(player)
 		applyBassBoost(player)
 		applyReverb(player)
+	}
+
+	private fun applyReplayGainLoudnessBoost(player: ExoPlayer? = exoPlayer) {
+		val targetGain = replayGainLoudnessTargetGainMillibels
+		val audioSessionId = player?.audioSessionId
+		if (targetGain == null || audioSessionId == null || audioSessionId <= 0) {
+			releaseReplayGainLoudnessBoost()
+			return
+		}
+
+		runCatching {
+			if (replayGainLoudnessAudioSessionId != audioSessionId) {
+				releaseReplayGainLoudnessBoost()
+				replayGainLoudnessEnhancer = LoudnessEnhancer(audioSessionId)
+				replayGainLoudnessAudioSessionId = audioSessionId
+			}
+			replayGainLoudnessEnhancer?.setTargetGain(targetGain)
+			replayGainLoudnessEnhancer?.enabled = true
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "ReplayGain loudness boost unavailable", error)
+			releaseReplayGainLoudnessBoost()
+		}
+	}
+
+	private fun releaseReplayGainLoudnessBoost() {
+		runCatching {
+			replayGainLoudnessEnhancer?.enabled = false
+			replayGainLoudnessEnhancer?.release()
+		}.onFailure { error ->
+			Logger.w("PlaybackService", "Failed to release ReplayGain loudness boost", error)
+		}
+		replayGainLoudnessEnhancer = null
+		replayGainLoudnessAudioSessionId = null
 	}
 
 	private fun applyBassBoost(player: ExoPlayer?) {
@@ -333,6 +381,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	private fun releaseAudioEffects(player: ExoPlayer? = exoPlayer) {
+		releaseReplayGainLoudnessBoost()
 		releaseBassBoost()
 		releaseReverb(player)
 	}
@@ -456,6 +505,12 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	companion object {
 		private const val ACTION_REFRESH_AUDIO_EFFECTS =
 			"paige.navic.shared.action.REFRESH_AUDIO_EFFECTS"
+		private const val ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST =
+			"paige.navic.shared.action.SET_REPLAY_GAIN_LOUDNESS_BOOST"
+		private const val EXTRA_REPLAY_GAIN_LOUDNESS_ENABLED =
+			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_ENABLED"
+		private const val EXTRA_REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB =
+			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB"
 
 		fun newSessionToken(context: Context): SessionToken {
 			return SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -465,6 +520,18 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			context.startService(
 				Intent(context, PlaybackService::class.java)
 					.setAction(ACTION_REFRESH_AUDIO_EFFECTS)
+			)
+		}
+
+		fun setReplayGainLoudnessBoost(
+			context: Context,
+			targetGainMillibels: Int?
+		) {
+			context.startService(
+				Intent(context, PlaybackService::class.java)
+					.setAction(ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST)
+					.putExtra(EXTRA_REPLAY_GAIN_LOUDNESS_ENABLED, targetGainMillibels != null)
+					.putExtra(EXTRA_REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB, targetGainMillibels ?: 0)
 			)
 		}
 	}
@@ -651,6 +718,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun refreshAudioEffects() {
 		runCatching {
+			applyReplayGain()
 			PlaybackService.refreshAudioEffects(application)
 		}.onFailure { error ->
 			Logger.w("MediaPlayer", "Failed to refresh audio effects", error)
@@ -703,13 +771,22 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun applyReplayGain() {
-		if (preferenceManager.replayGainMode != ReplayGainMode.Off) {
-			(_uiState.value.currentSong)?.replayGain?.let { replayGain ->
-				controller?.volume = replayGain.effectiveGain(preferenceManager.replayGainMode)
-			}
-		} else {
-			controller?.volume = 1f
-		}
+		val replayGain = _uiState.value.currentSong?.replayGain
+		val replayGainMode = preferenceManager.replayGainMode
+		val loudnessBoostEnabled = preferenceManager.replayGainLoudnessBoost
+		controller?.volume = replayGainVolumeMultiplier(
+			replayGain = replayGain,
+			mode = replayGainMode,
+			loudnessBoostEnabled = loudnessBoostEnabled
+		)
+		PlaybackService.setReplayGainLoudnessBoost(
+			application,
+			replayGainLoudnessBoostMillibels(
+				replayGain = replayGain,
+				mode = replayGainMode,
+				loudnessBoostEnabled = loudnessBoostEnabled
+			)
+		)
 	}
 
 	override fun syncPlayerWithState(state: PlayerUiState) {

@@ -56,6 +56,7 @@ import navic.composeapp.generated.resources.option_queue_swipe_actions
 import navic.composeapp.generated.resources.option_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.option_queue_swipe_start_to_end_action
 import navic.composeapp.generated.resources.option_replay_gain
+import navic.composeapp.generated.resources.option_replay_gain_loudness_boost
 import navic.composeapp.generated.resources.option_respect_audio_focus
 import navic.composeapp.generated.resources.option_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.option_resume_playback_on_startup
@@ -83,6 +84,7 @@ import navic.composeapp.generated.resources.subtitle_persistent_queue
 import navic.composeapp.generated.resources.subtitle_queue_swipe_actions
 import navic.composeapp.generated.resources.subtitle_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.subtitle_queue_swipe_start_to_end_action
+import navic.composeapp.generated.resources.subtitle_replay_gain_loudness_boost
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_startup
@@ -169,7 +171,19 @@ fun SettingsPlaybackScreen() {
 							items = ReplayGainMode.entries.toImmutableList(),
 							label = { stringResource(it.displayName) },
 							selection = preferenceManager.replayGainMode,
-							onSelect = { preferenceManager.replayGainMode = it }
+							onSelect = {
+								preferenceManager.replayGainMode = it
+								player.refreshAudioEffects()
+							}
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_replay_gain_loudness_boost)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_replay_gain_loudness_boost)) },
+							value = preferenceManager.replayGainLoudnessBoost,
+							onSetValue = {
+								preferenceManager.replayGainLoudnessBoost = it
+								player.refreshAudioEffects()
+							}
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_gapless_playback)) },

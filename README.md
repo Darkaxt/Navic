@@ -45,6 +45,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android audio fade durations for smoother pause and resume.
 * Kreate-inspired Android bass boost with an adjustable strength slider.
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
+* Kreate-inspired Android ReplayGain loudness boost can use `LoudnessEnhancer` to raise quiet ReplayGain tracks above normal volume.
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources. Similar mode now prefers live Navidrome similar-song results when available.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
@@ -98,6 +99,10 @@ Advanced users can leave the Basic Auth toggle off and add a manual `Authorizati
 ### WhatsApp training audio setup
 
 Open Settings -> Playback and turn `Respect audio focus` off. Restart music playback if the player service was already running; LidaClips video playback uses the setting when the clip screen opens.
+
+### ReplayGain loudness boost setup
+
+Open Settings -> Playback, choose a `ReplayGain` mode, then turn `ReplayGain loudness boost` on. The default stays off; when enabled on Android, Navic keeps normal ReplayGain attenuation in player volume and uses Android loudness enhancement only for positive ReplayGain gain that would otherwise be capped at normal volume. Android device audio-effect support can vary.
 
 ### Smart rewind setup
 

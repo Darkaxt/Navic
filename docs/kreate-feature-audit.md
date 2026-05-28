@@ -19,6 +19,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Audio fade: Navic now exposes an Android Playback setting for Kreate-style pause/resume fade durations while keeping immediate pause/resume as the default.
 * Bass boost: Navic now exposes an Android Playback toggle and strength slider, then applies Android `BassBoost` to the active Media3 audio session when available.
 * Reverb presets: Navic now exposes an Android Playback setting for Kreate-style `PresetReverb` choices and applies the selected auxiliary effect through the playback service's ExoPlayer session.
+* ReplayGain loudness boost: Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic now adapts the same Android effect path to Navidrome ReplayGain metadata: existing ReplayGain attenuation stays in player volume, while the optional Android Playback setting boosts only positive ReplayGain gain that would otherwise be capped at normal volume.
 * Playback pitch: Navic now adapts Kreate's playback-parameter controls by adding Android pitch adjustment to the existing Playback Speed sheet. Saved player state now preserves and normalizes both speed and pitch.
 * Queue auto-fill: Navic now adapts Kreate's queue auto-append concept as an Android Playback setting that appends songs when active playback gets near the end of a non-radio queue. It skips duplicates, skips radio items, exposes a target queue size, and can choose either random-library or current-song-similar refill sources. Similar mode prefers live Navidrome similar-song results when available, then falls back to local library similarity.
 * Start song radio: Navic now adapts Kreate's song radio action as a song-sheet and now-playing action. It starts the selected song, prefers live Navidrome similar-song results in server order, and fills the rest of the queue from locally synced songs ranked by shared artist, album, genre, and mood metadata.
@@ -49,14 +50,11 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 
 1. Device-event controls
    * Shake-to-skip and foreground volume-key track changes are adapted. Any future background hardware-button handling would need a separate design because it has broader device behavior implications.
-2. Loudness normalization
-   * Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain, so this should not be copied directly without deciding how the two gain systems interact.
-3. Broader Discover behavior
+2. Broader Discover behavior
    * Auto-fill and Start song radio now prefer Navidrome similar-song results before local similarity. A broader Discover mode could still remove known liked/playlist songs from the current queue, similar to Kreate, but needs product definition for a Navidrome library client.
 
 ## Higher-Risk Candidates
 
-* Loudness normalization: Kreate uses YouTube loudness metadata plus Android `LoudnessEnhancer`. Navic already has ReplayGain support, so this needs design work to avoid conflicting gain paths.
 * Volume buttons change song and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
 * Discover-style queue generation: Start song radio and similar auto-fill now cover the song-seeded queue flow with Navidrome similar-song support; broader Discover behavior still needs product definition for a Navidrome library client.
 * Visualizers, thumbnail animations, and extensive player layout variants: high UI churn and likely not worth transplanting until core playback/video behavior is stable.
@@ -64,5 +62,6 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 ## Recommended Order
 
 1. Smoke-test bass boost, reverb, and the system equalizer launcher on a real Android device.
-2. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
-3. Design broader Discover behavior if queue filtering beyond similar-song radio is still wanted.
+2. Smoke-test ReplayGain loudness boost with real Navidrome ReplayGain metadata on a device that supports Android `LoudnessEnhancer`.
+3. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
+4. Design broader Discover behavior if queue filtering beyond similar-song radio is still wanted.

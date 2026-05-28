@@ -83,6 +83,7 @@
 	<string name="subtitle_pause_between_songs">Pause briefly after automatic track changes. Manual skips stay immediate</string>
 	<string name="subtitle_smart_rewind">After this point, Previous restarts the current song instead of jumping back</string>
 	<string name="subtitle_pause_playback_on_volume_zero">Pause when Android media volume is muted, then resume if Navic paused it. Takes effect after playback restarts</string>
+	<string name="subtitle_replay_gain_loudness_boost">Uses Android loudness enhancement to raise quiet ReplayGain tracks above normal volume</string>
 	<string name="subtitle_audio_fade">Fade volume when pausing or resuming playback</string>
 	<string name="subtitle_bass_boost">Boost low frequencies for the active Android player session</string>
 	<string name="subtitle_audio_reverb">Apply an Android reverb preset to the active player session</string>
@@ -181,6 +182,7 @@
 	<string name="option_pause_between_songs">Pause between songs</string>
 	<string name="option_smart_rewind">Smart rewind</string>
 	<string name="option_pause_playback_on_volume_zero">Pause when volume reaches zero</string>
+	<string name="option_replay_gain_loudness_boost">ReplayGain loudness boost</string>
 	<string name="option_audio_fade">Audio fade</string>
 	<string name="option_bass_boost">Bass boost</string>
 	<string name="option_bass_boost_strength">Bass boost strength</string>

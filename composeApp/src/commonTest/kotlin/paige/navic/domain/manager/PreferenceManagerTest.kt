@@ -198,6 +198,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun replayGainLoudnessBoostDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.replayGainLoudnessBoost)
+
+		manager.replayGainLoudnessBoost = true
+
+		assertTrue(manager.replayGainLoudnessBoost)
+	}
+
+	@Test
 	fun pauseBetweenSongsDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
