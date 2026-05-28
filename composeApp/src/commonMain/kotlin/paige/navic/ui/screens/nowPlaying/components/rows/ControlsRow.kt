@@ -2,6 +2,7 @@ package paige.navic.ui.screens.nowPlaying.components.rows
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.NowPlayingControlsLayoutBlock
 import paige.navic.domain.models.nowPlayingControlsLayoutBlocks
+import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsTap
 import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsSwipeUp
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
@@ -49,6 +51,17 @@ fun NowPlayingControlsRow(
 	val scale by animateFloatAsState(if (visible) 1f else 0f)
 	val offset by animateDpAsState(if (visible) 0.dp else 200.dp)
 	val openQueueOnSwipeUp = preferenceManager.openQueueOnNowPlayingControlsSwipeUp
+	val openQueueOnTap = shouldOpenQueueFromNowPlayingControlsTap(
+		enabled = preferenceManager.openQueueOnNowPlayingControlsTap,
+		hasCurrentSong = hasCurrentSong
+	)
+
+	fun openQueue() {
+		if (backStack.lastOrNull() !is Screen.Queue) {
+			platformContext.clickSound()
+			backStack.add(Screen.Queue)
+		}
+	}
 
 	LaunchedEffect(Unit) {
 		delay(200.milliseconds)
@@ -85,10 +98,7 @@ fun NowPlayingControlsRow(
 									)
 								) {
 									openedQueue = true
-									if (backStack.lastOrNull() !is Screen.Queue) {
-										platformContext.clickSound()
-										backStack.add(Screen.Queue)
-									}
+									openQueue()
 								}
 							},
 							onDragEnd = {
@@ -122,7 +132,15 @@ fun NowPlayingControlsRow(
 						showTechnicalInfo = preferenceManager.nowPlayingSongInfo
 					)
 
-					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow()
+					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow(
+						modifier = if (openQueueOnTap) {
+							Modifier.clickable {
+								openQueue()
+							}
+						} else {
+							Modifier
+						}
+					)
 				}
 			}
 	}

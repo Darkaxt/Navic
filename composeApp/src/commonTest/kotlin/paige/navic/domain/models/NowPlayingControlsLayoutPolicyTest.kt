@@ -41,4 +41,29 @@ class NowPlayingControlsLayoutPolicyTest {
 			nowPlayingPlaybackButtonsArrangement(spaceControlsEvenly = true)
 		)
 	}
+
+	@Test
+	fun tapControlsForQueueRequiresSettingAndCurrentSong() {
+		assertEquals(
+			false,
+			shouldOpenQueueFromNowPlayingControlsTap(
+				enabled = false,
+				hasCurrentSong = true
+			)
+		)
+		assertEquals(
+			false,
+			shouldOpenQueueFromNowPlayingControlsTap(
+				enabled = true,
+				hasCurrentSong = false
+			)
+		)
+		assertEquals(
+			true,
+			shouldOpenQueueFromNowPlayingControlsTap(
+				enabled = true,
+				hasCurrentSong = true
+			)
+		)
+	}
 }

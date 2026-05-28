@@ -33,3 +33,9 @@ fun nowPlayingPlaybackButtonsArrangement(
 	} else {
 		NowPlayingPlaybackButtonsArrangement.Compact
 	}
+
+fun shouldOpenQueueFromNowPlayingControlsTap(
+	enabled: Boolean,
+	hasCurrentSong: Boolean
+): Boolean =
+	enabled && hasCurrentSong

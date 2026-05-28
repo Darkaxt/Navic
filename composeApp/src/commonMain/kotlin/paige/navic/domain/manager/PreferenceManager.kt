@@ -84,6 +84,7 @@ class PreferenceManager(
 	var swapNowPlayingControlsAndTimeline by preference(false)
 	var spaceNowPlayingPlaybackControlsEvenly by preference(false)
 	var openQueueOnNowPlayingControlsSwipeUp by preference(false)
+	var openQueueOnNowPlayingControlsTap by preference(false)
 	var showNowPlayingShuffleControl by preference(true)
 	var showNowPlayingRepeatControl by preference(true)
 	var showNowPlayingIndicator by preference(true)

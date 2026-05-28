@@ -56,7 +56,9 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.playPauseIconPainter
 
 @Composable
-fun NowPlayingButtonsRow() {
+fun NowPlayingButtonsRow(
+	modifier: Modifier = Modifier
+) {
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -95,7 +97,7 @@ fun NowPlayingButtonsRow() {
 	}
 
 	Row(
-		modifier = Modifier
+		modifier = modifier
 			.widthIn(max = 400.dp)
 			.then(if (compactButtons) Modifier else Modifier.fillMaxWidth()),
 		horizontalArrangement = if (compactButtons) {

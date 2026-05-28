@@ -416,14 +416,17 @@ class PreferenceManagerTest {
 		assertFalse(manager.swapNowPlayingControlsAndTimeline)
 		assertFalse(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertFalse(manager.openQueueOnNowPlayingControlsSwipeUp)
+		assertFalse(manager.openQueueOnNowPlayingControlsTap)
 
 		manager.swapNowPlayingControlsAndTimeline = true
 		manager.spaceNowPlayingPlaybackControlsEvenly = true
 		manager.openQueueOnNowPlayingControlsSwipeUp = true
+		manager.openQueueOnNowPlayingControlsTap = true
 
 		assertTrue(manager.swapNowPlayingControlsAndTimeline)
 		assertTrue(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertTrue(manager.openQueueOnNowPlayingControlsSwipeUp)
+		assertTrue(manager.openQueueOnNowPlayingControlsTap)
 	}
 
 	@Test

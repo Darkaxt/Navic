@@ -115,6 +115,7 @@
 	<string name="subtitle_now_playing_swap_controls_and_timeline">Move playback buttons above the progress bar and time row</string>
 	<string name="subtitle_now_playing_space_playback_controls_evenly">Spread the main playback buttons evenly across the available row width</string>
 	<string name="subtitle_now_playing_swipe_up_controls_for_queue">Open the Queue by swiping up on the Now Playing controls area</string>
+	<string name="subtitle_now_playing_tap_controls_for_queue">Open the Queue by tapping empty space in the Now Playing controls area</string>
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_repeat_control">Show the repeat button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_indicator">Show the animated waveform beside the current song in lists and the queue</string>
@@ -165,6 +166,7 @@
 	<string name="option_now_playing_swap_controls_and_timeline">Swap controls and timeline</string>
 	<string name="option_now_playing_space_playback_controls_evenly">Space playback controls evenly</string>
 	<string name="option_now_playing_swipe_up_controls_for_queue">Swipe up controls for queue</string>
+	<string name="option_now_playing_tap_controls_for_queue">Tap controls for queue</string>
 	<string name="option_now_playing_shuffle_control">Show shuffle control</string>
 	<string name="option_now_playing_repeat_control">Show repeat control</string>
 	<string name="option_now_playing_indicator">Now Playing indicator</string>
