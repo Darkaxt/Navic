@@ -6,6 +6,7 @@ import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
+import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
@@ -393,12 +394,15 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertTrue(manager.showNowPlayingArtwork)
+		assertEquals(NowPlayingArtworkSize.Biggest, manager.nowPlayingArtworkSize)
 		assertFalse(manager.tapArtworkForLyrics)
 
 		manager.showNowPlayingArtwork = false
+		manager.nowPlayingArtworkSize = NowPlayingArtworkSize.Medium
 		manager.tapArtworkForLyrics = true
 
 		assertFalse(manager.showNowPlayingArtwork)
+		assertEquals(NowPlayingArtworkSize.Medium, manager.nowPlayingArtworkSize)
 		assertTrue(manager.tapArtworkForLyrics)
 	}
 

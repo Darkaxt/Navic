@@ -18,6 +18,7 @@ import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavigationBarLabelVisibility
 import paige.navic.domain.models.settings.NavigationBarStyle
+import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.OfflineMode
@@ -68,6 +69,7 @@ class PreferenceManager(
 	var customMaxBitrateCellular by preference(0)
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var showNowPlayingArtwork by preference(true)
+	var nowPlayingArtworkSize by preference(NowPlayingArtworkSize.Biggest)
 	var nowPlayingSongInfo by preference(true)
 	var showNowPlayingUpNext by preference(false)
 	var showNowPlayingUpNextArtwork by preference(true)

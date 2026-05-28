@@ -17,7 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
@@ -31,15 +33,17 @@ fun NowPlayingArtwork(
 	song: DomainSong,
 	onClick: (() -> Unit)? = null
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 
 	val isRadio = song.id.startsWith("radio_")
 
 	val padding by animateDpAsState(
-		targetValue = if (playerState.isPaused || playerState.currentSong?.id != song.id)
-			48.dp
-		else 16.dp
+		targetValue = nowPlayingArtworkPaddingDp(
+			size = preferenceManager.nowPlayingArtworkSize,
+			isPausedOrInactive = playerState.isPaused || playerState.currentSong?.id != song.id
+		).dp
 	)
 	Box(
 		contentAlignment = Alignment.Center,

@@ -22,6 +22,7 @@ import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_artwork
+import navic.composeapp.generated.resources.option_now_playing_artwork_size
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
@@ -52,6 +53,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.Form
@@ -138,6 +140,16 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.showNowPlayingArtwork,
 						onSetValue = { preferenceManager.showNowPlayingArtwork = it }
 					)
+
+					AnimatedVisibility(preferenceManager.showNowPlayingArtwork) {
+						SettingSelectionRow(
+							items = NowPlayingArtworkSize.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							selection = preferenceManager.nowPlayingArtworkSize,
+							onSelect = { preferenceManager.nowPlayingArtworkSize = it },
+							title = { Text(stringResource(Res.string.option_now_playing_artwork_size)) }
+						)
+					}
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_now_playing_song_info)) },

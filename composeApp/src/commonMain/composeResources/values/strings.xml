@@ -134,6 +134,12 @@
 	<string name="option_now_playing_background_style_static">Static</string>
 	<string name="option_now_playing_background_style_dynamic">Dynamic</string>
 	<string name="option_now_playing_artwork">Show artwork</string>
+	<string name="option_now_playing_artwork_size">Artwork size</string>
+	<string name="option_now_playing_artwork_size_small">Small</string>
+	<string name="option_now_playing_artwork_size_medium">Medium</string>
+	<string name="option_now_playing_artwork_size_big">Big</string>
+	<string name="option_now_playing_artwork_size_biggest">Biggest</string>
+	<string name="option_now_playing_artwork_size_expanded">Expanded</string>
 	<string name="option_accent_colour">Accent colour</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
