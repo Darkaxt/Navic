@@ -178,6 +178,7 @@ fun NowPlayingScreen() {
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							isLandscape = true,
+							hasCurrentSong = song != null,
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
@@ -200,6 +201,7 @@ fun NowPlayingScreen() {
 						NowPlayingControlsRow(
 							modifier = Modifier.weight(1f),
 							isLandscape = false,
+							hasCurrentSong = song != null,
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,

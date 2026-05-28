@@ -51,6 +51,7 @@ import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_start_radio_action
 import navic.composeapp.generated.resources.option_now_playing_swap_controls_and_timeline
+import navic.composeapp.generated.resources.option_now_playing_swipe_up_controls_for_queue
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_now_playing_up_next
 import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
@@ -72,6 +73,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_shrink_artwork_
 import navic.composeapp.generated.resources.subtitle_now_playing_space_playback_controls_evenly
 import navic.composeapp.generated.resources.subtitle_now_playing_start_radio_action
 import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_and_timeline
+import navic.composeapp.generated.resources.subtitle_now_playing_swipe_up_controls_for_queue
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_count
@@ -265,6 +267,13 @@ fun SettingsNowPlayingScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_space_playback_controls_evenly)) },
 						value = preferenceManager.spaceNowPlayingPlaybackControlsEvenly,
 						onSetValue = { preferenceManager.spaceNowPlayingPlaybackControlsEvenly = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_swipe_up_controls_for_queue)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_swipe_up_controls_for_queue)) },
+						value = preferenceManager.openQueueOnNowPlayingControlsSwipeUp,
+						onSetValue = { preferenceManager.openQueueOnNowPlayingControlsSwipeUp = it }
 					)
 
 					SettingSwitchRow(

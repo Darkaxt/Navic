@@ -83,6 +83,7 @@ class PreferenceManager(
 	var showNowPlayingRemainingTime by preference(false)
 	var swapNowPlayingControlsAndTimeline by preference(false)
 	var spaceNowPlayingPlaybackControlsEvenly by preference(false)
+	var openQueueOnNowPlayingControlsSwipeUp by preference(false)
 	var showNowPlayingShuffleControl by preference(true)
 	var showNowPlayingRepeatControl by preference(true)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)

@@ -2,11 +2,13 @@ package paige.navic.ui.screens.nowPlaying.components.rows
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,9 +22,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
+import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.NowPlayingControlsLayoutBlock
 import paige.navic.domain.models.nowPlayingControlsLayoutBlocks
+import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsSwipeUp
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -30,15 +36,19 @@ import kotlin.time.Duration.Companion.milliseconds
 fun NowPlayingControlsRow(
 	modifier: Modifier = Modifier,
 	isLandscape: Boolean,
+	hasCurrentSong: Boolean,
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
 	onSetSongRating: (Int) -> Unit
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
+	val platformContext = LocalPlatformContext.current
 	var visible by rememberSaveable { mutableStateOf(false) }
 	val scale by animateFloatAsState(if (visible) 1f else 0f)
 	val offset by animateDpAsState(if (visible) 0.dp else 200.dp)
+	val openQueueOnSwipeUp = preferenceManager.openQueueOnNowPlayingControlsSwipeUp
 
 	LaunchedEffect(Unit) {
 		delay(200.milliseconds)
@@ -46,9 +56,53 @@ fun NowPlayingControlsRow(
 	}
 
 	Column(
-		modifier = modifier.scale(scale).offset {
-			IntOffset(x = 0, y = offset.roundToPx())
-		},
+		modifier = modifier
+			.scale(scale)
+			.offset {
+				IntOffset(x = 0, y = offset.roundToPx())
+			}
+			.then(
+				if (!openQueueOnSwipeUp || !hasCurrentSong) {
+					Modifier
+				} else {
+					Modifier.pointerInput(openQueueOnSwipeUp, hasCurrentSong) {
+						var accumulatedVerticalDrag = 0f
+						var openedQueue = false
+
+						detectVerticalDragGestures(
+							onDragStart = {
+								accumulatedVerticalDrag = 0f
+								openedQueue = false
+							},
+							onVerticalDrag = { _, dragAmount ->
+								if (openedQueue) return@detectVerticalDragGestures
+
+								accumulatedVerticalDrag += dragAmount
+								if (shouldOpenQueueFromNowPlayingControlsSwipeUp(
+										enabled = openQueueOnSwipeUp,
+										hasCurrentSong = hasCurrentSong,
+										accumulatedVerticalDragPx = accumulatedVerticalDrag
+									)
+								) {
+									openedQueue = true
+									if (backStack.lastOrNull() !is Screen.Queue) {
+										platformContext.clickSound()
+										backStack.add(Screen.Queue)
+									}
+								}
+							},
+							onDragEnd = {
+								accumulatedVerticalDrag = 0f
+								openedQueue = false
+							},
+							onDragCancel = {
+								accumulatedVerticalDrag = 0f
+								openedQueue = false
+							}
+						)
+					}
+				}
+			),
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.Center
 	) {
