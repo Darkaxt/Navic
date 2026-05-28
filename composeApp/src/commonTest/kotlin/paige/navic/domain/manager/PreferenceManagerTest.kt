@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
+import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
@@ -360,6 +361,17 @@ class PreferenceManagerTest {
 		manager.tapArtworkForLyrics = true
 
 		assertTrue(manager.tapArtworkForLyrics)
+	}
+
+	@Test
+	fun lyricsFontSizeDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(LyricsFontSize.Medium, manager.lyricsFontSize)
+
+		manager.lyricsFontSize = LyricsFontSize.Large
+
+		assertEquals(LyricsFontSize.Large, manager.lyricsFontSize)
 	}
 
 	@Test

@@ -45,6 +45,7 @@ import navic.composeapp.generated.resources.option_lyrics_autoscroll
 import navic.composeapp.generated.resources.option_lyrics_beat_by_beat
 import navic.composeapp.generated.resources.option_lyrics_blur
 import navic.composeapp.generated.resources.option_lyrics_bright_inactive
+import navic.composeapp.generated.resources.option_lyrics_font_size
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
@@ -111,6 +112,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AudioReverbPreset
+import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.settings.SongSwipeAction
@@ -483,6 +485,14 @@ fun SettingsPlaybackScreen() {
 						title = { Text(stringResource(Res.string.option_lyrics_bright_inactive)) },
 						value = preferenceManager.lyricsBrightInactive,
 						onSetValue = { preferenceManager.lyricsBrightInactive = it }
+					)
+
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_lyrics_font_size)) },
+						items = LyricsFontSize.entries.toImmutableList(),
+						label = { stringResource(it.displayName) },
+						selection = preferenceManager.lyricsFontSize,
+						onSelect = { preferenceManager.lyricsFontSize = it }
 					)
 
 					FormRow(

@@ -52,6 +52,7 @@ fun LyricsScreenKaraokeText(
 
 	val lyricsBeatByBeat = preferenceManager.lyricsBeatByBeat
 	val lyricsBrightInactive = preferenceManager.lyricsBrightInactive
+	val lyricsFontSize = preferenceManager.lyricsFontSize.sizeSp.sp
 
 	val isRtl = textLayoutResult?.let { layout ->
 		(0 until layout.lineCount).any { lineIndex ->
@@ -69,7 +70,7 @@ fun LyricsScreenKaraokeText(
 	Box(modifier = modifier.clickable { onClick() }) {
 		Text(
 			text = text,
-			fontSize = 32.sp,
+			fontSize = lyricsFontSize,
 			fontWeight = FontWeight.Bold,
 			textAlign = if (isRtl) TextAlign.End else TextAlign.Start,
 			style = MaterialTheme.typography.headlineLargeEmphasized,
@@ -82,7 +83,7 @@ fun LyricsScreenKaraokeText(
 		if (isActive) {
 			Text(
 				text = text,
-				fontSize = 32.sp,
+				fontSize = lyricsFontSize,
 				fontWeight = FontWeight.Bold,
 				textAlign = if (isRtl) TextAlign.End else TextAlign.Start,
 				style = MaterialTheme.typography.headlineLargeEmphasized,

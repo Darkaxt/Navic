@@ -154,6 +154,11 @@
 	<string name="option_lyrics_keep_alive">Keep screen on in lyrics view</string>
 	<string name="option_lyrics_blur">Lyrics blur</string>
 	<string name="option_lyrics_bright_inactive">Bright inactive lyrics</string>
+	<string name="option_lyrics_font_size">Lyrics font size</string>
+	<string name="option_lyrics_font_size_small">Small</string>
+	<string name="option_lyrics_font_size_medium">Medium</string>
+	<string name="option_lyrics_font_size_large">Large</string>
+	<string name="option_lyrics_font_size_xlarge">Extra large</string>
 	<string name="option_share_expires">Expires</string>
 	<string name="option_account_navidrome_instance">Instance URL</string>
 	<string name="option_account_username">Username</string>

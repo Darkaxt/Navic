@@ -62,6 +62,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs.
 * Optional Now Playing artwork tap action that opens Lyrics.
+* Kreate-inspired lyrics font size selector for the lyrics screen.
 
 ### Library and playlist reliability
 
@@ -160,6 +161,10 @@ Open Settings -> Now Playing and turn `Show Up next` on. Use `Up next count` to 
 ### Now Playing seek buttons setup
 
 Open Settings -> Now Playing and turn `Show seek buttons` on. Navic adds 10-second back and forward buttons beside the time row. The setting is off by default, so the current Now Playing layout stays unchanged unless you enable it.
+
+### Lyrics font size setup
+
+Open Settings -> Playback -> Lyrics -> `Lyrics font size` to choose Small, Medium, Large, or Extra large. Medium preserves Navic's previous lyrics text size.
 
 ### LidaClips setup
 
