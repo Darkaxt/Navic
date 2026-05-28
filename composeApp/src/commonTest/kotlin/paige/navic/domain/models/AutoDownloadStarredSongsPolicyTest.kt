@@ -49,4 +49,49 @@ class AutoDownloadStarredSongsPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun autoDownloadOnlyRunsForOnlineNewlyStarredAlbumsWithMissingDownloads() {
+		assertTrue(
+			shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = true,
+				isStarring = true,
+				isOnline = true,
+				hasSongsToDownload = true
+			)
+		)
+
+		assertFalse(
+			shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = false,
+				isStarring = true,
+				isOnline = true,
+				hasSongsToDownload = true
+			)
+		)
+		assertFalse(
+			shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = true,
+				isStarring = false,
+				isOnline = true,
+				hasSongsToDownload = true
+			)
+		)
+		assertFalse(
+			shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = true,
+				isStarring = true,
+				isOnline = false,
+				hasSongsToDownload = true
+			)
+		)
+		assertFalse(
+			shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = true,
+				isStarring = true,
+				isOnline = true,
+				hasSongsToDownload = false
+			)
+		)
+	}
 }

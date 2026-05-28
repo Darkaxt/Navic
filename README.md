@@ -100,11 +100,13 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
+* Synthetic `[Unknown Artist]` entries are hidden from artist rows, artist lists, and artist search results while the underlying songs and albums remain available.
 
 ### Data and privacy controls
 
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
+* Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
 
 ### LidaClips music videos
 

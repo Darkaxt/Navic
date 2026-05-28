@@ -14,8 +14,12 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.SyncActionType
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.domain.models.shouldAutoDownloadStarredAlbum
 import paige.navic.ui.core.UiState
 import paige.navic.util.core.toSqlQuery
 import kotlin.time.Clock
@@ -24,7 +28,10 @@ class AlbumRepository(
 	private val albumDao: AlbumDao,
 	private val downloadDao: DownloadDao,
 	private val syncManager: SyncManager,
-	private val dbRepository: DbRepository
+	private val dbRepository: DbRepository,
+	private val preferenceManager: PreferenceManager,
+	private val connectivityManager: ConnectivityManager,
+	private val downloadManager: DownloadManager
 ) {
 	private suspend fun getLocalData(
 		listType: DomainAlbumListType,
@@ -80,6 +87,15 @@ class AlbumRepository(
 		)
 		albumDao.insertAlbum(starredEntity)
 		syncManager.enqueueAction(SyncActionType.STAR, album.id)
+		if (shouldAutoDownloadStarredAlbum(
+				autoDownloadStarredAlbums = preferenceManager.autoDownloadStarredAlbums,
+				isStarring = true,
+				isOnline = connectivityManager.isOnline.value,
+				hasSongsToDownload = album.songs.any { !downloadManager.isDownloaded(it.id) }
+			)
+		) {
+			downloadManager.downloadCollection(album)
+		}
 	}
 
 	suspend fun unstarAlbum(album: DomainAlbum) {

@@ -69,8 +69,9 @@ import navic.composeapp.generated.resources.info_sync_hours_ago
 import navic.composeapp.generated.resources.info_sync_just_now
 import navic.composeapp.generated.resources.info_sync_mins_ago
 import navic.composeapp.generated.resources.info_sync_never
-import navic.composeapp.generated.resources.option_cover_art_quality
+import navic.composeapp.generated.resources.option_auto_download_starred_albums
 import navic.composeapp.generated.resources.option_auto_download_starred_songs
+import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
@@ -79,6 +80,7 @@ import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pause_search_history
 import navic.composeapp.generated.resources.option_pending_actions
+import navic.composeapp.generated.resources.subtitle_auto_download_starred_albums
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_songs
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_lida_clips
@@ -363,6 +365,12 @@ fun SettingsDataStorageScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_auto_download_starred_songs)) },
 						value = preferenceManager.autoDownloadStarredSongs,
 						onSetValue = { preferenceManager.autoDownloadStarredSongs = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_auto_download_starred_albums)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_auto_download_starred_albums)) },
+						value = preferenceManager.autoDownloadStarredAlbums,
+						onSetValue = { preferenceManager.autoDownloadStarredAlbums = it }
 					)
 
 					FormRow(

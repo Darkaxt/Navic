@@ -14,6 +14,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.models.visibleArtistListEntries
 import paige.navic.ui.core.UiState
 import kotlin.time.Clock
 
@@ -29,7 +30,10 @@ class ArtistRepository(
 			DomainArtistListType.AlphabeticalByName -> artistDao.getArtistsAlphabeticalByName()
 			DomainArtistListType.Random -> artistDao.getArtistsRandom()
 			DomainArtistListType.Starred -> artistDao.getArtistsStarred()
-		}.map { it.toDomainModel() }.toImmutableList()
+		}
+			.map { it.toDomainModel() }
+			.visibleArtistListEntries()
+			.toImmutableList()
 	}
 
 	private suspend fun refreshLocalData(

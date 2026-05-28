@@ -682,9 +682,12 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.autoDownloadStarredSongs)
+		assertFalse(manager.autoDownloadStarredAlbums)
 
 		manager.autoDownloadStarredSongs = true
+		manager.autoDownloadStarredAlbums = true
 
 		assertTrue(manager.autoDownloadStarredSongs)
+		assertTrue(manager.autoDownloadStarredAlbums)
 	}
 }

@@ -9,6 +9,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.models.visibleArtistListEntries
 import paige.navic.util.core.Logger
 
 class SearchRepository(
@@ -36,7 +37,7 @@ class SearchRepository(
 				val localPlaylists = playlistDao.searchPlaylistsList(query)
 
 				(albums.map { it.toDomainModel() }
-					+ artists.map { it.toDomainModel() }
+					+ artists.map { it.toDomainModel() }.visibleArtistListEntries()
 					+ songs.map { it.toDomainModel() }
 					+ localPlaylists.map { it.toDomainModel() })
 			} catch (e: Exception) {
@@ -52,7 +53,9 @@ class SearchRepository(
 
 	private suspend fun performLocalSearch(query: String): List<Any> {
 		val localAlbums = albumDao.searchAlbumsList(query).map { it.toDomainModel() }
-		val localArtists = artistDao.searchArtistsList(query).map { it.toDomainModel() }
+		val localArtists = artistDao.searchArtistsList(query)
+			.map { it.toDomainModel() }
+			.visibleArtistListEntries()
 		val localSongs = songDao.searchSongsList(query).map { it.toDomainModel() }
 		val localPlaylists = playlistDao.searchPlaylistsList(query).map { it.toDomainModel() }
 

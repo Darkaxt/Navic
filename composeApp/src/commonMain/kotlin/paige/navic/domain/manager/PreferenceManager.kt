@@ -162,6 +162,7 @@ class PreferenceManager(
 	var pauseSearchHistory by preference(false)
 	var searchHistoryEntries by preference("")
 	var autoDownloadStarredSongs by preference(false)
+	var autoDownloadStarredAlbums by preference(false)
 
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)
