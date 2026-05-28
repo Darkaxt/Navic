@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_blur
+import navic.composeapp.generated.resources.option_now_playing_background_bottom_gradient
 import navic.composeapp.generated.resources.option_now_playing_background_dim
 import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_add_to_playlist_action
@@ -67,6 +68,7 @@ import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
 import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
+import navic.composeapp.generated.resources.subtitle_now_playing_background_bottom_gradient
 import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
@@ -202,6 +204,17 @@ fun SettingsNowPlayingScreen() {
 							},
 							valueRange = MinNowPlayingBackgroundDimPercent.toFloat()..
 								MaxNowPlayingBackgroundDimPercent.toFloat()
+						)
+					}
+
+					AnimatedVisibility(
+						preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
+					) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_now_playing_background_bottom_gradient)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_background_bottom_gradient)) },
+							value = preferenceManager.nowPlayingBackgroundBottomGradient,
+							onSetValue = { preferenceManager.nowPlayingBackgroundBottomGradient = it }
 						)
 					}
 

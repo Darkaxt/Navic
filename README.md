@@ -65,6 +65,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Now Playing action visibility toggles for Lyrics, Queue, More, Music Video, Playback Speed, Sleep Timer, Start Radio, Discover Queue, Download, Add to Playlist, and Equalizer actions.
 * Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired configurable Now Playing dynamic background blur and dim strength.
+* Kreate-inspired optional bottom gradient for the dynamic Now Playing background.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired Now Playing artwork swipe control for disabling horizontal artwork swipes without disabling mini-player swipes.
 * Kreate-inspired optional rotating artwork for the active Now Playing cover.
@@ -199,7 +200,7 @@ Open Settings -> Now Playing -> Actions to hide or show Kreate-style song menu i
 
 ### Now Playing background setup
 
-Open Settings -> Now Playing and keep `Background style` set to `Dynamic` to use the animated cover-art background. `Background blur` and `Background dim` adjust the blur strength and dark overlay; defaults are 80dp and 40%, matching the previous Navic look.
+Open Settings -> Now Playing and keep `Background style` set to `Dynamic` to use the animated cover-art background. `Background blur` and `Background dim` adjust the blur strength and dark overlay; defaults are 80dp and 40%, matching the previous Navic look. Turn `Bottom background gradient` on to fade the lower part of the dynamic background into the app background behind the controls. It is off by default.
 
 ### Now Playing artwork setup
 

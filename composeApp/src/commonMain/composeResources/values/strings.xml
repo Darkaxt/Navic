@@ -112,6 +112,7 @@
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_now_playing_background_blur">Adjust blur strength for the dynamic Now Playing background</string>
 	<string name="subtitle_now_playing_background_dim">Adjust the dark overlay behind player controls</string>
+	<string name="subtitle_now_playing_background_bottom_gradient">Fade the dynamic background into the app background behind the controls</string>
 	<string name="subtitle_now_playing_seek_buttons">Add back and forward buttons beside the time row. Tap for 10 seconds, long-press for 30 seconds.</string>
 	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
 	<string name="subtitle_now_playing_swap_controls_and_timeline">Move playback buttons above the progress bar and time row</string>
@@ -159,6 +160,7 @@
 	<string name="option_now_playing_background_style_dynamic">Dynamic</string>
 	<string name="option_now_playing_background_blur">Background blur</string>
 	<string name="option_now_playing_background_dim">Background dim</string>
+	<string name="option_now_playing_background_bottom_gradient">Bottom background gradient</string>
 	<string name="option_now_playing_artwork">Show artwork</string>
 	<string name="option_now_playing_artwork_size">Artwork size</string>
 	<string name="option_now_playing_artwork_swipe">Swipe artwork to change songs</string>

@@ -364,12 +364,15 @@ class PreferenceManagerTest {
 		assertEquals(NowPlayingBackgroundStyle.Dynamic, manager.nowPlayingBackgroundStyle)
 		assertEquals(80f, manager.nowPlayingBackgroundBlurDp)
 		assertEquals(40, manager.nowPlayingBackgroundDimPercent)
+		assertFalse(manager.nowPlayingBackgroundBottomGradient)
 
 		manager.nowPlayingBackgroundBlurDp = 24f
 		manager.nowPlayingBackgroundDimPercent = 25
+		manager.nowPlayingBackgroundBottomGradient = true
 
 		assertEquals(24f, manager.nowPlayingBackgroundBlurDp)
 		assertEquals(25, manager.nowPlayingBackgroundDimPercent)
+		assertTrue(manager.nowPlayingBackgroundBottomGradient)
 	}
 
 	@Test

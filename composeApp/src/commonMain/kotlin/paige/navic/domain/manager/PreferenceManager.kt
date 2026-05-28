@@ -47,6 +47,7 @@ class PreferenceManager(
 	var nowPlayingBackgroundStyle by preference(NowPlayingBackgroundStyle.Dynamic)
 	var nowPlayingBackgroundBlurDp by preference(DefaultNowPlayingBackgroundBlurDp)
 	var nowPlayingBackgroundDimPercent by preference(DefaultNowPlayingBackgroundDimPercent)
+	var nowPlayingBackgroundBottomGradient by preference(false)
 	var swipeToSkip by preference(true)
 	var tapArtworkForLyrics by preference(false)
 	var gridSize by preference(GridSize.TwoByTwo)

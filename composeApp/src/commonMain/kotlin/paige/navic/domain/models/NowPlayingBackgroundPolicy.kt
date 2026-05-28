@@ -17,3 +17,8 @@ fun nowPlayingBackgroundDimAlpha(
 ): Float = dimPercent
 	.coerceIn(MinNowPlayingBackgroundDimPercent, MaxNowPlayingBackgroundDimPercent)
 	.toFloat() / 100f
+
+fun shouldShowNowPlayingBackgroundBottomGradient(
+	enabled: Boolean,
+	isDynamicBackground: Boolean
+): Boolean = enabled && isDynamicBackground

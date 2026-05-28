@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -42,7 +43,8 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 fun BlendBackground(
 	coverArtId: String?,
 	modifier: Modifier = Modifier,
-	isPaused: Boolean = false
+	isPaused: Boolean = false,
+	showBottomGradient: Boolean = false
 ) {
 	var frameRotation by remember { mutableStateOf(0f) }
 	var topLeftRotation by remember { mutableStateOf(0f) }
@@ -159,5 +161,18 @@ fun BlendBackground(
 					drawRect(color = Color.Black.copy(alpha = dimAlpha))
 				}
 		)
+		if (showBottomGradient) {
+			Spacer(
+				modifier = Modifier
+					.fillMaxSize()
+					.background(
+						Brush.verticalGradient(
+							0f to Color.Transparent,
+							0.52f to Color.Transparent,
+							1f to MaterialTheme.colorScheme.background.copy(alpha = 0.82f)
+						)
+					)
+			)
+		}
 	}
 }

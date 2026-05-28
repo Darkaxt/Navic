@@ -17,4 +17,11 @@ class NowPlayingBackgroundPolicyTest {
 		assertEquals(0.4f, nowPlayingBackgroundDimAlpha(40))
 		assertEquals(1f, nowPlayingBackgroundDimAlpha(120))
 	}
+
+	@Test
+	fun bottomGradientOnlyAppliesToDynamicBackgroundWhenEnabled() {
+		assertEquals(false, shouldShowNowPlayingBackgroundBottomGradient(enabled = false, isDynamicBackground = true))
+		assertEquals(false, shouldShowNowPlayingBackgroundBottomGradient(enabled = true, isDynamicBackground = false))
+		assertEquals(true, shouldShowNowPlayingBackgroundBottomGradient(enabled = true, isDynamicBackground = true))
+	}
 }
