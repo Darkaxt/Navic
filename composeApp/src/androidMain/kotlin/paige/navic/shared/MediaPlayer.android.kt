@@ -73,6 +73,8 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
+import paige.navic.domain.models.normalizedPlaybackPitch
+import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.queueAutoFillAppendCount
@@ -729,7 +731,7 @@ class AndroidMediaPlayerViewModel(
 
 			player.shuffleModeEnabled = state.isShuffleEnabled
 			player.repeatMode = state.repeatMode
-			player.playbackParameters = PlaybackParameters(state.playbackSpeed)
+			player.playbackParameters = PlaybackParameters(state.playbackSpeed, state.playbackPitch)
 
 			val index = if (state.currentIndex in mediaItems.indices) state.currentIndex else 0
 
@@ -1368,10 +1370,19 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun setPlaybackSpeed(value: Float) {
+		val speed = normalizedPlaybackSpeed(value)
 		viewModelScope.launch {
-			controller?.setPlaybackSpeed(value)
+			controller?.playbackParameters = PlaybackParameters(speed, _uiState.value.playbackPitch)
 		}
-		_uiState.update { it.copy(playbackSpeed = value) }
+		_uiState.update { it.copy(playbackSpeed = speed) }
+	}
+
+	override fun setPlaybackPitch(value: Float) {
+		val pitch = normalizedPlaybackPitch(value)
+		viewModelScope.launch {
+			controller?.playbackParameters = PlaybackParameters(_uiState.value.playbackSpeed, pitch)
+		}
+		_uiState.update { it.copy(playbackPitch = pitch) }
 	}
 
 	override fun openSystemEqualizer(): Boolean {

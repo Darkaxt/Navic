@@ -23,6 +23,8 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.SongRadioQueueDefaultSize
+import paige.navic.domain.models.normalizedPlaybackPitch
+import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
@@ -486,8 +488,13 @@ class IOSMediaPlayerViewModel(
 	}
 
 	override fun setPlaybackSpeed(value: Float) {
-		player.setRate(value)
-		_uiState.update { it.copy(playbackSpeed = value) }
+		val speed = normalizedPlaybackSpeed(value)
+		player.setRate(speed)
+		_uiState.update { it.copy(playbackSpeed = speed) }
+	}
+
+	override fun setPlaybackPitch(value: Float) {
+		_uiState.update { it.copy(playbackPitch = normalizedPlaybackPitch(value)) }
 	}
 
 	override fun seek(normalized: Float) {

@@ -42,4 +42,16 @@ class PlayerRestorePolicyTest {
 		assertFalse(restored!!.isPaused)
 		assertFalse(restored.isLoading)
 	}
+
+	@Test
+	fun persistentQueueRestoresPlaybackSpeedAndPitch() {
+		val restored = restoredPlayerStateForPreferences(
+			restoredState = PlayerUiState(playbackSpeed = 1.25f, playbackPitch = 0.95f),
+			persistentQueue = true,
+			resumePlaybackOnStartup = false
+		)
+
+		assertEquals(1.25f, restored?.playbackSpeed)
+		assertEquals(0.95f, restored?.playbackPitch)
+	}
 }

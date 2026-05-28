@@ -45,6 +45,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android audio fade durations for smoother pause and resume.
 * Kreate-inspired Android bass boost with an adjustable strength slider.
 * Kreate-inspired Android reverb presets for room, hall, and plate effects.
+* Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources. Similar mode now prefers live Navidrome similar-song results when available.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired song-row swipe actions can keep the default swipe-right/add-to-queue and swipe-left/play-next gestures, swap them, or disable either side.

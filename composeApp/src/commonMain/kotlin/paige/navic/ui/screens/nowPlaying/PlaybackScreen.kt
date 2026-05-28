@@ -25,10 +25,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.capsule.ContinuousCapsule
 import com.kyant.capsule.ContinuousRoundedRectangle
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_playback_pitch
+import navic.composeapp.generated.resources.option_playback_speed
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.domain.models.normalizedPlaybackPitch
+import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.util.core.supportsPlaybackPitch
 import paige.navic.util.ui.rememberDraggableListState
-import kotlin.math.round
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -44,6 +50,8 @@ fun PlaybackSpeedScreen() {
 	}
 
 	val selectedSpeed = playerState.playbackSpeed
+	val selectedPitch = playerState.playbackPitch
+	val pitchSupported = supportsPlaybackPitch()
 	val playbackSpeeds = listOf(
 		1.0f,
 		1.25f,
@@ -60,18 +68,18 @@ fun PlaybackSpeedScreen() {
 		state = draggableState.listState
 	) {
 		item {
-			Row(
-				modifier = Modifier.fillMaxWidth(),
-				verticalAlignment = Alignment.CenterVertically
-			) {
-				Slider(
-					value = selectedSpeed,
-					onValueChange = { newValue ->
-						val snappedValue = round(newValue * 100) / 100f
-						player.setPlaybackSpeed(snappedValue)
-					},
-					valueRange = 0.5f..2.0f,
-					modifier = Modifier.weight(1f)
+			PlaybackParameterSlider(
+				label = stringResource(Res.string.option_playback_speed),
+				value = selectedSpeed,
+				onValueChange = { player.setPlaybackSpeed(normalizedPlaybackSpeed(it)) }
+			)
+
+			if (pitchSupported) {
+				Spacer(Modifier.height(8.dp))
+				PlaybackParameterSlider(
+					label = stringResource(Res.string.option_playback_pitch),
+					value = selectedPitch,
+					onValueChange = { player.setPlaybackPitch(normalizedPlaybackPitch(it)) }
 				)
 			}
 
@@ -101,6 +109,29 @@ fun PlaybackSpeedScreen() {
 				}
 			}
 		}
+	}
+}
+
+@Composable
+private fun PlaybackParameterSlider(
+	label: String,
+	value: Float,
+	onValueChange: (Float) -> Unit
+) {
+	Column {
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.SpaceBetween
+		) {
+			Text(label)
+			Text("${value}x", color = MaterialTheme.colorScheme.onSurfaceVariant)
+		}
+		Slider(
+			value = value,
+			onValueChange = onValueChange,
+			valueRange = 0.5f..2.0f
+		)
 	}
 }
 
