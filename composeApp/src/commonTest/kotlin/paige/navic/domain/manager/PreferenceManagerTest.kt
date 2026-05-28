@@ -377,6 +377,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingSeekButtonsDefaultToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showNowPlayingSeekButtons)
+
+		manager.showNowPlayingSeekButtons = true
+
+		assertTrue(manager.showNowPlayingSeekButtons)
+	}
+
+	@Test
 	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
 		val manager = PreferenceManager(MapSettings())
 

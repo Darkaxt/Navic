@@ -104,6 +104,7 @@
 	<string name="subtitle_resume_playback_on_startup">Start playing the restored queue when the app reconnects to the player</string>
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
+	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
@@ -129,6 +130,7 @@
 	<string name="option_now_playing_background_style_dynamic">Dynamic</string>
 	<string name="option_accent_colour">Accent colour</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
+	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
 	<string name="option_now_playing_lyrics_action">Show lyrics button</string>
 	<string name="option_now_playing_queue_action">Show queue button</string>
 	<string name="option_now_playing_music_video_action">Show music video action</string>
@@ -434,6 +436,8 @@
 	<string name="action_share_lyrics">Share Lyrics</string>
 	<string name="action_update_app">Update</string>
 	<string name="action_downloading_update">Downloading update...</string>
+	<string name="action_seek_backward_seconds">Back %1$d seconds</string>
+	<string name="action_seek_forward_seconds">Forward %1$d seconds</string>
 	<string name="action_play_next">Play next</string>
 	<string name="action_play_music_video">Play music video</string>
 	<string name="action_start_song_radio">Start song radio</string>
