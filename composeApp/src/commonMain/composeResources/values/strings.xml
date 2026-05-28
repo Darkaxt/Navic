@@ -119,6 +119,7 @@
 	<string name="subtitle_now_playing_swipe_up_controls_for_queue">Open the Queue by swiping up on the Now Playing controls area</string>
 	<string name="subtitle_now_playing_tap_controls_for_queue">Open the Queue by tapping empty space in the Now Playing controls area</string>
 	<string name="subtitle_now_playing_info_style">Choose how much album and artist context the title area shows</string>
+	<string name="subtitle_now_playing_info_icons">Show album and artist icons beside clickable Now Playing text</string>
 	<string name="subtitle_now_playing_technical_info_style">Detailed adds bit depth, channels, file size, and ReplayGain when available</string>
 	<string name="subtitle_now_playing_progress_width">Adjust how much horizontal space the progress bar uses</string>
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
@@ -177,6 +178,7 @@
 	<string name="option_now_playing_swipe_up_controls_for_queue">Swipe up controls for queue</string>
 	<string name="option_now_playing_tap_controls_for_queue">Tap controls for queue</string>
 	<string name="option_now_playing_info_style">Song info style</string>
+	<string name="option_now_playing_info_icons">Show album/artist icons</string>
 	<string name="option_now_playing_info_style_essential">Essential</string>
 	<string name="option_now_playing_info_style_album_and_artist">Album and artist</string>
 	<string name="option_now_playing_technical_info_style">Technical info style</string>

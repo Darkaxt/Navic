@@ -37,6 +37,7 @@ import navic.composeapp.generated.resources.option_now_playing_artwork_swipe
 import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.option_now_playing_download_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
+import navic.composeapp.generated.resources.option_now_playing_info_icons
 import navic.composeapp.generated.resources.option_now_playing_info_style
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
@@ -74,6 +75,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_background_styl
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.subtitle_now_playing_download_action
 import navic.composeapp.generated.resources.subtitle_now_playing_info_style
+import navic.composeapp.generated.resources.subtitle_now_playing_info_icons
 import navic.composeapp.generated.resources.subtitle_now_playing_more_action
 import navic.composeapp.generated.resources.subtitle_now_playing_progress_width
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
@@ -287,6 +289,13 @@ fun SettingsNowPlayingScreen() {
 						onSelect = { preferenceManager.nowPlayingInfoStyle = it },
 						description = stringResource(Res.string.subtitle_now_playing_info_style),
 						title = { Text(stringResource(Res.string.option_now_playing_info_style)) }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_info_icons)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_info_icons)) },
+						value = preferenceManager.showNowPlayingInfoIcons,
+						onSetValue = { preferenceManager.showNowPlayingInfoIcons = it }
 					)
 
 					SettingSwitchRow(

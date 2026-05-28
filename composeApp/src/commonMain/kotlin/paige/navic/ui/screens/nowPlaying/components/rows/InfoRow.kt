@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -23,6 +25,7 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.nowPlayingInfoSubtitle
+import paige.navic.domain.models.shouldShowNowPlayingInfoIcon
 import paige.navic.domain.models.shouldShowNowPlayingMoreAction
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
@@ -30,6 +33,9 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButton
 import paige.navic.util.core.InlineExplicitIconLarge
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Album
+import paige.navic.icons.outlined.Artist
 
 @Composable
 fun NowPlayingInfoRow(
@@ -43,6 +49,14 @@ fun NowPlayingInfoRow(
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
+	val showAlbumIcon = shouldShowNowPlayingInfoIcon(
+		enabled = preferenceManager.showNowPlayingInfoIcons,
+		hasNavigationTarget = song?.albumId != null
+	)
+	val showArtistIcon = shouldShowNowPlayingInfoIcon(
+		enabled = preferenceManager.showNowPlayingInfoIcons,
+		hasNavigationTarget = song?.artistId != null
+	)
 	val subtitle = song?.let { currentSong ->
 		nowPlayingInfoSubtitle(
 			style = preferenceManager.nowPlayingInfoStyle,
@@ -59,17 +73,11 @@ fun NowPlayingInfoRow(
 	) {
 		Column(Modifier.weight(1f)) {
 			song?.let { song ->
-				MarqueeText(
-					text = buildAnnotatedString {
-						append(song.title)
-						if (song.explicitStatus == DomainExplicitStatus.Explicit) {
-							append(" ")
-							appendInlineContent("InlineExplicitIcon")
-						}
-					},
-					inlineContent = InlineExplicitIconLarge,
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(6.dp),
 					modifier = Modifier.clickable(onClick = dropUnlessResumed {
-						song.albumId?.let {
+						song.albumId?.let { albumId ->
 							backStack.removeLastOrNull()
 
 							val lastScreen = backStack.lastOrNull()
@@ -83,19 +91,41 @@ fun NowPlayingInfoRow(
 							if (!isSameAlbum)
 								backStack.add(
 									Screen.CollectionDetail(
-										playerState.currentCollection?.id ?: return@dropUnlessResumed,
+										albumId,
 										""
 									)
 								)
 						}
-					}),
-					style = MaterialTheme.typography.bodyLarge
-						.copy(
-							fontSize = MaterialTheme.typography.bodyLarge.fontSize * 1.1
-						),
-				)
+					})
+				) {
+					if (showAlbumIcon) {
+						Icon(
+							imageVector = Icons.Outlined.Album,
+							contentDescription = null,
+							modifier = Modifier.size(18.dp),
+							tint = MaterialTheme.colorScheme.onSurfaceVariant
+						)
+					}
+					MarqueeText(
+						text = buildAnnotatedString {
+							append(song.title)
+							if (song.explicitStatus == DomainExplicitStatus.Explicit) {
+								append(" ")
+								appendInlineContent("InlineExplicitIcon")
+							}
+						},
+						inlineContent = InlineExplicitIconLarge,
+						modifier = Modifier.weight(1f),
+						style = MaterialTheme.typography.bodyLarge
+							.copy(
+								fontSize = MaterialTheme.typography.bodyLarge.fontSize * 1.1
+							),
+					)
+				}
 			}
-			MarqueeText(
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(6.dp),
 				modifier = Modifier.clickable(
 					song != null,
 					onClick = dropUnlessResumed {
@@ -105,13 +135,25 @@ fun NowPlayingInfoRow(
 						}
 					}
 				),
-				style = MaterialTheme.typography.bodyMedium
-					.copy(
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1
-					),
-				text = subtitle
-			)
+			) {
+				if (showArtistIcon) {
+					Icon(
+						imageVector = Icons.Outlined.Artist,
+						contentDescription = null,
+						modifier = Modifier.size(16.dp),
+						tint = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+				MarqueeText(
+					modifier = Modifier.weight(1f),
+					style = MaterialTheme.typography.bodyMedium
+						.copy(
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1
+						),
+					text = subtitle
+				)
+			}
 		}
 		Row(
 			horizontalArrangement = Arrangement.spacedBy(10.dp)

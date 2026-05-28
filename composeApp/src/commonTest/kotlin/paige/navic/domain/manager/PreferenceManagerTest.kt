@@ -417,6 +417,7 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertEquals(NowPlayingInfoStyle.Essential, manager.nowPlayingInfoStyle)
+		assertFalse(manager.showNowPlayingInfoIcons)
 		assertEquals(NowPlayingTechnicalInfoStyle.Compact, manager.nowPlayingTechnicalInfoStyle)
 		assertEquals(NowPlayingProgressWidth.Biggest, manager.nowPlayingProgressWidth)
 		assertFalse(manager.swapNowPlayingControlsAndTimeline)
@@ -425,6 +426,7 @@ class PreferenceManagerTest {
 		assertFalse(manager.openQueueOnNowPlayingControlsTap)
 
 		manager.nowPlayingInfoStyle = NowPlayingInfoStyle.AlbumAndArtist
+		manager.showNowPlayingInfoIcons = true
 		manager.nowPlayingTechnicalInfoStyle = NowPlayingTechnicalInfoStyle.Detailed
 		manager.nowPlayingProgressWidth = NowPlayingProgressWidth.Expanded
 		manager.swapNowPlayingControlsAndTimeline = true
@@ -433,6 +435,7 @@ class PreferenceManagerTest {
 		manager.openQueueOnNowPlayingControlsTap = true
 
 		assertEquals(NowPlayingInfoStyle.AlbumAndArtist, manager.nowPlayingInfoStyle)
+		assertTrue(manager.showNowPlayingInfoIcons)
 		assertEquals(NowPlayingTechnicalInfoStyle.Detailed, manager.nowPlayingTechnicalInfoStyle)
 		assertEquals(NowPlayingProgressWidth.Expanded, manager.nowPlayingProgressWidth)
 		assertTrue(manager.swapNowPlayingControlsAndTimeline)

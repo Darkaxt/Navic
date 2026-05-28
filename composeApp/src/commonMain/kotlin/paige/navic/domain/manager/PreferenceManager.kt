@@ -82,6 +82,7 @@ class PreferenceManager(
 	var nowPlayingRotatingArtwork by preference(false)
 	var shrinkNowPlayingArtworkOnPause by preference(true)
 	var nowPlayingInfoStyle by preference(NowPlayingInfoStyle.Essential)
+	var showNowPlayingInfoIcons by preference(false)
 	var nowPlayingSongInfo by preference(true)
 	var nowPlayingTechnicalInfoStyle by preference(NowPlayingTechnicalInfoStyle.Compact)
 	var showNowPlayingUpNext by preference(false)
