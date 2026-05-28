@@ -117,6 +117,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 * GitHub Actions permissions and vulnerable transitive build dependencies were hardened for the fork's Security & Quality findings.
 * The in-app update prompt prefers the release `Navic.apk`, downloads it inside Navic on Android, and launches the system package installer instead of sending the APK URL to a browser.
+* Android release builds require the fork's stable release signing secrets and reject `Android Debug` certificates, so public APK updates keep the same package signature.
 * The Kreate transplant tracking notes live in [docs/kreate-feature-audit.md](docs/kreate-feature-audit.md).
 
 ### Traefik Basic Auth setup

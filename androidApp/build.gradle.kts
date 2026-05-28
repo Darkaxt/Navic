@@ -20,8 +20,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 89
-		versionName = "v1.0.0-alpha69"
+		versionCode = 90
+		versionName = "v1.0.0-alpha70"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
@@ -43,10 +43,23 @@ extensions.configure<ApplicationExtension> {
 
 	buildTypes {
 		val isRelease = System.getenv("RELEASE")?.toBoolean() ?: false
-		val hasReleaseSigning = System.getenv("SIGNING_STORE_PASSWORD")?.isNotEmpty() == true
+		val signingStoreFile = System.getenv("SIGNING_STORE_FILE")?.let(::File)
+		val releaseSigningEnv = listOf(
+			"SIGNING_KEY_ALIAS",
+			"SIGNING_KEY_PASSWORD",
+			"SIGNING_STORE_PASSWORD",
+			"SIGNING_STORE_FILE"
+		)
+		val hasReleaseSigning =
+			releaseSigningEnv.all { System.getenv(it)?.isNotEmpty() == true } &&
+				signingStoreFile?.isFile == true &&
+				signingStoreFile.length() > 0
 
 		if (isRelease && !hasReleaseSigning) {
-			throw GradleException("Missing keystore in a release workflow!")
+			throw GradleException(
+				"Release builds require SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD, " +
+					"SIGNING_STORE_PASSWORD, and a non-empty SIGNING_STORE_FILE."
+			)
 		}
 
 		getByName("release") {
@@ -55,7 +68,9 @@ extensions.configure<ApplicationExtension> {
 			isProfileable = false
 			isJniDebuggable = false
 			isShrinkResources = true
-			signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debug")
+			if (hasReleaseSigning) {
+				signingConfig = signingConfigs.getByName("release")
+			}
 			proguardFiles(
 				getDefaultProguardFile("proguard-android-optimize.txt"),
 				"proguard-rules.pro"
