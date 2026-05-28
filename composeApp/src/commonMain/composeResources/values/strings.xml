@@ -115,6 +115,8 @@
 	<string name="subtitle_now_playing_swap_controls_and_timeline">Move playback buttons above the progress bar and time row</string>
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_repeat_control">Show the repeat button in the main Now Playing controls</string>
+	<string name="subtitle_now_playing_start_radio_action">Show the Start song radio item in the Now Playing song menu</string>
+	<string name="subtitle_now_playing_discover_queue_action">Show the Discover queue cleanup item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
@@ -162,6 +164,8 @@
 	<string name="option_now_playing_playback_speed_action">Show playback speed action</string>
 	<string name="option_now_playing_equalizer_action">Show equalizer action</string>
 	<string name="option_now_playing_sleep_timer_action">Show sleep timer action</string>
+	<string name="option_now_playing_start_radio_action">Show start radio action</string>
+	<string name="option_now_playing_discover_queue_action">Show Discover queue action</string>
 	<string name="option_now_playing_slider_style">Slider style</string>
 	<string name="option_now_playing_slider_style_flat">Flat</string>
 	<string name="option_now_playing_slider_style_squiggly">Squiggly</string>

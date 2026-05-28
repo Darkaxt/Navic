@@ -91,6 +91,8 @@ class PreferenceManager(
 	var showNowPlayingPlaybackSpeedAction by preference(true)
 	var showNowPlayingEqualizerAction by preference(true)
 	var showNowPlayingSleepTimerAction by preference(true)
+	var showNowPlayingStartRadioAction by preference(true)
+	var showNowPlayingDiscoverQueueAction by preference(true)
 	var customHeaders by preference("")
 	var reverseProxyBasicAuthEnabled by preference(false)
 	var reverseProxyBasicAuthUsername by preference("")

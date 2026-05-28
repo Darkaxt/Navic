@@ -32,6 +32,7 @@ import navic.composeapp.generated.resources.option_now_playing_background_dim
 import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_artwork_size
+import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
@@ -45,6 +46,7 @@ import navic.composeapp.generated.resources.option_now_playing_shrink_artwork_on
 import navic.composeapp.generated.resources.option_now_playing_sleep_timer_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
+import navic.composeapp.generated.resources.option_now_playing_start_radio_action
 import navic.composeapp.generated.resources.option_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_now_playing_up_next
@@ -56,11 +58,13 @@ import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
 import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
+import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
 import navic.composeapp.generated.resources.subtitle_now_playing_shuffle_control
 import navic.composeapp.generated.resources.subtitle_now_playing_shrink_artwork_on_pause
+import navic.composeapp.generated.resources.subtitle_now_playing_start_radio_action
 import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_artwork
@@ -326,6 +330,18 @@ fun SettingsNowPlayingScreen() {
 						title = { Text(stringResource(Res.string.option_now_playing_sleep_timer_action)) },
 						value = preferenceManager.showNowPlayingSleepTimerAction,
 						onSetValue = { preferenceManager.showNowPlayingSleepTimerAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_start_radio_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_start_radio_action)) },
+						value = preferenceManager.showNowPlayingStartRadioAction,
+						onSetValue = { preferenceManager.showNowPlayingStartRadioAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_discover_queue_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_discover_queue_action)) },
+						value = preferenceManager.showNowPlayingDiscoverQueueAction,
+						onSetValue = { preferenceManager.showNowPlayingDiscoverQueueAction = it }
 					)
 					if (platformContext.name.lowercase().startsWith("android")) {
 						SettingSwitchRow(

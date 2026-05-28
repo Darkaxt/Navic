@@ -378,6 +378,8 @@ class PreferenceManagerTest {
 		assertTrue(manager.showNowPlayingMusicVideoAction)
 		assertTrue(manager.showNowPlayingPlaybackSpeedAction)
 		assertTrue(manager.showNowPlayingEqualizerAction)
+		assertTrue(manager.showNowPlayingStartRadioAction)
+		assertTrue(manager.showNowPlayingDiscoverQueueAction)
 
 		manager.showNowPlayingLyricsAction = false
 		manager.showNowPlayingQueueAction = false
@@ -385,6 +387,8 @@ class PreferenceManagerTest {
 		manager.showNowPlayingPlaybackSpeedAction = false
 		manager.showNowPlayingEqualizerAction = false
 		manager.showNowPlayingSleepTimerAction = false
+		manager.showNowPlayingStartRadioAction = false
+		manager.showNowPlayingDiscoverQueueAction = false
 
 		assertFalse(manager.showNowPlayingLyricsAction)
 		assertFalse(manager.showNowPlayingQueueAction)
@@ -392,6 +396,8 @@ class PreferenceManagerTest {
 		assertFalse(manager.showNowPlayingPlaybackSpeedAction)
 		assertFalse(manager.showNowPlayingEqualizerAction)
 		assertFalse(manager.showNowPlayingSleepTimerAction)
+		assertFalse(manager.showNowPlayingStartRadioAction)
+		assertFalse(manager.showNowPlayingDiscoverQueueAction)
 	}
 
 	@Test

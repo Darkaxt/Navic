@@ -29,6 +29,8 @@ import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
+import paige.navic.domain.models.shouldShowNowPlayingDiscoverQueueAction
+import paige.navic.domain.models.shouldShowNowPlayingStartRadioAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.MoreHoriz
@@ -103,10 +105,18 @@ fun NowPlayingMoreButton(
 						backStack.add(Screen.LidaClipPlayer(song.id))
 					}
 				} else null,
-				onStartSongRadio = if (!song.id.startsWith("radio_")) {
+				onStartSongRadio = if (shouldShowNowPlayingStartRadioAction(
+						userActionEnabled = preferenceManager.showNowPlayingStartRadioAction,
+						songId = song.id
+					)
+				) {
 					{ player.startSongRadio(song) }
 				} else null,
-				onDiscoverQueue = if (hasUpcomingSongs) {
+				onDiscoverQueue = if (shouldShowNowPlayingDiscoverQueueAction(
+						userActionEnabled = preferenceManager.showNowPlayingDiscoverQueueAction,
+						hasUpcomingSongs = hasUpcomingSongs
+					)
+				) {
 					{
 						player.applyDiscoverQueueFilter { removedCount ->
 							scope.launch {
