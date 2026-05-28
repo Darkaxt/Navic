@@ -53,3 +53,8 @@ fun shouldOpenQueueFromNowPlayingControlsTap(
 	hasCurrentSong: Boolean
 ): Boolean =
 	enabled && hasCurrentSong
+
+fun shouldOpenPlaybackSpeedFromNowPlayingPlayButton(
+	hasCurrentSong: Boolean
+): Boolean =
+	hasCurrentSong

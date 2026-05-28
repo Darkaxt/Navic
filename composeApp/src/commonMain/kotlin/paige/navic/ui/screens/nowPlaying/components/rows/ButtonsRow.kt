@@ -6,6 +6,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -22,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -38,7 +39,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.dropUnlessResumed
 import org.koin.compose.koinInject
+import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
@@ -56,13 +59,16 @@ import paige.navic.domain.models.NowPlayingPlaybackControl
 import paige.navic.domain.models.nowPlayingPlaybackButtonsArrangement
 import paige.navic.domain.models.nowPlayingPlaybackControls
 import paige.navic.domain.models.nowPlayingPlayButtonSpeedLabel
+import paige.navic.domain.models.shouldOpenPlaybackSpeedFromNowPlayingPlayButton
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.playPauseIconPainter
+import paige.navic.ui.navigation.Screen
 
 @Composable
 fun NowPlayingButtonsRow(
 	modifier: Modifier = Modifier
 ) {
+	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -146,67 +152,94 @@ fun NowPlayingButtonsRow(
 					)
 				}
 
-				NowPlayingPlaybackControl.PlayPause -> IconButton(
-					modifier = nowPlayingButtonModifier(
-						arrangement = buttonArrangement,
-						compactWeight = 1.3f,
-						evenSize = 64.dp
-					)
-						.scale(scale.value)
-						.clip(CircleShape)
-						.indication(interactionSource, ripple(color = Color.Black)),
-					colors = IconButtonDefaults.filledIconButtonColors(),
-					onClick = {
-						platformContext.clickSound()
-						player.togglePlay()
-					},
-					enabled = enabled,
-					interactionSource = interactionSource
-				) {
-					val painter = playPauseIconPainter(playerState.isPaused)
-					AnimatedContent(playerState.isLoading) { isBuffering ->
-						if (!isBuffering) {
-							Box(
-								modifier = Modifier.size(48.dp),
-								contentAlignment = Alignment.Center
-							) {
-								val iconModifier = Modifier
-									.align(Alignment.Center)
-									.padding(bottom = if (speedLabel != null) 8.dp else 0.dp)
-									.size(if (speedLabel != null) 34.dp else 40.dp)
-
-								if (painter != null) {
-									Icon(
-										painter = painter,
-										contentDescription = null,
-										modifier = iconModifier
-									)
-								} else {
-									Icon(
-										imageVector = if (playerState.isPaused)
-											Icons.Filled.Play
-										else Icons.Filled.Pause,
-										contentDescription = null,
-										modifier = iconModifier
-									)
+				NowPlayingPlaybackControl.PlayPause -> {
+					val playButtonContainerColor = if (enabled) {
+						MaterialTheme.colorScheme.primary
+					} else {
+						MaterialTheme.colorScheme.onSurface.copy(alpha = .12f)
+					}
+					val playButtonContentColor = if (enabled) {
+						MaterialTheme.colorScheme.onPrimary
+					} else {
+						MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
+					}
+					Box(
+						modifier = nowPlayingButtonModifier(
+							arrangement = buttonArrangement,
+							compactWeight = 1.3f,
+							evenSize = 64.dp
+						)
+							.scale(scale.value)
+							.clip(CircleShape)
+							.background(playButtonContainerColor)
+							.combinedClickable(
+								enabled = enabled,
+								interactionSource = interactionSource,
+								indication = null,
+								onClick = {
+									platformContext.clickSound()
+									player.togglePlay()
+								},
+								onLongClick = dropUnlessResumed {
+									if (shouldOpenPlaybackSpeedFromNowPlayingPlayButton(
+											hasCurrentSong = playerState.currentSong != null
+										)
+									) {
+										platformContext.clickSound()
+										backStack.add(Screen.PlaybackSpeed)
+									}
 								}
-								speedLabel?.let { label ->
-									Text(
-										text = label,
-										modifier = Modifier
-											.align(Alignment.BottomCenter)
-											.padding(bottom = 1.dp),
-										color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
-										style = MaterialTheme.typography.labelSmall
-									)
-								}
-							}
-						} else {
-							CircularProgressIndicator(
-								Modifier.size(40.dp),
-								color = MaterialTheme.colorScheme.onPrimary,
-								trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = .5f),
 							)
+							.indication(interactionSource, ripple(color = Color.Black)),
+						contentAlignment = Alignment.Center
+					) {
+						val painter = playPauseIconPainter(playerState.isPaused)
+						AnimatedContent(playerState.isLoading) { isBuffering ->
+							if (!isBuffering) {
+								Box(
+									modifier = Modifier.size(48.dp),
+									contentAlignment = Alignment.Center
+								) {
+									val iconModifier = Modifier
+										.align(Alignment.Center)
+										.padding(bottom = if (speedLabel != null) 8.dp else 0.dp)
+										.size(if (speedLabel != null) 34.dp else 40.dp)
+
+									if (painter != null) {
+										Icon(
+											painter = painter,
+											contentDescription = null,
+											modifier = iconModifier,
+											tint = playButtonContentColor
+										)
+									} else {
+										Icon(
+											imageVector = if (playerState.isPaused)
+												Icons.Filled.Play
+											else Icons.Filled.Pause,
+											contentDescription = null,
+											modifier = iconModifier,
+											tint = playButtonContentColor
+										)
+									}
+									speedLabel?.let { label ->
+										Text(
+											text = label,
+											modifier = Modifier
+												.align(Alignment.BottomCenter)
+												.padding(bottom = 1.dp),
+											color = playButtonContentColor.copy(alpha = .82f),
+											style = MaterialTheme.typography.labelSmall
+										)
+									}
+								}
+							} else {
+								CircularProgressIndicator(
+									Modifier.size(40.dp),
+									color = playButtonContentColor,
+									trackColor = playButtonContentColor.copy(alpha = .5f),
+								)
+							}
 						}
 					}
 				}

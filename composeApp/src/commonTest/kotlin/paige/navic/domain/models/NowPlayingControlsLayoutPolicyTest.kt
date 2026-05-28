@@ -90,4 +90,16 @@ class NowPlayingControlsLayoutPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun longPressPlayButtonForPlaybackSpeedRequiresCurrentSong() {
+		assertEquals(
+			false,
+			shouldOpenPlaybackSpeedFromNowPlayingPlayButton(hasCurrentSong = false)
+		)
+		assertEquals(
+			true,
+			shouldOpenPlaybackSpeedFromNowPlayingPlayButton(hasCurrentSong = true)
+		)
+	}
 }
