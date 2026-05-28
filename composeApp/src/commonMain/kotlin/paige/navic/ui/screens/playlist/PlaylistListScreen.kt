@@ -39,14 +39,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_create_playlist
 import navic.composeapp.generated.resources.title_playlists
+import navic.composeapp.generated.resources.title_stations
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
@@ -70,13 +74,15 @@ import kotlin.time.Duration
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PlaylistListScreen(
-	nested: Boolean = false
+	nested: Boolean = false,
+	stationsOnly: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	val viewModel = koinViewModel<PlaylistListViewModel>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playlistsState by viewModel.playlistsState.collectAsState()
+	val displayedPlaylistsState = playlistsState.filterByStationMode(stationsOnly)
 	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
@@ -95,6 +101,8 @@ fun PlaylistListScreen(
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val gridState = rememberLazyGridState()
+	val title = if (stationsOnly) Res.string.title_stations else Res.string.title_playlists
+	val tab = if (stationsOnly) "stations" else "playlists"
 
 	val actions: @Composable RowScope.() -> Unit = {
 		PlaylistListScreenSortButton(
@@ -110,46 +118,48 @@ fun PlaylistListScreen(
 		topBar = {
 			if (!nested) {
 				RootTopBar(
-					title = { Text(stringResource(Res.string.title_playlists)) },
+					title = { Text(stringResource(title)) },
 					scrollBehavior = scrollBehavior,
 					actions = actions
 				)
 			} else {
 				NestedTopBar(
-					title = { Text(stringResource(Res.string.title_playlists)) },
+					title = { Text(stringResource(title)) },
 					actions = actions
 				)
 			}
 		},
 		floatingActionButton = {
-			AnimatedContent(
-				!scrollManager.isTriggered
-					|| preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never,
-				transitionSpec = {
-					val transformOrigin = TransformOrigin(0f, 1f)
-					(slideInHorizontally(slideSpec) { it / 2 }
-						+ scaleIn(scaleInSpec, transformOrigin = transformOrigin)
-						+ slideInVertically(slideSpec) { it / 2 })
-						.togetherWith(slideOutHorizontally(slideSpec) { it / 2 }
-							+ scaleOut(transformOrigin = transformOrigin)
-							+ slideOutVertically(slideSpec) { it / 2 })
-						.using(SizeTransform(clip = false))
-				}
-			) { notScrolled ->
-				if (notScrolled) {
-					MediumFloatingActionButton(
-						shape = MaterialTheme.shapes.large,
-						containerColor = MaterialTheme.colorScheme.primary,
-						onClick = {
-							platformContext.clickSound()
-							createDialogShown = true
+			if (!stationsOnly) {
+				AnimatedContent(
+					!scrollManager.isTriggered
+						|| preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never,
+					transitionSpec = {
+						val transformOrigin = TransformOrigin(0f, 1f)
+						(slideInHorizontally(slideSpec) { it / 2 }
+							+ scaleIn(scaleInSpec, transformOrigin = transformOrigin)
+							+ slideInVertically(slideSpec) { it / 2 })
+							.togetherWith(slideOutHorizontally(slideSpec) { it / 2 }
+								+ scaleOut(transformOrigin = transformOrigin)
+								+ slideOutVertically(slideSpec) { it / 2 })
+							.using(SizeTransform(clip = false))
+					}
+				) { notScrolled ->
+					if (notScrolled) {
+						MediumFloatingActionButton(
+							shape = MaterialTheme.shapes.large,
+							containerColor = MaterialTheme.colorScheme.primary,
+							onClick = {
+								platformContext.clickSound()
+								createDialogShown = true
+							}
+						) {
+							Icon(
+								imageVector = Icons.Outlined.Add,
+								contentDescription = stringResource(Res.string.title_create_playlist),
+								modifier = Modifier.size(26.dp)
+							)
 						}
-					) {
-						Icon(
-							imageVector = Icons.Outlined.Add,
-							contentDescription = stringResource(Res.string.title_create_playlist),
-							modifier = Modifier.size(26.dp)
-						)
 					}
 				}
 			}
@@ -174,12 +184,14 @@ fun PlaylistListScreen(
 				else Modifier,
 				state = gridState,
 				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((playlistsState as? UiState.Success)?.data?.isEmpty() == true)
+				verticalArrangement = if ((displayedPlaylistsState as? UiState.Success)?.data?.isEmpty() == true)
 					Arrangement.Center
 				else Arrangement.spacedBy(12.dp)
 			) {
 				playlistListScreenContent(
-					state = playlistsState,
+					state = displayedPlaylistsState,
+					tab = tab,
+					stationsOnly = stationsOnly,
 					selectedPlaylist = selectedPlaylist,
 					onUpdateSelection = { viewModel.selectPlaylist(it) },
 					onClearSelection = { viewModel.clearSelection() },
@@ -220,5 +232,18 @@ fun PlaylistListScreen(
 			onDismissRequest = { createDialogShown = false },
 			onRefresh = { viewModel.refreshPlaylists(true) }
 		)
+	}
+}
+
+private fun UiState<List<DomainPlaylist>>.filterByStationMode(
+	stationsOnly: Boolean
+): UiState<List<DomainPlaylist>> {
+	fun List<DomainPlaylist>.filtered() =
+		if (stationsOnly) stationPlaylists() else regularPlaylists()
+
+	return when (this) {
+		is UiState.Error -> UiState.Error(error, data?.filtered())
+		is UiState.Loading -> UiState.Loading(data?.filtered())
+		is UiState.Success -> UiState.Success(data.filtered())
 	}
 }

@@ -22,12 +22,15 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
+import navic.composeapp.generated.resources.title_stations
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainGenre
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.regularPlaylists
+import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
@@ -83,6 +86,9 @@ fun LibraryScreenContent(
 	// genres
 	genresState: UiState<ImmutableList<DomainGenre>>
 ) {
+	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
+	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
+
 	LazyVerticalGrid(
 		modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
 		columns = GridCells.Fixed(2),
@@ -139,10 +145,33 @@ fun LibraryScreenContent(
 			)
 		}
 
+		if (stationPlaylistsState.data.orEmpty().isNotEmpty()) {
+			horizontalSection(
+				title = Res.string.title_stations,
+				destination = Screen.PlaylistList(nested = true, stationsOnly = true),
+				state = stationPlaylistsState,
+				key = { it.id },
+				seeAll = true
+			) { playlist ->
+				PlaylistListScreenItem(
+					modifier = Modifier.animateItem().width(150.dp),
+					tab = "stations",
+					playlist = playlist,
+					selected = playlist == selectedPlaylist,
+					onSelect = { onSelectPlaylist(playlist) },
+					onDeselect = { onClearPlaylistSelection() },
+					onSetDeletionId = { onDeletePlaylist(it) },
+					onSetShareId = { onSetShareId(it) },
+					onPlayNext = onPlayPlaylistNext,
+					onAddToQueue = onAddPlaylistToQueue
+				)
+			}
+		}
+
 		horizontalSection(
 			title = Res.string.title_playlists,
 			destination = Screen.PlaylistList(true),
-			state = playlistsState,
+			state = regularPlaylistsState,
 			key = { it.id },
 			seeAll = true
 		) { playlist ->
@@ -191,5 +220,18 @@ fun LibraryScreenContent(
 		) { genreWithAlbums ->
 			GenreListScreenCard(genre = genreWithAlbums)
 		}
+	}
+}
+
+private fun UiState<ImmutableList<DomainPlaylist>>.filterPlaylists(
+	stationsOnly: Boolean
+): UiState<List<DomainPlaylist>> {
+	fun List<DomainPlaylist>.filtered() =
+		if (stationsOnly) stationPlaylists() else regularPlaylists()
+
+	return when (this) {
+		is UiState.Error -> UiState.Error(error, data?.filtered())
+		is UiState.Loading -> UiState.Loading(data?.filtered())
+		is UiState.Success -> UiState.Success(data.filtered())
 	}
 }

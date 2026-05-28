@@ -29,6 +29,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.displayName
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.theme.defaultFont
 import paige.navic.util.ui.EmphasizedDecelerateEasing
@@ -41,10 +42,11 @@ fun CollectionDetailScreenHeadingRow(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val displayName = collection.displayName()
 	with(LocalSharedTransitionScope.current) {
 		CoverArt(
 			coverArtId = collection.coverArtId,
-			contentDescription = collection.name,
+			contentDescription = displayName,
 			modifier = Modifier
 				.widthIn(0.dp, 420.dp)
 				.padding(horizontal = 64.dp)
@@ -70,7 +72,7 @@ fun CollectionDetailScreenHeadingRow(
 			horizontalAlignment = Alignment.CenterHorizontally
 		) {
 			Text(
-				collection.name,
+				displayName,
 				style = MaterialTheme.typography.headlineSmall,
 				textAlign = TextAlign.Center,
 				modifier = Modifier

@@ -28,7 +28,8 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data class PlaylistList(
-		val nested: Boolean = false
+		val nested: Boolean = false,
+		val stationsOnly: Boolean = false
 	) : Screen
 
 	@Immutable

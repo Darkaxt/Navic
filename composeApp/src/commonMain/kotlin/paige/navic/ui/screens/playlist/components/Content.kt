@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.ui.Modifier
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_playlists_short
+import navic.composeapp.generated.resources.info_no_stations_short
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.icons.Icons
@@ -16,6 +17,8 @@ import paige.navic.ui.core.UiState
 
 fun LazyGridScope.playlistListScreenContent(
 	state: UiState<List<DomainPlaylist>>,
+	tab: String,
+	stationsOnly: Boolean,
 	selectedPlaylist: DomainPlaylist?,
 	onUpdateSelection: (DomainPlaylist) -> Unit,
 	onClearSelection: () -> Unit,
@@ -29,7 +32,7 @@ fun LazyGridScope.playlistListScreenContent(
 		items(data, { it.id }) { playlist ->
 			PlaylistListScreenItem(
 				modifier = Modifier.animateItem(),
-				tab = "playlists",
+				tab = tab,
 				playlist = playlist,
 				selected = playlist == selectedPlaylist,
 				onSelect = { onUpdateSelection(playlist) },
@@ -50,7 +53,10 @@ fun LazyGridScope.playlistListScreenContent(
 				item(span = { GridItemSpan(maxLineSpan) }) {
 					ContentUnavailable(
 						icon = Icons.Outlined.PlaylistRemove,
-						label = stringResource(Res.string.info_no_playlists_short)
+						label = stringResource(
+							if (stationsOnly) Res.string.info_no_stations_short
+							else Res.string.info_no_playlists_short
+						)
 					)
 				}
 			}
