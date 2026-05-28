@@ -1,20 +1,28 @@
 package paige.navic.ui.screens.nowPlaying.components.rows
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_seek_backward_seconds
@@ -24,13 +32,13 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.nowPlayingDurationLabels
+import paige.navic.domain.models.nowPlayingSeekButtonAdjustment
 import paige.navic.domain.models.nowPlayingSeekProgress
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Forward10
 import paige.navic.icons.filled.Replay10
 import paige.navic.shared.MediaPlayerViewModel
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 
 @Composable
 fun NowPlayingDurationsRow() {
@@ -40,6 +48,8 @@ fun NowPlayingDurationsRow() {
 	val playerState by player.uiState.collectAsState()
 	val duration = playerState.currentSong?.duration
 	val canSeek = duration != null && duration > Duration.ZERO
+	val tapSeekAdjustment = nowPlayingSeekButtonAdjustment(isLongPress = false)
+	val longPressSeekAdjustment = nowPlayingSeekButtonAdjustment(isLongPress = true)
 	val labels = nowPlayingDurationLabels(
 		duration = duration,
 		progress = playerState.progress,
@@ -54,6 +64,16 @@ fun NowPlayingDurationsRow() {
 			)
 		)
 	val color = MaterialTheme.colorScheme.onSurfaceVariant
+	fun seekBy(adjustment: Duration) {
+		val target = nowPlayingSeekProgress(
+			currentProgress = playerState.progress,
+			duration = duration,
+			adjustment = adjustment
+		) ?: return
+		platformContext.clickSound()
+		player.seek(target)
+	}
+
 	Row(
 		modifier = Modifier.padding(horizontal = 16.dp),
 		verticalAlignment = Alignment.CenterVertically
@@ -62,15 +82,10 @@ fun NowPlayingDurationsRow() {
 			NowPlayingSeekButton(
 				enabled = canSeek,
 				contentDescription = stringResource(Res.string.action_seek_backward_seconds, 10),
-				onClick = {
-					val target = nowPlayingSeekProgress(
-						currentProgress = playerState.progress,
-						duration = duration,
-						adjustment = (-10).seconds
-					) ?: return@NowPlayingSeekButton
-					platformContext.clickSound()
-					player.seek(target)
-				}
+				onClickLabel = stringResource(Res.string.action_seek_backward_seconds, 10),
+				onLongClickLabel = stringResource(Res.string.action_seek_backward_seconds, 30),
+				onClick = { seekBy(-tapSeekAdjustment) },
+				onLongClick = { seekBy(-longPressSeekAdjustment) }
 			) { contentDescription ->
 				Icon(
 					imageVector = Icons.Filled.Replay10,
@@ -90,15 +105,10 @@ fun NowPlayingDurationsRow() {
 			NowPlayingSeekButton(
 				enabled = canSeek,
 				contentDescription = stringResource(Res.string.action_seek_forward_seconds, 10),
-				onClick = {
-					val target = nowPlayingSeekProgress(
-						currentProgress = playerState.progress,
-						duration = duration,
-						adjustment = 10.seconds
-					) ?: return@NowPlayingSeekButton
-					platformContext.clickSound()
-					player.seek(target)
-				}
+				onClickLabel = stringResource(Res.string.action_seek_forward_seconds, 10),
+				onLongClickLabel = stringResource(Res.string.action_seek_forward_seconds, 30),
+				onClick = { seekBy(tapSeekAdjustment) },
+				onLongClick = { seekBy(longPressSeekAdjustment) }
 			) { contentDescription ->
 				Icon(
 					imageVector = Icons.Filled.Forward10,
@@ -114,14 +124,34 @@ fun NowPlayingDurationsRow() {
 private fun NowPlayingSeekButton(
 	enabled: Boolean,
 	contentDescription: String,
+	onClickLabel: String,
+	onLongClickLabel: String,
 	onClick: () -> Unit,
+	onLongClick: () -> Unit,
 	content: @Composable (contentDescription: String) -> Unit
 ) {
-	IconButton(
-		modifier = Modifier.size(32.dp),
-		onClick = onClick,
-		enabled = enabled
+	val interactionSource = remember { MutableInteractionSource() }
+	val contentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+		alpha = if (enabled) 1f else .38f
+	)
+	Box(
+		modifier = Modifier
+			.size(32.dp)
+			.clip(MaterialTheme.shapes.extraLarge)
+			.combinedClickable(
+				enabled = enabled,
+				interactionSource = interactionSource,
+				indication = ripple(bounded = false, radius = 20.dp),
+				role = Role.Button,
+				onClickLabel = onClickLabel,
+				onClick = onClick,
+				onLongClickLabel = onLongClickLabel,
+				onLongClick = onLongClick
+			),
+		contentAlignment = Alignment.Center
 	) {
-		content(contentDescription)
+		CompositionLocalProvider(LocalContentColor provides contentColor) {
+			content(contentDescription)
+		}
 	}
 }

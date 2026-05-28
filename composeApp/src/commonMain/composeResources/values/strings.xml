@@ -110,7 +110,7 @@
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_now_playing_background_blur">Adjust blur strength for the dynamic Now Playing background</string>
 	<string name="subtitle_now_playing_background_dim">Adjust the dark overlay behind player controls</string>
-	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
+	<string name="subtitle_now_playing_seek_buttons">Add back and forward buttons beside the time row. Tap for 10 seconds, long-press for 30 seconds.</string>
 	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
 	<string name="subtitle_now_playing_swap_controls_and_timeline">Move playback buttons above the progress bar and time row</string>
 	<string name="subtitle_now_playing_space_playback_controls_evenly">Spread the main playback buttons evenly across the available row width</string>

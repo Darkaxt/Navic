@@ -2,6 +2,10 @@ package paige.navic.domain.models
 
 import kotlin.math.roundToLong
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+
+fun nowPlayingSeekButtonAdjustment(isLongPress: Boolean): Duration =
+	if (isLongPress) 30.seconds else 10.seconds
 
 fun nowPlayingSeekProgress(
 	currentProgress: Float,

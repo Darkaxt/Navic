@@ -66,7 +66,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired configurable Now Playing dynamic background blur and dim strength.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
-* Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
+* Kreate-inspired optional Now Playing seek buttons beside the time row. Tap seeks 10 seconds; long-press seeks 30 seconds.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired Now Playing progress width selector for shorter, default-width, or full-width playback timelines.
 * Kreate-inspired optional Now Playing control/timeline order swap.
@@ -206,7 +206,7 @@ Open Settings -> Now Playing and turn `Show Up next` on. Use `Show Up next artwo
 
 ### Now Playing seek buttons setup
 
-Open Settings -> Now Playing and turn `Show seek buttons` on. Navic adds 10-second back and forward buttons beside the time row. The setting is off by default, so the current Now Playing layout stays unchanged unless you enable it.
+Open Settings -> Now Playing and turn `Show seek buttons` on. Navic adds back and forward buttons beside the time row. Tap either button for a 10-second seek, or long-press for a 30-second seek. The setting is off by default, so the current Now Playing layout stays unchanged unless you enable it.
 
 ### Now Playing remaining time setup
 

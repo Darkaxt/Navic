@@ -8,6 +8,12 @@ import kotlin.time.Duration.Companion.seconds
 
 class NowPlayingSeekButtonPolicyTest {
 	@Test
+	fun seekButtonTapAndLongPressUseExpectedAdjustments() {
+		assertEquals(10.seconds, nowPlayingSeekButtonAdjustment(isLongPress = false))
+		assertEquals(30.seconds, nowPlayingSeekButtonAdjustment(isLongPress = true))
+	}
+
+	@Test
 	fun movesProgressByRequestedDuration() {
 		assertEquals(
 			0.25f,
