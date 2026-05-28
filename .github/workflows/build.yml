@@ -71,6 +71,15 @@ jobs:
           build_tools="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
           "$ANDROID_HOME/build-tools/$build_tools/apksigner" verify --print-certs "$apk" | tee apk-certs.txt
 
+          expected_cert_sha256="ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7"
+          actual_cert_sha256="$(sed -n 's/^.*certificate SHA-256 digest: //p' apk-certs.txt | head -n 1)"
+          if [[ "$actual_cert_sha256" != "$expected_cert_sha256" ]]; then
+            echo "Release APK is signed with an unexpected certificate."
+            echo "Expected: $expected_cert_sha256"
+            echo "Actual:   ${actual_cert_sha256:-missing}"
+            exit 1
+          fi
+
           if grep -q 'CN=Android Debug' apk-certs.txt; then
             echo "Release APK is signed with an Android Debug certificate; refusing to publish it."
             exit 1
@@ -202,7 +211,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" **/*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --draft --generate-notes
+            --latest --generate-notes
 
   attach-ipa-to-release:
     name: Attach iOS IPA to GitHub Release
