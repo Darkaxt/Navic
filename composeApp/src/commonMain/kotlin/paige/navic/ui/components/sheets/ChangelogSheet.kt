@@ -62,8 +62,14 @@ data class GitHubRelease(
 	@SerialName("body") val body: String,
 	@SerialName("assets") val assets: List<GitHubReleaseAsset> = emptyList()
 ) {
+	private val preferredApkAsset: GitHubReleaseAsset?
+		get() = assets.preferredApkAsset()
+
 	val updateUrl: String
-		get() = assets.preferredApkAssetUrl() ?: url
+		get() = preferredApkAsset?.downloadUrl ?: url
+
+	val updateSha256Digest: String?
+		get() = preferredApkAsset?.normalizedSha256Digest()
 
 	val hasDirectApkUpdate: Boolean
 		get() = updateUrl.isApkDownloadUrl()
@@ -73,27 +79,39 @@ data class GitHubRelease(
 data class GitHubReleaseAsset(
 	@SerialName("name") val name: String,
 	@SerialName("content_type") val contentType: String? = null,
-	@SerialName("browser_download_url") val downloadUrl: String
+	@SerialName("browser_download_url") val downloadUrl: String,
+	@SerialName("digest") val digest: String? = null
 )
 
-private fun List<GitHubReleaseAsset>.preferredApkAssetUrl(): String? {
+private fun List<GitHubReleaseAsset>.preferredApkAsset(): GitHubReleaseAsset? {
 	val exactForkApk = firstOrNull { it.name.equals("Navic.apk", ignoreCase = true) }
-	if (exactForkApk != null) return exactForkApk.downloadUrl
+	if (exactForkApk != null) return exactForkApk
 
 	val androidPackageContentType = "application/vnd.android.package-archive"
 	return firstOrNull {
 		it.name.endsWith(".apk", ignoreCase = true) && it.contentType.equals(androidPackageContentType, ignoreCase = true)
-	}?.downloadUrl ?: firstOrNull {
+	} ?: firstOrNull {
 		it.contentType.equals(androidPackageContentType, ignoreCase = true)
-	}?.downloadUrl ?: firstOrNull {
+	} ?: firstOrNull {
 		it.name.endsWith(".apk", ignoreCase = true)
-	}?.downloadUrl
+	}
 }
 
 private fun String.isApkDownloadUrl(): Boolean =
 	substringBefore('?')
 		.substringBefore('#')
 		.endsWith(".apk", ignoreCase = true)
+
+internal fun GitHubReleaseAsset.normalizedSha256Digest(): String? {
+	val value = digest
+		?.trim()
+		?.lowercase()
+		?.removePrefix("sha256:")
+		?: return null
+	return value.takeIf {
+		it.length == 64 && it.all { char -> char in '0'..'9' || char in 'a'..'f' }
+	}
+}
 
 class ChangelogViewModel(
 	platformContext: PlatformContext
@@ -142,12 +160,16 @@ class ChangelogViewModel(
 		_release.value = null
 	}
 
-	fun installUpdate(updateUrl: String, updateInstaller: UpdateInstaller) {
+	fun installUpdate(
+		updateUrl: String,
+		updateSha256Digest: String?,
+		updateInstaller: UpdateInstaller
+	) {
 		if (_isInstallingUpdate.value) return
 		viewModelScope.launch {
 			_isInstallingUpdate.value = true
 			_updateInstallError.value = null
-			updateInstaller.installApk(updateUrl)
+			updateInstaller.installApk(updateUrl, updateSha256Digest)
 				.onSuccess {
 					clearRelease()
 				}
@@ -231,7 +253,11 @@ fun ChangelogSheet() {
 					onClick = {
 						platformContext.clickSound()
 						if (release.hasDirectApkUpdate && updateInstaller.canInstallApk) {
-							viewModel.installUpdate(release.updateUrl, updateInstaller)
+							viewModel.installUpdate(
+								updateUrl = release.updateUrl,
+								updateSha256Digest = release.updateSha256Digest,
+								updateInstaller = updateInstaller
+							)
 						} else {
 							viewModel.clearRelease()
 							uriHandler.openUri(release.updateUrl)

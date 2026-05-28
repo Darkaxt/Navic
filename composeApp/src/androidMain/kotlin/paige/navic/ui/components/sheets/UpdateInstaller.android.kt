@@ -10,8 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.URL
+import java.security.MessageDigest
 
 private const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"
+private const val SHA_256_HEX_LENGTH = 64
 
 private class AndroidUpdateInstaller(
 	context: Context
@@ -20,9 +22,14 @@ private class AndroidUpdateInstaller(
 
 	override val canInstallApk = true
 
-	override suspend fun installApk(updateUrl: String): Result<Unit> = runCatching {
+	override suspend fun installApk(
+		updateUrl: String,
+		expectedSha256Digest: String?
+	): Result<Unit> = runCatching {
 		val apkFile = withContext(Dispatchers.IO) {
-			downloadApk(updateUrl)
+			downloadApk(updateUrl).also { file ->
+				verifyApkSha256Digest(file, expectedSha256Digest)
+			}
 		}
 		withContext(Dispatchers.Main) {
 			launchPackageInstaller(apkFile)
@@ -47,6 +54,21 @@ private class AndroidUpdateInstaller(
 		return target
 	}
 
+	private fun verifyApkSha256Digest(
+		apkFile: File,
+		expectedSha256Digest: String?
+	) {
+		val expectedDigest = expectedSha256Digest
+			?.trim()
+			?.lowercase()
+			?.takeIf { it.length == SHA_256_HEX_LENGTH }
+			?: return
+		val actualDigest = apkFile.sha256Digest()
+		require(actualDigest.equals(expectedDigest, ignoreCase = true)) {
+			"Downloaded update APK failed SHA-256 verification."
+		}
+	}
+
 	private fun launchPackageInstaller(apkFile: File) {
 		val apkUri = FileProvider.getUriForFile(
 			appContext,
@@ -59,6 +81,21 @@ private class AndroidUpdateInstaller(
 			addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 		}
 		appContext.startActivity(installIntent)
+	}
+}
+
+private fun File.sha256Digest(): String {
+	val digest = MessageDigest.getInstance("SHA-256")
+	inputStream().use { input ->
+		val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+		while (true) {
+			val bytesRead = input.read(buffer)
+			if (bytesRead == -1) break
+			digest.update(buffer, 0, bytesRead)
+		}
+	}
+	return digest.digest().joinToString("") { byte ->
+		"%02x".format(byte.toInt() and 0xff)
 	}
 }
 
