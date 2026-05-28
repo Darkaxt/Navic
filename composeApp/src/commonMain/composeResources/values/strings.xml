@@ -149,7 +149,7 @@
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
 	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_auto_download_starred_albums">Download album songs when you star an album while online. Unstarring keeps existing downloads.</string>
-	<string name="subtitle_download_queue">Queued or currently downloading songs</string>
+	<string name="subtitle_download_queue">Queued or currently downloading songs. Tap to inspect and cancel</string>
 	<string name="subtitle_lida_clips_enabled">Show music-video actions for matching tracks</string>
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
@@ -518,6 +518,7 @@
 	<string name="action_download">Download</string>
 	<string name="action_delete_download">Delete download</string>
 	<string name="action_cancel_download">Cancel download</string>
+	<string name="action_cancel_pending_downloads">Cancel pending downloads</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>
 	<string name="action_disable_sleep_timer">Turn off timer</string>
@@ -628,6 +629,10 @@
 	<string name="info_lyrics_provider">Lyrics provided by %1$s</string>
 	<string name="info_image_failed_to_load">Failed to load</string>
 	<string name="info_download_failed">Download failed</string>
+	<string name="info_download_queue_empty">No active downloads</string>
+	<string name="info_download_status_downloading">Downloading</string>
+	<string name="info_download_status_queued">Queued</string>
+	<string name="info_download_status_failed">Failed</string>
 	<string name="info_click_to_retry">Click to retry</string>
 	<string name="info_downloaded">Downloaded</string>
 	<string name="info_syncing">Syncing...</string>

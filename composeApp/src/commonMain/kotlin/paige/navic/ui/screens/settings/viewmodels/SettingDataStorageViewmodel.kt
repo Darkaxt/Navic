@@ -2,19 +2,26 @@ package paige.navic.ui.screens.settings.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import paige.navic.domain.manager.SyncManager
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.dao.SyncActionDao
-import paige.navic.domain.repositories.DbRepository
-import paige.navic.domain.repositories.SongRepository
+import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.SyncManager
+import paige.navic.domain.models.downloadQueueDownloads
+import paige.navic.domain.repositories.DbRepository
+import paige.navic.domain.repositories.SongRepository
 
 class SettingsDataStorageViewModel(
 	private val syncManager: SyncManager,
@@ -22,6 +29,7 @@ class SettingsDataStorageViewModel(
 	private val syncDao: SyncActionDao,
 	private val downloadManager: DownloadManager,
 	private val songRepository: SongRepository,
+	private val songDao: SongDao,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 
@@ -44,6 +52,34 @@ class SettingsDataStorageViewModel(
 	val pendingDownloadCount = downloadManager.pendingDownloadCount.stateIn(
 		viewModelScope, SharingStarted.WhileSubscribed(5000), 0
 	)
+	val downloadQueueItems = downloadManager.allDownloads
+		.map { downloads ->
+			val queueDownloads = downloadQueueDownloads(downloads)
+			val songsById = if (queueDownloads.isEmpty()) {
+				emptyMap()
+			} else {
+				songDao
+					.getSongsByIds(queueDownloads.map { it.songId })
+					.associateBy { it.songId }
+			}
+			queueDownloads.map { download ->
+				val song = songsById[download.songId]?.toDomainModel()
+				DownloadQueueItem(
+					songId = download.songId,
+					title = song?.title ?: download.songId,
+					artistName = song?.artistName,
+					albumTitle = song?.albumTitle,
+					status = download.status,
+					progress = download.progress.coerceIn(0f, 1f)
+				)
+			}.toImmutableList()
+		}
+		.flowOn(Dispatchers.IO)
+		.stateIn(
+			viewModelScope,
+			SharingStarted.WhileSubscribed(5000),
+			emptyList<DownloadQueueItem>().toImmutableList()
+		)
 
 	val isDownloadingLibrary = downloadManager.isDownloadingLibrary
 	val libraryDownloadProgress = downloadManager.libraryDownloadProgress
@@ -93,4 +129,26 @@ class SettingsDataStorageViewModel(
 	fun cancelLibraryDownload() {
 		downloadManager.cancelAllActiveDownloads()
 	}
+
+	fun cancelDownload(songId: String) {
+		downloadManager.cancelDownload(songId)
+	}
+
+	fun cancelPendingDownloads() {
+		downloadManager.cancelAllActiveDownloads()
+	}
+}
+
+data class DownloadQueueItem(
+	val songId: String,
+	val title: String,
+	val artistName: String?,
+	val albumTitle: String?,
+	val status: DownloadStatus,
+	val progress: Float
+) {
+	val canCancel: Boolean
+		get() = status == DownloadStatus.DOWNLOADING ||
+			status == DownloadStatus.QUEUED ||
+			status == DownloadStatus.FAILED
 }

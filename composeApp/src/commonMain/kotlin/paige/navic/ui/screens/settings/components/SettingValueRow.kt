@@ -15,9 +15,13 @@ fun SettingValueRow(
 	title: @Composable () -> Unit,
 	value: String,
 	subtitle: (@Composable () -> Unit)? = null,
-	contentPadding: PaddingValues = PaddingValues(14.dp)
+	contentPadding: PaddingValues = PaddingValues(14.dp),
+	onClick: (() -> Unit)? = null
 ) {
-	FormRow(contentPadding = contentPadding) {
+	FormRow(
+		contentPadding = contentPadding,
+		onClick = onClick
+	) {
 		Column(Modifier.weight(1f)) {
 			title()
 			subtitle?.let { subtitle ->

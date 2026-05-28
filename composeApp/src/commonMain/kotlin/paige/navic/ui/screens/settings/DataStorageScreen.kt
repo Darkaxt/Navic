@@ -117,6 +117,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.components.SettingValueRow
+import paige.navic.ui.screens.settings.dialogs.DownloadQueueDialog
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -138,8 +139,10 @@ fun SettingsDataStorageScreen() {
 	val downloadCount by viewModel.downloadCount.collectAsStateWithLifecycle(0)
 	val downloadSize by viewModel.downloadSize.collectAsStateWithLifecycle(0L)
 	val pendingDownloadCount by viewModel.pendingDownloadCount.collectAsStateWithLifecycle(0)
+	val downloadQueueItems by viewModel.downloadQueueItems.collectAsStateWithLifecycle()
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
+	var showDownloadQueueDialog by remember { mutableStateOf(false) }
 	val isDownloadingLibrary by viewModel.isDownloadingLibrary.collectAsStateWithLifecycle()
 	val libraryDownloadProgress by viewModel.libraryDownloadProgress.collectAsStateWithLifecycle()
 
@@ -190,6 +193,14 @@ fun SettingsDataStorageScreen() {
 			showLibraryDownloadDialog = false
 			viewModel.downloadEntireLibrary()
 		}
+	)
+
+	DownloadQueueDialog(
+		showDialog = showDownloadQueueDialog,
+		items = downloadQueueItems,
+		onDismissRequest = { showDownloadQueueDialog = false },
+		onCancelDownload = viewModel::cancelDownload,
+		onCancelPendingDownloads = viewModel::cancelPendingDownloads
 	)
 
 	Scaffold(
@@ -365,7 +376,8 @@ fun SettingsDataStorageScreen() {
 							Res.plurals.count_songs,
 							pendingDownloadCount,
 							pendingDownloadCount
-						)
+						),
+						onClick = { showDownloadQueueDialog = true }
 					)
 
 					SettingValueRow(
