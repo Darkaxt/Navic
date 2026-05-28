@@ -62,6 +62,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, Sleep Timer, and Equalizer actions.
 * Sleep timer access from the now-playing song menu and root top-bar menu.
+* Kreate-inspired configurable Now Playing dynamic background blur and dim strength.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
@@ -171,6 +172,10 @@ Open Settings -> Playback and turn `Volume keys skip tracks` on. While Navic is 
 ### Sleep timer setup
 
 Open the now-playing song menu or the root top-bar menu and choose `Sleep timer`. Use Settings -> Now Playing -> `Show sleep timer action` to hide or show it in the Now Playing song menu.
+
+### Now Playing background setup
+
+Open Settings -> Now Playing and keep `Background style` set to `Dynamic` to use the animated cover-art background. `Background blur` and `Background dim` adjust the blur strength and dark overlay; defaults are 80dp and 40%, matching the previous Navic look.
 
 ### Now Playing artwork setup
 

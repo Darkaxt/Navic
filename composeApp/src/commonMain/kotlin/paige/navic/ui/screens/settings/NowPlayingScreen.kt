@@ -1,13 +1,17 @@
 package paige.navic.ui.screens.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
@@ -17,9 +21,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_now_playing_background_blur
+import navic.composeapp.generated.resources.option_now_playing_background_dim
 import navic.composeapp.generated.resources.option_now_playing_background_style
 import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_artwork_size
@@ -41,6 +50,8 @@ import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
+import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
+import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
@@ -57,6 +68,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.MaxNowPlayingBackgroundBlurDp
+import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
+import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
@@ -67,6 +83,7 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.NowPlayingSliderStyleDialog
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsNowPlayingScreen() {
@@ -113,6 +130,44 @@ fun SettingsNowPlayingScreen() {
 						description = stringResource(Res.string.subtitle_now_playing_background_style),
 						title = { Text(stringResource(Res.string.option_now_playing_background_style)) }
 					)
+
+					AnimatedVisibility(
+						preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
+					) {
+						val backgroundBlurDp = nowPlayingBackgroundBlurDp(
+							preferenceManager.nowPlayingBackgroundBlurDp
+						)
+						NowPlayingBackgroundSliderRow(
+							title = stringResource(Res.string.option_now_playing_background_blur),
+							subtitle = stringResource(Res.string.subtitle_now_playing_background_blur),
+							valueText = "${backgroundBlurDp.roundToInt()}dp",
+							value = backgroundBlurDp,
+							onValueChange = { value ->
+								preferenceManager.nowPlayingBackgroundBlurDp = value.roundToInt().toFloat()
+							},
+							valueRange = MinNowPlayingBackgroundBlurDp..MaxNowPlayingBackgroundBlurDp
+						)
+					}
+
+					AnimatedVisibility(
+						preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
+					) {
+						val dimPercent = preferenceManager.nowPlayingBackgroundDimPercent.coerceIn(
+							MinNowPlayingBackgroundDimPercent,
+							MaxNowPlayingBackgroundDimPercent
+						)
+						NowPlayingBackgroundSliderRow(
+							title = stringResource(Res.string.option_now_playing_background_dim),
+							subtitle = stringResource(Res.string.subtitle_now_playing_background_dim),
+							valueText = "$dimPercent%",
+							value = dimPercent.toFloat(),
+							onValueChange = { value ->
+								preferenceManager.nowPlayingBackgroundDimPercent = value.roundToInt()
+							},
+							valueRange = MinNowPlayingBackgroundDimPercent.toFloat()..
+								MaxNowPlayingBackgroundDimPercent.toFloat()
+						)
+					}
 
 					var showSliderStyleDialog by rememberSaveable { mutableStateOf(false) }
 					FormRow(
@@ -263,6 +318,47 @@ fun SettingsNowPlayingScreen() {
 					}
 				}
 			}
+		}
+	}
+}
+
+@Composable
+private fun NowPlayingBackgroundSliderRow(
+	title: String,
+	subtitle: String,
+	valueText: String,
+	value: Float,
+	onValueChange: (Float) -> Unit,
+	valueRange: ClosedFloatingPointRange<Float>
+) {
+	FormRow {
+		Column(Modifier.fillMaxWidth()) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.SpaceBetween
+			) {
+				Column(Modifier.weight(1f)) {
+					Text(title)
+					Text(
+						text = subtitle,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+				Text(
+					valueText,
+					modifier = Modifier.padding(start = 16.dp),
+					fontFamily = FontFamily.Monospace,
+					fontWeight = FontWeight(400),
+					fontSize = 13.sp,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			Slider(
+				value = value,
+				onValueChange = onValueChange,
+				valueRange = valueRange
+			)
 		}
 	}
 }

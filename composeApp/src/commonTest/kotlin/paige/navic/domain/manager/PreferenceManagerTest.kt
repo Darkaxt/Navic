@@ -7,6 +7,7 @@ import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
+import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import kotlin.test.Test
@@ -351,6 +352,21 @@ class PreferenceManagerTest {
 
 		assertTrue(manager.pauseSearchHistory)
 		assertEquals("artist", manager.searchHistoryEntries)
+	}
+
+	@Test
+	fun nowPlayingBackgroundDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(NowPlayingBackgroundStyle.Dynamic, manager.nowPlayingBackgroundStyle)
+		assertEquals(80f, manager.nowPlayingBackgroundBlurDp)
+		assertEquals(40, manager.nowPlayingBackgroundDimPercent)
+
+		manager.nowPlayingBackgroundBlurDp = 24f
+		manager.nowPlayingBackgroundDimPercent = 25
+
+		assertEquals(24f, manager.nowPlayingBackgroundBlurDp)
+		assertEquals(25, manager.nowPlayingBackgroundDimPercent)
 	}
 
 	@Test

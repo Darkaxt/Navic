@@ -32,6 +32,8 @@ import org.koin.compose.koinInject
 import paige.navic.di.getStaticImageLoader
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.nowPlayingBackgroundBlurDp
+import paige.navic.domain.models.nowPlayingBackgroundDimAlpha
 import paige.navic.util.core.toNetworkHeaders
 import kotlin.time.TimeSource
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
@@ -58,6 +60,8 @@ fun BlendBackground(
 
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val blurDp = nowPlayingBackgroundBlurDp(preferenceManager.nowPlayingBackgroundBlurDp)
+	val dimAlpha = nowPlayingBackgroundDimAlpha(preferenceManager.nowPlayingBackgroundDimPercent)
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val model = remember(coverArtId, serverRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
@@ -95,7 +99,7 @@ fun BlendBackground(
 		modifier = modifier
 			.fillMaxSize()
 			.background(MaterialTheme.colorScheme.background)
-			.blur(80.dp)
+			.blur(blurDp.dp)
 	) {
 		AsyncImage(
 			model = model,
@@ -152,7 +156,7 @@ fun BlendBackground(
 				.fillMaxSize()
 				.drawWithContent {
 					drawContent()
-					drawRect(color = Color.Black.copy(alpha = 0.4f))
+					drawRect(color = Color.Black.copy(alpha = dimAlpha))
 				}
 		)
 	}

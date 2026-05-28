@@ -8,6 +8,8 @@ import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.CoverArtShape
+import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
+import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
@@ -40,6 +42,8 @@ class PreferenceManager(
 	var fontPath by preference("")
 	var animationStyle by preference(AnimationStyle.Expressive)
 	var nowPlayingBackgroundStyle by preference(NowPlayingBackgroundStyle.Dynamic)
+	var nowPlayingBackgroundBlurDp by preference(DefaultNowPlayingBackgroundBlurDp)
+	var nowPlayingBackgroundDimPercent by preference(DefaultNowPlayingBackgroundDimPercent)
 	var swipeToSkip by preference(true)
 	var tapArtworkForLyrics by preference(false)
 	var gridSize by preference(GridSize.TwoByTwo)
