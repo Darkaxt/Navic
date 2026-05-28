@@ -40,6 +40,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
 * Optional resume of a paused queue when headphones, USB audio, or Bluetooth audio connect.
 * Optional pause between songs after automatic track changes.
+* Kreate-inspired `Medley mode` can auto-advance to the next queued song after 15, 30, 45, or 60 seconds of playback.
 * Kreate-inspired `Smart rewind` setting for when the Previous button restarts the current song instead of jumping back.
 * Optional pause/resume behavior when Android media volume is muted to zero and then restored.
 * Kreate-inspired Android audio fade durations for smoother pause and resume.
@@ -121,6 +122,10 @@ Open Settings -> Playback -> `Smart rewind` to choose the point where the Previo
 ### Audio fade setup
 
 Open Settings -> Playback -> `Audio fade` to choose a pause/resume fade duration. The default is `Off`, preserving Navic's immediate pause/resume behavior.
+
+### Medley mode setup
+
+Open Settings -> Playback -> `Medley mode` to choose how long each queued song plays before Navic skips to the next song. `Off` is the default and keeps full-track playback.
 
 ### Bass boost setup
 

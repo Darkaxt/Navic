@@ -51,6 +51,7 @@ import navic.composeapp.generated.resources.option_lyrics_jump_on_tap
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
+import navic.composeapp.generated.resources.option_medley_mode
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.option_pause_between_songs
@@ -83,6 +84,7 @@ import navic.composeapp.generated.resources.subtitle_auto_fill_queue_target_size
 import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
+import navic.composeapp.generated.resources.subtitle_medley_mode
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
@@ -236,6 +238,20 @@ fun SettingsPlaybackScreen() {
 							description = stringResource(Res.string.subtitle_pause_between_songs),
 							selection = preferenceManager.pauseBetweenSongsSeconds,
 							onSelect = { preferenceManager.pauseBetweenSongsSeconds = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_medley_mode)) },
+							items = medleyModeOptions.toImmutableList(),
+							label = { seconds ->
+								if (seconds == 0) {
+									stringResource(Res.string.option_off)
+								} else {
+									"${seconds}s"
+								}
+							},
+							description = stringResource(Res.string.subtitle_medley_mode),
+							selection = preferenceManager.medleyModeSeconds,
+							onSelect = { preferenceManager.medleyModeSeconds = it }
 						)
 						SettingSelectionRow(
 							title = { Text(stringResource(Res.string.option_smart_rewind)) },
@@ -587,6 +603,7 @@ fun SettingsPlaybackScreen() {
 }
 
 private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
+private val medleyModeOptions = listOf(0, 15, 30, 45, 60)
 private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)
 private val audioFadeDurationOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeOptions = listOf(10, 25, 50, 100)

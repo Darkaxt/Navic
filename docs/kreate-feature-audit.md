@@ -15,6 +15,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * LidaClips Picture-in-Picture: Navic now exposes a LidaClips Android PiP toggle under Settings -> Data & Storage -> Music video clips. The Android video surface provides PiP source bounds, uses Android 12+ auto-enter params, and falls back to `onUserLeaveHint` on Android 8-11.
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
 * Pause between songs: Navic now exposes an Android Playback setting that pauses briefly after automatic track transitions while leaving manual skips immediate.
+* Medley mode: Navic now adapts Kreate's playback-duration/medley behavior as an Android Playback setting. It defaults off for full-track playback and can auto-advance to the next queued song after 15, 30, 45, or 60 seconds.
 * Smart rewind: Navic now exposes an Android Playback setting for the Previous-button threshold. The default remains Navic's old 1 second behavior, while 3 seconds matches Kreate's default.
 * Pause on zero volume: Navic now exposes an Android Playback setting that pauses when Android media volume reaches zero and resumes only when Navic paused itself and media volume is restored.
 * Audio fade: Navic now exposes an Android Playback setting for Kreate-style pause/resume fade durations while keeping immediate pause/resume as the default.

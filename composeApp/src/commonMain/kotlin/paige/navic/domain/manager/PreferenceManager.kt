@@ -105,6 +105,7 @@ class PreferenceManager(
 	var audioReverbPreset by preference(AudioReverbPreset.Off)
 	var replayGainLoudnessBoost by preference(false)
 	var pauseBetweenSongsSeconds by preference(0)
+	var medleyModeSeconds by preference(0)
 	var autoFillQueue by preference(false)
 	var autoFillQueueTargetSize by preference(25)
 	var autoFillQueueSource by preference(AutoFillQueueSource.RandomLibrary)

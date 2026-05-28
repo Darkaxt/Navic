@@ -77,6 +77,7 @@ import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
+import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
@@ -89,6 +90,7 @@ import paige.navic.domain.models.replayGainVolumeMultiplier
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
 import paige.navic.domain.models.shouldAutoFillQueue
+import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldFadePlaybackCommand
@@ -119,6 +121,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var audioDeviceCallback: AudioDeviceCallback? = null
 	private var volumeZeroObserver: ContentObserver? = null
 	private var pauseBetweenSongsJob: Job? = null
+	private var medleyModeJob: Job? = null
 	private var exoPlayer: ExoPlayer? = null
 	private var bassBoost: BassBoost? = null
 	private var bassBoostAudioSessionId: Int? = null
@@ -192,6 +195,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		registerAudioEffectsListener(player)
 		registerPauseBetweenSongsListener(player)
+		startMedleyModeLoop(player)
 		registerAudioDeviceCallback(player)
 		registerVolumeZeroObserver(player)
 
@@ -453,6 +457,36 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				}
 			}
 		})
+	}
+
+	private fun startMedleyModeLoop(player: ExoPlayer) {
+		medleyModeJob?.cancel()
+		medleyModeJob = serviceScope.launch {
+			var advancedMediaItemIndex: Int? = null
+			while (true) {
+				val durationMs = medleyModeDurationMs(preferenceManager.medleyModeSeconds)
+				val currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+				if (durationMs <= 0L || currentPositionMs < durationMs) {
+					advancedMediaItemIndex = null
+				}
+
+				val currentIndex = player.currentMediaItemIndex
+				if (
+					shouldAdvanceMedleyMode(
+						medleyModeSeconds = preferenceManager.medleyModeSeconds,
+						isPlaying = player.isPlaying,
+						hasNextMediaItem = player.hasNextMediaItem(),
+						currentPositionMs = currentPositionMs,
+						alreadyAdvancedCurrentItem = advancedMediaItemIndex == currentIndex
+					)
+				) {
+					advancedMediaItemIndex = currentIndex
+					player.seekToNextMediaItem()
+				}
+
+				delay(500.milliseconds)
+			}
+		}
 	}
 
 	private fun registerVolumeZeroObserver(player: ExoPlayer) {

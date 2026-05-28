@@ -175,6 +175,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun medleyModeDefaultsToFullTrackPlayback() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(0, manager.medleyModeSeconds)
+
+		manager.medleyModeSeconds = 30
+
+		assertEquals(30, manager.medleyModeSeconds)
+	}
+
+	@Test
 	fun bassBoostDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
