@@ -612,6 +612,7 @@
 	<string name="info_no_albums">No albums</string>
 	<string name="info_no_artists">No artists</string>
 	<string name="info_no_songs">No songs</string>
+	<string name="info_no_search_results">No results</string>
 	<string name="info_not_available_offline">Not available offline</string>
 	<string name="info_no_queue">Nothing queued</string>
 	<string name="info_discover_queue_removed">Discover queue removed %1$d known songs</string>
