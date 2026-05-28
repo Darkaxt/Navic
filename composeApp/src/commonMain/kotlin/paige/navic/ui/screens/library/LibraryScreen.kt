@@ -26,11 +26,14 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.DomainSongListType
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
+import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
@@ -42,6 +45,7 @@ import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
 import paige.navic.ui.screens.playlist.viewmodels.PlaylistListViewModel
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.screens.song.viewmodels.SongListViewModel
 import paige.navic.ui.core.LoginUiState
 import paige.navic.ui.core.UiState
 import kotlin.time.Duration
@@ -49,6 +53,16 @@ import kotlin.time.Duration
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen() {
+	val quickPicksViewModel = koinViewModel<SongListViewModel>(
+		key = "libraryQuickPicks",
+		parameters = { parametersOf(DomainSongListType.QuickPicks) }
+	)
+	val quickPicksState by quickPicksViewModel.songsState.collectAsStateWithLifecycle()
+	val selectedQuickPick by quickPicksViewModel.selectedSong.collectAsStateWithLifecycle()
+	val selectedQuickPickIsStarred by quickPicksViewModel.starred.collectAsStateWithLifecycle()
+	val selectedQuickPickRating by quickPicksViewModel.selectedSongRating.collectAsStateWithLifecycle()
+	val quickPickDownloads by quickPicksViewModel.allDownloads.collectAsStateWithLifecycle()
+
 	val albumsViewModel = koinViewModel<AlbumListViewModel>(
 		key = "libraryAlbums",
 		parameters = { parametersOf(DomainAlbumListType.Recent) }
@@ -81,12 +95,14 @@ fun LibraryScreen() {
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 	var playlistDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
 	var playlistCreateDialogShown by rememberSaveable { mutableStateOf(false) }
+	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
 
 	val player = koinInject<MediaPlayerViewModel>()
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	LaunchedEffect(loginState is LoginUiState.Success) {
+		quickPicksViewModel.refreshSongs(false)
 		albumsViewModel.refreshAlbums(false)
 		playlistsViewModel.refreshPlaylists(false)
 		artistsViewModel.refreshArtists(false)
@@ -105,21 +121,56 @@ fun LibraryScreen() {
 				.padding(top = innerPadding.calculateTopPadding())
 				.background(MaterialTheme.colorScheme.surface),
 			finished = albumsState !is UiState.Loading &&
+				quickPicksState !is UiState.Loading &&
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
 				genresState !is UiState.Loading,
 			onRefresh = {
+				quickPicksViewModel.refreshSongs(true)
 				albumsViewModel.refreshAlbums(true)
 				playlistsViewModel.refreshPlaylists(true)
 				artistsViewModel.refreshArtists(true)
 				genresViewModel.refreshGenres(true)
 			},
-			key = listOf(albumsState, playlistsState, artistsState, genresState)
+			key = listOf(quickPicksState, albumsState, playlistsState, artistsState, genresState)
 		) {
 			LibraryScreenContent(
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
+
+				quickPicksState = quickPicksState,
+				selectedQuickPick = selectedQuickPick,
+				selectedQuickPickIsStarred = selectedQuickPickIsStarred,
+				selectedQuickPickRating = selectedQuickPickRating,
+				quickPickDownloads = quickPickDownloads,
+				onSelectQuickPick = { quickPicksViewModel.selectSong(it) },
+				onClearQuickPickSelection = { quickPicksViewModel.clearSelection() },
+				onStarSelectedQuickPick = { quickPicksViewModel.starSong(it) },
+				onStartQuickPickRadio = { player.startSongRadio(it) },
+				onPlayQuickPickNext = { song ->
+					if (player.uiState.value.queue.any { it.id == song.id }) {
+						songToQueue = song
+					} else {
+						player.playNextSingle(song)
+					}
+				},
+				onAddQuickPickToQueue = { song ->
+					if (player.uiState.value.queue.any { it.id == song.id }) {
+						songToQueue = song
+					} else {
+						player.addToQueueSingle(song)
+					}
+				},
+				onPlayQuickPick = { song ->
+					player.clearQueue()
+					player.addToQueueSingle(song)
+					player.playAt(0)
+				},
+				onRateSelectedQuickPick = { quickPicksViewModel.rateSelectedSong(it) },
+				onDownloadQuickPick = { quickPicksViewModel.downloadSong(it) },
+				onCancelQuickPickDownload = { quickPicksViewModel.cancelDownload(it.id) },
+				onDeleteQuickPickDownload = { quickPicksViewModel.deleteDownload(it.id) },
 
 				albumsState = albumsState,
 				selectedAlbum = selectedAlbum,
@@ -156,6 +207,7 @@ fun LibraryScreen() {
 	}
 
 	val flattenedErrors = listOf(
+		(quickPicksState as? UiState.Error)?.error,
 		(albumsState as? UiState.Error)?.error,
 		(playlistsState as? UiState.Error)?.error,
 		(artistsState as? UiState.Error)?.error,
@@ -165,6 +217,7 @@ fun LibraryScreen() {
 	ErrorSnackbar(
 		error = flattenedErrors?.let { Error(it) },
 		onClearError = {
+			quickPicksViewModel.clearError()
 			albumsViewModel.clearError()
 			playlistsViewModel.clearError()
 			artistsViewModel.clearError()
@@ -191,5 +244,14 @@ fun LibraryScreen() {
             onDismissRequest = { playlistCreateDialogShown = false },
             onRefresh = { playlistsViewModel.refreshPlaylists(true) }
         )
+	}
+
+	if (songToQueue != null) {
+		QueueDuplicateDialog(
+			onDismissRequest = { songToQueue = null },
+			onConfirm = {
+				songToQueue?.let { player.addToQueueSingle(it) }
+			}
+		)
 	}
 }

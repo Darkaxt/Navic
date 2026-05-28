@@ -36,6 +36,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 * Queue auto-fill: Navic now adapts Kreate's queue auto-append concept as an Android Playback setting that appends songs when active playback gets near the end of a non-radio queue. It skips duplicates, skips radio items, exposes a target queue size, and defaults new configurations to recent-genre refill while still offering random-library and current-song-similar sources. Similar mode prefers live Navidrome similar-song results when available, then falls back to local library similarity; Recent genres keeps refill candidates inside shared genres and moods when matches exist, falling back only when the synced library has no matching candidates.
 * Shuffle queue limit: Kreate exposes a max-songs-in-queue setting for large shuffle actions. Navic now adapts that as an optional Playback setting that caps collection shuffle queues after shuffling, so the default remains unlimited while large playlist/library shuffles can start with a smaller queue.
 * Start song radio: Navic now adapts Kreate's song radio action as a song-sheet and now-playing action. It starts the selected song, prefers live Navidrome similar-song results in server order, and fills the rest of the queue from locally synced songs ranked by shared artist, album, genre, and mood metadata.
+* Quick Picks: Navic now adapts Kreate's Quick Picks/discovery idea as a Library row and song-list sort backed by local Navidrome data. It ranks synced songs by frequent plays, ratings, and recently added albums, skips transient radio entries, and keeps normal song-sheet actions including LidaClips, radio, queue, playlist, and download actions.
 * Discover queue cleanup: Navic now adapts Kreate's Discover queue cleanup as a now-playing menu action. It removes upcoming queued songs that are already starred or present in any synced playlist, keeps the current song and queue history intact, and reports how many known songs were removed.
 * Start Radio and Discover visibility: Navic now adapts Kreate's `PLAYER_ACTION_START_RADIO` and `PLAYER_ACTION_DISCOVER` visibility preferences as default-on Now Playing action settings, preserving the existing menu by default while letting users hide either action.
 * Download and Add to Playlist visibility: Navic now adapts Kreate's `PLAYER_ACTION_DOWNLOAD` and `PLAYER_ACTION_ADD_TO_PLAYLIST` preferences as default-on Now Playing action settings. Download uses the existing offline download state/actions and is hidden for transient radio streams.
@@ -98,12 +99,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 1. Device-event controls
    * Shake-to-skip and foreground volume-key track changes are adapted. Any future background hardware-button handling would need a separate design because it has broader device behavior implications.
 2. Broader Discover behavior
-   * Auto-fill, Start song radio, and Discover queue cleanup now cover the useful queue-management pieces. Broader home/discovery-page behavior remains product work because Kreate's source is YouTube/InnerTube-specific rather than Navidrome-specific.
+   * Auto-fill, Start song radio, Quick Picks, and Discover queue cleanup now cover the useful queue-management and library-discovery pieces. A larger dedicated discovery page remains product work because Kreate's source is YouTube/InnerTube-specific rather than Navidrome-specific.
 
 ## Higher-Risk Candidates
 
 * Volume buttons change song and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
-* Discover-style queue generation: Start song radio, similar auto-fill, and Discover queue cleanup now cover the queue-focused pieces with Navidrome data. Broader Discover-page behavior still needs product definition for a Navidrome library client.
+* Discover-style queue generation: Start song radio, similar auto-fill, Quick Picks, and Discover queue cleanup now cover the queue-focused and first Library discovery pieces with Navidrome data. Broader Discover-page behavior still needs product definition for a Navidrome library client.
 * Visualizers, thumbnail animations, and extensive player layout variants: high UI churn and likely not worth transplanting until core playback/video behavior is stable.
 
 ## Recommended Order
@@ -111,4 +112,4 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 1. Smoke-test bass boost, reverb, and the system equalizer launcher on a real Android device.
 2. Smoke-test ReplayGain loudness boost with real Navidrome ReplayGain metadata on a device that supports Android `LoudnessEnhancer`.
 3. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
-4. Design broader Discover-page behavior only if Navic should grow a dedicated discovery surface beyond queue actions.
+4. Design broader Discover-page behavior only if Navic should grow a dedicated discovery surface beyond Quick Picks and queue actions.

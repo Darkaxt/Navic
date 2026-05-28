@@ -16,6 +16,7 @@ import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.option_sort_newest
+import navic.composeapp.generated.resources.option_sort_quick_picks
 import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_recent
 import navic.composeapp.generated.resources.option_sort_starred
@@ -23,12 +24,15 @@ import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
+import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainGenre
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
@@ -50,6 +54,24 @@ fun LibraryScreenContent(
 	scrollBehavior: TopAppBarScrollBehavior,
 	innerPadding: PaddingValues,
 	onSetShareId: (String) -> Unit,
+
+	// quick picks
+	quickPicksState: UiState<ImmutableList<DomainSong>>,
+	selectedQuickPick: DomainSong?,
+	selectedQuickPickIsStarred: Boolean,
+	selectedQuickPickRating: Int,
+	quickPickDownloads: List<DownloadEntity>,
+	onSelectQuickPick: (DomainSong) -> Unit,
+	onClearQuickPickSelection: () -> Unit,
+	onStarSelectedQuickPick: (Boolean) -> Unit,
+	onStartQuickPickRadio: (DomainSong) -> Unit,
+	onPlayQuickPickNext: (DomainSong) -> Unit,
+	onAddQuickPickToQueue: (DomainSong) -> Unit,
+	onPlayQuickPick: (DomainSong) -> Unit,
+	onRateSelectedQuickPick: (Int) -> Unit,
+	onDownloadQuickPick: (DomainSong) -> Unit,
+	onCancelQuickPickDownload: (DomainSong) -> Unit,
+	onDeleteQuickPickDownload: (DomainSong) -> Unit,
 
 	// albums
 	albumsState: UiState<ImmutableList<DomainAlbum>>,
@@ -120,6 +142,35 @@ fun LibraryScreenContent(
 			destination = Screen.AlbumList(true, DomainAlbumListType.Frequent),
 			start = false
 		)
+
+		horizontalSection(
+			title = Res.string.option_sort_quick_picks,
+			destination = Screen.SongList(true, listType = DomainSongListType.QuickPicks),
+			state = quickPicksState,
+			key = { it.id },
+			seeAll = true
+		) { song ->
+			QuickPickSongCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				song = song,
+				selected = song == selectedQuickPick,
+				starred = selectedQuickPickIsStarred,
+				rating = selectedQuickPickRating,
+				download = quickPickDownloads.find { it.songId == song.id },
+				onSelect = { onSelectQuickPick(song) },
+				onDeselect = onClearQuickPickSelection,
+				onSetStarred = onStarSelectedQuickPick,
+				onSetShareId = onSetShareId,
+				onStartSongRadio = { onStartQuickPickRadio(song) },
+				onPlayNext = { onPlayQuickPickNext(song) },
+				onAddToQueue = { onAddQuickPickToQueue(song) },
+				onClick = { onPlayQuickPick(song) },
+				onSetRating = onRateSelectedQuickPick,
+				onDownload = { onDownloadQuickPick(song) },
+				onCancelDownload = { onCancelQuickPickDownload(song) },
+				onDeleteDownload = { onDeleteQuickPickDownload(song) }
+			)
+		}
 
 		horizontalSection(
 			title = Res.string.option_sort_recent,
