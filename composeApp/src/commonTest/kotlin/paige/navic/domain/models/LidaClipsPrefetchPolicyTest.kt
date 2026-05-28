@@ -264,7 +264,17 @@ class LidaClipsPrefetchPolicyTest {
 			shouldShowLidaClipsMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = "https://clips.remaxku.eu",
-				userActionEnabled = true
+				userActionEnabled = true,
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "radio_song-1"
 			)
 		)
 	}

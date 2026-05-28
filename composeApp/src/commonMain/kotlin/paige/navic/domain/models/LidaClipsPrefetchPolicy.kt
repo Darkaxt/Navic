@@ -24,11 +24,13 @@ fun nextLidaClipsPrefetchKey(
 fun shouldShowLidaClipsMusicVideoAction(
 	lidaClipsEnabled: Boolean,
 	lidaClipsBaseUrl: String,
-	userActionEnabled: Boolean
+	userActionEnabled: Boolean,
+	songId: String? = null
 ): Boolean =
 	lidaClipsEnabled &&
 		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
-		userActionEnabled
+		userActionEnabled &&
+		songId?.startsWith("radio_") != true
 
 internal fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
 	normalizedLidaClipsBaseUrl(baseUrl)?.value

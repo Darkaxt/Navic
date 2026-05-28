@@ -109,7 +109,8 @@ fun NowPlayingMoreButton(
 				onPlayMusicVideo = if (shouldShowLidaClipsMusicVideoAction(
 						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
 						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction
+						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
+						songId = song.id
 					)
 				) {
 					dropUnlessResumed {
