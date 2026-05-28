@@ -75,6 +75,7 @@
 	<string name="subtitle_about">App info, version, licenses</string>
 	<string name="subtitle_playlist">Playlist</string>
 	<string name="subtitle_enable_scrobbling">Scrobble played tracks to your Navidrome server</string>
+	<string name="subtitle_pause_listening_history">Temporarily stop sending now-playing and scrobble updates without changing your scrobbling setup</string>
 	<string name="subtitle_gapless_playback">Experimental. Requires application restart. May conflict with audio offload on some devices</string>
 	<string name="subtitle_audio_offload">Uses low-power hardware decoding for supported audio to reduce battery use. May break gapless playback on some devices. Restart playback for changes to apply</string>
 	<string name="subtitle_respect_audio_focus">Turn off to keep Navic playing while WhatsApp or other apps play audio. Takes effect after playback restarts</string>
@@ -265,6 +266,7 @@
 	<string name="option_playlist_name">Name</string>
 	<string name="option_playlist_songs">Songs</string>
 	<string name="option_enable_scrobbling">Enable scrobbling</string>
+	<string name="option_pause_listening_history">Pause listening history</string>
 	<string name="option_choose_theme">Application theme</string>
 	<string name="option_replay_gain">ReplayGain</string>
 	<string name="option_gapless_playback">Gapless playback</string>

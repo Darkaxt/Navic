@@ -66,6 +66,7 @@ class PreferenceManager(
 	var lyricsAlignment by preference(LyricsAlignment.Auto)
 	var lyricsJumpOnTap by preference(true)
 	var enableScrobbling by preference(true)
+	var pauseListeningHistory by preference(false)
 	var scrobblePercentage by preference(.5f)
 	var minDurationToScrobble by preference(30f)
 	var replayGainMode by preference(ReplayGainMode.Off)

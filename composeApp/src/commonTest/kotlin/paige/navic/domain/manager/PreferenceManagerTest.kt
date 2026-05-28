@@ -101,6 +101,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun pauseListeningHistoryDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.pauseListeningHistory)
+
+		manager.pauseListeningHistory = true
+
+		assertTrue(manager.pauseListeningHistory)
+	}
+
+	@Test
 	fun lidaClipsPreferencesDefaultToConfiguredServiceButDisabled() {
 		val manager = PreferenceManager(MapSettings())
 

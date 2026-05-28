@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import paige.navic.data.database.entities.SyncActionType
+import paige.navic.domain.models.shouldSubmitListeningHistory
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
@@ -83,29 +84,43 @@ class ScrobbleManager(
 	}
 
 	private fun scrobbleSubmission(songId: String?) {
-		if (!preferenceManager.enableScrobbling || songId == null) return
+		if (
+			!shouldSubmitListeningHistory(
+				enableScrobbling = preferenceManager.enableScrobbling,
+				pauseListeningHistory = preferenceManager.pauseListeningHistory,
+				songId = songId
+			)
+		) return
+		val scrobbleSongId = songId ?: return
 
 		scope.launch(Dispatchers.IO) {
 			if (connectivityManager.isOnline.value) {
 				try {
-					sessionManager.api.scrobble(songId, submission = true)
+					sessionManager.api.scrobble(scrobbleSongId, submission = true)
 				} catch (_: Exception) {
-					syncManager.enqueueAction(SyncActionType.SCROBBLE, songId)
+					syncManager.enqueueAction(SyncActionType.SCROBBLE, scrobbleSongId)
 				}
 			} else {
-				syncManager.enqueueAction(SyncActionType.SCROBBLE, songId)
+				syncManager.enqueueAction(SyncActionType.SCROBBLE, scrobbleSongId)
 			}
 		}
 	}
 
 	private fun scrobbleNowPlaying(songId: String?) {
-		if (!preferenceManager.enableScrobbling || songId == null) return
+		if (
+			!shouldSubmitListeningHistory(
+				enableScrobbling = preferenceManager.enableScrobbling,
+				pauseListeningHistory = preferenceManager.pauseListeningHistory,
+				songId = songId
+			)
+		) return
+		val nowPlayingSongId = songId ?: return
 
 		if (!connectivityManager.isOnline.value) return
 
 		scope.launch(Dispatchers.IO) {
 			try {
-				sessionManager.api.scrobble(songId, submission = false)
+				sessionManager.api.scrobble(nowPlayingSongId, submission = false)
 			} catch (_: Exception) { }
 		}
 	}
