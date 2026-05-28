@@ -118,6 +118,7 @@
 	<string name="subtitle_now_playing_tap_controls_for_queue">Open the Queue by tapping empty space in the Now Playing controls area</string>
 	<string name="subtitle_now_playing_info_style">Choose how much album and artist context the title area shows</string>
 	<string name="subtitle_now_playing_technical_info_style">Detailed adds bit depth, channels, file size, and ReplayGain when available</string>
+	<string name="subtitle_now_playing_progress_width">Adjust how much horizontal space the progress bar uses</string>
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_repeat_control">Show the repeat button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_indicator">Show the animated waveform beside the current song in lists and the queue</string>
@@ -195,6 +196,12 @@
 	<string name="option_now_playing_slider_style_squiggly">Squiggly</string>
 	<string name="option_now_playing_slider_style_slim">Slim</string>
 	<string name="option_now_playing_slider_style_yoyo">Yoyo</string>
+	<string name="option_now_playing_progress_width">Progress width</string>
+	<string name="option_now_playing_progress_width_small">Small</string>
+	<string name="option_now_playing_progress_width_medium">Medium</string>
+	<string name="option_now_playing_progress_width_big">Big</string>
+	<string name="option_now_playing_progress_width_biggest">Biggest</string>
+	<string name="option_now_playing_progress_width_expanded">Expanded</string>
 	<string name="option_now_playing_up_next">Show Up next</string>
 	<string name="option_now_playing_up_next_artwork">Show Up next artwork</string>
 	<string name="option_now_playing_up_next_count">Up next count</string>

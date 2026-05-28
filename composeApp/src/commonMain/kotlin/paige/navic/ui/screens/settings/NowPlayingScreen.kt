@@ -41,6 +41,7 @@ import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
 import navic.composeapp.generated.resources.option_now_playing_more_action
 import navic.composeapp.generated.resources.option_now_playing_playback_speed_action
+import navic.composeapp.generated.resources.option_now_playing_progress_width
 import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_remaining_time
 import navic.composeapp.generated.resources.option_now_playing_repeat_control
@@ -71,6 +72,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_
 import navic.composeapp.generated.resources.subtitle_now_playing_download_action
 import navic.composeapp.generated.resources.subtitle_now_playing_info_style
 import navic.composeapp.generated.resources.subtitle_now_playing_more_action
+import navic.composeapp.generated.resources.subtitle_now_playing_progress_width
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
@@ -100,6 +102,7 @@ import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
+import paige.navic.domain.models.settings.NowPlayingProgressWidth
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.Form
@@ -214,6 +217,15 @@ fun SettingsNowPlayingScreen() {
 					NowPlayingSliderStyleDialog(
 						presented = showSliderStyleDialog,
 						onDismissRequest = { showSliderStyleDialog = false }
+					)
+
+					SettingSelectionRow(
+						items = NowPlayingProgressWidth.entries.toImmutableList(),
+						label = { stringResource(it.displayName) },
+						selection = preferenceManager.nowPlayingProgressWidth,
+						onSelect = { preferenceManager.nowPlayingProgressWidth = it },
+						description = stringResource(Res.string.subtitle_now_playing_progress_width),
+						title = { Text(stringResource(Res.string.option_now_playing_progress_width)) }
 					)
 				}
 

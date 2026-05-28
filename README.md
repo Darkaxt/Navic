@@ -68,6 +68,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
+* Kreate-inspired Now Playing progress width selector for shorter, default-width, or full-width playback timelines.
 * Kreate-inspired optional Now Playing control/timeline order swap.
 * Kreate-inspired optional Now Playing playback-button spacing for compact or evenly spread controls.
 * Kreate-inspired optional Now Playing controls swipe-up gesture for opening Queue.
@@ -212,7 +213,7 @@ Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the t
 
 ### Now Playing controls layout setup
 
-Open Settings -> Now Playing and use `Song info style` to choose between Navic's compact title/artist display and an album-and-artist supporting line. Keep `Technical info style` on Compact for the existing format/sample-rate/bitrate row, or choose Detailed to add source stats such as bit depth, channel count, file size, and ReplayGain when the server provides them. Turn `Swap controls and timeline` on to move the playback buttons above the progress bar and time row. It is off by default, so Navic keeps the existing progress-then-buttons layout unless you change it. Turn `Space playback controls evenly` on to spread the main playback buttons across the row instead of using the compact weighted layout. Turn `Swipe up controls for queue` on to open Queue from an upward swipe on the controls area, or turn `Tap controls for queue` on to open Queue by tapping empty space there. `Show shuffle control` and `Show repeat control` are on by default and can hide those edge buttons while leaving Previous, Play/Pause, and Next visible.
+Open Settings -> Now Playing and use `Song info style` to choose between Navic's compact title/artist display and an album-and-artist supporting line. Keep `Technical info style` on Compact for the existing format/sample-rate/bitrate row, or choose Detailed to add source stats such as bit depth, channel count, file size, and ReplayGain when the server provides them. Use `Progress width` to choose a shorter timeline or Expanded full-width timeline; `Biggest` is the default and preserves Navic's existing per-slider spacing. Turn `Swap controls and timeline` on to move the playback buttons above the progress bar and time row. It is off by default, so Navic keeps the existing progress-then-buttons layout unless you change it. Turn `Space playback controls evenly` on to spread the main playback buttons across the row instead of using the compact weighted layout. Turn `Swipe up controls for queue` on to open Queue from an upward swipe on the controls area, or turn `Tap controls for queue` on to open Queue by tapping empty space there. `Show shuffle control` and `Show repeat control` are on by default and can hide those edge buttons while leaving Previous, Play/Pause, and Next visible.
 
 ### Mini-player queue button setup
 

@@ -22,6 +22,7 @@ import ir.mahozad.multiplatform.wavyslider.material3.WaveVelocity
 import ir.mahozad.multiplatform.wavyslider.material3.WavySlider
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.nowPlayingProgressHorizontalPaddingDp
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.SlimSlider
@@ -38,13 +39,17 @@ fun NowPlayingProgressBar() {
 			6.dp
 		else 0.dp
 	)
+	val horizontalPadding = nowPlayingProgressHorizontalPaddingDp(
+		sliderStyle = preferenceManager.nowPlayingSliderStyle,
+		progressWidth = preferenceManager.nowPlayingProgressWidth
+	).dp
 
 	when (preferenceManager.nowPlayingSliderStyle) {
 		NowPlayingSliderStyle.Flat -> {
 			Slider(
 				value = playerState.progress,
 				onValueChange = { player.seek(it) },
-				modifier = Modifier.padding(horizontal = 16.dp),
+				modifier = Modifier.padding(horizontal = horizontalPadding),
 				enabled = enabled
 			)
 		}
@@ -53,9 +58,7 @@ fun NowPlayingProgressBar() {
 			WavySlider(
 				value = playerState.progress,
 				onValueChange = { player.seek(it) },
-				modifier = Modifier.padding(
-					horizontal = if (isYoyo) 7.dp else 14.dp
-				),
+				modifier = Modifier.padding(horizontal = horizontalPadding),
 				waveHeight = waveHeight,
 				thumb = {
 					SliderDefaults.Thumb(
@@ -87,7 +90,7 @@ fun NowPlayingProgressBar() {
 			SlimSlider(
 				value = playerState.progress,
 				onValueChange = { player.seek(it) },
-				modifier = Modifier.padding(horizontal = 16.dp),
+				modifier = Modifier.padding(horizontal = horizontalPadding),
 				enabled = enabled
 			)
 		}

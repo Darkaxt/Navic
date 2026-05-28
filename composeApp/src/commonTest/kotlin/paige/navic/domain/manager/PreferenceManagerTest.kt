@@ -9,6 +9,7 @@ import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
+import paige.navic.domain.models.settings.NowPlayingProgressWidth
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
@@ -417,6 +418,7 @@ class PreferenceManagerTest {
 
 		assertEquals(NowPlayingInfoStyle.Essential, manager.nowPlayingInfoStyle)
 		assertEquals(NowPlayingTechnicalInfoStyle.Compact, manager.nowPlayingTechnicalInfoStyle)
+		assertEquals(NowPlayingProgressWidth.Biggest, manager.nowPlayingProgressWidth)
 		assertFalse(manager.swapNowPlayingControlsAndTimeline)
 		assertFalse(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertFalse(manager.openQueueOnNowPlayingControlsSwipeUp)
@@ -424,6 +426,7 @@ class PreferenceManagerTest {
 
 		manager.nowPlayingInfoStyle = NowPlayingInfoStyle.AlbumAndArtist
 		manager.nowPlayingTechnicalInfoStyle = NowPlayingTechnicalInfoStyle.Detailed
+		manager.nowPlayingProgressWidth = NowPlayingProgressWidth.Expanded
 		manager.swapNowPlayingControlsAndTimeline = true
 		manager.spaceNowPlayingPlaybackControlsEvenly = true
 		manager.openQueueOnNowPlayingControlsSwipeUp = true
@@ -431,6 +434,7 @@ class PreferenceManagerTest {
 
 		assertEquals(NowPlayingInfoStyle.AlbumAndArtist, manager.nowPlayingInfoStyle)
 		assertEquals(NowPlayingTechnicalInfoStyle.Detailed, manager.nowPlayingTechnicalInfoStyle)
+		assertEquals(NowPlayingProgressWidth.Expanded, manager.nowPlayingProgressWidth)
 		assertTrue(manager.swapNowPlayingControlsAndTimeline)
 		assertTrue(manager.spaceNowPlayingPlaybackControlsEvenly)
 		assertTrue(manager.openQueueOnNowPlayingControlsSwipeUp)

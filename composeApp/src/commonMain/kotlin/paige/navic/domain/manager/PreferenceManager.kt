@@ -23,6 +23,7 @@ import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
+import paige.navic.domain.models.settings.NowPlayingProgressWidth
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.OfflineMode
@@ -94,6 +95,7 @@ class PreferenceManager(
 	var showNowPlayingIndicator by preference(true)
 	var showPlaylistIndicator by preference(false)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
+	var nowPlayingProgressWidth by preference(NowPlayingProgressWidth.Biggest)
 	var showNowPlayingLyricsAction by preference(true)
 	var showNowPlayingQueueAction by preference(true)
 	var showNowPlayingMusicVideoAction by preference(true)
