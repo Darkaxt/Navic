@@ -111,6 +111,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 * Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
 * Album, playlist, station, and artist bulk downloads are queued, so you can request several collections and let Navic download them in order. If the app process restarts while songs are queued, Navic resumes queued songs that still exist in the synced library and clears stale queued entries. The queue dialog can inspect queued, downloading, and failed songs, cancel pending work, and retry failed downloads that still exist locally.
+* Destructive Data & Storage danger-zone actions now require confirmation before clearing caches, pending sync actions, downloads, or the local database.
 
 ### LidaClips music videos
 

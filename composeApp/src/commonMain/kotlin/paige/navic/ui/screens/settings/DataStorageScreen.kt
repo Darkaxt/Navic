@@ -50,11 +50,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_cancel_download
-import navic.composeapp.generated.resources.action_clear_downloads
-import navic.composeapp.generated.resources.action_clear_image_cache
-import navic.composeapp.generated.resources.action_clear_pending_actions
-import navic.composeapp.generated.resources.action_rebuild_database
 import navic.composeapp.generated.resources.action_search_history
 import navic.composeapp.generated.resources.action_trigger_sync
 import navic.composeapp.generated.resources.count_songs
@@ -103,15 +100,20 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DangerZoneAction
+import paige.navic.domain.models.dangerZoneActions
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
+import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.Form
+import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
+import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
@@ -143,6 +145,7 @@ fun SettingsDataStorageScreen() {
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
 	var showDownloadQueueDialog by remember { mutableStateOf(false) }
+	var pendingDangerZoneAction by remember { mutableStateOf<DangerZoneAction?>(null) }
 	val isDownloadingLibrary by viewModel.isDownloadingLibrary.collectAsStateWithLifecycle()
 	val libraryDownloadProgress by viewModel.libraryDownloadProgress.collectAsStateWithLifecycle()
 
@@ -165,6 +168,21 @@ fun SettingsDataStorageScreen() {
 		targetValue = libraryDownloadProgress.coerceIn(0f, 1f),
 		animationSpec = tween(durationMillis = 500, easing = EaseOut)
 	)
+
+	fun runDangerZoneAction(action: DangerZoneAction) {
+		when (action) {
+			DangerZoneAction.ClearImageCache -> {
+				imageLoader.memoryCache?.clear()
+				scope.launch(Dispatchers.IO) {
+					imageLoader.diskCache?.clear()
+					imageCacheSizeMb = "0 MB"
+				}
+			}
+			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
+			DangerZoneAction.ClearDownloads -> viewModel.clearAllDownloads()
+			DangerZoneAction.RebuildDatabase -> if (isOnline) viewModel.rebuildDatabase()
+		}
+	}
 
 	val offlineModifier = Modifier.alpha(if (isOnline) 1f else 0.75f)
 	val offlineIcon = @Composable {
@@ -202,6 +220,15 @@ fun SettingsDataStorageScreen() {
 		onCancelDownload = viewModel::cancelDownload,
 		onCancelPendingDownloads = viewModel::cancelPendingDownloads,
 		onRetryFailedDownloads = viewModel::retryFailedDownloads
+	)
+
+	DangerZoneConfirmationDialog(
+		action = pendingDangerZoneAction,
+		onDismissRequest = { pendingDangerZoneAction = null },
+		onConfirm = { action ->
+			runDangerZoneAction(action)
+			pendingDangerZoneAction = null
+		}
 	)
 
 	Scaffold(
@@ -467,59 +494,69 @@ fun SettingsDataStorageScreen() {
 
 				FormTitle(stringResource(Res.string.title_danger_zone))
 				Form {
-					FormRow(
-						onClick = {
-							imageLoader.memoryCache?.clear()
-							scope.launch(Dispatchers.IO) {
-								imageLoader.diskCache?.clear()
-								imageCacheSizeMb = "0 MB"
+					dangerZoneActions().forEach { action ->
+						val enabled = action != DangerZoneAction.RebuildDatabase || isOnline
+						FormRow(
+							modifier = if (action == DangerZoneAction.RebuildDatabase) {
+								offlineModifier
+							} else {
+								Modifier
+							},
+							onClick = if (enabled) {
+								{ pendingDangerZoneAction = action }
+							} else null
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(
+									stringResource(action.title),
+									color = MaterialTheme.colorScheme.error
+								)
+								if (action == DangerZoneAction.RebuildDatabase) {
+									Text(
+										stringResource(Res.string.subtitle_rebuild_database),
+										style = MaterialTheme.typography.bodyMedium,
+										color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+									)
+								}
+							}
+							if (action == DangerZoneAction.RebuildDatabase) {
+								offlineIcon()
 							}
 						}
-					) {
-						Text(
-							stringResource(Res.string.action_clear_image_cache),
-							color = MaterialTheme.colorScheme.error,
-							modifier = Modifier.weight(1f)
-						)
-					}
-
-					FormRow(onClick = { viewModel.removeAllActions() }) {
-						Text(
-							stringResource(Res.string.action_clear_pending_actions),
-							color = MaterialTheme.colorScheme.error
-						)
-					}
-
-					FormRow(onClick = { viewModel.clearAllDownloads() }) {
-						Text(
-							stringResource(Res.string.action_clear_downloads),
-							color = MaterialTheme.colorScheme.error
-						)
-					}
-
-					FormRow(
-						modifier = offlineModifier,
-						onClick = if (isOnline) {
-							{ viewModel.rebuildDatabase() }
-						} else null
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(
-								stringResource(Res.string.action_rebuild_database),
-								color = MaterialTheme.colorScheme.error
-							)
-							Text(
-								stringResource(Res.string.subtitle_rebuild_database),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-							)
-						}
-						offlineIcon()
 					}
 				}
 			}
 		}
 	}
+}
+
+@Composable
+private fun DangerZoneConfirmationDialog(
+	action: DangerZoneAction?,
+	onDismissRequest: () -> Unit,
+	onConfirm: (DangerZoneAction) -> Unit
+) {
+	action ?: return
+
+	FormDialog(
+		onDismissRequest = onDismissRequest,
+		icon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+		title = { Text(stringResource(action.title)) },
+		buttons = {
+			FormButton(
+				onClick = { onConfirm(action) },
+				color = MaterialTheme.colorScheme.error
+			) {
+				Text(stringResource(action.title))
+			}
+			FormButton(onClick = onDismissRequest) {
+				Text(stringResource(Res.string.action_cancel))
+			}
+		},
+		content = {
+			Text(stringResource(action.confirmationMessage))
+		}
+	)
 }
 
 private fun Instant.toRelativeString(

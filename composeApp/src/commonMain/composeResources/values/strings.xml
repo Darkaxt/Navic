@@ -579,6 +579,10 @@
 
 	<string name="info_app_version">Navic %1$s</string>
 	<string name="info_action_is_permanent">This action cannot be undone</string>
+	<string name="info_clear_image_cache_confirmation">Cached artwork will be removed and downloaded again when needed.</string>
+	<string name="info_clear_pending_actions_confirmation">Pending offline sync actions will be discarded. Changes that have not reached your server may be lost.</string>
+	<string name="info_clear_downloads_confirmation">Downloaded songs will be removed from this device. You can download them again later.</string>
+	<string name="info_rebuild_database_confirmation">Local library data will be cleared and rebuilt from the server. Offline-only cached state may be removed.</string>
 	<string name="info_error">Something went wrong.</string>
 	<string name="info_error_show">Show details</string>
 	<string name="info_error_hide">Hide details</string>
