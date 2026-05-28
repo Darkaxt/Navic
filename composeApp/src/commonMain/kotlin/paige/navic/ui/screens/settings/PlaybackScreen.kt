@@ -47,6 +47,7 @@ import navic.composeapp.generated.resources.option_lyrics_beat_by_beat
 import navic.composeapp.generated.resources.option_lyrics_blur
 import navic.composeapp.generated.resources.option_lyrics_bright_inactive
 import navic.composeapp.generated.resources.option_lyrics_alignment
+import navic.composeapp.generated.resources.option_lyrics_animate_size
 import navic.composeapp.generated.resources.option_lyrics_font_size
 import navic.composeapp.generated.resources.option_lyrics_jump_on_tap
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
@@ -585,6 +586,12 @@ fun SettingsPlaybackScreen() {
 						label = { stringResource(it.displayName) },
 						selection = preferenceManager.lyricsFontSize,
 						onSelect = { preferenceManager.lyricsFontSize = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_lyrics_animate_size)) },
+						value = preferenceManager.lyricsAnimateSize,
+						onSetValue = { preferenceManager.lyricsAnimateSize = it }
 					)
 
 					SettingSelectionRow(

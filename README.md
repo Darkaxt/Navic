@@ -88,6 +88,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired queue auto-fill can refill with random library songs, Navidrome/local current-song similarity, or songs that match recent queue genres and moods.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
+* Kreate-inspired `Animate active lyric size` toggle can turn off the active-line grow/shrink effect while keeping lyric highlighting.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
 * Kreate-inspired `Tap lyrics to seek` setting can turn lyric-line seeking off while keeping lyrics sharing selection intact.
 * Kreate-inspired accent background toggle for the lyrics screen.
@@ -245,7 +246,7 @@ Open Settings -> Playback and use `Now Playing indicator` to show or hide the an
 
 ### Lyrics display setup
 
-Open Settings -> Playback -> Lyrics -> `Lyrics font size` to choose Small, Medium, Large, or Extra large. Medium preserves Navic's previous lyrics text size.
+Open Settings -> Playback -> Lyrics -> `Lyrics font size` to choose Small, Medium, Large, or Extra large. Medium preserves Navic's previous lyrics text size. Turn `Animate active lyric size` off if you want synced lyrics to keep a stable line size while they highlight.
 
 Use `Lyrics alignment` to keep the current automatic LTR/RTL-aware alignment or force Start, Center, or End.
 

@@ -581,6 +581,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun lyricsAnimateSizeDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertTrue(manager.lyricsAnimateSize)
+
+		manager.lyricsAnimateSize = false
+
+		assertFalse(manager.lyricsAnimateSize)
+	}
+
+	@Test
 	fun nowPlayingUpNextDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

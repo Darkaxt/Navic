@@ -65,6 +65,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.lyricsLineScale
 import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
 import paige.navic.domain.models.shouldShowLyricsArtwork
@@ -387,8 +388,12 @@ fun LyricsScreen(
 								val animatedColor by animateColorAsState(
 									targetColor
 								)
-								val targetScale =
-									if (isActive && !isSelectionMode && isSynced) 1.05f else if (!isSynced) 1.0f else 0.98f
+								val targetScale = lyricsLineScale(
+									animateSize = preferenceManager.lyricsAnimateSize,
+									isSynced = isSynced,
+									isActive = isActive,
+									isSelectionMode = isSelectionMode
+								)
 								val animatedScale by animateFloatAsState(
 									targetValue = targetScale,
 									animationSpec = spring(stiffness = Spring.StiffnessLow)
