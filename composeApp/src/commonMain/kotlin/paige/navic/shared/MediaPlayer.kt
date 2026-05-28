@@ -50,6 +50,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun addToQueue(collection: DomainSongCollection)
 	abstract fun removeFromQueue(index: Int)
 	abstract fun moveQueueItem(fromIndex: Int, toIndex: Int)
+	abstract fun applyDiscoverQueueFilter(onComplete: (removedCount: Int) -> Unit = {})
 	abstract fun clearQueue()
 	abstract fun playAt(index: Int)
 	abstract fun playNextSingle(song: DomainSong)

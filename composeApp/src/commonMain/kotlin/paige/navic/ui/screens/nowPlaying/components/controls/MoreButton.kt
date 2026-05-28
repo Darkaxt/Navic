@@ -9,18 +9,24 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
+import navic.composeapp.generated.resources.info_discover_queue_no_matches
+import navic.composeapp.generated.resources.info_discover_queue_removed
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
@@ -40,10 +46,14 @@ fun NowPlayingMoreButton(
 ) {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
+	val scope = rememberCoroutineScope()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
+	val hasUpcomingSongs = playerState.currentIndex in playerState.queue.indices &&
+		playerState.currentIndex < playerState.queue.lastIndex
 	var expanded by remember { mutableStateOf(false) }
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	var shareId by remember { mutableStateOf<String?>(null) }
@@ -95,6 +105,24 @@ fun NowPlayingMoreButton(
 				} else null,
 				onStartSongRadio = if (!song.id.startsWith("radio_")) {
 					{ player.startSongRadio(song) }
+				} else null,
+				onDiscoverQueue = if (hasUpcomingSongs) {
+					{
+						player.applyDiscoverQueueFilter { removedCount ->
+							scope.launch {
+								snackbarState.showSnackbar(
+									if (removedCount > 0) {
+										getString(
+											Res.string.info_discover_queue_removed,
+											removedCount
+										)
+									} else {
+										getString(Res.string.info_discover_queue_no_matches)
+									}
+								)
+							}
+						}
+					}
 				} else null,
 				onAddToPlaylist = {
 					playlistDialogShown = true

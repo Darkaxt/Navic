@@ -58,6 +58,8 @@ import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.data.database.dao.AlbumDao
+import paige.navic.data.database.dao.PlaylistDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
@@ -71,6 +73,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.bassBoostStrengthPermille
@@ -541,6 +544,8 @@ class AndroidMediaPlayerViewModel(
 	private val application: Application,
 	stateRepository: PlayerStateRepository,
 	private val albumDao: AlbumDao,
+	private val playlistDao: PlaylistDao,
+	private val songDao: SongDao,
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
@@ -1011,6 +1016,61 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (newIndex == -1) null else newQueue[newIndex]
 				)
 			}
+		}
+	}
+
+	override fun applyDiscoverQueueFilter(onComplete: (removedCount: Int) -> Unit) {
+		viewModelScope.launch {
+			val initialState = _uiState.value
+			if (initialState.currentIndex !in initialState.queue.indices) {
+				onComplete(0)
+				return@launch
+			}
+
+			val candidateIds = initialState.queue
+				.drop(initialState.currentIndex + 1)
+				.map { it.id }
+				.filterNot { it.startsWith("radio_") }
+				.distinct()
+			if (candidateIds.isEmpty()) {
+				onComplete(0)
+				return@launch
+			}
+
+			val knownSongIds = withContext(Dispatchers.IO) {
+				songDao.getStarredSongIds(candidateIds).toSet() +
+					playlistDao.getPlaylistSongIds(candidateIds)
+			}
+			val state = _uiState.value
+			val removalIndexes = discoverQueueRemovalIndexes(
+				queueSongIds = state.queue.map { it.id },
+				currentIndex = state.currentIndex,
+				knownSongIds = knownSongIds
+			)
+			if (removalIndexes.isEmpty()) {
+				onComplete(0)
+				return@launch
+			}
+
+			val player = controller
+			if (player == null || removalIndexes.any { it !in 0 until player.mediaItemCount }) {
+				onComplete(0)
+				return@launch
+			}
+
+			runCatching {
+				removalIndexes.asReversed().forEach { player.removeMediaItem(it) }
+			}.onFailure { error ->
+				Logger.w("MediaPlayer", "Discover queue filter failed", error)
+				onComplete(0)
+				return@launch
+			}
+
+			val newQueue = state.queue.toMutableList().apply {
+				removalIndexes.asReversed().forEach { removeAt(it) }
+			}
+			_uiState.value = state.copy(queue = newQueue)
+			onComplete(removalIndexes.size)
 		}
 	}
 

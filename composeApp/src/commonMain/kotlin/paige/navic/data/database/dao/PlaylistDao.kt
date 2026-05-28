@@ -52,6 +52,9 @@ interface PlaylistDao {
 	@Query("DELETE FROM PlaylistSongCrossRef WHERE playlistId = :playlistId")
 	suspend fun deletePlaylistSongCrossRefs(playlistId: String)
 
+	@Query("SELECT DISTINCT songId FROM PlaylistSongCrossRef WHERE songId IN (:songIds)")
+	suspend fun getPlaylistSongIds(songIds: List<String>): List<String>
+
 	@Transaction
 	suspend fun replacePlaylistSongs(playlistId: String, crossRefs: List<PlaylistSongCrossRef>) {
 		deletePlaylistSongCrossRefs(playlistId)

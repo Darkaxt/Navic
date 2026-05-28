@@ -23,6 +23,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Playback pitch: Navic now adapts Kreate's playback-parameter controls by adding Android pitch adjustment to the existing Playback Speed sheet. Saved player state now preserves and normalizes both speed and pitch.
 * Queue auto-fill: Navic now adapts Kreate's queue auto-append concept as an Android Playback setting that appends songs when active playback gets near the end of a non-radio queue. It skips duplicates, skips radio items, exposes a target queue size, and can choose either random-library or current-song-similar refill sources. Similar mode prefers live Navidrome similar-song results when available, then falls back to local library similarity.
 * Start song radio: Navic now adapts Kreate's song radio action as a song-sheet and now-playing action. It starts the selected song, prefers live Navidrome similar-song results in server order, and fills the rest of the queue from locally synced songs ranked by shared artist, album, genre, and mood metadata.
+* Discover queue cleanup: Navic now adapts Kreate's Discover queue cleanup as a now-playing menu action. It removes upcoming queued songs that are already starred or present in any synced playlist, keeps the current song and queue history intact, and reports how many known songs were removed.
 * Song row swipe actions: Navic now adapts Kreate's configurable swipe-action idea for song rows. The Playback settings preserve Navic's default swipe-right/add-to-queue and swipe-left/play-next behavior, while allowing either side to be swapped or disabled.
 * Queue row swipe actions: Navic now adapts Kreate's configurable queue swipe-action idea for queue rows. The Playback settings preserve Navic's default remove-from-queue behavior on both swipe directions, while allowing either side to remove, move the queued song to play next, or be disabled.
 * Shake to skip: Navic now adapts Kreate's accelerometer-based skip gesture as an Android Playback setting. It registers the accelerometer only while the app is open, logged in, and the setting is enabled, then skips to the next queued song after a cooldown-protected shake event.
@@ -51,12 +52,12 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 1. Device-event controls
    * Shake-to-skip and foreground volume-key track changes are adapted. Any future background hardware-button handling would need a separate design because it has broader device behavior implications.
 2. Broader Discover behavior
-   * Auto-fill and Start song radio now prefer Navidrome similar-song results before local similarity. A broader Discover mode could still remove known liked/playlist songs from the current queue, similar to Kreate, but needs product definition for a Navidrome library client.
+   * Auto-fill, Start song radio, and Discover queue cleanup now cover the useful queue-management pieces. Broader home/discovery-page behavior remains product work because Kreate's source is YouTube/InnerTube-specific rather than Navidrome-specific.
 
 ## Higher-Risk Candidates
 
 * Volume buttons change song and shake to skip: useful for some users, but device-event handling increases background behavior complexity.
-* Discover-style queue generation: Start song radio and similar auto-fill now cover the song-seeded queue flow with Navidrome similar-song support; broader Discover behavior still needs product definition for a Navidrome library client.
+* Discover-style queue generation: Start song radio, similar auto-fill, and Discover queue cleanup now cover the queue-focused pieces with Navidrome data. Broader Discover-page behavior still needs product definition for a Navidrome library client.
 * Visualizers, thumbnail animations, and extensive player layout variants: high UI churn and likely not worth transplanting until core playback/video behavior is stable.
 
 ## Recommended Order
@@ -64,4 +65,4 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 1. Smoke-test bass boost, reverb, and the system equalizer launcher on a real Android device.
 2. Smoke-test ReplayGain loudness boost with real Navidrome ReplayGain metadata on a device that supports Android `LoudnessEnhancer`.
 3. Revisit device-event controls only after deciding how aggressive background input handling should be in this fork.
-4. Design broader Discover behavior if queue filtering beyond similar-song radio is still wanted.
+4. Design broader Discover-page behavior only if Navic should grow a dedicated discovery surface beyond queue actions.

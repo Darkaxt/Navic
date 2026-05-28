@@ -49,6 +49,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, with random-library or current-song-similar sources. Similar mode now prefers live Navidrome similar-song results when available.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
+* Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
 * Kreate-inspired song-row swipe actions can keep the default swipe-right/add-to-queue and swipe-left/play-next gestures, swap them, or disable either side.
 * Kreate-inspired queue-row swipe actions can keep the default remove-from-queue gestures, move a queued song to play next, or disable either side.
 * Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
@@ -127,6 +128,10 @@ Open Settings -> Playback and turn `Auto-fill queue` on. Use `Auto-fill queue ta
 ### Song radio setup
 
 Open a song's action sheet or the now-playing menu and choose `Start song radio`. Navic starts the selected song, then queues up to 49 songs. It asks Navidrome for similar-song results first and keeps that server order, then fills any remaining space from locally synced songs ranked by artist, album, genre, and mood metadata. This does not require a new setting.
+
+### Discover queue setup
+
+Open the now-playing menu and choose `Discover queue`. Navic removes upcoming queued songs that are already starred or included in any synced playlist, and shows how many known songs were removed. The current song and earlier queue history are left alone.
 
 ### Song row swipe setup
 

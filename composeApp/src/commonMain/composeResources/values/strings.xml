@@ -429,6 +429,7 @@
 	<string name="action_play_next">Play next</string>
 	<string name="action_play_music_video">Play music video</string>
 	<string name="action_start_song_radio">Start song radio</string>
+	<string name="action_discover_queue">Discover queue</string>
 	<string name="action_system_equalizer">Equalizer</string>
 	<string name="action_add_to_queue">Add to Queue</string>
 	<string name="action_queue">Queue</string>
@@ -499,6 +500,8 @@
 	<string name="info_no_songs">No songs</string>
 	<string name="info_not_available_offline">Not available offline</string>
 	<string name="info_no_queue">Nothing queued</string>
+	<string name="info_discover_queue_removed">Discover queue removed %1$d known songs</string>
+	<string name="info_discover_queue_no_matches">No upcoming starred or playlist songs found</string>
 	<string name="info_no_genres">No genres</string>
 	<string name="info_no_radios">No radios</string>
 	<string name="info_no_starred">Nothing's starred</string>

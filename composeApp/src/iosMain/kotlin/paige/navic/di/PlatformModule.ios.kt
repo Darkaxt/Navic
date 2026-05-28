@@ -60,6 +60,8 @@ actual val platformModule = module {
 			connectivityManager = get(),
 			syncManager = get(),
 			sessionManager = get(),
+			playlistDao = get(),
+			songDao = get(),
 			songRepository = get(),
 			preferenceManager = get()
 		)

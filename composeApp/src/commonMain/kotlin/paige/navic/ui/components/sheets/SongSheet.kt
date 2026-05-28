@@ -37,6 +37,7 @@ import navic.composeapp.generated.resources.action_add_to_playlist
 import navic.composeapp.generated.resources.action_add_to_queue
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
+import navic.composeapp.generated.resources.action_discover_queue
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_play_next
 import navic.composeapp.generated.resources.action_play_music_video
@@ -83,6 +84,7 @@ import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.icons.outlined.Radio
 import paige.navic.icons.outlined.Share
+import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Speed
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
@@ -104,6 +106,7 @@ fun SongSheet(
 	onShare: (() -> Unit)? = null,
 	onPlayMusicVideo: (() -> Unit)? = null,
 	onStartSongRadio: (() -> Unit)? = null,
+	onDiscoverQueue: (() -> Unit)? = null,
 	onPlayNext: (() -> Unit)? = null,
 	onAddToQueue: (() -> Unit)? = null,
 	onTrackInfo: (() -> Unit)? = null,
@@ -241,6 +244,20 @@ fun SongSheet(
 					onClick = {
 						platformContext.clickSound()
 						onStartSongRadio()
+						onDismissRequest()
+					},
+					colors = colors,
+					contentPadding = contentPadding
+				)
+			}
+
+			if (onDiscoverQueue != null) {
+				ListItem(
+					content = { Text(stringResource(Res.string.action_discover_queue)) },
+					leadingContent = { Icon(Icons.Outlined.Shuffle, null) },
+					onClick = {
+						platformContext.clickSound()
+						onDiscoverQueue()
 						onDismissRequest()
 					},
 					colors = colors,
