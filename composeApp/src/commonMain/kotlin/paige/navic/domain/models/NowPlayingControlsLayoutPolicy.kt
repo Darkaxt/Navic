@@ -5,6 +5,11 @@ enum class NowPlayingControlsLayoutBlock {
 	PlaybackButtons
 }
 
+enum class NowPlayingPlaybackButtonsArrangement {
+	Compact,
+	EvenlySpaced
+}
+
 fun nowPlayingControlsLayoutBlocks(
 	swapControlsAndTimeline: Boolean
 ): List<NowPlayingControlsLayoutBlock> =
@@ -18,4 +23,13 @@ fun nowPlayingControlsLayoutBlocks(
 			NowPlayingControlsLayoutBlock.Timeline,
 			NowPlayingControlsLayoutBlock.PlaybackButtons
 		)
+	}
+
+fun nowPlayingPlaybackButtonsArrangement(
+	spaceControlsEvenly: Boolean
+): NowPlayingPlaybackButtonsArrangement =
+	if (spaceControlsEvenly) {
+		NowPlayingPlaybackButtonsArrangement.EvenlySpaced
+	} else {
+		NowPlayingPlaybackButtonsArrangement.Compact
 	}

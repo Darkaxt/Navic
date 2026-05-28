@@ -11,7 +11,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
@@ -45,7 +48,9 @@ import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.outlined.Repeat
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.NowPlayingPlaybackButtonsArrangement
 import paige.navic.domain.models.NowPlayingPlaybackControl
+import paige.navic.domain.models.nowPlayingPlaybackButtonsArrangement
 import paige.navic.domain.models.nowPlayingPlaybackControls
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.playPauseIconPainter
@@ -64,6 +69,10 @@ fun NowPlayingButtonsRow() {
 		showShuffleControl = preferenceManager.showNowPlayingShuffleControl,
 		showRepeatControl = preferenceManager.showNowPlayingRepeatControl
 	)
+	val buttonArrangement = nowPlayingPlaybackButtonsArrangement(
+		spaceControlsEvenly = preferenceManager.spaceNowPlayingPlaybackControlsEvenly
+	)
+	val compactButtons = buttonArrangement == NowPlayingPlaybackButtonsArrangement.Compact
 
 	LaunchedEffect(isPressed) {
 		if (!isPressed) {
@@ -86,14 +95,20 @@ fun NowPlayingButtonsRow() {
 	}
 
 	Row(
-		modifier = Modifier.widthIn(max = 400.dp),
-		horizontalArrangement = Arrangement.spacedBy(16.dp),
+		modifier = Modifier
+			.widthIn(max = 400.dp)
+			.then(if (compactButtons) Modifier else Modifier.fillMaxWidth()),
+		horizontalArrangement = if (compactButtons) {
+			Arrangement.spacedBy(16.dp)
+		} else {
+			Arrangement.SpaceEvenly
+		},
 		verticalAlignment = Alignment.CenterVertically
 	) {
 		controls.forEach { control ->
 			when (control) {
 				NowPlayingPlaybackControl.Shuffle -> IconButton(
-					modifier = Modifier.weight(1f).aspectRatio(1f),
+					modifier = nowPlayingButtonModifier(buttonArrangement),
 					onClick = {
 						platformContext.clickSound()
 						player.toggleShuffle()
@@ -110,7 +125,7 @@ fun NowPlayingButtonsRow() {
 				}
 
 				NowPlayingPlaybackControl.Previous -> IconButton(
-					modifier = Modifier.weight(1f).aspectRatio(1f),
+					modifier = nowPlayingButtonModifier(buttonArrangement),
 					onClick = {
 						platformContext.clickSound()
 						player.previous()
@@ -125,9 +140,11 @@ fun NowPlayingButtonsRow() {
 				}
 
 				NowPlayingPlaybackControl.PlayPause -> IconButton(
-					modifier = Modifier
-						.weight(1.3f)
-						.aspectRatio(1f)
+					modifier = nowPlayingButtonModifier(
+						arrangement = buttonArrangement,
+						compactWeight = 1.3f,
+						evenSize = 64.dp
+					)
 						.scale(scale.value)
 						.clip(CircleShape)
 						.indication(interactionSource, ripple(color = Color.Black)),
@@ -168,7 +185,7 @@ fun NowPlayingButtonsRow() {
 				}
 
 				NowPlayingPlaybackControl.Next -> IconButton(
-					modifier = Modifier.weight(1f).aspectRatio(1f),
+					modifier = nowPlayingButtonModifier(buttonArrangement),
 					onClick = {
 						platformContext.clickSound()
 						player.next()
@@ -183,7 +200,7 @@ fun NowPlayingButtonsRow() {
 				}
 
 				NowPlayingPlaybackControl.Repeat -> IconButton(
-					modifier = Modifier.weight(1f).aspectRatio(1f),
+					modifier = nowPlayingButtonModifier(buttonArrangement),
 					onClick = {
 						platformContext.clickSound()
 						player.toggleRepeat()
@@ -204,3 +221,16 @@ fun NowPlayingButtonsRow() {
 		}
 	}
 }
+
+private fun RowScope.nowPlayingButtonModifier(
+	arrangement: NowPlayingPlaybackButtonsArrangement,
+	compactWeight: Float = 1f,
+	evenSize: Dp = 48.dp
+): Modifier =
+	when (arrangement) {
+		NowPlayingPlaybackButtonsArrangement.Compact -> Modifier
+			.weight(compactWeight)
+			.aspectRatio(1f)
+
+		NowPlayingPlaybackButtonsArrangement.EvenlySpaced -> Modifier.size(evenSize)
+	}

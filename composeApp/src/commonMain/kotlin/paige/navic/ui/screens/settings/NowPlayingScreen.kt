@@ -45,6 +45,7 @@ import navic.composeapp.generated.resources.option_now_playing_repeat_control
 import navic.composeapp.generated.resources.option_now_playing_seek_buttons
 import navic.composeapp.generated.resources.option_now_playing_shuffle_control
 import navic.composeapp.generated.resources.option_now_playing_shrink_artwork_on_pause
+import navic.composeapp.generated.resources.option_now_playing_space_playback_controls_evenly
 import navic.composeapp.generated.resources.option_now_playing_sleep_timer_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
@@ -68,6 +69,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
 import navic.composeapp.generated.resources.subtitle_now_playing_shuffle_control
 import navic.composeapp.generated.resources.subtitle_now_playing_shrink_artwork_on_pause
+import navic.composeapp.generated.resources.subtitle_now_playing_space_playback_controls_evenly
 import navic.composeapp.generated.resources.subtitle_now_playing_start_radio_action
 import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
@@ -256,6 +258,13 @@ fun SettingsNowPlayingScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_swap_controls_and_timeline)) },
 						value = preferenceManager.swapNowPlayingControlsAndTimeline,
 						onSetValue = { preferenceManager.swapNowPlayingControlsAndTimeline = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_space_playback_controls_evenly)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_space_playback_controls_evenly)) },
+						value = preferenceManager.spaceNowPlayingPlaybackControlsEvenly,
+						onSetValue = { preferenceManager.spaceNowPlayingPlaybackControlsEvenly = it }
 					)
 
 					SettingSwitchRow(

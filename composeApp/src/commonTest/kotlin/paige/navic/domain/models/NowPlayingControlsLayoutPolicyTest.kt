@@ -25,4 +25,20 @@ class NowPlayingControlsLayoutPolicyTest {
 			nowPlayingControlsLayoutBlocks(swapControlsAndTimeline = true)
 		)
 	}
+
+	@Test
+	fun defaultPlaybackButtonsUseCompactSpacing() {
+		assertEquals(
+			NowPlayingPlaybackButtonsArrangement.Compact,
+			nowPlayingPlaybackButtonsArrangement(spaceControlsEvenly = false)
+		)
+	}
+
+	@Test
+	fun playbackButtonsCanUseEvenSpacing() {
+		assertEquals(
+			NowPlayingPlaybackButtonsArrangement.EvenlySpaced,
+			nowPlayingPlaybackButtonsArrangement(spaceControlsEvenly = true)
+		)
+	}
 }

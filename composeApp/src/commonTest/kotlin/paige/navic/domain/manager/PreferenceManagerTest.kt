@@ -411,10 +411,13 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.swapNowPlayingControlsAndTimeline)
+		assertFalse(manager.spaceNowPlayingPlaybackControlsEvenly)
 
 		manager.swapNowPlayingControlsAndTimeline = true
+		manager.spaceNowPlayingPlaybackControlsEvenly = true
 
 		assertTrue(manager.swapNowPlayingControlsAndTimeline)
+		assertTrue(manager.spaceNowPlayingPlaybackControlsEvenly)
 	}
 
 	@Test
