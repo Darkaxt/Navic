@@ -35,13 +35,16 @@ import kotlinx.coroutines.sync.withPermit
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.LyricDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
+import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
+import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
@@ -51,6 +54,7 @@ class DownloadManager(
 	private val coilPlatformContext: CoilPlatformContext,
 	private val downloadDao: DownloadDao,
 	private val albumDao: AlbumDao,
+	private val songDao: SongDao,
 	private val storageManager: StorageManager,
 	private val lyricsRepository: LyricsRepository,
 	private val lyricDao: LyricDao,
@@ -67,8 +71,8 @@ class DownloadManager(
 	private val collectionQueueMutex = Mutex()
 	private val queuedCollectionDownloads = mutableMapOf<String, QueuedCollectionDownload>()
 	private val runningCollectionDownloads = mutableMapOf<String, Job>()
-	private val startupQueueCleanup = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-		clearStaleQueuedDownloads()
+	private val startupQueueRecovery = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+		recoverQueuedDownloads()
 	}
 
 	val allDownloads = downloadDao.getAllDownloads().map { it.toImmutableList() }
@@ -94,7 +98,7 @@ class DownloadManager(
 	)
 
 	init {
-		startupQueueCleanup.start()
+		startupQueueRecovery.start()
 		scope.launch {
 			allDownloads.collectLatest { downloads ->
 				_downloadedSongs.value = downloads
@@ -130,7 +134,7 @@ class DownloadManager(
 	}
 
 	suspend fun downloadCollection(collection: DomainSongCollection) {
-		startupQueueCleanup.join()
+		startupQueueRecovery.join()
 		if (collection.songs.isEmpty()) return
 
 		val songIdsToQueue = collectionSongIdsToQueue(
@@ -306,14 +310,41 @@ class DownloadManager(
 		}
 	}
 
-	private suspend fun clearStaleQueuedDownloads() {
-		downloadDao.getAllDownloadsList()
+	private suspend fun recoverQueuedDownloads() {
+		val downloads = downloadDao.getAllDownloadsList()
+		val queuedSongIds = downloads
 			.filter { it.status == DownloadStatus.QUEUED }
-			.forEach { downloadDao.deleteDownload(it.songId) }
+			.map { it.songId }
+		if (queuedSongIds.isEmpty()) return
+
+		val songsById = songDao.getSongsByIds(queuedSongIds)
+			.associateBy { it.songId }
+		val recovery = queuedDownloadRecovery(
+			downloads = downloads,
+			localSongIds = songsById.keys
+		)
+
+		recovery.songIdsToDelete.forEach { songId ->
+			downloadDao.deleteDownload(songId)
+		}
+
+		val songsToResume = recovery.songIdsToResume.mapNotNull { songId ->
+			songsById[songId]?.toDomainModel()
+		}
+		if (songsToResume.isEmpty()) return
+
+		val queuedDownload = QueuedCollectionDownload(
+			id = RECOVERED_COLLECTION_DOWNLOAD_ID,
+			songs = songsToResume
+		)
+		collectionQueueMutex.withLock {
+			queuedCollectionDownloads[queuedDownload.id] = queuedDownload
+			collectionDownloadQueue.send(queuedDownload)
+		}
 	}
 
 	private suspend fun processCollectionDownloadQueue() {
-		startupQueueCleanup.join()
+		startupQueueRecovery.join()
 		for (queuedDownload in collectionDownloadQueue) {
 			val collectionJob = collectionQueueMutex.withLock {
 				val request = queuedCollectionDownloads.remove(queuedDownload.id) ?: return@withLock null
@@ -472,5 +503,9 @@ class DownloadManager(
 				)
 			)
 		}
+	}
+
+	private companion object {
+		const val RECOVERED_COLLECTION_DOWNLOAD_ID = "__recovered_queued_downloads__"
 	}
 }

@@ -37,3 +37,21 @@ fun collectionSongIdsToQueue(
 		}
 	}
 }
+
+data class QueuedDownloadRecovery(
+	val songIdsToResume: List<String>,
+	val songIdsToDelete: List<String>
+)
+
+fun queuedDownloadRecovery(
+	downloads: List<DownloadEntity>,
+	localSongIds: Set<String>
+): QueuedDownloadRecovery {
+	val queuedSongIds = downloads
+		.filter { it.status == DownloadStatus.QUEUED }
+		.map { it.songId }
+	return QueuedDownloadRecovery(
+		songIdsToResume = queuedSongIds.filter { it in localSongIds },
+		songIdsToDelete = queuedSongIds.filter { it !in localSongIds }
+	)
+}
