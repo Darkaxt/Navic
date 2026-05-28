@@ -56,6 +56,7 @@ fun StarredScreen() {
 	val selectedSongIsStarred by songsViewModel.starred.collectAsStateWithLifecycle()
 	val selectedSongRating by songsViewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val allDownloads by songsViewModel.allDownloads.collectAsStateWithLifecycle()
+	val playlistSongIds by songsViewModel.playlistSongIds.collectAsStateWithLifecycle()
 
 	val albumsViewModel = koinViewModel<AlbumListViewModel>(
 		key = "starredAlbums",
@@ -116,6 +117,7 @@ fun StarredScreen() {
 				songsState = songsState,
 				selectedSong = selectedSong,
 				allDownloads = allDownloads,
+				playlistSongIds = playlistSongIds,
 				onPlaySong = { index ->
 					player.clearQueue()
 					songsState.data.orEmpty().forEach {

@@ -452,6 +452,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun playlistIndicatorDefaultsToKreateBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showPlaylistIndicator)
+
+		manager.showPlaylistIndicator = true
+
+		assertTrue(manager.showPlaylistIndicator)
+	}
+
+	@Test
 	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

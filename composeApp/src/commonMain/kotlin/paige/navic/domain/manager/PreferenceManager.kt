@@ -87,6 +87,7 @@ class PreferenceManager(
 	var showNowPlayingShuffleControl by preference(true)
 	var showNowPlayingRepeatControl by preference(true)
 	var showNowPlayingIndicator by preference(true)
+	var showPlaylistIndicator by preference(false)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
 	var showNowPlayingLyricsAction by preference(true)
 	var showNowPlayingQueueAction by preference(true)

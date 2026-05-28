@@ -31,7 +31,8 @@ fun LazyListScope.songListScreenContent(
 	onSetRating: (Int) -> Unit,
 	onDownload: (DomainSong) -> Unit,
 	onCancelDownload: (DomainSong) -> Unit,
-	onDeleteDownload: (DomainSong) -> Unit
+	onDeleteDownload: (DomainSong) -> Unit,
+	playlistSongIds: Set<String> = emptySet()
 ) {
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
@@ -55,7 +56,8 @@ fun LazyListScope.songListScreenContent(
 				download = download,
 				onDownload = { onDownload(song) },
 				onCancelDownload = { onCancelDownload(song) },
-				onDeleteDownload = { onDeleteDownload(song) }
+				onDeleteDownload = { onDeleteDownload(song) },
+				inPlaylist = song.id in playlistSongIds
 			)
 		}
 	} else {

@@ -98,6 +98,7 @@ fun CollectionDetailScreen(
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
 	val allDownloads by viewModel.allDownloads.collectAsState()
+	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
 
@@ -241,7 +242,8 @@ fun CollectionDetailScreen(
 											player.addToQueueSingle(song)
 										},
 										download = download,
-										isOffline = !isOnline
+										isOffline = !isOnline,
+										inPlaylist = song.id in playlistSongIds
 									)
 									CollectionDetailScreenSongRowDropdown(
 										expanded = selection == song,
@@ -294,7 +296,8 @@ fun CollectionDetailScreen(
 									player.addToQueueSingle(song)
 								},
 								download = download,
-								isOffline = !isOnline
+								isOffline = !isOnline,
+								inPlaylist = song.id in playlistSongIds
 							)
 							CollectionDetailScreenSongRowDropdown(
 								expanded = selection == song,

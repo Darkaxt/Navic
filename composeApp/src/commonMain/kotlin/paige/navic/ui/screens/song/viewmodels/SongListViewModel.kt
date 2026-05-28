@@ -4,14 +4,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -21,6 +26,7 @@ class SongListViewModel(
 	initialListType: DomainSongListType = DomainSongListType.FrequentlyPlayed,
 	private val artistId: String? = null,
 	private val repository: SongRepository,
+	playlistRepository: PlaylistRepository,
 	private val downloadManager: DownloadManager,
 	private val sessionManager: SessionManager,
 	connectivityManager: ConnectivityManager
@@ -28,6 +34,17 @@ class SongListViewModel(
 	private val _songsState =
 		MutableStateFlow<UiState<ImmutableList<DomainSong>>>(UiState.Loading())
 	val songsState = _songsState.asStateFlow()
+	@OptIn(ExperimentalCoroutinesApi::class)
+	val playlistSongIds = songsState
+		.map { state -> state.data.orEmpty().map { it.id }.distinct() }
+		.distinctUntilChanged()
+		.flatMapLatest { playlistRepository.getPlaylistSongIdsFlow(it) }
+		.stateIn(
+			scope = viewModelScope,
+			started = SharingStarted.Lazily,
+			initialValue = emptySet()
+		)
+
 	val allDownloads = downloadManager.allDownloads
 		.stateIn(
 			scope = viewModelScope,

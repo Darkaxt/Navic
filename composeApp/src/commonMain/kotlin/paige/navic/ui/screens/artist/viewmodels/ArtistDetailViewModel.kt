@@ -9,9 +9,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
@@ -24,6 +26,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
+import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -45,6 +48,7 @@ class ArtistDetailViewModel(
 	private val artistRepository: ArtistRepository,
 	private val songRepository: SongRepository,
 	private val albumRepository: AlbumRepository,
+	playlistRepository: PlaylistRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
 	private val downloadManager: DownloadManager,
@@ -52,6 +56,16 @@ class ArtistDetailViewModel(
 ) : ViewModel() {
 	private val _artistState = MutableStateFlow<UiState<ArtistState>>(UiState.Loading())
 	val artistState = _artistState.asStateFlow()
+	@OptIn(ExperimentalCoroutinesApi::class)
+	val playlistSongIds = artistState
+		.map { state -> (state as? UiState.Success)?.data?.topSongs.orEmpty().map { it.id }.distinct() }
+		.distinctUntilChanged()
+		.flatMapLatest { playlistRepository.getPlaylistSongIdsFlow(it) }
+		.stateIn(
+			scope = viewModelScope,
+			started = SharingStarted.Lazily,
+			initialValue = emptySet()
+		)
 
 	private val _starred = MutableStateFlow(false)
 	val starred = _starred.asStateFlow()

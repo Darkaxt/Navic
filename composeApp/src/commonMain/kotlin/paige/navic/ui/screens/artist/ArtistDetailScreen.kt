@@ -121,6 +121,7 @@ fun ArtistDetailScreen(
 	val starred by viewModel.starred.collectAsState()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
+	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
 
@@ -319,7 +320,8 @@ fun ArtistDetailScreen(
 												onShare = { shareId = song.id },
 												isOnline = isOnline,
 												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) }
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
 											)
 										}
 									}

@@ -58,6 +58,7 @@ import navic.composeapp.generated.resources.option_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.option_pause_between_songs
 import navic.composeapp.generated.resources.option_persistent_queue
 import navic.composeapp.generated.resources.option_playback_volume
+import navic.composeapp.generated.resources.option_playlist_indicator
 import navic.composeapp.generated.resources.option_queue_swipe_actions
 import navic.composeapp.generated.resources.option_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.option_queue_swipe_start_to_end_action
@@ -92,6 +93,7 @@ import navic.composeapp.generated.resources.subtitle_pause_between_songs
 import navic.composeapp.generated.resources.subtitle_pause_playback_on_volume_zero
 import navic.composeapp.generated.resources.subtitle_persistent_queue
 import navic.composeapp.generated.resources.subtitle_playback_volume
+import navic.composeapp.generated.resources.subtitle_playlist_indicator
 import navic.composeapp.generated.resources.subtitle_queue_swipe_actions
 import navic.composeapp.generated.resources.subtitle_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.subtitle_queue_swipe_start_to_end_action
@@ -426,6 +428,12 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_indicator)) },
 							value = preferenceManager.showNowPlayingIndicator,
 							onSetValue = { preferenceManager.showNowPlayingIndicator = it }
+						)
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_playlist_indicator)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_playlist_indicator)) },
+							value = preferenceManager.showPlaylistIndicator,
+							onSetValue = { preferenceManager.showPlaylistIndicator = it }
 						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_song_swipe_actions)) },

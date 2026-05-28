@@ -118,6 +118,7 @@
 	<string name="subtitle_now_playing_shuffle_control">Show the shuffle button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_repeat_control">Show the repeat button in the main Now Playing controls</string>
 	<string name="subtitle_now_playing_indicator">Show the animated waveform beside the current song in lists and the queue</string>
+	<string name="subtitle_playlist_indicator">Mark songs that are already in one of your synced playlists</string>
 	<string name="subtitle_now_playing_start_radio_action">Show the Start song radio item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_discover_queue_action">Show the Discover queue cleanup item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_download_action">Show the Download item in the Now Playing song menu</string>
@@ -264,6 +265,7 @@
 	<string name="option_auto_fill_queue_source_random_library">Random library</string>
 	<string name="option_auto_fill_queue_source_similar_to_current_song">Similar to current song</string>
 	<string name="option_queue_shuffle_limit">Shuffle queue limit</string>
+	<string name="option_playlist_indicator">Playlist indicator</string>
 	<string name="option_song_swipe_actions">Song row swipe actions</string>
 	<string name="option_song_swipe_start_to_end_action">Swipe right</string>
 	<string name="option_song_swipe_end_to_start_action">Swipe left</string>
@@ -341,6 +343,7 @@
 	<string name="info_progress">Progress</string>
 	<string name="info_in_use">(in use)</string>
 	<string name="info_explicit">Explicit</string>
+	<string name="info_in_playlist">Song is in one of your playlists</string>
 	<string name="info_bitrate_default_zero">Leaving this empty defaults to 0. Letting the server pick.</string>
 	<string name="info_lida_clips_not_tested">Connection not tested</string>
 	<string name="info_lida_clips_missing_url">Enter the LidaClips URL first</string>

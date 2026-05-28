@@ -85,6 +85,7 @@ fun StarredScreenContent(
 	selectedSongIsStarred: Boolean,
 	selectedSongRating: Int,
 	allDownloads: ImmutableList<DownloadEntity>,
+	playlistSongIds: Set<String> = emptySet(),
 	onSelectSong: (DomainSong) -> Unit,
 	onClearSongSelection: () -> Unit,
 	onAddSongStar: () -> Unit,
@@ -239,7 +240,8 @@ fun StarredScreenContent(
 							onShare = { onSetShareId(song.id) },
 							isOnline = isOnline,
 							rating = selectedSongRating,
-							onSetRating = { onSetSongRating(it) }
+							onSetRating = { onSetSongRating(it) },
+							inPlaylist = song.id in playlistSongIds
 						)
 					}
 				}

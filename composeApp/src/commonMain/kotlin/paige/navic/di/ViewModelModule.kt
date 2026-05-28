@@ -55,6 +55,7 @@ val viewModelModule = module {
 			initialListType = get(),
 			artistId = params.getOrNull(),
 			repository = get(),
+			playlistRepository = get(),
 			downloadManager = get(),
 			connectivityManager = get(),
 			sessionManager = get()

@@ -28,6 +28,7 @@ import kotlinx.collections.immutable.persistentListOf
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_downloaded
+import navic.composeapp.generated.resources.info_in_playlist
 import navic.composeapp.generated.resources.info_not_available_offline
 import navic.composeapp.generated.resources.info_unknown_album
 import navic.composeapp.generated.resources.info_unknown_year
@@ -40,10 +41,12 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
+import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Offline
+import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
@@ -71,7 +74,9 @@ fun SongRow(
 	onPlayNext: () -> Unit,
 	onAddToQueue: () -> Unit,
 	rating: Int,
-	onSetRating: (Int) -> Unit
+	onSetRating: (Int) -> Unit,
+	inPlaylist: Boolean = false,
+	isPlaylistScreen: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -87,6 +92,11 @@ fun SongRow(
 	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
 		userEnabled = preferenceManager.showNowPlayingIndicator,
 		isCurrentSong = isCurrentTrack
+	)
+	val showPlaylistIndicator = shouldShowPlaylistIndicator(
+		userEnabled = preferenceManager.showPlaylistIndicator,
+		isInPlaylist = inPlaylist,
+		isPlaylistScreen = isPlaylistScreen
 	)
 	val canPlay = isOnline || isDownloaded
 
@@ -137,6 +147,15 @@ fun SongRow(
 						modifier = Modifier.size(20.dp)
 					)
 					Spacer(Modifier.width(6.dp))
+				}
+				if (showPlaylistIndicator) {
+					Icon(
+						Icons.Outlined.PlaylistPlay,
+						contentDescription = stringResource(Res.string.info_in_playlist),
+						modifier = Modifier.size(18.dp),
+						tint = MaterialTheme.colorScheme.primary
+					)
+					Spacer(Modifier.width(8.dp))
 				}
 				if (download != null && !isCurrentTrack) {
 					when (download.status) {

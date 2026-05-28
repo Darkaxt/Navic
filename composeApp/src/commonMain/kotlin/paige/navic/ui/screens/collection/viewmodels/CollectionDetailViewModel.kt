@@ -3,11 +3,16 @@ package paige.navic.ui.screens.collection.viewmodels
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -20,6 +25,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.CollectionRepository
+import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -31,6 +37,7 @@ class CollectionDetailViewModel(
 	private val repository: CollectionRepository,
 	private val songRepository: SongRepository,
 	private val albumRepository: AlbumRepository,
+	playlistRepository: PlaylistRepository,
 	private val downloadManager: DownloadManager,
 	private val sessionManager: SessionManager,
 	connectivityManager: ConnectivityManager
@@ -45,6 +52,16 @@ class CollectionDetailViewModel(
 		}
 	)
 	val collectionState: StateFlow<UiState<DomainSongCollection>> = _collectionState.asStateFlow()
+	@OptIn(ExperimentalCoroutinesApi::class)
+	val playlistSongIds = collectionState
+		.map { state -> state.data?.songs.orEmpty().map { it.id }.distinct() }
+		.distinctUntilChanged()
+		.flatMapLatest { playlistRepository.getPlaylistSongIdsFlow(it) }
+		.stateIn(
+			scope = viewModelScope,
+			started = SharingStarted.Lazily,
+			initialValue = emptySet()
+		)
 
 	private val _starred = MutableStateFlow(false)
 	val starred = _starred.asStateFlow()

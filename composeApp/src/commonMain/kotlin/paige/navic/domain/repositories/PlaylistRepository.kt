@@ -7,6 +7,8 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.entities.DownloadStatus
@@ -62,6 +64,17 @@ class PlaylistRepository(
 
 		dbRepository.syncPlaylistSongs(playlist.id).getOrThrow()
 		return playlistDao.getPlaylistById(playlist.id)?.toDomainModel() ?: playlist
+	}
+
+	fun getPlaylistSongIdsFlow(songIds: List<String>): Flow<Set<String>> {
+		val distinctSongIds = songIds.distinct()
+		return if (distinctSongIds.isEmpty()) {
+			flowOf(emptySet())
+		} else {
+			playlistDao.getPlaylistSongIdsFlow(distinctSongIds)
+				.map { it.toSet() }
+				.flowOn(Dispatchers.IO)
+		}
 	}
 
 	fun getPlaylistsFlow(

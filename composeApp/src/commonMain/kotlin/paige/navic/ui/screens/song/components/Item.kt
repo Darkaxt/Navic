@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -32,6 +35,7 @@ import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_downloaded
+import navic.composeapp.generated.resources.info_in_playlist
 import navic.composeapp.generated.resources.info_unknown_album
 import navic.composeapp.generated.resources.info_unknown_year
 import org.jetbrains.compose.resources.stringResource
@@ -44,10 +48,12 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.SongSwipeDirection
 import paige.navic.domain.models.settings.SongSwipeAction
+import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.domain.models.songSwipeActionForDirection
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.ui.components.common.CoverArt
@@ -78,6 +84,7 @@ fun SongListScreenItem(
 	onDownload: () -> Unit,
 	onCancelDownload: () -> Unit,
 	onDeleteDownload: () -> Unit,
+	inPlaylist: Boolean = false
 ) {
 	val backStack = LocalNavStack.current
 	val dismissState = rememberSwipeToDismissBoxState()
@@ -95,6 +102,11 @@ fun SongListScreenItem(
 		startToEndAction = preferenceManager.songSwipeStartToEndAction,
 		endToStartAction = preferenceManager.songSwipeEndToStartAction,
 		direction = SongSwipeDirection.EndToStart
+	)
+	val showPlaylistIndicator = shouldShowPlaylistIndicator(
+		userEnabled = preferenceManager.showPlaylistIndicator,
+		isInPlaylist = inPlaylist,
+		isPlaylistScreen = false
 	)
 
 	SwipeToDismissBox(
@@ -199,32 +211,43 @@ fun SongListScreenItem(
 					)
 				},
 				trailingContent = {
-					if (download != null) {
-						when (download.status) {
-							DownloadStatus.DOWNLOADING -> {
-								CircularProgressIndicator(
-									progress = { download.progress },
-									modifier = Modifier.size(16.dp),
-									strokeWidth = 2.dp
-								)
+					Row(verticalAlignment = Alignment.CenterVertically) {
+						if (showPlaylistIndicator) {
+							Icon(
+								Icons.Outlined.PlaylistPlay,
+								contentDescription = stringResource(Res.string.info_in_playlist),
+								modifier = Modifier.size(18.dp),
+								tint = MaterialTheme.colorScheme.primary
+							)
+							Spacer(Modifier.width(8.dp))
+						}
+						if (download != null) {
+							when (download.status) {
+								DownloadStatus.DOWNLOADING -> {
+									CircularProgressIndicator(
+										progress = { download.progress },
+										modifier = Modifier.size(16.dp),
+										strokeWidth = 2.dp
+									)
+								}
+								DownloadStatus.DOWNLOADED -> {
+									Icon(
+										Icons.Outlined.Check,
+										contentDescription = stringResource(Res.string.info_downloaded),
+										modifier = Modifier.size(16.dp),
+										tint = MaterialTheme.colorScheme.primary
+									)
+								}
+								DownloadStatus.FAILED -> {
+									Icon(
+										Icons.Outlined.DownloadOff,
+										contentDescription = stringResource(Res.string.info_download_failed),
+										modifier = Modifier.size(16.dp),
+										tint = MaterialTheme.colorScheme.error
+									)
+								}
+								else -> {}
 							}
-							DownloadStatus.DOWNLOADED -> {
-								Icon(
-									Icons.Outlined.Check,
-									contentDescription = stringResource(Res.string.info_downloaded),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.primary
-								)
-							}
-							DownloadStatus.FAILED -> {
-								Icon(
-									Icons.Outlined.DownloadOff,
-									contentDescription = stringResource(Res.string.info_download_failed),
-									modifier = Modifier.size(16.dp),
-									tint = MaterialTheme.colorScheme.error
-								)
-							}
-							else -> {}
 						}
 					}
 				}

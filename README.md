@@ -55,6 +55,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
 * Kreate-inspired queue duration summary shows the total runtime beside the song count in the Queue sheet.
 * Kreate-inspired `Now Playing indicator` setting can hide the animated waveform beside the current song in lists and the queue.
+* Kreate-inspired `Playlist indicator` setting can mark synced songs that already exist in one of your playlists.
 * Kreate-inspired song-row swipe actions can keep the default swipe-right/add-to-queue and swipe-left/play-next gestures, swap them, or disable either side.
 * Kreate-inspired queue-row swipe actions can keep the default remove-from-queue gestures, move a queued song to play next, or disable either side.
 * Kreate-inspired `Shake to skip` can skip to the next queued song when the phone is shaken while Navic is open.
@@ -208,6 +209,10 @@ Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the t
 ### Now Playing controls layout setup
 
 Open Settings -> Now Playing and turn `Swap controls and timeline` on to move the playback buttons above the progress bar and time row. It is off by default, so Navic keeps the existing progress-then-buttons layout unless you change it. Turn `Space playback controls evenly` on to spread the main playback buttons across the row instead of using the compact weighted layout. Turn `Swipe up controls for queue` on to open Queue from an upward swipe on the controls area. `Show shuffle control` and `Show repeat control` are on by default and can hide those edge buttons while leaving Previous, Play/Pause, and Next visible.
+
+### Song row indicators setup
+
+Open Settings -> Playback and use `Now Playing indicator` to show or hide the animated waveform beside the current song. Turn `Playlist indicator` on to mark songs that are already present in one of your synced playlists. The playlist marker is hidden inside playlist detail screens and is off by default.
 
 ### Lyrics display setup
 
