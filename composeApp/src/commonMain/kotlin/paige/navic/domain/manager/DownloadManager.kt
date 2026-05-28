@@ -40,9 +40,9 @@ import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.canStartQueuedDownload
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
-import paige.navic.domain.models.downloadConcurrencyLimit
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.repositories.LyricsRepository
@@ -218,12 +218,9 @@ class DownloadManager(
 			retryPlan.staleSongIdsToDelete.forEach { songId ->
 				downloadDao.deleteDownload(songId)
 			}
-			retryPlan.songIdsToRetry.forEach { songId ->
-				downloadDao.insertDownload(DownloadEntity(songId, DownloadStatus.QUEUED, 0f))
-			}
 			val songsToRetry = retryPlan.songIdsToRetry
 				.mapNotNull { songId -> songsById[songId]?.toDomainModel() }
-			sendSongsToQueue(songsToRetry)
+			queueSongDownloads(songsToRetry)
 		}
 	}
 
@@ -386,7 +383,13 @@ class DownloadManager(
 	private suspend fun acquireDownloadSlot(songId: String) {
 		while (true) {
 			val acquired = runningDownloadSlotsMutex.withLock {
-				if (runningDownloadSlots.size < downloadConcurrencyLimit(preferenceManager.maxConcurrentDownloads)) {
+				if (
+					canStartQueuedDownload(
+						activeDownloadSongIds = runningDownloadSlots,
+						queuedSongId = songId,
+						configuredLimit = preferenceManager.maxConcurrentDownloads
+					)
+				) {
 					runningDownloadSlots += songId
 					true
 				} else {

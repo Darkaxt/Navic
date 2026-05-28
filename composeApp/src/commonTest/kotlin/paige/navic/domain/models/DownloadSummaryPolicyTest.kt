@@ -76,4 +76,40 @@ class DownloadSummaryPolicyTest {
 		assertEquals(3, downloadConcurrencyLimit(3))
 		assertEquals(10, downloadConcurrencyLimit(99))
 	}
+
+	@Test
+	fun queuedDownloadStartPolicyRespectsTheConfiguredConcurrencyCap() {
+		assertEquals(
+			true,
+			canStartQueuedDownload(
+				activeDownloadSongIds = setOf("one", "two"),
+				queuedSongId = "three",
+				configuredLimit = 3
+			)
+		)
+		assertEquals(
+			false,
+			canStartQueuedDownload(
+				activeDownloadSongIds = setOf("one", "two", "three"),
+				queuedSongId = "four",
+				configuredLimit = 3
+			)
+		)
+		assertEquals(
+			false,
+			canStartQueuedDownload(
+				activeDownloadSongIds = setOf("one"),
+				queuedSongId = "one",
+				configuredLimit = 3
+			)
+		)
+		assertEquals(
+			false,
+			canStartQueuedDownload(
+				activeDownloadSongIds = setOf("one"),
+				queuedSongId = "two",
+				configuredLimit = 0
+			)
+		)
+	}
 }

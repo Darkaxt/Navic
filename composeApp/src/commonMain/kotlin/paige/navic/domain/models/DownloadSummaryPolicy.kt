@@ -9,6 +9,14 @@ const val MaxSupportedConcurrentDownloads = 10
 fun downloadConcurrencyLimit(configuredLimit: Int): Int =
 	configuredLimit.coerceIn(1, MaxSupportedConcurrentDownloads)
 
+fun canStartQueuedDownload(
+	activeDownloadSongIds: Set<String>,
+	queuedSongId: String,
+	configuredLimit: Int
+): Boolean =
+	queuedSongId !in activeDownloadSongIds &&
+		activeDownloadSongIds.size < downloadConcurrencyLimit(configuredLimit)
+
 fun pendingDownloadCount(downloads: List<DownloadEntity>): Int =
 	downloads.count { download ->
 		download.status == DownloadStatus.QUEUED ||
