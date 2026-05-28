@@ -3,6 +3,7 @@ package paige.navic.ui.screens.nowPlaying.components.rows
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.NowPlayingTechnicalInfoInput
+import paige.navic.domain.models.nowPlayingTechnicalInfo
 import paige.navic.shared.MediaPlayerViewModel
 
 @Composable
@@ -53,33 +56,43 @@ fun NowPlayingTechnicalInfoRow() {
 				modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
 				verticalAlignment = Alignment.CenterVertically
 			) {
-				val sampleRateFormatted = (playerState.playbackSampleRate ?: song?.sampleRate)?.let {
-					if (it >= 1000) "${it / 1000.0} kHz" else "$it Hz"
-				} ?: "-- kHz"
-
 				val isCellular = connectivityManager.isCellular.value
 				val requestedBitrate = if (preferenceManager.isAdvancedTranscodingActive) {
 					if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
 				} else {
 					if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
 				}
-
-				val bitrateFormatted = playerState.playbackBitrate?.let { "${it / 1000} kbps" }
-					?: if (playerState.playbackMimeType?.contains("opus") == true) {
-						"${if (requestedBitrate > 0) requestedBitrate else "--"} kbps"
-					} else {
-						song?.bitRate?.let { "$it kbps" }
-					}
-
-				val format = playerState.playbackMimeType?.split("/")?.lastOrNull()?.replace("mpeg", "mp3")?.uppercase()
-					?: song?.fileExtension?.uppercase()
-					?: "--"
-
-				Text(
-					text = "$format • $sampleRateFormatted • $bitrateFormatted",
-					style = style,
-					color = color
+				val info = nowPlayingTechnicalInfo(
+					style = preferenceManager.nowPlayingTechnicalInfoStyle,
+					input = NowPlayingTechnicalInfoInput(
+						playbackMimeType = playerState.playbackMimeType,
+						fileExtension = song?.fileExtension,
+						playbackSampleRateHz = playerState.playbackSampleRate,
+						sourceSampleRateHz = song?.sampleRate,
+						playbackBitrateBps = playerState.playbackBitrate,
+						sourceBitrateKbps = song?.bitRate,
+						requestedTranscodeBitrateKbps = requestedBitrate,
+						bitDepth = song?.bitDepth,
+						channelCount = song?.audioChannelCount,
+						fileSizeBytes = song?.fileSize ?: 0L,
+						replayGain = song?.replayGain
+					)
 				)
+
+				Column(horizontalAlignment = Alignment.CenterHorizontally) {
+					Text(
+						text = info.primary,
+						style = style,
+						color = color
+					)
+					info.secondary?.let { secondary ->
+						Text(
+							text = secondary,
+							style = style,
+							color = color
+						)
+					}
+				}
 			}
 		}
 	}

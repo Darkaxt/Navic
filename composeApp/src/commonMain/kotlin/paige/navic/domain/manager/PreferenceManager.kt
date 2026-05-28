@@ -24,6 +24,7 @@ import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingSliderStyle
+import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.ReplayGainMode
@@ -78,6 +79,7 @@ class PreferenceManager(
 	var shrinkNowPlayingArtworkOnPause by preference(true)
 	var nowPlayingInfoStyle by preference(NowPlayingInfoStyle.Essential)
 	var nowPlayingSongInfo by preference(true)
+	var nowPlayingTechnicalInfoStyle by preference(NowPlayingTechnicalInfoStyle.Compact)
 	var showNowPlayingUpNext by preference(false)
 	var showNowPlayingUpNextArtwork by preference(true)
 	var nowPlayingUpNextCount by preference(2)

@@ -55,6 +55,7 @@ import navic.composeapp.generated.resources.option_now_playing_start_radio_actio
 import navic.composeapp.generated.resources.option_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.option_now_playing_swipe_up_controls_for_queue
 import navic.composeapp.generated.resources.option_now_playing_tap_controls_for_queue
+import navic.composeapp.generated.resources.option_now_playing_technical_info_style
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_now_playing_up_next
 import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
@@ -80,6 +81,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_start_radio_act
 import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_and_timeline
 import navic.composeapp.generated.resources.subtitle_now_playing_swipe_up_controls_for_queue
 import navic.composeapp.generated.resources.subtitle_now_playing_tap_controls_for_queue
+import navic.composeapp.generated.resources.subtitle_now_playing_technical_info_style
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_count
@@ -98,6 +100,7 @@ import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
+import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
@@ -256,6 +259,17 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.nowPlayingSongInfo,
 						onSetValue = { preferenceManager.nowPlayingSongInfo = it }
 					)
+
+					AnimatedVisibility(preferenceManager.nowPlayingSongInfo) {
+						SettingSelectionRow(
+							items = NowPlayingTechnicalInfoStyle.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							selection = preferenceManager.nowPlayingTechnicalInfoStyle,
+							onSelect = { preferenceManager.nowPlayingTechnicalInfoStyle = it },
+							description = stringResource(Res.string.subtitle_now_playing_technical_info_style),
+							title = { Text(stringResource(Res.string.option_now_playing_technical_info_style)) }
+						)
+					}
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_now_playing_seek_buttons)) },
