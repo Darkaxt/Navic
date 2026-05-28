@@ -30,7 +30,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -61,6 +63,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.SideloadingDialog
 import paige.navic.ui.components.common.ShakeToSkipEffect
 import paige.navic.ui.components.sheets.ChangelogSheet
+import paige.navic.ui.components.sheets.shouldRunUpdateCheck
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
@@ -113,6 +116,7 @@ private val config = SavedStateConfiguration {
 val LocalPlatformContext = staticCompositionLocalOf<PlatformContext> { error("no platform context") }
 val LocalNavStack = staticCompositionLocalOf<NavBackStack<NavKey>> { error("no backstack") }
 val LocalSnackbarState = staticCompositionLocalOf<SnackbarHostState> { error("no snackbar state") }
+val LocalUpdateCheckRequester = staticCompositionLocalOf<() -> Unit> { {} }
 val LocalSharedTransitionScope =
 	staticCompositionLocalOf<SharedTransitionScope> { error("no shared transition scope") }
 
@@ -140,6 +144,7 @@ fun App() {
 		}
 	)
 	val snackbarState = remember { SnackbarHostState() }
+	var forceUpdateCheckRequests by remember { mutableIntStateOf(0) }
 	val density = LocalDensity.current
 	val layoutDirection = LocalLayoutDirection.current
 	val scrollManager = remember {
@@ -151,6 +156,7 @@ fun App() {
 			LocalPlatformContext provides platformContext,
 			LocalNavStack provides backStack,
 			LocalSnackbarState provides snackbarState,
+			LocalUpdateCheckRequester provides { forceUpdateCheckRequests += 1 },
 			LocalSharedTransitionScope provides this@SharedTransitionLayout,
 			LocalBottomBarScrollManager provides scrollManager
 		) {
@@ -225,10 +231,13 @@ fun App() {
 				) {
 					SideloadingDialog()
 				}
-				// version check is annoying to do on ios
-				if (preferenceManager.checkForUpdates
-					&& !listOf("ios", "ipados").contains(platformContext.name.lowercase())) {
-					ChangelogSheet()
+				if (shouldRunUpdateCheck(
+						platformName = platformContext.name,
+						automaticChecksEnabled = preferenceManager.checkForUpdates,
+						forceCheckRequests = forceUpdateCheckRequests
+					)
+				) {
+					ChangelogSheet(updateCheckRequests = forceUpdateCheckRequests)
 				}
 			}
 		}

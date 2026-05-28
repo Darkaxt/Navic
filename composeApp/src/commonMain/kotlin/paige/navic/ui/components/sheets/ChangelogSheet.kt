@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -140,10 +141,6 @@ class ChangelogViewModel(
 		}
 	}
 
-	init {
-		checkForUpdates(platformContext.appVersion)
-	}
-
 	fun checkForUpdates(currentVersion: String) {
 		viewModelScope.launch {
 			_release.value = try {
@@ -202,7 +199,7 @@ class ChangelogViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChangelogSheet() {
+fun ChangelogSheet(updateCheckRequests: Int = 0) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val uriHandler = LocalUriHandler.current
@@ -215,6 +212,9 @@ fun ChangelogSheet() {
 	val updateInstallError by viewModel.updateInstallError.collectAsStateWithLifecycle()
 	val updateInstallProgress by viewModel.updateInstallProgress.collectAsStateWithLifecycle()
 	val updateInstallProgressPercent = normalizedUpdateInstallProgressPercent(updateInstallProgress)
+	LaunchedEffect(platformContext.appVersion, updateCheckRequests) {
+		viewModel.checkForUpdates(platformContext.appVersion)
+	}
 
 	release?.let { release ->
 		ModalBottomSheet(
