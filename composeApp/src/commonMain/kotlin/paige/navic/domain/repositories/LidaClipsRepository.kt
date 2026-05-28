@@ -135,7 +135,8 @@ class LidaClipsRepository(
 		forceRefresh: Boolean = false
 	): Result<DomainLidaClip?> = findClip(
 		songId = songId,
-		forceRefresh = forceRefresh
+		forceRefresh = forceRefresh,
+		lookupKind = LidaClipsLookupKind.NavidromeSongId
 	) { baseUrl, requestHeaders ->
 		fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
 	}
@@ -145,7 +146,8 @@ class LidaClipsRepository(
 		forceRefresh: Boolean = false
 	): Result<DomainLidaClip?> = findClip(
 		songId = song.id,
-		forceRefresh = forceRefresh
+		forceRefresh = forceRefresh,
+		lookupKind = LidaClipsLookupKind.SongMetadataFallback
 	) { baseUrl, requestHeaders ->
 		fetchClipByNavidromeSongId(baseUrl, requestHeaders, song.id).fold(
 			onSuccess = { clip ->
@@ -162,6 +164,7 @@ class LidaClipsRepository(
 	private suspend fun findClip(
 		songId: String,
 		forceRefresh: Boolean,
+		lookupKind: LidaClipsLookupKind,
 		fetchClip: suspend (
 			baseUrl: String,
 			requestHeaders: Map<String, String>
@@ -172,7 +175,7 @@ class LidaClipsRepository(
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
 			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-		val cacheKey = lidaClipsLookupCacheKey(baseUrl, requestHeaders, songId)
+		val cacheKey = lidaClipsLookupCacheKey(baseUrl, requestHeaders, songId, lookupKind)
 
 		lookupCache.get(cacheKey, bypass = forceRefresh)?.let { cached ->
 			return Result.success(cached.clip)
@@ -498,13 +501,20 @@ internal fun lidaClipsStreamRequestHeaders(
 internal data class LidaClipsLookupCacheKey(
 	val baseUrl: String,
 	val requestHeaders: List<Pair<String, String>>,
-	val songId: String
+	val songId: String,
+	val lookupKind: LidaClipsLookupKind
 )
+
+internal enum class LidaClipsLookupKind {
+	NavidromeSongId,
+	SongMetadataFallback
+}
 
 internal fun lidaClipsLookupCacheKey(
 	baseUrl: String,
 	requestHeaders: Map<String, String>,
-	songId: String
+	songId: String,
+	lookupKind: LidaClipsLookupKind = LidaClipsLookupKind.NavidromeSongId
 ): LidaClipsLookupCacheKey =
 	LidaClipsLookupCacheKey(
 		baseUrl = normalizeLidaClipsBaseUrl(baseUrl),
@@ -513,7 +523,8 @@ internal fun lidaClipsLookupCacheKey(
 			.filter { (key, value) -> key.isNotEmpty() && value.isNotEmpty() }
 			.map { (key, value) -> key to lidaClipsKeyFingerprint(value) }
 			.sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second }),
-		songId = songId
+		songId = songId,
+		lookupKind = lookupKind
 	)
 
 internal class LidaClipsLookupCache(

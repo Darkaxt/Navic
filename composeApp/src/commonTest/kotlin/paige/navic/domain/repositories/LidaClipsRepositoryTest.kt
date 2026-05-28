@@ -254,6 +254,27 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsLookupCacheKeepsDirectMissesSeparateFromMetadataFallbackLookups() {
+		val cache = LidaClipsLookupCache()
+		val directLookupKey = lidaClipsLookupCacheKey(
+			baseUrl = "https://clips.remaxku.eu",
+			requestHeaders = mapOf("X-Api-Key" to "secret"),
+			songId = "song-1",
+			lookupKind = LidaClipsLookupKind.NavidromeSongId
+		)
+		val metadataFallbackLookupKey = lidaClipsLookupCacheKey(
+			baseUrl = "https://clips.remaxku.eu",
+			requestHeaders = mapOf("X-Api-Key" to "secret"),
+			songId = "song-1",
+			lookupKind = LidaClipsLookupKind.SongMetadataFallback
+		)
+
+		cache.put(directLookupKey, null)
+
+		assertNull(cache.get(metadataFallbackLookupKey))
+	}
+
+	@Test
 	fun lidaClipsLookupCacheExpiresHitsAndMissingClips() {
 		var nowMillis = 1_000L
 		val cache = LidaClipsLookupCache(
