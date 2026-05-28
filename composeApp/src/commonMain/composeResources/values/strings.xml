@@ -540,6 +540,7 @@
 	<string name="action_share_lyrics">Share Lyrics</string>
 	<string name="action_update_app">Update</string>
 	<string name="action_downloading_update">Downloading update...</string>
+	<string name="action_downloading_update_percent">Downloading update... %1$d%%</string>
 	<string name="action_seek_backward_seconds">Back %1$d seconds</string>
 	<string name="action_seek_forward_seconds">Forward %1$d seconds</string>
 	<string name="action_play_next">Play next</string>

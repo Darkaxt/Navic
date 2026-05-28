@@ -24,11 +24,13 @@ private class AndroidUpdateInstaller(
 
 	override suspend fun installApk(
 		updateUrl: String,
-		expectedSha256Digest: String?
+		expectedSha256Digest: String?,
+		onProgress: (Float?) -> Unit
 	): Result<Unit> = runCatching {
 		val apkFile = withContext(Dispatchers.IO) {
-			downloadApk(updateUrl).also { file ->
+			downloadApk(updateUrl, onProgress).also { file ->
 				verifyApkSha256Digest(file, expectedSha256Digest)
+				onProgress(1f)
 			}
 		}
 		withContext(Dispatchers.Main) {
@@ -36,7 +38,10 @@ private class AndroidUpdateInstaller(
 		}
 	}
 
-	private fun downloadApk(updateUrl: String): File {
+	private fun downloadApk(
+		updateUrl: String,
+		onProgress: (Float?) -> Unit
+	): File {
 		val updatesDir = File(appContext.cacheDir, "updates").apply { mkdirs() }
 		val target = File(updatesDir, "Navic-update.apk")
 		val connection = URL(updateUrl).openConnection().apply {
@@ -45,9 +50,23 @@ private class AndroidUpdateInstaller(
 			setRequestProperty("Accept", "$APK_CONTENT_TYPE,*/*")
 		}
 
+		val contentLength = connection.contentLengthLong.takeIf { it > 0L }
+		onProgress(if (contentLength == null) null else 0f)
+
 		connection.getInputStream().use { input ->
 			target.outputStream().use { output ->
-				input.copyTo(output)
+				val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+				var bytesCopied = 0L
+				while (true) {
+					val bytesRead = input.read(buffer)
+					if (bytesRead == -1) break
+
+					output.write(buffer, 0, bytesRead)
+					if (contentLength != null) {
+						bytesCopied += bytesRead
+						onProgress((bytesCopied.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f))
+					}
+				}
 			}
 		}
 		require(target.length() > 0L) { "Downloaded update APK is empty." }

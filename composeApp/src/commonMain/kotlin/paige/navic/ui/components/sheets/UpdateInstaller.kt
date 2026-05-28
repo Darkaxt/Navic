@@ -6,7 +6,8 @@ interface UpdateInstaller {
 	val canInstallApk: Boolean
 	suspend fun installApk(
 		updateUrl: String,
-		expectedSha256Digest: String?
+		expectedSha256Digest: String?,
+		onProgress: (Float?) -> Unit = {}
 	): Result<Unit>
 }
 

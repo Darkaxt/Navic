@@ -133,4 +133,17 @@ class ChangelogReleaseTest {
 
 		assertEquals(false, release.hasDirectApkUpdate)
 	}
+
+	@Test
+	fun updateInstallProgressPercentClampsAndRoundsProgress() {
+		assertEquals(0, normalizedUpdateInstallProgressPercent(-0.1f))
+		assertEquals(13, normalizedUpdateInstallProgressPercent(0.126f))
+		assertEquals(100, normalizedUpdateInstallProgressPercent(1.4f))
+	}
+
+	@Test
+	fun updateInstallProgressPercentIgnoresUnavailableProgress() {
+		assertEquals(null, normalizedUpdateInstallProgressPercent(null))
+		assertEquals(null, normalizedUpdateInstallProgressPercent(Float.NaN))
+	}
 }

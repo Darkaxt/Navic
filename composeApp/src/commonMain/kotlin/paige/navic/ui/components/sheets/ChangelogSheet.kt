@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,8 +38,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.math.roundToInt
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_downloading_update
+import navic.composeapp.generated.resources.action_downloading_update_percent
 import navic.composeapp.generated.resources.action_dont_show_again
 import navic.composeapp.generated.resources.action_update_app
 import navic.composeapp.generated.resources.info_update
@@ -113,6 +116,12 @@ internal fun GitHubReleaseAsset.normalizedSha256Digest(): String? {
 	}
 }
 
+internal fun normalizedUpdateInstallProgressPercent(progress: Float?): Int? =
+	progress
+		?.takeIf { it.isFinite() }
+		?.coerceIn(0f, 1f)
+		?.let { (it * 100f).roundToInt() }
+
 class ChangelogViewModel(
 	platformContext: PlatformContext
 ) : ViewModel() {
@@ -122,6 +131,8 @@ class ChangelogViewModel(
 	val isInstallingUpdate = _isInstallingUpdate.asStateFlow()
 	private val _updateInstallError = MutableStateFlow<String?>(null)
 	val updateInstallError = _updateInstallError.asStateFlow()
+	private val _updateInstallProgress = MutableStateFlow<Float?>(null)
+	val updateInstallProgress = _updateInstallProgress.asStateFlow()
 
 	private val updateClient = HttpClient {
 		install(ContentNegotiation) {
@@ -157,6 +168,7 @@ class ChangelogViewModel(
 
 	fun clearRelease() {
 		_updateInstallError.value = null
+		_updateInstallProgress.value = null
 		_release.value = null
 	}
 
@@ -169,7 +181,12 @@ class ChangelogViewModel(
 		viewModelScope.launch {
 			_isInstallingUpdate.value = true
 			_updateInstallError.value = null
-			updateInstaller.installApk(updateUrl, updateSha256Digest)
+			_updateInstallProgress.value = null
+			updateInstaller.installApk(
+				updateUrl = updateUrl,
+				expectedSha256Digest = updateSha256Digest,
+				onProgress = { progress -> _updateInstallProgress.value = progress }
+			)
 				.onSuccess {
 					clearRelease()
 				}
@@ -178,6 +195,7 @@ class ChangelogViewModel(
 					_updateInstallError.value = error.message
 				}
 			_isInstallingUpdate.value = false
+			_updateInstallProgress.value = null
 		}
 	}
 }
@@ -195,6 +213,8 @@ fun ChangelogSheet() {
 	val release by viewModel.release.collectAsStateWithLifecycle()
 	val isInstallingUpdate by viewModel.isInstallingUpdate.collectAsStateWithLifecycle()
 	val updateInstallError by viewModel.updateInstallError.collectAsStateWithLifecycle()
+	val updateInstallProgress by viewModel.updateInstallProgress.collectAsStateWithLifecycle()
+	val updateInstallProgressPercent = normalizedUpdateInstallProgressPercent(updateInstallProgress)
 
 	release?.let { release ->
 		ModalBottomSheet(
@@ -249,6 +269,25 @@ fun ChangelogSheet() {
 					)
 				}
 
+				if (isInstallingUpdate) {
+					if (updateInstallProgressPercent == null) {
+						LinearProgressIndicator(
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(bottom = 8.dp)
+						)
+					} else {
+						LinearProgressIndicator(
+							progress = {
+								(updateInstallProgressPercent.toFloat() / 100f).coerceIn(0f, 1f)
+							},
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(bottom = 8.dp)
+						)
+					}
+				}
+
 				Button(
 					onClick = {
 						platformContext.clickSound()
@@ -268,10 +307,19 @@ fun ChangelogSheet() {
 					enabled = !isInstallingUpdate
 				) {
 					Text(
-						text = stringResource(
-							if (isInstallingUpdate) Res.string.action_downloading_update
-							else Res.string.action_update_app
-						),
+						text = when {
+							isInstallingUpdate && updateInstallProgressPercent != null ->
+								stringResource(
+									Res.string.action_downloading_update_percent,
+									updateInstallProgressPercent
+								)
+
+							isInstallingUpdate ->
+								stringResource(Res.string.action_downloading_update)
+
+							else ->
+								stringResource(Res.string.action_update_app)
+						},
 						fontFamily = defaultFont(100)
 					)
 				}

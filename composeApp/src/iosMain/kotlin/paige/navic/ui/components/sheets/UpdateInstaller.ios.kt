@@ -8,7 +8,8 @@ private object UnsupportedUpdateInstaller : UpdateInstaller {
 
 	override suspend fun installApk(
 		updateUrl: String,
-		expectedSha256Digest: String?
+		expectedSha256Digest: String?,
+		onProgress: (Float?) -> Unit
 	): Result<Unit> =
 		Result.failure(UnsupportedOperationException("APK install is only available on Android."))
 }
