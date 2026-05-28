@@ -500,9 +500,10 @@ internal fun lidaClipsStreamRequestHeaders(
 	streamUrl: String,
 	requestHeaders: Map<String, String>
 ): Map<String, String> {
-	val streamOrigin = httpOrigin(streamUrl) ?: return emptyMap()
-	val baseOrigin = configuredLidaClipsBaseUrl(baseUrl)?.let(::httpOrigin) ?: return emptyMap()
-	if (streamOrigin != baseOrigin) return emptyMap()
+	val streamScope = httpUrlScope(streamUrl) ?: return emptyMap()
+	val baseScope = configuredLidaClipsBaseUrl(baseUrl)?.let(::httpUrlScope) ?: return emptyMap()
+	if (streamScope.origin != baseScope.origin) return emptyMap()
+	if (!streamScope.path.isWithinBasePath(baseScope.path)) return emptyMap()
 
 	return requestHeaders
 		.map { (key, value) -> key.trim() to value.trim() }
@@ -596,7 +597,12 @@ private data class HttpOrigin(
 	val port: Int
 )
 
-private fun httpOrigin(url: String): HttpOrigin? {
+private data class HttpUrlScope(
+	val origin: HttpOrigin,
+	val path: String
+)
+
+private fun httpUrlScope(url: String): HttpUrlScope? {
 	val trimmed = url.trim()
 	val schemeSeparator = trimmed.indexOf("://")
 	if (schemeSeparator <= 0) return null
@@ -604,11 +610,19 @@ private fun httpOrigin(url: String): HttpOrigin? {
 	val scheme = trimmed.substring(0, schemeSeparator).lowercase()
 	if (scheme != "http" && scheme != "https") return null
 
-	val authority = trimmed
-		.drop(schemeSeparator + 3)
-		.takeWhile { it != '/' && it != '?' && it != '#' }
+	val afterScheme = trimmed.drop(schemeSeparator + 3)
+	val authorityEnd = afterScheme.indexOfFirst { it == '/' || it == '?' || it == '#' }
+		.let { if (it == -1) afterScheme.length else it }
+	val authority = afterScheme
+		.take(authorityEnd)
 		.substringAfterLast('@')
 	if (authority.isBlank()) return null
+
+	val path = afterScheme
+		.drop(authorityEnd)
+		.takeIf { it.startsWith("/") }
+		?.takeWhile { it != '?' && it != '#' }
+		.normalizedHttpPath()
 
 	val host: String
 	val portText: String?
@@ -639,8 +653,20 @@ private fun httpOrigin(url: String): HttpOrigin? {
 			else -> 443
 		} else return null
 
-	return HttpOrigin(scheme, normalizedHost, port)
+	return HttpUrlScope(
+		origin = HttpOrigin(scheme, normalizedHost, port),
+		path = path
+	)
 }
+
+private fun String?.normalizedHttpPath(): String {
+	if (isNullOrBlank() || this == "/") return ""
+	val trimmed = trimEnd('/')
+	return if (trimmed == "/") "" else trimmed
+}
+
+private fun String.isWithinBasePath(basePath: String): Boolean =
+	basePath.isEmpty() || this == basePath || startsWith("$basePath/")
 
 private fun normalizeLidaClipsBaseUrl(baseUrl: String): String =
 	configuredLidaClipsBaseUrl(baseUrl)

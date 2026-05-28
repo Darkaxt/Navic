@@ -192,6 +192,34 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsStreamRequestHeadersRequireConfiguredBasePathForSameOriginStreams() {
+		assertEquals(
+			mapOf("X-Api-Key" to "secret"),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://clips.remaxku.eu/lida",
+				streamUrl = "https://clips.remaxku.eu/lida/api/v1/stream/7",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
+			)
+		)
+		assertEquals(
+			emptyMap(),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://clips.remaxku.eu/lida",
+				streamUrl = "https://clips.remaxku.eu/other/api/v1/stream/7",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
+			)
+		)
+		assertEquals(
+			emptyMap(),
+			lidaClipsStreamRequestHeaders(
+				baseUrl = "https://clips.remaxku.eu/lida",
+				streamUrl = "https://clips.remaxku.eu/lidarr/api/v1/stream/7",
+				requestHeaders = mapOf("X-Api-Key" to "secret")
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsLookupCacheKeyNormalizesBaseUrlAndHeaders() {
 		assertEquals(
 			lidaClipsLookupCacheKey(

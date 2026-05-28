@@ -118,7 +118,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 * Optional LidaClips integration for matching current Navidrome tracks to music-video clip streams.
 * The LidaClips URL defaults to blank, must start with `http://` or `https://`, include a host, use a valid numeric port when a port is present, and omit embedded credentials, query, or fragment parts; it is validated before connection tests or clip lookup.
-* LidaClips API keys are sent as `X-Api-Key` for connection checks, clip lookups, and same-origin Android video stream playback.
+* LidaClips API keys are sent as `X-Api-Key` for connection checks, clip lookups, and Android video stream playback under the configured LidaClips origin/path.
 * LidaClips settings show backend service counts, health-check failures, recent backend sync failures, and can pause or resume scheduled backend clip syncs; status refreshes after URL or API-key changes settle without embedding the raw API key in refresh keys.
 * Now-playing clip lookups are cached briefly and prefetched by LidaClips URL, API-key/header fingerprint, and Navidrome song id, so backend sync changes can appear without restarting Navic.
 * LidaClips clip lookup now falls back from Navidrome song-id matching to the backend's artist/album/track search endpoint when the direct id mapping is missing, and direct-id cache misses no longer suppress that metadata fallback.
