@@ -84,6 +84,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_swap_controls_a
 import navic.composeapp.generated.resources.subtitle_now_playing_swipe_up_controls_for_queue
 import navic.composeapp.generated.resources.subtitle_now_playing_tap_controls_for_queue
 import navic.composeapp.generated.resources.subtitle_now_playing_technical_info_style
+import navic.composeapp.generated.resources.subtitle_now_playing_toolbar_position
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_count
@@ -371,6 +372,7 @@ fun SettingsNowPlayingScreen() {
 						label = { stringResource(it.displayName) },
 						selection = preferenceManager.nowPlayingToolbarPosition,
 						onSelect = { preferenceManager.nowPlayingToolbarPosition = it },
+						description = stringResource(Res.string.subtitle_now_playing_toolbar_position),
 						title = { Text(stringResource(Res.string.option_now_playing_toolbar_position)) }
 					)
 				}

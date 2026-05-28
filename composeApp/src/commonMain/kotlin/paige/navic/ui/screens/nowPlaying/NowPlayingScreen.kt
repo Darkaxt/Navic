@@ -35,6 +35,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.shouldOpenLyricsFromNowPlayingArtworkTap
+import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
@@ -148,6 +149,7 @@ fun NowPlayingScreen() {
 				val toolbarPosition = preferenceManager.nowPlayingToolbarPosition
 				val padding = when {
 					isLandscape -> contentPadding
+					!shouldReserveNowPlayingToolbarGap(toolbarPosition, isLandscape = isLandscape) -> contentPadding
 					toolbarPosition == ToolbarPosition.Top -> contentPadding.plus(
 						PaddingValues(
 							bottom = 40.dp

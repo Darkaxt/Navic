@@ -1,6 +1,6 @@
 # Kreate Feature Transplant Audit
 
-Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
+Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 
 ## Already Adapted
 
@@ -50,6 +50,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Now Playing play-button speed label and long-press speed control: Navic now adapts Kreate's play-button playback-speed badge and long-press access to playback parameters. The button remains unchanged at `1.0x`, shows a one-decimal speed label only when playback speed is changed, and opens Navic's Playback Speed sheet when long-pressed while a song is active.
 * Now Playing controls swipe-up queue gesture: Navic now adapts the useful part of Kreate's `PLAYER_ACTIONS_BAR_SWIPE_UP_TO_OPEN_QUEUE` as an opt-in Now Playing layout setting. It opens Queue from an upward swipe on the controls area while keeping the gesture disabled by default.
 * Now Playing controls tap queue gesture: Navic now adapts Kreate's `PLAYER_ACTIONS_BAR_TAP_TO_OPEN_QUEUE` as an opt-in Now Playing layout setting. It opens Queue from taps on empty space in the controls area while keeping the gesture disabled by default.
+* Now Playing toolbar visibility: Navic now adapts the useful part of Kreate's `PLAYER_SHOW_TOP_ACTIONS_BAR` as a Hidden option in the existing Now Playing toolbar-position selector. Top and Bottom keep the previous behavior, while Hidden removes the toolbar for a cleaner fullscreen player.
 * Now Playing song info style: Navic now adapts Kreate's `PLAYER_INFO_TYPE` as a Now Playing layout selector. Essential keeps Navic's existing title and artist display, while Album and artist adds album context to the supporting line.
 * Now Playing technical info style: Navic now adapts the useful part of Kreate's Stats for Nerds display as a Now Playing layout selector. Compact preserves the existing format/sample-rate/bitrate row while avoiding weak `null` output, and Detailed adds bit depth, channel count, file size, and ReplayGain when synced metadata is available.
 * Now Playing playback control visibility: Navic now adapts Kreate's `PLAYER_ACTION_SHUFFLE` and `PLAYER_ACTION_LOOP` preferences as default-on Now Playing layout settings. Users can hide the main shuffle and repeat buttons while keeping previous, play/pause, and next controls visible.

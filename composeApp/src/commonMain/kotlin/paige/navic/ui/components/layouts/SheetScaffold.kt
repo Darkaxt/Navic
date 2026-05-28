@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.Color
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.ToolbarPosition
+import paige.navic.domain.models.shouldShowSheetToolbarBottom
+import paige.navic.domain.models.shouldShowSheetToolbarTop
 
 @Composable
 fun SheetScaffold(
@@ -23,14 +25,14 @@ fun SheetScaffold(
 	val toolbarPosition = toolbarPosition ?: preferenceManager.nowPlayingToolbarPosition
 	Scaffold(
 		topBar = {
-			if (toolbarPosition == ToolbarPosition.Top) {
+			if (shouldShowSheetToolbarTop(toolbarPosition)) {
 				toolbar(WindowInsets.systemBars.only(
 					WindowInsetsSides.Horizontal + WindowInsetsSides.Top
 				))
 			}
 		},
 		bottomBar = {
-			if (toolbarPosition == ToolbarPosition.Bottom) {
+			if (shouldShowSheetToolbarBottom(toolbarPosition)) {
 				toolbar(WindowInsets.systemBars.only(
 					WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
 				))
