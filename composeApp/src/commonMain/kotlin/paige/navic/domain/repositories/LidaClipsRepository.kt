@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -61,17 +62,14 @@ class LidaClipsRepository(
 
 		return try {
 			val ping = client.get(lidaClipsEndpoint(baseUrl, "api/v1/ping")) {
-				accept(ContentType.Application.Json)
+				lidaClipsJsonRequest()
 			}
 			if (!ping.status.isSuccess()) {
 				return LidaClipsConnectionResult.Failed("Ping returned HTTP ${ping.status.value}")
 			}
 
 			val health = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
-				accept(ContentType.Application.Json)
-				preferenceManager.lidaClipsRequestHeadersMap().forEach { (key, value) ->
-					header(key, value)
-				}
+				lidaClipsJsonRequest(preferenceManager.lidaClipsRequestHeadersMap())
 			}
 
 			when {
@@ -193,10 +191,7 @@ class LidaClipsRepository(
 		songId: String
 	): Result<DomainLidaClip?> = runCatching {
 		val response = client.get(lidaClipsNavidromeClipUrl(baseUrl, songId)) {
-			accept(ContentType.Application.Json)
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders)
 		}
 
 		when {
@@ -222,10 +217,7 @@ class LidaClipsRepository(
 				track = song.title
 			)
 		) {
-			accept(ContentType.Application.Json)
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders)
 		}
 
 		when {
@@ -242,10 +234,7 @@ class LidaClipsRepository(
 		requestHeaders: Map<String, String>
 	): LidaClipsDashboardDto {
 		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/dashboard")) {
-			accept(ContentType.Application.Json)
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders)
 		}
 		if (!response.status.isSuccess()) {
 			error(lidaClipsHttpErrorMessage("LidaClips dashboard", response.status))
@@ -258,10 +247,7 @@ class LidaClipsRepository(
 		requestHeaders: Map<String, String>
 	): LidaClipsControlDto {
 		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/control")) {
-			accept(ContentType.Application.Json)
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders)
 		}
 		if (!response.status.isSuccess()) {
 			error(lidaClipsHttpErrorMessage("LidaClips control", response.status))
@@ -274,10 +260,7 @@ class LidaClipsRepository(
 		requestHeaders: Map<String, String>
 	): LidaClipsHealthDto {
 		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
-			accept(ContentType.Application.Json)
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders)
 		}
 		if (!response.status.isSuccess() && response.status != HttpStatusCode.ServiceUnavailable) {
 			error(lidaClipsHttpErrorMessage("LidaClips health", response.status))
@@ -291,17 +274,26 @@ class LidaClipsRepository(
 		syncPaused: Boolean
 	): LidaClipsControlDto {
 		val response = client.post(lidaClipsEndpoint(baseUrl, "api/v1/control")) {
-			accept(ContentType.Application.Json)
-			header("Content-Type", ContentType.Application.Json.toString())
-			requestHeaders.forEach { (key, value) ->
-				header(key, value)
-			}
+			lidaClipsJsonRequest(requestHeaders, includeContentType = true)
 			setBody(LidaClipsControlRequestDto(syncPaused))
 		}
 		if (!response.status.isSuccess()) {
 			error(lidaClipsHttpErrorMessage("LidaClips control update", response.status))
 		}
 		return response.body()
+	}
+}
+
+private fun HttpRequestBuilder.lidaClipsJsonRequest(
+	requestHeaders: Map<String, String> = emptyMap(),
+	includeContentType: Boolean = false
+) {
+	accept(ContentType.Application.Json)
+	if (includeContentType) {
+		header("Content-Type", ContentType.Application.Json.toString())
+	}
+	requestHeaders.forEach { (key, value) ->
+		header(key, value)
 	}
 }
 
