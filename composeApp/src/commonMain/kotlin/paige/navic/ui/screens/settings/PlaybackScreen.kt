@@ -55,6 +55,8 @@ import navic.composeapp.generated.resources.option_lyrics_priority
 import navic.composeapp.generated.resources.option_show_lyrics_artwork
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
 import navic.composeapp.generated.resources.option_medley_mode
+import navic.composeapp.generated.resources.option_media_notification_first_action
+import navic.composeapp.generated.resources.option_media_notification_second_action
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_now_playing_indicator
 import navic.composeapp.generated.resources.option_pause_listening_history
@@ -92,6 +94,8 @@ import navic.composeapp.generated.resources.subtitle_bass_boost
 import navic.composeapp.generated.resources.subtitle_enable_scrobbling
 import navic.composeapp.generated.resources.subtitle_gapless_playback
 import navic.composeapp.generated.resources.subtitle_medley_mode
+import navic.composeapp.generated.resources.subtitle_media_notification_first_action
+import navic.composeapp.generated.resources.subtitle_media_notification_second_action
 import navic.composeapp.generated.resources.subtitle_now_playing_indicator
 import navic.composeapp.generated.resources.subtitle_pause_listening_history
 import navic.composeapp.generated.resources.subtitle_pause_between_songs
@@ -129,6 +133,7 @@ import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
+import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.ReplayGainMode
 import paige.navic.domain.models.settings.SongSwipeAction
@@ -217,6 +222,22 @@ fun SettingsPlaybackScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_respect_audio_focus)) },
 							value = preferenceManager.respectAudioFocus,
 							onSetValue = { preferenceManager.respectAudioFocus = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_media_notification_first_action)) },
+							items = MediaNotificationAction.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							description = stringResource(Res.string.subtitle_media_notification_first_action),
+							selection = preferenceManager.mediaNotificationFirstAction,
+							onSelect = { preferenceManager.mediaNotificationFirstAction = it }
+						)
+						SettingSelectionRow(
+							title = { Text(stringResource(Res.string.option_media_notification_second_action)) },
+							items = MediaNotificationAction.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							description = stringResource(Res.string.subtitle_media_notification_second_action),
+							selection = preferenceManager.mediaNotificationSecondAction,
+							onSelect = { preferenceManager.mediaNotificationSecondAction = it }
 						)
 						FormRow {
 							Column(Modifier.fillMaxWidth()) {

@@ -16,6 +16,7 @@ import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
 import paige.navic.domain.models.settings.MarqueeSpeed
+import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavigationBarLabelVisibility
@@ -119,6 +120,8 @@ class PreferenceManager(
 	var reverseProxyBasicAuthEnabled by preference(false)
 	var reverseProxyBasicAuthUsername by preference("")
 	var reverseProxyBasicAuthPassword by preference("")
+	var mediaNotificationFirstAction by preference(MediaNotificationAction.Disabled)
+	var mediaNotificationSecondAction by preference(MediaNotificationAction.Disabled)
 	var lidaClipsEnabled by preference(false)
 	var lidaClipsBaseUrl by preference("")
 	var lidaClipsApiKey by preference("")

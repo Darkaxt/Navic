@@ -6,6 +6,7 @@ import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
+import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.settings.NowPlayingArtworkSize
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
@@ -98,6 +99,20 @@ class PreferenceManagerTest {
 		assertTrue(manager.respectAudioFocus)
 		manager.respectAudioFocus = false
 		assertFalse(manager.respectAudioFocus)
+	}
+
+	@Test
+	fun mediaNotificationActionsDefaultToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(MediaNotificationAction.Disabled, manager.mediaNotificationFirstAction)
+		assertEquals(MediaNotificationAction.Disabled, manager.mediaNotificationSecondAction)
+
+		manager.mediaNotificationFirstAction = MediaNotificationAction.Shuffle
+		manager.mediaNotificationSecondAction = MediaNotificationAction.Repeat
+
+		assertEquals(MediaNotificationAction.Shuffle, manager.mediaNotificationFirstAction)
+		assertEquals(MediaNotificationAction.Repeat, manager.mediaNotificationSecondAction)
 	}
 
 	@Test

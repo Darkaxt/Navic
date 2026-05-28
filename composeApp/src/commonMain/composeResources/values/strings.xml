@@ -80,6 +80,8 @@
 	<string name="subtitle_gapless_playback">Experimental. Requires application restart. May conflict with audio offload on some devices</string>
 	<string name="subtitle_audio_offload">Uses low-power hardware decoding for supported audio to reduce battery use. May break gapless playback on some devices. Restart playback for changes to apply</string>
 	<string name="subtitle_respect_audio_focus">Turn off to keep Navic playing while WhatsApp or other apps play audio. Takes effect after playback restarts</string>
+	<string name="subtitle_media_notification_first_action">First optional action shown in the Android media notification. Takes effect after playback restarts</string>
+	<string name="subtitle_media_notification_second_action">Second optional action shown in the Android media notification. Duplicates are ignored</string>
 	<string name="subtitle_playback_volume">Scale Navic playback volume without changing Android media volume</string>
 	<string name="subtitle_skip_silence">Skip silent parts during playback. Takes effect after playback restarts</string>
 	<string name="subtitle_skip_media_on_error">Move to the next queued song if the current stream fails</string>
@@ -275,6 +277,9 @@
 	<string name="option_replay_gain">ReplayGain</string>
 	<string name="option_gapless_playback">Gapless playback</string>
 	<string name="option_respect_audio_focus">Respect audio focus</string>
+	<string name="option_media_notification_first_action">Notification action 1</string>
+	<string name="option_media_notification_second_action">Notification action 2</string>
+	<string name="option_media_notification_action_disabled">Disabled</string>
 	<string name="option_playback_volume">Playback volume</string>
 	<string name="option_skip_silence">Skip silence</string>
 	<string name="option_skip_media_on_error">Skip media on error</string>

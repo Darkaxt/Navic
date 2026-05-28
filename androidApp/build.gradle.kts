@@ -8,6 +8,18 @@ plugins {
 	alias(libs.plugins.composeCompiler)
 }
 
+if (
+	gradle.startParameter.taskNames
+		.map { it.substringAfterLast(':') }
+		.any { it.startsWith("install") && it.contains("Debug") } &&
+	System.getenv("NAVIC_ALLOW_DEBUG_INSTALL")?.equals("true", ignoreCase = true) != true
+) {
+	throw GradleException(
+		"Refusing to install Navic (Dev). Install a release APK, or set " +
+			"NAVIC_ALLOW_DEBUG_INSTALL=true for an explicit one-off debug install."
+	)
+}
+
 extensions.configure<ApplicationExtension> {
 	namespace = "paige.navic.androidApp"
 	compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -20,8 +32,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 101
-		versionName = "v1.0.0-alpha81"
+		versionCode = 102
+		versionName = "v1.0.0-alpha82"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))

@@ -5,6 +5,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 ## Already Adapted
 
 * Audio focus behavior: Navic now exposes `Respect audio focus` and passes the preference into Media3 `setAudioAttributes(..., handleAudioFocus)`.
+* Media notification actions: Navic now adapts Kreate's configurable notification-player buttons as two Android Playback settings. The slots default to Disabled to preserve Navic's current notification, can show Shuffle and Repeat, ignore duplicate selections, and update their icons when shuffle/repeat state changes.
 * Pause listening history: Navic now adapts Kreate's `PAUSE_HISTORY` setting as a Playback -> Behaviour switch. It defaults off and, when enabled, suppresses now-playing pings, final scrobbles, and offline scrobble queue entries without changing the rest of the scrobbling setup.
 * Playback volume: Navic now adapts Kreate's separate player-volume control as an Android Playback slider. It defaults to 100% to preserve current behavior and combines with ReplayGain attenuation instead of replacing it.
 * Video concept: Kreate's player exposes a configurable video action, but its implementation is YouTube iframe-specific. Navic's first LidaClips pass uses LidaClips lookup plus Media3 stream playback instead.

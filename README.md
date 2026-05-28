@@ -37,6 +37,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 ### Android playback controls
 
 * `Respect audio focus` can be turned off so Navic music and LidaClips video playback can keep playing while WhatsApp or another app plays audio.
+* Kreate-inspired Android media notification action slots can add Shuffle and Repeat buttons to the system media notification while keeping the default notification unchanged until configured.
 * Kreate-inspired `Pause listening history` temporarily stops Navidrome now-playing and scrobble submissions without changing the rest of the scrobbling setup.
 * Kreate-inspired `Playback volume` scales Navic's player volume separately from Android media volume.
 * Kreate-inspired playback toggles for `Skip silence` and `Skip media on error`.
@@ -144,6 +145,10 @@ Advanced users can leave the Basic Auth toggle off and add a manual `Authorizati
 Open Settings -> Playback and turn `Respect audio focus` off. Restart music playback if the player service was already running; LidaClips video playback uses the setting when the clip screen opens.
 
 Use Settings -> Playback -> `Playback volume` to lower Navic music without changing Android media volume for WhatsApp or other apps.
+
+### Media notification setup
+
+Open Settings -> Playback and set `Notification action 1` / `Notification action 2` to `Shuffle`, `Repeat`, or `Disabled`. The settings affect the Android media notification after playback restarts; duplicate actions are ignored.
 
 ### Listening history setup
 

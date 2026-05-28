@@ -15,6 +15,7 @@ import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -38,11 +39,15 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +88,7 @@ import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.limitQueueShuffle
+import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
 import paige.navic.domain.models.QueueAutoFillRemainingTrigger
@@ -102,6 +108,7 @@ import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.settings.AutoFillQueueSource
+import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
@@ -220,7 +227,12 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		mediaSession = MediaSession.Builder(this, player)
 			.setSessionActivity(sessionPendingIntent)
 			.setBitmapLoader(CoilBitmapLoader(this, preferenceManager::serverRequestHeadersMap))
+			.setCallback(PlaybackSessionCallback(player))
 			.build()
+			.also { session ->
+				registerMediaNotificationActionListener(session, player)
+				updateMediaNotificationActions(session, player)
+			}
 	}
 
 	override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -541,15 +553,114 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 	}
 
+	@OptIn(UnstableApi::class)
+	private fun registerMediaNotificationActionListener(session: MediaSession, player: Player) {
+		player.addListener(object : Player.Listener {
+			override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+				updateMediaNotificationActions(session, player)
+			}
+
+			override fun onRepeatModeChanged(repeatMode: Int) {
+				updateMediaNotificationActions(session, player)
+			}
+		})
+	}
+
+	@OptIn(UnstableApi::class)
+	private fun updateMediaNotificationActions(session: MediaSession, player: Player) {
+		val buttons = mediaNotificationActions(
+			firstAction = preferenceManager.mediaNotificationFirstAction,
+			secondAction = preferenceManager.mediaNotificationSecondAction
+		).map { action ->
+			action.toMediaNotificationButton(player)
+		}
+
+		session.setMediaButtonPreferences(buttons)
+	}
+
+	@OptIn(UnstableApi::class)
+	private fun MediaNotificationAction.toMediaNotificationButton(player: Player): CommandButton =
+		when (this) {
+			MediaNotificationAction.Disabled -> error("Disabled notification actions are filtered before button creation")
+			MediaNotificationAction.Shuffle -> CommandButton.Builder(
+				if (player.shuffleModeEnabled) {
+					CommandButton.ICON_SHUFFLE_ON
+				} else {
+					CommandButton.ICON_SHUFFLE_OFF
+				}
+			)
+				.setDisplayName("Shuffle")
+				.setSessionCommand(toggleShuffleCommand)
+				.build()
+			MediaNotificationAction.Repeat -> CommandButton.Builder(
+				when (player.repeatMode) {
+					Player.REPEAT_MODE_ONE -> CommandButton.ICON_REPEAT_ONE
+					Player.REPEAT_MODE_ALL -> CommandButton.ICON_REPEAT_ALL
+					else -> CommandButton.ICON_REPEAT_OFF
+				}
+			)
+				.setDisplayName("Repeat")
+				.setSessionCommand(toggleRepeatCommand)
+				.build()
+		}
+
+	private inner class PlaybackSessionCallback(
+		private val player: Player
+	) : MediaSession.Callback {
+		override fun onConnect(
+			session: MediaSession,
+			controllerInfo: MediaSession.ControllerInfo
+		): MediaSession.ConnectionResult {
+			val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+				.buildUpon()
+				.add(toggleShuffleCommand)
+				.add(toggleRepeatCommand)
+				.build()
+
+			return MediaSession.ConnectionResult.accept(
+				sessionCommands,
+				MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+			)
+		}
+
+		override fun onCustomCommand(
+			session: MediaSession,
+			controllerInfo: MediaSession.ControllerInfo,
+			customCommand: SessionCommand,
+			args: Bundle
+		): ListenableFuture<SessionResult> {
+			when (customCommand.customAction) {
+				ACTION_TOGGLE_SHUFFLE -> player.shuffleModeEnabled = !player.shuffleModeEnabled
+				ACTION_TOGGLE_REPEAT -> {
+					player.repeatMode = when (player.repeatMode) {
+						Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+						Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+						else -> Player.REPEAT_MODE_OFF
+					}
+				}
+				else -> return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+			}
+
+			updateMediaNotificationActions(session, player)
+			return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+		}
+	}
+
 	companion object {
 		private const val ACTION_REFRESH_AUDIO_EFFECTS =
 			"paige.navic.shared.action.REFRESH_AUDIO_EFFECTS"
 		private const val ACTION_SET_REPLAY_GAIN_LOUDNESS_BOOST =
 			"paige.navic.shared.action.SET_REPLAY_GAIN_LOUDNESS_BOOST"
+		private const val ACTION_TOGGLE_SHUFFLE =
+			"paige.navic.shared.action.TOGGLE_SHUFFLE"
+		private const val ACTION_TOGGLE_REPEAT =
+			"paige.navic.shared.action.TOGGLE_REPEAT"
 		private const val EXTRA_REPLAY_GAIN_LOUDNESS_ENABLED =
 			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_ENABLED"
 		private const val EXTRA_REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB =
 			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB"
+		private val toggleShuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
+		private val toggleRepeatCommand = SessionCommand(ACTION_TOGGLE_REPEAT, Bundle.EMPTY)
 
 		fun newSessionToken(context: Context): SessionToken {
 			return SessionToken(context, ComponentName(context, PlaybackService::class.java))
