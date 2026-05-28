@@ -59,6 +59,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
+* Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs.
 * Optional Now Playing artwork tap action that opens Lyrics.
 
 ### Library and playlist reliability
@@ -150,6 +151,10 @@ Open Settings -> Playback and turn `Shake to skip` on. Shake detection is availa
 ### Volume keys skip tracks setup
 
 Open Settings -> Playback and turn `Volume keys skip tracks` on. While Navic is open on Android, volume up skips to the next queued song and volume down goes to the previous song. It is off by default.
+
+### Now Playing Up next setup
+
+Open Settings -> Now Playing and turn `Show Up next` on. Use `Up next count` to choose how many upcoming queued songs appear under the progress row. Tapping the preview opens the full Queue sheet. The setting is off by default.
 
 ### LidaClips setup
 

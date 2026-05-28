@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -28,9 +29,13 @@ import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
+import navic.composeapp.generated.resources.option_now_playing_up_next
+import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
+import navic.composeapp.generated.resources.subtitle_now_playing_up_next
+import navic.composeapp.generated.resources.subtitle_now_playing_up_next_count
 import navic.composeapp.generated.resources.title_actions
 import navic.composeapp.generated.resources.title_layout
 import navic.composeapp.generated.resources.title_now_playing
@@ -122,6 +127,24 @@ fun SettingsNowPlayingScreen() {
 						onSetValue = { preferenceManager.nowPlayingSongInfo = it }
 					)
 
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_up_next)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_up_next)) },
+						value = preferenceManager.showNowPlayingUpNext,
+						onSetValue = { preferenceManager.showNowPlayingUpNext = it }
+					)
+
+					AnimatedVisibility(preferenceManager.showNowPlayingUpNext) {
+						SettingSelectionRow(
+							items = nowPlayingUpNextCountOptions.toImmutableList(),
+							label = { if (it == 1) "1 song" else "$it songs" },
+							selection = preferenceManager.nowPlayingUpNextCount,
+							onSelect = { preferenceManager.nowPlayingUpNextCount = it },
+							description = stringResource(Res.string.subtitle_now_playing_up_next_count),
+							title = { Text(stringResource(Res.string.option_now_playing_up_next_count)) }
+						)
+					}
+
 					SettingSelectionRow(
 						items = ToolbarPosition.entries.toImmutableList(),
 						label = { stringResource(it.displayName) },
@@ -165,3 +188,5 @@ fun SettingsNowPlayingScreen() {
 		}
 	}
 }
+
+private val nowPlayingUpNextCountOptions = listOf(1, 2, 3, 5)

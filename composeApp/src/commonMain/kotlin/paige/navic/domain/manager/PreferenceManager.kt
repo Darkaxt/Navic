@@ -63,6 +63,8 @@ class PreferenceManager(
 	var customMaxBitrateCellular by preference(0)
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var nowPlayingSongInfo by preference(true)
+	var showNowPlayingUpNext by preference(false)
+	var nowPlayingUpNextCount by preference(2)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
 	var showNowPlayingLyricsAction by preference(true)
 	var showNowPlayingQueueAction by preference(true)

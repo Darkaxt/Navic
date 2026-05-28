@@ -58,6 +58,7 @@
 	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_music_video">Music video</string>
+	<string name="title_up_next">Up next</string>
 	<string name="title_wifi">Wi-Fi</string>
 	<string name="title_cellular">Cellular</string>
 	<string name="title_select_lyrics">Select Lyrics</string>
@@ -103,6 +104,8 @@
 	<string name="subtitle_resume_playback_on_startup">Start playing the restored queue when the app reconnects to the player</string>
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
+	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
+	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
 	<string name="subtitle_pause_search_history">Do not save new search queries or show recent searches</string>
@@ -136,6 +139,8 @@
 	<string name="option_now_playing_slider_style_squiggly">Squiggly</string>
 	<string name="option_now_playing_slider_style_slim">Slim</string>
 	<string name="option_now_playing_slider_style_yoyo">Yoyo</string>
+	<string name="option_now_playing_up_next">Show Up next</string>
+	<string name="option_now_playing_up_next_count">Up next count</string>
 	<string name="option_swipe_to_skip">Swipe to change songs</string>
 	<string name="option_tap_artwork_for_lyrics">Tap artwork for lyrics</string>
 	<string name="option_artwork_shape">Artwork shape</string>

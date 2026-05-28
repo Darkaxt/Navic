@@ -59,6 +59,7 @@ fun NowPlayingControlsRow(
 			)
 			NowPlayingProgressBar()
 			NowPlayingDurationsRow()
+			NowPlayingUpNextRow()
 			if (preferenceManager.nowPlayingSongInfo) {
 				NowPlayingTechnicalInfoRow()
 			}

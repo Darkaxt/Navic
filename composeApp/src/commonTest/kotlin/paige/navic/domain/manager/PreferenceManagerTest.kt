@@ -363,6 +363,20 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingUpNextDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showNowPlayingUpNext)
+		assertEquals(2, manager.nowPlayingUpNextCount)
+
+		manager.showNowPlayingUpNext = true
+		manager.nowPlayingUpNextCount = 3
+
+		assertTrue(manager.showNowPlayingUpNext)
+		assertEquals(3, manager.nowPlayingUpNextCount)
+	}
+
+	@Test
 	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
 		val manager = PreferenceManager(MapSettings())
 
