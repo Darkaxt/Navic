@@ -85,6 +85,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional Now Playing shuffle and repeat control visibility.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
 * Kreate-inspired optional mini-player queue button for opening Queue directly from the mini player.
+* Kreate-inspired queue auto-fill can refill with random library songs, Navidrome/local current-song similarity, or songs that match recent queue genres and moods.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
@@ -139,6 +140,10 @@ Use Settings -> Playback -> `Playback volume` to lower Navic music without chang
 ### Listening history setup
 
 Open Settings -> Playback -> Behaviour and turn `Pause listening history` on to temporarily stop Navic from sending now-playing and scrobble updates to Navidrome. Turn it off again to resume normal scrobbling without changing your percentage or minimum-duration settings.
+
+### Auto-fill queue setup
+
+Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. `Random library` shuffles across synced songs, `Similar to current song` prefers Navidrome similar-song results and local artist/album/genre/mood matches, and `Recent genres` prefers local songs sharing genres or moods with the recent queue history.
 
 ### ReplayGain loudness boost setup
 

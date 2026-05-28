@@ -961,13 +961,17 @@ class AndroidMediaPlayerViewModel(
 				}
 				val preferredSongIds = serverSimilarSongs.map { it.id }
 				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
+				val recentQueueSongs = currentState.queue
+					.take(currentState.currentIndex + 1)
+					.takeLast(10)
 				val songsToAppend = queueAutoFillCandidateSongs(
 					candidateSongs = (serverSimilarSongs + allSongs).filter { isAvailable(it.id) },
 					queuedIds = queuedIds,
 					limit = appendCount,
 					source = preferenceManager.autoFillQueueSource,
 					currentSong = currentState.currentSong,
-					preferredSongIds = preferredSongIds
+					preferredSongIds = preferredSongIds,
+					recentSongs = recentQueueSongs
 				)
 				if (songsToAppend.isEmpty()) return@launch
 

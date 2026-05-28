@@ -1,11 +1,13 @@
 package paige.navic.domain.models.settings
 
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_auto_fill_queue_source_recent_genres
 import navic.composeapp.generated.resources.option_auto_fill_queue_source_random_library
 import navic.composeapp.generated.resources.option_auto_fill_queue_source_similar_to_current_song
 import org.jetbrains.compose.resources.StringResource
 
 enum class AutoFillQueueSource(val displayName: StringResource) {
 	RandomLibrary(Res.string.option_auto_fill_queue_source_random_library),
-	SimilarToCurrentSong(Res.string.option_auto_fill_queue_source_similar_to_current_song)
+	SimilarToCurrentSong(Res.string.option_auto_fill_queue_source_similar_to_current_song),
+	RecentGenres(Res.string.option_auto_fill_queue_source_recent_genres)
 }

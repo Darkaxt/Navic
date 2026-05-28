@@ -93,7 +93,7 @@
 	<string name="subtitle_audio_reverb">Apply an Android reverb preset to the active player session</string>
 	<string name="subtitle_auto_fill_queue">Append random songs from your synced Navidrome library when playback gets near the end of the queue</string>
 	<string name="subtitle_auto_fill_queue_target_size">Keep up to this many songs queued when auto-fill runs</string>
-	<string name="subtitle_auto_fill_queue_source">Choose whether auto-fill uses random songs or prefers songs similar to the current song</string>
+	<string name="subtitle_auto_fill_queue_source">Choose whether auto-fill uses random songs, current-song similarity, or recent queue genres</string>
 	<string name="subtitle_queue_shuffle_limit">Limit how many songs a collection shuffle starts with. Unlimited keeps current behavior</string>
 	<string name="subtitle_song_swipe_actions">Customize song-row swipe gestures for queue actions</string>
 	<string name="subtitle_song_swipe_start_to_end_action">Action when swiping a song row to the right</string>
@@ -295,6 +295,7 @@
 	<string name="option_auto_fill_queue_source">Auto-fill queue source</string>
 	<string name="option_auto_fill_queue_source_random_library">Random library</string>
 	<string name="option_auto_fill_queue_source_similar_to_current_song">Similar to current song</string>
+	<string name="option_auto_fill_queue_source_recent_genres">Recent genres</string>
 	<string name="option_queue_shuffle_limit">Shuffle queue limit</string>
 	<string name="option_playlist_indicator">Playlist indicator</string>
 	<string name="option_song_swipe_actions">Song row swipe actions</string>

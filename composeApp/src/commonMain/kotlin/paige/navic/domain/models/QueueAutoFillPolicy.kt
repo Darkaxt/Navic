@@ -47,7 +47,8 @@ fun queueAutoFillCandidateSongs(
 	limit: Int,
 	source: AutoFillQueueSource,
 	currentSong: DomainSong?,
-	preferredSongIds: List<String> = emptyList()
+	preferredSongIds: List<String> = emptyList(),
+	recentSongs: List<DomainSong> = emptyList()
 ): List<DomainSong> {
 	val seen = queuedIds.toMutableSet()
 	val preferredRanks = preferredSongIds
@@ -75,6 +76,19 @@ fun queueAutoFillCandidateSongs(
 						it.second.preferredIndex ?: Int.MAX_VALUE
 					}
 						.thenByDescending { it.second.similarityScore }
+						.thenBy { it.first.index }
+				)
+				.map { it.first.value }
+		AutoFillQueueSource.RecentGenres ->
+			filtered
+				.mapIndexed { index, song ->
+					IndexedValue(index, song) to queueAutoFillRecentContextScore(
+						recentSongs = recentSongs.ifEmpty { listOfNotNull(currentSong) },
+						candidateSong = song
+					)
+				}
+				.sortedWith(
+					compareByDescending<Pair<IndexedValue<DomainSong>, Int>> { it.second }
 						.thenBy { it.first.index }
 				)
 				.map { it.first.value }
@@ -132,8 +146,28 @@ private fun queueAutoFillSimilarityScore(
 	return score
 }
 
+private fun queueAutoFillRecentContextScore(
+	recentSongs: List<DomainSong>,
+	candidateSong: DomainSong
+): Int {
+	if (recentSongs.isEmpty()) return 0
+
+	val recentGenres = recentSongs.flatMapTo(mutableSetOf()) { it.normalizedGenres() }
+	val candidateGenres = candidateSong.normalizedGenres()
+	val recentMoods = recentSongs.flatMapTo(mutableSetOf()) { song ->
+		song.moods.normalizedTags()
+	}
+	val candidateMoods = candidateSong.moods.normalizedTags()
+
+	return recentGenres.intersect(candidateGenres).size * 10 +
+		recentMoods.intersect(candidateMoods).size * 5
+}
+
 private fun DomainSong.normalizedGenres(): Set<String> =
 	(genres + listOfNotNull(genre))
-		.map { it.trim().lowercase() }
+		.normalizedTags()
+
+private fun Iterable<String>.normalizedTags(): Set<String> =
+	map { it.trim().lowercase() }
 		.filter { it.isNotEmpty() }
 		.toSet()
