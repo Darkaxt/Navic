@@ -3,8 +3,6 @@ package paige.navic.ui.screens.settings.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -15,8 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 import paige.navic.ui.components.common.FormRow
@@ -50,15 +46,7 @@ fun <Item> SettingSelectionRow(
 			}
 		}
 		Box {
-			Text(
-				text = label(selection),
-				modifier = Modifier.padding(start = 16.dp).widthIn(max = 160.dp),
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				textAlign = TextAlign.End,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
+			SettingTrailingValueText(text = label(selection))
 			SelectionDropdown(
 				items = items,
 				label = label,
