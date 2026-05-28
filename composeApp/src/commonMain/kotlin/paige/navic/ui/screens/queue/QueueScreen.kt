@@ -37,6 +37,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queuePlayNextTargetIndex
+import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.ui.navigation.Screen
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
@@ -46,7 +47,6 @@ import paige.navic.ui.screens.queue.components.QueueScreenItem
 import paige.navic.ui.screens.queue.viewmodels.QueueViewModel
 import paige.navic.util.ui.draggableItemsIndexed
 import paige.navic.util.ui.rememberDraggableListState
-import kotlin.time.DurationUnit
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -78,23 +78,7 @@ fun QueueScreen() {
 	}
 
 	val totalDurationText = remember(queue) {
-		val totalSeconds = queue.sumOf { it.duration.toInt(DurationUnit.SECONDS) }
-
-		val hours = totalSeconds / 3600
-		val minutes = (totalSeconds % 3600) / 60
-		val seconds = totalSeconds % 60
-
-		buildString {
-			if (hours > 0) {
-				append("${hours}h ")
-			}
-
-			if (minutes > 0 || hours > 0) {
-				append("${minutes}m ")
-			}
-
-			append("${seconds}s")
-		}
+		queueTotalDurationLabel(queue)
 	}
 
 	val songsText = pluralStringResource(
