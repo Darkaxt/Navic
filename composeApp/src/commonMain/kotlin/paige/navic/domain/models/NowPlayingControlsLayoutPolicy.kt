@@ -1,5 +1,8 @@
 package paige.navic.domain.models
 
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
 enum class NowPlayingControlsLayoutBlock {
 	Timeline,
 	PlaybackButtons
@@ -33,6 +36,17 @@ fun nowPlayingPlaybackButtonsArrangement(
 	} else {
 		NowPlayingPlaybackButtonsArrangement.Compact
 	}
+
+fun nowPlayingPlayButtonSpeedLabel(playbackSpeed: Float): String? {
+	if (!playbackSpeed.isFinite()) return null
+
+	val tenths = (playbackSpeed * 10).roundToInt()
+	if (tenths == 10) return null
+
+	val sign = if (tenths < 0) "-" else ""
+	val absoluteTenths = abs(tenths)
+	return "$sign${absoluteTenths / 10}.${absoluteTenths % 10}x"
+}
 
 fun shouldOpenQueueFromNowPlayingControlsTap(
 	enabled: Boolean,

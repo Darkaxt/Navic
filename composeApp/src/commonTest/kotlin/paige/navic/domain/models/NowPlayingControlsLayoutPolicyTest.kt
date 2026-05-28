@@ -43,6 +43,30 @@ class NowPlayingControlsLayoutPolicyTest {
 	}
 
 	@Test
+	fun defaultPlaybackSpeedDoesNotNeedPlayButtonLabel() {
+		assertEquals(
+			null,
+			nowPlayingPlayButtonSpeedLabel(playbackSpeed = 1.0f)
+		)
+	}
+
+	@Test
+	fun nonDefaultPlaybackSpeedsShowOneDecimalPlayButtonLabel() {
+		assertEquals(
+			"1.5x",
+			nowPlayingPlayButtonSpeedLabel(playbackSpeed = 1.5f)
+		)
+		assertEquals(
+			"0.8x",
+			nowPlayingPlayButtonSpeedLabel(playbackSpeed = 0.75f)
+		)
+		assertEquals(
+			"2.0x",
+			nowPlayingPlayButtonSpeedLabel(playbackSpeed = 2.0f)
+		)
+	}
+
+	@Test
 	fun tapControlsForQueueRequiresSettingAndCurrentSong() {
 		assertEquals(
 			false,

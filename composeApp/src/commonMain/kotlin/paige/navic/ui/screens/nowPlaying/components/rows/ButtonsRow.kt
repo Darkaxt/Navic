@@ -10,10 +10,12 @@ import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -22,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +55,7 @@ import paige.navic.domain.models.NowPlayingPlaybackButtonsArrangement
 import paige.navic.domain.models.NowPlayingPlaybackControl
 import paige.navic.domain.models.nowPlayingPlaybackButtonsArrangement
 import paige.navic.domain.models.nowPlayingPlaybackControls
+import paige.navic.domain.models.nowPlayingPlayButtonSpeedLabel
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.playPauseIconPainter
 
@@ -75,6 +79,7 @@ fun NowPlayingButtonsRow(
 		spaceControlsEvenly = preferenceManager.spaceNowPlayingPlaybackControlsEvenly
 	)
 	val compactButtons = buttonArrangement == NowPlayingPlaybackButtonsArrangement.Compact
+	val speedLabel = nowPlayingPlayButtonSpeedLabel(playerState.playbackSpeed)
 
 	LaunchedEffect(isPressed) {
 		if (!isPressed) {
@@ -161,20 +166,40 @@ fun NowPlayingButtonsRow(
 					val painter = playPauseIconPainter(playerState.isPaused)
 					AnimatedContent(playerState.isLoading) { isBuffering ->
 						if (!isBuffering) {
-							if (painter != null) {
-								Icon(
-									painter = painter,
-									contentDescription = null,
-									modifier = Modifier.size(40.dp)
-								)
-							} else {
-								Icon(
-									imageVector = if (playerState.isPaused)
-										Icons.Filled.Play
-									else Icons.Filled.Pause,
-									contentDescription = null,
-									modifier = Modifier.size(40.dp)
-								)
+							Box(
+								modifier = Modifier.size(48.dp),
+								contentAlignment = Alignment.Center
+							) {
+								val iconModifier = Modifier
+									.align(Alignment.Center)
+									.padding(bottom = if (speedLabel != null) 8.dp else 0.dp)
+									.size(if (speedLabel != null) 34.dp else 40.dp)
+
+								if (painter != null) {
+									Icon(
+										painter = painter,
+										contentDescription = null,
+										modifier = iconModifier
+									)
+								} else {
+									Icon(
+										imageVector = if (playerState.isPaused)
+											Icons.Filled.Play
+										else Icons.Filled.Pause,
+										contentDescription = null,
+										modifier = iconModifier
+									)
+								}
+								speedLabel?.let { label ->
+									Text(
+										text = label,
+										modifier = Modifier
+											.align(Alignment.BottomCenter)
+											.padding(bottom = 1.dp),
+										color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+										style = MaterialTheme.typography.labelSmall
+									)
+								}
 							}
 						} else {
 							CircularProgressIndicator(
