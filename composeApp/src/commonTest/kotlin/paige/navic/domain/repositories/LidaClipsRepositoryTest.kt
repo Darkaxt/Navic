@@ -425,6 +425,53 @@ class LidaClipsRepositoryTest {
 		)
 	}
 
+	@Test
+	fun lidaClipsConnectionResultClassifiesUnauthorizedPingAsApiKeyFailure() {
+		assertEquals(
+			LidaClipsConnectionResult.Unauthorized,
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.Unauthorized,
+				healthStatus = null
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsConnectionResultClassifiesUnauthorizedHealthAsApiKeyFailure() {
+		assertEquals(
+			LidaClipsConnectionResult.Unauthorized,
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.OK,
+				healthStatus = HttpStatusCode.Unauthorized
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsConnectionResultRequiresSuccessfulPingAndHealth() {
+		assertEquals(
+			LidaClipsConnectionResult.Connected,
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.OK,
+				healthStatus = HttpStatusCode.OK
+			)
+		)
+		assertEquals(
+			LidaClipsConnectionResult.Failed("LidaClips ping returned HTTP 500"),
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.InternalServerError,
+				healthStatus = null
+			)
+		)
+		assertEquals(
+			LidaClipsConnectionResult.Failed("LidaClips health check returned HTTP 500"),
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.OK,
+				healthStatus = HttpStatusCode.InternalServerError
+			)
+		)
+	}
+
 	private fun lidaClip() = DomainLidaClip(
 		id = 7,
 		navidromeSongId = "song-1",

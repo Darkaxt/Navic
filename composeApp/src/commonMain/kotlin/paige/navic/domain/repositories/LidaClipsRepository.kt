@@ -59,26 +59,19 @@ class LidaClipsRepository(
 		if (baseUrlError != null) return LidaClipsConnectionResult.Failed(baseUrlError)
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
 			?: return LidaClipsConnectionResult.Failed(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE)
+		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 
 		return try {
 			val ping = client.get(lidaClipsEndpoint(baseUrl, "api/v1/ping")) {
-				lidaClipsJsonRequest()
+				lidaClipsJsonRequest(requestHeaders)
 			}
-			if (!ping.status.isSuccess()) {
-				return LidaClipsConnectionResult.Failed("Ping returned HTTP ${ping.status.value}")
-			}
+			if (!ping.status.isSuccess()) return lidaClipsConnectionResult(ping.status, null)
 
 			val health = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
-				lidaClipsJsonRequest(preferenceManager.lidaClipsRequestHeadersMap())
+				lidaClipsJsonRequest(requestHeaders)
 			}
 
-			when {
-				health.status.isSuccess() -> LidaClipsConnectionResult.Connected
-				health.status == HttpStatusCode.Unauthorized -> LidaClipsConnectionResult.Unauthorized
-				else -> LidaClipsConnectionResult.Failed(
-					lidaClipsHttpErrorMessage("LidaClips health check", health.status)
-				)
-			}
+			lidaClipsConnectionResult(ping.status, health.status)
 		} catch (e: Exception) {
 			Logger.w(TAG, "LidaClips connection test failed", e)
 			LidaClipsConnectionResult.Failed(e.message ?: e::class.simpleName ?: "Unknown error")
@@ -451,6 +444,25 @@ internal fun lidaClipsHttpErrorMessage(
 		"$operation unauthorized. Check the LidaClips API key."
 	} else {
 		"$operation returned HTTP ${status.value}"
+	}
+
+internal fun lidaClipsConnectionResult(
+	pingStatus: HttpStatusCode,
+	healthStatus: HttpStatusCode?
+): LidaClipsConnectionResult =
+	when {
+		pingStatus == HttpStatusCode.Unauthorized -> LidaClipsConnectionResult.Unauthorized
+		!pingStatus.isSuccess() -> LidaClipsConnectionResult.Failed(
+			lidaClipsHttpErrorMessage("LidaClips ping", pingStatus)
+		)
+
+		healthStatus == HttpStatusCode.Unauthorized -> LidaClipsConnectionResult.Unauthorized
+		healthStatus?.isSuccess() == true -> LidaClipsConnectionResult.Connected
+		healthStatus != null -> LidaClipsConnectionResult.Failed(
+			lidaClipsHttpErrorMessage("LidaClips health check", healthStatus)
+		)
+
+		else -> LidaClipsConnectionResult.Failed("LidaClips health check was not reached")
 	}
 
 internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String =
