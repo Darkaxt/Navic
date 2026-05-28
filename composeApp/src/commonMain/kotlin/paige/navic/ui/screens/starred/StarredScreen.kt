@@ -28,6 +28,8 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -82,8 +84,27 @@ fun StarredScreen() {
 	val player = koinInject<MediaPlayerViewModel>()
 
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
 
 	val isOnline by songsViewModel.isOnline.collectAsStateWithLifecycle()
+
+	fun queueSongOrConfirmDuplicate(
+		song: DomainSong,
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		val duplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (duplicateAction != null) {
+			songToQueue = song
+			queueDuplicateAction = duplicateAction
+		} else {
+			onQueue()
+		}
+	}
 
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_starred)) }) },
@@ -140,16 +161,12 @@ fun StarredScreen() {
 					songsViewModel.deleteDownload(song.id) 
 				},
 				onPlaySongNext = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
+					queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
 						player.playNextSingle(song)
 					}
 				},
 				onAddSongToQueue = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
+					queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
 						player.addToQueueSingle(song)
 					}
 				},
@@ -189,9 +206,18 @@ fun StarredScreen() {
 
 	if (songToQueue != null) {
 		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
+			onDismissRequest = {
+				songToQueue = null
+				queueDuplicateAction = null
+			},
 			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
+				songToQueue?.let { song ->
+					when (queueDuplicateAction) {
+						QueueDuplicateAction.PlayNext -> player.playNextSingle(song)
+						QueueDuplicateAction.AddToQueue,
+						null -> player.addToQueueSingle(song)
+					}
+				}
 			}
 		)
 	}

@@ -40,6 +40,8 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.domain.models.shouldShowPlaylistIndicator
@@ -86,8 +88,21 @@ fun SongRow(
 
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
-	var duplicateQueueDialogShown by rememberSaveable { mutableStateOf(false) }
-	var duplicateQueueDialogShownPlayNext by rememberSaveable { mutableStateOf(false) }
+	var queueDuplicateAction by rememberSaveable { mutableStateOf<QueueDuplicateAction?>(null) }
+
+	fun queueSongOrConfirmDuplicate(
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		queueDuplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (queueDuplicateAction == null) {
+			onQueue()
+		}
+	}
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
 	val isCurrentTrack = playerState.currentSong?.id == song.id
@@ -226,18 +241,12 @@ fun SongRow(
 				{ player.startSongRadio(song) }
 			} else null,
 			onPlayNext = {
-				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
-					duplicateQueueDialogShownPlayNext = true
-				} else {
+				queueSongOrConfirmDuplicate(QueueDuplicateAction.PlayNext) {
 					onPlayNext()
 				}
 			},
 			onAddToQueue = {
-				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
-					duplicateQueueDialogShownPlayNext = false
-				} else {
+				queueSongOrConfirmDuplicate(QueueDuplicateAction.AddToQueue) {
 					onAddToQueue()
 				}
 			},
@@ -270,14 +279,18 @@ fun SongRow(
 		)
 	}
 
-	if (duplicateQueueDialogShown) {
+	if (queueDuplicateAction != null) {
 		QueueDuplicateDialog(
 			onDismissRequest = {
-				duplicateQueueDialogShown = false
+				queueDuplicateAction = null
 				onDismissRequest()
 			},
 			onConfirm = {
-				if (duplicateQueueDialogShownPlayNext) onPlayNext() else onAddToQueue()
+				when (queueDuplicateAction) {
+					QueueDuplicateAction.PlayNext -> onPlayNext()
+					QueueDuplicateAction.AddToQueue,
+					null -> onAddToQueue()
+				}
 			}
 		)
 	}

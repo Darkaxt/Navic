@@ -71,6 +71,8 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
@@ -151,6 +153,25 @@ fun SearchScreen(
 
 	var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
+
+	fun queueSongOrConfirmDuplicate(
+		song: DomainSong,
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		val duplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (duplicateAction != null) {
+			songToQueue = song
+			queueDuplicateAction = duplicateAction
+		} else {
+			onQueue()
+		}
+	}
 
 	Scaffold(
 		topBar = {
@@ -235,9 +256,7 @@ fun SearchScreen(
 
 									LaunchedEffect(dismissState.currentValue) {
 										if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-											if (player.uiState.value.queue.any { it.id == song.id }) {
-												songToQueue = song
-											} else {
+											queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
 												player.addToQueueSingle(song)
 											}
 											dismissState.snapTo(SwipeToDismissBoxValue.Settled)
@@ -319,16 +338,12 @@ fun SearchScreen(
 												} else null,
 												onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
 												onPlayNext = {
-													if (player.uiState.value.queue.any { it.id == song.id }) {
-														songToQueue = song
-													} else {
+													queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
 														player.playNextSingle(song)
 													}
 												},
 												onAddToQueue = {
-													if (player.uiState.value.queue.any { it.id == song.id }) {
-														songToQueue = song
-													} else {
+													queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
 														player.addToQueueSingle(song)
 													}
 												},
@@ -480,9 +495,18 @@ fun SearchScreen(
 
 	if (songToQueue != null) {
 		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
+			onDismissRequest = {
+				songToQueue = null
+				queueDuplicateAction = null
+			},
 			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
+				songToQueue?.let { song ->
+					when (queueDuplicateAction) {
+						QueueDuplicateAction.PlayNext -> player.playNextSingle(song)
+						QueueDuplicateAction.AddToQueue,
+						null -> player.addToQueueSingle(song)
+					}
+				}
 			}
 		)
 	}

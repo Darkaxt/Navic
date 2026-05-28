@@ -29,6 +29,8 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.dialogs.DeletionDialog
@@ -96,10 +98,29 @@ fun LibraryScreen() {
 	var playlistDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
 	var playlistCreateDialogShown by rememberSaveable { mutableStateOf(false) }
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
 
 	val player = koinInject<MediaPlayerViewModel>()
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+	fun queueSongOrConfirmDuplicate(
+		song: DomainSong,
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		val duplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (duplicateAction != null) {
+			songToQueue = song
+			queueDuplicateAction = duplicateAction
+		} else {
+			onQueue()
+		}
+	}
 
 	LaunchedEffect(loginState is LoginUiState.Success) {
 		quickPicksViewModel.refreshSongs(false)
@@ -149,16 +170,12 @@ fun LibraryScreen() {
 				onStarSelectedQuickPick = { quickPicksViewModel.starSong(it) },
 				onStartQuickPickRadio = { player.startSongRadio(it) },
 				onPlayQuickPickNext = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
+					queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
 						player.playNextSingle(song)
 					}
 				},
 				onAddQuickPickToQueue = { song ->
-					if (player.uiState.value.queue.any { it.id == song.id }) {
-						songToQueue = song
-					} else {
+					queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
 						player.addToQueueSingle(song)
 					}
 				},
@@ -248,9 +265,18 @@ fun LibraryScreen() {
 
 	if (songToQueue != null) {
 		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
+			onDismissRequest = {
+				songToQueue = null
+				queueDuplicateAction = null
+			},
 			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
+				songToQueue?.let { song ->
+					when (queueDuplicateAction) {
+						QueueDuplicateAction.PlayNext -> player.playNextSingle(song)
+						QueueDuplicateAction.AddToQueue,
+						null -> player.addToQueueSingle(song)
+					}
+				}
 			}
 		)
 	}

@@ -15,6 +15,8 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -45,7 +47,21 @@ fun CollectionDetailScreenSongRowDropdown(
 	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
-	var duplicateQueueDialogShown by rememberSaveable { mutableStateOf(false) }
+	var queueDuplicateAction by rememberSaveable { mutableStateOf<QueueDuplicateAction?>(null) }
+
+	fun queueSongOrConfirmDuplicate(
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		queueDuplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (queueDuplicateAction == null) {
+			onQueue()
+		}
+	}
 
 	if (expanded) {
 		SongSheet(
@@ -62,16 +78,12 @@ fun CollectionDetailScreenSongRowDropdown(
 				{ player.startSongRadio(song) }
 			} else null,
 			onPlayNext = {
-				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
-				} else {
+				queueSongOrConfirmDuplicate(QueueDuplicateAction.PlayNext) {
 					onPlayNext()
 				}
 			},
 			onAddToQueue = {
-				if (player.uiState.value.queue.any { it.id == song.id }) {
-					duplicateQueueDialogShown = true
-				} else {
+				queueSongOrConfirmDuplicate(QueueDuplicateAction.AddToQueue) {
 					onAddToQueue()
 				}
 			},
@@ -114,14 +126,18 @@ fun CollectionDetailScreenSongRowDropdown(
 		)
 	}
 
-	if (duplicateQueueDialogShown) {
+	if (queueDuplicateAction != null) {
 		QueueDuplicateDialog(
 			onDismissRequest = {
-				duplicateQueueDialogShown = false
+				queueDuplicateAction = null
 				onDismissRequest()
 			},
 			onConfirm = {
-				onAddToQueue()
+				when (queueDuplicateAction) {
+					QueueDuplicateAction.PlayNext -> onPlayNext()
+					QueueDuplicateAction.AddToQueue,
+					null -> onAddToQueue()
+				}
 			}
 		)
 	}

@@ -31,6 +31,8 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.QueueDuplicateAction
+import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -72,7 +74,26 @@ fun SongListScreen(
 	var shareId by remember { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
+	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+	fun queueSongOrConfirmDuplicate(
+		song: DomainSong,
+		action: QueueDuplicateAction,
+		onQueue: () -> Unit
+	) {
+		val duplicateAction = duplicateQueueActionFor(
+			queueSongIds = player.uiState.value.queue.map { it.id },
+			songId = song.id,
+			action = action
+		)
+		if (duplicateAction != null) {
+			songToQueue = song
+			queueDuplicateAction = duplicateAction
+		} else {
+			onQueue()
+		}
+	}
 
 	val actions: @Composable RowScope.() -> Unit = {
 		SongListScreenSortButton(
@@ -138,16 +159,12 @@ fun SongListScreen(
 						player.startSongRadio(song)
 					},
 					onPlayNext = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id }) {
-							songToQueue = song
-						} else {
+						queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
 							player.playNextSingle(song)
 						}
 					},
 					onAddToQueue = { song ->
-						if (player.uiState.value.queue.any { it.id == song.id }) {
-							songToQueue = song
-						} else {
+						queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
 							player.addToQueueSingle(song)
 						}
 					},
@@ -176,9 +193,18 @@ fun SongListScreen(
 
 	if (songToQueue != null) {
 		QueueDuplicateDialog(
-			onDismissRequest = { songToQueue = null },
+			onDismissRequest = {
+				songToQueue = null
+				queueDuplicateAction = null
+			},
 			onConfirm = {
-				songToQueue?.let { player.addToQueueSingle(it) }
+				songToQueue?.let { song ->
+					when (queueDuplicateAction) {
+						QueueDuplicateAction.PlayNext -> player.playNextSingle(song)
+						QueueDuplicateAction.AddToQueue,
+						null -> player.addToQueueSingle(song)
+					}
+				}
 			}
 		)
 	}
