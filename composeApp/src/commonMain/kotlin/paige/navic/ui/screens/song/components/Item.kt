@@ -230,6 +230,12 @@ fun SongListScreenItem(
 										strokeWidth = 2.dp
 									)
 								}
+								DownloadStatus.QUEUED -> {
+									CircularProgressIndicator(
+										modifier = Modifier.size(16.dp),
+										strokeWidth = 2.dp
+									)
+								}
 								DownloadStatus.DOWNLOADED -> {
 									Icon(
 										Icons.Outlined.Check,

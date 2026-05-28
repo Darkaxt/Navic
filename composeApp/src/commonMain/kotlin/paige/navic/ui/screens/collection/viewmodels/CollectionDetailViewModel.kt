@@ -274,9 +274,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun cancelDownloadAll() {
-		_collectionState.value.data?.songs?.forEach {
-			downloadManager.cancelDownload(it.id)
-		}
+		_collectionState.value.data?.let { downloadManager.cancelCollectionDownload(it) }
 	}
 
 	fun collectionDownloadStatus(): Flow<DownloadStatus> {

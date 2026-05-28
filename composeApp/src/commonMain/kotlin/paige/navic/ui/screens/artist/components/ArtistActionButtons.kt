@@ -104,13 +104,14 @@ fun ArtistActionButtons(
 				platformContext.clickSound()
 				when (downloadStatus) {
 					DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED -> onDownload()
-					DownloadStatus.DOWNLOADING -> onCancelDownload()
+					DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED -> onCancelDownload()
 					DownloadStatus.DOWNLOADED -> onDeleteDownload()
 				}
 			},
 			shape = ContinuousCapsule,
 			enabled = when (downloadStatus) {
 				DownloadStatus.DOWNLOADING,
+				DownloadStatus.QUEUED,
 				DownloadStatus.DOWNLOADED,
 				DownloadStatus.FAILED -> true
 				DownloadStatus.NOT_DOWNLOADED -> playEnabled
@@ -118,7 +119,8 @@ fun ArtistActionButtons(
 			contentPadding = PaddingValues(0.dp)
 		) {
 			when (downloadStatus) {
-				DownloadStatus.DOWNLOADING -> {
+				DownloadStatus.DOWNLOADING,
+				DownloadStatus.QUEUED -> {
 					Box(contentAlignment = Alignment.Center) {
 						CircularProgressIndicator(
 							modifier = Modifier.size(24.dp),

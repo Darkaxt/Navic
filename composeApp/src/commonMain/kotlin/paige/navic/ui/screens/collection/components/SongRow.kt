@@ -262,6 +262,14 @@ fun CollectionDetailScreenSongRow(
 								Spacer(Modifier.width(8.dp))
 							}
 
+							DownloadStatus.QUEUED -> {
+								CircularProgressIndicator(
+									modifier = Modifier.size(16.dp),
+									strokeWidth = 2.dp
+								)
+								Spacer(Modifier.width(8.dp))
+							}
+
 							DownloadStatus.DOWNLOADED -> {
 								Icon(
 									Icons.Outlined.Check,

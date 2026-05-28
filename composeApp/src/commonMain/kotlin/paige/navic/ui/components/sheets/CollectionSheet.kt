@@ -268,7 +268,8 @@ fun CollectionSheet(
 
 			if (downloadStatus != null) {
 				when (downloadStatus) {
-					DownloadStatus.DOWNLOADING -> {
+					DownloadStatus.DOWNLOADING,
+					DownloadStatus.QUEUED -> {
 						ListItem(
 							content = { Text(stringResource(Res.string.action_cancel_download)) },
 							leadingContent = { Icon(Icons.Outlined.Close, null) },

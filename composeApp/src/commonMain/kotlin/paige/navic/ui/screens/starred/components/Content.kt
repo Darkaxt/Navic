@@ -284,7 +284,7 @@ fun StarredScreenContent(
 						},
 						onCancelDownloadAll = {
 							scope.launch {
-								album.songs.forEach { downloadManager.cancelDownload(it.id) }
+								downloadManager.cancelCollectionDownload(album)
 							}
 						},
 						onDeleteDownloadAll = {

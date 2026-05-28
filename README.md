@@ -108,6 +108,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired search history controls: recent searches persist across app restarts, can be cleared from Search, and `Pause search history` under Data & Storage hides history while stopping newly submitted queries from being recorded.
 * Kreate-inspired `Auto-download starred songs` under Data & Storage downloads a song when you star it while online. Unstarring does not delete existing downloads.
 * Kreate-inspired `Auto-download starred albums` under Data & Storage downloads missing album songs when you star an album while online. Unstarring does not delete existing downloads.
+* Album, playlist, station, and artist bulk downloads are queued, so you can request several collections and let Navic download them in order.
 
 ### LidaClips music videos
 
@@ -157,6 +158,10 @@ Open Settings -> Playback -> Behaviour and turn `Pause listening history` on to 
 ### Auto-fill queue setup
 
 Open Settings -> Playback -> Queue and turn `Auto-fill queue` on. Use `Auto-fill queue target` to choose how many songs Navic should keep queued when it refills. New configurations default to `Recent genres`, which uses local songs sharing genres or moods with the recent queue history whenever matches exist; it falls back only when no synced candidates match the recent listening context. `Similar to current song` prefers Navidrome similar-song results and local artist/album/genre/mood matches, while `Random library` shuffles across synced songs. Navic skips duplicate queued songs and live radio streams.
+
+### Download queue setup
+
+Use the normal Download action on albums, playlists, stations, or artist pages. Navic marks pending songs as queued, downloads one requested collection at a time, skips songs that are already downloaded or active, and lets Cancel remove queued items before they start.
 
 ### ReplayGain loudness boost setup
 

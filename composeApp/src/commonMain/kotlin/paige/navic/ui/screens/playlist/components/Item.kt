@@ -93,7 +93,7 @@ fun PlaylistListScreenItem(
 				},
 				onCancelDownloadAll = {
 					scope.launch {
-						playlist.songs.forEach { downloadManager.cancelDownload(it.id) }
+						downloadManager.cancelCollectionDownload(playlist)
 					}
 				},
 				onDeleteDownloadAll = {

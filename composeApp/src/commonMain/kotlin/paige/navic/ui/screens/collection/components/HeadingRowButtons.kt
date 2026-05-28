@@ -121,7 +121,8 @@ fun CollectionDetailScreenHeadingRowButtons(
 						DownloadStatus.NOT_DOWNLOADED, DownloadStatus.FAILED -> {
 							downloadManager.downloadCollection(collection)
 						}
-						DownloadStatus.DOWNLOADING -> {
+						DownloadStatus.DOWNLOADING,
+						DownloadStatus.QUEUED -> {
 							downloadManager.cancelCollectionDownload(collection)
 						}
 						DownloadStatus.DOWNLOADED -> {
@@ -132,11 +133,14 @@ fun CollectionDetailScreenHeadingRowButtons(
 			},
 			shape = buttonShape,
 			enabled = collection.songs.isNotEmpty() ||
-				(downloadStatus == DownloadStatus.DOWNLOADED || downloadStatus == DownloadStatus.DOWNLOADING),
+				(downloadStatus == DownloadStatus.DOWNLOADED ||
+					downloadStatus == DownloadStatus.DOWNLOADING ||
+					downloadStatus == DownloadStatus.QUEUED),
 			contentPadding = PaddingValues(0.dp)
 		) {
 			when (downloadStatus) {
-				DownloadStatus.DOWNLOADING -> {
+				DownloadStatus.DOWNLOADING,
+				DownloadStatus.QUEUED -> {
 					Box(contentAlignment = Alignment.Center) {
 						CircularProgressIndicator(
 							modifier = Modifier.size(24.dp),

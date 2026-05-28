@@ -18,5 +18,6 @@ enum class DownloadStatus {
 	NOT_DOWNLOADED,
 	DOWNLOADING,
 	DOWNLOADED,
-	FAILED
+	FAILED,
+	QUEUED
 }

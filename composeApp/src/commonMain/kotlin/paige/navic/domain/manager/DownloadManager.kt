@@ -13,6 +13,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpMethod
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -39,6 +40,8 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.collectionDownloadStatus
+import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
@@ -60,6 +63,13 @@ class DownloadManager(
 	private val activeDownloads = mutableMapOf<String, Job>()
 	private val downloadSemaphore =
 		Semaphore(10)// idk a good number, maybe u should be able to choose
+	private val collectionDownloadQueue = Channel<QueuedCollectionDownload>(Channel.UNLIMITED)
+	private val collectionQueueMutex = Mutex()
+	private val queuedCollectionDownloads = mutableMapOf<String, QueuedCollectionDownload>()
+	private val runningCollectionDownloads = mutableMapOf<String, Job>()
+	private val startupQueueCleanup = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+		clearStaleQueuedDownloads()
+	}
 
 	val allDownloads = downloadDao.getAllDownloads().map { it.toImmutableList() }
 	val downloadCount = downloadDao.getDownloadsCount()
@@ -78,13 +88,22 @@ class DownloadManager(
 	private val _libraryDownloadProgress = MutableStateFlow(0f)
 	val libraryDownloadProgress: StateFlow<Float> = _libraryDownloadProgress.asStateFlow()
 
+	private data class QueuedCollectionDownload(
+		val id: String,
+		val songs: List<DomainSong>
+	)
+
 	init {
+		startupQueueCleanup.start()
 		scope.launch {
 			allDownloads.collectLatest { downloads ->
 				_downloadedSongs.value = downloads
 					.filter { it.status == DownloadStatus.DOWNLOADED && it.filePath != null }
 					.associate { it.songId to it.filePath!! }
 			}
+		}
+		scope.launch(Dispatchers.IO) {
+			processCollectionDownloadQueue()
 		}
 	}
 
@@ -111,9 +130,33 @@ class DownloadManager(
 	}
 
 	suspend fun downloadCollection(collection: DomainSongCollection) {
-		collection.songs
-			.filter { !isDownloaded(it.id) }
-			.forEach { downloadSong(it) }
+		startupQueueCleanup.join()
+		if (collection.songs.isEmpty()) return
+
+		val songIdsToQueue = collectionSongIdsToQueue(
+			songIds = collection.songs.map { it.id },
+			downloads = downloadDao.getAllDownloadsList()
+		).toSet()
+		if (songIdsToQueue.isEmpty()) return
+
+		val queuedDownload = QueuedCollectionDownload(
+			id = collection.id,
+			songs = collection.songs.filter { it.id in songIdsToQueue }
+		)
+
+		collectionQueueMutex.withLock {
+			if (queuedCollectionDownloads.containsKey(collection.id) ||
+				runningCollectionDownloads.containsKey(collection.id)
+			) {
+				return
+			}
+
+			queuedCollectionDownloads[collection.id] = queuedDownload
+			queuedDownload.songs.forEach { song ->
+				downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.QUEUED, 0f))
+			}
+			collectionDownloadQueue.send(queuedDownload)
+		}
 	}
 
 	fun downloadEntireLibrary(songs: List<DomainSong>) {
@@ -170,6 +213,14 @@ class DownloadManager(
 		_libraryDownloadProgress.value = 0f
 
 		scope.launch(Dispatchers.IO) {
+			val collectionJobsToCancel = collectionQueueMutex.withLock {
+				val jobs = runningCollectionDownloads.values.toList()
+				queuedCollectionDownloads.clear()
+				runningCollectionDownloads.clear()
+				jobs
+			}
+			collectionJobsToCancel.forEach { it.cancel() }
+
 			val jobsToCancel = activeDownloadsMutex.withLock {
 				val copy = activeDownloads.toMap()
 				activeDownloads.clear()
@@ -179,10 +230,16 @@ class DownloadManager(
 			jobsToCancel.forEach { (songId, job) ->
 				job.cancel()
 				val existing = downloadDao.getDownloadById(songId)
-				if (existing?.status == DownloadStatus.DOWNLOADING) {
+				if (existing?.status == DownloadStatus.DOWNLOADING ||
+					existing?.status == DownloadStatus.QUEUED
+				) {
 					downloadDao.deleteDownload(songId)
 				}
 			}
+
+			downloadDao.getAllDownloadsList()
+				.filter { it.status == DownloadStatus.QUEUED }
+				.forEach { downloadDao.deleteDownload(it.songId) }
 		}
 	}
 
@@ -196,6 +253,7 @@ class DownloadManager(
 			val existing = downloadDao.getDownloadById(songId)
 			if (existing?.status == DownloadStatus.DOWNLOADING
 				|| existing?.status == DownloadStatus.FAILED
+				|| existing?.status == DownloadStatus.QUEUED
 			) {
 				downloadDao.deleteDownload(songId)
 			}
@@ -203,8 +261,14 @@ class DownloadManager(
 	}
 
 	fun cancelCollectionDownload(collection: DomainSongCollection) {
-		collection.songs.forEach { song ->
-			cancelDownload(song.id)
+		scope.launch(Dispatchers.IO) {
+			collectionQueueMutex.withLock {
+				queuedCollectionDownloads.remove(collection.id)
+				runningCollectionDownloads.remove(collection.id)?.cancel()
+			}
+			collection.songs.forEach { song ->
+				cancelDownload(song.id)
+			}
 		}
 	}
 
@@ -229,17 +293,7 @@ class DownloadManager(
 
 	fun getCollectionDownloadStatus(songIds: List<String>): Flow<DownloadStatus> {
 		return allDownloads.map { downloads ->
-			val collectionDownloads = downloads.filter { it.songId in songIds }
-			when {
-				collectionDownloads.isEmpty() -> DownloadStatus.NOT_DOWNLOADED
-				collectionDownloads.any { it.status == DownloadStatus.DOWNLOADING } -> DownloadStatus.DOWNLOADING
-				collectionDownloads.any { it.status == DownloadStatus.FAILED } -> DownloadStatus.FAILED
-				(collectionDownloads.size == songIds.size &&
-					collectionDownloads.all { it.status == DownloadStatus.DOWNLOADED })
-					-> DownloadStatus.DOWNLOADED
-
-				else -> DownloadStatus.NOT_DOWNLOADED
-			}
+			collectionDownloadStatus(songIds, downloads)
 		}
 	}
 
@@ -250,6 +304,47 @@ class DownloadManager(
 			downloadDao.clearAllDownloads()
 			Logger.i("DownloadManager", "cleared all downloads")
 		}
+	}
+
+	private suspend fun clearStaleQueuedDownloads() {
+		downloadDao.getAllDownloadsList()
+			.filter { it.status == DownloadStatus.QUEUED }
+			.forEach { downloadDao.deleteDownload(it.songId) }
+	}
+
+	private suspend fun processCollectionDownloadQueue() {
+		startupQueueCleanup.join()
+		for (queuedDownload in collectionDownloadQueue) {
+			val collectionJob = collectionQueueMutex.withLock {
+				val request = queuedCollectionDownloads.remove(queuedDownload.id) ?: return@withLock null
+				scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+					downloadQueuedCollection(request)
+				}.also { runningCollectionDownloads[request.id] = it }
+			} ?: continue
+
+			collectionJob.start()
+			try {
+				collectionJob.join()
+			} finally {
+				collectionQueueMutex.withLock {
+					runningCollectionDownloads.remove(queuedDownload.id)
+				}
+			}
+		}
+	}
+
+	private suspend fun downloadQueuedCollection(queuedDownload: QueuedCollectionDownload) {
+		queuedDownload.songs
+			.filter { song ->
+				when (downloadDao.getDownloadById(song.id)?.status) {
+					DownloadStatus.QUEUED,
+					DownloadStatus.FAILED -> true
+
+					else -> false
+				}
+			}
+			.map { downloadSong(it) }
+			.joinAll()
 	}
 
 	private suspend fun executeDownloadProcess(song: DomainSong) {
