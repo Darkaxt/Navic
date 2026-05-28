@@ -121,6 +121,7 @@
 	<string name="subtitle_now_playing_discover_queue_action">Show the Discover queue cleanup item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_download_action">Show the Download item in the Now Playing song menu</string>
 	<string name="subtitle_now_playing_add_to_playlist_action">Show the Add to playlist item in the Now Playing song menu</string>
+	<string name="subtitle_now_playing_more_action">Show the More button beside the Now Playing title and artist</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
@@ -174,6 +175,7 @@
 	<string name="option_now_playing_discover_queue_action">Show Discover queue action</string>
 	<string name="option_now_playing_download_action">Show download action</string>
 	<string name="option_now_playing_add_to_playlist_action">Show add to playlist action</string>
+	<string name="option_now_playing_more_action">Show more action</string>
 	<string name="option_now_playing_slider_style">Slider style</string>
 	<string name="option_now_playing_slider_style_flat">Flat</string>
 	<string name="option_now_playing_slider_style_squiggly">Squiggly</string>

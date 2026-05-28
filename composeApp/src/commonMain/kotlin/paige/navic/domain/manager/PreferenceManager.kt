@@ -97,6 +97,7 @@ class PreferenceManager(
 	var showNowPlayingDiscoverQueueAction by preference(true)
 	var showNowPlayingDownloadAction by preference(true)
 	var showNowPlayingAddToPlaylistAction by preference(true)
+	var showNowPlayingMoreAction by preference(true)
 	var customHeaders by preference("")
 	var reverseProxyBasicAuthEnabled by preference(false)
 	var reverseProxyBasicAuthUsername by preference("")

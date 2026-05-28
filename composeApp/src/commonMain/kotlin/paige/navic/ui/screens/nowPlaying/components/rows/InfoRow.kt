@@ -20,10 +20,12 @@ import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
-import paige.navic.ui.navigation.Screen
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.shouldShowNowPlayingMoreAction
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButton
 import paige.navic.util.core.InlineExplicitIconLarge
@@ -36,6 +38,7 @@ fun NowPlayingInfoRow(
 	onSetSongRating: (Int) -> Unit
 ) {
 	val backStack = LocalNavStack.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
@@ -109,10 +112,12 @@ fun NowPlayingInfoRow(
 				songIsStarred = songIsStarred,
 				onSetSongIsStarred = onSetSongIsStarred
 			)
-			NowPlayingMoreButton(
-				songRating = songRating,
-				onSetSongRating = onSetSongRating
-			)
+			if (shouldShowNowPlayingMoreAction(preferenceManager.showNowPlayingMoreAction)) {
+				NowPlayingMoreButton(
+					songRating = songRating,
+					onSetSongRating = onSetSongRating
+				)
+			}
 		}
 	}
 }

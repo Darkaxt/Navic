@@ -38,6 +38,7 @@ import navic.composeapp.generated.resources.option_now_playing_download_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
+import navic.composeapp.generated.resources.option_now_playing_more_action
 import navic.composeapp.generated.resources.option_now_playing_playback_speed_action
 import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_remaining_time
@@ -65,6 +66,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
 import navic.composeapp.generated.resources.subtitle_now_playing_download_action
+import navic.composeapp.generated.resources.subtitle_now_playing_more_action
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
@@ -337,6 +339,12 @@ fun SettingsNowPlayingScreen() {
 						title = { Text(stringResource(Res.string.option_now_playing_queue_action)) },
 						value = preferenceManager.showNowPlayingQueueAction,
 						onSetValue = { preferenceManager.showNowPlayingQueueAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_more_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_more_action)) },
+						value = preferenceManager.showNowPlayingMoreAction,
+						onSetValue = { preferenceManager.showNowPlayingMoreAction = it }
 					)
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_now_playing_music_video_action)) },

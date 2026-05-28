@@ -27,3 +27,6 @@ fun shouldShowNowPlayingDownloadAction(
 	userActionEnabled &&
 		songId != null &&
 		!songId.startsWith("radio_")
+
+fun shouldShowNowPlayingMoreAction(userActionEnabled: Boolean): Boolean =
+	userActionEnabled

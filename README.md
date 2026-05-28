@@ -60,7 +60,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Volume keys skip tracks` can use Android volume up/down for next/previous while Navic is open.
 * Persistent queue controls, including optional playback resume on startup.
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
-* Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, Sleep Timer, Start Radio, Discover Queue, Download, Add to Playlist, and Equalizer actions.
+* Now Playing action visibility toggles for Lyrics, Queue, More, Music Video, Playback Speed, Sleep Timer, Start Radio, Discover Queue, Download, Add to Playlist, and Equalizer actions.
 * Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired configurable Now Playing dynamic background blur and dim strength.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
@@ -178,7 +178,7 @@ Open the now-playing song menu or the root top-bar menu and choose `Sleep timer`
 
 ### Now Playing song actions setup
 
-Open Settings -> Now Playing -> Actions to hide or show Kreate-style song menu items such as `Download`, `Add to playlist`, `Start song radio`, and `Discover queue`. The Download action uses the same offline download state as song lists, and is hidden for transient radio streams.
+Open Settings -> Now Playing -> Actions to hide or show Kreate-style song menu items such as `Download`, `Add to playlist`, `Start song radio`, and `Discover queue`. `Show more action` controls the More button beside the Now Playing title and artist. The Download action uses the same offline download state as song lists, and is hidden for transient radio streams.
 
 ### Now Playing background setup
 

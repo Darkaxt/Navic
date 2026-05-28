@@ -34,4 +34,10 @@ class NowPlayingSongMenuActionPolicyTest {
 		assertFalse(shouldShowNowPlayingDownloadAction(userActionEnabled = true, songId = "radio_1"))
 		assertFalse(shouldShowNowPlayingDownloadAction(userActionEnabled = true, songId = null))
 	}
+
+	@Test
+	fun moreActionFollowsUserSetting() {
+		assertTrue(shouldShowNowPlayingMoreAction(userActionEnabled = true))
+		assertFalse(shouldShowNowPlayingMoreAction(userActionEnabled = false))
+	}
 }

@@ -382,6 +382,7 @@ class PreferenceManagerTest {
 		assertTrue(manager.showNowPlayingDiscoverQueueAction)
 		assertTrue(manager.showNowPlayingDownloadAction)
 		assertTrue(manager.showNowPlayingAddToPlaylistAction)
+		assertTrue(manager.showNowPlayingMoreAction)
 
 		manager.showNowPlayingLyricsAction = false
 		manager.showNowPlayingQueueAction = false
@@ -393,6 +394,7 @@ class PreferenceManagerTest {
 		manager.showNowPlayingDiscoverQueueAction = false
 		manager.showNowPlayingDownloadAction = false
 		manager.showNowPlayingAddToPlaylistAction = false
+		manager.showNowPlayingMoreAction = false
 
 		assertFalse(manager.showNowPlayingLyricsAction)
 		assertFalse(manager.showNowPlayingQueueAction)
@@ -404,6 +406,7 @@ class PreferenceManagerTest {
 		assertFalse(manager.showNowPlayingDiscoverQueueAction)
 		assertFalse(manager.showNowPlayingDownloadAction)
 		assertFalse(manager.showNowPlayingAddToPlaylistAction)
+		assertFalse(manager.showNowPlayingMoreAction)
 	}
 
 	@Test
