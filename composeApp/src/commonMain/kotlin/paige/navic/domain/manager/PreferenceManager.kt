@@ -70,6 +70,7 @@ class PreferenceManager(
 	var showNowPlayingUpNext by preference(false)
 	var nowPlayingUpNextCount by preference(2)
 	var showNowPlayingSeekButtons by preference(false)
+	var showNowPlayingRemainingTime by preference(false)
 	var nowPlayingSliderStyle by preference(NowPlayingSliderStyle.Squiggly)
 	var showNowPlayingLyricsAction by preference(true)
 	var showNowPlayingQueueAction by preference(true)

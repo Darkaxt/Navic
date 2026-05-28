@@ -60,6 +60,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, and Equalizer actions.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
+* Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
@@ -162,6 +163,10 @@ Open Settings -> Now Playing and turn `Show Up next` on. Use `Up next count` to 
 ### Now Playing seek buttons setup
 
 Open Settings -> Now Playing and turn `Show seek buttons` on. Navic adds 10-second back and forward buttons beside the time row. The setting is off by default, so the current Now Playing layout stays unchanged unless you enable it.
+
+### Now Playing remaining time setup
+
+Open Settings -> Now Playing and turn `Show remaining time` on. Navic adds the time left between elapsed time and total duration for finite tracks. Live streams and unknown durations keep the existing two-label display.
 
 ### Lyrics display setup
 

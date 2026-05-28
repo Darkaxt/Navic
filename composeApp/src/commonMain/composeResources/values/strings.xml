@@ -105,6 +105,7 @@
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
+	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
@@ -131,6 +132,7 @@
 	<string name="option_accent_colour">Accent colour</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
+	<string name="option_now_playing_remaining_time">Show remaining time</string>
 	<string name="option_now_playing_lyrics_action">Show lyrics button</string>
 	<string name="option_now_playing_queue_action">Show queue button</string>
 	<string name="option_now_playing_music_video_action">Show music video action</string>

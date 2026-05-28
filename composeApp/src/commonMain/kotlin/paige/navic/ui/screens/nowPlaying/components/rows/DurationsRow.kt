@@ -23,12 +23,12 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.nowPlayingDurationLabels
 import paige.navic.domain.models.nowPlayingSeekProgress
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Forward10
 import paige.navic.icons.filled.Replay10
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.util.core.toHoursMinutesSeconds
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -40,6 +40,11 @@ fun NowPlayingDurationsRow() {
 	val playerState by player.uiState.collectAsState()
 	val duration = playerState.currentSong?.duration
 	val canSeek = duration != null && duration > Duration.ZERO
+	val labels = nowPlayingDurationLabels(
+		duration = duration,
+		progress = playerState.progress,
+		showRemainingTime = preferenceManager.showNowPlayingRemainingTime
+	)
 	val style = MaterialTheme.typography.bodyMedium
 		.copy(
 			shadow = Shadow(
@@ -74,26 +79,13 @@ fun NowPlayingDurationsRow() {
 				)
 			}
 		}
-		when {
-			duration == Duration.ZERO -> {
-				Text(text = "LIVE", color = color, style = style)
-				Spacer(Modifier.weight(1f))
-				Text(text = "∞", color = color, style = style)
-			}
-			duration != null -> {
-				Text(
-					text = ((duration.inWholeSeconds * playerState.progress).toDouble().seconds).toHoursMinutesSeconds(),
-					color = color, style = style
-				)
-				Spacer(Modifier.weight(1f))
-				Text(duration.toHoursMinutesSeconds(), color = color, style = style)
-			}
-			else -> {
-				Text("--:--", color = color, style = style)
-				Spacer(Modifier.weight(1f))
-				Text("--:--", color = color, style = style)
-			}
+		Text(labels.elapsed, color = color, style = style)
+		Spacer(Modifier.weight(1f))
+		labels.remaining?.let {
+			Text(it, color = color, style = style)
+			Spacer(Modifier.weight(1f))
 		}
+		Text(labels.total, color = color, style = style)
 		if (preferenceManager.showNowPlayingSeekButtons) {
 			NowPlayingSeekButton(
 				enabled = canSeek,

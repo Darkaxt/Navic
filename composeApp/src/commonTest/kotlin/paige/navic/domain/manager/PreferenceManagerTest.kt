@@ -412,6 +412,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun nowPlayingRemainingTimeDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showNowPlayingRemainingTime)
+
+		manager.showNowPlayingRemainingTime = true
+
+		assertTrue(manager.showNowPlayingRemainingTime)
+	}
+
+	@Test
 	fun persistentQueueDefaultsToCurrentBehaviorWithStartupResumeDisabled() {
 		val manager = PreferenceManager(MapSettings())
 
