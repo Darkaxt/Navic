@@ -78,6 +78,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 * Lyrics font size: Navic now adapts Kreate's lyrics-size preset idea as a Playback -> Lyrics setting. Medium preserves Navic's previous 32sp lyrics text size while Small, Large, and Extra large provide readable alternatives.
 * Lyrics alignment: Navic now adapts Kreate's lyrics alignment option as a Playback -> Lyrics setting. Auto preserves Navic's current LTR/RTL-aware alignment while Start, Center, and End force an explicit alignment.
 * Lyrics tap-to-seek: Navic now adapts Kreate's `LYRICS_JUMP_ON_TAP` option as Playback -> Lyrics -> `Tap lyrics to seek`. It defaults on to preserve Navic's existing synced-lyrics seeking behavior, and turning it off leaves lyrics share-selection taps unchanged.
+* Lyrics accent background: Navic now adapts Kreate's lyrics accent-background option as Playback -> Lyrics -> `Accent lyrics background`. It defaults off so the lyrics screen keeps its current transparent surface unless enabled.
 
 ## Best Next Transplants
 

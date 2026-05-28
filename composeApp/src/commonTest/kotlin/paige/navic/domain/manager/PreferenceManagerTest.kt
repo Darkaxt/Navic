@@ -542,6 +542,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun lyricsAccentBackgroundDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.lyricsAccentBackground)
+
+		manager.lyricsAccentBackground = true
+
+		assertTrue(manager.lyricsAccentBackground)
+	}
+
+	@Test
 	fun nowPlayingUpNextDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

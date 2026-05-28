@@ -42,6 +42,7 @@ import navic.composeapp.generated.resources.option_bass_boost_strength
 import navic.composeapp.generated.resources.option_enable_scrobbling
 import navic.composeapp.generated.resources.option_gapless_playback
 import navic.composeapp.generated.resources.option_lyrics_autoscroll
+import navic.composeapp.generated.resources.option_lyrics_accent_background
 import navic.composeapp.generated.resources.option_lyrics_beat_by_beat
 import navic.composeapp.generated.resources.option_lyrics_blur
 import navic.composeapp.generated.resources.option_lyrics_bright_inactive
@@ -555,6 +556,12 @@ fun SettingsPlaybackScreen() {
 						title = { Text(stringResource(Res.string.option_lyrics_bright_inactive)) },
 						value = preferenceManager.lyricsBrightInactive,
 						onSetValue = { preferenceManager.lyricsBrightInactive = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_lyrics_accent_background)) },
+						value = preferenceManager.lyricsAccentBackground,
+						onSetValue = { preferenceManager.lyricsAccentBackground = it }
 					)
 
 					SettingSwitchRow(

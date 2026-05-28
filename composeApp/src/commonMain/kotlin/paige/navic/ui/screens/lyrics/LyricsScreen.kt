@@ -63,6 +63,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
@@ -299,7 +300,17 @@ fun LyricsScreen(
 						}
 
 						LazyColumn(
-							Modifier.fillMaxSize(),
+							Modifier
+								.fillMaxSize()
+								.then(
+									lyricsAccentBackgroundAlpha(preferenceManager.lyricsAccentBackground)
+										.takeIf { it > 0f }
+										?.let { alpha ->
+											Modifier.background(
+												MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+											)
+										} ?: Modifier
+								),
 							state = listState,
 							contentPadding = contentPadding
 						) {
