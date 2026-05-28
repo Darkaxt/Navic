@@ -17,6 +17,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-27).
 * Android system equalizer shortcut: Navic now exposes the system equalizer from Settings -> Playback and the now-playing song menu, passing the active Media3 audio session id when available.
 * Now Playing artwork visibility: Navic now adapts Kreate's `PLAYER_SHOW_THUMBNAIL` as a default-on Now Playing layout setting. Hiding artwork also hides the artwork-tap lyrics setting and disables that tap action.
 * Now Playing artwork size: Navic now adapts Kreate's player-thumbnail size options as a Now Playing layout setting with Small, Medium, Big, Biggest, and Expanded choices. Biggest is the default and preserves Navic's previous artwork padding.
+* Now Playing pause shrink: Navic now exposes Kreate's `PLAYER_SHRINK_THUMBNAIL_ON_PAUSE` idea as `Shrink artwork on pause`, defaulting on to preserve Navic's previous animated paused/inactive artwork shrink.
 * Pause between songs: Navic now exposes an Android Playback setting that pauses briefly after automatic track transitions while leaving manual skips immediate.
 * Medley mode: Navic now adapts Kreate's playback-duration/medley behavior as an Android Playback setting. It defaults off for full-track playback and can auto-advance to the next queued song after 15, 30, 45, or 60 seconds.
 * Smart rewind: Navic now exposes an Android Playback setting for the Previous-button threshold. The default remains Navic's old 1 second behavior, while 3 seconds matches Kreate's default.

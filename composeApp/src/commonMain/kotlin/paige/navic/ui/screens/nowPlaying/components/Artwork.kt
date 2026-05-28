@@ -42,7 +42,8 @@ fun NowPlayingArtwork(
 	val padding by animateDpAsState(
 		targetValue = nowPlayingArtworkPaddingDp(
 			size = preferenceManager.nowPlayingArtworkSize,
-			isPausedOrInactive = playerState.isPaused || playerState.currentSong?.id != song.id
+			isPausedOrInactive = playerState.isPaused || playerState.currentSong?.id != song.id,
+			shrinkWhenPausedOrInactive = preferenceManager.shrinkNowPlayingArtworkOnPause
 		).dp
 	)
 	Box(

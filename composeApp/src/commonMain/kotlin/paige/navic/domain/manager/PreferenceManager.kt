@@ -70,6 +70,7 @@ class PreferenceManager(
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var showNowPlayingArtwork by preference(true)
 	var nowPlayingArtworkSize by preference(NowPlayingArtworkSize.Biggest)
+	var shrinkNowPlayingArtworkOnPause by preference(true)
 	var nowPlayingSongInfo by preference(true)
 	var showNowPlayingUpNext by preference(false)
 	var showNowPlayingUpNextArtwork by preference(true)

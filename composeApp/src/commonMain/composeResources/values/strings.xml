@@ -106,6 +106,7 @@
 	<string name="subtitle_resume_playback_on_startup">Start playing the restored queue when the app reconnects to the player</string>
 	<string name="subtitle_system_equalizer">Open the Android system equalizer for the active player session</string>
 	<string name="subtitle_now_playing_artwork">Show the main cover artwork on Now Playing</string>
+	<string name="subtitle_now_playing_shrink_artwork_on_pause">Reduce artwork size while playback is paused or the artwork page is inactive</string>
 	<string name="subtitle_now_playing_background_style">Choose static if you have performance issues</string>
 	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
 	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
@@ -135,6 +136,7 @@
 	<string name="option_now_playing_background_style_dynamic">Dynamic</string>
 	<string name="option_now_playing_artwork">Show artwork</string>
 	<string name="option_now_playing_artwork_size">Artwork size</string>
+	<string name="option_now_playing_shrink_artwork_on_pause">Shrink artwork on pause</string>
 	<string name="option_now_playing_artwork_size_small">Small</string>
 	<string name="option_now_playing_artwork_size_medium">Medium</string>
 	<string name="option_now_playing_artwork_size_big">Big</string>

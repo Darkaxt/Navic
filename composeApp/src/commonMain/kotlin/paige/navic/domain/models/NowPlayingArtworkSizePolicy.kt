@@ -4,5 +4,6 @@ import paige.navic.domain.models.settings.NowPlayingArtworkSize
 
 fun nowPlayingArtworkPaddingDp(
 	size: NowPlayingArtworkSize,
-	isPausedOrInactive: Boolean
-): Int = size.activePaddingDp + if (isPausedOrInactive) 32 else 0
+	isPausedOrInactive: Boolean,
+	shrinkWhenPausedOrInactive: Boolean = true
+): Int = size.activePaddingDp + if (isPausedOrInactive && shrinkWhenPausedOrInactive) 32 else 0

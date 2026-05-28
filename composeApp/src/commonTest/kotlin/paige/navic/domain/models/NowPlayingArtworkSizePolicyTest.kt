@@ -11,14 +11,16 @@ class NowPlayingArtworkSizePolicyTest {
 			16,
 			nowPlayingArtworkPaddingDp(
 				size = NowPlayingArtworkSize.Biggest,
-				isPausedOrInactive = false
+				isPausedOrInactive = false,
+				shrinkWhenPausedOrInactive = true
 			)
 		)
 		assertEquals(
 			48,
 			nowPlayingArtworkPaddingDp(
 				size = NowPlayingArtworkSize.Biggest,
-				isPausedOrInactive = true
+				isPausedOrInactive = true,
+				shrinkWhenPausedOrInactive = true
 			)
 		)
 	}
@@ -29,14 +31,16 @@ class NowPlayingArtworkSizePolicyTest {
 			0,
 			nowPlayingArtworkPaddingDp(
 				size = NowPlayingArtworkSize.Expanded,
-				isPausedOrInactive = false
+				isPausedOrInactive = false,
+				shrinkWhenPausedOrInactive = true
 			)
 		)
 		assertEquals(
 			32,
 			nowPlayingArtworkPaddingDp(
 				size = NowPlayingArtworkSize.Expanded,
-				isPausedOrInactive = true
+				isPausedOrInactive = true,
+				shrinkWhenPausedOrInactive = true
 			)
 		)
 	}
@@ -46,5 +50,17 @@ class NowPlayingArtworkSizePolicyTest {
 		assertEquals(32, nowPlayingArtworkPaddingDp(NowPlayingArtworkSize.Big, false))
 		assertEquals(48, nowPlayingArtworkPaddingDp(NowPlayingArtworkSize.Medium, false))
 		assertEquals(72, nowPlayingArtworkPaddingDp(NowPlayingArtworkSize.Small, false))
+	}
+
+	@Test
+	fun shrinkCanBeDisabledForPausedOrInactiveArtwork() {
+		assertEquals(
+			16,
+			nowPlayingArtworkPaddingDp(
+				size = NowPlayingArtworkSize.Biggest,
+				isPausedOrInactive = true,
+				shrinkWhenPausedOrInactive = false
+			)
+		)
 	}
 }

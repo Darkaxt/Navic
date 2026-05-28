@@ -62,7 +62,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Android system equalizer shortcut in Playback settings and the now-playing song menu.
 * Now Playing action visibility toggles for Lyrics, Queue, Music Video, Playback Speed, Sleep Timer, and Equalizer actions.
 * Sleep timer access from the now-playing song menu and root top-bar menu.
-* Kreate-inspired optional main Now Playing artwork visibility and artwork size.
+* Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
@@ -173,7 +173,7 @@ Open the now-playing song menu or the root top-bar menu and choose `Sleep timer`
 
 ### Now Playing artwork setup
 
-Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover artwork on the fullscreen player. The setting is on by default, matching current Navic behavior and Kreate's default. Use `Artwork size` to choose Small, Medium, Big, Biggest, or Expanded; `Biggest` is the default and matches the previous Navic layout. `Tap artwork for lyrics` is shown only while artwork is enabled.
+Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover artwork on the fullscreen player. The setting is on by default, matching current Navic behavior and Kreate's default. Use `Artwork size` to choose Small, Medium, Big, Biggest, or Expanded; `Biggest` is the default and matches the previous Navic layout. `Shrink artwork on pause` is on by default to preserve Navic's existing paused/inactive artwork shrink, and can be turned off to keep the selected artwork size. `Tap artwork for lyrics` is shown only while artwork is enabled.
 
 ### Now Playing Up next setup
 

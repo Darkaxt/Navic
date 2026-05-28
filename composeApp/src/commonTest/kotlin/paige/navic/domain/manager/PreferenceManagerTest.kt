@@ -390,19 +390,22 @@ class PreferenceManagerTest {
 	}
 
 	@Test
-	fun tapArtworkForLyricsDefaultsToCurrentBehavior() {
+	fun nowPlayingArtworkControlsDefaultToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 
 		assertTrue(manager.showNowPlayingArtwork)
 		assertEquals(NowPlayingArtworkSize.Biggest, manager.nowPlayingArtworkSize)
+		assertTrue(manager.shrinkNowPlayingArtworkOnPause)
 		assertFalse(manager.tapArtworkForLyrics)
 
 		manager.showNowPlayingArtwork = false
 		manager.nowPlayingArtworkSize = NowPlayingArtworkSize.Medium
+		manager.shrinkNowPlayingArtworkOnPause = false
 		manager.tapArtworkForLyrics = true
 
 		assertFalse(manager.showNowPlayingArtwork)
 		assertEquals(NowPlayingArtworkSize.Medium, manager.nowPlayingArtworkSize)
+		assertFalse(manager.shrinkNowPlayingArtworkOnPause)
 		assertTrue(manager.tapArtworkForLyrics)
 	}
 
