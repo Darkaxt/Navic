@@ -30,9 +30,11 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_now_playing_background_blur
 import navic.composeapp.generated.resources.option_now_playing_background_dim
 import navic.composeapp.generated.resources.option_now_playing_background_style
+import navic.composeapp.generated.resources.option_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.option_now_playing_artwork
 import navic.composeapp.generated.resources.option_now_playing_artwork_size
 import navic.composeapp.generated.resources.option_now_playing_discover_queue_action
+import navic.composeapp.generated.resources.option_now_playing_download_action
 import navic.composeapp.generated.resources.option_now_playing_equalizer_action
 import navic.composeapp.generated.resources.option_now_playing_lyrics_action
 import navic.composeapp.generated.resources.option_now_playing_music_video_action
@@ -56,9 +58,11 @@ import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
 import navic.composeapp.generated.resources.subtitle_now_playing_background_blur
 import navic.composeapp.generated.resources.subtitle_now_playing_background_dim
+import navic.composeapp.generated.resources.subtitle_now_playing_add_to_playlist_action
 import navic.composeapp.generated.resources.subtitle_now_playing_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_background_style
 import navic.composeapp.generated.resources.subtitle_now_playing_discover_queue_action
+import navic.composeapp.generated.resources.subtitle_now_playing_download_action
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
@@ -342,6 +346,18 @@ fun SettingsNowPlayingScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_discover_queue_action)) },
 						value = preferenceManager.showNowPlayingDiscoverQueueAction,
 						onSetValue = { preferenceManager.showNowPlayingDiscoverQueueAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_download_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_download_action)) },
+						value = preferenceManager.showNowPlayingDownloadAction,
+						onSetValue = { preferenceManager.showNowPlayingDownloadAction = it }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_now_playing_add_to_playlist_action)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_now_playing_add_to_playlist_action)) },
+						value = preferenceManager.showNowPlayingAddToPlaylistAction,
+						onSetValue = { preferenceManager.showNowPlayingAddToPlaylistAction = it }
 					)
 					if (platformContext.name.lowercase().startsWith("android")) {
 						SettingSwitchRow(

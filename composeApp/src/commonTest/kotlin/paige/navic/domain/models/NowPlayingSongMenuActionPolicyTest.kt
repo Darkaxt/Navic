@@ -19,4 +19,19 @@ class NowPlayingSongMenuActionPolicyTest {
 		assertFalse(shouldShowNowPlayingDiscoverQueueAction(userActionEnabled = false, hasUpcomingSongs = true))
 		assertFalse(shouldShowNowPlayingDiscoverQueueAction(userActionEnabled = true, hasUpcomingSongs = false))
 	}
+
+	@Test
+	fun addToPlaylistActionRequiresUserSettingAndSong() {
+		assertTrue(shouldShowNowPlayingAddToPlaylistAction(userActionEnabled = true, songId = "song-1"))
+		assertFalse(shouldShowNowPlayingAddToPlaylistAction(userActionEnabled = false, songId = "song-1"))
+		assertFalse(shouldShowNowPlayingAddToPlaylistAction(userActionEnabled = true, songId = null))
+	}
+
+	@Test
+	fun downloadActionRequiresUserSettingAndNonRadioSong() {
+		assertTrue(shouldShowNowPlayingDownloadAction(userActionEnabled = true, songId = "song-1"))
+		assertFalse(shouldShowNowPlayingDownloadAction(userActionEnabled = false, songId = "song-1"))
+		assertFalse(shouldShowNowPlayingDownloadAction(userActionEnabled = true, songId = "radio_1"))
+		assertFalse(shouldShowNowPlayingDownloadAction(userActionEnabled = true, songId = null))
+	}
 }

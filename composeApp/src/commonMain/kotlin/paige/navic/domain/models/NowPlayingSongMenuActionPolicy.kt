@@ -13,3 +13,17 @@ fun shouldShowNowPlayingDiscoverQueueAction(
 	hasUpcomingSongs: Boolean
 ): Boolean =
 	userActionEnabled && hasUpcomingSongs
+
+fun shouldShowNowPlayingAddToPlaylistAction(
+	userActionEnabled: Boolean,
+	songId: String?
+): Boolean =
+	userActionEnabled && songId != null
+
+fun shouldShowNowPlayingDownloadAction(
+	userActionEnabled: Boolean,
+	songId: String?
+): Boolean =
+	userActionEnabled &&
+		songId != null &&
+		!songId.startsWith("radio_")
