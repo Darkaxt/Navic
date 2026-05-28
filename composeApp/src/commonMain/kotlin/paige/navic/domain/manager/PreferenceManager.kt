@@ -69,6 +69,7 @@ class PreferenceManager(
 	var nowPlayingToolbarPosition by preference(ToolbarPosition.Bottom)
 	var nowPlayingSongInfo by preference(true)
 	var showNowPlayingUpNext by preference(false)
+	var showNowPlayingUpNextArtwork by preference(true)
 	var nowPlayingUpNextCount by preference(2)
 	var showNowPlayingSeekButtons by preference(false)
 	var showNowPlayingRemainingTime by preference(false)

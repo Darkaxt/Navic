@@ -109,6 +109,7 @@
 	<string name="subtitle_now_playing_seek_buttons">Add 10-second back and forward buttons beside the time row</string>
 	<string name="subtitle_now_playing_remaining_time">Show time left between elapsed time and total duration</string>
 	<string name="subtitle_now_playing_up_next">Show upcoming queued songs on Now Playing</string>
+	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
@@ -147,6 +148,7 @@
 	<string name="option_now_playing_slider_style_slim">Slim</string>
 	<string name="option_now_playing_slider_style_yoyo">Yoyo</string>
 	<string name="option_now_playing_up_next">Show Up next</string>
+	<string name="option_now_playing_up_next_artwork">Show Up next artwork</string>
 	<string name="option_now_playing_up_next_count">Up next count</string>
 	<string name="option_swipe_to_skip">Swipe to change songs</string>
 	<string name="option_tap_artwork_for_lyrics">Tap artwork for lyrics</string>

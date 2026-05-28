@@ -64,7 +64,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Sleep timer access from the now-playing song menu and root top-bar menu.
 * Kreate-inspired optional Now Playing 10-second seek buttons beside the time row.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
-* Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs.
+* Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
 * Optional Now Playing artwork tap action that opens Lyrics.
 * Kreate-inspired lyrics font size selector for the lyrics screen.
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
@@ -172,7 +172,7 @@ Open the now-playing song menu or the root top-bar menu and choose `Sleep timer`
 
 ### Now Playing Up next setup
 
-Open Settings -> Now Playing and turn `Show Up next` on. Use `Up next count` to choose how many upcoming queued songs appear under the progress row. Tapping the preview opens the full Queue sheet. The setting is off by default.
+Open Settings -> Now Playing and turn `Show Up next` on. Use `Show Up next artwork` to control whether upcoming songs include cover thumbnails, and use `Up next count` to choose how many upcoming queued songs appear under the progress row. Tapping the preview opens the full Queue sheet. The preview is off by default; artwork is on when the preview is enabled.
 
 ### Now Playing seek buttons setup
 

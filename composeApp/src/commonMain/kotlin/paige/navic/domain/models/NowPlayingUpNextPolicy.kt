@@ -9,3 +9,8 @@ fun <Item> nowPlayingUpNextItems(
 
 	return queue.drop(currentIndex + 1).take(maxCount)
 }
+
+fun shouldShowNowPlayingUpNextArtwork(
+	showNowPlayingUpNext: Boolean,
+	showNowPlayingUpNextArtwork: Boolean
+): Boolean = showNowPlayingUpNext && showNowPlayingUpNextArtwork

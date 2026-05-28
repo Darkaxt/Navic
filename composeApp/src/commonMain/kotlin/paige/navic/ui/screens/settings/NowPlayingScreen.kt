@@ -33,6 +33,7 @@ import navic.composeapp.generated.resources.option_now_playing_slider_style
 import navic.composeapp.generated.resources.option_now_playing_song_info
 import navic.composeapp.generated.resources.option_now_playing_toolbar_position
 import navic.composeapp.generated.resources.option_now_playing_up_next
+import navic.composeapp.generated.resources.option_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.option_now_playing_up_next_count
 import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.option_tap_artwork_for_lyrics
@@ -40,6 +41,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_background_styl
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next
+import navic.composeapp.generated.resources.subtitle_now_playing_up_next_artwork
 import navic.composeapp.generated.resources.subtitle_now_playing_up_next_count
 import navic.composeapp.generated.resources.title_actions
 import navic.composeapp.generated.resources.title_layout
@@ -152,6 +154,15 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.showNowPlayingUpNext,
 						onSetValue = { preferenceManager.showNowPlayingUpNext = it }
 					)
+
+					AnimatedVisibility(preferenceManager.showNowPlayingUpNext) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_now_playing_up_next_artwork)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_up_next_artwork)) },
+							value = preferenceManager.showNowPlayingUpNextArtwork,
+							onSetValue = { preferenceManager.showNowPlayingUpNextArtwork = it }
+						)
+					}
 
 					AnimatedVisibility(preferenceManager.showNowPlayingUpNext) {
 						SettingSelectionRow(

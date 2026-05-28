@@ -437,12 +437,15 @@ class PreferenceManagerTest {
 		val manager = PreferenceManager(MapSettings())
 
 		assertFalse(manager.showNowPlayingUpNext)
+		assertTrue(manager.showNowPlayingUpNextArtwork)
 		assertEquals(2, manager.nowPlayingUpNextCount)
 
 		manager.showNowPlayingUpNext = true
+		manager.showNowPlayingUpNextArtwork = false
 		manager.nowPlayingUpNextCount = 3
 
 		assertTrue(manager.showNowPlayingUpNext)
+		assertFalse(manager.showNowPlayingUpNextArtwork)
 		assertEquals(3, manager.nowPlayingUpNextCount)
 	}
 

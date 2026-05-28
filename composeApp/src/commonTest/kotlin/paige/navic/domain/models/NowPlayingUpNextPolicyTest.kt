@@ -2,6 +2,7 @@ package paige.navic.domain.models
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NowPlayingUpNextPolicyTest {
@@ -34,5 +35,27 @@ class NowPlayingUpNextPolicyTest {
 
 		assertTrue(nowPlayingUpNextItems(queue, currentIndex = 0, maxCount = 0).isEmpty())
 		assertTrue(nowPlayingUpNextItems(queue, currentIndex = 0, maxCount = -1).isEmpty())
+	}
+
+	@Test
+	fun artworkOnlyShowsWhenUpNextPreviewAndArtworkAreEnabled() {
+		assertTrue(
+			shouldShowNowPlayingUpNextArtwork(
+				showNowPlayingUpNext = true,
+				showNowPlayingUpNextArtwork = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingUpNextArtwork(
+				showNowPlayingUpNext = false,
+				showNowPlayingUpNextArtwork = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingUpNextArtwork(
+				showNowPlayingUpNext = true,
+				showNowPlayingUpNextArtwork = false
+			)
+		)
 	}
 }
