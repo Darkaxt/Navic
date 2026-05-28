@@ -53,9 +53,9 @@ internal fun normalizedLidaClipsBaseUrl(baseUrl: String): NormalizedLidaClipsBas
 	if (afterScheme.isBlank()) return null
 	if (afterScheme.any { it == '?' || it == '#' }) return null
 
-	val authority = afterScheme
-		.takeWhile { it != '/' }
-		.substringAfterLast('@')
+	val authority = afterScheme.takeWhile { it != '/' }
+	if ('@' in authority) return null
+
 	val host = parsedLidaClipsUrlHostOrNull(authority) ?: return null
 
 	return if (host.trim().trimEnd('.').isEmpty()) {

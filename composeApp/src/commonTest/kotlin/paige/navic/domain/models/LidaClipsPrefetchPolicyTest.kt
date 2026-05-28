@@ -145,6 +145,25 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipsPrefetchRejectsBaseUrlCredentials() {
+		assertNull(nextLidaClipsPrefetchKey(
+			enabled = true,
+			baseUrl = "https://user:pass@clips.remaxku.eu",
+			apiKey = "secret",
+			songId = "song-1",
+			lastPrefetchKey = null
+		))
+		assertEquals(
+			false,
+			shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://user:pass@clips.remaxku.eu",
+				userActionEnabled = true
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsPrefetchRequiresValidBaseUrlPort() {
 		listOf(
 			"https://clips.remaxku.eu:",

@@ -46,6 +46,7 @@ class LidaClipsRepositoryTest {
 		assertEquals(null, configuredLidaClipsBaseUrl("https://?debug=true"))
 		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu?debug=true"))
 		assertEquals(null, configuredLidaClipsBaseUrl("https://clips.remaxku.eu#setup"))
+		assertEquals(null, configuredLidaClipsBaseUrl("https://user:pass@clips.remaxku.eu"))
 		assertEquals(
 			"https://clips.remaxku.eu/lida",
 			configuredLidaClipsBaseUrl(" https://clips.remaxku.eu/lida/ ")
