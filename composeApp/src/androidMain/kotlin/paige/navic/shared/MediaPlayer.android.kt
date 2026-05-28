@@ -101,6 +101,7 @@ import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldFadePlaybackCommand
+import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
@@ -843,6 +844,7 @@ class AndroidMediaPlayerViewModel(
 
 				downloadManager.downloadedSongs.collectLatest { downloadedMap ->
 					val player = controller ?: return@collectLatest
+					val currentIndex = player.currentMediaItemIndex
 
 					for (i in 0 until player.mediaItemCount) {
 						val item = player.getMediaItemAt(i)
@@ -850,13 +852,22 @@ class AndroidMediaPlayerViewModel(
 						val localPath = downloadedMap[id]
 
 						val isCurrentlyLocal = item.localConfiguration?.uri?.scheme == "file"
+						if (
+							!shouldReplaceQueuedMediaItemForDownloadAvailability(
+								isCurrentItem = i == currentIndex,
+								hasDownloadedFile = localPath != null,
+								isCurrentlyLocal = isCurrentlyLocal
+							)
+						) {
+							continue
+						}
 
-						if (localPath != null && !isCurrentlyLocal) {
+						if (localPath != null) {
 							val newItem = item.buildUpon()
 								.setUri(File(localPath).toUri())
 								.build()
 							player.replaceMediaItem(i, newItem)
-						} else if (localPath == null && isCurrentlyLocal) {
+						} else {
 							val newItem = item.buildUpon()
 								.setUri(getStreamUrl(id))
 								.build()

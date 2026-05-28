@@ -192,6 +192,51 @@ class ChangelogReleaseTest {
 	}
 
 	@Test
+	fun manualUpdateCheckReportsLatestVersionWhenRemoteIsNotNewer() {
+		assertEquals(
+			UpdateCheckNotice.UpToDate,
+			manualUpdateCheckNotice(
+				currentVersion = "v1.0.10-beta3",
+				remoteTag = "v1.0.10-beta3",
+				manualCheck = true
+			)
+		)
+
+		assertEquals(
+			UpdateCheckNotice.UpToDate,
+			manualUpdateCheckNotice(
+				currentVersion = "v1.0.10-beta3",
+				remoteTag = "v1.0.10-beta2",
+				manualCheck = true
+			)
+		)
+	}
+
+	@Test
+	fun automaticUpdateCheckDoesNotReportLatestVersion() {
+		assertEquals(
+			null,
+			manualUpdateCheckNotice(
+				currentVersion = "v1.0.10-beta3",
+				remoteTag = "v1.0.10-beta3",
+				manualCheck = false
+			)
+		)
+	}
+
+	@Test
+	fun manualUpdateCheckDoesNotReportLatestVersionWhenUpdateExists() {
+		assertEquals(
+			null,
+			manualUpdateCheckNotice(
+				currentVersion = "v1.0.10-beta3",
+				remoteTag = "v1.0.10-beta4",
+				manualCheck = true
+			)
+		)
+	}
+
+	@Test
 	fun stableReleaseOutranksSameVersionBetaRelease() {
 		assertEquals(
 			true,

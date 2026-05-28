@@ -52,6 +52,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android ReplayGain loudness boost can use `LoudnessEnhancer` to raise quiet ReplayGain tracks above normal volume.
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, defaulting to recent-genre refill while still offering random-library and current-song-similar sources. Recent-genre refill keeps additions inside matching genres or moods whenever matches exist, and Similar mode prefers live Navidrome similar-song results when available.
+* Auto-downloading a newly favorited song no longer swaps the active ExoPlayer media item from stream to local file mid-playback, avoiding a sudden restart when the download completes.
 * Kreate-inspired `Shuffle queue limit` can cap how many songs a collection shuffle starts with, while keeping the default unlimited behavior.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
@@ -132,7 +133,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 ### Maintenance
 
 * GitHub Actions permissions and vulnerable transitive build dependencies were hardened for the fork's Security & Quality findings.
-* The in-app update prompt prefers the release `Navic.apk`, downloads it inside Navic on Android with visible progress, verifies the GitHub asset SHA-256 digest when present, and launches the system package installer instead of sending the APK URL to a browser.
+* The in-app update prompt prefers the release `Navic.apk`, downloads it inside Navic on Android with visible progress, verifies the GitHub asset SHA-256 digest when present, and launches the system package installer instead of sending the APK URL to a browser. Tapping About -> version forces an update check; if no newer release exists, Navic confirms that you are already on the latest version.
 * `v1.0.10-beta1` intentionally jumps the patch number as an updater bridge for alpha builds whose older updater mis-sorted beta tags.
 * Android release builds require the fork's stable release signing secrets and pin the expected release certificate fingerprint, so public APK updates keep the same package signature.
 * GitHub tag releases publish the signed Android APK as soon as the Android job finishes; the optional iOS IPA is attached later only if its packaging job succeeds.

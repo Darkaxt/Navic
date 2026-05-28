@@ -47,11 +47,13 @@ import navic.composeapp.generated.resources.action_dont_show_again
 import navic.composeapp.generated.resources.action_update_app
 import navic.composeapp.generated.resources.info_update
 import navic.composeapp.generated.resources.info_update_install_failed
+import navic.composeapp.generated.resources.notice_update_latest
 import navic.composeapp.generated.resources.title_update
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import paige.navic.LocalSnackbarState
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.core.Logger
@@ -157,6 +159,19 @@ internal fun shouldOfferReleaseUpdate(currentVersion: String, remoteTag: String)
 	return remote > current
 }
 
+internal enum class UpdateCheckNotice {
+	UpToDate
+}
+
+internal fun manualUpdateCheckNotice(
+	currentVersion: String,
+	remoteTag: String,
+	manualCheck: Boolean
+): UpdateCheckNotice? =
+	if (manualCheck && !shouldOfferReleaseUpdate(currentVersion, remoteTag))
+		UpdateCheckNotice.UpToDate
+	else null
+
 internal fun GitHubReleaseAsset.normalizedSha256Digest(): String? {
 	val value = digest
 		?.trim()
@@ -185,6 +200,8 @@ class ChangelogViewModel(
 	val updateInstallError = _updateInstallError.asStateFlow()
 	private val _updateInstallProgress = MutableStateFlow<Float?>(null)
 	val updateInstallProgress = _updateInstallProgress.asStateFlow()
+	private val _updateCheckNotice = MutableStateFlow<UpdateCheckNotice?>(null)
+	internal val updateCheckNotice = _updateCheckNotice.asStateFlow()
 
 	private val updateClient = HttpClient {
 		install(ContentNegotiation) {
@@ -192,12 +209,15 @@ class ChangelogViewModel(
 		}
 	}
 
-	fun checkForUpdates(currentVersion: String) {
+	fun checkForUpdates(currentVersion: String, manualCheck: Boolean = false) {
 		viewModelScope.launch {
+			_updateCheckNotice.value = null
 			_release.value = try {
 				val release: GitHubRelease =
 					updateClient.get("https://api.github.com/repos/Darkaxt/Navic/releases/latest")
 						.body()
+				_updateCheckNotice.value =
+					manualUpdateCheckNotice(currentVersion, release.tag, manualCheck)
 				if (shouldOfferReleaseUpdate(currentVersion, release.tag))
 					release
 				else null
@@ -212,6 +232,10 @@ class ChangelogViewModel(
 		_updateInstallError.value = null
 		_updateInstallProgress.value = null
 		_release.value = null
+	}
+
+	fun clearUpdateCheckNotice() {
+		_updateCheckNotice.value = null
 	}
 
 	fun installUpdate(
@@ -247,18 +271,34 @@ class ChangelogViewModel(
 fun ChangelogSheet(updateCheckRequests: Int = 0) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
 	val uriHandler = LocalUriHandler.current
 	val updateInstaller = rememberUpdateInstaller()
 	val viewModel = koinViewModel<ChangelogViewModel>(
 		parameters = { parametersOf(platformContext) }
 	)
 	val release by viewModel.release.collectAsStateWithLifecycle()
+	val updateCheckNotice by viewModel.updateCheckNotice.collectAsStateWithLifecycle()
 	val isInstallingUpdate by viewModel.isInstallingUpdate.collectAsStateWithLifecycle()
 	val updateInstallError by viewModel.updateInstallError.collectAsStateWithLifecycle()
 	val updateInstallProgress by viewModel.updateInstallProgress.collectAsStateWithLifecycle()
 	val updateInstallProgressPercent = normalizedUpdateInstallProgressPercent(updateInstallProgress)
+	val latestVersionMessage = stringResource(Res.string.notice_update_latest)
 	LaunchedEffect(platformContext.appVersion, updateCheckRequests) {
-		viewModel.checkForUpdates(platformContext.appVersion)
+		viewModel.checkForUpdates(
+			currentVersion = platformContext.appVersion,
+			manualCheck = updateCheckRequests > 0
+		)
+	}
+	LaunchedEffect(updateCheckNotice) {
+		when (updateCheckNotice) {
+			UpdateCheckNotice.UpToDate -> {
+				snackbarState.showSnackbar(latestVersionMessage)
+				viewModel.clearUpdateCheckNotice()
+			}
+
+			null -> Unit
+		}
 	}
 
 	release?.let { release ->
