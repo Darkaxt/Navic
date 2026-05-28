@@ -62,6 +62,7 @@ class PreferenceManager(
 	var lyricsBlur by preference(false)
 	var lyricsBrightInactive by preference(false)
 	var lyricsAccentBackground by preference(false)
+	var showLyricsArtwork by preference(false)
 	var lyricsFontSize by preference(LyricsFontSize.Medium)
 	var lyricsAlignment by preference(LyricsAlignment.Auto)
 	var lyricsJumpOnTap by preference(true)

@@ -570,6 +570,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun lyricsArtworkDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.showLyricsArtwork)
+
+		manager.showLyricsArtwork = true
+
+		assertTrue(manager.showLyricsArtwork)
+	}
+
+	@Test
 	fun nowPlayingUpNextDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

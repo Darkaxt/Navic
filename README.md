@@ -91,6 +91,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired lyrics alignment selector with Auto, Start, Center, and End options.
 * Kreate-inspired `Tap lyrics to seek` setting can turn lyric-line seeking off while keeping lyrics sharing selection intact.
 * Kreate-inspired accent background toggle for the lyrics screen.
+* Kreate-inspired optional lyrics artwork can show the current cover above lyrics without changing the default lyrics layout.
 
 ### Library and playlist reliability
 
@@ -251,6 +252,8 @@ Use `Lyrics alignment` to keep the current automatic LTR/RTL-aware alignment or 
 Turn `Tap lyrics to seek` off if tapping synced lyric lines should not jump playback. Lyrics share-selection mode still uses taps to select lines.
 
 Turn `Accent lyrics background` on to tint the lyrics screen with the app accent color.
+
+Turn `Show lyrics artwork` on to show the current song cover above the lyrics when cover art is available. It is off by default.
 
 ### LidaClips setup
 

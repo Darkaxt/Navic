@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
@@ -65,6 +67,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
+import paige.navic.domain.models.shouldShowLyricsArtwork
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
@@ -74,6 +77,7 @@ import paige.navic.icons.outlined.Lyrics
 import paige.navic.icons.outlined.Share
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.layouts.SheetScaffold
@@ -260,13 +264,22 @@ fun LyricsScreen(
 								line.time != null && currentDuration >= line.time
 							}
 						} else -1
+						val showArtwork = shouldShowLyricsArtwork(
+							showLyricsArtwork = preferenceManager.showLyricsArtwork,
+							coverArtId = song.coverArtId
+						)
+						val lyricListIndexOffset = if (showArtwork) 1 else 0
 
-						LaunchedEffect(activeIndex, isSelectionMode) {
+						LaunchedEffect(activeIndex, isSelectionMode, lyricListIndexOffset) {
 							if (!lyricsAutoscroll) return@LaunchedEffect
 
 							val layoutInfo = listState.layoutInfo
-							val activeItem = layoutInfo.visibleItemsInfo
-								.firstOrNull { it.index == activeIndex }
+							val activeListIndex = activeIndex + lyricListIndexOffset
+							val activeItem = if (activeIndex >= 0) {
+								layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeListIndex }
+							} else {
+								null
+							}
 
 							if (activeItem != null) {
 								val itemCenter = activeItem.offset + activeItem.size / 2
@@ -292,7 +305,7 @@ fun LyricsScreen(
 									val scrollOffset = -(viewportCenter / 2)
 
 									listState.animateScrollToItem(
-										index = activeIndex,
+										index = activeListIndex,
 										scrollOffset = scrollOffset
 									)
 								}
@@ -314,6 +327,23 @@ fun LyricsScreen(
 							state = listState,
 							contentPadding = contentPadding
 						) {
+							if (showArtwork) {
+								item {
+									Box(
+										modifier = Modifier
+											.fillMaxWidth()
+											.padding(top = 24.dp, bottom = 8.dp),
+										contentAlignment = Alignment.Center
+									) {
+										CoverArt(
+											coverArtId = song.coverArtId,
+											contentDescription = song.title,
+											modifier = Modifier.size(180.dp),
+											shadowElevation = 6.dp
+										)
+									}
+								}
+							}
 							itemsIndexed(lyrics) { index, line ->
 								val isActive = if (isSynced) index == activeIndex else true
 								val isSelected = selectedIndices.contains(index)

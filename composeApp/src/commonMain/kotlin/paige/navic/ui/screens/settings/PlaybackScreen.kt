@@ -51,6 +51,7 @@ import navic.composeapp.generated.resources.option_lyrics_font_size
 import navic.composeapp.generated.resources.option_lyrics_jump_on_tap
 import navic.composeapp.generated.resources.option_lyrics_keep_alive
 import navic.composeapp.generated.resources.option_lyrics_priority
+import navic.composeapp.generated.resources.option_show_lyrics_artwork
 import navic.composeapp.generated.resources.option_min_duration_to_scrobble
 import navic.composeapp.generated.resources.option_medley_mode
 import navic.composeapp.generated.resources.option_off
@@ -564,6 +565,12 @@ fun SettingsPlaybackScreen() {
 						title = { Text(stringResource(Res.string.option_lyrics_accent_background)) },
 						value = preferenceManager.lyricsAccentBackground,
 						onSetValue = { preferenceManager.lyricsAccentBackground = it }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_show_lyrics_artwork)) },
+						value = preferenceManager.showLyricsArtwork,
+						onSetValue = { preferenceManager.showLyricsArtwork = it }
 					)
 
 					SettingSwitchRow(
