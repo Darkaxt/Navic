@@ -40,6 +40,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.icons.Icons
@@ -221,7 +222,7 @@ fun SongRow(
 			},
 			onShare = onShare,
 			onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
-			onStartSongRadio = if (!song.id.startsWith("radio_")) {
+			onStartSongRadio = if (hasStableNavidromeSongId(song.id)) {
 				{ player.startSongRadio(song) }
 			} else null,
 			onPlayNext = {

@@ -5,8 +5,7 @@ fun shouldShowNowPlayingStartRadioAction(
 	songId: String?
 ): Boolean =
 	userActionEnabled &&
-		songId != null &&
-		!songId.startsWith("radio_")
+		hasStableNavidromeSongId(songId)
 
 fun shouldShowNowPlayingDiscoverQueueAction(
 	userActionEnabled: Boolean,
@@ -25,8 +24,7 @@ fun shouldShowNowPlayingDownloadAction(
 	songId: String?
 ): Boolean =
 	userActionEnabled &&
-		songId != null &&
-		!songId.startsWith("radio_")
+		hasStableNavidromeSongId(songId)
 
 fun shouldShowNowPlayingMoreAction(userActionEnabled: Boolean): Boolean =
 	userActionEnabled

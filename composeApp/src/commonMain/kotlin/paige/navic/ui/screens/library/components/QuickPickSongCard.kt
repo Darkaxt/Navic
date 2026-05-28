@@ -14,6 +14,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
@@ -67,7 +68,7 @@ fun QuickPickSongCard(
 				onSetStarred = onSetStarred,
 				onShare = { onSetShareId(song.id) },
 				onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
-				onStartSongRadio = if (!song.id.startsWith("radio_")) onStartSongRadio else null,
+				onStartSongRadio = if (hasStableNavidromeSongId(song.id)) onStartSongRadio else null,
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
 				onTrackInfo = dropUnlessResumed {

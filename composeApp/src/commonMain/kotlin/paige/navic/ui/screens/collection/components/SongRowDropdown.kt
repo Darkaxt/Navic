@@ -15,6 +15,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
@@ -57,7 +58,7 @@ fun CollectionDetailScreenSongRowDropdown(
 			},
 			onShare = onShare,
 			onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
-			onStartSongRadio = if (!song.id.startsWith("radio_")) {
+			onStartSongRadio = if (hasStableNavidromeSongId(song.id)) {
 				{ player.startSongRadio(song) }
 			} else null,
 			onPlayNext = {

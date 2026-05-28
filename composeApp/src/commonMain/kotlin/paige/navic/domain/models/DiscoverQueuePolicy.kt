@@ -12,7 +12,7 @@ fun discoverQueueRemovalIndexes(
 		.withIndex()
 		.filter { (index, songId) ->
 			index > currentIndex &&
-				!songId.startsWith("radio_") &&
+				hasStableNavidromeSongId(songId) &&
 				songId in knownSongIds
 		}
 		.map { it.index }

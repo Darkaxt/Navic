@@ -71,6 +71,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -313,7 +314,7 @@ fun SearchScreen(
 											SongSheet(
 												onDismissRequest = { viewModel.clearSelectedSong() },
 												song = song,
-												onStartSongRadio = if (!song.id.startsWith("radio_")) {
+												onStartSongRadio = if (hasStableNavidromeSongId(song.id)) {
 													{ player.startSongRadio(song) }
 												} else null,
 												onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),

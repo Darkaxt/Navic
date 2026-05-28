@@ -27,10 +27,10 @@ fun shouldShowLidaClipsMusicVideoAction(
 	userActionEnabled: Boolean,
 	songId: String? = null
 ): Boolean =
-	lidaClipsEnabled &&
+		lidaClipsEnabled &&
 		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
 		userActionEnabled &&
-		songId?.startsWith("radio_") != true
+		(songId == null || hasStableNavidromeSongId(songId))
 
 internal fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
 	normalizedLidaClipsBaseUrl(baseUrl)?.value

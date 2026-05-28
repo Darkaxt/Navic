@@ -35,7 +35,7 @@ fun queueAutoFillCandidateIds(
 	val seen = queuedIds.toMutableSet()
 	return candidateIds
 		.asSequence()
-		.filterNot { it.startsWith("radio_") }
+		.filter(::hasStableNavidromeSongId)
 		.filter { seen.add(it) }
 		.take(limit.coerceAtLeast(0))
 		.toList()
@@ -57,7 +57,7 @@ fun queueAutoFillCandidateSongs(
 		.associate { it.value to it.index }
 	val filtered = candidateSongs
 		.asSequence()
-		.filterNot { it.id.startsWith("radio_") }
+		.filter { hasStableNavidromeSongId(it.id) }
 		.filter { seen.add(it.id) }
 		.toList()
 
@@ -108,7 +108,7 @@ fun songRadioQueue(
 	preferredSongIds: List<String> = emptyList()
 ): List<DomainSong> {
 	val queueLimit = limit.coerceAtLeast(0)
-	if (queueLimit == 0 || seedSong.id.startsWith("radio_")) return emptyList()
+	if (queueLimit == 0 || !hasStableNavidromeSongId(seedSong.id)) return emptyList()
 
 	return listOf(seedSong) + queueAutoFillCandidateSongs(
 		candidateSongs = candidateSongs,

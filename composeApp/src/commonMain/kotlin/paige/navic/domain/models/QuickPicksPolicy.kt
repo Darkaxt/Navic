@@ -12,7 +12,7 @@ fun quickPickSongs(
 
 	val originalIndexes = songs.withIndex().associate { it.value.id to it.index }
 	val albumCreatedAt = albums.associate { it.id to it.createdAt }
-	val candidates = songs.filterNot { it.id.startsWith("radio_") }
+	val candidates = songs.filter { hasStableNavidromeSongId(it.id) }
 
 	val buckets = listOf(
 		candidates
