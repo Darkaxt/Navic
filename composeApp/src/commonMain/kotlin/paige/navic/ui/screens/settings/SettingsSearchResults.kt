@@ -205,6 +205,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSelect = { preferenceManager.quickPicksLimit = it }
 		))
 		add(selectionRow(
+			id = "appearance.quick-picks-min-duration",
+			path = path(appearance, library),
+			title = stringResource(Res.string.option_quick_picks_min_duration),
+			subtitle = stringResource(Res.string.subtitle_quick_picks_min_duration),
+			keywords = listOf("discover", "home", "library", "duration", "short tracks", "intro"),
+			items = quickPicksMinDurationSearchOptions,
+			label = { quickPicksMinDurationLabel(it) },
+			selection = preferenceManager.quickPicksMinDurationSeconds,
+			onSelect = { preferenceManager.quickPicksMinDurationSeconds = it }
+		))
+		add(selectionRow(
 			id = "appearance.marquee",
 			path = path(appearance),
 			title = stringResource(Res.string.option_use_marquee_text),
@@ -1464,3 +1475,12 @@ private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val queueShuffleLimitSearchOptions = listOf(0, 50, 100, 200, 500, 1000, 2000, 3000)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
 private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)
+private val quickPicksMinDurationSearchOptions = listOf(0, 30, 60, 120, 180)
+
+@Composable
+private fun quickPicksMinDurationLabel(seconds: Int): String =
+	when {
+		seconds <= 0 -> stringResource(Res.string.option_off)
+		seconds < 60 -> "${seconds}s"
+		else -> "${seconds / 60} min"
+	}

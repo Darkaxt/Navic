@@ -106,6 +106,7 @@ fun LibraryScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
+	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -127,7 +128,7 @@ fun LibraryScreen() {
 		}
 	}
 
-	LaunchedEffect(isLoggedIn, quickPicksEnabled, quickPicksLimit) {
+	LaunchedEffect(isLoggedIn, quickPicksEnabled, quickPicksLimit, quickPicksMinDurationSeconds) {
 		if (!isLoggedIn) return@LaunchedEffect
 
 		if (quickPicksEnabled) {

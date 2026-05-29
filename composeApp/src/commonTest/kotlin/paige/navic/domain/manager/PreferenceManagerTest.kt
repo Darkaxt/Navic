@@ -521,6 +521,17 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun quickPicksDurationFilterDefaultsToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(0, manager.quickPicksMinDurationSeconds)
+
+		manager.quickPicksMinDurationSeconds = 30
+
+		assertEquals(30, manager.quickPicksMinDurationSeconds)
+	}
+
+	@Test
 	fun nowPlayingSleepTimerActionDefaultsToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())
 

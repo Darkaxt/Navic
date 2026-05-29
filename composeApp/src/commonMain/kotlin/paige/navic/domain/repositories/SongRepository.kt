@@ -60,7 +60,8 @@ class SongRepository(
 			downloads = downloadDao.getAllDownloadsList(),
 			albums = albumDao.getAllAlbumsList().map { it.toDomainModel() },
 			quickPicksEnabled = preferenceManager.quickPicksEnabled,
-			quickPicksLimit = preferenceManager.quickPicksLimit
+			quickPicksLimit = preferenceManager.quickPicksLimit,
+			quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 		)
 
 		return if (reversed) {

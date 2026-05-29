@@ -264,6 +264,8 @@
 	<string name="subtitle_show_quick_picks">Show the Quick Picks row on the Library screen</string>
 	<string name="option_quick_picks_size">Quick Picks size</string>
 	<string name="subtitle_quick_picks_size">Maximum songs to keep in Quick Picks and its See all list</string>
+	<string name="option_quick_picks_min_duration">Quick Picks minimum duration</string>
+	<string name="subtitle_quick_picks_min_duration">Exclude shorter tracks from Quick Picks. Off keeps all synced songs eligible.</string>
 	<string name="option_sort_newest">Recently added</string>
 	<string name="option_sort_rating">Rating</string>
 	<string name="option_sort_frequent">Frequently played</string>

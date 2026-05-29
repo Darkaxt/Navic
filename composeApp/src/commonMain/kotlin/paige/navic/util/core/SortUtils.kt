@@ -18,14 +18,16 @@ fun ImmutableList<DomainSong>.sortedByListType(
 	downloads: List<DownloadEntity>,
 	albums: List<DomainAlbum>,
 	quickPicksEnabled: Boolean = true,
-	quickPicksLimit: Int = QuickPicksDefaultSize
+	quickPicksLimit: Int = QuickPicksDefaultSize,
+	quickPicksMinDurationSeconds: Int = 0
 ): ImmutableList<DomainSong> {
 	return when (listType) {
 		DomainSongListType.QuickPicks -> quickPickSongs(
 			songs = this,
 			albums = albums,
 			enabled = quickPicksEnabled,
-			limit = quickPicksLimit
+			limit = quickPicksLimit,
+			minDurationSeconds = quickPicksMinDurationSeconds
 		)
 		DomainSongListType.FrequentlyPlayed -> sortedByDescending { it.playCount }
 		DomainSongListType.Newest -> sortedByDescending {

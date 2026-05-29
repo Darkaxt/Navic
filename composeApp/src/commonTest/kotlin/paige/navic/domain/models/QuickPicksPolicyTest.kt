@@ -68,11 +68,29 @@ class QuickPicksPolicyTest {
 		)
 	}
 
+	@Test
+	fun quickPicksCanExcludeSongsShorterThanMinimumDuration() {
+		val intro = song(id = "intro", playCount = 100, durationSeconds = 29)
+		val fullSong = song(id = "full", playCount = 50, durationSeconds = 30)
+		val fallback = song(id = "fallback", durationSeconds = 240)
+
+		assertEquals(
+			listOf("full", "fallback"),
+			quickPickSongs(
+				songs = listOf(intro, fullSong, fallback),
+				albums = emptyList(),
+				minDurationSeconds = 30,
+				limit = 10
+			).map { it.id }
+		)
+	}
+
 	private fun song(
 		id: String,
 		albumId: String? = null,
 		playCount: Int = 0,
-		rating: Int? = null
+		rating: Int? = null,
+		durationSeconds: Int = 0
 	) = DomainSong(
 		id = id,
 		title = "Song $id",
@@ -89,7 +107,7 @@ class QuickPicksPolicyTest {
 		genre = null,
 		genres = emptyList(),
 		moods = emptyList(),
-		duration = 0.seconds,
+		duration = durationSeconds.seconds,
 		bpm = null,
 		contributors = emptyList(),
 		playCount = playCount,

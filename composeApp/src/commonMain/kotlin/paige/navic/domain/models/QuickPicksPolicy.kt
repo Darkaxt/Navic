@@ -6,7 +6,8 @@ fun quickPickSongs(
 	songs: List<DomainSong>,
 	albums: List<DomainAlbum>,
 	enabled: Boolean = true,
-	limit: Int = QuickPicksDefaultSize
+	limit: Int = QuickPicksDefaultSize,
+	minDurationSeconds: Int = 0
 ): List<DomainSong> {
 	if (!enabled) return emptyList()
 	val resultLimit = limit.coerceAtLeast(0)
@@ -14,7 +15,11 @@ fun quickPickSongs(
 
 	val originalIndexes = songs.withIndex().associate { it.value.id to it.index }
 	val albumCreatedAt = albums.associate { it.id to it.createdAt }
-	val candidates = songs.filter { hasStableNavidromeSongId(it.id) }
+	val minimumDurationSeconds = minDurationSeconds.coerceAtLeast(0)
+	val candidates = songs.filter {
+		hasStableNavidromeSongId(it.id) &&
+			it.duration.inWholeSeconds >= minimumDurationSeconds
+	}
 
 	val buckets = listOf(
 		candidates
