@@ -10,6 +10,31 @@ fun downloadStorageSizeText(bytes: Long): String =
 fun imageCacheStorageSizeText(bytes: Long): String =
 	storageSizeText(bytes)
 
+fun musicBrainzCacheValueText(cachedSongs: Int): String =
+	countLabel(
+		count = cachedSongs.coerceAtLeast(0),
+		singular = "song",
+		plural = "songs"
+	)
+
+fun musicBrainzCacheSummaryText(
+	artworkSongs: Int,
+	metadataSongs: Int,
+	missingSongs: Int
+): String {
+	val safeArtworkSongs = artworkSongs.coerceAtLeast(0)
+	val safeMetadataSongs = metadataSongs.coerceAtLeast(0)
+	val safeMissingSongs = missingSongs.coerceAtLeast(0)
+	if (safeArtworkSongs == 0 && safeMetadataSongs == 0 && safeMissingSongs == 0) {
+		return "No cached MusicBrainz results"
+	}
+	return listOf(
+		countLabel(safeArtworkSongs, singular = "artwork"),
+		countLabel(safeMetadataSongs, singular = "metadata", plural = "metadata"),
+		countLabel(safeMissingSongs, singular = "miss", plural = "misses")
+	).joinToString(", ")
+}
+
 fun storageSizeText(bytes: Long): String {
 	val safeBytes = bytes.coerceAtLeast(0)
 	return when {
@@ -28,6 +53,13 @@ fun storageSizeText(bytes: Long): String {
 		}
 	}
 }
+
+private fun countLabel(
+	count: Int,
+	singular: String,
+	plural: String = "${singular}s"
+): String =
+	"$count ${if (count == 1) singular else plural}"
 
 private fun trimmedDecimal(value: Double): String {
 	val hundredths = (value * 100).toLong()

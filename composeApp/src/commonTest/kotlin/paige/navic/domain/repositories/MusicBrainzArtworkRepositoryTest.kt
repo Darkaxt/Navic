@@ -865,6 +865,57 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun cacheStatsUseNewestUsableEntryPerSong() {
+		val nowMillis = 1_000L + 181.days.inWholeMilliseconds
+		val olderArtwork = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "old",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/old.jpg",
+			sourceMbid = ReleaseMbid,
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			updatedAtMillis = nowMillis - 2.days.inWholeMilliseconds
+		)
+		val newerMetadata = olderArtwork.copy(
+			fingerprint = "new",
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			metadata = MusicBrainzTrackMetadata(recordingMbid = RecordingMbid),
+			updatedAtMillis = nowMillis - 1.days.inWholeMilliseconds
+		)
+		val miss = MusicBrainzArtworkCacheEntry(
+			songId = "song-2",
+			fingerprint = "miss",
+			status = MusicBrainzArtworkCacheStatus.NotFound,
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			metadata = null,
+			updatedAtMillis = nowMillis - 1.days.inWholeMilliseconds
+		)
+		val expired = olderArtwork.copy(
+			songId = "song-3",
+			updatedAtMillis = 1_000L
+		)
+
+		val stats = musicBrainzCacheStats(
+			entries = listOf(olderArtwork, newerMetadata, miss, expired),
+			nowMillis = nowMillis
+		)
+
+		assertEquals(
+			MusicBrainzCacheStats(
+				totalSongs = 2,
+				artworkSongs = 0,
+				metadataSongs = 1,
+				missingSongs = 1
+			),
+			stats
+		)
+	}
+
+	@Test
 	fun publicCacheMapsAreHiddenWhenMusicBrainzFallbackIsDisabled() {
 		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
 		val entry = MusicBrainzArtworkCacheEntry(

@@ -76,6 +76,7 @@ import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_max_concurrent_downloads
+import navic.composeapp.generated.resources.option_musicbrainz_cache
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pause_search_history
@@ -148,6 +149,7 @@ fun SettingsDataStorageScreen() {
 	val downloadSize by viewModel.downloadSize.collectAsStateWithLifecycle(0L)
 	val pendingDownloadCount by viewModel.pendingDownloadCount.collectAsStateWithLifecycle(0)
 	val downloadQueueItems by viewModel.downloadQueueItems.collectAsStateWithLifecycle()
+	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
 	var showDownloadQueueDialog by remember { mutableStateOf(false) }
@@ -438,6 +440,20 @@ fun SettingsDataStorageScreen() {
 					SettingValueRow(
 						title = { Text(stringResource(Res.string.option_image_cache_size)) },
 						value = imageCacheSizeText
+					)
+
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_musicbrainz_cache)) },
+						subtitle = {
+							Text(
+								musicBrainzCacheSummaryText(
+									artworkSongs = musicBrainzCacheStats.artworkSongs,
+									metadataSongs = musicBrainzCacheStats.metadataSongs,
+									missingSongs = musicBrainzCacheStats.missingSongs
+								)
+							)
+						},
+						value = musicBrainzCacheValueText(musicBrainzCacheStats.totalSongs)
 					)
 
 					SettingSwitchRow(

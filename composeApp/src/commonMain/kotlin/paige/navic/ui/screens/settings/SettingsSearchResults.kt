@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.*
@@ -49,6 +50,7 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingValueRow
 import kotlin.math.roundToInt
 
 private data class SearchableSettingsRow(
@@ -100,6 +102,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
 	val platformContext = LocalPlatformContext.current
 	val isAndroid = platformContext.name.lowercase().startsWith("android")
 	val isApple = listOf("ios", "ipados").contains(platformContext.name.lowercase())
@@ -1127,6 +1130,18 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				musicBrainzArtworkRepository.refreshCacheVisibility()
 			}
 		))
+		add(valueRow(
+			id = "data.musicbrainz-cache",
+			path = path(dataStorage, cacheManagement),
+			title = stringResource(Res.string.option_musicbrainz_cache),
+			subtitle = musicBrainzCacheSummaryText(
+				artworkSongs = musicBrainzCacheStats.artworkSongs,
+				metadataSongs = musicBrainzCacheStats.metadataSongs,
+				missingSongs = musicBrainzCacheStats.missingSongs
+			),
+			keywords = listOf("cover art archive", "metadata", "artwork", "cache"),
+			value = musicBrainzCacheValueText(musicBrainzCacheStats.totalSongs)
+		))
 		add(switchRow(
 			id = "data.pause-search-history",
 			path = path(dataStorage, stringResource(Res.string.action_search_history)),
@@ -1347,6 +1362,31 @@ private fun <Item> selectionRow(
 				description = subtitle,
 				selection = selection,
 				onSelect = onSelect
+			)
+		}
+	)
+
+private fun valueRow(
+	id: String,
+	path: String,
+	title: String,
+	subtitle: String? = null,
+	keywords: List<String> = emptyList(),
+	value: String
+): SearchableSettingsRow =
+	SearchableSettingsRow(
+		text = SettingsSearchEntryText(
+			id = id,
+			path = path,
+			title = title,
+			subtitle = subtitle,
+			keywords = keywords
+		),
+		content = {
+			SettingValueRow(
+				title = { Text(title) },
+				subtitle = { subtitle?.let { Text(it) } },
+				value = value
 			)
 		}
 	)

@@ -83,6 +83,13 @@ class MusicBrainzArtworkRepository(
 		)
 	)
 	val metadataBySongId = _metadataBySongId.asStateFlow()
+	private val _cacheStats = MutableStateFlow(
+		musicBrainzCacheStats(
+			entries = initialCacheEntries,
+			nowMillis = currentTimeMillis()
+		)
+	)
+	val cacheStats = _cacheStats.asStateFlow()
 
 	fun clearCache() {
 		synchronized(cacheLock) {
@@ -410,6 +417,10 @@ class MusicBrainzArtworkRepository(
 		)
 		_metadataBySongId.value = entries.visibleMusicBrainzMetadataBySongId(
 			enabled = enabled,
+			nowMillis = nowMillis
+		)
+		_cacheStats.value = musicBrainzCacheStats(
+			entries = entries,
 			nowMillis = nowMillis
 		)
 	}
@@ -895,6 +906,30 @@ internal fun List<MusicBrainzArtworkCacheEntry>.visibleMusicBrainzMetadataBySong
 	nowMillis: Long
 ): Map<String, MusicBrainzTrackMetadata> =
 	if (enabled) musicBrainzMetadataBySongId(nowMillis) else emptyMap()
+
+data class MusicBrainzCacheStats(
+	val totalSongs: Int = 0,
+	val artworkSongs: Int = 0,
+	val metadataSongs: Int = 0,
+	val missingSongs: Int = 0
+)
+
+internal fun musicBrainzCacheStats(
+	entries: List<MusicBrainzArtworkCacheEntry>,
+	nowMillis: Long
+): MusicBrainzCacheStats {
+	val usableEntries = entries
+		.usableMusicBrainzCacheEntries(nowMillis)
+		.newestMusicBrainzCacheEntriesBySongId()
+	return MusicBrainzCacheStats(
+		totalSongs = usableEntries.size,
+		artworkSongs = usableEntries.count {
+			it.status == MusicBrainzArtworkCacheStatus.Found && !it.imageUrl.isNullOrBlank()
+		},
+		metadataSongs = usableEntries.count { it.metadata != null },
+		missingSongs = usableEntries.count { it.status == MusicBrainzArtworkCacheStatus.NotFound }
+	)
+}
 
 private fun List<MusicBrainzArtworkCacheEntry>.newestMusicBrainzCacheEntriesBySongId(): List<MusicBrainzArtworkCacheEntry> =
 	sortedByDescending { it.updatedAtMillis }

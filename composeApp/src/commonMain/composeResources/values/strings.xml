@@ -342,6 +342,7 @@
 	<string name="option_audio_offload">Audio offload</string>
 	<string name="option_live_status">Live status</string>
 	<string name="option_image_cache_size">Image cache size</string>
+	<string name="option_musicbrainz_cache">MusicBrainz cache</string>
 	<string name="option_last_sync">Last full sync</string>
 	<string name="option_pending_actions">Pending sync actions</string>
 	<string name="option_downloaded_songs">Downloaded songs</string>
