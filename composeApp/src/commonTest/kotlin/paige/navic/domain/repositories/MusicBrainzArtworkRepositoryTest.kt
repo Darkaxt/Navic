@@ -377,7 +377,7 @@ class MusicBrainzArtworkRepositoryTest {
 			coverArtArchiveReleaseGroupEndpoint("c31a5e2b-0bf8-32e0-8aeb-ef4ba9973932")
 		)
 		assertEquals(
-			"https://musicbrainz.org/ws/2/recording/0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1?inc=artist-credits+isrcs+releases+release-groups+genres+tags&fmt=json",
+			"https://musicbrainz.org/ws/2/recording/0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1?inc=artist-credits+isrcs+releases+release-groups+genres+tags+url-rels+work-rels+work-level-rels&fmt=json",
 			musicBrainzRecordingLookupEndpoint("0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1")
 		)
 		assertEquals(
@@ -478,6 +478,40 @@ class MusicBrainzArtworkRepositoryTest {
 					MusicBrainzTagDto(name = "live", count = 5),
 					MusicBrainzTagDto(name = " ", count = 99)
 				),
+				relations = listOf(
+					MusicBrainzRelationDto(
+						type = "discogs",
+						url = MusicBrainzRelationUrlDto(resource = "https://www.discogs.com/master/123")
+					),
+					MusicBrainzRelationDto(
+						type = "wikidata",
+						url = MusicBrainzRelationUrlDto(resource = "https://www.wikidata.org/wiki/Q123"),
+						ended = true
+					),
+					MusicBrainzRelationDto(
+						type = "misc",
+						url = MusicBrainzRelationUrlDto(resource = "https://example.com/not-shown")
+					),
+					MusicBrainzRelationDto(
+						type = "performance",
+						work = MusicBrainzWorkDto(
+							relations = listOf(
+								MusicBrainzRelationDto(
+									type = "songfacts",
+									url = MusicBrainzRelationUrlDto(
+										resource = "http://www.songfacts.com/facts/abba/dancing-queen"
+									)
+								),
+								MusicBrainzRelationDto(
+									type = "wikipedia",
+									url = MusicBrainzRelationUrlDto(
+										resource = "https://en.wikipedia.org/wiki/Dancing_Queen"
+									)
+								)
+							)
+						)
+					)
+				),
 				releases = listOf(
 					MusicBrainzReleaseDto(
 						id = "release-1",
@@ -532,6 +566,17 @@ class MusicBrainzArtworkRepositoryTest {
 		assertEquals(listOf("alternative rock", "rock"), metadata.genres)
 		assertEquals(listOf("live", "favorite"), metadata.tags)
 		assertEquals(listOf("USAAA9900001", "USAAA9900002"), metadata.isrcs)
+		assertEquals(
+			listOf(
+				MusicBrainzExternalLink(label = "Discogs", url = "https://www.discogs.com/master/123"),
+				MusicBrainzExternalLink(
+					label = "Songfacts",
+					url = "https://www.songfacts.com/facts/abba/dancing-queen"
+				),
+				MusicBrainzExternalLink(label = "Wikipedia", url = "https://en.wikipedia.org/wiki/Dancing_Queen")
+			),
+			metadata.externalLinks
+		)
 		assertEquals("https://musicbrainz.org/recording/recording-mbid", metadata.recordingUrl)
 		assertEquals("https://musicbrainz.org/release/release-2", metadata.releaseUrl)
 		assertEquals("https://musicbrainz.org/release-group/release-group-2", metadata.releaseGroupUrl)
@@ -794,6 +839,10 @@ class MusicBrainzArtworkRepositoryTest {
 				genres = listOf("alternative rock", "rock"),
 				tags = listOf("live", "favorite"),
 				isrcs = listOf("USAAA9900001", "USAAA9900002"),
+				externalLinks = listOf(
+					MusicBrainzExternalLink(label = "Discogs", url = "https://www.discogs.com/master/123"),
+					MusicBrainzExternalLink(label = "Songfacts", url = "https://www.songfacts.com/facts/abba/dancing-queen")
+				),
 				recordingUrl = "https://musicbrainz.org/recording/recording-mbid",
 				releaseUrl = " ",
 				releaseGroupUrl = null
@@ -817,9 +866,34 @@ class MusicBrainzArtworkRepositoryTest {
 				MusicBrainzMetadataField.Genres to "alternative rock, rock",
 				MusicBrainzMetadataField.Tags to "live, favorite",
 				MusicBrainzMetadataField.Isrcs to "USAAA9900001, USAAA9900002",
+				MusicBrainzMetadataField.ExternalLink to "Discogs",
+				MusicBrainzMetadataField.ExternalLink to "Songfacts",
 				MusicBrainzMetadataField.RecordingUrl to "https://musicbrainz.org/recording/recording-mbid"
 			),
 			fields.map { it.field to it.value }
+		)
+		assertEquals(
+			listOf(
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				"https://www.discogs.com/master/123",
+				"https://www.songfacts.com/facts/abba/dancing-queen",
+				null
+			),
+			fields.map { it.url }
 		)
 	}
 

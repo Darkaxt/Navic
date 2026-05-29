@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_musicbrainz_artist_credit
 import navic.composeapp.generated.resources.info_musicbrainz_country
+import navic.composeapp.generated.resources.info_musicbrainz_external_link
 import navic.composeapp.generated.resources.info_musicbrainz_first_release_date
 import navic.composeapp.generated.resources.info_musicbrainz_genres
 import navic.composeapp.generated.resources.info_musicbrainz_isrcs
@@ -118,7 +119,8 @@ fun SongDetailScreen(songId: String) {
 				SongDetailInfoRow(
 					title = field.field.stringResource,
 					value = field.value,
-					musicBrainzField = field.field
+					musicBrainzField = field.field,
+					musicBrainzUrl = field.url
 				)
 			}
 		}.orEmpty()
@@ -138,7 +140,8 @@ fun SongDetailScreen(songId: String) {
 		) {
 			Form {
 				info.forEach { row ->
-					val musicBrainzUrl = musicBrainzMetadataUrlOrNull(row.musicBrainzField, row.value)
+					val musicBrainzUrl = row.musicBrainzUrl
+						?: musicBrainzMetadataUrlOrNull(row.musicBrainzField, row.value)
 					FormRow(
 						onClick = musicBrainzUrl?.let { url ->
 							{ uriHandler.openUri(url) }
@@ -172,7 +175,8 @@ fun SongDetailScreen(songId: String) {
 private data class SongDetailInfoRow(
 	val title: StringResource,
 	val value: Any?,
-	val musicBrainzField: MusicBrainzMetadataField? = null
+	val musicBrainzField: MusicBrainzMetadataField? = null,
+	val musicBrainzUrl: String? = null
 )
 
 private val MusicBrainzMetadataField.stringResource: StringResource
@@ -192,6 +196,7 @@ private val MusicBrainzMetadataField.stringResource: StringResource
 		MusicBrainzMetadataField.Genres -> Res.string.info_musicbrainz_genres
 		MusicBrainzMetadataField.Tags -> Res.string.info_musicbrainz_tags
 		MusicBrainzMetadataField.Isrcs -> Res.string.info_musicbrainz_isrcs
+		MusicBrainzMetadataField.ExternalLink -> Res.string.info_musicbrainz_external_link
 		MusicBrainzMetadataField.RecordingUrl -> Res.string.info_musicbrainz_recording_url
 		MusicBrainzMetadataField.ReleaseUrl -> Res.string.info_musicbrainz_release_url
 		MusicBrainzMetadataField.ReleaseGroupUrl -> Res.string.info_musicbrainz_release_group_url

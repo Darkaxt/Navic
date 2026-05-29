@@ -649,6 +649,7 @@
 	<string name="info_musicbrainz_genres">MusicBrainz genres</string>
 	<string name="info_musicbrainz_tags">MusicBrainz tags</string>
 	<string name="info_musicbrainz_isrcs">MusicBrainz ISRCs</string>
+	<string name="info_musicbrainz_external_link">MusicBrainz external link</string>
 	<string name="info_musicbrainz_recording_url">MusicBrainz recording URL</string>
 	<string name="info_musicbrainz_release_url">MusicBrainz release URL</string>
 	<string name="info_musicbrainz_release_group_url">MusicBrainz release group URL</string>

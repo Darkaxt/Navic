@@ -37,7 +37,7 @@ private const val COVER_ART_ARCHIVE_BASE_URL = "https://coverartarchive.org"
 private const val MUSICBRAINZ_BASE_URL = "https://musicbrainz.org"
 private const val MUSICBRAINZ_USER_AGENT = "Navic/1.0 (https://github.com/Darkaxt/Navic)"
 private const val MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES = 500
-internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 2
+internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 3
 private const val MUSICBRAINZ_RECORDING_SEARCH_LIMIT = 5
 private const val MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE = 90
 private const val MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT = 3
@@ -399,7 +399,7 @@ internal fun coverArtArchiveReleaseGroupEndpoint(mbid: String): String =
 	"$COVER_ART_ARCHIVE_BASE_URL/release-group/${mbid.normalizedMbidOrNull() ?: mbid.trim()}"
 
 internal fun musicBrainzRecordingLookupEndpoint(mbid: String): String =
-	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+release-groups+genres+tags&fmt=json"
+	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+release-groups+genres+tags+url-rels+work-rels+work-level-rels&fmt=json"
 
 internal fun musicBrainzRecordingSearchEndpoint(
 	title: String,
@@ -479,6 +479,7 @@ internal fun musicBrainzTrackMetadata(
 		genres = recording.genres.normalizedMusicBrainzTags(),
 		tags = recording.tags.normalizedMusicBrainzTags(),
 		isrcs = recording.isrcs.mapNotNull { it.nonBlankOrNull() }.distinct(),
+		externalLinks = musicBrainzExternalLinks(recording),
 		recordingUrl = recordingMbid?.let { "$MUSICBRAINZ_BASE_URL/recording/$it" },
 		releaseUrl = releaseMbid?.let { "$MUSICBRAINZ_BASE_URL/release/$it" },
 		releaseGroupUrl = releaseGroupMbid?.let { "$MUSICBRAINZ_BASE_URL/release-group/$it" }
@@ -528,6 +529,13 @@ internal fun musicBrainzMetadataDisplayFields(
 		MusicBrainzMetadataField.Genres.field(metadata.genres.joinToStringValue()),
 		MusicBrainzMetadataField.Tags.field(metadata.tags.joinToStringValue()),
 		MusicBrainzMetadataField.Isrcs.field(metadata.isrcs.joinToStringValue()),
+		*metadata.externalLinks.map { link ->
+			MusicBrainzMetadataDisplayField(
+				field = MusicBrainzMetadataField.ExternalLink,
+				value = link.label,
+				url = link.url
+			)
+		}.toTypedArray(),
 		MusicBrainzMetadataField.RecordingUrl.field(metadata.recordingUrl),
 		MusicBrainzMetadataField.ReleaseUrl.field(metadata.releaseUrl),
 		MusicBrainzMetadataField.ReleaseGroupUrl.field(metadata.releaseGroupUrl)
@@ -577,6 +585,59 @@ private fun List<MusicBrainzTagDto>.normalizedMusicBrainzTags(): List<String> =
 		.map { it.name.trim() }
 		.distinct()
 		.take(10)
+
+private fun musicBrainzExternalLinks(recording: MusicBrainzRecordingDto): List<MusicBrainzExternalLink> {
+	val relations = recording.relations + recording.relations.flatMap { it.work?.relations.orEmpty() }
+	return relations
+		.mapNotNull { relation ->
+			if (relation.ended == true) {
+				null
+			} else {
+				musicBrainzExternalLinkOrNull(relation.url?.resource)
+			}
+		}
+		.distinctBy { it.url.lowercase() }
+		.take(8)
+}
+
+private fun musicBrainzExternalLinkOrNull(resource: String?): MusicBrainzExternalLink? {
+	val normalized = normalizedMusicBrainzExternalLinkUrlOrNull(resource) ?: return null
+	val label = when {
+		normalized.host == "discogs.com" || normalized.host == "www.discogs.com" -> "Discogs"
+		normalized.host == "songfacts.com" || normalized.host == "www.songfacts.com" -> "Songfacts"
+		normalized.host == "wikidata.org" || normalized.host == "www.wikidata.org" -> "Wikidata"
+		normalized.host == "wikipedia.org" || normalized.host.endsWith(".wikipedia.org") -> "Wikipedia"
+		else -> return null
+	}
+	return MusicBrainzExternalLink(label = label, url = normalized.url)
+}
+
+private fun normalizedMusicBrainzExternalLinkUrlOrNull(resource: String?): NormalizedExternalLink? {
+	val trimmed = resource?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val schemeLength = when {
+		trimmed.startsWith("https://", ignoreCase = true) -> "https://".length
+		trimmed.startsWith("http://", ignoreCase = true) -> "http://".length
+		else -> return null
+	}
+	val withoutScheme = trimmed.drop(schemeLength)
+	val hostAndRestSplit = withoutScheme.indexOfFirst { it == '/' || it == '?' || it == '#' }
+	val hostAndPort = if (hostAndRestSplit >= 0) {
+		withoutScheme.take(hostAndRestSplit)
+	} else {
+		withoutScheme
+	}
+	val rest = if (hostAndRestSplit >= 0) withoutScheme.drop(hostAndRestSplit) else ""
+	val host = hostAndPort.substringBefore(':').trim().lowercase().takeIf { it.isNotEmpty() } ?: return null
+	return NormalizedExternalLink(
+		host = host,
+		url = "https://$host$rest"
+	)
+}
+
+private data class NormalizedExternalLink(
+	val host: String,
+	val url: String
+)
 
 internal fun musicBrainzFrontArtworkImageUrl(response: CoverArtArchiveResponseDto): String? {
 	val image = response.images.firstOrNull { it.front }
@@ -767,6 +828,7 @@ data class MusicBrainzTrackMetadata(
 	val genres: List<String> = emptyList(),
 	val tags: List<String> = emptyList(),
 	val isrcs: List<String> = emptyList(),
+	val externalLinks: List<MusicBrainzExternalLink> = emptyList(),
 	val recordingUrl: String? = null,
 	val releaseUrl: String? = null,
 	val releaseGroupUrl: String? = null
@@ -774,7 +836,14 @@ data class MusicBrainzTrackMetadata(
 
 data class MusicBrainzMetadataDisplayField(
 	val field: MusicBrainzMetadataField,
-	val value: String
+	val value: String,
+	val url: String? = null
+)
+
+@Serializable
+data class MusicBrainzExternalLink(
+	val label: String,
+	val url: String
 )
 
 enum class MusicBrainzMetadataField {
@@ -793,6 +862,7 @@ enum class MusicBrainzMetadataField {
 	Genres,
 	Tags,
 	Isrcs,
+	ExternalLink,
 	RecordingUrl,
 	ReleaseUrl,
 	ReleaseGroupUrl
@@ -832,6 +902,7 @@ internal data class MusicBrainzRecordingDto(
 	val isrcs: List<String> = emptyList(),
 	val genres: List<MusicBrainzTagDto> = emptyList(),
 	val tags: List<MusicBrainzTagDto> = emptyList(),
+	val relations: List<MusicBrainzRelationDto> = emptyList(),
 	val releases: List<MusicBrainzReleaseDto> = emptyList()
 )
 
@@ -856,6 +927,24 @@ internal data class MusicBrainzArtistCreditDto(
 internal data class MusicBrainzTagDto(
 	val name: String = "",
 	val count: Int? = null
+)
+
+@Serializable
+internal data class MusicBrainzRelationDto(
+	val type: String? = null,
+	val ended: Boolean? = null,
+	val url: MusicBrainzRelationUrlDto? = null,
+	val work: MusicBrainzWorkDto? = null
+)
+
+@Serializable
+internal data class MusicBrainzRelationUrlDto(
+	val resource: String? = null
+)
+
+@Serializable
+internal data class MusicBrainzWorkDto(
+	val relations: List<MusicBrainzRelationDto> = emptyList()
 )
 
 @Serializable
