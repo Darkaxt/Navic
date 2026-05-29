@@ -16,23 +16,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_lida_clips
+import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.title_integrations
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.settings.components.SettingSwitchRow
 
 @Composable
 fun SettingsIntegrationsScreen() {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 
 	Scaffold(
 		topBar = {
@@ -50,6 +58,15 @@ fun SettingsIntegrationsScreen() {
 					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
 			) {
 				Form {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
+						value = preferenceManager.musicBrainzArtworkFallbackEnabled,
+						onSetValue = {
+							preferenceManager.musicBrainzArtworkFallbackEnabled = it
+							musicBrainzArtworkRepository.refreshCacheVisibility()
+						}
+					)
 					FormRow(
 						onClick = dropUnlessResumed {
 							backStack.add(Screen.Settings.LidaClips)

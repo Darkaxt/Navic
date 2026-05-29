@@ -60,6 +60,7 @@
 	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_music_video">Music video</string>
+	<string name="title_musicbrainz_info">MusicBrainz info</string>
 	<string name="title_integrations">Integrations</string>
 	<string name="title_up_next">Up next</string>
 	<string name="title_wifi">Wi-Fi</string>
@@ -159,6 +160,8 @@
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
 	<string name="subtitle_lida_clips_background_video">Show matching clips behind Now Playing. Blurred and normal backgrounds are muted and cropped.</string>
+	<string name="subtitle_lida_clips_lyrics_video_background">Use a cached blurred clip behind Lyrics when one is ready. Falls back to artwork automatically.</string>
+	<string name="subtitle_lida_clips_musicbrainz_video_background">Use a cached blurred clip behind MusicBrainz info when one is ready. Falls back to artwork automatically.</string>
 	<string name="subtitle_lida_clips_video_fit">Fit shows the full frame. Crop fills the player and may trim the edges. Android only</string>
 	<string name="subtitle_lida_clips_video_cache_size">Limit temporary cached clips used for smooth Now Playing video. Offline clip storage is separate.</string>
 	<string name="subtitle_lida_clips_pause_music_playback">Turn off to let Navic music continue under music videos. Android only</string>
@@ -376,8 +379,8 @@
 	<string name="option_max_bitrate_wifi">Max Bitrate WiFi (kbps)</string>
 	<string name="option_max_bitrate_cellular">Max Bitrate Cellular (kbps)</string>
 	<string name="option_cover_art_quality">Cover art quality</string>
-	<string name="option_musicbrainz_artwork_fallback">MusicBrainz metadata and artwork</string>
-	<string name="subtitle_musicbrainz_artwork_fallback">Fetch public track metadata for playing songs and missing covers from Cover Art Archive</string>
+	<string name="option_musicbrainz_artwork_fallback">MusicBrainz and Cover Art Archive</string>
+	<string name="subtitle_musicbrainz_artwork_fallback">Fetch public MusicBrainz metadata during playback and recover missing artwork from Cover Art Archive</string>
 	<string name="option_lida_clips">Music video clips</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
@@ -392,6 +395,8 @@
 	<string name="option_lida_clips_picture_in_picture">Picture-in-Picture</string>
 	<string name="option_lida_clips_landscape_video_mode">Landscape video mode</string>
 	<string name="option_lida_clips_background_video">Now Playing background</string>
+	<string name="option_lida_clips_lyrics_video_background">Lyrics video background</string>
+	<string name="option_lida_clips_musicbrainz_video_background">MusicBrainz info video background</string>
 	<string name="option_lida_clips_background_video_off">Off</string>
 	<string name="option_lida_clips_background_video_blurred">Blurred</string>
 	<string name="option_lida_clips_background_video_normal">Normal</string>
@@ -572,6 +577,7 @@
 	<string name="action_view_on_lastfm">View on last.fm</string>
 	<string name="action_view_on_musicbrainz">View on MusicBrainz</string>
 	<string name="action_lyrics">Lyrics</string>
+	<string name="action_musicbrainz_info">MusicBrainz info</string>
 	<string name="action_share_lyrics">Share Lyrics</string>
 	<string name="action_update_app">Update</string>
 	<string name="action_downloading_update">Downloading update...</string>
@@ -665,6 +671,10 @@
 	<string name="info_musicbrainz_recording_url">MusicBrainz recording URL</string>
 	<string name="info_musicbrainz_release_url">MusicBrainz release URL</string>
 	<string name="info_musicbrainz_release_group_url">MusicBrainz release group URL</string>
+	<string name="info_musicbrainz_source_priority">Source priority</string>
+	<string name="info_musicbrainz_source_priority_value">Navidrome first, MusicBrainz fallback</string>
+	<string name="info_musicbrainz_loading">Resolving MusicBrainz metadata...</string>
+	<string name="info_musicbrainz_unavailable">No MusicBrainz metadata cached for this track yet</string>
 	<string name="info_update">Version "%1$s" has been released</string>
 	<string name="info_update_install_failed">Update install failed: %1$s</string>
 	<string name="info_shared_by">Shared by %1$s</string>

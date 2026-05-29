@@ -139,6 +139,8 @@ class PreferenceManager(
 	var lidaClipsPictureInPicture by preference(false)
 	var lidaClipsLandscapeVideoMode by preference(false)
 	var lidaClipsBackgroundVideoMode by preference(LidaClipsBackgroundVideoMode.Blurred)
+	var lidaClipsLyricsVideoBackground by preference(false)
+	var lidaClipsMusicBrainzInfoVideoBackground by preference(false)
 	var lidaClipsVideoFitMode by preference(LidaClipsVideoFitMode.Fit)
 	var lidaClipsVideoCacheSizeMb by preference(DefaultLidaClipsVideoCacheSizeMb)
 	var lidaClipsPauseMusicPlayback by preference(true)

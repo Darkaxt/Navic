@@ -278,6 +278,38 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun artworkLookupAllowsFallbackWhenServerCoverFailed() {
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = true,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+	}
+
+	@Test
+	fun artworkLookupStillBlocksHealthyServerCover() {
+		assertFalse(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+	}
+
+	@Test
 	fun existingCacheWithoutMetadataDoesNotBlockMetadataRefresh() {
 		val cachedMissWithoutMetadata = MusicBrainzArtworkCacheEntry(
 			songId = "song-1",

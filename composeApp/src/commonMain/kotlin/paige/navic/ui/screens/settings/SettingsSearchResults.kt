@@ -1122,8 +1122,8 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSelect = { preferenceManager.coverArtQuality = it }
 		))
 		add(switchRow(
-			id = "data.musicbrainz",
-			path = path(dataStorage, network),
+			id = "integrations.musicbrainz",
+			path = path(integrations),
 			title = stringResource(Res.string.option_musicbrainz_artwork_fallback),
 			subtitle = stringResource(Res.string.subtitle_musicbrainz_artwork_fallback),
 			keywords = listOf("cover art archive", "metadata", "artwork"),
@@ -1235,6 +1235,24 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				label = { stringResource(it.displayName) },
 				selection = preferenceManager.lidaClipsBackgroundVideoMode,
 				onSelect = { preferenceManager.lidaClipsBackgroundVideoMode = it }
+			))
+			add(switchRow(
+				id = "lida.lyrics-video-background",
+				path = path(integrations, lidaClips),
+				title = stringResource(Res.string.option_lida_clips_lyrics_video_background),
+				subtitle = stringResource(Res.string.subtitle_lida_clips_lyrics_video_background),
+				keywords = listOf("lyrics", "background", "music video clips"),
+				value = preferenceManager.lidaClipsLyricsVideoBackground,
+				onSetValue = { preferenceManager.lidaClipsLyricsVideoBackground = it }
+			))
+			add(switchRow(
+				id = "lida.musicbrainz-video-background",
+				path = path(integrations, lidaClips),
+				title = stringResource(Res.string.option_lida_clips_musicbrainz_video_background),
+				subtitle = stringResource(Res.string.subtitle_lida_clips_musicbrainz_video_background),
+				keywords = listOf("musicbrainz", "trivia", "metadata", "background", "music video clips"),
+				value = preferenceManager.lidaClipsMusicBrainzInfoVideoBackground,
+				onSetValue = { preferenceManager.lidaClipsMusicBrainzInfoVideoBackground = it }
 			))
 			add(selectionRow(
 				id = "lida.video-fit",

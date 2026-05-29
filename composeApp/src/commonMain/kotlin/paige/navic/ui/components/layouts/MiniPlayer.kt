@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +88,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.util.core.toNetworkHeaders
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +111,7 @@ fun MiniPlayer(
 
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
+	val scope = rememberCoroutineScope()
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
@@ -252,6 +255,16 @@ fun MiniPlayer(
 							model = model,
 							contentDescription = null,
 							contentScale = ContentScale.Crop,
+							onError = {
+								if (musicBrainzFallbackArtworkUrl.isNullOrBlank()) {
+									song?.let { failedSong ->
+										musicBrainzArtworkRepository.reportServerCoverLoadFailed(failedSong.id)
+										scope.launch {
+											musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(failedSong)
+										}
+									}
+								}
+							},
 							modifier = Modifier
 								.size(if (detached) 48.dp else 50.dp)
 								.padding(if (playerState.isLoading) 8.dp else 0.dp)

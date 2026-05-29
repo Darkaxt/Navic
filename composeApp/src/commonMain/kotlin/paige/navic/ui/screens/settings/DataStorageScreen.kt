@@ -274,15 +274,6 @@ fun SettingsDataStorageScreen() {
 							}
 						}
 					)
-					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
-						subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
-						value = preferenceManager.musicBrainzArtworkFallbackEnabled,
-						onSetValue = {
-							preferenceManager.musicBrainzArtworkFallbackEnabled = it
-							musicBrainzArtworkRepository.refreshCacheVisibility()
-						}
-					)
 				}
 
 				FormTitle(stringResource(Res.string.action_search_history))

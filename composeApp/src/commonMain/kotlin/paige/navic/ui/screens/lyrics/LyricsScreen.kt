@@ -89,6 +89,7 @@ import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.nowPlaying.components.ExtraScreenLidaClipBackground
 import paige.navic.ui.screens.lyrics.components.LyricsScreenKaraokeText
 import paige.navic.ui.screens.lyrics.components.LyricsScreenLoadingView
 import paige.navic.ui.screens.lyrics.dialogs.LyricsShareSheet
@@ -240,22 +241,28 @@ fun LyricsScreen(
 		},
 		toolbarPosition = ToolbarPosition.Top
 	) { contentPadding ->
-		AnimatedContent(
-			state,
-			modifier = Modifier.fillMaxSize(),
-			transitionSpec = {
-				(fadeIn(
-					animationSpec = effectSpec
-				) + scaleIn(
-					initialScale = 0.8f,
-					animationSpec = spatialSpec
-				)) togetherWith (fadeOut(
-					animationSpec = effectSpec
-				) + scaleOut(
-					animationSpec = spatialSpec
-				))
-			},
-		) { uiState ->
+		Box(Modifier.fillMaxSize()) {
+			ExtraScreenLidaClipBackground(
+				song = song,
+				enabled = preferenceManager.lidaClipsLyricsVideoBackground,
+				modifier = Modifier.fillMaxSize()
+			)
+			AnimatedContent(
+				state,
+				modifier = Modifier.fillMaxSize(),
+				transitionSpec = {
+					(fadeIn(
+						animationSpec = effectSpec
+					) + scaleIn(
+						initialScale = 0.8f,
+						animationSpec = spatialSpec
+					)) togetherWith (fadeOut(
+						animationSpec = effectSpec
+					) + scaleOut(
+						animationSpec = spatialSpec
+					))
+				},
+			) { uiState ->
 			when (uiState) {
 				is UiState.Error -> ErrorBox(
 					error = uiState,
@@ -356,6 +363,10 @@ fun LyricsScreen(
 											imageUrl = musicBrainzArtworkUrl,
 											imageCacheKey = musicBrainzArtworkCacheKey,
 											contentDescription = song.title,
+											onServerCoverLoadFailed = {
+												musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
+												musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
+											},
 											modifier = Modifier.size(180.dp),
 											shadowElevation = 6.dp
 										)
@@ -527,6 +538,7 @@ fun LyricsScreen(
 					}
 				}
 			}
+		}
 		}
 
 		if (showShareSheet) {

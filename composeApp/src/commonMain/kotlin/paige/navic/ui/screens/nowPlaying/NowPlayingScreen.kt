@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
+import navic.composeapp.generated.resources.action_musicbrainz_info
 import navic.composeapp.generated.resources.action_navigate_back
 import navic.composeapp.generated.resources.action_play_music_video
 import navic.composeapp.generated.resources.action_queue
@@ -52,6 +53,7 @@ import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
+import paige.navic.icons.outlined.Info
 import paige.navic.icons.outlined.List
 import paige.navic.icons.outlined.Lyrics
 import paige.navic.icons.outlined.Movie
@@ -151,9 +153,12 @@ fun NowPlayingScreen() {
 						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
 						songId = song?.id
 					) && lidaClip != null
+					val showMusicBrainzInfoAction =
+						preferenceManager.musicBrainzArtworkFallbackEnabled && song != null
 					val showQueueAction = preferenceManager.showNowPlayingQueueAction
 					val visibleActionCount = listOf(
 						showLyricsAction,
+						showMusicBrainzInfoAction,
 						showMusicVideoAction,
 						showQueueAction
 					).count { it }
@@ -164,6 +169,16 @@ fun NowPlayingScreen() {
 							icon = Icons.Outlined.Lyrics,
 							contentDescription = stringResource(Res.string.action_lyrics),
 							onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
+							isStartRounded = actionIndex == 0,
+							isEndRounded = actionIndex == visibleActionCount - 1
+						)
+						actionIndex++
+					}
+					if (showMusicBrainzInfoAction) {
+						SheetActionButton(
+							icon = Icons.Outlined.Info,
+							contentDescription = stringResource(Res.string.action_musicbrainz_info),
+							onClick = dropUnlessResumed { backStack.add(Screen.MusicBrainzInfo) },
 							isStartRounded = actionIndex == 0,
 							isEndRounded = actionIndex == visibleActionCount - 1
 						)

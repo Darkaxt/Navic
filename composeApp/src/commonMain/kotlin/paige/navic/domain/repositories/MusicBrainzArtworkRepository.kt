@@ -56,6 +56,8 @@ class MusicBrainzArtworkRepository(
 		isLenient = true
 	}
 	private val cacheLock = Any()
+	private val serverCoverFailureLock = Any()
+	private val failedServerCoverSongIds = mutableSetOf<String>()
 	private val requestThrottle = Mutex()
 	private var lastRequestMillis = 0L
 	private val client = HttpClient {
@@ -105,6 +107,13 @@ class MusicBrainzArtworkRepository(
 		}
 	}
 
+	fun reportServerCoverLoadFailed(songId: String) {
+		if (songId.isBlank()) return
+		synchronized(serverCoverFailureLock) {
+			failedServerCoverSongIds.add(songId)
+		}
+	}
+
 	suspend fun prefetchArtworkForPlayingSong(song: DomainSong): Result<MusicBrainzArtworkCacheEntry?> =
 		runCatching {
 			if (song.id.startsWith("radio_")) return@runCatching null
@@ -112,6 +121,9 @@ class MusicBrainzArtworkRepository(
 			val album = song.albumId?.let { albumDao.getAlbumById(it)?.album }
 			val albumCoverArtId = album?.coverArtId
 			val albumMusicBrainzId = album?.musicBrainzId
+			val serverCoverLoadFailed = synchronized(serverCoverFailureLock) {
+				failedServerCoverSongIds.contains(song.id)
+			}
 			val fingerprint = musicBrainzArtworkFingerprint(song, albumMusicBrainzId)
 			val shouldResolveMetadata = shouldResolveMusicBrainzMetadataOnPlayback(
 				enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
@@ -127,6 +139,7 @@ class MusicBrainzArtworkRepository(
 				isRadio = false,
 				songCoverArtId = song.coverArtId,
 				albumCoverArtId = albumCoverArtId,
+				serverCoverLoadFailed = serverCoverLoadFailed,
 				songMusicBrainzId = song.musicBrainzId,
 				albumMusicBrainzId = albumMusicBrainzId,
 				songTitle = song.title,
@@ -460,6 +473,7 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	isRadio: Boolean,
 	songCoverArtId: String?,
 	albumCoverArtId: String?,
+	serverCoverLoadFailed: Boolean = false,
 	songMusicBrainzId: String?,
 	albumMusicBrainzId: String?,
 	songTitle: String? = null,
@@ -468,8 +482,10 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	enabled &&
 		isOnline &&
 		!isRadio &&
-		songCoverArtId.isNullOrBlank() &&
-		albumCoverArtId.isNullOrBlank() &&
+		(
+			serverCoverLoadFailed ||
+				(songCoverArtId.isNullOrBlank() && albumCoverArtId.isNullOrBlank())
+		) &&
 		(
 			musicBrainzLookupMbidOrNull(songMusicBrainzId) != null ||
 				musicBrainzLookupMbidOrNull(albumMusicBrainzId) != null ||

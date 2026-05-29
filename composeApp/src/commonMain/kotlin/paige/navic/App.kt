@@ -76,6 +76,7 @@ import paige.navic.ui.screens.library.LibraryScreen
 import paige.navic.ui.screens.login.LoginScreen
 import paige.navic.ui.screens.lidaClips.LidaClipPlayerScreen
 import paige.navic.ui.screens.lyrics.LyricsScreen
+import paige.navic.ui.screens.musicBrainz.MusicBrainzInfoScreen
 import paige.navic.ui.screens.nowPlaying.NowPlayingScreen
 import paige.navic.ui.screens.nowPlaying.PlaybackSpeedScreen
 import paige.navic.ui.screens.playlist.PlaylistListScreen
@@ -300,6 +301,12 @@ private fun entryProvider(
 			val playerState by player.uiState.collectAsState()
 			val song = playerState.currentSong
 			LyricsScreen(song)
+		}
+		entry<Screen.MusicBrainzInfo>(metadata = NowPlayingSceneStrategy.bottomSheet(isTransparent = true)) {
+			val player = koinInject<MediaPlayerViewModel>()
+			val playerState by player.uiState.collectAsState()
+			val song = playerState.currentSong
+			MusicBrainzInfoScreen(song)
 		}
 		entry<Screen.Queue>(metadata = BottomSheetSceneStrategy.bottomSheet()) {
 			QueueScreen()

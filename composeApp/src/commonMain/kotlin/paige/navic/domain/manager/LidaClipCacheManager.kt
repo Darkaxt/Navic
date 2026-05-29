@@ -78,6 +78,19 @@ class LidaClipCacheManager(
 		}
 	}
 
+	fun cachedClipFor(clip: DomainLidaClip): DomainLidaClip? {
+		val cacheSizeMb = preferenceManager.lidaClipsVideoCacheSizeMb
+		if (cacheSizeMb <= 0) return null
+
+		val extension = lidaClipCacheFileExtension(
+			mimeType = clip.mimeType,
+			fileName = clip.fileName,
+			streamUrl = clip.streamUrl
+		)
+		val cachePath = storageManager.getLidaClipVideoCachePath(clip.id, extension)
+		return cachedClipOrNull(clip, cachePath, cacheSizeMb)
+	}
+
 	private fun cachedClipOrNull(
 		clip: DomainLidaClip,
 		cachePath: String,

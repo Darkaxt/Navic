@@ -78,6 +78,9 @@ sealed interface Screen : NavKey {
 	data object Lyrics : Screen
 	@Immutable
 	@Serializable
+	data object MusicBrainzInfo : Screen
+	@Immutable
+	@Serializable
 	data object Queue : Screen
 	@Immutable
 	@Serializable

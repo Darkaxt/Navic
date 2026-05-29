@@ -64,6 +64,8 @@ import navic.composeapp.generated.resources.option_lida_clips_enabled
 import navic.composeapp.generated.resources.option_lida_clips_fallback_clips
 import navic.composeapp.generated.resources.option_lida_clips_keep_screen_on
 import navic.composeapp.generated.resources.option_lida_clips_landscape_video_mode
+import navic.composeapp.generated.resources.option_lida_clips_lyrics_video_background
+import navic.composeapp.generated.resources.option_lida_clips_musicbrainz_video_background
 import navic.composeapp.generated.resources.option_lida_clips_official_clips
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
@@ -76,6 +78,8 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_background_video
 import navic.composeapp.generated.resources.subtitle_lida_clips_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_lida_clips_landscape_video_mode
+import navic.composeapp.generated.resources.subtitle_lida_clips_lyrics_video_background
+import navic.composeapp.generated.resources.subtitle_lida_clips_musicbrainz_video_background
 import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
@@ -217,6 +221,18 @@ fun SettingsLidaClipsScreen() {
 									description = stringResource(Res.string.subtitle_lida_clips_background_video),
 									selection = preferenceManager.lidaClipsBackgroundVideoMode,
 									onSelect = { preferenceManager.lidaClipsBackgroundVideoMode = it }
+								)
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_lyrics_video_background)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_lyrics_video_background)) },
+									value = preferenceManager.lidaClipsLyricsVideoBackground,
+									onSetValue = { preferenceManager.lidaClipsLyricsVideoBackground = it }
+								)
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_musicbrainz_video_background)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_musicbrainz_video_background)) },
+									value = preferenceManager.lidaClipsMusicBrainzInfoVideoBackground,
+									onSetValue = { preferenceManager.lidaClipsMusicBrainzInfoVideoBackground = it }
 								)
 								SettingSelectionRow(
 									title = { Text(stringResource(Res.string.option_lida_clips_video_fit)) },

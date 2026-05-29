@@ -52,6 +52,7 @@ fun CoverArt(
 	contentDescription: String? = null,
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
+	onServerCoverLoadFailed: (suspend () -> Unit)? = null,
 	square: Boolean = true,
 	crossfadeMs: Int = 500,
 	shadowElevation: Dp = 0.dp,
@@ -64,9 +65,9 @@ fun CoverArt(
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val sessionManager = koinInject<SessionManager>()
 	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
+	val usesServerCoverArt = resolvedImageUrl == null
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
 	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
-		val usesServerCoverArt = resolvedImageUrl == null
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(resolvedImageCacheKey)
@@ -111,6 +112,9 @@ fun CoverArt(
 					"Failed to load cover art, falling back to placeholder",
 					it.result.throwable
 				)
+				if (usesServerCoverArt) {
+					onServerCoverLoadFailed?.invoke()
+				}
 			}
 			LazyColumn(
 				horizontalAlignment = Alignment.CenterHorizontally,

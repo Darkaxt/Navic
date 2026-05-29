@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,8 +22,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
+import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.models.LidaClipPlaybackState
 import paige.navic.domain.models.NowPlayingVideoArtworkCrossfadeDurationMs
 import paige.navic.domain.models.NowPlayingVideoArtworkCrossfadeInitialScale
@@ -35,14 +39,73 @@ import paige.navic.domain.models.shouldMuteMusicForNowPlayingPromotedLidaClip
 import paige.navic.domain.models.shouldMuteNowPlayingBackgroundLidaClipVideo
 import paige.navic.domain.models.shouldMuteNowPlayingPromotedLidaClipVideo
 import paige.navic.domain.models.shouldPlayNowPlayingLidaClipVideo
+import paige.navic.domain.models.shouldShowLidaClipExtraScreenBackground
 import paige.navic.domain.models.shouldShowNowPlayingLidaClipControls
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
+import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.lidaClips.PlatformLidaClipPlayer
+
+@Composable
+fun ExtraScreenLidaClipBackground(
+	song: DomainSong?,
+	enabled: Boolean,
+	modifier: Modifier = Modifier
+) {
+	val preferenceManager = koinInject<PreferenceManager>()
+	val player = koinInject<MediaPlayerViewModel>()
+	val lidaClipsRepository = koinInject<LidaClipsRepository>()
+	val lidaClipCacheManager = koinInject<LidaClipCacheManager>()
+	val playerState by player.uiState.collectAsState()
+	var cachedClip by remember(song?.id) { mutableStateOf<DomainLidaClip?>(null) }
+
+	LaunchedEffect(
+		song?.id,
+		enabled,
+		preferenceManager.lidaClipsEnabled,
+		preferenceManager.lidaClipsBaseUrl,
+		preferenceManager.lidaClipsApiKey,
+		preferenceManager.lidaClipsVideoCacheSizeMb
+	) {
+		cachedClip = null
+		val currentSong = song ?: return@LaunchedEffect
+		if (!enabled || !preferenceManager.lidaClipsEnabled || preferenceManager.lidaClipsVideoCacheSizeMb <= 0) {
+			return@LaunchedEffect
+		}
+		lidaClipsRepository.findClipForSong(currentSong)
+			.onSuccess { clip ->
+				cachedClip = clip
+					?.let(lidaClipCacheManager::cachedClipFor)
+					?.takeIf { isCachedLidaClipStreamUrl(it.streamUrl) }
+			}
+			.onFailure {
+				cachedClip = null
+			}
+	}
+
+	val clip = cachedClip
+	if (
+		clip != null &&
+		shouldShowLidaClipExtraScreenBackground(
+			settingEnabled = enabled,
+			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+			hasCachedClip = true,
+			musicIsPlaying = !playerState.isPaused
+		)
+	) {
+		NowPlayingLidaClipBackground(
+			clip = clip,
+			backgroundVideoMode = LidaClipsBackgroundVideoMode.Blurred,
+			playerProgress = playerState.progress,
+			musicIsPaused = playerState.isPaused,
+			modifier = modifier
+		)
+	}
+}
 
 @Composable
 fun NowPlayingLidaClipBackground(

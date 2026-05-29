@@ -109,6 +109,10 @@ fun NowPlayingArtwork(
 			coverArtId = song.coverArtId,
 			imageUrl = musicBrainzFallbackArtworkUrl,
 			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
+			onServerCoverLoadFailed = {
+				musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
+				musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
+			},
 			modifier = artworkModifier
 				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
 			shadowElevation = 8.dp,
