@@ -59,6 +59,8 @@
 	<string name="title_lida_clips_recent_clips">Recent clips</string>
 	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
+	<string name="title_aurral">Aurral</string>
+	<string name="title_aurral_service_status">Service status</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_musicbrainz_info">MusicBrainz info</string>
 	<string name="title_integrations">Integrations</string>
@@ -151,6 +153,7 @@
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
+	<string name="subtitle_aurral">Connect artist discovery, acquisition requests, and dynamic Flows from Aurral</string>
 	<string name="subtitle_integrations">Connect Navic to your self-hosted media services</string>
 	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_auto_download_starred_albums">Download album songs when you star an album while online. Unstarring keeps existing downloads.</string>
@@ -168,6 +171,7 @@
 	<string name="subtitle_lida_clips_remember_playback_position">Resume the last watched position when reopening the same music video. Android only</string>
 	<string name="subtitle_lida_clips_keep_screen_on">Keep the display awake while a music video clip is open</string>
 	<string name="subtitle_lida_clips_sync_paused">Tell the LidaClips backend to pause scheduled clip syncs</string>
+	<string name="subtitle_aurral_enabled">Show native Aurral diagnostics now. Artist discovery, acquisition, and Flow playback will use this connection.</string>
 
 	<string name="option_off">Off</string>
 	<string name="option_unlimited">Unlimited</string>
@@ -382,6 +386,7 @@
 	<string name="option_musicbrainz_artwork_fallback">MusicBrainz and Cover Art Archive</string>
 	<string name="subtitle_musicbrainz_artwork_fallback">Fetch public MusicBrainz metadata during playback and recover missing artwork from Cover Art Archive</string>
 	<string name="option_lida_clips">Music video clips</string>
+	<string name="option_aurral">Aurral</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
 	<string name="option_max_concurrent_downloads">Parallel downloads</string>
@@ -408,6 +413,22 @@
 	<string name="option_lida_clips_remember_playback_position">Remember clip position</string>
 	<string name="option_lida_clips_keep_screen_on">Keep screen on</string>
 	<string name="option_lida_clips_sync_paused">Pause LidaClips sync</string>
+	<string name="option_aurral_enabled">Enable Aurral</string>
+	<string name="option_aurral_base_url">Aurral URL</string>
+	<string name="option_aurral_username">Username</string>
+	<string name="option_aurral_password">Password</string>
+	<string name="option_aurral_health">Health</string>
+	<string name="option_aurral_version">Version</string>
+	<string name="option_aurral_auth_state">Authentication</string>
+	<string name="option_aurral_user">Signed in as</string>
+	<string name="option_aurral_permissions">Native actions</string>
+	<string name="option_aurral_lidarr">Lidarr</string>
+	<string name="option_aurral_discovery">Discovery recommendations</string>
+	<string name="option_aurral_flows">Enabled Flows</string>
+	<string name="option_aurral_shared_playlists">Shared playlists</string>
+	<string name="option_aurral_requests">Album requests</string>
+	<string name="option_aurral_flow_tracks">Flow tracks</string>
+	<string name="option_aurral_flow_state">Flow state</string>
 
 	<string name="info_status_idle">Idle</string>
 	<string name="info_status_calculating">Calculating...</string>
@@ -425,6 +446,8 @@
 	<string name="info_explicit">Explicit</string>
 	<string name="info_in_playlist">Song is in one of your playlists</string>
 	<string name="info_bitrate_default_zero">Leaving this empty defaults to 0. Letting the server pick.</string>
+	<string name="info_service_configured">Configured</string>
+	<string name="info_not_configured">Not configured</string>
 	<string name="info_lida_clips_not_tested">Connection not tested</string>
 	<string name="info_lida_clips_missing_url">Enter the LidaClips URL first</string>
 	<string name="info_lida_clips_invalid_url">Use an http:// or https:// LidaClips URL with a host, optional valid port, and no query or fragment</string>
@@ -453,6 +476,19 @@
 	<string name="info_lida_clips_more_recent_failures">More recent failures: %1$d</string>
 	<string name="info_lida_clips_android_only">LidaClips video playback is currently available on Android only.</string>
 	<string name="info_no_lida_clip">No music video found for this track.</string>
+	<string name="info_aurral_not_tested">Connection not tested</string>
+	<string name="info_aurral_missing_url">Enter the Aurral URL first</string>
+	<string name="info_aurral_invalid_url">Use an http:// or https:// Aurral URL with a host, optional valid port, and no credentials, query, or fragment</string>
+	<string name="info_aurral_testing">Testing connection...</string>
+	<string name="info_aurral_connected">Connected to Aurral</string>
+	<string name="info_aurral_unauthorized">Unauthorized. Check the Aurral username and password.</string>
+	<string name="info_aurral_forbidden">Forbidden. Check the Aurral user permissions.</string>
+	<string name="info_aurral_failed">Connection failed: %1$s</string>
+	<string name="info_aurral_service_status_loading">Loading service status...</string>
+	<string name="info_aurral_service_status_unavailable">Service status not loaded</string>
+	<string name="info_aurral_service_status_failed">Service status failed: %1$s</string>
+	<string name="info_aurral_auth_required">Required</string>
+	<string name="info_aurral_auth_local_or_disabled">Local bypass or disabled</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>
 	<string name="option_position_top">Top</string>

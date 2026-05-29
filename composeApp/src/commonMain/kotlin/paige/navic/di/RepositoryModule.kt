@@ -2,6 +2,7 @@ package paige.navic.di
 
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.CollectionRepository
@@ -22,6 +23,7 @@ val repositoryModule = module {
 	singleOf(::DbRepository)
 	singleOf(::GenreRepository)
 	single { LidaClipsRepository(get()) }
+	single { AurralRepository(get()) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
 	singleOf(::SearchRepository)

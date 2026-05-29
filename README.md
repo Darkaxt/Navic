@@ -2,7 +2,7 @@
 
 # Navic
 
-A personalized Navidrome client fork with Android playback controls, LidaClips music videos, and reverse-proxy auth.
+A personalized Navidrome client fork with Android playback controls, LidaClips music videos, Aurral integration, and reverse-proxy auth.
 
 [![Add to Obtainium](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/obtainium.svg)][ADD_TO_OBTAINIUM]
 [![AltSource provides links for most sideloading apps, like Feather](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/altsource.svg)][ALTSOURCE]
@@ -24,12 +24,12 @@ A personalized Navidrome client fork with Android playback controls, LidaClips m
 
 ## Fork additions
 
-This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, and LidaClips music-video playback.
+This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, LidaClips music-video playback, and self-hosted Aurral discovery/acquisition workflows.
 
 ### Settings discovery
 
 * Settings has a search field that filters matching settings into live, editable result rows, with each result showing its Settings path.
-* The filtered rows cover common Appearance, Now Playing, Bottom Bar, Playback, Data & Storage, Integrations, LidaClips, and Developer preferences without forcing navigation into the owning settings page.
+* The filtered rows cover common Appearance, Now Playing, Bottom Bar, Playback, Data & Storage, Integrations, LidaClips, Aurral, and Developer preferences without forcing navigation into the owning settings page.
 
 ### Reverse proxy and server access
 
@@ -141,6 +141,15 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Android Picture-in-Picture, optional landscape video mode, video fit/crop mode, video cache size, keep-screen-on, remembered clip positions, Playback audio-focus behavior, and Feishin-style music pause/resume are available from existing Playback and LidaClips settings.
 * iOS currently shows an unsupported message until a native video player is added.
 
+### Aurral integration
+
+* Settings -> Integrations now has a native `Aurral` screen for the self-hosted Aurral backend instead of treating it as an external link.
+* The Aurral URL defaults to blank, must start with `http://` or `https://`, include a host, use a valid numeric port when present, and omit embedded credentials, query, or fragment parts.
+* Optional Aurral username/password fields generate a Basic Auth `Authorization` header for Aurral API requests. The credentials are separate from Navidrome reverse-proxy Basic Auth.
+* The Aurral settings screen can test connectivity and show service diagnostics including backend health, version, authentication state, signed-in user, native-action permissions, Lidarr configuration, discovery recommendation count, Flow counts, shared playlist count, request count, and current Flow track state.
+* Flow stream and artwork URL helpers are ready for the next playback slice and use bearer query tokens instead of sharing Navidrome proxy headers with media requests.
+* Settings search includes live Aurral rows for enabling the integration, URL, username, and password.
+
 ### Maintenance
 
 * GitHub Actions permissions and vulnerable transitive build dependencies were hardened for the fork's Security & Quality findings.
@@ -184,6 +193,10 @@ Use the normal Download action on songs, albums, playlists, stations, or artist 
 ### MusicBrainz metadata and artwork setup
 
 Open Settings -> Integrations and turn `MusicBrainz and Cover Art Archive` on. Navic fetches public MusicBrainz recording/release/release-group metadata only when a song starts playing or when the current song's MusicBrainz info screen opens, including songs that already have Navidrome artwork. Cover Art Archive image fallback remains stricter: it only tries external cover art when the currently playing song has no song cover, no synced album cover, or a server cover failed to load. Navic caches found and missing results locally, uses at most one MusicBrainz/CAA request per second, does not scan the full library, and uses a public read-only User-Agent rather than bundled OAuth credentials. If the song does not have a valid synced recording MBID, Navic searches MusicBrainz by title and artist and accepts only high-confidence recording matches before trying Cover Art Archive release artwork; `[Unknown Artist]` is treated as synthetic local metadata and is skipped for fallback search. Malformed synced recording, release, or release-group MBIDs are ignored for direct lookup decisions so bad local tags do not produce malformed MusicBrainz/CAA requests. When the local album title is available, Navic first searches MusicBrainz recordings constrained to releases with that album title, then falls back to the broader title/artist search. When MusicBrainz returns several releases for a recording, Navic tries releases whose title or release-group title matches the local album title before falling back to MusicBrainz order. Cached MusicBrainz metadata appears from the Now Playing `MusicBrainz info` action after the song has been resolved during playback, including source priority, MusicBrainz disambiguation notes, release-group type, and safe external relation links such as Discogs, Songfacts, Wikipedia, and Wikidata when MusicBrainz has them on the recording, linked work, selected release, or selected release-group. Tapping MusicBrainz URL rows opens the public MusicBrainz page; tapping external-link rows opens only whitelisted metadata domains. Older cached misses without metadata are refreshed when metadata lookup is now possible, older metadata schemas are refreshed once when playback needs the newer fields, expired cache entries are hidden from UI artwork and MusicBrainz info until playback refreshes them, and turning the MusicBrainz setting off immediately hides cached fallback artwork/metadata without clearing the cache. Settings -> Data & Storage -> Danger Zone -> `Clear MusicBrainz cache` clears cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries without clearing the normal Coil image cache.
+
+### Aurral setup
+
+Open Settings -> Integrations -> `Aurral`, enable the integration, enter your Aurral URL, and optionally enter the Aurral username/password if your backend requires auth. Use `Test connection` to verify the endpoint, then check `Service status` for health, Flow, discovery, Lidarr, and request diagnostics. Native artist/catalog browsing, acquisition marking, and Flow playback are the next Aurral slices and will use this configured connection.
 
 ### ReplayGain loudness boost setup
 

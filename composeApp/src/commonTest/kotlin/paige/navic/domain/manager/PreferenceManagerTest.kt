@@ -168,6 +168,29 @@ class PreferenceManagerTest {
 	}
 
 	@Test
+	fun aurralPreferencesDefaultToBlankDisabledService() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertFalse(manager.aurralEnabled)
+		assertEquals("", manager.aurralBaseUrl)
+		assertEquals("", manager.aurralUsername)
+		assertEquals("", manager.aurralPassword)
+		assertEquals(emptyMap(), manager.aurralRequestHeadersMap())
+	}
+
+	@Test
+	fun aurralRequestHeadersMapIncludesTrimmedBasicAuthWhenCredentialsArePresent() {
+		val manager = PreferenceManager(MapSettings())
+		manager.aurralUsername = " user "
+		manager.aurralPassword = " pass "
+
+		assertEquals(
+			mapOf("Authorization" to "Basic dXNlcjpwYXNz"),
+			manager.aurralRequestHeadersMap()
+		)
+	}
+
+	@Test
 	fun clearMusicBrainzArtworkCacheRemovesCachedFallbackArtworkAndMetadata() {
 		val manager = PreferenceManager(MapSettings())
 		manager.musicBrainzArtworkCacheJson = """{"entries":[{"songId":"song-1"}]}"""

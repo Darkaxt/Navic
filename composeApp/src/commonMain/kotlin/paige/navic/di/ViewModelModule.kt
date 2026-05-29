@@ -24,6 +24,7 @@ import paige.navic.ui.screens.radio.viewmodels.RadioListViewModel
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
+import paige.navic.ui.screens.settings.viewmodels.SettingsAurralViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
@@ -77,6 +78,7 @@ val viewModelModule = module {
 	viewModelOf(::CollectionDetailViewModel)
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
+	viewModelOf(::SettingsAurralViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

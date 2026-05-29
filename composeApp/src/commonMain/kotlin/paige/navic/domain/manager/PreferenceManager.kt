@@ -148,6 +148,10 @@ class PreferenceManager(
 	var lidaClipsKeepScreenOn by preference(true)
 	var lidaClipsLastClipId by preference("")
 	var lidaClipsLastPositionMs by preference(0L)
+	var aurralEnabled by preference(false)
+	var aurralBaseUrl by preference("")
+	var aurralUsername by preference("")
+	var aurralPassword by preference("")
 	var respectAudioFocus by preference(true)
 	var skipSilence by preference(false)
 	var skipMediaOnError by preference(false)
@@ -241,6 +245,9 @@ class PreferenceManager(
 
 	fun lidaClipsRequestHeadersMap(): Map<String, String> =
 		paige.navic.domain.repositories.lidaClipsRequestHeaders(lidaClipsApiKey)
+
+	fun aurralRequestHeadersMap(): Map<String, String> =
+		paige.navic.domain.repositories.aurralBasicAuthHeaders(aurralUsername, aurralPassword)
 
 	fun clearMusicBrainzArtworkCache() {
 		musicBrainzArtworkCacheJson = ""

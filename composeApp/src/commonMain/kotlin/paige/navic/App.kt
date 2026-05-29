@@ -87,6 +87,7 @@ import paige.navic.ui.screens.settings.BottomBarScreen
 import paige.navic.ui.screens.settings.FontsScreen
 import paige.navic.ui.screens.settings.SettingsAboutScreen
 import paige.navic.ui.screens.settings.SettingsAcknowledgementsScreen
+import paige.navic.ui.screens.settings.SettingsAurralScreen
 import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
@@ -368,6 +369,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.LidaClips>(metadata = detailPane("settings")) {
 			SettingsLidaClipsScreen()
+		}
+		entry<Screen.Settings.Aurral>(metadata = detailPane("settings")) {
+			SettingsAurralScreen()
 		}
 		entry<Screen.Settings.Fonts> {
 			FontsScreen()

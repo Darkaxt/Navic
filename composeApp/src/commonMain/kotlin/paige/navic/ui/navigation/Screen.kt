@@ -150,6 +150,9 @@ sealed interface Screen : NavKey {
 		data object LidaClips : Settings
 		@Immutable
 		@Serializable
+		data object Aurral : Settings
+		@Immutable
+		@Serializable
 		data object Fonts : Settings
 		@Immutable
 		@Serializable

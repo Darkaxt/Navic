@@ -126,6 +126,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val lyrics = stringResource(Res.string.action_lyrics)
 	val network = stringResource(Res.string.title_network)
 	val lidaClips = stringResource(Res.string.title_lida_clips)
+	val aurral = stringResource(Res.string.title_aurral)
 	val cacheManagement = stringResource(Res.string.title_cache_management)
 	val miniPlayer = stringResource(Res.string.title_mini_player)
 	val navigationBar = stringResource(Res.string.title_navigation_bar)
@@ -1300,6 +1301,42 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				onSetValue = { preferenceManager.lidaClipsKeepScreenOn = it }
 			))
 		}
+		add(switchRow(
+			id = "aurral.enabled",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_aurral_enabled),
+			subtitle = stringResource(Res.string.subtitle_aurral_enabled),
+			keywords = listOf("Aurral", "Flows", "artist acquisition", "self hosted"),
+			value = preferenceManager.aurralEnabled,
+			onSetValue = { preferenceManager.aurralEnabled = it }
+		))
+		add(textFieldRow(
+			id = "aurral.base-url",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_aurral_base_url),
+			value = preferenceManager.aurralBaseUrl,
+			keywords = listOf("endpoint", "server", "Aurral", "Flows"),
+			keyboardType = KeyboardType.Uri,
+			onValueChange = { preferenceManager.aurralBaseUrl = it }
+		))
+		add(textFieldRow(
+			id = "aurral.username",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_aurral_username),
+			value = preferenceManager.aurralUsername,
+			keywords = listOf("login", "Basic Auth", "Aurral"),
+			onValueChange = { preferenceManager.aurralUsername = it }
+		))
+		add(textFieldRow(
+			id = "aurral.password",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_aurral_password),
+			value = preferenceManager.aurralPassword,
+			keywords = listOf("login", "Basic Auth", "Aurral"),
+			keyboardType = KeyboardType.Password,
+			isPassword = true,
+			onValueChange = { preferenceManager.aurralPassword = it }
+		))
 
 		if (!isApple) {
 			add(switchRow(

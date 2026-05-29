@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
+import navic.composeapp.generated.resources.option_aurral
 import navic.composeapp.generated.resources.option_lida_clips
+import navic.composeapp.generated.resources.subtitle_aurral
 import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.title_integrations
@@ -76,6 +78,21 @@ fun SettingsIntegrationsScreen() {
 							Text(stringResource(Res.string.option_lida_clips))
 							Text(
 								stringResource(Res.string.subtitle_lida_clips),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Icon(Icons.Outlined.ChevronForward, null)
+					}
+					FormRow(
+						onClick = dropUnlessResumed {
+							backStack.add(Screen.Settings.Aurral)
+						}
+					) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.option_aurral))
+							Text(
+								stringResource(Res.string.subtitle_aurral),
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
