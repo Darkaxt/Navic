@@ -232,21 +232,26 @@ class MusicBrainzArtworkRepository(
 
 	private suspend fun searchRecording(song: DomainSong): MusicBrainzRecordingDto? {
 		if (!canSearchMusicBrainzRecording(song.title, song.artistName)) return null
-		val response = throttledGet(
-			musicBrainzRecordingSearchEndpoint(
-				title = song.title,
-				artistName = song.artistName
-			)
+		val searchEndpoints = musicBrainzRecordingSearchEndpoints(
+			title = song.title,
+			artistName = song.artistName,
+			albumTitle = song.albumTitle
 		)
-		val recordingMbid = when {
-			response.status == HttpStatusCode.NotFound -> null
-			response.status.isSuccess() -> bestMusicBrainzRecordingSearchMatch(
-				response.body<MusicBrainzRecordingSearchResponseDto>()
-			)
+		for (endpoint in searchEndpoints) {
+			val response = throttledGet(endpoint)
+			val recordingMbid = when {
+				response.status == HttpStatusCode.NotFound -> null
+				response.status.isSuccess() -> bestMusicBrainzRecordingSearchMatch(
+					response.body<MusicBrainzRecordingSearchResponseDto>()
+				)
 
-			else -> error("MusicBrainz recording search returned HTTP ${response.status.value}")
+				else -> error("MusicBrainz recording search returned HTTP ${response.status.value}")
+			}
+			if (recordingMbid != null) {
+				return fetchRecording(recordingMbid)
+			}
 		}
-		return recordingMbid?.let { fetchRecording(it) }
+		return null
 	}
 
 	private suspend fun throttledGet(url: String) =
@@ -327,10 +332,37 @@ internal fun coverArtArchiveReleaseGroupEndpoint(mbid: String): String =
 internal fun musicBrainzRecordingLookupEndpoint(mbid: String): String =
 	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+genres+tags&fmt=json"
 
-internal fun musicBrainzRecordingSearchEndpoint(title: String, artistName: String): String {
-	val query = "recording:${lucenePhrase(title)} AND artistname:${lucenePhrase(artistName)}"
+internal fun musicBrainzRecordingSearchEndpoint(
+	title: String,
+	artistName: String,
+	albumTitle: String? = null
+): String {
+	val query = listOfNotNull(
+		"recording:${lucenePhrase(title)}",
+		"artistname:${lucenePhrase(artistName)}",
+		albumTitle.nonBlankOrNull()?.let { "release:${lucenePhrase(it)}" }
+	).joinToString(" AND ")
 	return "$MUSICBRAINZ_BASE_URL/ws/2/recording?query=${encodeUrlComponent(query)}&limit=$MUSICBRAINZ_RECORDING_SEARCH_LIMIT&fmt=json"
 }
+
+internal fun musicBrainzRecordingSearchEndpoints(
+	title: String,
+	artistName: String,
+	albumTitle: String?
+): List<String> =
+	listOfNotNull(
+		albumTitle.nonBlankOrNull()?.let {
+			musicBrainzRecordingSearchEndpoint(
+				title = title,
+				artistName = artistName,
+				albumTitle = it
+			)
+		},
+		musicBrainzRecordingSearchEndpoint(
+			title = title,
+			artistName = artistName
+		)
+	).distinct()
 
 internal fun bestMusicBrainzRecordingSearchMatch(
 	response: MusicBrainzRecordingSearchResponseDto

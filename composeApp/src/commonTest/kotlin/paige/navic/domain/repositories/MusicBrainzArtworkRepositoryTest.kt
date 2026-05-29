@@ -158,6 +158,43 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun recordingSearchEndpointCanConstrainByLocalAlbumTitle() {
+		assertEquals(
+			"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22%20AND%20release%3A%22Arrival%20%5C%28Deluxe%5C%29%22&limit=5&fmt=json",
+			musicBrainzRecordingSearchEndpoint(
+				title = "Dancing Queen",
+				artistName = "ABBA",
+				albumTitle = "Arrival (Deluxe)"
+			)
+		)
+	}
+
+	@Test
+	fun recordingSearchEndpointsTryAlbumSpecificSearchBeforeBroadFallback() {
+		assertEquals(
+			listOf(
+				"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22%20AND%20release%3A%22Arrival%22&limit=5&fmt=json",
+				"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22&limit=5&fmt=json"
+			),
+			musicBrainzRecordingSearchEndpoints(
+				title = "Dancing Queen",
+				artistName = "ABBA",
+				albumTitle = " Arrival "
+			)
+		)
+		assertEquals(
+			listOf(
+				"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22&limit=5&fmt=json"
+			),
+			musicBrainzRecordingSearchEndpoints(
+				title = "Dancing Queen",
+				artistName = "ABBA",
+				albumTitle = " "
+			)
+		)
+	}
+
+	@Test
 	fun bestRecordingSearchMatchRequiresHighScoreAndUsableMbid() {
 		assertEquals(
 			"recording-100",
