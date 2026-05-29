@@ -40,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.compose.dropUnlessResumed
 import coil3.SingletonImageLoader
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +72,6 @@ import navic.composeapp.generated.resources.option_download_queue
 import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
-import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_max_concurrent_downloads
 import navic.composeapp.generated.resources.option_musicbrainz_cache
@@ -84,7 +82,6 @@ import navic.composeapp.generated.resources.option_pending_actions
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_albums
 import navic.composeapp.generated.resources.subtitle_auto_download_starred_songs
 import navic.composeapp.generated.resources.subtitle_download_queue
-import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.subtitle_max_concurrent_downloads
 import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_offline_mode
@@ -102,7 +99,6 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DangerZoneAction
@@ -111,7 +107,6 @@ import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Offline
 import paige.navic.ui.components.common.Form
@@ -135,7 +130,6 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 fun SettingsDataStorageScreen() {
 	val viewModel = koinViewModel<SettingsDataStorageViewModel>()
 
-	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
@@ -289,21 +283,6 @@ fun SettingsDataStorageScreen() {
 							musicBrainzArtworkRepository.refreshCacheVisibility()
 						}
 					)
-					FormRow(
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.LidaClips)
-						}
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_lida_clips))
-							Text(
-								stringResource(Res.string.subtitle_lida_clips),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Icon(Icons.Outlined.ChevronForward, null)
-					}
 				}
 
 				FormTitle(stringResource(Res.string.action_search_history))

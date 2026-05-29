@@ -115,6 +115,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val bottomBar = stringResource(Res.string.title_bottom_app_bar)
 	val playback = stringResource(Res.string.title_playback)
 	val dataStorage = stringResource(Res.string.title_data_storage)
+	val integrations = stringResource(Res.string.title_integrations)
 	val developer = stringResource(Res.string.title_developer)
 	val layout = stringResource(Res.string.title_layout)
 	val library = stringResource(Res.string.title_library)
@@ -1180,7 +1181,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 
 		add(switchRow(
 			id = "lida.enabled",
-			path = path(dataStorage, lidaClips),
+			path = path(integrations, lidaClips),
 			title = stringResource(Res.string.option_lida_clips_enabled),
 			subtitle = stringResource(Res.string.subtitle_lida_clips_enabled),
 			keywords = listOf("music video clips"),
@@ -1189,7 +1190,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 		))
 		add(textFieldRow(
 			id = "lida.base-url",
-			path = path(dataStorage, lidaClips),
+			path = path(integrations, lidaClips),
 			title = stringResource(Res.string.option_lida_clips_base_url),
 			value = preferenceManager.lidaClipsBaseUrl,
 			keywords = listOf("endpoint", "server", "music video clips"),
@@ -1198,7 +1199,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 		))
 		add(textFieldRow(
 			id = "lida.api-key",
-			path = path(dataStorage, lidaClips),
+			path = path(integrations, lidaClips),
 			title = stringResource(Res.string.option_lida_clips_api_key),
 			value = preferenceManager.lidaClipsApiKey,
 			keywords = listOf("token", "music video clips"),
@@ -1209,7 +1210,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 		if (isAndroid) {
 			add(switchRow(
 				id = "lida.pip",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_picture_in_picture),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_picture_in_picture),
 				value = preferenceManager.lidaClipsPictureInPicture,
@@ -1217,15 +1218,25 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			))
 			add(switchRow(
 				id = "lida.landscape",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_landscape_video_mode),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_landscape_video_mode),
 				value = preferenceManager.lidaClipsLandscapeVideoMode,
 				onSetValue = { preferenceManager.lidaClipsLandscapeVideoMode = it }
 			))
 			add(selectionRow(
+				id = "lida.background-video",
+				path = path(integrations, lidaClips),
+				title = stringResource(Res.string.option_lida_clips_background_video),
+				subtitle = stringResource(Res.string.subtitle_lida_clips_background_video),
+				items = LidaClipsBackgroundVideoMode.entries,
+				label = { stringResource(it.displayName) },
+				selection = preferenceManager.lidaClipsBackgroundVideoMode,
+				onSelect = { preferenceManager.lidaClipsBackgroundVideoMode = it }
+			))
+			add(selectionRow(
 				id = "lida.video-fit",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_video_fit),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_video_fit),
 				items = LidaClipsVideoFitMode.entries,
@@ -1235,7 +1246,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			))
 			add(switchRow(
 				id = "lida.pause-music",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_pause_music_playback),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_pause_music_playback),
 				value = preferenceManager.lidaClipsPauseMusicPlayback,
@@ -1243,7 +1254,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			))
 			add(switchRow(
 				id = "lida.remember-position",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_remember_playback_position),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_remember_playback_position),
 				value = preferenceManager.lidaClipsRememberPlaybackPosition,
@@ -1251,7 +1262,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			))
 			add(switchRow(
 				id = "lida.keep-screen-on",
-				path = path(dataStorage, lidaClips),
+				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_keep_screen_on),
 				subtitle = stringResource(Res.string.subtitle_lida_clips_keep_screen_on),
 				value = preferenceManager.lidaClipsKeepScreenOn,

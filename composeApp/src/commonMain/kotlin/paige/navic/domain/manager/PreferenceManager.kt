@@ -13,6 +13,7 @@ import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
+import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
 import paige.navic.domain.models.settings.LyricsFontSize
@@ -136,6 +137,7 @@ class PreferenceManager(
 	var lidaClipsApiKey by preference("")
 	var lidaClipsPictureInPicture by preference(false)
 	var lidaClipsLandscapeVideoMode by preference(false)
+	var lidaClipsBackgroundVideoMode by preference(LidaClipsBackgroundVideoMode.Blurred)
 	var lidaClipsVideoFitMode by preference(LidaClipsVideoFitMode.Fit)
 	var lidaClipsPauseMusicPlayback by preference(true)
 	var lidaClipsRememberPlaybackPosition by preference(true)

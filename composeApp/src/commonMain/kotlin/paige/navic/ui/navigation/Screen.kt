@@ -141,6 +141,9 @@ sealed interface Screen : NavKey {
 		data object DataStorage : Settings
 		@Immutable
 		@Serializable
+		data object Integrations : Settings
+		@Immutable
+		@Serializable
 		data object LidaClips : Settings
 		@Immutable
 		@Serializable

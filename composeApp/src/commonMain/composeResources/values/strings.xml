@@ -60,6 +60,7 @@
 	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_music_video">Music video</string>
+	<string name="title_integrations">Integrations</string>
 	<string name="title_up_next">Up next</string>
 	<string name="title_wifi">Wi-Fi</string>
 	<string name="title_cellular">Cellular</string>
@@ -149,6 +150,7 @@
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
+	<string name="subtitle_integrations">Connect Navic to your self-hosted media services</string>
 	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_auto_download_starred_albums">Download album songs when you star an album while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_max_concurrent_downloads">Limit how many songs download at the same time</string>
@@ -156,6 +158,7 @@
 	<string name="subtitle_lida_clips_enabled">Show music-video actions for matching tracks</string>
 	<string name="subtitle_lida_clips_picture_in_picture">Keep the music video visible when you leave Navic. Android only</string>
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
+	<string name="subtitle_lida_clips_background_video">Show matching clips behind Now Playing. Blurred and normal backgrounds are muted and cropped.</string>
 	<string name="subtitle_lida_clips_video_fit">Fit shows the full frame. Crop fills the player and may trim the edges. Android only</string>
 	<string name="subtitle_lida_clips_pause_music_playback">Turn off to let Navic music continue under music videos. Android only</string>
 	<string name="subtitle_lida_clips_remember_playback_position">Resume the last watched position when reopening the same music video. Android only</string>
@@ -387,6 +390,10 @@
 	<string name="option_lida_clips_sync_state">Sync state</string>
 	<string name="option_lida_clips_picture_in_picture">Picture-in-Picture</string>
 	<string name="option_lida_clips_landscape_video_mode">Landscape video mode</string>
+	<string name="option_lida_clips_background_video">Now Playing background</string>
+	<string name="option_lida_clips_background_video_off">Off</string>
+	<string name="option_lida_clips_background_video_blurred">Blurred</string>
+	<string name="option_lida_clips_background_video_normal">Normal</string>
 	<string name="option_lida_clips_video_fit">Video fit</string>
 	<string name="option_lida_clips_video_fit_fit">Fit</string>
 	<string name="option_lida_clips_video_fit_crop">Crop</string>

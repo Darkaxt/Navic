@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.lidaClips
 
+import android.view.LayoutInflater
 import androidx.annotation.OptIn
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
@@ -24,11 +25,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import paige.navic.R
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.lidaClipPlaybackErrorMessage
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.shouldCropLidaClipsVideoFrame
 import paige.navic.domain.models.shouldHandleLidaClipAudioFocus
+import kotlin.math.roundToLong
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -40,6 +43,10 @@ actual fun PlatformLidaClipPlayer(
 	videoFitMode: LidaClipsVideoFitMode,
 	respectAudioFocus: Boolean,
 	startPositionMs: Long,
+	muted: Boolean,
+	showControls: Boolean,
+	useTextureView: Boolean,
+	startProgress: Float?,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
 	onPlaybackError: (String) -> Unit,
@@ -48,7 +55,7 @@ actual fun PlatformLidaClipPlayer(
 ) {
 	val context = LocalContext.current
 	val activity = LocalActivity.current
-	val player = remember(context, clip.streamUrl, requestHeaders, retryKey) {
+	val player = remember(context, clip.streamUrl, requestHeaders, retryKey, startPositionMs, startProgress) {
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(requestHeaders)
 		val dataSourceFactory = DefaultDataSource.Factory(
@@ -66,16 +73,36 @@ actual fun PlatformLidaClipPlayer(
 						.build(),
 					shouldHandleLidaClipAudioFocus(respectAudioFocus)
 				)
+				volume = if (muted) 0f else 1f
 				setMediaItem(MediaItem.fromUri(clip.streamUrl), startPositionMs.coerceAtLeast(0L))
 				prepare()
 				playWhenReady = true
 		}
 	}
 
-	DisposableEffect(player, onPlaybackReady, onPlaybackError) {
+	DisposableEffect(player, muted) {
+		player.volume = if (muted) 0f else 1f
+		onDispose {}
+	}
+
+	DisposableEffect(player, startPositionMs, startProgress, onPlaybackReady, onPlaybackError) {
+		var appliedStartProgressSeek = false
 		val listener = object : Player.Listener {
 			override fun onPlaybackStateChanged(playbackState: Int) {
 				if (playbackState == Player.STATE_READY) {
+					if (
+						!appliedStartProgressSeek &&
+						startPositionMs <= 0L &&
+						startProgress != null &&
+						player.duration > 0L
+					) {
+						appliedStartProgressSeek = true
+						player.seekTo(
+							(player.duration * startProgress.coerceIn(0f, 1f))
+								.roundToLong()
+								.coerceIn(0L, player.duration)
+						)
+					}
 					onPlaybackReady()
 				} else if (playbackState == Player.STATE_ENDED) {
 					onPlaybackPositionChange(player.currentPosition)
@@ -104,7 +131,7 @@ actual fun PlatformLidaClipPlayer(
 	}
 
 	DisposableEffect(activity, pictureInPictureEnabled, player) {
-		if (activity != null) {
+		if (activity != null && pictureInPictureEnabled) {
 			LidaClipPictureInPictureCoordinator.register(
 				activity = activity,
 				enabled = pictureInPictureEnabled
@@ -112,7 +139,7 @@ actual fun PlatformLidaClipPlayer(
 		}
 
 		onDispose {
-			if (activity != null) {
+			if (activity != null && pictureInPictureEnabled) {
 				LidaClipPictureInPictureCoordinator.unregister(activity)
 			}
 		}
@@ -141,7 +168,7 @@ actual fun PlatformLidaClipPlayer(
 	}
 
 	AndroidView(
-		modifier = if (activity != null) {
+		modifier = if (activity != null && pictureInPictureEnabled) {
 			modifier.onGloballyPositioned { layoutCoordinates ->
 				LidaClipPictureInPictureCoordinator.updateSourceRect(
 					activity = activity,
@@ -152,14 +179,21 @@ actual fun PlatformLidaClipPlayer(
 			modifier
 		},
 		factory = { context ->
-			PlayerView(context).apply {
+			val playerView = if (useTextureView) {
+				LayoutInflater.from(context)
+					.inflate(R.layout.lida_clip_texture_player_view, null) as PlayerView
+			} else {
+				PlayerView(context)
+			}
+			playerView.apply {
 				this.player = player
-				useController = true
+				useController = showControls
 				resizeMode = lidaClipResizeMode(videoFitMode)
 			}
 		},
 		update = {
 			it.player = player
+			it.useController = showControls
 			it.resizeMode = lidaClipResizeMode(videoFitMode)
 		}
 	)

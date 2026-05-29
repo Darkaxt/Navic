@@ -4,17 +4,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.core.UiState
 import kotlin.time.Clock
 
 class NowPlayingViewModel(
@@ -30,16 +34,26 @@ class NowPlayingViewModel(
 	private val _songRating = MutableStateFlow(0)
 	val songRating = _songRating.asStateFlow()
 
+	private val _lidaClipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Success(null))
+	val lidaClipState = _lidaClipState.asStateFlow()
+
 	private var lastLidaClipsPrefetchKey: String? = null
 	private var lastLidaClipsPrefetchTimeMillis: Long? = null
+	private var currentLidaClipSongId: String? = null
+	private var lidaClipLookupJob: Job? = null
 
 	init {
 		viewModelScope.launch {
 			player.uiState.collect { state ->
-				state.currentSong?.let { song ->
+				val song = state.currentSong
+				if (song == null) {
+					_songIsStarred.value = false
+					_songRating.value = 0
+					clearLidaClip()
+				} else {
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
-					prefetchLidaClip(song)
+					loadLidaClip(song)
 				}
 			}
 		}
@@ -71,23 +85,69 @@ class NowPlayingViewModel(
 		}
 	}
 
-	private fun prefetchLidaClip(song: DomainSong) {
+	fun refreshLidaClip() {
+		player.uiState.value.currentSong?.let { song ->
+			loadLidaClip(song, forceRefresh = true)
+		}
+	}
+
+	private fun loadLidaClip(song: DomainSong, forceRefresh: Boolean = false) {
+		if (
+			!shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+				lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+				userActionEnabled = true,
+				songId = song.id
+			)
+		) {
+			clearLidaClip()
+			return
+		}
+
+		if (currentLidaClipSongId != song.id) {
+			currentLidaClipSongId = song.id
+			_lidaClipState.value = UiState.Success(null)
+		}
+
 		val nowMillis = Clock.System.now().toEpochMilliseconds()
 		val nextPrefetchKey = nextLidaClipsPrefetchKey(
 			enabled = preferenceManager.lidaClipsEnabled,
 			baseUrl = preferenceManager.lidaClipsBaseUrl,
 			apiKey = preferenceManager.lidaClipsApiKey,
 			songId = song.id,
-			lastPrefetchKey = lastLidaClipsPrefetchKey,
-			lastPrefetchTimeMillis = lastLidaClipsPrefetchTimeMillis,
+			lastPrefetchKey = if (forceRefresh) null else lastLidaClipsPrefetchKey,
+			lastPrefetchTimeMillis = if (forceRefresh) null else lastLidaClipsPrefetchTimeMillis,
 			currentTimeMillis = nowMillis,
 			refreshAfterMillis = LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 		) ?: return
 
 		lastLidaClipsPrefetchKey = nextPrefetchKey
 		lastLidaClipsPrefetchTimeMillis = nowMillis
-		viewModelScope.launch(Dispatchers.IO) {
-			lidaClipsRepository.prefetchClipForSong(song)
+		lidaClipLookupJob?.cancel()
+		_lidaClipState.value = UiState.Loading(_lidaClipState.value.data)
+		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
+			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
+				.onSuccess { clip ->
+					if (currentLidaClipSongId == song.id) {
+						_lidaClipState.value = UiState.Success(clip)
+					}
+				}
+				.onFailure { error ->
+					if (currentLidaClipSongId == song.id) {
+						_lidaClipState.value = UiState.Error(
+							error as? Exception ?: Exception(error.message, error),
+							_lidaClipState.value.data
+						)
+					}
+				}
 		}
+	}
+
+	private fun clearLidaClip() {
+		currentLidaClipSongId = null
+		lastLidaClipsPrefetchKey = null
+		lastLidaClipsPrefetchTimeMillis = null
+		lidaClipLookupJob?.cancel()
+		_lidaClipState.value = UiState.Success(null)
 	}
 }

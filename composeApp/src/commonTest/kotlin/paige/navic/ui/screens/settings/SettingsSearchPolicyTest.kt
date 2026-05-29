@@ -15,10 +15,17 @@ class SettingsSearchPolicyTest {
 		),
 		SettingsSearchEntryText(
 			id = "lida-clips-api-key",
-			path = "Settings > Data & Storage > Music video clips",
+			path = "Settings > Integrations > Music video clips",
 			title = "LidaClips API key",
 			subtitle = null,
 			keywords = listOf("clips", "video")
+		),
+		SettingsSearchEntryText(
+			id = "lida-clips-background-video",
+			path = "Settings > Integrations > Music video clips",
+			title = "Now Playing background",
+			subtitle = "Show matching clips behind Now Playing. Blurred and normal backgrounds are muted and cropped.",
+			keywords = listOf("clips", "video", "background")
 		),
 		SettingsSearchEntryText(
 			id = "rotate-playing-artwork",
@@ -41,8 +48,8 @@ class SettingsSearchPolicyTest {
 			filteredSettingsSearchEntries(entries, "whatsapp").map { it.id }
 		)
 		assertEquals(
-			listOf("lida-clips-api-key"),
-			filteredSettingsSearchEntries(entries, "data clips").map { it.id }
+			listOf("lida-clips-api-key", "lida-clips-background-video"),
+			filteredSettingsSearchEntries(entries, "integrations clips").map { it.id }
 		)
 		assertEquals(
 			listOf("rotate-playing-artwork"),
@@ -74,7 +81,7 @@ class SettingsSearchPolicyTest {
 		assertEquals(
 			listOf(
 				"Settings > Playback" to listOf("respect-audio-focus", "audio-fade"),
-				"Settings > Data & Storage > Music video clips" to listOf("lida-clips-api-key"),
+				"Settings > Integrations > Music video clips" to listOf("lida-clips-api-key", "lida-clips-background-video"),
 				"Settings > Now Playing > Layout" to listOf("rotate-playing-artwork")
 			),
 			groups.map { group -> group.path to group.entries.map { it.id } }
@@ -98,7 +105,8 @@ class SettingsSearchPolicyTest {
 		assertEquals(
 			listOf(
 				"Settings > Playback" to "respect-audio-focus",
-				"Settings > Data & Storage > Music video clips" to "lida-clips-api-key",
+				"Settings > Integrations > Music video clips" to "lida-clips-api-key",
+				"Settings > Integrations > Music video clips" to "lida-clips-background-video",
 				"Settings > Now Playing > Layout" to "rotate-playing-artwork",
 				"Settings > Playback" to "audio-fade"
 			),

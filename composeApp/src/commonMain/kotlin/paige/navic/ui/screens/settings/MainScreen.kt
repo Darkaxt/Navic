@@ -39,6 +39,7 @@ import navic.composeapp.generated.resources.subtitle_appearance
 import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_data_storage
 import navic.composeapp.generated.resources.subtitle_developer
+import navic.composeapp.generated.resources.subtitle_integrations
 import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
 import navic.composeapp.generated.resources.title_about
@@ -46,6 +47,7 @@ import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_developer
+import navic.composeapp.generated.resources.title_integrations
 import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
 import navic.composeapp.generated.resources.title_settings
@@ -63,6 +65,7 @@ import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Code
 import paige.navic.icons.outlined.DataTable
+import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.Search
 import paige.navic.ui.components.common.Form
@@ -126,6 +129,13 @@ fun SettingsScreen() {
 						iconSize = 24.dp,
 						title = Res.string.title_data_storage,
 						subtitle = Res.string.subtitle_data_storage
+					)
+					PageRow(
+						destination = Screen.Settings.Integrations,
+						icon = Icons.Outlined.Link,
+						iconSize = 24.dp,
+						title = Res.string.title_integrations,
+						subtitle = Res.string.subtitle_integrations
 					)
 					PageRow(
 						destination = Screen.Settings.Developer,

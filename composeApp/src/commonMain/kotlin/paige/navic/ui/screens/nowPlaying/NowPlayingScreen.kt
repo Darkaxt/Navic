@@ -17,6 +17,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -26,6 +29,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
 import navic.composeapp.generated.resources.action_navigate_back
+import navic.composeapp.generated.resources.action_play_music_video
 import navic.composeapp.generated.resources.action_queue
 import navic.composeapp.generated.resources.title_now_playing
 import org.jetbrains.compose.resources.stringResource
@@ -34,11 +38,14 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
 import paige.navic.domain.models.externalFallbackArtworkCacheKey
 import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
+import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
@@ -47,6 +54,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.icons.outlined.List
 import paige.navic.icons.outlined.Lyrics
+import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.layouts.SheetScaffold
@@ -54,6 +62,8 @@ import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetActionButton
 import paige.navic.ui.components.toolbars.SheetToolbar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipArtwork
+import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipBackground
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
@@ -87,6 +97,10 @@ fun NowPlayingScreen() {
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
+	val lidaClipState by viewModel.lidaClipState.collectAsStateWithLifecycle()
+	val lidaClip = lidaClipState.data
+	var foregroundClipSongId by rememberSaveable { mutableStateOf<String?>(null) }
+	val showClipInArtwork = lidaClip != null && foregroundClipSongId == song?.id
 	val showArtwork = preferenceManager.showNowPlayingArtwork
 	val isDynamicBackground = preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
 	val artworkTapDestination = nowPlayingArtworkTapDestination(
@@ -131,8 +145,18 @@ fun NowPlayingScreen() {
 				},
 				actions = {
 					val showLyricsAction = preferenceManager.showNowPlayingLyricsAction
+					val showMusicVideoAction = shouldShowLidaClipsMusicVideoAction(
+						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
+						songId = song?.id
+					) && lidaClip != null
 					val showQueueAction = preferenceManager.showNowPlayingQueueAction
-					val visibleActionCount = listOf(showLyricsAction, showQueueAction).count { it }
+					val visibleActionCount = listOf(
+						showLyricsAction,
+						showMusicVideoAction,
+						showQueueAction
+					).count { it }
 					var actionIndex = 0
 
 					if (showLyricsAction) {
@@ -140,6 +164,18 @@ fun NowPlayingScreen() {
 							icon = Icons.Outlined.Lyrics,
 							contentDescription = stringResource(Res.string.action_lyrics),
 							onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
+							isStartRounded = actionIndex == 0,
+							isEndRounded = actionIndex == visibleActionCount - 1
+						)
+						actionIndex++
+					}
+					if (showMusicVideoAction) {
+						SheetActionButton(
+							icon = Icons.Outlined.Movie,
+							contentDescription = stringResource(Res.string.action_play_music_video),
+							onClick = dropUnlessResumed {
+								foregroundClipSongId = if (showClipInArtwork) null else song?.id
+							},
 							isStartRounded = actionIndex == 0,
 							isEndRounded = actionIndex == visibleActionCount - 1
 						)
@@ -169,6 +205,18 @@ fun NowPlayingScreen() {
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,
 						isDynamicBackground = isDynamicBackground
 					)
+				)
+			}
+			if (
+				lidaClip != null &&
+				!showClipInArtwork &&
+				shouldShowLidaClipBackgroundVideo(preferenceManager.lidaClipsBackgroundVideoMode)
+			) {
+				NowPlayingLidaClipBackground(
+					clip = lidaClip,
+					backgroundVideoMode = preferenceManager.lidaClipsBackgroundVideoMode,
+					playerProgress = playerState.progress,
+					modifier = Modifier.fillMaxSize()
 				)
 			}
 			if (!isPlayerCurrent) return@Box
@@ -202,10 +250,13 @@ fun NowPlayingScreen() {
 						horizontalArrangement = Arrangement.SpaceEvenly,
 						verticalAlignment = Alignment.CenterVertically
 					) {
-						if (showArtwork) {
-							NowPlayingArtworkPager(
+						if (showArtwork || showClipInArtwork) {
+							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxHeight(),
 								isLandscape = true,
+								clip = lidaClip,
+								showClipInArtwork = showClipInArtwork,
+								playerProgress = playerState.progress,
 								onArtworkTap = onArtworkTap
 							)
 						}
@@ -225,10 +276,13 @@ fun NowPlayingScreen() {
 						horizontalAlignment = Alignment.CenterHorizontally,
 						verticalArrangement = Arrangement.Center
 					) {
-						if (showArtwork) {
-							NowPlayingArtworkPager(
+						if (showArtwork || showClipInArtwork) {
+							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxWidth(),
 								isLandscape = false,
+								clip = lidaClip,
+								showClipInArtwork = showClipInArtwork,
+								playerProgress = playerState.progress,
 								onArtworkTap = onArtworkTap
 							)
 						}
@@ -245,5 +299,29 @@ fun NowPlayingScreen() {
 				}
 			}
 		}
+	}
+}
+
+@Composable
+private fun NowPlayingMediaSlot(
+	clip: DomainLidaClip?,
+	showClipInArtwork: Boolean,
+	playerProgress: Float,
+	isLandscape: Boolean,
+	onArtworkTap: (() -> Unit)?,
+	modifier: Modifier = Modifier
+) {
+	if (showClipInArtwork && clip != null) {
+		NowPlayingLidaClipArtwork(
+			clip = clip,
+			playerProgress = playerProgress,
+			modifier = modifier
+		)
+	} else {
+		NowPlayingArtworkPager(
+			modifier = modifier,
+			isLandscape = isLandscape,
+			onArtworkTap = onArtworkTap
+		)
 	}
 }
