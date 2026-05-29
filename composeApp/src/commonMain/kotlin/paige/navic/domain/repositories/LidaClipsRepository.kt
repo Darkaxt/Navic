@@ -95,6 +95,7 @@ class LidaClipsRepository(
 
 		return runCatching {
 			lidaClipsServiceStatus(
+				baseUrl = baseUrl,
 				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
 				control = fetchServiceControl(baseUrl, requestHeaders),
 				health = fetchServiceHealth(baseUrl, requestHeaders)
@@ -114,6 +115,7 @@ class LidaClipsRepository(
 		return runCatching {
 			val control = updateServiceControl(baseUrl, requestHeaders, syncPaused)
 			lidaClipsServiceStatus(
+				baseUrl = baseUrl,
 				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
 				control = control,
 				health = fetchServiceHealth(baseUrl, requestHeaders)
@@ -305,6 +307,7 @@ data class LidaClipsServiceStatus(
 	val fallbackClips: Int,
 	val syncPaused: Boolean,
 	val syncRunning: Boolean,
+	val recentClips: List<DomainLidaClip> = emptyList(),
 	val health: LidaClipsHealthStatus = LidaClipsHealthStatus(),
 	val recentFailures: List<LidaClipsRecentFailure> = emptyList()
 )
@@ -339,6 +342,7 @@ internal data class LidaClipsDashboardDto(
 	@SerialName("official_clips") val officialClips: Int = 0,
 	@SerialName("fallback_clips") val fallbackClips: Int = 0,
 	@SerialName("sync_paused") val syncPaused: Boolean = false,
+	@SerialName("recent_clips") val recentClips: List<LidaClipsClipDto> = emptyList(),
 	@SerialName("recent_failures") val recentFailures: List<LidaClipsRecentFailureDto> = emptyList()
 )
 
@@ -406,6 +410,7 @@ internal data class LidaClipsControlRequestDto(
 )
 
 internal fun lidaClipsServiceStatus(
+	baseUrl: String = "",
 	dashboard: LidaClipsDashboardDto,
 	control: LidaClipsControlDto,
 	health: LidaClipsHealthDto = LidaClipsHealthDto()
@@ -416,6 +421,9 @@ internal fun lidaClipsServiceStatus(
 		fallbackClips = dashboard.fallbackClips,
 		syncPaused = control.syncPaused,
 		syncRunning = control.syncRunning,
+		recentClips = dashboard.recentClips.mapNotNull { clip ->
+			runCatching { clip.toDomainModel(baseUrl) }.getOrNull()
+		},
 		health = health.toDomainModel(),
 		recentFailures = dashboard.recentFailures.map { it.toDomainModel() }
 	)
@@ -457,6 +465,7 @@ internal fun lidaClipsConnectionResult(
 		)
 
 		healthStatus == HttpStatusCode.Unauthorized -> LidaClipsConnectionResult.Unauthorized
+		healthStatus == HttpStatusCode.ServiceUnavailable -> LidaClipsConnectionResult.Connected
 		healthStatus?.isSuccess() == true -> LidaClipsConnectionResult.Connected
 		healthStatus != null -> LidaClipsConnectionResult.Failed(
 			lidaClipsHttpErrorMessage("LidaClips health check", healthStatus)
@@ -716,7 +725,7 @@ private data class LidaClipsClipSearchEnvelope(
 )
 
 @Serializable
-private data class LidaClipsClipDto(
+internal data class LidaClipsClipDto(
 	val id: Int,
 	@SerialName("navidrome_song_id") val navidromeSongId: String? = null,
 	val title: String? = null,

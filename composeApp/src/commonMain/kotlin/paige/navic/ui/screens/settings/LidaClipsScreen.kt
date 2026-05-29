@@ -39,8 +39,10 @@ import navic.composeapp.generated.resources.info_lida_clips_health_status
 import navic.composeapp.generated.resources.info_lida_clips_invalid_url
 import navic.composeapp.generated.resources.info_lida_clips_lidarr_track_id
 import navic.composeapp.generated.resources.info_lida_clips_more_health_failures
+import navic.composeapp.generated.resources.info_lida_clips_more_recent_clips
 import navic.composeapp.generated.resources.info_lida_clips_missing_url
 import navic.composeapp.generated.resources.info_lida_clips_more_recent_failures
+import navic.composeapp.generated.resources.info_lida_clips_no_recent_clips
 import navic.composeapp.generated.resources.info_lida_clips_no_recent_failures
 import navic.composeapp.generated.resources.info_lida_clips_not_tested
 import navic.composeapp.generated.resources.info_lida_clips_recent_failure_reason
@@ -78,6 +80,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
 import navic.composeapp.generated.resources.subtitle_lida_clips_video_fit
 import navic.composeapp.generated.resources.title_lida_clips
 import navic.composeapp.generated.resources.title_lida_clips_health_checks
+import navic.composeapp.generated.resources.title_lida_clips_recent_clips
 import navic.composeapp.generated.resources.title_lida_clips_recent_failures
 import navic.composeapp.generated.resources.title_lida_clips_service_status
 import org.jetbrains.compose.resources.stringResource
@@ -85,6 +88,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.nextLidaClipsServiceStatusRefreshKey
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.repositories.LidaClipsConnectionResult
@@ -104,6 +108,7 @@ import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 
 private const val RECENT_FAILURE_DISPLAY_LIMIT = 3
+private const val RECENT_CLIP_DISPLAY_LIMIT = 3
 private const val HEALTH_FAILURE_DISPLAY_LIMIT = 4
 
 @Composable
@@ -363,6 +368,7 @@ private fun LidaClipsServiceStatusContent(
 			Text(stringResource(Res.string.info_lida_clips_service_status_loading))
 		}
 	}
+	LidaClipsRecentClips(status.recentClips)
 	LidaClipsHealthChecks(
 		status = status.health.status,
 		checks = status.health.checks
@@ -377,6 +383,66 @@ private fun LidaClipsServiceStatusContent(
 		}
 	)
 }
+
+@Composable
+private fun LidaClipsRecentClips(clips: List<DomainLidaClip>) {
+	FormRow {
+		Column(Modifier.weight(1f)) {
+			Text(
+				text = stringResource(Res.string.title_lida_clips_recent_clips),
+				style = MaterialTheme.typography.titleSmall
+			)
+			if (clips.isEmpty()) {
+				Text(
+					text = stringResource(Res.string.info_lida_clips_no_recent_clips),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			} else {
+				clips.take(RECENT_CLIP_DISPLAY_LIMIT).forEach { clip ->
+					LidaClipsRecentClipItem(clip)
+				}
+				val hiddenClipCount = clips.size - RECENT_CLIP_DISPLAY_LIMIT
+				if (hiddenClipCount > 0) {
+					Text(
+						text = stringResource(
+							Res.string.info_lida_clips_more_recent_clips,
+							hiddenClipCount
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun LidaClipsRecentClipItem(clip: DomainLidaClip) {
+	Text(
+		text = lidaClipsRecentClipTitle(clip),
+		style = MaterialTheme.typography.bodyMedium
+	)
+	val subtitle = listOfNotNull(
+		clip.artist.cleanForDisplay(),
+		clip.album.cleanForDisplay(),
+		clip.qualityTier.cleanForDisplay()
+	).joinToString(" - ")
+	if (subtitle.isNotEmpty()) {
+		Text(
+			text = subtitle,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
+}
+
+private fun lidaClipsRecentClipTitle(clip: DomainLidaClip): String =
+	clip.track.cleanForDisplay()
+		?: clip.title.cleanForDisplay()
+		?: clip.fileName.cleanForDisplay()
+		?: "Music video"
 
 @Composable
 private fun LidaClipsHealthChecks(

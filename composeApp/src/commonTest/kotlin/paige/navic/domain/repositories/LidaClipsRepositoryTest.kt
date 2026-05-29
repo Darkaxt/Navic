@@ -357,11 +357,28 @@ class LidaClipsRepositoryTest {
 	@Test
 	fun lidaClipsServiceStatusUsesDashboardCountsAndControlRuntimeState() {
 		val status = lidaClipsServiceStatus(
+			baseUrl = "https://clips.remaxku.eu",
 			dashboard = LidaClipsDashboardDto(
 				activeClips = 12,
 				officialClips = 7,
 				fallbackClips = 5,
 				syncPaused = false,
+				recentClips = listOf(
+					LidaClipsClipDto(
+						id = 9,
+						navidromeSongId = "song-9",
+						title = "Recent video",
+						artist = "Recent Artist",
+						album = "Recent Album",
+						track = "Recent Track",
+						duration = 212,
+						mimeType = "video/mp4",
+						score = 0.93f,
+						qualityTier = "official",
+						streamUrl = "/api/v1/stream/9",
+						fileName = "recent.mp4"
+					)
+				),
 				recentFailures = listOf(
 					LidaClipsRecentFailureDto(
 						lidarrTrackId = 42,
@@ -396,6 +413,25 @@ class LidaClipsRepositoryTest {
 		assertEquals(5, status.fallbackClips)
 		assertTrue(status.syncPaused)
 		assertTrue(status.syncRunning)
+		assertEquals(
+			listOf(
+				DomainLidaClip(
+					id = 9,
+					navidromeSongId = "song-9",
+					title = "Recent video",
+					artist = "Recent Artist",
+					album = "Recent Album",
+					track = "Recent Track",
+					durationSeconds = 212,
+					mimeType = "video/mp4",
+					score = 0.93f,
+					qualityTier = "official",
+					fileName = "recent.mp4",
+					streamUrl = "https://clips.remaxku.eu/api/v1/stream/9"
+				)
+			),
+			status.recentClips
+		)
 		assertEquals("degraded", status.health.status)
 		assertEquals(
 			listOf(
@@ -497,6 +533,17 @@ class LidaClipsRepositoryTest {
 			lidaClipsConnectionResult(
 				pingStatus = HttpStatusCode.OK,
 				healthStatus = HttpStatusCode.InternalServerError
+			)
+		)
+	}
+
+	@Test
+	fun lidaClipsConnectionResultTreatsDegradedHealthAsReachable() {
+		assertEquals(
+			LidaClipsConnectionResult.Connected,
+			lidaClipsConnectionResult(
+				pingStatus = HttpStatusCode.OK,
+				healthStatus = HttpStatusCode.ServiceUnavailable
 			)
 		)
 	}
