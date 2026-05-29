@@ -9,7 +9,85 @@ import kotlin.time.Duration.Companion.days
 
 class MusicBrainzArtworkRepositoryTest {
 	@Test
-	fun playbackLookupRequiresSettingNetworkMissingCoverAndMusicBrainzId() {
+	fun metadataLookupAllowsExistingNavidromeArtwork() {
+		assertTrue(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = "recording-mbid",
+				songTitle = "Song",
+				artistName = "Artist"
+			)
+		)
+		assertTrue(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = null,
+				songTitle = "Dancing Queen",
+				artistName = "ABBA"
+			)
+		)
+	}
+
+	@Test
+	fun metadataLookupRequiresSettingNetworkNonRadioAndRecordingOrSearchData() {
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = false,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = "recording-mbid",
+				songTitle = "Song",
+				artistName = "Artist"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = false,
+				isRadio = false,
+				songMusicBrainzId = "recording-mbid",
+				songTitle = "Song",
+				artistName = "Artist"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = true,
+				songMusicBrainzId = "recording-mbid",
+				songTitle = "Song",
+				artistName = "Artist"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = null,
+				songTitle = " ",
+				artistName = "Artist"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = " ",
+				songTitle = "Song",
+				artistName = " "
+			)
+		)
+	}
+
+	@Test
+	fun artworkLookupRequiresSettingNetworkMissingCoverAndMusicBrainzId() {
 		assertFalse(
 			shouldResolveMusicBrainzArtworkOnPlayback(
 				enabled = false,
@@ -125,6 +203,75 @@ class MusicBrainzArtworkRepositoryTest {
 				albumMusicBrainzId = null,
 				songTitle = "Dancing Queen",
 				artistName = "ABBA"
+			)
+		)
+	}
+
+	@Test
+	fun existingCacheWithoutMetadataDoesNotBlockMetadataRefresh() {
+		val cachedMissWithoutMetadata = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.NotFound,
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			metadata = null,
+			updatedAtMillis = 1_000L
+		)
+		val cachedMissWithMetadata = cachedMissWithoutMetadata.copy(
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+		)
+
+		assertNull(
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = cachedMissWithoutMetadata,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = true
+			)
+		)
+		assertEquals(
+			cachedMissWithoutMetadata,
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = cachedMissWithoutMetadata,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = false
+			)
+		)
+		assertEquals(
+			cachedMissWithMetadata,
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = cachedMissWithMetadata,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = true
+			)
+		)
+	}
+
+	@Test
+	fun metadataLookupMissBlocksRepeatedMetadataRefreshAfterAttempt() {
+		val cachedMissAfterMetadataAttempt = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.NotFound,
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			metadata = null,
+			metadataLookupAttempted = true,
+			updatedAtMillis = 1_000L
+		)
+
+		assertEquals(
+			cachedMissAfterMetadataAttempt,
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = cachedMissAfterMetadataAttempt,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = true
 			)
 		)
 	}

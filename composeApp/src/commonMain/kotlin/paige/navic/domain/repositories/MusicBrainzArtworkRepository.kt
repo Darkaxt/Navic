@@ -87,13 +87,33 @@ class MusicBrainzArtworkRepository(
 			val albumCoverArtId = album?.coverArtId
 			val albumMusicBrainzId = album?.musicBrainzId
 			val fingerprint = musicBrainzArtworkFingerprint(song, albumMusicBrainzId)
+			val shouldResolveMetadata = shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+				isOnline = connectivityManager.isOnline.value,
+				isRadio = false,
+				songMusicBrainzId = song.musicBrainzId,
+				songTitle = song.title,
+				artistName = song.artistName
+			)
+			val shouldResolveArtwork = shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+				isOnline = connectivityManager.isOnline.value,
+				isRadio = false,
+				songCoverArtId = song.coverArtId,
+				albumCoverArtId = albumCoverArtId,
+				songMusicBrainzId = song.musicBrainzId,
+				albumMusicBrainzId = albumMusicBrainzId,
+				songTitle = song.title,
+				artistName = song.artistName
+			)
 			val existing = loadCacheEntries()
 				.firstOrNull { it.songId == song.id }
 				?.let {
-					usableMusicBrainzArtworkCacheEntry(
+					usableMusicBrainzPlaybackCacheEntry(
 						entry = it,
 						fingerprint = fingerprint,
-						nowMillis = currentTimeMillis()
+						nowMillis = currentTimeMillis(),
+						needsMetadata = shouldResolveMetadata
 					)
 				}
 
@@ -102,30 +122,26 @@ class MusicBrainzArtworkRepository(
 				return@runCatching existing.takeIf { it.status == MusicBrainzArtworkCacheStatus.Found }
 			}
 
-			if (
-				!shouldResolveMusicBrainzArtworkOnPlayback(
-					enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
-					isOnline = connectivityManager.isOnline.value,
-					isRadio = false,
-					songCoverArtId = song.coverArtId,
-					albumCoverArtId = albumCoverArtId,
-					songMusicBrainzId = song.musicBrainzId,
-					albumMusicBrainzId = albumMusicBrainzId,
-					songTitle = song.title,
-					artistName = song.artistName
-				)
-			) {
+			if (!shouldResolveMetadata && !shouldResolveArtwork) {
 				return@runCatching null
 			}
 
-			val recording = song.musicBrainzId.normalizedMbidOrNull()
-				?.let { fetchRecording(it) }
-				?: searchRecording(song)
-			val resolved = resolveArtwork(
-				albumMusicBrainzId = albumMusicBrainzId,
-				albumTitle = song.albumTitle,
-				recordingReleases = recording?.releases.orEmpty()
-			)
+			val recording = if (shouldResolveMetadata || shouldResolveArtwork) {
+				song.musicBrainzId.normalizedMbidOrNull()
+					?.let { fetchRecording(it) }
+					?: searchRecording(song)
+			} else {
+				null
+			}
+			val resolved = if (shouldResolveArtwork) {
+				resolveArtwork(
+					albumMusicBrainzId = albumMusicBrainzId,
+					albumTitle = song.albumTitle,
+					recordingReleases = recording?.releases.orEmpty()
+				)
+			} else {
+				null
+			}
 			val metadata = recording?.let {
 				musicBrainzTrackMetadata(
 					recording = it,
@@ -142,6 +158,7 @@ class MusicBrainzArtworkRepository(
 					sourceMbid = it.sourceMbid,
 					sourceType = it.sourceType,
 					metadata = metadata,
+					metadataLookupAttempted = shouldResolveMetadata,
 					updatedAtMillis = currentTimeMillis()
 				)
 			} ?: MusicBrainzArtworkCacheEntry(
@@ -152,6 +169,7 @@ class MusicBrainzArtworkRepository(
 				sourceMbid = null,
 				sourceType = null,
 				metadata = metadata,
+				metadataLookupAttempted = shouldResolveMetadata,
 				updatedAtMillis = currentTimeMillis()
 			)
 
@@ -300,6 +318,22 @@ class MusicBrainzArtworkRepository(
 
 	private fun currentTimeMillis() = Clock.System.now().toEpochMilliseconds()
 }
+
+internal fun shouldResolveMusicBrainzMetadataOnPlayback(
+	enabled: Boolean,
+	isOnline: Boolean,
+	isRadio: Boolean,
+	songMusicBrainzId: String?,
+	songTitle: String? = null,
+	artistName: String? = null
+): Boolean =
+	enabled &&
+		isOnline &&
+		!isRadio &&
+		(
+			!songMusicBrainzId.isNullOrBlank() ||
+				canSearchMusicBrainzRecording(songTitle, artistName)
+		)
 
 internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	enabled: Boolean,
@@ -509,6 +543,21 @@ internal fun usableMusicBrainzArtworkCacheEntry(
 	return entry.takeIf { ageMillis <= maxAgeMillis }
 }
 
+internal fun usableMusicBrainzPlaybackCacheEntry(
+	entry: MusicBrainzArtworkCacheEntry,
+	fingerprint: String,
+	nowMillis: Long,
+	needsMetadata: Boolean
+): MusicBrainzArtworkCacheEntry? {
+	val usableEntry = usableMusicBrainzArtworkCacheEntry(
+		entry = entry,
+		fingerprint = fingerprint,
+		nowMillis = nowMillis
+	) ?: return null
+	if (needsMetadata && usableEntry.metadata == null && !usableEntry.metadataLookupAttempted) return null
+	return usableEntry
+}
+
 internal fun cappedMusicBrainzArtworkCacheEntries(
 	entries: List<MusicBrainzArtworkCacheEntry>,
 	maxEntries: Int
@@ -574,6 +623,7 @@ data class MusicBrainzArtworkCacheEntry(
 	val sourceMbid: String?,
 	val sourceType: MusicBrainzArtworkSourceType?,
 	val metadata: MusicBrainzTrackMetadata? = null,
+	val metadataLookupAttempted: Boolean = false,
 	val updatedAtMillis: Long
 )
 

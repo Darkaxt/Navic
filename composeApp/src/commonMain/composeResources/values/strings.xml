@@ -364,8 +364,8 @@
 	<string name="option_max_bitrate_wifi">Max Bitrate WiFi (kbps)</string>
 	<string name="option_max_bitrate_cellular">Max Bitrate Cellular (kbps)</string>
 	<string name="option_cover_art_quality">Cover art quality</string>
-	<string name="option_musicbrainz_artwork_fallback">MusicBrainz artwork fallback</string>
-	<string name="subtitle_musicbrainz_artwork_fallback">Fetch missing covers from MusicBrainz/Cover Art Archive only when a song starts playing</string>
+	<string name="option_musicbrainz_artwork_fallback">MusicBrainz metadata and artwork</string>
+	<string name="subtitle_musicbrainz_artwork_fallback">Fetch public track metadata for playing songs and missing covers from Cover Art Archive</string>
 	<string name="option_lida_clips">Music video clips</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
