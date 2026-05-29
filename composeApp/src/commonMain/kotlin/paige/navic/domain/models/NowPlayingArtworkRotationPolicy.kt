@@ -3,6 +3,12 @@ package paige.navic.domain.models
 import paige.navic.domain.models.settings.CoverArtShape
 
 const val NowPlayingArtworkRotationDurationMs = 8000
+const val NowPlayingVinylSpindleRadiusFraction = 0.025f
+const val NowPlayingVinylLabelRadiusFraction = 0.17f
+const val NowPlayingVinylGrooveStartRadiusFraction = 0.24f
+const val NowPlayingVinylGrooveEndRadiusFraction = 0.95f
+const val NowPlayingVideoArtworkCrossfadeDurationMs = 260
+const val NowPlayingVideoArtworkCrossfadeInitialScale = 0.985f
 
 fun shouldRotateNowPlayingArtwork(
 	enabled: Boolean,
@@ -15,3 +21,8 @@ fun nowPlayingArtworkShapeForPlayback(
 	configuredShape: CoverArtShape,
 	isRotating: Boolean
 ): CoverArtShape = if (isRotating) CoverArtShape.Circle else configuredShape
+
+fun shouldShowNowPlayingVinylOverlay(
+	isRotatingArtwork: Boolean,
+	hasCoverArt: Boolean
+): Boolean = isRotatingArtwork && hasCoverArt

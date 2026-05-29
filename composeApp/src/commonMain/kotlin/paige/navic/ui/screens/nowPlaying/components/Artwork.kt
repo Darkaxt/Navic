@@ -7,10 +7,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,22 +23,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
+import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
+import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
+import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
+import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
 import paige.navic.domain.models.externalFallbackArtworkCacheKey
 import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
+import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
+import kotlin.math.min
 
 @Composable
 fun NowPlayingArtwork(
@@ -88,6 +95,10 @@ fun NowPlayingArtwork(
 			shrinkWhenPausedOrInactive = preferenceManager.shrinkNowPlayingArtworkOnPause
 		).dp
 	)
+	val artworkModifier = Modifier
+		.aspectRatio(1f)
+		.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
+		.padding(padding)
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = modifier.then(
@@ -98,28 +109,20 @@ fun NowPlayingArtwork(
 			coverArtId = song.coverArtId,
 			imageUrl = musicBrainzFallbackArtworkUrl,
 			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
-			modifier = Modifier
-				.aspectRatio(1f)
-				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
-				.padding(padding)
+			modifier = artworkModifier
 				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
 			shadowElevation = 8.dp,
 			shape = artworkShape.shape
 		)
-		if (isRotatingArtwork) {
-			Box(
-				contentAlignment = Alignment.Center,
-				modifier = Modifier
-					.size(44.dp)
-					.background(MaterialTheme.colorScheme.surface.copy(alpha = .72f), CircleShape)
-					.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f), CircleShape)
-			) {
-				Box(
-					modifier = Modifier
-						.size(12.dp)
-						.background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .48f), CircleShape)
-				)
-			}
+		if (
+			shouldShowNowPlayingVinylOverlay(
+				isRotatingArtwork = isRotatingArtwork,
+				hasCoverArt = hasArtwork
+			)
+		) {
+			VinylRecordOverlay(
+				modifier = artworkModifier
+			)
 		}
 		if (!hasArtwork) {
 			Icon(
@@ -129,6 +132,72 @@ fun NowPlayingArtwork(
 				modifier = Modifier.size(96.dp)
 			)
 		}
+	}
+}
+
+@Composable
+private fun VinylRecordOverlay(modifier: Modifier = Modifier) {
+	val colorScheme = MaterialTheme.colorScheme
+	Canvas(modifier = modifier) {
+		val radius = min(size.width, size.height) / 2f
+		if (radius <= 0f) return@Canvas
+
+		val center = Offset(size.width / 2f, size.height / 2f)
+		val startRadius = radius * NowPlayingVinylGrooveStartRadiusFraction
+		val endRadius = radius * NowPlayingVinylGrooveEndRadiusFraction
+		val grooveCount = 48
+		val baseStrokeWidth = (radius * 0.0028f).coerceAtLeast(0.65f)
+		val accentStrokeWidth = (radius * 0.004f).coerceAtLeast(0.9f)
+
+		drawCircle(
+			color = colorScheme.scrim.copy(alpha = 0.16f),
+			radius = radius * 0.985f,
+			center = center
+		)
+		drawCircle(
+			color = colorScheme.onSurface.copy(alpha = 0.16f),
+			radius = radius * 0.99f,
+			center = center,
+			style = Stroke(width = radius * 0.018f)
+		)
+
+		repeat(grooveCount) { index ->
+			val progress = index / (grooveCount - 1).toFloat()
+			val grooveRadius = startRadius + (endRadius - startRadius) * progress
+			val alpha = if (index % 7 == 0) 0.22f else 0.13f
+			drawCircle(
+				color = colorScheme.onSurface.copy(alpha = alpha),
+				radius = grooveRadius,
+				center = center,
+				style = Stroke(
+					width = if (index % 7 == 0) accentStrokeWidth else baseStrokeWidth,
+					cap = StrokeCap.Round
+				)
+			)
+		}
+
+		drawCircle(
+			color = colorScheme.surface.copy(alpha = 0.22f),
+			radius = radius * NowPlayingVinylLabelRadiusFraction,
+			center = center
+		)
+		drawCircle(
+			color = colorScheme.onSurface.copy(alpha = 0.32f),
+			radius = radius * NowPlayingVinylLabelRadiusFraction,
+			center = center,
+			style = Stroke(width = radius * 0.008f)
+		)
+		drawCircle(
+			color = colorScheme.surface.copy(alpha = 0.92f),
+			radius = radius * NowPlayingVinylSpindleRadiusFraction,
+			center = center
+		)
+		drawCircle(
+			color = colorScheme.onSurface.copy(alpha = 0.28f),
+			radius = radius * NowPlayingVinylSpindleRadiusFraction,
+			center = center,
+			style = Stroke(width = radius * 0.004f)
+		)
 	}
 }
 

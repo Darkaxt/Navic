@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.nowPlaying.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
@@ -15,12 +17,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipPlaybackState
+import paige.navic.domain.models.NowPlayingVideoArtworkCrossfadeDurationMs
+import paige.navic.domain.models.NowPlayingVideoArtworkCrossfadeInitialScale
 import paige.navic.domain.models.lidaClipBackgroundVideoFitMode
 import paige.navic.domain.models.lidaClipDurationMs
 import paige.navic.domain.models.lidaClipForegroundVideoFitMode
@@ -58,13 +63,18 @@ fun NowPlayingLidaClipBackground(
 		streamUrl = clip.streamUrl,
 		requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 	)
+	val videoAlpha by animateFloatAsState(
+		targetValue = if (hasRenderedFirstFrame) 1f else 0f,
+		animationSpec = tween(NowPlayingVideoArtworkCrossfadeDurationMs),
+		label = "nowPlayingLidaClipBackgroundAlpha"
+	)
 
 	Box(modifier) {
 		val videoModifier = if (shouldBlurLidaClipBackgroundVideo(backgroundVideoMode)) {
 			Modifier.matchParentSize().blur(28.dp)
 		} else {
 			Modifier.matchParentSize()
-		}.alpha(if (hasRenderedFirstFrame) 1f else 0f)
+		}.alpha(videoAlpha)
 		PlatformLidaClipPlayer(
 			clip = clip,
 			requestHeaders = requestHeaders,
@@ -120,6 +130,13 @@ fun NowPlayingLidaClipArtwork(
 	}
 	var seekProgress by remember(clip.id) { mutableStateOf<Float?>(null) }
 	var seekKey by remember(clip.id) { mutableStateOf(0) }
+	val videoAlpha by animateFloatAsState(
+		targetValue = if (hasRenderedFirstFrame) 1f else 0f,
+		animationSpec = tween(NowPlayingVideoArtworkCrossfadeDurationMs),
+		label = "nowPlayingLidaClipArtworkAlpha"
+	)
+	val videoScale = NowPlayingVideoArtworkCrossfadeInitialScale +
+		((1f - NowPlayingVideoArtworkCrossfadeInitialScale) * videoAlpha)
 
 	LaunchedEffect(clip.id, player) {
 		player.seekEvents.collect { progress ->
@@ -172,7 +189,11 @@ fun NowPlayingLidaClipArtwork(
 				playbackState = playbackState.onError(message)
 			},
 			onPlaybackPositionChange = {},
-			modifier = Modifier.matchParentSize().alpha(if (hasRenderedFirstFrame) 1f else 0f)
+			modifier = Modifier.matchParentSize().graphicsLayer {
+				alpha = videoAlpha
+				scaleX = videoScale
+				scaleY = videoScale
+			}
 		)
 		playbackState.errorMessage?.let { errorMessage ->
 			ErrorBox<Unit>(

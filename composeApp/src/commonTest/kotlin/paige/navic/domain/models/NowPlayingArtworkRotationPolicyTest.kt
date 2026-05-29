@@ -76,4 +76,41 @@ class NowPlayingArtworkRotationPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun vinylOverlayOnlyAppearsForRotatingArtworkWithCoverArt() {
+		assertTrue(
+			shouldShowNowPlayingVinylOverlay(
+				isRotatingArtwork = true,
+				hasCoverArt = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingVinylOverlay(
+				isRotatingArtwork = false,
+				hasCoverArt = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingVinylOverlay(
+				isRotatingArtwork = true,
+				hasCoverArt = false
+			)
+		)
+	}
+
+	@Test
+	fun vinylOverlayGeometryKeepsCenterReadable() {
+		assertTrue(NowPlayingVinylSpindleRadiusFraction > 0f)
+		assertTrue(NowPlayingVinylLabelRadiusFraction > NowPlayingVinylSpindleRadiusFraction)
+		assertTrue(NowPlayingVinylLabelRadiusFraction < NowPlayingVinylGrooveStartRadiusFraction)
+		assertTrue(NowPlayingVinylGrooveStartRadiusFraction < NowPlayingVinylGrooveEndRadiusFraction)
+		assertTrue(NowPlayingVinylGrooveEndRadiusFraction < 1f)
+	}
+
+	@Test
+	fun lidaClipArtworkTransitionIsShortAndSubtle() {
+		assertTrue(NowPlayingVideoArtworkCrossfadeDurationMs in 120..500)
+		assertTrue(NowPlayingVideoArtworkCrossfadeInitialScale in 0.95f..1f)
+	}
 }
