@@ -14,6 +14,7 @@ This design keeps LidaClips as an integration, but moves its primary interaction
 - Let the user promote the clip into the artwork area without opening a separate video screen.
 - Keep audio behavior predictable by avoiding doubled song and clip audio unless a later explicit setting changes that.
 - Avoid running two video players at the same time.
+- Start clip playback near the equivalent song progress instead of always starting videos from zero.
 
 ## Non-Goals
 
@@ -54,6 +55,7 @@ If no clip is known yet, Now Playing renders normally while lookup happens. The 
 If a clip is detected and Auto-play background video is enabled:
 
 - The clip starts as the Now Playing background.
+- The clip seeks to the current song's normalized progress when it starts.
 - The regular cover/artwork area stays visible.
 - The background video is muted.
 - The background video uses crop sizing.
@@ -64,6 +66,7 @@ If the user taps the movie icon:
 
 - The background video unloads.
 - The same clip becomes the foreground video in the artwork area.
+- The foreground clip seeks to the current song's normalized progress at the moment it is promoted.
 - The foreground video uses fit sizing by default.
 - Standard music controls remain visible below the video.
 - The user stays on the Now Playing screen.
@@ -86,6 +89,22 @@ Foreground artwork video uses the existing LidaClips music-session policy:
 - Respect the existing Android audio-focus setting for clip playback.
 
 This keeps background video lightweight and predictable while preserving the current foreground video behavior for users who want real clip audio.
+
+## Clip Progress Mapping
+
+LidaClips videos and Navidrome songs often have different durations, so Now Playing should use proportional progress instead of absolute timestamps when starting or promoting a clip.
+
+When a video presentation starts:
+
+1. Read the current song position and duration from the music player.
+2. Compute `songProgress = songPositionMs / songDurationMs`.
+3. Seek the clip to `clipDurationMs * songProgress`.
+
+Use the LidaClips `durationSeconds` value when available. If the clip duration is not available before player preparation, use the Media3 duration once it is known, then seek before presenting foreground playback when possible. Clamp the computed clip position into the valid clip range. If the song duration or clip duration cannot be determined, start the clip at zero and keep the player stable.
+
+When the user promotes a background clip into the artwork area, recompute the clip position from the current song progress at tap time. This keeps the foreground video aligned to the song's current percentage even if the background player was delayed, paused, or recreated.
+
+This is a pragmatic approximation, not true audio/video sync. Navic should not attempt lyric/subtitle-based synchronization in this pass because matching lyrics and subtitles across the audio file and music video will be rare.
 
 ## Loading And Failure States
 
