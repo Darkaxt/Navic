@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.util.core.karaokeLinePixelTarget
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -52,6 +53,7 @@ fun LyricsScreenKaraokeText(
 	val lyricsBeatByBeat = preferenceManager.lyricsBeatByBeat
 	val lyricsBrightInactive = preferenceManager.lyricsBrightInactive
 	val lyricsFontSize = preferenceManager.lyricsFontSize.sizeSp.sp
+	val hasExplicitLineBreaks = text.contains('\n')
 
 	val isRtl = textLayoutResult?.let { layout ->
 		(0 until layout.lineCount).any { lineIndex ->
@@ -105,8 +107,6 @@ fun LyricsScreenKaraokeText(
 										}.toFloat()
 
 										val feather = 50f
-										val adjustedTotalWidth = totalWidth + (feather * 2)
-										val currentPixelTarget = (adjustedTotalWidth * smoothProgress) - feather
 
 										var accumulatedWidth = 0f
 
@@ -119,9 +119,17 @@ fun LyricsScreenKaraokeText(
 											val lineTop = layout.getLineTop(i)
 											val lineBottom = layout.getLineBottom(i)
 											val isRtl = layout.getBidiRunDirection(layout.getLineStart(i)) == ResolvedTextDirection.Rtl
+											val currentPixelTarget = karaokeLinePixelTarget(
+												progress = smoothProgress,
+												lineWidth = lineWidth,
+												totalWidth = totalWidth,
+												accumulatedWidth = accumulatedWidth,
+												feather = feather,
+												hasExplicitLineBreaks = hasExplicitLineBreaks
+											)
 
-											val startOffFadeIn = currentPixelTarget - accumulatedWidth - feather
-											val endOfFadeIn = currentPixelTarget - accumulatedWidth + feather
+											val startOffFadeIn = currentPixelTarget - feather
+											val endOfFadeIn = currentPixelTarget + feather
 
 											val startX = if (isRtl) lineRight else lineLeft
 											val endX = if (isRtl) lineLeft else lineRight

@@ -47,3 +47,16 @@ fun List<LyricsWord>.calculateWordProgress(
 
 	return 1f
 }
+
+fun karaokeLinePixelTarget(
+	progress: Float,
+	lineWidth: Float,
+	totalWidth: Float,
+	accumulatedWidth: Float,
+	feather: Float,
+	hasExplicitLineBreaks: Boolean
+): Float {
+	val width = if (hasExplicitLineBreaks) lineWidth else totalWidth
+	val target = ((width + (feather * 2)) * progress.coerceIn(0f, 1f)) - feather
+	return if (hasExplicitLineBreaks) target else target - accumulatedWidth
+}
