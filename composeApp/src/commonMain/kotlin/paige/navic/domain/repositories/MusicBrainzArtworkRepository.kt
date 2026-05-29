@@ -37,7 +37,7 @@ private const val COVER_ART_ARCHIVE_BASE_URL = "https://coverartarchive.org"
 private const val MUSICBRAINZ_BASE_URL = "https://musicbrainz.org"
 private const val MUSICBRAINZ_USER_AGENT = "Navic/1.0 (https://github.com/Darkaxt/Navic)"
 private const val MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES = 500
-internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 3
+internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 4
 private const val MUSICBRAINZ_RECORDING_SEARCH_LIMIT = 5
 private const val MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE = 90
 private const val MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT = 3
@@ -158,8 +158,16 @@ class MusicBrainzArtworkRepository(
 				null
 			}
 			val metadata = recording?.let {
+				val metadataRecording = if (shouldResolveMetadata) {
+					recording.withSelectedReleaseRelationMetadata(
+						preferredReleaseMbid = resolved?.releaseMbid,
+						preferredAlbumTitle = song.albumTitle
+					)
+				} else {
+					recording
+				}
 				musicBrainzTrackMetadata(
-					recording = it,
+					recording = metadataRecording,
 					preferredReleaseMbid = resolved?.releaseMbid,
 					preferredAlbumTitle = song.albumTitle
 				)
@@ -271,6 +279,70 @@ class MusicBrainzArtworkRepository(
 			response.status.isSuccess() -> response.body<MusicBrainzRecordingDto>()
 			else -> error("MusicBrainz recording lookup returned HTTP ${response.status.value}")
 		}
+	}
+
+	private suspend fun fetchRelease(releaseMbid: String): MusicBrainzReleaseDto? {
+		val response = throttledGet(musicBrainzReleaseLookupEndpoint(releaseMbid))
+		return when {
+			response.status == HttpStatusCode.NotFound -> null
+			response.status.isSuccess() -> response.body<MusicBrainzReleaseDto>()
+			else -> error("MusicBrainz release lookup returned HTTP ${response.status.value}")
+		}
+	}
+
+	private suspend fun fetchReleaseGroup(releaseGroupMbid: String): MusicBrainzReleaseGroupDto? {
+		val response = throttledGet(musicBrainzReleaseGroupLookupEndpoint(releaseGroupMbid))
+		return when {
+			response.status == HttpStatusCode.NotFound -> null
+			response.status.isSuccess() -> response.body<MusicBrainzReleaseGroupDto>()
+			else -> error("MusicBrainz release-group lookup returned HTTP ${response.status.value}")
+		}
+	}
+
+	private suspend fun MusicBrainzRecordingDto.withSelectedReleaseRelationMetadata(
+		preferredReleaseMbid: String?,
+		preferredAlbumTitle: String?
+	): MusicBrainzRecordingDto {
+		val selectedRelease = preferredMusicBrainzTrackRelease(
+			recording = this,
+			preferredReleaseMbid = preferredReleaseMbid,
+			preferredAlbumTitle = preferredAlbumTitle
+		) ?: return this
+		val selectedReleaseMbid = selectedRelease.id.normalizedMbidOrNull() ?: return this
+		val release = runCatching {
+			fetchRelease(selectedReleaseMbid)
+		}.getOrElse { error ->
+			Logger.w(TAG, "MusicBrainz release relation lookup failed for $selectedReleaseMbid", error)
+			null
+		}
+		val selectedReleaseGroupMbid = (
+			release?.releaseGroup?.id ?: selectedRelease.releaseGroup?.id
+			).normalizedMbidOrNull()
+		val releaseGroup = selectedReleaseGroupMbid?.let { releaseGroupMbid ->
+			runCatching {
+				fetchReleaseGroup(releaseGroupMbid)
+			}.getOrElse { error ->
+				Logger.w(TAG, "MusicBrainz release-group relation lookup failed for $releaseGroupMbid", error)
+				null
+			}
+		}
+		if (release == null && releaseGroup == null) return this
+
+		return copy(
+			releases = releases.map { candidate ->
+				if (candidate.id.normalizedMbidOrNull() != selectedReleaseMbid) {
+					candidate
+				} else {
+					val baseReleaseGroup = candidate.releaseGroup ?: release?.releaseGroup
+					candidate.copy(
+						relations = candidate.relations + release?.relations.orEmpty(),
+						releaseGroup = baseReleaseGroup?.copy(
+							relations = baseReleaseGroup.relations + releaseGroup?.relations.orEmpty()
+						)
+					)
+				}
+			}
+		)
 	}
 
 	private suspend fun searchRecording(song: DomainSong): MusicBrainzRecordingDto? {
@@ -401,6 +473,12 @@ internal fun coverArtArchiveReleaseGroupEndpoint(mbid: String): String =
 internal fun musicBrainzRecordingLookupEndpoint(mbid: String): String =
 	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+release-groups+genres+tags+url-rels+work-rels+work-level-rels&fmt=json"
 
+internal fun musicBrainzReleaseLookupEndpoint(mbid: String): String =
+	"$MUSICBRAINZ_BASE_URL/ws/2/release/${encodePathSegment(mbid.trim())}?inc=release-groups+url-rels&fmt=json"
+
+internal fun musicBrainzReleaseGroupLookupEndpoint(mbid: String): String =
+	"$MUSICBRAINZ_BASE_URL/ws/2/release-group/${encodePathSegment(mbid.trim())}?inc=url-rels&fmt=json"
+
 internal fun musicBrainzRecordingSearchEndpoint(
 	title: String,
 	artistName: String,
@@ -452,9 +530,11 @@ internal fun musicBrainzTrackMetadata(
 	preferredReleaseMbid: String?,
 	preferredAlbumTitle: String? = null
 ): MusicBrainzTrackMetadata {
-	val release = recording.releases
-		.firstOrNull { it.id == preferredReleaseMbid }
-		?: preferredMusicBrainzRecordingReleases(recording.releases, preferredAlbumTitle).firstOrNull()
+	val release = preferredMusicBrainzTrackRelease(
+		recording = recording,
+		preferredReleaseMbid = preferredReleaseMbid,
+		preferredAlbumTitle = preferredAlbumTitle
+	)
 	val releaseGroup = release?.releaseGroup
 	val recordingMbid = recording.id.normalizedMbidOrNull()
 	val releaseMbid = release?.id.normalizedMbidOrNull()
@@ -479,11 +559,31 @@ internal fun musicBrainzTrackMetadata(
 		genres = recording.genres.normalizedMusicBrainzTags(),
 		tags = recording.tags.normalizedMusicBrainzTags(),
 		isrcs = recording.isrcs.mapNotNull { it.nonBlankOrNull() }.distinct(),
-		externalLinks = musicBrainzExternalLinks(recording),
+		externalLinks = musicBrainzExternalLinks(
+			recording = recording,
+			release = release,
+			releaseGroup = releaseGroup
+		),
 		recordingUrl = recordingMbid?.let { "$MUSICBRAINZ_BASE_URL/recording/$it" },
 		releaseUrl = releaseMbid?.let { "$MUSICBRAINZ_BASE_URL/release/$it" },
 		releaseGroupUrl = releaseGroupMbid?.let { "$MUSICBRAINZ_BASE_URL/release-group/$it" }
 	)
+}
+
+internal fun preferredMusicBrainzTrackRelease(
+	recording: MusicBrainzRecordingDto,
+	preferredReleaseMbid: String?,
+	preferredAlbumTitle: String?
+): MusicBrainzReleaseDto? =
+	recording.releases
+		.firstOrNull { musicBrainzMbidMatches(it.id, preferredReleaseMbid) }
+		?: preferredMusicBrainzRecordingReleases(recording.releases, preferredAlbumTitle).firstOrNull()
+
+private fun musicBrainzMbidMatches(candidate: String?, preferred: String?): Boolean {
+	if (candidate == preferred) return true
+	val normalizedCandidate = candidate?.normalizedMbidOrNull() ?: return false
+	val normalizedPreferred = preferred?.normalizedMbidOrNull() ?: return false
+	return normalizedCandidate == normalizedPreferred
 }
 
 internal fun preferredMusicBrainzRecordingReleases(
@@ -586,8 +686,16 @@ private fun List<MusicBrainzTagDto>.normalizedMusicBrainzTags(): List<String> =
 		.distinct()
 		.take(10)
 
-private fun musicBrainzExternalLinks(recording: MusicBrainzRecordingDto): List<MusicBrainzExternalLink> {
-	val relations = recording.relations + recording.relations.flatMap { it.work?.relations.orEmpty() }
+private fun musicBrainzExternalLinks(
+	recording: MusicBrainzRecordingDto,
+	release: MusicBrainzReleaseDto?,
+	releaseGroup: MusicBrainzReleaseGroupDto?
+): List<MusicBrainzExternalLink> {
+	val relations =
+		recording.relations +
+			recording.relations.flatMap { it.work?.relations.orEmpty() } +
+			release?.relations.orEmpty() +
+			releaseGroup?.relations.orEmpty()
 	return relations
 		.mapNotNull { relation ->
 			if (relation.ended == true) {
@@ -955,6 +1063,7 @@ internal data class MusicBrainzReleaseDto(
 	val date: String? = null,
 	val country: String? = null,
 	val status: String? = null,
+	val relations: List<MusicBrainzRelationDto> = emptyList(),
 	@SerialName("release-group") val releaseGroup: MusicBrainzReleaseGroupDto? = null
 )
 
@@ -964,7 +1073,8 @@ internal data class MusicBrainzReleaseGroupDto(
 	val title: String? = null,
 	val disambiguation: String? = null,
 	@SerialName("primary-type") val primaryType: String? = null,
-	@SerialName("secondary-types") val secondaryTypes: List<String> = emptyList()
+	@SerialName("secondary-types") val secondaryTypes: List<String> = emptyList(),
+	val relations: List<MusicBrainzRelationDto> = emptyList()
 )
 
 private fun lucenePhrase(value: String): String =

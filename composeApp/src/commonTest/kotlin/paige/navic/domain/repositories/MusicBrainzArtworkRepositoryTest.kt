@@ -381,6 +381,14 @@ class MusicBrainzArtworkRepositoryTest {
 			musicBrainzRecordingLookupEndpoint("0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1")
 		)
 		assertEquals(
+			"https://musicbrainz.org/ws/2/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd?inc=release-groups+url-rels&fmt=json",
+			musicBrainzReleaseLookupEndpoint(" 76df3287-6cda-33eb-8e9a-044b5e15ffdd ")
+		)
+		assertEquals(
+			"https://musicbrainz.org/ws/2/release-group/c31a5e2b-0bf8-32e0-8aeb-ef4ba9973932?inc=url-rels&fmt=json",
+			musicBrainzReleaseGroupLookupEndpoint("c31a5e2b-0bf8-32e0-8aeb-ef4ba9973932")
+		)
+		assertEquals(
 			"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22&limit=5&fmt=json",
 			musicBrainzRecordingSearchEndpoint(title = "Dancing Queen", artistName = "ABBA")
 		)
@@ -520,6 +528,14 @@ class MusicBrainzArtworkRepositoryTest {
 						date = "1999",
 						country = "US",
 						status = "Official",
+						relations = listOf(
+							MusicBrainzRelationDto(
+								type = "discogs",
+								url = MusicBrainzRelationUrlDto(
+									resource = "https://www.discogs.com/release/not-selected"
+								)
+							)
+						),
 						releaseGroup = MusicBrainzReleaseGroupDto(
 							id = "release-group-1",
 							title = "First Group",
@@ -535,12 +551,26 @@ class MusicBrainzArtworkRepositoryTest {
 						date = "2001-03-04",
 						country = "GB",
 						status = "Bootleg",
+						relations = listOf(
+							MusicBrainzRelationDto(
+								type = "wikidata",
+								url = MusicBrainzRelationUrlDto(resource = "http://www.wikidata.org/wiki/Q456")
+							)
+						),
 						releaseGroup = MusicBrainzReleaseGroupDto(
 							id = "release-group-2",
 							title = "Preferred Group",
 							disambiguation = "anniversary release",
 							primaryType = "Album",
-							secondaryTypes = listOf("Soundtrack", "Compilation")
+							secondaryTypes = listOf("Soundtrack", "Compilation"),
+							relations = listOf(
+								MusicBrainzRelationDto(
+									type = "wikipedia",
+									url = MusicBrainzRelationUrlDto(
+										resource = "https://en.wikipedia.org/wiki/Dancing_Queen"
+									)
+								)
+							)
 						)
 					)
 				)
@@ -573,7 +603,8 @@ class MusicBrainzArtworkRepositoryTest {
 					label = "Songfacts",
 					url = "https://www.songfacts.com/facts/abba/dancing-queen"
 				),
-				MusicBrainzExternalLink(label = "Wikipedia", url = "https://en.wikipedia.org/wiki/Dancing_Queen")
+				MusicBrainzExternalLink(label = "Wikipedia", url = "https://en.wikipedia.org/wiki/Dancing_Queen"),
+				MusicBrainzExternalLink(label = "Wikidata", url = "https://www.wikidata.org/wiki/Q456")
 			),
 			metadata.externalLinks
 		)
