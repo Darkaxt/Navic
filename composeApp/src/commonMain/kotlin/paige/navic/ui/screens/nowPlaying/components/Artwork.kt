@@ -7,7 +7,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -28,6 +31,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
+import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
@@ -53,13 +57,18 @@ fun NowPlayingArtwork(
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
+	val isRotatingArtwork = shouldRotateNowPlayingArtwork(
+		enabled = preferenceManager.nowPlayingRotatingArtwork,
+		isPaused = playerState.isPaused,
+		isActiveArtwork = isActiveArtwork,
+		hasCoverArt = hasArtwork
+	)
 	val rotationDegrees = rememberNowPlayingArtworkRotationDegrees(
-		enabled = shouldRotateNowPlayingArtwork(
-			enabled = preferenceManager.nowPlayingRotatingArtwork,
-			isPaused = playerState.isPaused,
-			isActiveArtwork = isActiveArtwork,
-			hasCoverArt = hasArtwork
-		)
+		enabled = isRotatingArtwork
+	)
+	val artworkShape = nowPlayingArtworkShapeForPlayback(
+		configuredShape = preferenceManager.coverArtShape,
+		isRotating = isRotatingArtwork
 	)
 
 	val padding by animateDpAsState(
@@ -84,8 +93,24 @@ fun NowPlayingArtwork(
 				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
 				.padding(padding)
 				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
-			shadowElevation = 8.dp
+			shadowElevation = 8.dp,
+			shape = artworkShape.shape
 		)
+		if (isRotatingArtwork) {
+			Box(
+				contentAlignment = Alignment.Center,
+				modifier = Modifier
+					.size(44.dp)
+					.background(MaterialTheme.colorScheme.surface.copy(alpha = .72f), CircleShape)
+					.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f), CircleShape)
+			) {
+				Box(
+					modifier = Modifier
+						.size(12.dp)
+						.background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .48f), CircleShape)
+				)
+			}
+		}
 		if (!hasArtwork) {
 			Icon(
 				imageVector = if (isRadio) Icons.Outlined.Radio else Icons.Filled.Note,

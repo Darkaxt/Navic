@@ -4,25 +4,36 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_clear_search
+import navic.composeapp.generated.resources.title_search
 import navic.composeapp.generated.resources.subtitle_about
 import navic.composeapp.generated.resources.subtitle_appearance
 import navic.composeapp.generated.resources.subtitle_bottom_app_bar
@@ -49,9 +60,11 @@ import paige.navic.icons.filled.Info
 import paige.navic.icons.filled.Palette
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.ChevronForward
+import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Code
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Note
+import paige.navic.icons.outlined.Search
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -60,6 +73,8 @@ import paige.navic.ui.theme.defaultFont
 
 @Composable
 fun SettingsScreen() {
+	var searchQuery by rememberSaveable { mutableStateOf("") }
+
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_settings)) }) }
 	) { innerPadding ->
@@ -69,60 +84,100 @@ fun SettingsScreen() {
 				.verticalScroll(rememberScrollState())
 				.padding(top = 16.dp, end = 16.dp, start = 16.dp)
 		) {
-			Form {
-				PageRow(
-					destination = Screen.Settings.Appearance,
-					icon = Icons.Filled.Palette,
-					iconSize = 24.dp,
-					title = Res.string.title_appearance,
-					subtitle = Res.string.subtitle_appearance
-				)
-				PageRow(
-					destination = Screen.Settings.NowPlaying,
-					icon = Icons.Filled.Play,
-					iconSize = 24.dp,
-					title = Res.string.title_now_playing,
-					subtitle = Res.string.subtitle_now_playing
-				)
-				PageRow(
-					destination = Screen.Settings.BottomAppBar,
-					icon = Icons.Filled.BottomNavigation,
-					iconSize = 24.dp,
-					title = Res.string.title_bottom_app_bar,
-					subtitle = Res.string.subtitle_bottom_app_bar
-				)
-				PageRow(
-					destination = Screen.Settings.Playback,
-					icon = Icons.Outlined.Note,
-					iconSize = 24.dp,
-					title = Res.string.title_playback,
-					subtitle = Res.string.subtitle_playback
-				)
-				PageRow(
-					destination = Screen.Settings.DataStorage,
-					icon = Icons.Outlined.DataTable,
-					iconSize = 24.dp,
-					title = Res.string.title_data_storage,
-					subtitle = Res.string.subtitle_data_storage
-				)
-				PageRow(
-					destination = Screen.Settings.Developer,
-					icon = Icons.Outlined.Code,
-					iconSize = 24.dp,
-					title = Res.string.title_developer,
-					subtitle = Res.string.subtitle_developer
-				)
-			}
-			Form {
-				PageRow(
-					destination = Screen.Settings.About,
-					icon = Icons.Filled.Info,
-					title = Res.string.title_about,
-					subtitle = Res.string.subtitle_about
-				)
+			SettingsSearchField(
+				query = searchQuery,
+				onQueryChange = { searchQuery = it },
+				modifier = Modifier.padding(bottom = 16.dp)
+			)
+
+			if (searchQuery.isBlank()) {
+				Form {
+					PageRow(
+						destination = Screen.Settings.Appearance,
+						icon = Icons.Filled.Palette,
+						iconSize = 24.dp,
+						title = Res.string.title_appearance,
+						subtitle = Res.string.subtitle_appearance
+					)
+					PageRow(
+						destination = Screen.Settings.NowPlaying,
+						icon = Icons.Filled.Play,
+						iconSize = 24.dp,
+						title = Res.string.title_now_playing,
+						subtitle = Res.string.subtitle_now_playing
+					)
+					PageRow(
+						destination = Screen.Settings.BottomAppBar,
+						icon = Icons.Filled.BottomNavigation,
+						iconSize = 24.dp,
+						title = Res.string.title_bottom_app_bar,
+						subtitle = Res.string.subtitle_bottom_app_bar
+					)
+					PageRow(
+						destination = Screen.Settings.Playback,
+						icon = Icons.Outlined.Note,
+						iconSize = 24.dp,
+						title = Res.string.title_playback,
+						subtitle = Res.string.subtitle_playback
+					)
+					PageRow(
+						destination = Screen.Settings.DataStorage,
+						icon = Icons.Outlined.DataTable,
+						iconSize = 24.dp,
+						title = Res.string.title_data_storage,
+						subtitle = Res.string.subtitle_data_storage
+					)
+					PageRow(
+						destination = Screen.Settings.Developer,
+						icon = Icons.Outlined.Code,
+						iconSize = 24.dp,
+						title = Res.string.title_developer,
+						subtitle = Res.string.subtitle_developer
+					)
+				}
+				Form {
+					PageRow(
+						destination = Screen.Settings.About,
+						icon = Icons.Filled.Info,
+						title = Res.string.title_about,
+						subtitle = Res.string.subtitle_about
+					)
+				}
+			} else {
+				SettingsSearchResults(searchQuery)
 			}
 		}
 	}
+}
+
+@Composable
+private fun SettingsSearchField(
+	query: String,
+	onQueryChange: (String) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	OutlinedTextField(
+		value = query,
+		onValueChange = onQueryChange,
+		modifier = modifier.fillMaxWidth(),
+		singleLine = true,
+		leadingIcon = {
+			Icon(Icons.Outlined.Search, contentDescription = null)
+		},
+		trailingIcon = {
+			if (query.isNotEmpty()) {
+				IconButton(onClick = { onQueryChange("") }) {
+					Icon(
+						Icons.Outlined.Close,
+						contentDescription = stringResource(Res.string.action_clear_search)
+					)
+				}
+			}
+		},
+		placeholder = { Text(stringResource(Res.string.title_search)) },
+		keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+		shape = MaterialTheme.shapes.large
+	)
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

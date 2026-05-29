@@ -26,6 +26,11 @@ A personalized Navidrome client fork with Android playback controls, LidaClips m
 
 This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, and LidaClips music-video playback.
 
+### Settings discovery
+
+* Settings has a search field that filters matching settings into live, editable result rows, with each result showing its Settings path.
+* The filtered rows cover common Appearance, Now Playing, Bottom Bar, Playback, Data & Storage, LidaClips, and Developer preferences without forcing navigation into the owning settings page.
+
 ### Reverse proxy and server access
 
 * Reverse proxy Basic Auth fields for Navidrome/Subsonic servers behind Traefik or another proxy.
@@ -71,7 +76,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional bottom gradient for the dynamic Now Playing background.
 * Kreate-inspired optional main Now Playing artwork visibility, artwork size, and pause-shrink behavior.
 * Kreate-inspired Now Playing artwork swipe control for disabling horizontal artwork swipes without disabling mini-player swipes.
-* Kreate-inspired optional rotating artwork for the active Now Playing cover.
+* Kreate-inspired optional rotating artwork for the active Now Playing cover, shown as a disc-style cover while it spins.
 * Kreate-inspired optional Now Playing seek buttons beside the time row. Tap seeks 10 seconds; long-press seeks 30 seconds.
 * Kreate-inspired optional Now Playing remaining-time label between elapsed and total duration.
 * Kreate-inspired Now Playing progress width selector for shorter, default-width, or full-width playback timelines.
@@ -249,7 +254,7 @@ Open Settings -> Now Playing and turn `Show artwork` off to hide the main cover 
 
 Turn `Swipe artwork to change songs` off to stop horizontal swipes on the main Now Playing artwork from changing tracks while leaving other swipe controls available.
 
-Turn `Rotate playing artwork` on to spin the active cover while music is playing. It is off by default and does not rotate paused, inactive, or placeholder artwork.
+Turn `Rotate playing artwork` on to spin the active cover while music is playing. It is off by default and does not rotate paused, inactive, or placeholder artwork. When active, Navic temporarily renders the cover as a round disc with a center marker so the motion is visible even for square album art.
 
 ### Now Playing Up next setup
 
