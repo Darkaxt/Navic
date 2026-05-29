@@ -104,7 +104,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 ### Library and playlist reliability
 
-* Kreate-inspired `Quick Picks` on the Library screen surfaces synced Navidrome songs from frequent plays, ratings, and recently added albums, with a fallback to the rest of the local song cache.
+* Kreate-inspired `Quick Picks` on the Library screen surfaces synced Navidrome songs from frequent plays, ratings, and recently added albums, with a fallback to the rest of the local song cache. Appearance settings can hide the row or change how many Quick Picks songs are kept.
 * Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
@@ -215,7 +215,7 @@ Open a song's action sheet or the now-playing menu and choose `Start song radio`
 
 ### Quick Picks setup
 
-No setup is required. The Library screen shows `Quick Picks` when synced songs are available. Tap a card to play that song immediately, long-press it for the normal song actions, or use `See all` to open the full Quick Picks song list.
+The Library screen shows `Quick Picks` when synced songs are available. Tap a card to play that song immediately, long-press it for the normal song actions, or use `See all` to open the full Quick Picks song list. Open Settings -> Appearance -> Library to hide the Quick Picks row or choose whether Navic keeps 10, 20, 30, or 50 songs in Quick Picks.
 
 ### Discover queue setup
 

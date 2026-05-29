@@ -46,10 +46,15 @@ import navic.composeapp.generated.resources.option_artwork_shape
 import navic.composeapp.generated.resources.option_choose_theme
 import navic.composeapp.generated.resources.option_cover_art_size
 import navic.composeapp.generated.resources.option_grid_items_per_row
+import navic.composeapp.generated.resources.option_quick_picks_size
+import navic.composeapp.generated.resources.option_show_quick_picks
 import navic.composeapp.generated.resources.option_use_marquee_text
+import navic.composeapp.generated.resources.subtitle_quick_picks_size
+import navic.composeapp.generated.resources.subtitle_show_quick_picks
 import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_choose_font
 import navic.composeapp.generated.resources.title_layout
+import navic.composeapp.generated.resources.title_library
 import navic.composeapp.generated.resources.title_miscellaneous
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -263,6 +268,25 @@ fun SettingsAppearanceScreen() {
 					}
 				}
 
+				FormTitle(stringResource(Res.string.title_library))
+				Form {
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_show_quick_picks)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_show_quick_picks)) },
+						value = preferenceManager.quickPicksEnabled,
+						onSetValue = { preferenceManager.quickPicksEnabled = it }
+					)
+
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_quick_picks_size)) },
+						items = quickPicksLimitOptions.toImmutableList(),
+						label = { it.toString() },
+						description = stringResource(Res.string.subtitle_quick_picks_size),
+						selection = preferenceManager.quickPicksLimit,
+						onSelect = { preferenceManager.quickPicksLimit = it }
+					)
+				}
+
 				FormTitle(stringResource(Res.string.title_miscellaneous))
 				Form {
 					SettingSelectionRow(
@@ -295,3 +319,5 @@ fun SettingsAppearanceScreen() {
 		)
 	}
 }
+
+private val quickPicksLimitOptions = listOf(10, 20, 30, 50)

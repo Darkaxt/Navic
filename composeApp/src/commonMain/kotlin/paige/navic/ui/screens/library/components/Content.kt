@@ -56,6 +56,7 @@ fun LibraryScreenContent(
 	onSetShareId: (String) -> Unit,
 
 	// quick picks
+	quickPicksEnabled: Boolean,
 	quickPicksState: UiState<ImmutableList<DomainSong>>,
 	selectedQuickPick: DomainSong?,
 	selectedQuickPickIsStarred: Boolean,
@@ -143,33 +144,35 @@ fun LibraryScreenContent(
 			start = false
 		)
 
-		horizontalSection(
-			title = Res.string.option_sort_quick_picks,
-			destination = Screen.SongList(true, listType = DomainSongListType.QuickPicks),
-			state = quickPicksState,
-			key = { it.id },
-			seeAll = true
-		) { song ->
-			QuickPickSongCard(
-				modifier = Modifier.animateItem().width(150.dp),
-				song = song,
-				selected = song == selectedQuickPick,
-				starred = selectedQuickPickIsStarred,
-				rating = selectedQuickPickRating,
-				download = quickPickDownloads.find { it.songId == song.id },
-				onSelect = { onSelectQuickPick(song) },
-				onDeselect = onClearQuickPickSelection,
-				onSetStarred = onStarSelectedQuickPick,
-				onSetShareId = onSetShareId,
-				onStartSongRadio = { onStartQuickPickRadio(song) },
-				onPlayNext = { onPlayQuickPickNext(song) },
-				onAddToQueue = { onAddQuickPickToQueue(song) },
-				onClick = { onPlayQuickPick(song) },
-				onSetRating = onRateSelectedQuickPick,
-				onDownload = { onDownloadQuickPick(song) },
-				onCancelDownload = { onCancelQuickPickDownload(song) },
-				onDeleteDownload = { onDeleteQuickPickDownload(song) }
-			)
+		if (quickPicksEnabled) {
+			horizontalSection(
+				title = Res.string.option_sort_quick_picks,
+				destination = Screen.SongList(true, listType = DomainSongListType.QuickPicks),
+				state = quickPicksState,
+				key = { it.id },
+				seeAll = true
+			) { song ->
+				QuickPickSongCard(
+					modifier = Modifier.animateItem().width(150.dp),
+					song = song,
+					selected = song == selectedQuickPick,
+					starred = selectedQuickPickIsStarred,
+					rating = selectedQuickPickRating,
+					download = quickPickDownloads.find { it.songId == song.id },
+					onSelect = { onSelectQuickPick(song) },
+					onDeselect = onClearQuickPickSelection,
+					onSetStarred = onStarSelectedQuickPick,
+					onSetShareId = onSetShareId,
+					onStartSongRadio = { onStartQuickPickRadio(song) },
+					onPlayNext = { onPlayQuickPickNext(song) },
+					onAddToQueue = { onAddQuickPickToQueue(song) },
+					onClick = { onPlayQuickPick(song) },
+					onSetRating = onRateSelectedQuickPick,
+					onDownload = { onDownloadQuickPick(song) },
+					onCancelDownload = { onCancelQuickPickDownload(song) },
+					onDeleteDownload = { onDeleteQuickPickDownload(song) }
+				)
+			}
 		}
 
 		horizontalSection(

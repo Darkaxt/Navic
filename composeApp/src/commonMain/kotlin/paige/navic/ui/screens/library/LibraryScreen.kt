@@ -24,6 +24,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSong
@@ -92,6 +93,7 @@ fun LibraryScreen() {
 
 	val loginViewModel = koinViewModel<LoginViewModel>()
 	val loginState by loginViewModel.loginState.collectAsStateWithLifecycle()
+	val isLoggedIn = loginState is LoginUiState.Success
 
 	var shareId by rememberSaveable { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
@@ -101,6 +103,9 @@ fun LibraryScreen() {
 	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
 
 	val player = koinInject<MediaPlayerViewModel>()
+	val preferenceManager = koinInject<PreferenceManager>()
+	val quickPicksEnabled = preferenceManager.quickPicksEnabled
+	val quickPicksLimit = preferenceManager.quickPicksLimit
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -122,8 +127,12 @@ fun LibraryScreen() {
 		}
 	}
 
-	LaunchedEffect(loginState is LoginUiState.Success) {
-		quickPicksViewModel.refreshSongs(false)
+	LaunchedEffect(isLoggedIn, quickPicksEnabled, quickPicksLimit) {
+		if (!isLoggedIn) return@LaunchedEffect
+
+		if (quickPicksEnabled) {
+			quickPicksViewModel.refreshSongs(false)
+		}
 		albumsViewModel.refreshAlbums(false)
 		playlistsViewModel.refreshPlaylists(false)
 		artistsViewModel.refreshArtists(false)
@@ -142,12 +151,14 @@ fun LibraryScreen() {
 				.padding(top = innerPadding.calculateTopPadding())
 				.background(MaterialTheme.colorScheme.surface),
 			finished = albumsState !is UiState.Loading &&
-				quickPicksState !is UiState.Loading &&
+				(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
 				genresState !is UiState.Loading,
 			onRefresh = {
-				quickPicksViewModel.refreshSongs(true)
+				if (quickPicksEnabled) {
+					quickPicksViewModel.refreshSongs(true)
+				}
 				albumsViewModel.refreshAlbums(true)
 				playlistsViewModel.refreshPlaylists(true)
 				artistsViewModel.refreshArtists(true)
@@ -160,6 +171,7 @@ fun LibraryScreen() {
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
 
+				quickPicksEnabled = quickPicksEnabled,
 				quickPicksState = quickPicksState,
 				selectedQuickPick = selectedQuickPick,
 				selectedQuickPickIsStarred = selectedQuickPickIsStarred,

@@ -5,8 +5,10 @@ const val QuickPicksDefaultSize = 20
 fun quickPickSongs(
 	songs: List<DomainSong>,
 	albums: List<DomainAlbum>,
+	enabled: Boolean = true,
 	limit: Int = QuickPicksDefaultSize
 ): List<DomainSong> {
+	if (!enabled) return emptyList()
 	val resultLimit = limit.coerceAtLeast(0)
 	if (resultLimit == 0) return emptyList()
 

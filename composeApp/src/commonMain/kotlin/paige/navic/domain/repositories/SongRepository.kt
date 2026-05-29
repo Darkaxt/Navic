@@ -1,6 +1,7 @@
 package paige.navic.domain.repositories
 
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -43,6 +44,10 @@ class SongRepository(
 		reversed: Boolean,
 		artistId: String? = null
 	): ImmutableList<DomainSong> {
+		if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
+			return persistentListOf()
+		}
+
 		val songs = songDao
 			.getAllSongs()
 			.map { it.toDomainModel() }
@@ -53,7 +58,9 @@ class SongRepository(
 		}.toImmutableList().sortedByListType(
 			listType,
 			downloads = downloadDao.getAllDownloadsList(),
-			albums = albumDao.getAllAlbumsList().map { it.toDomainModel() }
+			albums = albumDao.getAllAlbumsList().map { it.toDomainModel() },
+			quickPicksEnabled = preferenceManager.quickPicksEnabled,
+			quickPicksLimit = preferenceManager.quickPicksLimit
 		)
 
 		return if (reversed) {
@@ -68,6 +75,10 @@ class SongRepository(
 		reversed: Boolean,
 		artistId: String? = null
 	): ImmutableList<DomainSong> {
+		if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
+			return persistentListOf()
+		}
+
 		dbRepository.syncLibrarySongs().getOrThrow()
 		return getLocalData(listType, reversed, artistId)
 	}

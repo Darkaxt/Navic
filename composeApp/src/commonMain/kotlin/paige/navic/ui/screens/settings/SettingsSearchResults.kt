@@ -124,6 +124,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val dataStorage = stringResource(Res.string.title_data_storage)
 	val developer = stringResource(Res.string.title_developer)
 	val layout = stringResource(Res.string.title_layout)
+	val library = stringResource(Res.string.title_library)
 	val actions = stringResource(Res.string.title_actions)
 	val behaviour = stringResource(Res.string.title_behaviour)
 	val lyrics = stringResource(Res.string.action_lyrics)
@@ -182,6 +183,26 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onValueChange = { preferenceManager.artGridItemSize = it },
 			valueRange = 50f..500f,
 			steps = 8
+		))
+		add(switchRow(
+			id = "appearance.quick-picks",
+			path = path(appearance, library),
+			title = stringResource(Res.string.option_show_quick_picks),
+			subtitle = stringResource(Res.string.subtitle_show_quick_picks),
+			keywords = listOf("discover", "home", "library"),
+			value = preferenceManager.quickPicksEnabled,
+			onSetValue = { preferenceManager.quickPicksEnabled = it }
+		))
+		add(selectionRow(
+			id = "appearance.quick-picks-size",
+			path = path(appearance, library),
+			title = stringResource(Res.string.option_quick_picks_size),
+			subtitle = stringResource(Res.string.subtitle_quick_picks_size),
+			keywords = listOf("discover", "home", "library", "count", "limit"),
+			items = quickPicksLimitSearchOptions,
+			label = { it.toString() },
+			selection = preferenceManager.quickPicksLimit,
+			onSelect = { preferenceManager.quickPicksLimit = it }
 		))
 		add(selectionRow(
 			id = "appearance.marquee",
@@ -1442,3 +1463,4 @@ private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val queueShuffleLimitSearchOptions = listOf(0, 50, 100, 200, 500, 1000, 2000, 3000)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
+private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)

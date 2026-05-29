@@ -55,6 +55,19 @@ class QuickPicksPolicyTest {
 		)
 	}
 
+	@Test
+	fun quickPicksReturnEmptyListWhenDisabled() {
+		assertEquals(
+			emptyList(),
+			quickPickSongs(
+				songs = listOf(song(id = "song", playCount = 1)),
+				albums = emptyList(),
+				enabled = false,
+				limit = 10
+			)
+		)
+	}
+
 	private fun song(
 		id: String,
 		albumId: String? = null,

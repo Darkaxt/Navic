@@ -10,6 +10,7 @@ import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
@@ -61,6 +62,8 @@ class PreferenceManager(
 	var artGridItemSize by preference(150f)
 	var marqueeSpeed by preference(MarqueeSpeed.Slow)
 	var alphabeticalScroll by preference(false)
+	var quickPicksEnabled by preference(true)
+	var quickPicksLimit by preference(QuickPicksDefaultSize)
 	var lyricsAutoscroll by preference(true)
 	var lyricsBeatByBeat by preference(true)
 	var lyricsKeepAlive by preference(true)

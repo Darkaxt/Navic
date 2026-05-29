@@ -9,16 +9,24 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.quickPickSongs
 
 // TODO: sort with sql instead
 fun ImmutableList<DomainSong>.sortedByListType(
 	listType: DomainSongListType,
 	downloads: List<DownloadEntity>,
-	albums: List<DomainAlbum>
+	albums: List<DomainAlbum>,
+	quickPicksEnabled: Boolean = true,
+	quickPicksLimit: Int = QuickPicksDefaultSize
 ): ImmutableList<DomainSong> {
 	return when (listType) {
-		DomainSongListType.QuickPicks -> quickPickSongs(this, albums)
+		DomainSongListType.QuickPicks -> quickPickSongs(
+			songs = this,
+			albums = albums,
+			enabled = quickPicksEnabled,
+			limit = quickPicksLimit
+		)
 		DomainSongListType.FrequentlyPlayed -> sortedByDescending { it.playCount }
 		DomainSongListType.Newest -> sortedByDescending {
 			albums
