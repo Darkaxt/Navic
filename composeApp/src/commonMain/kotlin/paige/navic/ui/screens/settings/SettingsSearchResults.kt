@@ -42,6 +42,8 @@ import paige.navic.domain.models.MaxNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
+import paige.navic.domain.models.lidaClipsVideoCacheSizeLabel
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
@@ -1243,6 +1245,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				label = { stringResource(it.displayName) },
 				selection = preferenceManager.lidaClipsVideoFitMode,
 				onSelect = { preferenceManager.lidaClipsVideoFitMode = it }
+			))
+			add(selectionRow(
+				id = "lida.video-cache-size",
+				path = path(integrations, lidaClips),
+				title = stringResource(Res.string.option_lida_clips_video_cache_size),
+				subtitle = stringResource(Res.string.subtitle_lida_clips_video_cache_size),
+				keywords = listOf("cache", "download", "offline", "music video clips"),
+				items = LidaClipsVideoCacheSizeOptionsMb,
+				label = { lidaClipsVideoCacheSizeLabel(it) },
+				selection = preferenceManager.lidaClipsVideoCacheSizeMb,
+				onSelect = { preferenceManager.lidaClipsVideoCacheSizeMb = it }
 			))
 			add(switchRow(
 				id = "lida.pause-music",

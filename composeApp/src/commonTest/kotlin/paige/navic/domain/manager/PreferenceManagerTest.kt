@@ -3,6 +3,7 @@ package paige.navic.domain.manager
 import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
+import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
@@ -138,16 +139,19 @@ class PreferenceManagerTest {
 		assertFalse(manager.lidaClipsPictureInPicture)
 		assertFalse(manager.lidaClipsLandscapeVideoMode)
 		assertTrue(manager.lidaClipsKeepScreenOn)
+		assertEquals(DefaultLidaClipsVideoCacheSizeMb, manager.lidaClipsVideoCacheSizeMb)
 		assertEquals(LidaClipsBackgroundVideoMode.Blurred, manager.lidaClipsBackgroundVideoMode)
 		assertEquals(LidaClipsVideoFitMode.Fit, manager.lidaClipsVideoFitMode)
 		manager.lidaClipsPictureInPicture = true
 		manager.lidaClipsLandscapeVideoMode = true
 		manager.lidaClipsKeepScreenOn = false
+		manager.lidaClipsVideoCacheSizeMb = 1024
 		manager.lidaClipsBackgroundVideoMode = LidaClipsBackgroundVideoMode.Normal
 		manager.lidaClipsVideoFitMode = LidaClipsVideoFitMode.Crop
 		assertTrue(manager.lidaClipsPictureInPicture)
 		assertTrue(manager.lidaClipsLandscapeVideoMode)
 		assertFalse(manager.lidaClipsKeepScreenOn)
+		assertEquals(1024, manager.lidaClipsVideoCacheSizeMb)
 		assertEquals(LidaClipsBackgroundVideoMode.Normal, manager.lidaClipsBackgroundVideoMode)
 		assertEquals(LidaClipsVideoFitMode.Crop, manager.lidaClipsVideoFitMode)
 	}

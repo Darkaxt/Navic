@@ -12,7 +12,11 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import paige.navic.domain.models.LidaClipCacheFileInfo
+import platform.Foundation.NSCachesDirectory
+import platform.Foundation.NSDate
 import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSNumber
@@ -20,28 +24,73 @@ import platform.Foundation.NSOutputStream
 import platform.Foundation.NSURL
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.outputStreamToFileAtPath
+import platform.posix.utime
 
 actual class StorageManager {
 	private val dispatcher = Dispatchers.IO
 
 	actual fun getDownloadPath(songId: String, extension: String): String {
-		val manager = NSFileManager.defaultManager
-		val url = manager.URLsForDirectory(NSDocumentDirectory, NSUserDomainMask).first() as NSURL
-		val dir = url.URLByAppendingPathComponent("downloads")!!
-		if (!manager.fileExistsAtPath(dir.path!!)) {
-			manager.createDirectoryAtURL(dir, true, null, null)
-		}
-		return dir.URLByAppendingPathComponent("$songId.$extension")!!.path!!
+		return downloadsDir().URLByAppendingPathComponent("$songId.$extension")!!.path!!
+	}
+
+	actual fun getLidaClipVideoCachePath(clipId: Int, extension: String): String {
+		return lidaClipVideoCacheDir().URLByAppendingPathComponent("$clipId.$extension")!!.path!!
+	}
+
+	actual fun getLidaClipVideoCacheTempPath(clipId: Int, extension: String): String {
+		return lidaClipVideoCacheDir().URLByAppendingPathComponent("$clipId.$extension.part")!!.path!!
 	}
 
 	actual fun deleteFile(path: String): Boolean {
 		return NSFileManager.defaultManager.removeItemAtPath(path, null)
 	}
 
+	actual fun fileExists(path: String): Boolean {
+		return NSFileManager.defaultManager.fileExistsAtPath(path)
+	}
+
+	actual fun moveFile(sourcePath: String, destinationPath: String): Boolean {
+		val manager = NSFileManager.defaultManager
+		if (manager.fileExistsAtPath(destinationPath)) {
+			manager.removeItemAtPath(destinationPath, null)
+		}
+		return manager.moveItemAtPath(sourcePath, destinationPath, null)
+	}
+
+	actual fun fileUri(path: String): String {
+		return NSURL.fileURLWithPath(path).absoluteString ?: path
+	}
+
 	actual fun getFileSize(path: String): Long {
 		val manager = NSFileManager.defaultManager
 		val attributes = manager.attributesOfItemAtPath(path, null)
 		return (attributes?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L
+	}
+
+	actual fun touchFile(path: String): Boolean {
+		return utime(path, null) == 0
+	}
+
+	actual fun listLidaClipVideoCacheFiles(): List<LidaClipCacheFileInfo> {
+		val manager = NSFileManager.defaultManager
+		val dir = lidaClipVideoCacheDir().path ?: return emptyList()
+		val names = manager.contentsOfDirectoryAtPath(dir, null).orEmpty()
+		return names
+			.mapNotNull { it as? String }
+			.filterNot { it.endsWith(".part") }
+			.mapNotNull { name ->
+				val path = lidaClipVideoCacheDir().URLByAppendingPathComponent(name)?.path
+					?: return@mapNotNull null
+				val attributes = manager.attributesOfItemAtPath(path, null)
+				LidaClipCacheFileInfo(
+					path = path,
+					sizeBytes = (attributes?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L,
+					lastModifiedMillis = ((attributes?.get(NSFileModificationDate) as? NSDate)
+						?.timeIntervalSince1970
+						?.times(1000.0)
+						?.toLong()) ?: 0L
+				)
+			}
 	}
 
 	actual suspend fun saveFile(path: String, channel: ByteReadChannel) {
@@ -66,11 +115,34 @@ actual class StorageManager {
 	}
 
 	actual fun clearDownloads() {
+		clearDirectory(downloadsDir())
+	}
+
+	actual fun clearLidaClipVideoCache() {
+		clearDirectory(lidaClipVideoCacheDir())
+	}
+
+	private fun downloadsDir(): NSURL =
+		directory(NSDocumentDirectory, "downloads")
+
+	private fun lidaClipVideoCacheDir(): NSURL =
+		directory(NSCachesDirectory, "lida_clips")
+
+	private fun directory(directory: ULong, child: String): NSURL {
 		val manager = NSFileManager.defaultManager
-		val url = manager.URLsForDirectory(NSDocumentDirectory, NSUserDomainMask).first() as NSURL
-		val dir = url.URLByAppendingPathComponent("downloads")!!
+		val url = manager.URLsForDirectory(directory, NSUserDomainMask).first() as NSURL
+		val dir = url.URLByAppendingPathComponent(child)!!
+		if (!manager.fileExistsAtPath(dir.path!!)) {
+			manager.createDirectoryAtURL(dir, true, null, null)
+		}
+		return dir
+	}
+
+	private fun clearDirectory(dir: NSURL) {
+		val manager = NSFileManager.defaultManager
 		if (manager.fileExistsAtPath(dir.path!!)) {
 			manager.removeItemAtURL(dir, null)
+			manager.createDirectoryAtURL(dir, true, null, null)
 		}
 	}
 

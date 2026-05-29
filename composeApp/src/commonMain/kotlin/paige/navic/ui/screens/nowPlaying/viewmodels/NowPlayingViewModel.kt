@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
@@ -17,6 +18,7 @@ import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import kotlin.time.Clock
@@ -25,6 +27,7 @@ class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
 	private val songRepository: SongRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
+	private val lidaClipCacheManager: LidaClipCacheManager,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
 
@@ -128,8 +131,18 @@ class NowPlayingViewModel(
 		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
 			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
 				.onSuccess { clip ->
+					val cachedClip = clip?.let {
+						lidaClipCacheManager.getOrCacheClip(
+							clip = it,
+							requestHeaders = lidaClipsStreamRequestHeaders(
+								baseUrl = preferenceManager.lidaClipsBaseUrl,
+								streamUrl = it.streamUrl,
+								requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+							)
+						).getOrElse { null }
+					}
 					if (currentLidaClipSongId == song.id) {
-						_lidaClipState.value = UiState.Success(clip)
+						_lidaClipState.value = UiState.Success(cachedClip)
 					}
 				}
 				.onFailure { error ->

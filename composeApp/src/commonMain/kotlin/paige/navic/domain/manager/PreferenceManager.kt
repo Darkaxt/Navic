@@ -10,6 +10,7 @@ import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
 import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
@@ -139,6 +140,7 @@ class PreferenceManager(
 	var lidaClipsLandscapeVideoMode by preference(false)
 	var lidaClipsBackgroundVideoMode by preference(LidaClipsBackgroundVideoMode.Blurred)
 	var lidaClipsVideoFitMode by preference(LidaClipsVideoFitMode.Fit)
+	var lidaClipsVideoCacheSizeMb by preference(DefaultLidaClipsVideoCacheSizeMb)
 	var lidaClipsPauseMusicPlayback by preference(true)
 	var lidaClipsRememberPlaybackPosition by preference(true)
 	var lidaClipsKeepScreenOn by preference(true)

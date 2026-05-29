@@ -23,6 +23,7 @@ expect fun PlatformLidaClipPlayer(
 	seekKey: Int = 0,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
+	onFirstFrameRendered: () -> Unit = {},
 	onPlaybackError: (String) -> Unit,
 	onPlaybackPositionChange: (Long) -> Unit,
 	modifier: Modifier

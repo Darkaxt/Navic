@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.option_lida_clips_sync_paused
 import navic.composeapp.generated.resources.option_lida_clips_sync_state
+import navic.composeapp.generated.resources.option_lida_clips_video_cache_size
 import navic.composeapp.generated.resources.option_lida_clips_video_fit
 import navic.composeapp.generated.resources.subtitle_lida_clips_enabled
 import navic.composeapp.generated.resources.subtitle_lida_clips_background_video
@@ -79,6 +80,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_play
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
 import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
+import navic.composeapp.generated.resources.subtitle_lida_clips_video_cache_size
 import navic.composeapp.generated.resources.subtitle_lida_clips_video_fit
 import navic.composeapp.generated.resources.title_lida_clips
 import navic.composeapp.generated.resources.title_lida_clips_health_checks
@@ -91,6 +93,8 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
+import paige.navic.domain.models.lidaClipsVideoCacheSizeLabel
 import paige.navic.domain.models.nextLidaClipsServiceStatusRefreshKey
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
@@ -221,6 +225,14 @@ fun SettingsLidaClipsScreen() {
 									description = stringResource(Res.string.subtitle_lida_clips_video_fit),
 									selection = preferenceManager.lidaClipsVideoFitMode,
 									onSelect = { preferenceManager.lidaClipsVideoFitMode = it }
+								)
+								SettingSelectionRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_video_cache_size)) },
+									items = LidaClipsVideoCacheSizeOptionsMb.toImmutableList(),
+									label = { lidaClipsVideoCacheSizeLabel(it) },
+									description = stringResource(Res.string.subtitle_lida_clips_video_cache_size),
+									selection = preferenceManager.lidaClipsVideoCacheSizeMb,
+									onSelect = { preferenceManager.lidaClipsVideoCacheSizeMb = it }
 								)
 								SettingSwitchRow(
 									title = { Text(stringResource(Res.string.option_lida_clips_pause_music_playback)) },

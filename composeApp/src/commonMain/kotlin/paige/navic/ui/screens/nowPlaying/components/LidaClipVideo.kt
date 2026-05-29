@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -51,6 +52,7 @@ fun NowPlayingLidaClipBackground(
 	val startPositionMs = remember(clip.id, startProgress, clip.durationSeconds) {
 		lidaClipProgressStartPositionMs(startProgress, lidaClipDurationMs(clip.durationSeconds))
 	}
+	var hasRenderedFirstFrame by remember(clip.streamUrl) { mutableStateOf(false) }
 	val requestHeaders = lidaClipsStreamRequestHeaders(
 		baseUrl = preferenceManager.lidaClipsBaseUrl,
 		streamUrl = clip.streamUrl,
@@ -62,7 +64,7 @@ fun NowPlayingLidaClipBackground(
 			Modifier.matchParentSize().blur(28.dp)
 		} else {
 			Modifier.matchParentSize()
-		}
+		}.alpha(if (hasRenderedFirstFrame) 1f else 0f)
 		PlatformLidaClipPlayer(
 			clip = clip,
 			requestHeaders = requestHeaders,
@@ -78,11 +80,12 @@ fun NowPlayingLidaClipBackground(
 			playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
 			retryKey = 0,
 			onPlaybackReady = {},
+			onFirstFrameRendered = { hasRenderedFirstFrame = true },
 			onPlaybackError = {},
 			onPlaybackPositionChange = {},
 			modifier = videoModifier
 		)
-		if (shouldBlurLidaClipBackgroundVideo(backgroundVideoMode)) {
+		if (hasRenderedFirstFrame && shouldBlurLidaClipBackgroundVideo(backgroundVideoMode)) {
 			Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.45f)))
 		}
 	}
@@ -112,6 +115,9 @@ fun NowPlayingLidaClipArtwork(
 	var playbackState by remember(clip.streamUrl) {
 		mutableStateOf(LidaClipPlaybackState())
 	}
+	var hasRenderedFirstFrame by remember(clip.streamUrl, playbackState.retryKey) {
+		mutableStateOf(false)
+	}
 	var seekProgress by remember(clip.id) { mutableStateOf<Float?>(null) }
 	var seekKey by remember(clip.id) { mutableStateOf(0) }
 
@@ -122,9 +128,9 @@ fun NowPlayingLidaClipArtwork(
 		}
 	}
 
-	DisposableEffect(clip.id, player) {
+	DisposableEffect(clip.id, hasRenderedFirstFrame, player) {
 		player.setNowPlayingVideoClipAudioActive(
-			shouldMuteMusicForNowPlayingPromotedLidaClip()
+			hasRenderedFirstFrame && shouldMuteMusicForNowPlayingPromotedLidaClip()
 		)
 		onDispose {
 			player.setNowPlayingVideoClipAudioActive(false)
@@ -147,7 +153,7 @@ fun NowPlayingLidaClipArtwork(
 			videoFitMode = lidaClipForegroundVideoFitMode(preferenceManager.lidaClipsVideoFitMode),
 			respectAudioFocus = preferenceManager.respectAudioFocus,
 			startPositionMs = startPositionMs,
-			muted = shouldMuteNowPlayingPromotedLidaClipVideo(),
+			muted = !hasRenderedFirstFrame || shouldMuteNowPlayingPromotedLidaClipVideo(),
 			showControls = shouldShowNowPlayingLidaClipControls(),
 			startProgress = startProgress,
 			playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
@@ -157,11 +163,16 @@ fun NowPlayingLidaClipArtwork(
 			onPlaybackReady = {
 				playbackState = playbackState.onReady()
 			},
+			onFirstFrameRendered = {
+				hasRenderedFirstFrame = true
+				playbackState = playbackState.onReady()
+			},
 			onPlaybackError = { message ->
+				hasRenderedFirstFrame = false
 				playbackState = playbackState.onError(message)
 			},
 			onPlaybackPositionChange = {},
-			modifier = Modifier.matchParentSize()
+			modifier = Modifier.matchParentSize().alpha(if (hasRenderedFirstFrame) 1f else 0f)
 		)
 		playbackState.errorMessage?.let { errorMessage ->
 			ErrorBox<Unit>(

@@ -29,6 +29,7 @@ actual fun PlatformLidaClipPlayer(
 	seekKey: Int,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
+	onFirstFrameRendered: () -> Unit,
 	onPlaybackError: (String) -> Unit,
 	onPlaybackPositionChange: (Long) -> Unit,
 	modifier: Modifier

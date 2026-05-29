@@ -315,18 +315,18 @@ private fun NowPlayingMediaSlot(
 	onArtworkTap: (() -> Unit)?,
 	modifier: Modifier = Modifier
 ) {
-	if (showClipInArtwork && clip != null) {
+	Box(modifier) {
+		NowPlayingArtworkPager(
+			modifier = Modifier.matchParentSize(),
+			isLandscape = isLandscape,
+			onArtworkTap = onArtworkTap
+		)
+		if (!showClipInArtwork || clip == null) return@Box
 		NowPlayingLidaClipArtwork(
 			clip = clip,
 			playerProgress = playerProgress,
 			musicIsPaused = musicIsPaused,
-			modifier = modifier
-		)
-	} else {
-		NowPlayingArtworkPager(
-			modifier = modifier,
-			isLandscape = isLandscape,
-			onArtworkTap = onArtworkTap
+			modifier = Modifier.matchParentSize()
 		)
 	}
 }

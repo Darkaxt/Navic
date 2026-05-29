@@ -55,6 +55,7 @@ actual fun PlatformLidaClipPlayer(
 	seekKey: Int,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
+	onFirstFrameRendered: () -> Unit,
 	onPlaybackError: (String) -> Unit,
 	onPlaybackPositionChange: (Long) -> Unit,
 	modifier: Modifier
@@ -115,6 +116,7 @@ actual fun PlatformLidaClipPlayer(
 		startPositionMs,
 		startProgress,
 		onPlaybackReady,
+		onFirstFrameRendered,
 		onPlaybackError
 	) {
 		var appliedStartProgressSeek = false
@@ -149,6 +151,10 @@ actual fun PlatformLidaClipPlayer(
 				if (!isPlaying) {
 					onPlaybackPositionChange(player.currentPosition)
 				}
+			}
+
+			override fun onRenderedFirstFrame() {
+				onFirstFrameRendered()
 			}
 
 			override fun onPlayerError(error: PlaybackException) {

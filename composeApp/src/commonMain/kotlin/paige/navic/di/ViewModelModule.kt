@@ -84,6 +84,7 @@ val viewModelModule = module {
 			player = params.get(),
 			songRepository = get(),
 			lidaClipsRepository = get(),
+			lidaClipCacheManager = get(),
 			preferenceManager = get()
 		)
 	}

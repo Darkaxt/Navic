@@ -160,6 +160,7 @@
 	<string name="subtitle_lida_clips_landscape_video_mode">Rotate music videos to landscape and hide system bars while the clip screen is open. Android only</string>
 	<string name="subtitle_lida_clips_background_video">Show matching clips behind Now Playing. Blurred and normal backgrounds are muted and cropped.</string>
 	<string name="subtitle_lida_clips_video_fit">Fit shows the full frame. Crop fills the player and may trim the edges. Android only</string>
+	<string name="subtitle_lida_clips_video_cache_size">Limit temporary cached clips used for smooth Now Playing video. Offline clip storage is separate.</string>
 	<string name="subtitle_lida_clips_pause_music_playback">Turn off to let Navic music continue under music videos. Android only</string>
 	<string name="subtitle_lida_clips_remember_playback_position">Resume the last watched position when reopening the same music video. Android only</string>
 	<string name="subtitle_lida_clips_keep_screen_on">Keep the display awake while a music video clip is open</string>
@@ -397,6 +398,7 @@
 	<string name="option_lida_clips_video_fit">Video fit</string>
 	<string name="option_lida_clips_video_fit_fit">Fit</string>
 	<string name="option_lida_clips_video_fit_crop">Crop</string>
+	<string name="option_lida_clips_video_cache_size">Video cache size</string>
 	<string name="option_lida_clips_pause_music_playback">Pause music while clips play</string>
 	<string name="option_lida_clips_remember_playback_position">Remember clip position</string>
 	<string name="option_lida_clips_keep_screen_on">Keep screen on</string>
