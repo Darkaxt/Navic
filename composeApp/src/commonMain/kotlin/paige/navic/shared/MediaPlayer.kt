@@ -3,8 +3,11 @@ package paige.navic.shared
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
@@ -32,6 +35,13 @@ abstract class MediaPlayerViewModel(
 	@Suppress("PropertyName")
 	protected val _uiState = MutableStateFlow(PlayerUiState())
 	val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+	private val _seekEvents = MutableSharedFlow<Float>(extraBufferCapacity = 1)
+	val seekEvents: SharedFlow<Float> = _seekEvents.asSharedFlow()
+
+	protected fun publishSeekEvent(normalized: Float) {
+		_seekEvents.tryEmit(normalized.coerceIn(0f, 1f))
+	}
 
 	protected fun isAvailable(songId: String): Boolean {
 		val isOnline = connectivityManager.isOnline.value
@@ -70,6 +80,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun openSystemEqualizer(): Boolean
 	abstract fun refreshAudioEffects()
 	abstract fun refreshPlaybackVolume()
+	open fun setNowPlayingVideoClipAudioActive(active: Boolean) {}
 
 	fun togglePlay() {
 		if (!_uiState.value.isPaused) {

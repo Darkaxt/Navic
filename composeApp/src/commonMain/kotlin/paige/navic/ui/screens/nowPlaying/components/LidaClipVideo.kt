@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,8 +25,11 @@ import paige.navic.domain.models.lidaClipDurationMs
 import paige.navic.domain.models.lidaClipForegroundVideoFitMode
 import paige.navic.domain.models.lidaClipProgressStartPositionMs
 import paige.navic.domain.models.shouldBlurLidaClipBackgroundVideo
-import paige.navic.domain.models.shouldPauseMusicForLidaClip
-import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
+import paige.navic.domain.models.shouldMuteMusicForNowPlayingPromotedLidaClip
+import paige.navic.domain.models.shouldMuteNowPlayingBackgroundLidaClipVideo
+import paige.navic.domain.models.shouldMuteNowPlayingPromotedLidaClipVideo
+import paige.navic.domain.models.shouldPlayNowPlayingLidaClipVideo
+import paige.navic.domain.models.shouldShowNowPlayingLidaClipControls
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.shared.MediaPlayerViewModel
@@ -39,6 +43,7 @@ fun NowPlayingLidaClipBackground(
 	clip: DomainLidaClip,
 	backgroundVideoMode: LidaClipsBackgroundVideoMode,
 	playerProgress: Float,
+	musicIsPaused: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -66,10 +71,11 @@ fun NowPlayingLidaClipBackground(
 			videoFitMode = lidaClipBackgroundVideoFitMode(backgroundVideoMode),
 			respectAudioFocus = false,
 			startPositionMs = startPositionMs,
-			muted = true,
-			showControls = false,
+			muted = shouldMuteNowPlayingBackgroundLidaClipVideo(),
+			showControls = shouldShowNowPlayingLidaClipControls(),
 			useTextureView = true,
 			startProgress = startProgress,
+			playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
 			retryKey = 0,
 			onPlaybackReady = {},
 			onPlaybackError = {},
@@ -86,6 +92,7 @@ fun NowPlayingLidaClipBackground(
 fun NowPlayingLidaClipArtwork(
 	clip: DomainLidaClip,
 	playerProgress: Float,
+	musicIsPaused: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -105,33 +112,22 @@ fun NowPlayingLidaClipArtwork(
 	var playbackState by remember(clip.streamUrl) {
 		mutableStateOf(LidaClipPlaybackState())
 	}
+	var seekProgress by remember(clip.id) { mutableStateOf<Float?>(null) }
+	var seekKey by remember(clip.id) { mutableStateOf(0) }
 
-	DisposableEffect(clip.id, preferenceManager.lidaClipsPauseMusicPlayback, player) {
-		val playerState = player.uiState.value
-		val pausedSongId = playerState.currentSong?.id?.takeIf {
-			shouldPauseMusicForLidaClip(
-				pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
-				hasCurrentSong = true,
-				musicIsPaused = playerState.isPaused
-			)
+	LaunchedEffect(clip.id, player) {
+		player.seekEvents.collect { progress ->
+			seekProgress = progress
+			seekKey += 1
 		}
+	}
 
-		if (pausedSongId != null) {
-			player.pause()
-		}
-
+	DisposableEffect(clip.id, player) {
+		player.setNowPlayingVideoClipAudioActive(
+			shouldMuteMusicForNowPlayingPromotedLidaClip()
+		)
 		onDispose {
-			val currentState = player.uiState.value
-			if (
-				shouldResumeMusicAfterLidaClip(
-					pauseMusicPlayback = preferenceManager.lidaClipsPauseMusicPlayback,
-					pausedSongId = pausedSongId,
-					currentSongId = currentState.currentSong?.id,
-					musicIsPaused = currentState.isPaused
-				)
-			) {
-				player.resume()
-			}
+			player.setNowPlayingVideoClipAudioActive(false)
 		}
 	}
 
@@ -151,7 +147,12 @@ fun NowPlayingLidaClipArtwork(
 			videoFitMode = lidaClipForegroundVideoFitMode(preferenceManager.lidaClipsVideoFitMode),
 			respectAudioFocus = preferenceManager.respectAudioFocus,
 			startPositionMs = startPositionMs,
+			muted = shouldMuteNowPlayingPromotedLidaClipVideo(),
+			showControls = shouldShowNowPlayingLidaClipControls(),
 			startProgress = startProgress,
+			playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
+			seekProgress = seekProgress,
+			seekKey = seekKey,
 			retryKey = playbackState.retryKey,
 			onPlaybackReady = {
 				playbackState = playbackState.onReady()

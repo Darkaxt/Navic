@@ -20,4 +20,24 @@ class PlaybackVolumePolicyTest {
 		assertEquals(0f, playbackVolumeMultiplier(50, -1f))
 		assertEquals(1f, playbackVolumeMultiplier(100, 2f))
 	}
+
+	@Test
+	fun playbackVolumeCanBeTemporarilyMutedForPromotedVideoClips() {
+		assertEquals(
+			0f,
+			playbackVolumeMultiplier(
+				playbackVolumePercent = 80,
+				replayGainVolumeMultiplier = 0.75f,
+				forceMuted = true
+			)
+		)
+		assertEquals(
+			0.6f,
+			playbackVolumeMultiplier(
+				playbackVolumePercent = 80,
+				replayGainVolumeMultiplier = 0.75f,
+				forceMuted = false
+			)
+		)
+	}
 }

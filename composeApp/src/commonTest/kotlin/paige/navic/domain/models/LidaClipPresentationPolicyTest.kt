@@ -50,4 +50,20 @@ class LidaClipPresentationPolicyTest {
 		assertEquals(null, lidaClipDurationMs(null))
 		assertEquals(null, lidaClipDurationMs(0))
 	}
+
+	@Test
+	fun nowPlayingClipVideoUsesNavicControlsAndPromotedVideoAudio() {
+		assertTrue(shouldMuteNowPlayingBackgroundLidaClipVideo())
+		assertFalse(shouldMuteNowPlayingPromotedLidaClipVideo())
+		assertFalse(shouldShowNowPlayingLidaClipControls())
+		assertTrue(shouldPlayNowPlayingLidaClipVideo(musicIsPaused = false))
+		assertFalse(shouldPlayNowPlayingLidaClipVideo(musicIsPaused = true))
+		assertTrue(shouldMuteMusicForNowPlayingPromotedLidaClip())
+		assertFalse(shouldPauseMusicForNowPlayingPromotedLidaClip())
+	}
+
+	@Test
+	fun lidaClipStreamTimeoutAllowsSlowerSelfHostedResponses() {
+		assertEquals(30_000, lidaClipStreamTimeoutMs())
+	}
 }

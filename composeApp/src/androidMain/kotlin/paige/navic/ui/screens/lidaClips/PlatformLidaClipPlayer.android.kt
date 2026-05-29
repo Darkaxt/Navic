@@ -5,6 +5,7 @@ import androidx.annotation.OptIn
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAndroidRectF
@@ -27,10 +28,12 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import paige.navic.R
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.lidaClipStreamTimeoutMs
 import paige.navic.domain.models.lidaClipPlaybackErrorMessage
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.shouldCropLidaClipsVideoFrame
 import paige.navic.domain.models.shouldHandleLidaClipAudioFocus
+import paige.navic.util.core.Logger
 import kotlin.math.roundToLong
 
 @OptIn(UnstableApi::class)
@@ -47,6 +50,9 @@ actual fun PlatformLidaClipPlayer(
 	showControls: Boolean,
 	useTextureView: Boolean,
 	startProgress: Float?,
+	playWhenReady: Boolean,
+	seekProgress: Float?,
+	seekKey: Int,
 	retryKey: Int,
 	onPlaybackReady: () -> Unit,
 	onPlaybackError: (String) -> Unit,
@@ -55,9 +61,12 @@ actual fun PlatformLidaClipPlayer(
 ) {
 	val context = LocalContext.current
 	val activity = LocalActivity.current
+	val pendingSeekProgress = remember(clip.id) { mutableStateOf<Float?>(null) }
 	val player = remember(context, clip.streamUrl, requestHeaders, retryKey, startPositionMs, startProgress) {
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(requestHeaders)
+			.setConnectTimeoutMs(lidaClipStreamTimeoutMs())
+			.setReadTimeoutMs(lidaClipStreamTimeoutMs())
 		val dataSourceFactory = DefaultDataSource.Factory(
 			context,
 			httpDataSourceFactory
@@ -76,7 +85,7 @@ actual fun PlatformLidaClipPlayer(
 				volume = if (muted) 0f else 1f
 				setMediaItem(MediaItem.fromUri(clip.streamUrl), startPositionMs.coerceAtLeast(0L))
 				prepare()
-				playWhenReady = true
+				this.playWhenReady = playWhenReady
 		}
 	}
 
@@ -85,7 +94,29 @@ actual fun PlatformLidaClipPlayer(
 		onDispose {}
 	}
 
-	DisposableEffect(player, startPositionMs, startProgress, onPlaybackReady, onPlaybackError) {
+	DisposableEffect(player, playWhenReady) {
+		player.playWhenReady = playWhenReady
+		onDispose {}
+	}
+
+	DisposableEffect(player, seekKey, seekProgress) {
+		if (seekKey > 0 && seekProgress != null) {
+			pendingSeekProgress.value = if (player.seekToProgress(seekProgress)) {
+				null
+			} else {
+				seekProgress
+			}
+		}
+		onDispose {}
+	}
+
+	DisposableEffect(
+		player,
+		startPositionMs,
+		startProgress,
+		onPlaybackReady,
+		onPlaybackError
+	) {
 		var appliedStartProgressSeek = false
 		val listener = object : Player.Listener {
 			override fun onPlaybackStateChanged(playbackState: Int) {
@@ -103,6 +134,11 @@ actual fun PlatformLidaClipPlayer(
 								.coerceIn(0L, player.duration)
 						)
 					}
+					pendingSeekProgress.value?.let { progress ->
+						if (player.seekToProgress(progress)) {
+							pendingSeekProgress.value = null
+						}
+					}
 					onPlaybackReady()
 				} else if (playbackState == Player.STATE_ENDED) {
 					onPlaybackPositionChange(player.currentPosition)
@@ -116,6 +152,12 @@ actual fun PlatformLidaClipPlayer(
 			}
 
 			override fun onPlayerError(error: PlaybackException) {
+				Logger.e(
+					"LidaClipPlayer",
+					"LidaClip playback failed for id=${clip.id} title=${clip.title} " +
+						"code=${error.errorCodeName} message=${error.message}",
+					error
+				)
 				onPlaybackError(
 					lidaClipPlaybackErrorMessage(
 						errorCodeName = error.errorCodeName,
@@ -205,3 +247,14 @@ private fun lidaClipResizeMode(videoFitMode: LidaClipsVideoFitMode): Int =
 	} else {
 		AspectRatioFrameLayout.RESIZE_MODE_FIT
 	}
+
+private fun Player.seekToProgress(progress: Float): Boolean {
+	val durationMs = duration
+	if (durationMs <= 0L) return false
+	seekTo(
+		(durationMs * progress.coerceIn(0f, 1f))
+			.roundToLong()
+			.coerceIn(0L, durationMs)
+	)
+	return true
+}

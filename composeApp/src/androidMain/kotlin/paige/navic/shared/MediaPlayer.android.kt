@@ -720,6 +720,7 @@ class AndroidMediaPlayerViewModel(
 	private var playbackFadeRestoreVolume: Float? = null
 	private var autoFillQueueJob: Job? = null
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
+	private var nowPlayingVideoClipAudioActive = false
 
 	init {
 		connectToService()
@@ -883,6 +884,13 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
+	override fun setNowPlayingVideoClipAudioActive(active: Boolean) {
+		if (nowPlayingVideoClipAudioActive == active) return
+		nowPlayingVideoClipAudioActive = active
+		cancelPlaybackFade()
+		refreshPlaybackVolume()
+	}
+
 	private fun refreshCurrentCollection(albumId: String) {
 		if (loadingCollectionId == albumId) return
 		loadingCollectionId = albumId
@@ -983,7 +991,8 @@ class AndroidMediaPlayerViewModel(
 				replayGain = replayGain,
 				mode = replayGainMode,
 				loudnessBoostEnabled = loudnessBoostEnabled
-			)
+			),
+			forceMuted = nowPlayingVideoClipAudioActive
 		)
 		PlaybackService.setReplayGainLoudnessBoost(
 			application,
@@ -1578,7 +1587,7 @@ class AndroidMediaPlayerViewModel(
 				restoreVolumeOnCancel = originalVolume,
 				onEnd = {
 					player.pause()
-					player.volume = originalVolume
+					player.volume = effectivePlaybackVolume(originalVolume)
 				}
 			)
 		}
@@ -1599,7 +1608,15 @@ class AndroidMediaPlayerViewModel(
 				return@launch
 			}
 
-			val targetVolume = player.volume.coerceIn(0f, 1f).takeIf { it > 0f } ?: 1f
+			val targetVolume = playbackVolumeMultiplier(
+				playbackVolumePercent = preferenceManager.playbackVolumePercent,
+				replayGainVolumeMultiplier = replayGainVolumeMultiplier(
+					replayGain = _uiState.value.currentSong?.replayGain,
+					mode = preferenceManager.replayGainMode,
+					loudnessBoostEnabled = preferenceManager.replayGainLoudnessBoost
+				),
+				forceMuted = nowPlayingVideoClipAudioActive
+			)
 			startPlaybackVolumeFade(
 				player = player,
 				startVolume = 0f,
@@ -1618,10 +1635,13 @@ class AndroidMediaPlayerViewModel(
 		playbackFadeJob?.cancel()
 		playbackFadeJob = null
 		playbackFadeRestoreVolume?.let { volume ->
-			player?.volume = volume
+			player?.volume = effectivePlaybackVolume(volume)
 		}
 		playbackFadeRestoreVolume = null
 	}
+
+	private fun effectivePlaybackVolume(volume: Float): Float =
+		if (nowPlayingVideoClipAudioActive) 0f else volume.coerceIn(0f, 1f)
 
 	private fun startPlaybackVolumeFade(
 		player: MediaController,
@@ -1639,10 +1659,12 @@ class AndroidMediaPlayerViewModel(
 			val steps = (durationMs / 16L).coerceAtLeast(1L).toInt()
 			repeat(steps) { step ->
 				val progress = (step + 1).toFloat() / steps.toFloat()
-				player.volume = startVolume + ((targetVolume - startVolume) * progress)
+				player.volume = effectivePlaybackVolume(
+					startVolume + ((targetVolume - startVolume) * progress)
+				)
 				delay(16L)
 			}
-			player.volume = targetVolume
+			player.volume = effectivePlaybackVolume(targetVolume)
 			playbackFadeJob = null
 			playbackFadeRestoreVolume = null
 			onEnd()
@@ -1695,11 +1717,13 @@ class AndroidMediaPlayerViewModel(
 	override fun seek(normalized: Float) {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			controller?.let {
-				val target = (it.duration * normalized).toLong()
+				val progress = normalized.coerceIn(0f, 1f)
+				val target = (it.duration * progress).toLong()
 				it.seekTo(target)
 				_uiState.update { state ->
-					state.copy(progress = normalized)
+					state.copy(progress = progress)
 				}
+				publishSeekEvent(progress)
 			}
 		}
 	}

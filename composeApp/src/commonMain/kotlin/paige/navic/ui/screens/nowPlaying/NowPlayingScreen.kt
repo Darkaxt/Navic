@@ -216,6 +216,7 @@ fun NowPlayingScreen() {
 					clip = lidaClip,
 					backgroundVideoMode = preferenceManager.lidaClipsBackgroundVideoMode,
 					playerProgress = playerState.progress,
+					musicIsPaused = playerState.isPaused,
 					modifier = Modifier.fillMaxSize()
 				)
 			}
@@ -257,6 +258,7 @@ fun NowPlayingScreen() {
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
 								playerProgress = playerState.progress,
+								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap
 							)
 						}
@@ -283,6 +285,7 @@ fun NowPlayingScreen() {
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
 								playerProgress = playerState.progress,
+								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap
 							)
 						}
@@ -307,6 +310,7 @@ private fun NowPlayingMediaSlot(
 	clip: DomainLidaClip?,
 	showClipInArtwork: Boolean,
 	playerProgress: Float,
+	musicIsPaused: Boolean,
 	isLandscape: Boolean,
 	onArtworkTap: (() -> Unit)?,
 	modifier: Modifier = Modifier
@@ -315,6 +319,7 @@ private fun NowPlayingMediaSlot(
 		NowPlayingLidaClipArtwork(
 			clip = clip,
 			playerProgress = playerProgress,
+			musicIsPaused = musicIsPaused,
 			modifier = modifier
 		)
 	} else {
