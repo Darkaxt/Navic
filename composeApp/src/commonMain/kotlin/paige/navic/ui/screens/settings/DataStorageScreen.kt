@@ -181,12 +181,12 @@ fun SettingsDataStorageScreen() {
 		when (action) {
 			DangerZoneAction.ClearImageCache -> {
 				imageLoader.memoryCache?.clear()
-				musicBrainzArtworkRepository.clearCache()
 				scope.launch(Dispatchers.IO) {
 					imageLoader.diskCache?.clear()
 					imageCacheSizeText = imageCacheStorageSizeText(0)
 				}
 			}
+			DangerZoneAction.ClearMusicBrainzCache -> musicBrainzArtworkRepository.clearCache()
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
 			DangerZoneAction.ClearDownloads -> viewModel.clearAllDownloads()
 			DangerZoneAction.RebuildDatabase -> if (isOnline) viewModel.rebuildDatabase()

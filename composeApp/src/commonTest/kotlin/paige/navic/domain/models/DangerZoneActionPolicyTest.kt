@@ -15,6 +15,7 @@ class DangerZoneActionPolicyTest {
 		assertEquals(
 			listOf(
 				DangerZoneAction.ClearImageCache,
+				DangerZoneAction.ClearMusicBrainzCache,
 				DangerZoneAction.ClearPendingSyncActions,
 				DangerZoneAction.ClearDownloads,
 				DangerZoneAction.RebuildDatabase
