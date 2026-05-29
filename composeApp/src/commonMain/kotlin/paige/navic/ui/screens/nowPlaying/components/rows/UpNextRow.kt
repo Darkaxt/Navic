@@ -40,8 +40,20 @@ import paige.navic.ui.navigation.Screen
 internal fun nowPlayingUpNextItemWidth(showArtwork: Boolean): Dp =
 	if (showArtwork) 188.dp else 220.dp
 
+internal enum class NowPlayingUpNextContainerTone {
+	SecondaryContainer
+}
+
+internal fun nowPlayingUpNextContainerTone(): NowPlayingUpNextContainerTone =
+	NowPlayingUpNextContainerTone.SecondaryContainer
+
+internal fun nowPlayingUpNextItemContainerAlpha(): Float = 0.86f
+
+internal fun nowPlayingUpNextBottomPadding(showTechnicalInfo: Boolean): Dp =
+	if (showTechnicalInfo) 16.dp else 0.dp
+
 @Composable
-fun NowPlayingUpNextRow() {
+fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val showNowPlayingUpNext = preferenceManager.showNowPlayingUpNext
 	if (!showNowPlayingUpNext) return
@@ -65,7 +77,10 @@ fun NowPlayingUpNextRow() {
 		modifier = Modifier
 			.fillMaxWidth()
 			.padding(horizontal = 16.dp)
-			.padding(top = 8.dp)
+			.padding(
+				top = 8.dp,
+				bottom = nowPlayingUpNextBottomPadding(showTechnicalInfoBelow)
+			)
 	) {
 		Text(
 			text = stringResource(Res.string.title_up_next),
@@ -103,8 +118,13 @@ private fun NowPlayingUpNextItem(
 	Surface(
 		onClick = onClick,
 		shape = MaterialTheme.shapes.small,
-		color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .72f),
-		contentColor = MaterialTheme.colorScheme.onSurface,
+		color = when (nowPlayingUpNextContainerTone()) {
+			NowPlayingUpNextContainerTone.SecondaryContainer ->
+				MaterialTheme.colorScheme.secondaryContainer.copy(alpha = nowPlayingUpNextItemContainerAlpha())
+		},
+		contentColor = when (nowPlayingUpNextContainerTone()) {
+			NowPlayingUpNextContainerTone.SecondaryContainer -> MaterialTheme.colorScheme.onSecondaryContainer
+		},
 		modifier = Modifier
 			.width(nowPlayingUpNextItemWidth(showArtwork))
 			.heightIn(min = if (showArtwork) 52.dp else 42.dp)
@@ -134,7 +154,7 @@ private fun NowPlayingUpNextItem(
 					Text(
 						text = song.artistName,
 						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis
 					)
@@ -153,7 +173,7 @@ private fun NowPlayingUpNextItem(
 				Text(
 					text = song.artistName,
 					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)

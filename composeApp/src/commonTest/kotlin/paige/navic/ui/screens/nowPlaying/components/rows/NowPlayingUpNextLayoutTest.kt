@@ -14,4 +14,24 @@ class NowPlayingUpNextLayoutTest {
 	fun horizontalItemsUseWiderFixedWidthWhenArtworkIsHidden() {
 		assertEquals(220.dp, nowPlayingUpNextItemWidth(showArtwork = false))
 	}
+
+	@Test
+	fun reservesSpaceBelowUpNextWhenTechnicalInfoIsShown() {
+		assertEquals(16.dp, nowPlayingUpNextBottomPadding(showTechnicalInfo = true))
+	}
+
+	@Test
+	fun doesNotAddExtraUpNextBottomSpaceWhenTechnicalInfoIsHidden() {
+		assertEquals(0.dp, nowPlayingUpNextBottomPadding(showTechnicalInfo = false))
+	}
+
+	@Test
+	fun upNextItemsUseDynamicTonalContainerColor() {
+		assertEquals(NowPlayingUpNextContainerTone.SecondaryContainer, nowPlayingUpNextContainerTone())
+	}
+
+	@Test
+	fun upNextItemsKeepBackgroundReadableOverDynamicArtwork() {
+		assertEquals(0.86f, nowPlayingUpNextItemContainerAlpha())
+	}
 }

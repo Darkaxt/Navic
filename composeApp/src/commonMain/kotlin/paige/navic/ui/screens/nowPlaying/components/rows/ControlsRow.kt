@@ -153,7 +153,7 @@ private fun NowPlayingTimelineBlock(
 	Column {
 		NowPlayingProgressBar()
 		NowPlayingDurationsRow()
-		NowPlayingUpNextRow()
+		NowPlayingUpNextRow(showTechnicalInfoBelow = showTechnicalInfo)
 		if (showTechnicalInfo) {
 			NowPlayingTechnicalInfoRow()
 		}
