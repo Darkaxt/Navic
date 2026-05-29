@@ -65,6 +65,8 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.externalFallbackArtworkCacheKey
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lyricsLineScale
 import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
@@ -137,7 +139,14 @@ fun LyricsScreen(
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
-	val musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
+		serverCoverArtId = song.coverArtId,
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+	)
+	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
+		serverCoverArtId = song.coverArtId,
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	)
 
 	val progressState = playerState.progress
 	val currentDuration = duration * progressState.toDouble()
@@ -273,7 +282,7 @@ fun LyricsScreen(
 						val showArtwork = shouldShowLyricsArtwork(
 							showLyricsArtwork = preferenceManager.showLyricsArtwork,
 							coverArtId = song.coverArtId,
-							imageUrl = musicBrainzArtwork?.imageUrl
+							imageUrl = musicBrainzArtworkUrl
 						)
 						val lyricListIndexOffset = if (showArtwork) 1 else 0
 
@@ -344,7 +353,7 @@ fun LyricsScreen(
 									) {
 										CoverArt(
 											coverArtId = song.coverArtId,
-											imageUrl = musicBrainzArtwork?.imageUrl,
+											imageUrl = musicBrainzArtworkUrl,
 											imageCacheKey = musicBrainzArtworkCacheKey,
 											contentDescription = song.title,
 											modifier = Modifier.size(180.dp),
@@ -534,7 +543,7 @@ fun LyricsScreen(
 
 				LyricsShareSheet(
 					song = song,
-					imageUrl = musicBrainzArtwork?.imageUrl,
+					imageUrl = musicBrainzArtworkUrl,
 					imageCacheKey = musicBrainzArtworkCacheKey,
 					selectedLyrics = stringsToShare,
 					onDismiss = { showShareSheet = false },

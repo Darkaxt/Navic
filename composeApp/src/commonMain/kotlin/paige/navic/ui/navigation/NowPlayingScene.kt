@@ -40,6 +40,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.dominantColorArtworkUrl
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.shouldSendServerArtworkHeaders
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.shared.MediaPlayerViewModel
@@ -157,7 +158,10 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 	val serverCoverUri = remember(song?.coverArtId) {
 		song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
-	val externalCoverUri = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl }
+	val externalCoverUri = externalFallbackArtworkUrl(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkUrl = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl }
+	)
 	val coverUri = remember(serverCoverUri, externalCoverUri) {
 		activeArtworkUrl(
 			serverArtworkUrl = serverCoverUri,
@@ -171,7 +175,10 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 		)
 	}
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(externalCoverUri)
+	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(
+		serverArtworkUrl = serverCoverUri,
+		externalArtworkUrl = externalCoverUri
+	)
 	val httpClient = remember(serverRequestHeaders, shouldSendServerHeaders) {
 		HttpClient {
 			install(HttpTimeout) {

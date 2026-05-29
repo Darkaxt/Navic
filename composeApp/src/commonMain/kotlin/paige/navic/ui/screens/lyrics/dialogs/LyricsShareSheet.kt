@@ -129,7 +129,12 @@ fun LyricsShareSheet(
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.apply {
-				if (shouldSendServerArtworkHeaders(imageUrl)) {
+				if (
+					shouldSendServerArtworkHeaders(
+						serverArtworkUrl = serverArtworkUrl,
+						externalArtworkUrl = imageUrl
+					)
+				) {
 					httpHeaders(serverRequestHeaders.toNetworkHeaders())
 				}
 			}

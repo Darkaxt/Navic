@@ -35,6 +35,8 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
+import paige.navic.domain.models.externalFallbackArtworkCacheKey
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
@@ -73,6 +75,14 @@ fun NowPlayingScreen() {
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val song = playerState.currentSong
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val currentMusicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkUrl = currentMusicBrainzArtwork?.imageUrl
+	)
+	val currentMusicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	)
 
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
@@ -152,8 +162,8 @@ fun NowPlayingScreen() {
 			if (isDynamicBackground) {
 				BlendBackground(
 					coverArtId = song?.coverArtId,
-					imageUrl = currentMusicBrainzArtwork?.imageUrl,
-					imageCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+					imageUrl = currentMusicBrainzFallbackArtworkUrl,
+					imageCacheKey = currentMusicBrainzFallbackArtworkCacheKey,
 					isPaused = playerState.isPaused,
 					showBottomGradient = shouldShowNowPlayingBackgroundBottomGradient(
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,

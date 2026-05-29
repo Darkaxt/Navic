@@ -65,6 +65,8 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.externalFallbackArtworkCacheKey
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
@@ -113,15 +115,22 @@ fun MiniPlayer(
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
-	val musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
-	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzArtwork?.imageUrl.isNullOrBlank()
+	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+	)
+	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	)
+	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(song?.coverArtId, musicBrainzArtwork?.imageUrl, musicBrainzArtworkCacheKey, serverRequestHeaders) {
-		val usesServerCoverArt = musicBrainzArtwork?.imageUrl.isNullOrBlank()
+	val model = remember(song?.coverArtId, musicBrainzFallbackArtworkUrl, musicBrainzFallbackArtworkCacheKey, serverRequestHeaders) {
+		val usesServerCoverArt = musicBrainzFallbackArtworkUrl.isNullOrBlank()
 		ImageRequest.Builder(coilPlatformContext)
-			.data(musicBrainzArtwork?.imageUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
-			.memoryCacheKey(musicBrainzArtworkCacheKey ?: song?.coverArtId)
-			.diskCacheKey(musicBrainzArtworkCacheKey ?: song?.coverArtId)
+			.data(musicBrainzFallbackArtworkUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.memoryCacheKey(musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId)
+			.diskCacheKey(musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.apply {

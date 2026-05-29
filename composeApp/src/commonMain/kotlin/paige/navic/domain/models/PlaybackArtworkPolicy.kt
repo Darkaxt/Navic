@@ -3,17 +3,40 @@ package paige.navic.domain.models
 fun activeArtworkUrl(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
-): String? = externalArtworkUrl.nonBlankOrNull() ?: serverArtworkUrl.nonBlankOrNull()
+): String? = serverArtworkUrl.nonBlankOrNull() ?: externalArtworkUrl.nonBlankOrNull()
 
 fun dominantColorArtworkUrl(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
 ): String? =
-	externalArtworkUrl.nonBlankOrNull()
-		?: serverArtworkUrl.nonBlankOrNull()?.withQueryParameter("size", "128")
+	serverArtworkUrl.nonBlankOrNull()?.withQueryParameter("size", "128")
+		?: externalArtworkUrl.nonBlankOrNull()
 
-fun shouldSendServerArtworkHeaders(externalArtworkUrl: String?): Boolean =
-	externalArtworkUrl.isNullOrBlank()
+fun externalFallbackArtworkUrl(
+	serverCoverArtId: String?,
+	externalArtworkUrl: String?
+): String? =
+	if (serverCoverArtId.isNullOrBlank()) {
+		externalArtworkUrl.nonBlankOrNull()
+	} else {
+		null
+	}
+
+fun externalFallbackArtworkCacheKey(
+	serverCoverArtId: String?,
+	externalArtworkCacheKey: String?
+): String? =
+	if (serverCoverArtId.isNullOrBlank()) {
+		externalArtworkCacheKey.nonBlankOrNull()
+	} else {
+		null
+	}
+
+fun shouldSendServerArtworkHeaders(
+	serverArtworkUrl: String?,
+	externalArtworkUrl: String?
+): Boolean =
+	serverArtworkUrl.nonBlankOrNull() != null || externalArtworkUrl.isNullOrBlank()
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

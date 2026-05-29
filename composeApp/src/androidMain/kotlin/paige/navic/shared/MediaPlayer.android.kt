@@ -79,6 +79,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.activeArtworkUrl
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
@@ -966,7 +967,10 @@ class AndroidMediaPlayerViewModel(
 	private fun currentArtworkUrl(song: DomainSong): String? =
 		activeArtworkUrl(
 			serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) },
-			externalArtworkUrl = musicBrainzArtworkRepository.artworkBySongId.value[song.id]?.imageUrl
+			externalArtworkUrl = externalFallbackArtworkUrl(
+				serverCoverArtId = song.coverArtId,
+				externalArtworkUrl = musicBrainzArtworkRepository.artworkBySongId.value[song.id]?.imageUrl
+			)
 		)
 
 	private fun applyReplayGain() {

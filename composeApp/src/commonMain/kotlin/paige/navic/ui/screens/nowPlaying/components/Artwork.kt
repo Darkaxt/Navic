@@ -30,6 +30,8 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
+import paige.navic.domain.models.externalFallbackArtworkCacheKey
+import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
@@ -53,7 +55,15 @@ fun NowPlayingArtwork(
 	val playerState by player.uiState.collectAsState()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
-	val hasArtwork = !song.coverArtId.isNullOrEmpty() || !musicBrainzArtwork?.imageUrl.isNullOrBlank()
+	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
+		serverCoverArtId = song.coverArtId,
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+	)
+	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
+		serverCoverArtId = song.coverArtId,
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+	)
+	val hasArtwork = !song.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -86,8 +96,8 @@ fun NowPlayingArtwork(
 	) {
 		CoverArt(
 			coverArtId = song.coverArtId,
-			imageUrl = musicBrainzArtwork?.imageUrl,
-			imageCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+			imageUrl = musicBrainzFallbackArtworkUrl,
+			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
 			modifier = Modifier
 				.aspectRatio(1f)
 				.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
