@@ -560,6 +560,59 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun publicCacheMapsSkipExpiredFoundArtworkEntries() {
+		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+		val nowMillis = 1_000L + 181.days.inWholeMilliseconds
+		val fresh = MusicBrainzArtworkCacheEntry(
+			songId = "fresh-song",
+			fingerprint = "fresh-fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/fresh.jpg",
+			sourceMbid = "fresh-release",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = metadata,
+			updatedAtMillis = nowMillis - 1.days.inWholeMilliseconds
+		)
+		val expired = fresh.copy(
+			songId = "expired-song",
+			fingerprint = "expired-fingerprint",
+			imageUrl = "https://coverartarchive.org/expired.jpg",
+			updatedAtMillis = 1_000L
+		)
+		val entries = listOf(fresh, expired)
+
+		assertEquals(listOf("fresh-song"), entries.usableMusicBrainzCacheEntries(nowMillis).map { it.songId })
+		assertEquals(mapOf("fresh-song" to fresh), entries.musicBrainzArtworkBySongId(nowMillis))
+		assertEquals(mapOf("fresh-song" to metadata), entries.musicBrainzMetadataBySongId(nowMillis))
+	}
+
+	@Test
+	fun publicMetadataMapSkipsExpiredMissingArtworkEntries() {
+		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+		val nowMillis = 1_000L + 15.days.inWholeMilliseconds
+		val freshMissing = MusicBrainzArtworkCacheEntry(
+			songId = "fresh-missing",
+			fingerprint = "fresh-fingerprint",
+			status = MusicBrainzArtworkCacheStatus.NotFound,
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			metadata = metadata,
+			updatedAtMillis = nowMillis - 1.days.inWholeMilliseconds
+		)
+		val expiredMissing = freshMissing.copy(
+			songId = "expired-missing",
+			fingerprint = "expired-fingerprint",
+			updatedAtMillis = 1_000L
+		)
+		val entries = listOf(freshMissing, expiredMissing)
+
+		assertEquals(listOf("fresh-missing"), entries.usableMusicBrainzCacheEntries(nowMillis).map { it.songId })
+		assertEquals(emptyMap(), entries.musicBrainzArtworkBySongId(nowMillis))
+		assertEquals(mapOf("fresh-missing" to metadata), entries.musicBrainzMetadataBySongId(nowMillis))
+	}
+
+	@Test
 	fun metadataDisplayFieldsSkipBlankValuesAndJoinLists() {
 		val fields = musicBrainzMetadataDisplayFields(
 			MusicBrainzTrackMetadata(

@@ -67,9 +67,9 @@ class MusicBrainzArtworkRepository(
 		}
 	}
 
-	private val _artworkBySongId = MutableStateFlow(loadCacheEntries().foundBySongId())
+	private val _artworkBySongId = MutableStateFlow(loadCacheEntries().musicBrainzArtworkBySongId(currentTimeMillis()))
 	val artworkBySongId = _artworkBySongId.asStateFlow()
-	private val _metadataBySongId = MutableStateFlow(loadCacheEntries().musicBrainzMetadataBySongId())
+	private val _metadataBySongId = MutableStateFlow(loadCacheEntries().musicBrainzMetadataBySongId(currentTimeMillis()))
 	val metadataBySongId = _metadataBySongId.asStateFlow()
 
 	fun clearCache() {
@@ -286,7 +286,9 @@ class MusicBrainzArtworkRepository(
 
 	private fun putCacheEntry(entry: MusicBrainzArtworkCacheEntry) {
 		synchronized(cacheLock) {
+			val nowMillis = currentTimeMillis()
 			val entries = loadCacheEntries()
+				.usableMusicBrainzCacheEntries(nowMillis)
 				.filterNot { it.songId == entry.songId }
 				.plus(entry)
 			preferenceManager.musicBrainzArtworkCacheJson = json.encodeToString(
@@ -302,9 +304,10 @@ class MusicBrainzArtworkRepository(
 	}
 
 	private fun emitCache() {
+		val nowMillis = currentTimeMillis()
 		val entries = loadCacheEntries()
-		_artworkBySongId.value = entries.foundBySongId()
-		_metadataBySongId.value = entries.musicBrainzMetadataBySongId()
+		_artworkBySongId.value = entries.musicBrainzArtworkBySongId(nowMillis)
+		_metadataBySongId.value = entries.musicBrainzMetadataBySongId(nowMillis)
 	}
 
 	private fun loadCacheEntries(): List<MusicBrainzArtworkCacheEntry> =
@@ -591,12 +594,31 @@ private fun normalizedMusicBrainzTitle(value: String?): String? =
 		?.lowercase()
 		?.takeIf { it.isNotEmpty() }
 
+internal fun List<MusicBrainzArtworkCacheEntry>.usableMusicBrainzCacheEntries(
+	nowMillis: Long
+): List<MusicBrainzArtworkCacheEntry> =
+	filter { entry ->
+		usableMusicBrainzArtworkCacheEntry(
+			entry = entry,
+			fingerprint = entry.fingerprint,
+			nowMillis = nowMillis
+		) != null
+	}
+
+internal fun List<MusicBrainzArtworkCacheEntry>.musicBrainzArtworkBySongId(
+	nowMillis: Long
+): Map<String, MusicBrainzArtworkCacheEntry> =
+	usableMusicBrainzCacheEntries(nowMillis).foundBySongId()
+
 private fun List<MusicBrainzArtworkCacheEntry>.foundBySongId(): Map<String, MusicBrainzArtworkCacheEntry> =
 	associateBy { it.songId }
 		.filterValues { it.status == MusicBrainzArtworkCacheStatus.Found && !it.imageUrl.isNullOrBlank() }
 
-internal fun List<MusicBrainzArtworkCacheEntry>.musicBrainzMetadataBySongId(): Map<String, MusicBrainzTrackMetadata> =
-	associateBy { it.songId }
+internal fun List<MusicBrainzArtworkCacheEntry>.musicBrainzMetadataBySongId(
+	nowMillis: Long? = null
+): Map<String, MusicBrainzTrackMetadata> =
+	(nowMillis?.let { usableMusicBrainzCacheEntries(it) } ?: this)
+		.associateBy { it.songId }
 		.mapValues { it.value.metadata }
 		.filterValues { it != null }
 		.mapValues { it.value!! }
