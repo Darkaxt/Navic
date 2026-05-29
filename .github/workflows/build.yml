@@ -205,9 +205,37 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v7
         with:
           name: navic-release-android
+      - name: Generate GitHub Release Notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          if [[ -n "$previous_tag" ]]; then
+            range="$previous_tag..$GITHUB_SHA"
+          else
+            range="$GITHUB_SHA"
+          fi
+
+          commit_notes="$(git log --no-merges --pretty=format:'- %s (`%h`)' "$range" | sed '/^-  (`[0-9a-f]*`)$/d')"
+          if [[ -z "$commit_notes" ]]; then
+            commit_notes="- Release $GITHUB_REF_NAME"
+          fi
+
+          {
+            echo "## Changes"
+            printf '%s\n' "$commit_notes"
+            echo
+            echo
+            echo "## Verification"
+            echo "- GitHub Actions Android release build completed successfully."
+          } > release-notes.md
       - name: Create GitHub Release
         shell: bash
         env:
@@ -218,7 +246,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" **/*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --latest --generate-notes
+            --latest --notes-file release-notes.md
 
   attach-ipa-to-release:
     name: Attach iOS IPA to GitHub Release
