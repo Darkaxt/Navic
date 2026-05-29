@@ -86,15 +86,19 @@ fun NowPlayingScreen() {
 
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
 	val song = playerState.currentSong
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
 	val currentMusicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = currentMusicBrainzArtwork?.imageUrl
+		externalArtworkUrl = currentMusicBrainzArtwork?.imageUrl,
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val currentMusicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }

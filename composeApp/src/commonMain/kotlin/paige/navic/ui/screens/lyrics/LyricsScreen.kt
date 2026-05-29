@@ -139,14 +139,18 @@ fun LyricsScreen(
 	val duration = song.duration
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
+	val serverCoverLoadFailed = song.id in serverCoverLoadFailedSongIds
 	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
 		serverCoverArtId = song.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 
 	val progressState = playerState.progress

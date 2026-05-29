@@ -7,8 +7,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
@@ -28,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,9 +45,11 @@ import coil3.request.crossfade
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.NowPlayingFallbackLabelStyle
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
 import paige.navic.ui.theme.defaultFont
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
@@ -81,6 +86,16 @@ private fun String.coverArtFallbackInitials(): String {
 	return words.takeIf { it.isNotEmpty() }
 		?: trim().take(1).uppercase().takeIf { it.isNotEmpty() }
 		?: ""
+}
+
+internal fun coverArtFallbackArcText(label: String?, maxChars: Int = 28): String? {
+	val cleaned = label?.trim()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotEmpty() } ?: return null
+	if (maxChars <= 3) return cleaned.take(maxChars).uppercase().takeIf { it.isNotEmpty() }
+	return if (cleaned.length <= maxChars) {
+		cleaned.uppercase()
+	} else {
+		"${cleaned.take(maxChars - 3).trimEnd()}...".uppercase()
+	}
 }
 
 private val CoverArtFallbackSeedColors = listOf(
@@ -159,6 +174,7 @@ fun CoverArt(
 	imageCacheKey: String? = null,
 	contentDescription: String? = null,
 	fallbackKind: String? = null,
+	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
 	onClick: (() -> Unit)? = null,
 	onLongClick: (() -> Unit)? = null,
 	onServerCoverLoadFailed: (suspend () -> Unit)? = null,
@@ -220,6 +236,7 @@ fun CoverArt(
 		return CoverArtFallback(
 			fallbackContent = fallbackContent,
 			fallbackKind = fallbackKind,
+			fallbackLabelStyle = fallbackLabelStyle,
 			modifier = commonModifier
 		)
 	}
@@ -242,6 +259,7 @@ fun CoverArt(
 			CoverArtFallback(
 				fallbackContent = fallbackContent,
 				fallbackKind = fallbackKind,
+				fallbackLabelStyle = fallbackLabelStyle,
 				modifier = Modifier.fillMaxSize()
 			)
 		}
@@ -252,6 +270,7 @@ fun CoverArt(
 private fun CoverArtFallback(
 	fallbackContent: CoverArtFallbackContent,
 	fallbackKind: String?,
+	fallbackLabelStyle: NowPlayingFallbackLabelStyle,
 	modifier: Modifier = Modifier
 ) {
 	val seed = stablePositiveHash(fallbackContent.seedSource)
@@ -302,7 +321,7 @@ private fun CoverArtFallback(
 				style = Stroke(width = (radius * .0015f).coerceAtLeast(.65f))
 			)
 		}
-		kind?.let { chipText ->
+		kind?.takeIf { fallbackLabelStyle == NowPlayingFallbackLabelStyle.Center }?.let { chipText ->
 			Text(
 				text = chipText,
 				color = Color(0xFFF5F2EA).copy(alpha = .76f),
@@ -319,17 +338,68 @@ private fun CoverArtFallback(
 			)
 		}
 		fallbackContent.label?.let { label ->
+			when (fallbackLabelStyle) {
+				NowPlayingFallbackLabelStyle.Center -> Text(
+					text = label,
+					color = Color(0xFFF5F2EA),
+					style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
+					maxLines = 3,
+					autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 32.sp),
+					fontFamily = defaultFont(grade = 90, round = 100f),
+					textAlign = TextAlign.Center,
+					modifier = Modifier
+						.align(Alignment.Center)
+						.padding(horizontal = 16.dp)
+				)
+
+				NowPlayingFallbackLabelStyle.Arc -> CoverArtFallbackArcLabel(
+					label = label,
+					modifier = Modifier.matchParentSize()
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun CoverArtFallbackArcLabel(
+	label: String,
+	modifier: Modifier = Modifier
+) {
+	val arcText = coverArtFallbackArcText(label) ?: return
+	val chars = arcText.toList()
+	val sweepDegrees = when {
+		chars.size <= 1 -> 0f
+		chars.size <= 10 -> 72f
+		chars.size <= 18 -> 108f
+		else -> 132f
+	}
+	BoxWithConstraints(
+		modifier = modifier,
+		contentAlignment = Alignment.Center
+	) {
+		val radius = min(maxWidth.value, maxHeight.value).dp * 0.34f
+		val startAngle = -90f - sweepDegrees / 2f
+		chars.forEachIndexed { index, char ->
+			val fraction = if (chars.size <= 1) 0.5f else index / (chars.size - 1).toFloat()
+			val angle = startAngle + sweepDegrees * fraction
+			val radians = angle * PI.toFloat() / 180f
 			Text(
-				text = label,
-				color = Color(0xFFF5F2EA),
-				style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
-				maxLines = 3,
-				autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 32.sp),
+				text = char.toString(),
+				color = Color(0xFFF5F2EA).copy(alpha = .92f),
+				style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black),
+				maxLines = 1,
 				fontFamily = defaultFont(grade = 90, round = 100f),
 				textAlign = TextAlign.Center,
 				modifier = Modifier
 					.align(Alignment.Center)
-					.padding(horizontal = 16.dp)
+					.offset(
+						x = radius * cos(radians),
+						y = radius * sin(radians)
+					)
+					.graphicsLayer {
+						rotationZ = angle + 90f
+					}
 			)
 		}
 	}

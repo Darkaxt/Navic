@@ -100,6 +100,18 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun rotatingFallbackArtworkUsesArcLabel() {
+		assertEquals(
+			NowPlayingFallbackLabelStyle.Arc,
+			nowPlayingFallbackLabelStyle(isRotatingArtwork = true)
+		)
+		assertEquals(
+			NowPlayingFallbackLabelStyle.Center,
+			nowPlayingFallbackLabelStyle(isRotatingArtwork = false)
+		)
+	}
+
+	@Test
 	fun vinylOverlayGeometryKeepsCenterReadable() {
 		assertTrue(NowPlayingVinylSpindleRadiusFraction > 0f)
 		assertTrue(NowPlayingVinylLabelRadiusFraction > NowPlayingVinylSpindleRadiusFraction)

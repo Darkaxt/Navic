@@ -117,14 +117,18 @@ fun MiniPlayer(
 	val sessionManager = koinInject<SessionManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
 	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()

@@ -58,6 +58,8 @@ class MusicBrainzArtworkRepository(
 	private val cacheLock = Any()
 	private val serverCoverFailureLock = Any()
 	private val failedServerCoverSongIds = mutableSetOf<String>()
+	private val _serverCoverLoadFailedSongIds = MutableStateFlow<Set<String>>(emptySet())
+	val serverCoverLoadFailedSongIds = _serverCoverLoadFailedSongIds.asStateFlow()
 	private val requestThrottle = Mutex()
 	private var lastRequestMillis = 0L
 	private val client = HttpClient {
@@ -111,6 +113,7 @@ class MusicBrainzArtworkRepository(
 		if (songId.isBlank()) return
 		synchronized(serverCoverFailureLock) {
 			failedServerCoverSongIds.add(songId)
+			_serverCoverLoadFailedSongIds.value = failedServerCoverSongIds.toSet()
 		}
 	}
 

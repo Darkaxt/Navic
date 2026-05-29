@@ -10,6 +10,11 @@ const val NowPlayingVinylGrooveEndRadiusFraction = 0.95f
 const val NowPlayingVideoArtworkCrossfadeDurationMs = 260
 const val NowPlayingVideoArtworkCrossfadeInitialScale = 0.985f
 
+enum class NowPlayingFallbackLabelStyle {
+	Center,
+	Arc
+}
+
 fun shouldRotateNowPlayingArtwork(
 	enabled: Boolean,
 	isPaused: Boolean,
@@ -26,3 +31,6 @@ fun shouldShowNowPlayingVinylOverlay(
 	isRotatingArtwork: Boolean,
 	hasCoverArt: Boolean
 ): Boolean = isRotatingArtwork && hasCoverArt
+
+fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =
+	if (isRotatingArtwork) NowPlayingFallbackLabelStyle.Arc else NowPlayingFallbackLabelStyle.Center

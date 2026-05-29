@@ -14,9 +14,10 @@ fun dominantColorArtworkUrl(
 
 fun externalFallbackArtworkUrl(
 	serverCoverArtId: String?,
-	externalArtworkUrl: String?
+	externalArtworkUrl: String?,
+	serverCoverLoadFailed: Boolean = false
 ): String? =
-	if (serverCoverArtId.isNullOrBlank()) {
+	if (serverCoverArtId.isNullOrBlank() || serverCoverLoadFailed) {
 		externalArtworkUrl.nonBlankOrNull()
 	} else {
 		null
@@ -24,9 +25,10 @@ fun externalFallbackArtworkUrl(
 
 fun externalFallbackArtworkCacheKey(
 	serverCoverArtId: String?,
-	externalArtworkCacheKey: String?
+	externalArtworkCacheKey: String?,
+	serverCoverLoadFailed: Boolean = false
 ): String? =
-	if (serverCoverArtId.isNullOrBlank()) {
+	if (serverCoverArtId.isNullOrBlank() || serverCoverLoadFailed) {
 		externalArtworkCacheKey.nonBlankOrNull()
 	} else {
 		null

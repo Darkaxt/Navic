@@ -86,6 +86,14 @@ class PlaybackArtworkPolicyTest {
 				externalArtworkUrl = " "
 			)
 		)
+		assertEquals(
+			"https://coverartarchive.org/front.jpg",
+			externalFallbackArtworkUrl(
+				serverCoverArtId = "cover-1",
+				externalArtworkUrl = " https://coverartarchive.org/front.jpg ",
+				serverCoverLoadFailed = true
+			)
+		)
 	}
 
 	@Test
@@ -101,6 +109,14 @@ class PlaybackArtworkPolicyTest {
 			externalFallbackArtworkCacheKey(
 				serverCoverArtId = null,
 				externalArtworkCacheKey = " musicbrainz:release-1 "
+			)
+		)
+		assertEquals(
+			"musicbrainz:release-1",
+			externalFallbackArtworkCacheKey(
+				serverCoverArtId = "cover-1",
+				externalArtworkCacheKey = " musicbrainz:release-1 ",
+				serverCoverLoadFailed = true
 			)
 		)
 	}

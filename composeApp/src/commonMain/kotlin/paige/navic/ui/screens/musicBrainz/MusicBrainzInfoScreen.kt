@@ -84,16 +84,20 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	val uriHandler = LocalUriHandler.current
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val musicBrainzMetadataBySongId by musicBrainzArtworkRepository.metadataBySongId.collectAsStateWithLifecycle()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
 
 	val metadata = song?.id?.let(musicBrainzMetadataBySongId::get)
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
 	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val rows = remember(metadata) {
 		musicBrainzMetadataDisplayFields(metadata)

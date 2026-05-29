@@ -37,6 +37,7 @@ import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
 import paige.navic.domain.models.externalFallbackArtworkCacheKey
 import paige.navic.domain.models.externalFallbackArtworkUrl
+import paige.navic.domain.models.nowPlayingFallbackLabelStyle
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
@@ -61,14 +62,18 @@ fun NowPlayingArtwork(
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val playerState by player.uiState.collectAsState()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
+	val serverCoverLoadFailed = song.id in serverCoverLoadFailedSongIds
 	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl
+		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
 		serverCoverArtId = song.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" }
+		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val hasArtwork = !song.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
 
@@ -111,6 +116,7 @@ fun NowPlayingArtwork(
 			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
 			contentDescription = song.title,
 			fallbackKind = "Track",
+			fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
 			onServerCoverLoadFailed = {
 				musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 				musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)

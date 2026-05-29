@@ -154,29 +154,33 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val playerState by player.uiState.collectAsState()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val song = playerState.currentSong
+	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
 	val serverCoverUri = remember(song?.coverArtId) {
 		song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
+	val activeServerCoverUri = serverCoverUri.takeUnless { serverCoverLoadFailed }
 	val externalCoverUri = externalFallbackArtworkUrl(
 		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl }
+		externalArtworkUrl = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val coverUri = remember(serverCoverUri, externalCoverUri) {
+	val coverUri = remember(activeServerCoverUri, externalCoverUri) {
 		activeArtworkUrl(
-			serverArtworkUrl = serverCoverUri,
+			serverArtworkUrl = activeServerCoverUri,
 			externalArtworkUrl = externalCoverUri
 		)
 	}
-	val paletteCoverUri = remember(serverCoverUri, externalCoverUri) {
+	val paletteCoverUri = remember(activeServerCoverUri, externalCoverUri) {
 		dominantColorArtworkUrl(
-			serverArtworkUrl = serverCoverUri,
+			serverArtworkUrl = activeServerCoverUri,
 			externalArtworkUrl = externalCoverUri
 		)
 	}
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(
-		serverArtworkUrl = serverCoverUri,
+		serverArtworkUrl = activeServerCoverUri,
 		externalArtworkUrl = externalCoverUri
 	)
 	val httpClient = remember(serverRequestHeaders, shouldSendServerHeaders) {
