@@ -220,7 +220,8 @@ class MusicBrainzArtworkRepositoryTest {
 			updatedAtMillis = 1_000L
 		)
 		val cachedMissWithMetadata = cachedMissWithoutMetadata.copy(
-			metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid"),
+			metadataSchemaVersion = MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
 		)
 
 		assertNull(
@@ -262,6 +263,7 @@ class MusicBrainzArtworkRepositoryTest {
 			sourceType = null,
 			metadata = null,
 			metadataLookupAttempted = true,
+			metadataSchemaVersion = MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION,
 			updatedAtMillis = 1_000L
 		)
 
@@ -269,6 +271,51 @@ class MusicBrainzArtworkRepositoryTest {
 			cachedMissAfterMetadataAttempt,
 			usableMusicBrainzPlaybackCacheEntry(
 				entry = cachedMissAfterMetadataAttempt,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = true
+			)
+		)
+	}
+
+	@Test
+	fun olderMetadataSchemaDoesNotBlockRefreshForNewTrackInfoFields() {
+		val oldSchemaEntry = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/front.jpg",
+			sourceMbid = "release-mbid",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid"),
+			metadataLookupAttempted = true,
+			updatedAtMillis = 1_000L
+		)
+		val currentSchemaEntry = oldSchemaEntry.copy(
+			metadataSchemaVersion = MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
+		)
+
+		assertNull(
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = oldSchemaEntry,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = true
+			)
+		)
+		assertEquals(
+			oldSchemaEntry,
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = oldSchemaEntry,
+				fingerprint = "fingerprint",
+				nowMillis = 1_000L,
+				needsMetadata = false
+			)
+		)
+		assertEquals(
+			currentSchemaEntry,
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = currentSchemaEntry,
 				fingerprint = "fingerprint",
 				nowMillis = 1_000L,
 				needsMetadata = true
@@ -296,7 +343,8 @@ class MusicBrainzArtworkRepositoryTest {
 			updatedAtMillis = 2_000L
 		)
 		val newerWithMetadata = newerWithoutMetadata.copy(
-			metadata = MusicBrainzTrackMetadata(recordingMbid = "newer-recording")
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "newer-recording"),
+			metadataSchemaVersion = MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
 		)
 
 		assertNull(

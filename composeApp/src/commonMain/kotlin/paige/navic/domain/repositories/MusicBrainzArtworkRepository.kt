@@ -37,6 +37,7 @@ private const val COVER_ART_ARCHIVE_BASE_URL = "https://coverartarchive.org"
 private const val MUSICBRAINZ_BASE_URL = "https://musicbrainz.org"
 private const val MUSICBRAINZ_USER_AGENT = "Navic/1.0 (https://github.com/Darkaxt/Navic)"
 private const val MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES = 500
+internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 2
 private const val MUSICBRAINZ_RECORDING_SEARCH_LIMIT = 5
 private const val MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE = 90
 private const val MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT = 3
@@ -173,6 +174,11 @@ class MusicBrainzArtworkRepository(
 					sourceType = it.sourceType,
 					metadata = metadata,
 					metadataLookupAttempted = shouldResolveMetadata,
+					metadataSchemaVersion = if (shouldResolveMetadata) {
+						MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
+					} else {
+						0
+					},
 					updatedAtMillis = currentTimeMillis()
 				)
 			} ?: MusicBrainzArtworkCacheEntry(
@@ -184,6 +190,11 @@ class MusicBrainzArtworkRepository(
 				sourceType = null,
 				metadata = metadata,
 				metadataLookupAttempted = shouldResolveMetadata,
+				metadataSchemaVersion = if (shouldResolveMetadata) {
+					MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
+				} else {
+					0
+				},
 				updatedAtMillis = currentTimeMillis()
 			)
 
@@ -607,6 +618,9 @@ internal fun usableMusicBrainzPlaybackCacheEntry(
 		fingerprint = fingerprint,
 		nowMillis = nowMillis
 	) ?: return null
+	if (needsMetadata && usableEntry.metadataSchemaVersion < MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION) {
+		return null
+	}
 	if (needsMetadata && usableEntry.metadata == null && !usableEntry.metadataLookupAttempted) return null
 	return usableEntry
 }
@@ -729,6 +743,7 @@ data class MusicBrainzArtworkCacheEntry(
 	val sourceType: MusicBrainzArtworkSourceType?,
 	val metadata: MusicBrainzTrackMetadata? = null,
 	val metadataLookupAttempted: Boolean = false,
+	val metadataSchemaVersion: Int = 0,
 	val updatedAtMillis: Long
 )
 
