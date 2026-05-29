@@ -515,6 +515,21 @@ internal fun musicBrainzMetadataDisplayFields(
 	)
 }
 
+internal fun musicBrainzMetadataUrlOrNull(
+	field: MusicBrainzMetadataField?,
+	value: Any?
+): String? {
+	if (field !in MusicBrainzUrlFields) return null
+	val url = (value as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return url.takeIf { it.startsWith("https://musicbrainz.org/", ignoreCase = true) }
+}
+
+private val MusicBrainzUrlFields = setOf(
+	MusicBrainzMetadataField.RecordingUrl,
+	MusicBrainzMetadataField.ReleaseUrl,
+	MusicBrainzMetadataField.ReleaseGroupUrl
+)
+
 private fun MusicBrainzMetadataField.field(value: String?): MusicBrainzMetadataDisplayField? =
 	value.nonBlankOrNull()?.let { MusicBrainzMetadataDisplayField(this, it) }
 

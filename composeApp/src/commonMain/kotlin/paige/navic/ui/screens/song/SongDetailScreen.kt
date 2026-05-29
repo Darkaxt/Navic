@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
@@ -57,6 +58,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.MusicBrainzMetadataField
 import paige.navic.domain.repositories.musicBrainzMetadataDisplayFields
+import paige.navic.domain.repositories.musicBrainzMetadataUrlOrNull
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -76,36 +78,44 @@ fun SongDetailScreen(songId: String) {
 	val song = songState.data
 
 	val preferenceManager = koinInject<PreferenceManager>()
+	val uriHandler = LocalUriHandler.current
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzMetadataBySongId by musicBrainzArtworkRepository.metadataBySongId.collectAsStateWithLifecycle()
 	val musicBrainzMetadata = musicBrainzMetadataBySongId[songId]
 	val info = remember(song, musicBrainzMetadata) {
 		song?.let {
 			listOf(
-				Res.string.info_track_name to song.title,
-				Res.string.info_track_artist to song.artistName,
-				Res.string.info_track_album to song.albumTitle,
+				SongDetailInfoRow(Res.string.info_track_name, song.title),
+				SongDetailInfoRow(Res.string.info_track_artist, song.artistName),
+				SongDetailInfoRow(Res.string.info_track_album, song.albumTitle),
 
-				Res.string.info_track_number to song.trackNumber,
-				Res.string.info_track_disc_number to song.discNumber,
-				Res.string.info_track_year to song.year,
-				Res.string.info_track_genre to song.genre,
+				SongDetailInfoRow(Res.string.info_track_number, song.trackNumber),
+				SongDetailInfoRow(Res.string.info_track_disc_number, song.discNumber),
+				SongDetailInfoRow(Res.string.info_track_year, song.year),
+				SongDetailInfoRow(Res.string.info_track_genre, song.genre),
 
-				Res.string.info_track_duration to song.duration.toHoursMinutesSeconds(),
-				Res.string.info_track_format to song.mimeType,
-				Res.string.info_track_bitrate to song.bitRate?.let { "$it kbps" },
-				Res.string.info_track_bit_depth to song.bitDepth,
-				Res.string.info_track_sampling_rate to song.sampleRate?.let { "$it Hz" },
-				Res.string.info_track_channel_count to song.audioChannelCount,
+				SongDetailInfoRow(Res.string.info_track_duration, song.duration.toHoursMinutesSeconds()),
+				SongDetailInfoRow(Res.string.info_track_format, song.mimeType),
+				SongDetailInfoRow(Res.string.info_track_bitrate, song.bitRate?.let { "$it kbps" }),
+				SongDetailInfoRow(Res.string.info_track_bit_depth, song.bitDepth),
+				SongDetailInfoRow(Res.string.info_track_sampling_rate, song.sampleRate?.let { "$it Hz" }),
+				SongDetailInfoRow(Res.string.info_track_channel_count, song.audioChannelCount),
 
-				Res.string.info_track_file_size to song.fileSize.toFileSize(),
-				Res.string.info_track_path to song.filePath,
+				SongDetailInfoRow(Res.string.info_track_file_size, song.fileSize.toFileSize()),
+				SongDetailInfoRow(Res.string.info_track_path, song.filePath),
 
-				Res.string.info_track_replay_gain to song.replayGain?.trackGain?.let { "$it dB" },
-				Res.string.info_album_replay_gain to song.replayGain?.albumGain?.let { "$it dB" },
-				Res.string.info_track_replay_gain_effective to song.replayGain?.effectiveGain(preferenceManager.replayGainMode)
+				SongDetailInfoRow(Res.string.info_track_replay_gain, song.replayGain?.trackGain?.let { "$it dB" }),
+				SongDetailInfoRow(Res.string.info_album_replay_gain, song.replayGain?.albumGain?.let { "$it dB" }),
+				SongDetailInfoRow(
+					title = Res.string.info_track_replay_gain_effective,
+					value = song.replayGain?.effectiveGain(preferenceManager.replayGainMode)
+				)
 			) + musicBrainzMetadataDisplayFields(musicBrainzMetadata).map { field ->
-				field.field.stringResource to field.value
+				SongDetailInfoRow(
+					title = field.field.stringResource,
+					value = field.value,
+					musicBrainzField = field.field
+				)
 			}
 		}.orEmpty()
 	}
@@ -123,18 +133,28 @@ fun SongDetailScreen(songId: String) {
 				)
 		) {
 			Form {
-				info.forEach { (key, value) ->
-					FormRow {
+				info.forEach { row ->
+					val musicBrainzUrl = musicBrainzMetadataUrlOrNull(row.musicBrainzField, row.value)
+					FormRow(
+						onClick = musicBrainzUrl?.let { url ->
+							{ uriHandler.openUri(url) }
+						}
+					) {
 						Column(Modifier.padding(vertical = 4.dp)) {
 							Text(
-								text = stringResource(key),
+								text = stringResource(row.title),
 								style = MaterialTheme.typography.labelMedium,
 								color = MaterialTheme.colorScheme.primary
 							)
 							SelectionContainer {
 								Text(
-									text = "${value ?: stringResource(Res.string.info_unknown)}",
-									style = MaterialTheme.typography.bodyLarge
+									text = "${row.value ?: stringResource(Res.string.info_unknown)}",
+									style = MaterialTheme.typography.bodyLarge,
+									color = if (musicBrainzUrl != null) {
+										MaterialTheme.colorScheme.primary
+									} else {
+										MaterialTheme.colorScheme.onSurface
+									}
 								)
 							}
 						}
@@ -144,6 +164,12 @@ fun SongDetailScreen(songId: String) {
 		}
 	}
 }
+
+private data class SongDetailInfoRow(
+	val title: StringResource,
+	val value: Any?,
+	val musicBrainzField: MusicBrainzMetadataField? = null
+)
 
 private val MusicBrainzMetadataField.stringResource: StringResource
 	get() = when (this) {

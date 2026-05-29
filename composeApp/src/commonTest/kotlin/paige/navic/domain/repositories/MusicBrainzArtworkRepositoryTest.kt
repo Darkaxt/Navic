@@ -755,6 +755,45 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun metadataUrlPolicyOnlyOpensMusicBrainzUrlFields() {
+		assertEquals(
+			"https://musicbrainz.org/recording/recording-mbid",
+			musicBrainzMetadataUrlOrNull(
+				field = MusicBrainzMetadataField.RecordingUrl,
+				value = " https://musicbrainz.org/recording/recording-mbid "
+			)
+		)
+		assertEquals(
+			"https://musicbrainz.org/release/release-mbid",
+			musicBrainzMetadataUrlOrNull(
+				field = MusicBrainzMetadataField.ReleaseUrl,
+				value = "https://musicbrainz.org/release/release-mbid"
+			)
+		)
+		assertEquals(
+			"https://musicbrainz.org/release-group/group-mbid",
+			musicBrainzMetadataUrlOrNull(
+				field = MusicBrainzMetadataField.ReleaseGroupUrl,
+				value = "https://musicbrainz.org/release-group/group-mbid"
+			)
+		)
+
+		assertNull(
+			musicBrainzMetadataUrlOrNull(
+				field = MusicBrainzMetadataField.RecordingTitle,
+				value = "https://musicbrainz.org/recording/recording-mbid"
+			)
+		)
+		assertNull(
+			musicBrainzMetadataUrlOrNull(
+				field = MusicBrainzMetadataField.RecordingUrl,
+				value = "https://example.com/recording/recording-mbid"
+			)
+		)
+		assertNull(musicBrainzMetadataUrlOrNull(field = null, value = null))
+	}
+
+	@Test
 	fun frontThumbnailPrefersLargestConfiguredThumbnailBeforeOriginalImage() {
 		val image = musicBrainzFrontArtworkImageUrl(
 			CoverArtArchiveResponseDto(
