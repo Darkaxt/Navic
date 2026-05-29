@@ -73,7 +73,22 @@ class MusicBrainzArtworkRepositoryTest {
 				songCoverArtId = null,
 				albumCoverArtId = null,
 				songMusicBrainzId = " ",
-				albumMusicBrainzId = null
+				albumMusicBrainzId = null,
+				songTitle = " ",
+				artistName = "Artist"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = null,
+				albumCoverArtId = null,
+				songMusicBrainzId = null,
+				albumMusicBrainzId = null,
+				songTitle = "Song",
+				artistName = " "
 			)
 		)
 
@@ -99,6 +114,19 @@ class MusicBrainzArtworkRepositoryTest {
 				albumMusicBrainzId = null
 			)
 		)
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = null,
+				albumCoverArtId = null,
+				songMusicBrainzId = null,
+				albumMusicBrainzId = null,
+				songTitle = "Dancing Queen",
+				artistName = "ABBA"
+			)
+		)
 	}
 
 	@Test
@@ -114,6 +142,43 @@ class MusicBrainzArtworkRepositoryTest {
 		assertEquals(
 			"https://musicbrainz.org/ws/2/recording/0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1?inc=artist-credits+isrcs+releases+genres+tags&fmt=json",
 			musicBrainzRecordingLookupEndpoint("0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1")
+		)
+		assertEquals(
+			"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Dancing%20Queen%22%20AND%20artistname%3A%22ABBA%22&limit=5&fmt=json",
+			musicBrainzRecordingSearchEndpoint(title = "Dancing Queen", artistName = "ABBA")
+		)
+	}
+
+	@Test
+	fun recordingSearchEndpointEscapesLuceneSpecialCharactersBeforeUrlEncoding() {
+		assertEquals(
+			"https://musicbrainz.org/ws/2/recording?query=recording%3A%22Love%20%5C%2F%20Hate%5C%3A%20Part%20%5C%281%5C%29%22%20AND%20artistname%3A%22AC%5C%2FDC%22&limit=5&fmt=json",
+			musicBrainzRecordingSearchEndpoint(title = "Love / Hate: Part (1)", artistName = "AC/DC")
+		)
+	}
+
+	@Test
+	fun bestRecordingSearchMatchRequiresHighScoreAndUsableMbid() {
+		assertEquals(
+			"recording-100",
+			bestMusicBrainzRecordingSearchMatch(
+				MusicBrainzRecordingSearchResponseDto(
+					recordings = listOf(
+						MusicBrainzRecordingSearchResultDto(id = " ", score = "100"),
+						MusicBrainzRecordingSearchResultDto(id = "recording-89", score = "89"),
+						MusicBrainzRecordingSearchResultDto(id = "recording-100", score = "100")
+					)
+				)
+			)
+		)
+		assertNull(
+			bestMusicBrainzRecordingSearchMatch(
+				MusicBrainzRecordingSearchResponseDto(
+					recordings = listOf(
+						MusicBrainzRecordingSearchResultDto(id = "recording-weak", score = "80")
+					)
+				)
+			)
 		)
 	}
 

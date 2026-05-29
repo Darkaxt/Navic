@@ -37,6 +37,8 @@ private const val COVER_ART_ARCHIVE_BASE_URL = "https://coverartarchive.org"
 private const val MUSICBRAINZ_BASE_URL = "https://musicbrainz.org"
 private const val MUSICBRAINZ_USER_AGENT = "Navic/1.0 (https://github.com/Darkaxt/Navic)"
 private const val MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES = 500
+private const val MUSICBRAINZ_RECORDING_SEARCH_LIMIT = 5
+private const val MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE = 90
 private const val MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT = 3
 private const val MUSICBRAINZ_REQUEST_INTERVAL_MILLIS = 1_000L
 private val MUSICBRAINZ_ARTWORK_FOUND_MAX_AGE_MILLIS = 180.days.inWholeMilliseconds
@@ -108,13 +110,17 @@ class MusicBrainzArtworkRepository(
 					songCoverArtId = song.coverArtId,
 					albumCoverArtId = albumCoverArtId,
 					songMusicBrainzId = song.musicBrainzId,
-					albumMusicBrainzId = albumMusicBrainzId
+					albumMusicBrainzId = albumMusicBrainzId,
+					songTitle = song.title,
+					artistName = song.artistName
 				)
 			) {
 				return@runCatching null
 			}
 
-			val recording = song.musicBrainzId.normalizedMbidOrNull()?.let { fetchRecording(it) }
+			val recording = song.musicBrainzId.normalizedMbidOrNull()
+				?.let { fetchRecording(it) }
+				?: searchRecording(song)
 			val resolved = resolveArtwork(
 				albumMusicBrainzId = albumMusicBrainzId,
 				recordingReleases = recording?.releases.orEmpty()
@@ -220,6 +226,25 @@ class MusicBrainzArtworkRepository(
 		}
 	}
 
+	private suspend fun searchRecording(song: DomainSong): MusicBrainzRecordingDto? {
+		if (!canSearchMusicBrainzRecording(song.title, song.artistName)) return null
+		val response = throttledGet(
+			musicBrainzRecordingSearchEndpoint(
+				title = song.title,
+				artistName = song.artistName
+			)
+		)
+		val recordingMbid = when {
+			response.status == HttpStatusCode.NotFound -> null
+			response.status.isSuccess() -> bestMusicBrainzRecordingSearchMatch(
+				response.body<MusicBrainzRecordingSearchResponseDto>()
+			)
+
+			else -> error("MusicBrainz recording search returned HTTP ${response.status.value}")
+		}
+		return recordingMbid?.let { fetchRecording(it) }
+	}
+
 	private suspend fun throttledGet(url: String) =
 		requestThrottle.withLock {
 			val now = currentTimeMillis()
@@ -274,14 +299,20 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	songCoverArtId: String?,
 	albumCoverArtId: String?,
 	songMusicBrainzId: String?,
-	albumMusicBrainzId: String?
+	albumMusicBrainzId: String?,
+	songTitle: String? = null,
+	artistName: String? = null
 ): Boolean =
 	enabled &&
 		isOnline &&
 		!isRadio &&
 		songCoverArtId.isNullOrBlank() &&
 		albumCoverArtId.isNullOrBlank() &&
-		(!songMusicBrainzId.isNullOrBlank() || !albumMusicBrainzId.isNullOrBlank())
+		(
+			!songMusicBrainzId.isNullOrBlank() ||
+				!albumMusicBrainzId.isNullOrBlank() ||
+				canSearchMusicBrainzRecording(songTitle, artistName)
+		)
 
 internal fun coverArtArchiveReleaseEndpoint(mbid: String): String =
 	"$COVER_ART_ARCHIVE_BASE_URL/release/${mbid.normalizedMbidOrNull() ?: mbid.trim()}"
@@ -291,6 +322,25 @@ internal fun coverArtArchiveReleaseGroupEndpoint(mbid: String): String =
 
 internal fun musicBrainzRecordingLookupEndpoint(mbid: String): String =
 	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+genres+tags&fmt=json"
+
+internal fun musicBrainzRecordingSearchEndpoint(title: String, artistName: String): String {
+	val query = "recording:${lucenePhrase(title)} AND artistname:${lucenePhrase(artistName)}"
+	return "$MUSICBRAINZ_BASE_URL/ws/2/recording?query=${encodeUrlComponent(query)}&limit=$MUSICBRAINZ_RECORDING_SEARCH_LIMIT&fmt=json"
+}
+
+internal fun bestMusicBrainzRecordingSearchMatch(
+	response: MusicBrainzRecordingSearchResponseDto
+): String? =
+	response.recordings
+		.firstOrNull { result ->
+			result.id.normalizedMbidOrNull() != null &&
+				(result.score.toIntOrNull() ?: 0) >= MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE
+		}
+		?.id
+		?.normalizedMbidOrNull()
+
+private fun canSearchMusicBrainzRecording(title: String?, artistName: String?): Boolean =
+	!title.isNullOrBlank() && !artistName.isNullOrBlank()
 
 internal fun musicBrainzTrackMetadata(
 	recording: MusicBrainzRecordingDto,
@@ -540,6 +590,17 @@ internal data class MusicBrainzRecordingDto(
 )
 
 @Serializable
+internal data class MusicBrainzRecordingSearchResponseDto(
+	val recordings: List<MusicBrainzRecordingSearchResultDto> = emptyList()
+)
+
+@Serializable
+internal data class MusicBrainzRecordingSearchResultDto(
+	val id: String = "",
+	val score: String = ""
+)
+
+@Serializable
 internal data class MusicBrainzArtistCreditDto(
 	val name: String = "",
 	val joinphrase: String = ""
@@ -567,7 +628,43 @@ internal data class MusicBrainzReleaseGroupDto(
 	val title: String? = null
 )
 
-private fun encodePathSegment(value: String): String {
+private fun lucenePhrase(value: String): String =
+	value
+		.trim()
+		.replace(Regex("\\s+"), " ")
+		.let { normalized ->
+			"\"${buildString {
+				normalized.forEach { char ->
+					if (char in luceneSpecialChars) append('\\')
+					append(char)
+				}
+			}}\""
+		}
+
+private val luceneSpecialChars = setOf(
+	'\\',
+	'+',
+	'-',
+	'!',
+	'(',
+	')',
+	'{',
+	'}',
+	'[',
+	']',
+	'^',
+	'"',
+	'~',
+	'*',
+	'?',
+	':',
+	'/'
+)
+
+private fun encodePathSegment(value: String): String =
+	encodeUrlComponent(value)
+
+private fun encodeUrlComponent(value: String): String {
 	val hex = "0123456789ABCDEF"
 	return buildString {
 		value.encodeToByteArray().forEach { byte ->
