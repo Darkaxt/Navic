@@ -424,12 +424,7 @@ private fun LidaClipsRecentClipItem(clip: DomainLidaClip) {
 		text = lidaClipsRecentClipTitle(clip),
 		style = MaterialTheme.typography.bodyMedium
 	)
-	val subtitle = listOfNotNull(
-		clip.artist.cleanForDisplay(),
-		clip.album.cleanForDisplay(),
-		clip.qualityTier.cleanForDisplay()
-	).joinToString(" - ")
-	if (subtitle.isNotEmpty()) {
+	lidaClipsRecentClipSubtitle(clip)?.let { subtitle ->
 		Text(
 			text = subtitle,
 			style = MaterialTheme.typography.bodySmall,
@@ -437,12 +432,6 @@ private fun LidaClipsRecentClipItem(clip: DomainLidaClip) {
 		)
 	}
 }
-
-private fun lidaClipsRecentClipTitle(clip: DomainLidaClip): String =
-	clip.track.cleanForDisplay()
-		?: clip.title.cleanForDisplay()
-		?: clip.fileName.cleanForDisplay()
-		?: "Music video"
 
 @Composable
 private fun LidaClipsHealthChecks(
@@ -460,7 +449,7 @@ private fun LidaClipsHealthChecks(
 			Text(
 				text = stringResource(
 					Res.string.info_lida_clips_health_status,
-					status.cleanForDisplay() ?: "unknown"
+					status.cleanLidaClipsDisplayText() ?: "unknown"
 				),
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -497,14 +486,15 @@ private fun LidaClipsHealthChecks(
 
 @Composable
 private fun lidaClipsHealthFailureText(check: LidaClipsHealthCheck): String {
-	val name = check.name.replace('_', ' ')
-	val detail = check.error.cleanForDisplay()
-		?: check.address.cleanForDisplay()
-		?: check.path.cleanForDisplay()
-	return if (detail == null) {
-		stringResource(Res.string.info_lida_clips_health_check_failed, name)
+	val display = lidaClipsHealthFailureDisplay(check)
+	return if (display.detail == null) {
+		stringResource(Res.string.info_lida_clips_health_check_failed, display.name)
 	} else {
-		stringResource(Res.string.info_lida_clips_health_check_failed_with_detail, name, detail)
+		stringResource(
+			Res.string.info_lida_clips_health_check_failed_with_detail,
+			display.name,
+			display.detail
+		)
 	}
 }
 
@@ -545,47 +535,35 @@ private fun LidaClipsRecentFailures(failures: List<LidaClipsRecentFailure>) {
 @Composable
 private fun LidaClipsRecentFailureItem(failure: LidaClipsRecentFailure) {
 	Text(
-		text = lidaClipsRecentFailureTitle(failure),
+		text = lidaClipsRecentFailureTitle(
+			failure = failure,
+			unknownTrackText = stringResource(Res.string.info_lida_clips_unknown_track),
+			lidarrTrackText = failure.lidarrTrackId?.let {
+				stringResource(Res.string.info_lida_clips_lidarr_track_id, it)
+			}
+		),
 		style = MaterialTheme.typography.bodyMedium
 	)
-	failure.reason.cleanForDisplay()?.let { reason ->
+	failure.reason.cleanLidaClipsDisplayText()?.let { reason ->
 		Text(
 			text = stringResource(Res.string.info_lida_clips_recent_failure_reason, reason),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant
 		)
 	}
-	failure.retryAfter.cleanForDisplay()?.let { retryAfter ->
+	failure.retryAfter.cleanLidaClipsDisplayText()?.let { retryAfter ->
 		Text(
 			text = stringResource(Res.string.info_lida_clips_recent_failure_retry_after, retryAfter),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant
 		)
 	}
-	failure.updatedAt.cleanForDisplay()?.let { updatedAt ->
+	failure.updatedAt.cleanLidaClipsDisplayText()?.let { updatedAt ->
 		Text(
 			text = stringResource(Res.string.info_lida_clips_recent_failure_updated, updatedAt),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant
 		)
-	}
-}
-
-@Composable
-private fun lidaClipsRecentFailureTitle(failure: LidaClipsRecentFailure): String {
-	val artist = failure.artist.cleanForDisplay()
-	val track = failure.track.cleanForDisplay()
-	val album = failure.album.cleanForDisplay()
-	return when {
-		artist != null && track != null -> "$artist - $track"
-		track != null -> track
-		artist != null && album != null -> "$artist - $album"
-		artist != null -> artist
-		album != null -> album
-		failure.lidarrTrackId != null ->
-			stringResource(Res.string.info_lida_clips_lidarr_track_id, failure.lidarrTrackId)
-
-		else -> stringResource(Res.string.info_lida_clips_unknown_track)
 	}
 }
 
@@ -618,6 +596,3 @@ private fun LidaClipsField(
 		)
 	}
 }
-
-private fun String?.cleanForDisplay(): String? =
-	this?.trim()?.takeIf { it.isNotEmpty() }
