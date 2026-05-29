@@ -682,6 +682,39 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun publicCacheMapsAreHiddenWhenMusicBrainzFallbackIsDisabled() {
+		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+		val entry = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/front.jpg",
+			sourceMbid = "release-mbid",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = metadata,
+			updatedAtMillis = 1_000L
+		)
+		val entries = listOf(entry)
+
+		assertEquals(
+			emptyMap(),
+			entries.visibleMusicBrainzArtworkBySongId(enabled = false, nowMillis = 1_000L)
+		)
+		assertEquals(
+			emptyMap(),
+			entries.visibleMusicBrainzMetadataBySongId(enabled = false, nowMillis = 1_000L)
+		)
+		assertEquals(
+			mapOf("song-1" to entry),
+			entries.visibleMusicBrainzArtworkBySongId(enabled = true, nowMillis = 1_000L)
+		)
+		assertEquals(
+			mapOf("song-1" to metadata),
+			entries.visibleMusicBrainzMetadataBySongId(enabled = true, nowMillis = 1_000L)
+		)
+	}
+
+	@Test
 	fun metadataDisplayFieldsSkipBlankValuesAndJoinLists() {
 		val fields = musicBrainzMetadataDisplayFields(
 			MusicBrainzTrackMetadata(

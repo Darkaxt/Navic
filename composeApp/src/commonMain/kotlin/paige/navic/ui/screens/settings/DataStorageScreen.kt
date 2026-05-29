@@ -282,7 +282,10 @@ fun SettingsDataStorageScreen() {
 						title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
 						subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
 						value = preferenceManager.musicBrainzArtworkFallbackEnabled,
-						onSetValue = { preferenceManager.musicBrainzArtworkFallbackEnabled = it }
+						onSetValue = {
+							preferenceManager.musicBrainzArtworkFallbackEnabled = it
+							musicBrainzArtworkRepository.refreshCacheVisibility()
+						}
 					)
 					FormRow(
 						onClick = dropUnlessResumed {

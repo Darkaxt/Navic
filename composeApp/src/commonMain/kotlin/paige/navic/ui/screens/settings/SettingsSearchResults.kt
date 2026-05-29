@@ -42,6 +42,7 @@ import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.Form
@@ -108,6 +109,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val platformContext = LocalPlatformContext.current
 	val isAndroid = platformContext.name.lowercase().startsWith("android")
 	val isApple = listOf("ios", "ipados").contains(platformContext.name.lowercase())
@@ -1098,7 +1100,10 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			subtitle = stringResource(Res.string.subtitle_musicbrainz_artwork_fallback),
 			keywords = listOf("cover art archive", "metadata", "artwork"),
 			value = preferenceManager.musicBrainzArtworkFallbackEnabled,
-			onSetValue = { preferenceManager.musicBrainzArtworkFallbackEnabled = it }
+			onSetValue = {
+				preferenceManager.musicBrainzArtworkFallbackEnabled = it
+				musicBrainzArtworkRepository.refreshCacheVisibility()
+			}
 		))
 		add(switchRow(
 			id = "data.pause-search-history",
