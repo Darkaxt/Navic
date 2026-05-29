@@ -613,6 +613,33 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun publicCacheMapsPreferNewestDuplicateSongEntry() {
+		val olderMetadata = MusicBrainzTrackMetadata(recordingMbid = "older-recording")
+		val newerMetadata = MusicBrainzTrackMetadata(recordingMbid = "newer-recording")
+		val newer = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "newer-fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/newer.jpg",
+			sourceMbid = "newer-release",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = newerMetadata,
+			updatedAtMillis = 2_000L
+		)
+		val older = newer.copy(
+			fingerprint = "older-fingerprint",
+			imageUrl = "https://coverartarchive.org/older.jpg",
+			sourceMbid = "older-release",
+			metadata = olderMetadata,
+			updatedAtMillis = 1_000L
+		)
+		val entries = listOf(newer, older)
+
+		assertEquals(mapOf("song-1" to newer), entries.musicBrainzArtworkBySongId(nowMillis = 2_000L))
+		assertEquals(mapOf("song-1" to newerMetadata), entries.musicBrainzMetadataBySongId(nowMillis = 2_000L))
+	}
+
+	@Test
 	fun metadataDisplayFieldsSkipBlankValuesAndJoinLists() {
 		val fields = musicBrainzMetadataDisplayFields(
 			MusicBrainzTrackMetadata(
@@ -734,6 +761,36 @@ class MusicBrainzArtworkRepositoryTest {
 		assertEquals(
 			listOf("song-5", "song-4", "song-3"),
 			cappedMusicBrainzArtworkCacheEntries(entries, maxEntries = 3).map { it.songId }
+		)
+	}
+
+	@Test
+	fun cacheStoreKeepsNewestDuplicateSongEntryOnly() {
+		val older = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "older-fingerprint",
+			status = MusicBrainzArtworkCacheStatus.NotFound,
+			imageUrl = null,
+			sourceMbid = null,
+			sourceType = null,
+			updatedAtMillis = 1_000L
+		)
+		val newer = older.copy(
+			fingerprint = "newer-fingerprint",
+			updatedAtMillis = 3_000L
+		)
+		val other = older.copy(
+			songId = "song-2",
+			fingerprint = "other-fingerprint",
+			updatedAtMillis = 2_000L
+		)
+
+		assertEquals(
+			listOf("song-1" to 3_000L, "song-2" to 2_000L),
+			cappedMusicBrainzArtworkCacheEntries(
+				entries = listOf(older, other, newer),
+				maxEntries = 3
+			).map { it.songId to it.updatedAtMillis }
 		)
 	}
 }

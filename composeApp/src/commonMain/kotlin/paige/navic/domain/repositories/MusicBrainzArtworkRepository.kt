@@ -566,7 +566,7 @@ internal fun cappedMusicBrainzArtworkCacheEntries(
 	maxEntries: Int
 ): List<MusicBrainzArtworkCacheEntry> =
 	entries
-		.sortedByDescending { it.updatedAtMillis }
+		.newestMusicBrainzCacheEntriesBySongId()
 		.take(maxEntries.coerceAtLeast(0))
 
 internal fun musicBrainzArtworkFingerprint(
@@ -611,17 +611,21 @@ internal fun List<MusicBrainzArtworkCacheEntry>.musicBrainzArtworkBySongId(
 	usableMusicBrainzCacheEntries(nowMillis).foundBySongId()
 
 private fun List<MusicBrainzArtworkCacheEntry>.foundBySongId(): Map<String, MusicBrainzArtworkCacheEntry> =
-	associateBy { it.songId }
-		.filterValues { it.status == MusicBrainzArtworkCacheStatus.Found && !it.imageUrl.isNullOrBlank() }
+	newestMusicBrainzCacheEntriesBySongId()
+		.filter { it.status == MusicBrainzArtworkCacheStatus.Found && !it.imageUrl.isNullOrBlank() }
+		.associateBy { it.songId }
 
 internal fun List<MusicBrainzArtworkCacheEntry>.musicBrainzMetadataBySongId(
 	nowMillis: Long? = null
 ): Map<String, MusicBrainzTrackMetadata> =
 	(nowMillis?.let { usableMusicBrainzCacheEntries(it) } ?: this)
-		.associateBy { it.songId }
-		.mapValues { it.value.metadata }
-		.filterValues { it != null }
-		.mapValues { it.value!! }
+		.newestMusicBrainzCacheEntriesBySongId()
+		.mapNotNull { entry -> entry.metadata?.let { metadata -> entry.songId to metadata } }
+		.toMap()
+
+private fun List<MusicBrainzArtworkCacheEntry>.newestMusicBrainzCacheEntriesBySongId(): List<MusicBrainzArtworkCacheEntry> =
+	sortedByDescending { it.updatedAtMillis }
+		.distinctBy { it.songId }
 
 private data class ResolvedMusicBrainzArtwork(
 	val imageUrl: String,
