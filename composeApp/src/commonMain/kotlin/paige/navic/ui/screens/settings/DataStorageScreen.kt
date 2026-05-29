@@ -158,7 +158,7 @@ fun SettingsDataStorageScreen() {
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 
 	val calculating = stringResource(Res.string.info_status_calculating)
-	var imageCacheSizeMb by remember { mutableStateOf(calculating) }
+	var imageCacheSizeText by remember { mutableStateOf(calculating) }
 
 	val downloadedSize = remember(downloadSize) { downloadStorageSizeText(downloadSize) }
 
@@ -182,7 +182,7 @@ fun SettingsDataStorageScreen() {
 				musicBrainzArtworkRepository.clearCache()
 				scope.launch(Dispatchers.IO) {
 					imageLoader.diskCache?.clear()
-					imageCacheSizeMb = "0 MB"
+					imageCacheSizeText = imageCacheStorageSizeText(0)
 				}
 			}
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
@@ -205,7 +205,7 @@ fun SettingsDataStorageScreen() {
 	LaunchedEffect(Unit) {
 		withContext(Dispatchers.IO) {
 			val sizeBytes = imageLoader.diskCache?.size ?: 0L
-			imageCacheSizeMb = "${sizeBytes / (1024 * 1024)} MB"
+			imageCacheSizeText = imageCacheStorageSizeText(sizeBytes)
 		}
 	}
 
@@ -274,7 +274,7 @@ fun SettingsDataStorageScreen() {
 							imageLoader.memoryCache?.clear()
 							scope.launch(Dispatchers.IO) {
 								imageLoader.diskCache?.clear()
-								imageCacheSizeMb = "0 MB"
+								imageCacheSizeText = imageCacheStorageSizeText(0)
 							}
 						}
 					)
@@ -437,7 +437,7 @@ fun SettingsDataStorageScreen() {
 
 					SettingValueRow(
 						title = { Text(stringResource(Res.string.option_image_cache_size)) },
-						value = imageCacheSizeMb
+						value = imageCacheSizeText
 					)
 
 					SettingSwitchRow(
