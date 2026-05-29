@@ -277,6 +277,48 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun playbackCacheLookupUsesNewestDuplicateSongEntry() {
+		val older = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/older.jpg",
+			sourceMbid = "older-release",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "older-recording"),
+			updatedAtMillis = 1_000L
+		)
+		val newerWithoutMetadata = older.copy(
+			imageUrl = "https://coverartarchive.org/newer.jpg",
+			sourceMbid = "newer-release",
+			metadata = null,
+			metadataLookupAttempted = false,
+			updatedAtMillis = 2_000L
+		)
+		val newerWithMetadata = newerWithoutMetadata.copy(
+			metadata = MusicBrainzTrackMetadata(recordingMbid = "newer-recording")
+		)
+
+		assertNull(
+			listOf(older, newerWithoutMetadata).usableMusicBrainzPlaybackCacheEntry(
+				songId = "song-1",
+				fingerprint = "fingerprint",
+				nowMillis = 2_000L,
+				needsMetadata = true
+			)
+		)
+		assertEquals(
+			newerWithMetadata,
+			listOf(older, newerWithMetadata).usableMusicBrainzPlaybackCacheEntry(
+				songId = "song-1",
+				fingerprint = "fingerprint",
+				nowMillis = 2_000L,
+				needsMetadata = true
+			)
+		)
+	}
+
+	@Test
 	fun coverArtArchiveEndpointsUsePublicReadOnlyUrls() {
 		assertEquals(
 			"https://coverartarchive.org/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd",

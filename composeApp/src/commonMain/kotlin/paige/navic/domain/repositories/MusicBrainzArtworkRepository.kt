@@ -107,15 +107,12 @@ class MusicBrainzArtworkRepository(
 				artistName = song.artistName
 			)
 			val existing = loadCacheEntries()
-				.firstOrNull { it.songId == song.id }
-				?.let {
-					usableMusicBrainzPlaybackCacheEntry(
-						entry = it,
-						fingerprint = fingerprint,
-						nowMillis = currentTimeMillis(),
-						needsMetadata = shouldResolveMetadata
-					)
-				}
+				.usableMusicBrainzPlaybackCacheEntry(
+					songId = song.id,
+					fingerprint = fingerprint,
+					nowMillis = currentTimeMillis(),
+					needsMetadata = shouldResolveMetadata
+				)
 
 			if (existing != null) {
 				emitCache()
@@ -560,6 +557,23 @@ internal fun usableMusicBrainzPlaybackCacheEntry(
 	if (needsMetadata && usableEntry.metadata == null && !usableEntry.metadataLookupAttempted) return null
 	return usableEntry
 }
+
+internal fun List<MusicBrainzArtworkCacheEntry>.usableMusicBrainzPlaybackCacheEntry(
+	songId: String,
+	fingerprint: String,
+	nowMillis: Long,
+	needsMetadata: Boolean
+): MusicBrainzArtworkCacheEntry? =
+	newestMusicBrainzCacheEntriesBySongId()
+		.firstOrNull { it.songId == songId }
+		?.let {
+			usableMusicBrainzPlaybackCacheEntry(
+				entry = it,
+				fingerprint = fingerprint,
+				nowMillis = nowMillis,
+				needsMetadata = needsMetadata
+			)
+		}
 
 internal fun cappedMusicBrainzArtworkCacheEntries(
 	entries: List<MusicBrainzArtworkCacheEntry>,
