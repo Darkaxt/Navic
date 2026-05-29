@@ -109,6 +109,8 @@ fun NowPlayingArtwork(
 			coverArtId = song.coverArtId,
 			imageUrl = musicBrainzFallbackArtworkUrl,
 			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
+			contentDescription = song.title,
+			fallbackKind = "Track",
 			onServerCoverLoadFailed = {
 				musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 				musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)

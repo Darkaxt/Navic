@@ -73,6 +73,7 @@ fun PlaylistListScreenItem(
 					append("\n${playlist.comment}\n")
 				}
 			},
+			fallbackKind = "Playlist",
 			id = playlist.id,
 			tab = tab
 		)

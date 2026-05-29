@@ -62,6 +62,7 @@ fun AlbumListScreenItem(
 			coverArtId = album.coverArtId,
 			title = album.name,
 			subtitle = album.artistName,
+			fallbackKind = "Album",
 			id = album.id,
 			tab = tab
 		)

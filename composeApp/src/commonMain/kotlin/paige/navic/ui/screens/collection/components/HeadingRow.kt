@@ -47,6 +47,10 @@ fun CollectionDetailScreenHeadingRow(
 		CoverArt(
 			coverArtId = collection.coverArtId,
 			contentDescription = displayName,
+			fallbackKind = when (collection) {
+				is DomainAlbum -> "Album"
+				is DomainPlaylist -> "Playlist"
+			},
 			modifier = Modifier
 				.widthIn(0.dp, 420.dp)
 				.padding(horizontal = 64.dp)
