@@ -21,10 +21,14 @@ import navic.composeapp.generated.resources.info_musicbrainz_country
 import navic.composeapp.generated.resources.info_musicbrainz_first_release_date
 import navic.composeapp.generated.resources.info_musicbrainz_genres
 import navic.composeapp.generated.resources.info_musicbrainz_isrcs
+import navic.composeapp.generated.resources.info_musicbrainz_recording_disambiguation
 import navic.composeapp.generated.resources.info_musicbrainz_recording_title
 import navic.composeapp.generated.resources.info_musicbrainz_recording_url
 import navic.composeapp.generated.resources.info_musicbrainz_release_date
+import navic.composeapp.generated.resources.info_musicbrainz_release_disambiguation
+import navic.composeapp.generated.resources.info_musicbrainz_release_group_disambiguation
 import navic.composeapp.generated.resources.info_musicbrainz_release_group_title
+import navic.composeapp.generated.resources.info_musicbrainz_release_group_type
 import navic.composeapp.generated.resources.info_musicbrainz_release_group_url
 import navic.composeapp.generated.resources.info_musicbrainz_release_title
 import navic.composeapp.generated.resources.info_musicbrainz_release_url
@@ -174,10 +178,14 @@ private data class SongDetailInfoRow(
 private val MusicBrainzMetadataField.stringResource: StringResource
 	get() = when (this) {
 		MusicBrainzMetadataField.RecordingTitle -> Res.string.info_musicbrainz_recording_title
+		MusicBrainzMetadataField.RecordingDisambiguation -> Res.string.info_musicbrainz_recording_disambiguation
 		MusicBrainzMetadataField.ArtistCredit -> Res.string.info_musicbrainz_artist_credit
 		MusicBrainzMetadataField.FirstReleaseDate -> Res.string.info_musicbrainz_first_release_date
 		MusicBrainzMetadataField.ReleaseTitle -> Res.string.info_musicbrainz_release_title
+		MusicBrainzMetadataField.ReleaseDisambiguation -> Res.string.info_musicbrainz_release_disambiguation
 		MusicBrainzMetadataField.ReleaseGroupTitle -> Res.string.info_musicbrainz_release_group_title
+		MusicBrainzMetadataField.ReleaseGroupDisambiguation -> Res.string.info_musicbrainz_release_group_disambiguation
+		MusicBrainzMetadataField.ReleaseGroupType -> Res.string.info_musicbrainz_release_group_type
 		MusicBrainzMetadataField.ReleaseDate -> Res.string.info_musicbrainz_release_date
 		MusicBrainzMetadataField.Country -> Res.string.info_musicbrainz_country
 		MusicBrainzMetadataField.Status -> Res.string.info_musicbrainz_status

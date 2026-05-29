@@ -414,6 +414,7 @@ class MusicBrainzArtworkRepositoryTest {
 			recording = MusicBrainzRecordingDto(
 				id = "recording-mbid",
 				title = "Recording Title",
+				disambiguation = "radio edit",
 				firstReleaseDate = "1999-01-02",
 				artistCredits = listOf(
 					MusicBrainzArtistCreditDto(name = "Artist A", joinphrase = " feat. "),
@@ -433,23 +434,31 @@ class MusicBrainzArtworkRepositoryTest {
 					MusicBrainzReleaseDto(
 						id = "release-1",
 						title = "First Release",
+						disambiguation = "original edition",
 						date = "1999",
 						country = "US",
 						status = "Official",
 						releaseGroup = MusicBrainzReleaseGroupDto(
 							id = "release-group-1",
-							title = "First Group"
+							title = "First Group",
+							disambiguation = "original album",
+							primaryType = "Album",
+							secondaryTypes = listOf("Compilation")
 						)
 					),
 					MusicBrainzReleaseDto(
 						id = "release-2",
 						title = "Preferred Release",
+						disambiguation = "deluxe edition",
 						date = "2001-03-04",
 						country = "GB",
 						status = "Bootleg",
 						releaseGroup = MusicBrainzReleaseGroupDto(
 							id = "release-group-2",
-							title = "Preferred Group"
+							title = "Preferred Group",
+							disambiguation = "anniversary release",
+							primaryType = "Album",
+							secondaryTypes = listOf("Soundtrack", "Compilation")
 						)
 					)
 				)
@@ -459,12 +468,16 @@ class MusicBrainzArtworkRepositoryTest {
 
 		assertEquals("recording-mbid", metadata.recordingMbid)
 		assertEquals("Recording Title", metadata.recordingTitle)
+		assertEquals("radio edit", metadata.recordingDisambiguation)
 		assertEquals("Artist A feat. Artist B", metadata.artistCredit)
 		assertEquals("1999-01-02", metadata.firstReleaseDate)
 		assertEquals("release-2", metadata.releaseMbid)
 		assertEquals("Preferred Release", metadata.releaseTitle)
+		assertEquals("deluxe edition", metadata.releaseDisambiguation)
 		assertEquals("release-group-2", metadata.releaseGroupMbid)
 		assertEquals("Preferred Group", metadata.releaseGroupTitle)
+		assertEquals("anniversary release", metadata.releaseGroupDisambiguation)
+		assertEquals("Album, Soundtrack, Compilation", metadata.releaseGroupType)
 		assertEquals("2001-03-04", metadata.releaseDate)
 		assertEquals("GB", metadata.country)
 		assertEquals("Bootleg", metadata.status)
@@ -719,10 +732,14 @@ class MusicBrainzArtworkRepositoryTest {
 		val fields = musicBrainzMetadataDisplayFields(
 			MusicBrainzTrackMetadata(
 				recordingTitle = "Recording Title",
+				recordingDisambiguation = "single edit",
 				artistCredit = "Artist A feat. Artist B",
 				firstReleaseDate = "1999-01-02",
 				releaseTitle = "Preferred Release",
+				releaseDisambiguation = "deluxe edition",
 				releaseGroupTitle = "Preferred Group",
+				releaseGroupDisambiguation = "anniversary release",
+				releaseGroupType = "Album, Soundtrack",
 				releaseDate = "2001-03-04",
 				country = "GB",
 				status = "Official",
@@ -738,10 +755,14 @@ class MusicBrainzArtworkRepositoryTest {
 		assertEquals(
 			listOf(
 				MusicBrainzMetadataField.RecordingTitle to "Recording Title",
+				MusicBrainzMetadataField.RecordingDisambiguation to "single edit",
 				MusicBrainzMetadataField.ArtistCredit to "Artist A feat. Artist B",
 				MusicBrainzMetadataField.FirstReleaseDate to "1999-01-02",
 				MusicBrainzMetadataField.ReleaseTitle to "Preferred Release",
+				MusicBrainzMetadataField.ReleaseDisambiguation to "deluxe edition",
 				MusicBrainzMetadataField.ReleaseGroupTitle to "Preferred Group",
+				MusicBrainzMetadataField.ReleaseGroupDisambiguation to "anniversary release",
+				MusicBrainzMetadataField.ReleaseGroupType to "Album, Soundtrack",
 				MusicBrainzMetadataField.ReleaseDate to "2001-03-04",
 				MusicBrainzMetadataField.Country to "GB",
 				MusicBrainzMetadataField.Status to "Official",

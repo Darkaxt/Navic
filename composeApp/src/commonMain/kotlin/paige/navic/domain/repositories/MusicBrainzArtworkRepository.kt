@@ -452,12 +452,16 @@ internal fun musicBrainzTrackMetadata(
 	return MusicBrainzTrackMetadata(
 		recordingMbid = recordingMbid,
 		recordingTitle = recording.title.nonBlankOrNull(),
+		recordingDisambiguation = recording.disambiguation.nonBlankOrNull(),
 		artistCredit = musicBrainzArtistCredit(recording.artistCredits),
 		firstReleaseDate = recording.firstReleaseDate.nonBlankOrNull(),
 		releaseMbid = releaseMbid,
 		releaseTitle = release?.title.nonBlankOrNull(),
+		releaseDisambiguation = release?.disambiguation.nonBlankOrNull(),
 		releaseGroupMbid = releaseGroupMbid,
 		releaseGroupTitle = releaseGroup?.title.nonBlankOrNull(),
+		releaseGroupDisambiguation = releaseGroup?.disambiguation.nonBlankOrNull(),
+		releaseGroupType = musicBrainzReleaseGroupType(releaseGroup),
 		releaseDate = release?.date.nonBlankOrNull(),
 		country = release?.country.nonBlankOrNull(),
 		status = release?.status.nonBlankOrNull(),
@@ -499,10 +503,14 @@ internal fun musicBrainzMetadataDisplayFields(
 	if (metadata == null) return emptyList()
 	return listOfNotNull(
 		MusicBrainzMetadataField.RecordingTitle.field(metadata.recordingTitle),
+		MusicBrainzMetadataField.RecordingDisambiguation.field(metadata.recordingDisambiguation),
 		MusicBrainzMetadataField.ArtistCredit.field(metadata.artistCredit),
 		MusicBrainzMetadataField.FirstReleaseDate.field(metadata.firstReleaseDate),
 		MusicBrainzMetadataField.ReleaseTitle.field(metadata.releaseTitle),
+		MusicBrainzMetadataField.ReleaseDisambiguation.field(metadata.releaseDisambiguation),
 		MusicBrainzMetadataField.ReleaseGroupTitle.field(metadata.releaseGroupTitle),
+		MusicBrainzMetadataField.ReleaseGroupDisambiguation.field(metadata.releaseGroupDisambiguation),
+		MusicBrainzMetadataField.ReleaseGroupType.field(metadata.releaseGroupType),
 		MusicBrainzMetadataField.ReleaseDate.field(metadata.releaseDate),
 		MusicBrainzMetadataField.Country.field(metadata.country),
 		MusicBrainzMetadataField.Status.field(metadata.status),
@@ -542,6 +550,12 @@ private fun musicBrainzArtistCredit(artistCredits: List<MusicBrainzArtistCreditD
 		"${credit.name}${credit.joinphrase}"
 	}.nonBlankOrNull()
 }
+
+private fun musicBrainzReleaseGroupType(releaseGroup: MusicBrainzReleaseGroupDto?): String? =
+	listOfNotNull(
+		releaseGroup?.primaryType.nonBlankOrNull(),
+		*releaseGroup?.secondaryTypes.orEmpty().mapNotNull { it.nonBlankOrNull() }.toTypedArray()
+	).distinct().joinToStringValue()
 
 private fun List<MusicBrainzTagDto>.normalizedMusicBrainzTags(): List<String> =
 	filter { it.name.isNotBlank() }
@@ -722,12 +736,16 @@ data class MusicBrainzArtworkCacheEntry(
 data class MusicBrainzTrackMetadata(
 	val recordingMbid: String? = null,
 	val recordingTitle: String? = null,
+	val recordingDisambiguation: String? = null,
 	val artistCredit: String? = null,
 	val firstReleaseDate: String? = null,
 	val releaseMbid: String? = null,
 	val releaseTitle: String? = null,
+	val releaseDisambiguation: String? = null,
 	val releaseGroupMbid: String? = null,
 	val releaseGroupTitle: String? = null,
+	val releaseGroupDisambiguation: String? = null,
+	val releaseGroupType: String? = null,
 	val releaseDate: String? = null,
 	val country: String? = null,
 	val status: String? = null,
@@ -746,10 +764,14 @@ data class MusicBrainzMetadataDisplayField(
 
 enum class MusicBrainzMetadataField {
 	RecordingTitle,
+	RecordingDisambiguation,
 	ArtistCredit,
 	FirstReleaseDate,
 	ReleaseTitle,
+	ReleaseDisambiguation,
 	ReleaseGroupTitle,
+	ReleaseGroupDisambiguation,
+	ReleaseGroupType,
 	ReleaseDate,
 	Country,
 	Status,
@@ -789,6 +811,7 @@ internal data class CoverArtArchiveImageDto(
 internal data class MusicBrainzRecordingDto(
 	val id: String = "",
 	val title: String? = null,
+	val disambiguation: String? = null,
 	@SerialName("first-release-date") val firstReleaseDate: String? = null,
 	@SerialName("artist-credit") val artistCredits: List<MusicBrainzArtistCreditDto> = emptyList(),
 	val isrcs: List<String> = emptyList(),
@@ -824,6 +847,7 @@ internal data class MusicBrainzTagDto(
 internal data class MusicBrainzReleaseDto(
 	val id: String = "",
 	val title: String? = null,
+	val disambiguation: String? = null,
 	val date: String? = null,
 	val country: String? = null,
 	val status: String? = null,
@@ -833,7 +857,10 @@ internal data class MusicBrainzReleaseDto(
 @Serializable
 internal data class MusicBrainzReleaseGroupDto(
 	val id: String = "",
-	val title: String? = null
+	val title: String? = null,
+	val disambiguation: String? = null,
+	@SerialName("primary-type") val primaryType: String? = null,
+	@SerialName("secondary-types") val secondaryTypes: List<String> = emptyList()
 )
 
 private fun lucenePhrase(value: String): String =
