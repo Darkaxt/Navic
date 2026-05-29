@@ -56,27 +56,19 @@ private data class SearchableSettingsRow(
 	val content: @Composable () -> Unit
 )
 
-private data class SearchableSettingsRowGroup(
-	val path: String,
-	val rows: List<SearchableSettingsRow>
-)
-
 @Composable
 fun SettingsSearchResults(query: String) {
 	val rows = searchableSettingsRows()
 	val rowById = rows.associateBy { it.text.id }
-	val resultGroups = filteredSettingsSearchEntryGroups(
+	val resultRows = filteredSettingsSearchResultItems(
 		entries = rows.map { it.text },
 		query = query
-	).mapNotNull { group ->
-		val groupRows = group.entries.mapNotNull { rowById[it.id] }
-		groupRows.takeIf { it.isNotEmpty() }?.let {
-			SearchableSettingsRowGroup(path = group.path, rows = it)
-		}
+	).mapNotNull { result ->
+		rowById[result.entry.id]?.let { row -> result.path to row }
 	}
 
 	CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-		if (resultGroups.isEmpty()) {
+		if (resultRows.isEmpty()) {
 			Form {
 				FormRow {
 					Text(
@@ -88,17 +80,15 @@ fun SettingsSearchResults(query: String) {
 			return@CompositionLocalProvider
 		}
 
-		resultGroups.forEach { group ->
+		resultRows.forEach { (path, row) ->
 			Form(bottomPadding = 12.dp) {
 				Text(
-					text = group.path,
+					text = path,
 					modifier = Modifier.padding(start = 14.dp, top = 10.dp, end = 14.dp),
 					style = MaterialTheme.typography.labelMedium,
 					color = MaterialTheme.colorScheme.primary
 				)
-				group.rows.forEach { result ->
-					result.content()
-				}
+				row.content()
 			}
 		}
 	}

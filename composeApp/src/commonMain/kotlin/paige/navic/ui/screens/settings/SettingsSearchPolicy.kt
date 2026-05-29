@@ -13,6 +13,11 @@ data class SettingsSearchEntryGroup(
 	val entries: List<SettingsSearchEntryText>
 )
 
+data class SettingsSearchResultItem(
+	val path: String,
+	val entry: SettingsSearchEntryText
+)
+
 fun filteredSettingsSearchEntries(
 	entries: List<SettingsSearchEntryText>,
 	query: String
@@ -31,6 +36,14 @@ fun filteredSettingsSearchEntryGroups(
 	query: String
 ): List<SettingsSearchEntryGroup> =
 	filteredSettingsSearchEntries(entries, query).groupedBySettingsPath()
+
+fun filteredSettingsSearchResultItems(
+	entries: List<SettingsSearchEntryText>,
+	query: String
+): List<SettingsSearchResultItem> =
+	filteredSettingsSearchEntries(entries, query).map { entry ->
+		SettingsSearchResultItem(path = entry.path, entry = entry)
+	}
 
 private fun List<SettingsSearchEntryText>.groupedBySettingsPath(): List<SettingsSearchEntryGroup> =
 	linkedMapOf<String, MutableList<SettingsSearchEntryText>>().also { groups ->
