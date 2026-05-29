@@ -107,6 +107,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
 * Lyrics tap-to-seek: Navic now adapts Kreate's `LYRICS_JUMP_ON_TAP` option as Playback -> Lyrics -> `Tap lyrics to seek`. It defaults on to preserve Navic's existing synced-lyrics seeking behavior, and turning it off leaves lyrics share-selection taps unchanged.
 * Lyrics accent background: Navic now adapts Kreate's lyrics accent-background option as Playback -> Lyrics -> `Accent lyrics background`. It defaults off so the lyrics screen keeps its current transparent surface unless enabled.
 * Lyrics artwork: Navic now adapts Kreate's `LYRICS_SHOW_THUMBNAIL` idea as Playback -> Lyrics -> `Show lyrics artwork`. It defaults off and shows the current song cover above lyrics only when cover art is available.
+* Server-first translated lyrics: Navic now defaults lyrics provider priority to Subsonic/Navidrome before external providers, migrates the old untouched default order to that server-first order, retries higher-priority server lyrics before reusing lower-priority cached lyrics, and merges duplicate timestamp LRC lines into one original-plus-translation display block.
 
 ## Best Next Transplants
 

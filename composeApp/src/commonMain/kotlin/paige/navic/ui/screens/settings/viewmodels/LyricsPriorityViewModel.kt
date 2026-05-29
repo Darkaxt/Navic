@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import paige.navic.domain.models.lyrics.LyricsConfig
+import paige.navic.domain.models.lyrics.normalizedLyricsConfig
 import paige.navic.ui.core.UiState
 
 class LyricsPriorityViewModel(
@@ -28,11 +29,11 @@ class LyricsPriorityViewModel(
 	private fun loadConfig() {
 		try {
 			val raw = settings.getStringOrNull(KEY)
-			val config: LyricsConfig = if (raw != null) {
+			val config = if (raw != null) {
 				json.decodeFromString(raw)
 			} else {
 				LyricsConfig()
-			}
+			}.let(::normalizedLyricsConfig)
 			_state.value = UiState.Success(config)
 		} catch (e: Exception) {
 			_state.value = UiState.Error(e)

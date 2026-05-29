@@ -18,6 +18,7 @@ import paige.navic.domain.models.lyrics.LyricsConfig
 import paige.navic.domain.models.lyrics.LyricsLine
 import paige.navic.domain.models.lyrics.LyricsProvider
 import paige.navic.domain.models.lyrics.LyricsResult
+import paige.navic.domain.models.lyrics.normalizedLyricsConfig
 import paige.navic.domain.parser.LyricsContentParser
 import paige.navic.util.core.Logger
 import kotlin.time.Duration.Companion.milliseconds
@@ -39,29 +40,32 @@ class LyricsRepository(
 
 	private fun getConfig(): LyricsConfig {
 		val raw = settings.getStringOrNull(LyricsConfig.KEY)
-		return try {
+		val config = try {
 			if (raw != null) json.decodeFromString<LyricsConfig>(raw)
 			else LyricsConfig()
 		} catch (_: Exception) {
 			LyricsConfig()
 		}
+		return normalizedLyricsConfig(config)
 	}
 
 	suspend fun fetchLyrics(song: DomainSong): LyricsResult? {
+		val currentConfig = getConfig()
+		var cachedResult: LyricsResult? = null
 		try {
 			val cached = lyricDao.getLyrics(song.id)
 			if (cached != null) {
 				val parsed = LyricsContentParser.parse(cached.rawContent)
-				if (!parsed.isNullOrEmpty()) return LyricsResult(
-					parsed,
-					cached.provider,
-					cached.rawContent
-				)
+				if (!parsed.isNullOrEmpty()) {
+					cachedResult = LyricsResult(parsed, cached.provider, cached.rawContent)
+					if (shouldUseCachedLyricsBeforeFetch(cached.provider, currentConfig.priority)) {
+						return cachedResult
+					}
+				}
 			}
 		} catch (_: Exception) {
 		}
 
-		val currentConfig = getConfig()
 		for (provider in currentConfig.priority) {
 			try {
 				var rawContentToCache: String? = null
@@ -94,19 +98,22 @@ class LyricsRepository(
 							}
 						}
 
-						if (!lines.isNullOrEmpty()) {
-							rawContentToCache = lines.joinToString("\n") { l ->
+						val mergedLines = lines?.let { LyricsContentParser.mergeDuplicateSyncedLines(it) }
+						if (!mergedLines.isNullOrEmpty()) {
+							rawContentToCache = mergedLines.joinToString("\n") { l ->
 								val t = l.time
 								if (t != null) {
 									val m = t.inWholeMinutes.toString().padStart(2, '0')
 									val s = (t.inWholeSeconds % 60).toString().padStart(2, '0')
 									val ms = ((t.inWholeMilliseconds % 1000) / 10).toString()
 										.padStart(2, '0')
-									"[$m:$s.$ms]${l.text}"
+									l.text.lineSequence().joinToString("\n") { text ->
+										"[$m:$s.$ms]$text"
+									}
 								} else l.text
 							}
 						}
-						lines
+						mergedLines
 					}
 				}
 
@@ -130,7 +137,7 @@ class LyricsRepository(
 				continue
 			}
 		}
-		return null
+		return cachedResult
 	}
 
 	private suspend fun fetchRawLrcLib(song: DomainSong, config: LyricsConfig): String? {
@@ -168,3 +175,9 @@ class LyricsRepository(
 		return null
 	}
 }
+
+internal fun shouldUseCachedLyricsBeforeFetch(
+	cachedProvider: LyricsProvider,
+	priority: List<LyricsProvider>
+): Boolean =
+	priority.firstOrNull() == cachedProvider

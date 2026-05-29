@@ -101,6 +101,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Tap lyrics to seek` setting can turn lyric-line seeking off while keeping lyrics sharing selection intact.
 * Kreate-inspired accent background toggle for the lyrics screen.
 * Kreate-inspired optional lyrics artwork can show the current cover above lyrics without changing the default lyrics layout.
+* Navidrome/Subsonic lyrics are now the default first lyrics source. Translated LRC files that use duplicate timestamps are merged into one original-plus-translation lyric block, and stale cached external lyrics no longer block a higher-priority server lyrics check.
 
 ### Library and playlist reliability
 
@@ -287,6 +288,10 @@ Open Settings -> Bottom Bar -> Mini Player -> `Mini player progress style`. `Hid
 Open Settings -> Playback and use `Now Playing indicator` to show or hide the animated waveform beside the current song. Turn `Playlist indicator` on to mark songs that are already present in one of your synced playlists. The playlist marker is hidden inside playlist detail screens, is off by default, and refreshes after in-app add-to-playlist actions.
 
 ### Lyrics display setup
+
+Navic defaults to Settings -> Playback -> Lyrics provider priority with `Subsonic` first, so lyrics stored beside your Navidrome tracks are preferred before external providers. If the old default order was saved before this release, Navic migrates that untouched order to Subsonic-first while preserving deliberate custom ordering.
+
+Translated `.lrc` files that repeat the same timestamp for original and translated text are shown as a single lyric block, so both lines advance together.
 
 Open Settings -> Playback -> Lyrics -> `Lyrics font size` to choose Small, Medium, Large, or Extra large. Medium preserves Navic's previous lyrics text size. Turn `Animate active lyric size` off if you want synced lyrics to keep a stable line size while they highlight.
 

@@ -79,7 +79,7 @@ object LyricsContentParser {
 
 	private fun parseYoulyResponse(response: YoulyResponse): List<LyricsLine>? {
 		if (response.lyrics.isEmpty()) return null
-		return response.lyrics.map { line ->
+		return mergeDuplicateSyncedLines(response.lyrics.map { line ->
 			LyricsLine(
 				time = line.time.milliseconds,
 				text = line.text,
@@ -87,7 +87,7 @@ object LyricsContentParser {
 					LyricsWord(syl.time.milliseconds, syl.duration.milliseconds, syl.text)
 				}
 			)
-		}.sortedBy { it.time }
+		})
 	}
 
 	private fun parseLrc(input: String): List<LyricsLine> {
@@ -97,7 +97,7 @@ object LyricsContentParser {
 			return lines.map { LyricsLine(text = it.trim()) }
 		}
 
-		return lines
+		return mergeDuplicateSyncedLines(lines
 			.filter { it.isNotBlank() }
 			.mapNotNull { line ->
 				try {
@@ -125,7 +125,42 @@ object LyricsContentParser {
 					null
 				}
 			}
-			.toList()
-			.sortedBy { it.time }
+			.toList())
+	}
+
+	fun mergeDuplicateSyncedLines(lines: List<LyricsLine>): List<LyricsLine> {
+		val merged = mutableListOf<LyricsLine>()
+		val indexByTime = linkedMapOf<kotlin.time.Duration, Int>()
+
+		lines.forEach { line ->
+			val time = line.time
+			if (time == null) {
+				merged.add(line)
+				return@forEach
+			}
+
+			val existingIndex = indexByTime[time]
+			if (existingIndex == null) {
+				indexByTime[time] = merged.size
+				merged.add(line.copy(text = line.text.trim()))
+				return@forEach
+			}
+
+			val existing = merged[existingIndex]
+			val nextText = line.text.trim()
+			if (nextText.isEmpty()) return@forEach
+
+			val existingParts = existing.text.lineSequence().map { it.trim() }.toSet()
+			if (existingParts.contains(nextText)) return@forEach
+
+			merged[existingIndex] = existing.copy(
+				text = listOf(existing.text, nextText)
+					.filter { it.isNotEmpty() }
+					.joinToString("\n"),
+				words = null
+			)
+		}
+
+		return merged.sortedBy { it.time }
 	}
 }
