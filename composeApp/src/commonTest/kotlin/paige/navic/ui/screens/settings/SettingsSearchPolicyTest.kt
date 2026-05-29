@@ -57,4 +57,27 @@ class SettingsSearchPolicyTest {
 			filteredSettingsSearchEntries(entries, "  AUDIO   Focus ").map { it.id }
 		)
 	}
+
+	@Test
+	fun filteredResultsAreGroupedBySettingsPath() {
+		val playbackFade = SettingsSearchEntryText(
+			id = "audio-fade",
+			path = "Settings > Playback",
+			title = "Audio fade",
+			subtitle = "Fade playback on pause and resume"
+		)
+		val groups = filteredSettingsSearchEntryGroups(
+			entries = entries + playbackFade,
+			query = "settings"
+		)
+
+		assertEquals(
+			listOf(
+				"Settings > Playback" to listOf("respect-audio-focus", "audio-fade"),
+				"Settings > Data & Storage > Music video clips" to listOf("lida-clips-api-key"),
+				"Settings > Now Playing > Layout" to listOf("rotate-playing-artwork")
+			),
+			groups.map { group -> group.path to group.entries.map { it.id } }
+		)
+	}
 }

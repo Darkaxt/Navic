@@ -8,6 +8,11 @@ data class SettingsSearchEntryText(
 	val keywords: List<String> = emptyList()
 )
 
+data class SettingsSearchEntryGroup(
+	val path: String,
+	val entries: List<SettingsSearchEntryText>
+)
+
 fun filteredSettingsSearchEntries(
 	entries: List<SettingsSearchEntryText>,
 	query: String
@@ -20,6 +25,21 @@ fun filteredSettingsSearchEntries(
 		terms.all { term -> haystack.contains(term) }
 	}
 }
+
+fun filteredSettingsSearchEntryGroups(
+	entries: List<SettingsSearchEntryText>,
+	query: String
+): List<SettingsSearchEntryGroup> =
+	filteredSettingsSearchEntries(entries, query).groupedBySettingsPath()
+
+private fun List<SettingsSearchEntryText>.groupedBySettingsPath(): List<SettingsSearchEntryGroup> =
+	linkedMapOf<String, MutableList<SettingsSearchEntryText>>().also { groups ->
+		forEach { entry ->
+			groups.getOrPut(entry.path) { mutableListOf() }.add(entry)
+		}
+	}.map { (path, entries) ->
+		SettingsSearchEntryGroup(path = path, entries = entries)
+	}
 
 private fun String.searchTerms(): List<String> =
 	trim()
