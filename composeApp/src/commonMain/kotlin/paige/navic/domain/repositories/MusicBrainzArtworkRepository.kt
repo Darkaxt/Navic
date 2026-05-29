@@ -142,7 +142,7 @@ class MusicBrainzArtworkRepository(
 			}
 
 			val recording = if (shouldResolveMetadata || shouldResolveArtwork) {
-				song.musicBrainzId.normalizedMbidOrNull()
+				musicBrainzLookupMbidOrNull(song.musicBrainzId)
 					?.let { fetchRecording(it) }
 					?: searchRecording(song)
 			} else {
@@ -217,7 +217,7 @@ class MusicBrainzArtworkRepository(
 		albumTitle: String?,
 		recordingReleases: List<MusicBrainzReleaseDto>
 	): ResolvedMusicBrainzArtwork? {
-		albumMusicBrainzId.normalizedMbidOrNull()?.let { mbid ->
+		musicBrainzLookupMbidOrNull(albumMusicBrainzId)?.let { mbid ->
 			fetchCoverArtArchiveArtwork(mbid, MusicBrainzArtworkSourceType.Release)
 				?.copy(releaseMbid = mbid)
 				?.let { return it }
@@ -228,7 +228,7 @@ class MusicBrainzArtworkRepository(
 
 		for (release in preferredMusicBrainzRecordingReleases(recordingReleases, albumTitle)
 			.take(MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT)) {
-			val releaseMbid = release.id.normalizedMbidOrNull() ?: continue
+			val releaseMbid = musicBrainzLookupMbidOrNull(release.id) ?: continue
 			fetchCoverArtArchiveArtwork(releaseMbid, MusicBrainzArtworkSourceType.Release)
 				?.copy(
 					releaseMbid = releaseMbid,
@@ -308,7 +308,7 @@ class MusicBrainzArtworkRepository(
 			preferredReleaseMbid = preferredReleaseMbid,
 			preferredAlbumTitle = preferredAlbumTitle
 		) ?: return this
-		val selectedReleaseMbid = selectedRelease.id.normalizedMbidOrNull() ?: return this
+		val selectedReleaseMbid = musicBrainzLookupMbidOrNull(selectedRelease.id) ?: return this
 		val release = runCatching {
 			fetchRelease(selectedReleaseMbid)
 		}.getOrElse { error ->
@@ -317,7 +317,7 @@ class MusicBrainzArtworkRepository(
 		}
 		val selectedReleaseGroupMbid = (
 			release?.releaseGroup?.id ?: selectedRelease.releaseGroup?.id
-			).normalizedMbidOrNull()
+			).let(::musicBrainzLookupMbidOrNull)
 		val releaseGroup = selectedReleaseGroupMbid?.let { releaseGroupMbid ->
 			runCatching {
 				fetchReleaseGroup(releaseGroupMbid)
@@ -330,7 +330,7 @@ class MusicBrainzArtworkRepository(
 
 		return copy(
 			releases = releases.map { candidate ->
-				if (candidate.id.normalizedMbidOrNull() != selectedReleaseMbid) {
+				if (musicBrainzLookupMbidOrNull(candidate.id) != selectedReleaseMbid) {
 					candidate
 				} else {
 					val baseReleaseGroup = candidate.releaseGroup ?: release?.releaseGroup
@@ -438,7 +438,7 @@ internal fun shouldResolveMusicBrainzMetadataOnPlayback(
 		isOnline &&
 		!isRadio &&
 		(
-			!songMusicBrainzId.isNullOrBlank() ||
+			musicBrainzLookupMbidOrNull(songMusicBrainzId) != null ||
 				canSearchMusicBrainzRecording(songTitle, artistName)
 		)
 
@@ -459,8 +459,8 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 		songCoverArtId.isNullOrBlank() &&
 		albumCoverArtId.isNullOrBlank() &&
 		(
-			!songMusicBrainzId.isNullOrBlank() ||
-				!albumMusicBrainzId.isNullOrBlank() ||
+			musicBrainzLookupMbidOrNull(songMusicBrainzId) != null ||
+				musicBrainzLookupMbidOrNull(albumMusicBrainzId) != null ||
 				canSearchMusicBrainzRecording(songTitle, artistName)
 		)
 
@@ -516,11 +516,11 @@ internal fun bestMusicBrainzRecordingSearchMatch(
 ): String? =
 	response.recordings
 		.firstOrNull { result ->
-			result.id.normalizedMbidOrNull() != null &&
+			musicBrainzLookupMbidOrNull(result.id) != null &&
 				(result.score.toIntOrNull() ?: 0) >= MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE
 		}
 		?.id
-		?.normalizedMbidOrNull()
+		?.let(::musicBrainzLookupMbidOrNull)
 
 private fun canSearchMusicBrainzRecording(title: String?, artistName: String?): Boolean =
 	!title.isNullOrBlank() && !artistName.isNullOrBlank()
@@ -830,6 +830,17 @@ internal fun musicBrainzArtworkFingerprint(
 	song.artistName,
 	song.albumTitle.orEmpty()
 ).joinToString("|") { it.trim().lowercase() }
+
+private val MusicBrainzMbidRegex = Regex(
+	"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+	RegexOption.IGNORE_CASE
+)
+
+internal fun musicBrainzLookupMbidOrNull(value: String?): String? =
+	value
+		?.trim()
+		?.lowercase()
+		?.takeIf { MusicBrainzMbidRegex.matches(it) }
 
 private fun String?.normalizedMbidOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

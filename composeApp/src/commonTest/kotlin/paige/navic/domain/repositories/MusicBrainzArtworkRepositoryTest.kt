@@ -7,6 +7,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 
+private const val RecordingMbid = "0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1"
+private const val ReleaseMbid = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
+private const val ReleaseGroupMbid = "c31a5e2b-0bf8-32e0-8aeb-ef4ba9973932"
+
 class MusicBrainzArtworkRepositoryTest {
 	@Test
 	fun metadataLookupAllowsExistingNavidromeArtwork() {
@@ -15,7 +19,7 @@ class MusicBrainzArtworkRepositoryTest {
 				enabled = true,
 				isOnline = true,
 				isRadio = false,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				songTitle = "Song",
 				artistName = "Artist"
 			)
@@ -39,7 +43,7 @@ class MusicBrainzArtworkRepositoryTest {
 				enabled = false,
 				isOnline = true,
 				isRadio = false,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				songTitle = "Song",
 				artistName = "Artist"
 			)
@@ -49,7 +53,7 @@ class MusicBrainzArtworkRepositoryTest {
 				enabled = true,
 				isOnline = false,
 				isRadio = false,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				songTitle = "Song",
 				artistName = "Artist"
 			)
@@ -59,7 +63,7 @@ class MusicBrainzArtworkRepositoryTest {
 				enabled = true,
 				isOnline = true,
 				isRadio = true,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				songTitle = "Song",
 				artistName = "Artist"
 			)
@@ -79,9 +83,29 @@ class MusicBrainzArtworkRepositoryTest {
 				enabled = true,
 				isOnline = true,
 				isRadio = false,
-				songMusicBrainzId = " ",
+				songMusicBrainzId = "not-a-mbid",
 				songTitle = "Song",
 				artistName = " "
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = "not-a-mbid",
+				songTitle = " ",
+				artistName = " "
+			)
+		)
+		assertTrue(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = "not-a-mbid",
+				songTitle = "Dancing Queen",
+				artistName = "ABBA"
 			)
 		)
 	}
@@ -95,7 +119,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = null,
 				albumCoverArtId = null,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -106,7 +130,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = null,
 				albumCoverArtId = null,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -117,7 +141,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = "song-cover",
 				albumCoverArtId = null,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -128,7 +152,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = null,
 				albumCoverArtId = "album-cover",
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -139,7 +163,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = true,
 				songCoverArtId = null,
 				albumCoverArtId = null,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -150,8 +174,8 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = null,
 				albumCoverArtId = null,
-				songMusicBrainzId = " ",
-				albumMusicBrainzId = null,
+				songMusicBrainzId = "not-a-mbid",
+				albumMusicBrainzId = "also-not-a-mbid",
 				songTitle = " ",
 				artistName = "Artist"
 			)
@@ -178,7 +202,7 @@ class MusicBrainzArtworkRepositoryTest {
 				songCoverArtId = null,
 				albumCoverArtId = null,
 				songMusicBrainzId = null,
-				albumMusicBrainzId = "album-mbid"
+				albumMusicBrainzId = ReleaseGroupMbid
 			)
 		)
 		assertTrue(
@@ -188,7 +212,7 @@ class MusicBrainzArtworkRepositoryTest {
 				isRadio = false,
 				songCoverArtId = null,
 				albumCoverArtId = null,
-				songMusicBrainzId = "recording-mbid",
+				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
 			)
 		)
@@ -201,6 +225,19 @@ class MusicBrainzArtworkRepositoryTest {
 				albumCoverArtId = null,
 				songMusicBrainzId = null,
 				albumMusicBrainzId = null,
+				songTitle = "Dancing Queen",
+				artistName = "ABBA"
+			)
+		)
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = null,
+				albumCoverArtId = null,
+				songMusicBrainzId = "not-a-mbid",
+				albumMusicBrainzId = "also-not-a-mbid",
 				songTitle = "Dancing Queen",
 				artistName = "ABBA"
 			)
@@ -442,13 +479,14 @@ class MusicBrainzArtworkRepositoryTest {
 	@Test
 	fun bestRecordingSearchMatchRequiresHighScoreAndUsableMbid() {
 		assertEquals(
-			"recording-100",
+			RecordingMbid,
 			bestMusicBrainzRecordingSearchMatch(
 				MusicBrainzRecordingSearchResponseDto(
 					recordings = listOf(
 						MusicBrainzRecordingSearchResultDto(id = " ", score = "100"),
-						MusicBrainzRecordingSearchResultDto(id = "recording-89", score = "89"),
-						MusicBrainzRecordingSearchResultDto(id = "recording-100", score = "100")
+						MusicBrainzRecordingSearchResultDto(id = "not-a-mbid", score = "100"),
+						MusicBrainzRecordingSearchResultDto(id = ReleaseMbid, score = "89"),
+						MusicBrainzRecordingSearchResultDto(id = RecordingMbid.uppercase(), score = "100")
 					)
 				)
 			)
@@ -462,6 +500,14 @@ class MusicBrainzArtworkRepositoryTest {
 				)
 			)
 		)
+	}
+
+	@Test
+	fun musicBrainzLookupMbidsRequireUuidShape() {
+		assertEquals(RecordingMbid, musicBrainzLookupMbidOrNull(" $RecordingMbid "))
+		assertEquals(RecordingMbid, musicBrainzLookupMbidOrNull(RecordingMbid.uppercase()))
+		assertNull(musicBrainzLookupMbidOrNull("recording-mbid"))
+		assertNull(musicBrainzLookupMbidOrNull("0f6d28a0-2fb9-4c67-8f7b"))
 	}
 
 	@Test
