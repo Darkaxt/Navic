@@ -337,6 +337,34 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun songMetadataFallbackRequiresTitleAndRealArtist(): Unit = runBlocking {
+		val weakSongs = listOf(
+			lidaSong(id = "blank-title").copy(title = " ", artistName = "Artist"),
+			lidaSong(id = "missing-artist").copy(title = "Song", artistName = " "),
+			lidaSong(id = "unknown-artist").copy(title = "Song", artistName = "[Unknown Artist]")
+		)
+
+		weakSongs.forEach { song ->
+			val preferenceManager = PreferenceManager(MapSettings()).apply {
+				lidaClipsBaseUrl = "https://clips.remaxku.eu"
+				lidaClipsApiKey = "secret"
+			}
+			val apiClient = FakeLidaClipsApiClient(
+				directResults = mutableListOf(Result.success(null)),
+				metadataResults = mutableListOf(Result.success(lidaClip()))
+			)
+			val repository = LidaClipsRepository(
+				preferenceManager = preferenceManager,
+				apiClient = apiClient
+			)
+
+			assertNull(repository.findClipForSong(song).getOrThrow(), song.id)
+			assertEquals(listOf(song.id), apiClient.directSongIds, song.id)
+			assertEquals(emptyList(), apiClient.metadataSongIds, song.id)
+		}
+	}
+
+	@Test
 	fun lidaClipsLookupCacheExpiresHitsAndMissingClips() {
 		var nowMillis = 1_000L
 		val cache = LidaClipsLookupCache(

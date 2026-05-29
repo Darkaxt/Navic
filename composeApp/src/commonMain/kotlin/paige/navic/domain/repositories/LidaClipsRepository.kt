@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.domain.models.lidaClipsKeyFingerprint
 import paige.navic.domain.models.normalizedLidaClipsBaseUrlOrNull
 import paige.navic.util.core.Logger
@@ -111,6 +112,7 @@ class LidaClipsRepository(
 			return Result.failure(error)
 		}
 		if (directClip != null) return Result.success(directClip)
+		if (!song.hasLidaClipsMetadataSearchTerms()) return Result.success(null)
 
 		return findClip(
 			songId = song.id,
@@ -742,7 +744,9 @@ private fun String.hasSupportedHttpScheme(): Boolean =
 		startsWith("https://", ignoreCase = true)
 
 private fun DomainSong.hasLidaClipsMetadataSearchTerms(): Boolean =
-	title.isNotBlank() || artistName.isNotBlank() || !albumTitle.isNullOrBlank()
+	title.isNotBlank() &&
+		artistName.isNotBlank() &&
+		!isSyntheticUnknownArtistName(artistName)
 
 private fun encodePathSegment(value: String): String {
 	val hex = "0123456789ABCDEF"
