@@ -330,7 +330,7 @@ internal fun coverArtArchiveReleaseGroupEndpoint(mbid: String): String =
 	"$COVER_ART_ARCHIVE_BASE_URL/release-group/${mbid.normalizedMbidOrNull() ?: mbid.trim()}"
 
 internal fun musicBrainzRecordingLookupEndpoint(mbid: String): String =
-	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+genres+tags&fmt=json"
+	"$MUSICBRAINZ_BASE_URL/ws/2/recording/${encodePathSegment(mbid.trim())}?inc=artist-credits+isrcs+releases+release-groups+genres+tags&fmt=json"
 
 internal fun musicBrainzRecordingSearchEndpoint(
 	title: String,

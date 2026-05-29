@@ -140,7 +140,7 @@ class MusicBrainzArtworkRepositoryTest {
 			coverArtArchiveReleaseGroupEndpoint("c31a5e2b-0bf8-32e0-8aeb-ef4ba9973932")
 		)
 		assertEquals(
-			"https://musicbrainz.org/ws/2/recording/0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1?inc=artist-credits+isrcs+releases+genres+tags&fmt=json",
+			"https://musicbrainz.org/ws/2/recording/0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1?inc=artist-credits+isrcs+releases+release-groups+genres+tags&fmt=json",
 			musicBrainzRecordingLookupEndpoint("0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1")
 		)
 		assertEquals(
