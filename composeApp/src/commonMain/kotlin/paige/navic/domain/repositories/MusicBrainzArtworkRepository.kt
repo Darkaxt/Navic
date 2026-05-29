@@ -26,6 +26,7 @@ import paige.navic.data.database.dao.AlbumDao
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
 import kotlin.math.max
@@ -534,7 +535,9 @@ internal fun bestMusicBrainzRecordingSearchMatch(
 		?.let(::musicBrainzLookupMbidOrNull)
 
 private fun canSearchMusicBrainzRecording(title: String?, artistName: String?): Boolean =
-	!title.isNullOrBlank() && !artistName.isNullOrBlank()
+	!title.isNullOrBlank() &&
+		!artistName.isNullOrBlank() &&
+		!isSyntheticUnknownArtistName(artistName)
 
 internal fun musicBrainzTrackMetadata(
 	recording: MusicBrainzRecordingDto,

@@ -94,8 +94,28 @@ class MusicBrainzArtworkRepositoryTest {
 				isOnline = true,
 				isRadio = false,
 				songMusicBrainzId = "not-a-mbid",
+				songTitle = "Song",
+				artistName = "[Unknown Artist]"
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = "not-a-mbid",
 				songTitle = " ",
 				artistName = " "
+			)
+		)
+		assertTrue(
+			shouldResolveMusicBrainzMetadataOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songMusicBrainzId = RecordingMbid,
+				songTitle = "Song",
+				artistName = "[Unknown Artist]"
 			)
 		)
 		assertTrue(
@@ -191,6 +211,19 @@ class MusicBrainzArtworkRepositoryTest {
 				albumMusicBrainzId = null,
 				songTitle = "Song",
 				artistName = " "
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = null,
+				albumCoverArtId = null,
+				songMusicBrainzId = "not-a-mbid",
+				albumMusicBrainzId = "also-not-a-mbid",
+				songTitle = "Song",
+				artistName = "[Unknown Artist]"
 			)
 		)
 
