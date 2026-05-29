@@ -23,30 +23,60 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousRoundedRectangle
 import paige.navic.LocalPlatformContext
 import paige.navic.ui.theme.defaultFont
 
+internal data class SheetToolbarPadding(
+	val horizontal: Dp,
+	val top: Dp,
+	val bottom: Dp
+)
+
+internal fun sheetToolbarPadding(
+	isLandscape: Boolean,
+	isBottomToolbar: Boolean
+): SheetToolbarPadding {
+	if (isLandscape) {
+		return SheetToolbarPadding(
+			horizontal = 16.dp,
+			top = 0.dp,
+			bottom = if (isBottomToolbar) 12.dp else 0.dp
+		)
+	}
+
+	return if (isBottomToolbar) {
+		SheetToolbarPadding(horizontal = 16.dp, top = 12.dp, bottom = 36.dp)
+	} else {
+		SheetToolbarPadding(horizontal = 16.dp, top = 24.dp, bottom = 24.dp)
+	}
+}
+
 @Composable
 fun SheetToolbar(
 	modifier: Modifier = Modifier,
 	windowInsets: WindowInsets,
+	isBottomToolbar: Boolean = false,
 	title: @Composable () -> Unit = {},
 	navigationIcon: @Composable () -> Unit,
 	actions: @Composable () -> Unit = {}
 ) {
 	val platformContext = LocalPlatformContext.current
 	val isLandscape = platformContext.sizeClass.widthSizeClass > WindowWidthSizeClass.Compact
+	val toolbarPadding = sheetToolbarPadding(
+		isLandscape = isLandscape,
+		isBottomToolbar = isBottomToolbar
+	)
 	Row(
 		modifier = modifier
 			.fillMaxWidth()
-			.padding(
-				horizontal = 16.dp,
-				vertical = if (isLandscape) 0.dp else 24.dp
-			)
+			.padding(horizontal = toolbarPadding.horizontal)
+			.padding(top = toolbarPadding.top, bottom = toolbarPadding.bottom)
 			.windowInsetsPadding(windowInsets),
 		horizontalArrangement = Arrangement.SpaceBetween,
 		verticalAlignment = Alignment.CenterVertically
@@ -85,6 +115,8 @@ fun SheetActionButton(
 	contentDescription: String,
 	isStartRounded: Boolean = false,
 	isEndRounded: Boolean = false,
+	containerColor: Color? = null,
+	contentColor: Color? = null,
 	onClick: () -> Unit,
 ) {
 	val interactionSource = remember { MutableInteractionSource() }
@@ -99,8 +131,8 @@ fun SheetActionButton(
 			topEnd = endRadius,
 			bottomEnd = endRadius
 		),
-		color = MaterialTheme.colorScheme.surfaceContainer,
-		contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		color = containerColor ?: MaterialTheme.colorScheme.surfaceContainer,
+		contentColor = contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
 		modifier = Modifier.size(45.dp, 40.dp),
 		interactionSource = interactionSource,
 		shadowElevation = 4.dp

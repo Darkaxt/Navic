@@ -17,6 +17,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -75,6 +76,8 @@ fun TopBarButton(
 	modifier: Modifier = Modifier,
 	shadowElevation: Dp = 0.dp,
 	enabled: Boolean = true,
+	containerColor: Color? = null,
+	contentColor: Color? = null,
 	content: @Composable () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -88,10 +91,10 @@ fun TopBarButton(
 		shape = CircleShape,
 		shadowElevation = shadowElevation,
 		color = if (enabled)
-			MaterialTheme.colorScheme.surfaceContainer
+			containerColor ?: MaterialTheme.colorScheme.surfaceContainer
 		else MaterialTheme.colorScheme.surfaceContainerLow,
 		contentColor = if (enabled)
-			MaterialTheme.colorScheme.onSurfaceVariant
+			contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant
 		else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f)
 	) {
 		Box(contentAlignment = Alignment.Center) {

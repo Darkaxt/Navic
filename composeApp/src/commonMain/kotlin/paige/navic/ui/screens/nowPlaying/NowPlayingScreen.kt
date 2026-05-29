@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.plus
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -128,15 +129,20 @@ fun NowPlayingScreen() {
 
 	SheetScaffold(
 		toolbar = { windowInsets ->
+			val toolbarButtonContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f)
+			val toolbarButtonContentColor = MaterialTheme.colorScheme.onSecondaryContainer
 			SheetToolbar(
 				modifier = Modifier.alpha(if (isPlayerCurrent) 1f else 0f),
 				windowInsets = windowInsets,
+				isBottomToolbar = preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Bottom,
 				title = {
 					Text(stringResource(Res.string.title_now_playing))
 				},
 				navigationIcon = {
 					TopBarButton(
 						onClick = { backStack.remove(Screen.NowPlaying) },
+						containerColor = toolbarButtonContainerColor,
+						contentColor = toolbarButtonContentColor,
 						content = {
 							Icon(
 								imageVector = Icons.Outlined.KeyboardArrowDown,
@@ -170,7 +176,9 @@ fun NowPlayingScreen() {
 							contentDescription = stringResource(Res.string.action_lyrics),
 							onClick = dropUnlessResumed { backStack.add(Screen.Lyrics) },
 							isStartRounded = actionIndex == 0,
-							isEndRounded = actionIndex == visibleActionCount - 1
+							isEndRounded = actionIndex == visibleActionCount - 1,
+							containerColor = toolbarButtonContainerColor,
+							contentColor = toolbarButtonContentColor
 						)
 						actionIndex++
 					}
@@ -180,7 +188,9 @@ fun NowPlayingScreen() {
 							contentDescription = stringResource(Res.string.action_musicbrainz_info),
 							onClick = dropUnlessResumed { backStack.add(Screen.MusicBrainzInfo) },
 							isStartRounded = actionIndex == 0,
-							isEndRounded = actionIndex == visibleActionCount - 1
+							isEndRounded = actionIndex == visibleActionCount - 1,
+							containerColor = toolbarButtonContainerColor,
+							contentColor = toolbarButtonContentColor
 						)
 						actionIndex++
 					}
@@ -192,7 +202,9 @@ fun NowPlayingScreen() {
 								foregroundClipSongId = if (showClipInArtwork) null else song?.id
 							},
 							isStartRounded = actionIndex == 0,
-							isEndRounded = actionIndex == visibleActionCount - 1
+							isEndRounded = actionIndex == visibleActionCount - 1,
+							containerColor = toolbarButtonContainerColor,
+							contentColor = toolbarButtonContentColor
 						)
 						actionIndex++
 					}
@@ -202,7 +214,9 @@ fun NowPlayingScreen() {
 							contentDescription = stringResource(Res.string.action_queue),
 							onClick = dropUnlessResumed { backStack.add(Screen.Queue) },
 							isStartRounded = actionIndex == 0,
-							isEndRounded = actionIndex == visibleActionCount - 1
+							isEndRounded = actionIndex == visibleActionCount - 1,
+							containerColor = toolbarButtonContainerColor,
+							contentColor = toolbarButtonContentColor
 						)
 					}
 				}
