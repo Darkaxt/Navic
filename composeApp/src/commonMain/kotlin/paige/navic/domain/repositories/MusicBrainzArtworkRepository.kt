@@ -123,12 +123,14 @@ class MusicBrainzArtworkRepository(
 				?: searchRecording(song)
 			val resolved = resolveArtwork(
 				albumMusicBrainzId = albumMusicBrainzId,
+				albumTitle = song.albumTitle,
 				recordingReleases = recording?.releases.orEmpty()
 			)
 			val metadata = recording?.let {
 				musicBrainzTrackMetadata(
 					recording = it,
-					preferredReleaseMbid = resolved?.releaseMbid
+					preferredReleaseMbid = resolved?.releaseMbid,
+					preferredAlbumTitle = song.albumTitle
 				)
 			}
 			val entry = resolved?.let {
@@ -161,6 +163,7 @@ class MusicBrainzArtworkRepository(
 
 	private suspend fun resolveArtwork(
 		albumMusicBrainzId: String?,
+		albumTitle: String?,
 		recordingReleases: List<MusicBrainzReleaseDto>
 	): ResolvedMusicBrainzArtwork? {
 		albumMusicBrainzId.normalizedMbidOrNull()?.let { mbid ->
@@ -172,7 +175,8 @@ class MusicBrainzArtworkRepository(
 				?.let { return it }
 		}
 
-		for (release in recordingReleases.take(MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT)) {
+		for (release in preferredMusicBrainzRecordingReleases(recordingReleases, albumTitle)
+			.take(MUSICBRAINZ_RECORDING_RELEASE_LOOKUP_LIMIT)) {
 			val releaseMbid = release.id.normalizedMbidOrNull() ?: continue
 			fetchCoverArtArchiveArtwork(releaseMbid, MusicBrainzArtworkSourceType.Release)
 				?.copy(
@@ -344,11 +348,12 @@ private fun canSearchMusicBrainzRecording(title: String?, artistName: String?): 
 
 internal fun musicBrainzTrackMetadata(
 	recording: MusicBrainzRecordingDto,
-	preferredReleaseMbid: String?
+	preferredReleaseMbid: String?,
+	preferredAlbumTitle: String? = null
 ): MusicBrainzTrackMetadata {
 	val release = recording.releases
 		.firstOrNull { it.id == preferredReleaseMbid }
-		?: recording.releases.firstOrNull()
+		?: preferredMusicBrainzRecordingReleases(recording.releases, preferredAlbumTitle).firstOrNull()
 	val releaseGroup = release?.releaseGroup
 	val recordingMbid = recording.id.normalizedMbidOrNull()
 	val releaseMbid = release?.id.normalizedMbidOrNull()
@@ -373,6 +378,29 @@ internal fun musicBrainzTrackMetadata(
 		releaseUrl = releaseMbid?.let { "$MUSICBRAINZ_BASE_URL/release/$it" },
 		releaseGroupUrl = releaseGroupMbid?.let { "$MUSICBRAINZ_BASE_URL/release-group/$it" }
 	)
+}
+
+internal fun preferredMusicBrainzRecordingReleases(
+	releases: List<MusicBrainzReleaseDto>,
+	preferredAlbumTitle: String?
+): List<MusicBrainzReleaseDto> {
+	if (normalizedMusicBrainzTitle(preferredAlbumTitle) == null) return releases
+	val (matches, misses) = releases.partition {
+		musicBrainzReleaseMatchesAlbumTitle(
+			release = it,
+			albumTitle = preferredAlbumTitle
+		)
+	}
+	return matches + misses
+}
+
+internal fun musicBrainzReleaseMatchesAlbumTitle(
+	release: MusicBrainzReleaseDto,
+	albumTitle: String?
+): Boolean {
+	val normalizedAlbumTitle = normalizedMusicBrainzTitle(albumTitle) ?: return false
+	return normalizedMusicBrainzTitle(release.title) == normalizedAlbumTitle ||
+		normalizedMusicBrainzTitle(release.releaseGroup?.title) == normalizedAlbumTitle
 }
 
 internal fun musicBrainzMetadataDisplayFields(
@@ -474,6 +502,13 @@ private fun String?.normalizedMbidOrNull(): String? =
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun normalizedMusicBrainzTitle(value: String?): String? =
+	value
+		?.trim()
+		?.replace(Regex("\\s+"), " ")
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
 
 private fun List<MusicBrainzArtworkCacheEntry>.foundBySongId(): Map<String, MusicBrainzArtworkCacheEntry> =
 	associateBy { it.songId }

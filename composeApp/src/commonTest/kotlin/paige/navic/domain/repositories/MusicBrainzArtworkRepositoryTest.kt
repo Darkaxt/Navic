@@ -251,6 +251,112 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
+	fun recordingMetadataPrefersReleaseMatchingLocalAlbumTitleWhenArtworkDidNotPickRelease() {
+		val metadata = musicBrainzTrackMetadata(
+			recording = MusicBrainzRecordingDto(
+				id = "recording-mbid",
+				title = "Recording Title",
+				releases = listOf(
+					MusicBrainzReleaseDto(
+						id = "release-1",
+						title = "Greatest Hits",
+						releaseGroup = MusicBrainzReleaseGroupDto(
+							id = "release-group-1",
+							title = "Greatest Hits"
+						)
+					),
+					MusicBrainzReleaseDto(
+						id = "release-2",
+						title = "Target Album",
+						date = "2001-03-04",
+						country = "GB",
+						status = "Official",
+						releaseGroup = MusicBrainzReleaseGroupDto(
+							id = "release-group-2",
+							title = "Target Album"
+						)
+					)
+				)
+			),
+			preferredReleaseMbid = null,
+			preferredAlbumTitle = "target album"
+		)
+
+		assertEquals("release-2", metadata.releaseMbid)
+		assertEquals("Target Album", metadata.releaseTitle)
+		assertEquals("release-group-2", metadata.releaseGroupMbid)
+		assertEquals("Target Album", metadata.releaseGroupTitle)
+	}
+
+	@Test
+	fun musicBrainzReleasesForArtworkLookupPreferLocalAlbumTitleMatches() {
+		val releases = listOf(
+			MusicBrainzReleaseDto(
+				id = "release-1",
+				title = "Greatest Hits",
+				releaseGroup = MusicBrainzReleaseGroupDto(
+					id = "release-group-1",
+					title = "Greatest Hits"
+				)
+			),
+			MusicBrainzReleaseDto(
+				id = "release-2",
+				title = "Target Album",
+				releaseGroup = MusicBrainzReleaseGroupDto(
+					id = "release-group-2",
+					title = "Target Album"
+				)
+			),
+			MusicBrainzReleaseDto(
+				id = "release-3",
+				title = "Other Album",
+				releaseGroup = MusicBrainzReleaseGroupDto(
+					id = "release-group-3",
+					title = "Other Album"
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("release-2", "release-1", "release-3"),
+			preferredMusicBrainzRecordingReleases(
+				releases = releases,
+				preferredAlbumTitle = " target   album "
+			).map { it.id }
+		)
+	}
+
+	@Test
+	fun musicBrainzReleasesForArtworkLookupCanMatchReleaseGroupTitle() {
+		val releases = listOf(
+			MusicBrainzReleaseDto(
+				id = "release-1",
+				title = "Different Edition",
+				releaseGroup = MusicBrainzReleaseGroupDto(
+					id = "release-group-1",
+					title = "Target Album"
+				)
+			),
+			MusicBrainzReleaseDto(
+				id = "release-2",
+				title = "Other Album",
+				releaseGroup = MusicBrainzReleaseGroupDto(
+					id = "release-group-2",
+					title = "Other Album"
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("release-1", "release-2"),
+			preferredMusicBrainzRecordingReleases(
+				releases = releases,
+				preferredAlbumTitle = "Target Album"
+			).map { it.id }
+		)
+	}
+
+	@Test
 	fun metadataMapIncludesEntriesEvenWhenArtworkWasNotFound() {
 		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
 		val entries = listOf(
