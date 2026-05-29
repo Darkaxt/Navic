@@ -1,6 +1,8 @@
 package paige.navic.domain.repositories
 
+import com.russhwolf.settings.MapSettings
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -8,7 +10,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.DomainSong
 
 class LidaClipsRepositoryTest {
 	@Test
@@ -304,6 +310,33 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun songMetadataFallbackCachesDirectMissForLaterDirectLookup(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			lidaClipsBaseUrl = "https://clips.remaxku.eu"
+			lidaClipsApiKey = "secret"
+		}
+		val metadataClip = lidaClip().copy(
+			id = 8,
+			navidromeSongId = null,
+			streamUrl = "https://clips.remaxku.eu/api/v1/stream/8"
+		)
+		val apiClient = FakeLidaClipsApiClient(
+			directResults = mutableListOf(Result.success(null)),
+			metadataResults = mutableListOf(Result.success(metadataClip))
+		)
+		val repository = LidaClipsRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient
+		)
+		val song = lidaSong(id = "song-1")
+
+		assertEquals(metadataClip, repository.findClipForSong(song).getOrThrow())
+		assertNull(repository.findClipByNavidromeSongId("song-1").getOrThrow())
+		assertEquals(listOf("song-1"), apiClient.directSongIds)
+		assertEquals(listOf("song-1"), apiClient.metadataSongIds)
+	}
+
+	@Test
 	fun lidaClipsLookupCacheExpiresHitsAndMissingClips() {
 		var nowMillis = 1_000L
 		val cache = LidaClipsLookupCache(
@@ -562,4 +595,91 @@ class LidaClipsRepositoryTest {
 		fileName = "clip.mp4",
 		streamUrl = "https://clips.remaxku.eu/api/v1/stream/7"
 	)
+
+	private fun lidaSong(id: String) = DomainSong(
+		id = id,
+		title = "Song",
+		artistName = "Artist",
+		artistId = "artist-1",
+		albumTitle = "Album",
+		albumId = "album-1",
+		parentId = null,
+		comment = null,
+		trackNumber = 1,
+		discNumber = 1,
+		isrc = emptyList(),
+		year = null,
+		genre = null,
+		genres = emptyList(),
+		moods = emptyList(),
+		duration = 180.seconds,
+		bpm = null,
+		contributors = emptyList(),
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "mp3",
+		mimeType = "audio/mpeg",
+		filePath = null,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = null,
+		explicitStatus = DomainExplicitStatus.Unknown
+	)
+
+	private class FakeLidaClipsApiClient(
+		private val directResults: MutableList<Result<DomainLidaClip?>>,
+		private val metadataResults: MutableList<Result<DomainLidaClip?>>
+	) : LidaClipsApiClient {
+		val directSongIds = mutableListOf<String>()
+		val metadataSongIds = mutableListOf<String>()
+
+		override suspend fun testConnection(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): LidaClipsConnectionResult =
+			LidaClipsConnectionResult.Connected
+
+		override suspend fun fetchServiceStatus(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): LidaClipsServiceStatus =
+			LidaClipsServiceStatus(
+				activeClips = 0,
+				officialClips = 0,
+				fallbackClips = 0,
+				syncPaused = false,
+				syncRunning = false
+			)
+
+		override suspend fun setSyncPaused(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			syncPaused: Boolean
+		): LidaClipsServiceStatus =
+			fetchServiceStatus(baseUrl, requestHeaders)
+
+		override suspend fun fetchClipByNavidromeSongId(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			songId: String
+		): Result<DomainLidaClip?> {
+			directSongIds += songId
+			return directResults.removeFirst()
+		}
+
+		override suspend fun fetchClipByMetadata(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			song: DomainSong
+		): Result<DomainLidaClip?> {
+			metadataSongIds += song.id
+			return metadataResults.removeFirst()
+		}
+	}
 }

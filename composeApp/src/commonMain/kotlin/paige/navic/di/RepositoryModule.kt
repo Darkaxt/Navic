@@ -21,7 +21,7 @@ val repositoryModule = module {
 	singleOf(::ArtistRepository)
 	singleOf(::DbRepository)
 	singleOf(::GenreRepository)
-	singleOf(::LidaClipsRepository)
+	single { LidaClipsRepository(get()) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
 	singleOf(::SearchRepository)

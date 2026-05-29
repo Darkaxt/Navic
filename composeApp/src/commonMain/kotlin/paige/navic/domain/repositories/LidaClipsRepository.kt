@@ -35,24 +35,10 @@ internal const val LIDA_CLIPS_BASE_URL_INVALID_HOST_MESSAGE =
 private const val LIDA_CLIPS_LOOKUP_CACHE_MAX_AGE_MILLIS = 10 * 60 * 1000L
 
 class LidaClipsRepository(
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val apiClient: LidaClipsApiClient = KtorLidaClipsApiClient()
 ) {
 	private val lookupCache = LidaClipsLookupCache()
-	private val client = HttpClient {
-		install(HttpTimeout) {
-			requestTimeoutMillis = 30000
-			connectTimeoutMillis = 30000
-			socketTimeoutMillis = 30000
-		}
-		install(ContentNegotiation) {
-			json(
-				Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-				}
-			)
-		}
-	}
 
 	suspend fun testConnection(): LidaClipsConnectionResult {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
@@ -62,16 +48,7 @@ class LidaClipsRepository(
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 
 		return try {
-			val ping = client.get(lidaClipsEndpoint(baseUrl, "api/v1/ping")) {
-				lidaClipsJsonRequest(requestHeaders)
-			}
-			if (!ping.status.isSuccess()) return lidaClipsConnectionResult(ping.status, null)
-
-			val health = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
-				lidaClipsJsonRequest(requestHeaders)
-			}
-
-			lidaClipsConnectionResult(ping.status, health.status)
+			apiClient.testConnection(baseUrl, requestHeaders)
 		} catch (e: Exception) {
 			Logger.w(TAG, "LidaClips connection test failed", e)
 			LidaClipsConnectionResult.Failed(e.message ?: e::class.simpleName ?: "Unknown error")
@@ -94,12 +71,7 @@ class LidaClipsRepository(
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 
 		return runCatching {
-			lidaClipsServiceStatus(
-				baseUrl = baseUrl,
-				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
-				control = fetchServiceControl(baseUrl, requestHeaders),
-				health = fetchServiceHealth(baseUrl, requestHeaders)
-			)
+			apiClient.fetchServiceStatus(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips service status failed", error)
 		}
@@ -113,13 +85,7 @@ class LidaClipsRepository(
 		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
 
 		return runCatching {
-			val control = updateServiceControl(baseUrl, requestHeaders, syncPaused)
-			lidaClipsServiceStatus(
-				baseUrl = baseUrl,
-				dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
-				control = control,
-				health = fetchServiceHealth(baseUrl, requestHeaders)
-			)
+			apiClient.setSyncPaused(baseUrl, requestHeaders, syncPaused)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips sync control failed", error)
 		}
@@ -133,27 +99,26 @@ class LidaClipsRepository(
 		forceRefresh = forceRefresh,
 		lookupKind = LidaClipsLookupKind.NavidromeSongId
 	) { baseUrl, requestHeaders ->
-		fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
+		apiClient.fetchClipByNavidromeSongId(baseUrl, requestHeaders, songId)
 	}
 
 	suspend fun findClipForSong(
 		song: DomainSong,
 		forceRefresh: Boolean = false
-	): Result<DomainLidaClip?> = findClip(
-		songId = song.id,
-		forceRefresh = forceRefresh,
-		lookupKind = LidaClipsLookupKind.SongMetadataFallback
-	) { baseUrl, requestHeaders ->
-		fetchClipByNavidromeSongId(baseUrl, requestHeaders, song.id).fold(
-			onSuccess = { clip ->
-				if (clip != null) {
-					Result.success(clip)
-				} else {
-					fetchClipByMetadata(baseUrl, requestHeaders, song)
-				}
-			},
-			onFailure = { Result.failure(it) }
-		)
+	): Result<DomainLidaClip?> {
+		val directResult = findClipByNavidromeSongId(song.id, forceRefresh)
+		val directClip = directResult.getOrElse { error ->
+			return Result.failure(error)
+		}
+		if (directClip != null) return Result.success(directClip)
+
+		return findClip(
+			songId = song.id,
+			forceRefresh = forceRefresh,
+			lookupKind = LidaClipsLookupKind.SongMetadataFallback
+		) { baseUrl, requestHeaders ->
+			apiClient.fetchClipByMetadata(baseUrl, requestHeaders, song)
+		}
 	}
 
 	private suspend fun findClip(
@@ -183,7 +148,97 @@ class LidaClipsRepository(
 			}
 	}
 
-	private suspend fun fetchClipByNavidromeSongId(
+}
+
+interface LidaClipsApiClient {
+	suspend fun testConnection(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsConnectionResult
+
+	suspend fun fetchServiceStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsServiceStatus
+
+	suspend fun setSyncPaused(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		syncPaused: Boolean
+	): LidaClipsServiceStatus
+
+	suspend fun fetchClipByNavidromeSongId(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		songId: String
+	): Result<DomainLidaClip?>
+
+	suspend fun fetchClipByMetadata(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		song: DomainSong
+	): Result<DomainLidaClip?>
+}
+
+private class KtorLidaClipsApiClient : LidaClipsApiClient {
+	private val client = HttpClient {
+		install(HttpTimeout) {
+			requestTimeoutMillis = 30000
+			connectTimeoutMillis = 30000
+			socketTimeoutMillis = 30000
+		}
+		install(ContentNegotiation) {
+			json(
+				Json {
+					ignoreUnknownKeys = true
+					isLenient = true
+				}
+			)
+		}
+	}
+
+	override suspend fun testConnection(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsConnectionResult {
+		val ping = client.get(lidaClipsEndpoint(baseUrl, "api/v1/ping")) {
+			lidaClipsJsonRequest(requestHeaders)
+		}
+		if (!ping.status.isSuccess()) return lidaClipsConnectionResult(ping.status, null)
+
+		val health = client.get(lidaClipsEndpoint(baseUrl, "api/v1/health")) {
+			lidaClipsJsonRequest(requestHeaders)
+		}
+
+		return lidaClipsConnectionResult(ping.status, health.status)
+	}
+
+	override suspend fun fetchServiceStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsServiceStatus =
+		lidaClipsServiceStatus(
+			baseUrl = baseUrl,
+			dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
+			control = fetchServiceControl(baseUrl, requestHeaders),
+			health = fetchServiceHealth(baseUrl, requestHeaders)
+		)
+
+	override suspend fun setSyncPaused(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		syncPaused: Boolean
+	): LidaClipsServiceStatus {
+		val control = updateServiceControl(baseUrl, requestHeaders, syncPaused)
+		return lidaClipsServiceStatus(
+			baseUrl = baseUrl,
+			dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
+			control = control,
+			health = fetchServiceHealth(baseUrl, requestHeaders)
+		)
+	}
+
+	override suspend fun fetchClipByNavidromeSongId(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		songId: String
@@ -200,7 +255,7 @@ class LidaClipsRepository(
 		}
 	}
 
-	private suspend fun fetchClipByMetadata(
+	override suspend fun fetchClipByMetadata(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		song: DomainSong
