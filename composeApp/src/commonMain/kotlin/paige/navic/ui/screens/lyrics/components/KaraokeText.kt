@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.util.core.karaokeLineProgressScopes
 import paige.navic.util.core.karaokeLinePixelTarget
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -53,7 +54,6 @@ fun LyricsScreenKaraokeText(
 	val lyricsBeatByBeat = preferenceManager.lyricsBeatByBeat
 	val lyricsBrightInactive = preferenceManager.lyricsBrightInactive
 	val lyricsFontSize = preferenceManager.lyricsFontSize.sizeSp.sp
-	val hasExplicitLineBreaks = text.contains('\n')
 
 	val isRtl = textLayoutResult?.let { layout ->
 		(0 until layout.lineCount).any { lineIndex ->
@@ -102,30 +102,32 @@ fun LyricsScreenKaraokeText(
 										val layout = textLayoutResult ?: return@onDrawWithContent
 										drawContent()
 
-										val totalWidth = (0 until layout.lineCount).sumOf {
-											(layout.getLineRight(it) - layout.getLineLeft(it)).toDouble()
-										}.toFloat()
-
 										val feather = 50f
-
-										var accumulatedWidth = 0f
+										val lineWidths = (0 until layout.lineCount).map {
+											layout.getLineRight(it) - layout.getLineLeft(it)
+										}
+										val lineProgressScopes = karaokeLineProgressScopes(
+											text = text,
+											lineStartOffsets = (0 until layout.lineCount).map(layout::getLineStart),
+											lineWidths = lineWidths
+										)
 
 										for (i in 0 until layout.lineCount) {
 											val lineLeft = layout.getLineLeft(i)
 											val lineRight = layout.getLineRight(i)
 											val lineWidth = lineRight - lineLeft
 											if (lineWidth <= 0f) continue
+											val progressScope = lineProgressScopes.getOrNull(i)
+												?: continue
 
 											val lineTop = layout.getLineTop(i)
 											val lineBottom = layout.getLineBottom(i)
 											val isRtl = layout.getBidiRunDirection(layout.getLineStart(i)) == ResolvedTextDirection.Rtl
 											val currentPixelTarget = karaokeLinePixelTarget(
 												progress = smoothProgress,
-												lineWidth = lineWidth,
-												totalWidth = totalWidth,
-												accumulatedWidth = accumulatedWidth,
-												feather = feather,
-												hasExplicitLineBreaks = hasExplicitLineBreaks
+												totalWidth = progressScope.totalWidth,
+												accumulatedWidth = progressScope.accumulatedWidth,
+												feather = feather
 											)
 
 											val startOffFadeIn = currentPixelTarget - feather
@@ -149,7 +151,6 @@ fun LyricsScreenKaraokeText(
 												size = Size(lineWidth, lineBottom - lineTop),
 												blendMode = BlendMode.SrcIn
 											)
-											accumulatedWidth += lineWidth
 										}
 									}
 								}

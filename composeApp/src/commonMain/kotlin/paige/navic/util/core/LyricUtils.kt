@@ -48,15 +48,53 @@ fun List<LyricsWord>.calculateWordProgress(
 	return 1f
 }
 
+data class KaraokeLineProgressScope(
+	val totalWidth: Float,
+	val accumulatedWidth: Float
+)
+
+fun karaokeLineProgressScopes(
+	text: String,
+	lineStartOffsets: List<Int>,
+	lineWidths: List<Float>
+): List<KaraokeLineProgressScope> {
+	if (lineStartOffsets.isEmpty() || lineWidths.isEmpty()) return emptyList()
+
+	val lineCount = minOf(lineStartOffsets.size, lineWidths.size)
+	val sourceLineIndexes = (0 until lineCount).map { index ->
+		sourceLineIndexForOffset(text, lineStartOffsets[index])
+	}
+	val totalWidthBySourceLine = linkedMapOf<Int, Float>()
+
+	(0 until lineCount).forEach { index ->
+		val sourceLineIndex = sourceLineIndexes[index]
+		totalWidthBySourceLine[sourceLineIndex] =
+			(totalWidthBySourceLine[sourceLineIndex] ?: 0f) + lineWidths[index]
+	}
+
+	val accumulatedWidthBySourceLine = mutableMapOf<Int, Float>()
+	return (0 until lineCount).map { index ->
+		val sourceLineIndex = sourceLineIndexes[index]
+		val accumulatedWidth = accumulatedWidthBySourceLine[sourceLineIndex] ?: 0f
+		accumulatedWidthBySourceLine[sourceLineIndex] = accumulatedWidth + lineWidths[index]
+		KaraokeLineProgressScope(
+			totalWidth = totalWidthBySourceLine[sourceLineIndex] ?: lineWidths[index],
+			accumulatedWidth = accumulatedWidth
+		)
+	}
+}
+
 fun karaokeLinePixelTarget(
 	progress: Float,
-	lineWidth: Float,
 	totalWidth: Float,
 	accumulatedWidth: Float,
-	feather: Float,
-	hasExplicitLineBreaks: Boolean
+	feather: Float
 ): Float {
-	val width = if (hasExplicitLineBreaks) lineWidth else totalWidth
-	val target = ((width + (feather * 2)) * progress.coerceIn(0f, 1f)) - feather
-	return if (hasExplicitLineBreaks) target else target - accumulatedWidth
+	val target = ((totalWidth + (feather * 2)) * progress.coerceIn(0f, 1f)) - feather
+	return target - accumulatedWidth
+}
+
+private fun sourceLineIndexForOffset(text: String, offset: Int): Int {
+	val safeOffset = offset.coerceIn(0, text.length)
+	return text.take(safeOffset).count { it == '\n' }
 }
