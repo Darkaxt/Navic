@@ -130,7 +130,8 @@ val LocalBottomBarScrollManager = staticCompositionLocalOf<BottomBarScrollManage
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun App() {
-	// TODO: wtf was this for
+	// Keep non-Android targets on Navic's network-capable Coil loader. Android also exposes
+	// this through Application so early widget/media-session image loads cannot create default Coil.
 	setSingletonImageLoaderFactory { platformContext ->
 		initializeSingletonImageLoader(platformContext)
 	}

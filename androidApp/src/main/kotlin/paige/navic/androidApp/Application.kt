@@ -4,15 +4,18 @@ import android.app.ActivityManager
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
 import paige.navic.androidApp.shared.AndroidResourceProvider
+import paige.navic.di.initializeSingletonImageLoader
 import paige.navic.di.initKoin
 import paige.navic.util.core.ResourceProvider
 import kotlin.system.exitProcess
 
-class Application : android.app.Application() {
+class Application : android.app.Application(), SingletonImageLoader.Factory {
 	override fun onCreate() {
 		super.onCreate()
 
@@ -44,6 +47,9 @@ class Application : android.app.Application() {
 			androidLogger()
 		}
 	}
+
+	override fun newImageLoader(context: android.content.Context): ImageLoader =
+		initializeSingletonImageLoader(context)
 
 	private fun isCrashProcess(): Boolean {
 		val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
