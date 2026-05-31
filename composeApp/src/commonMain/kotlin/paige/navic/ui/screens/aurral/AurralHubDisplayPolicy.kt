@@ -132,6 +132,14 @@ fun aurralStationForFlow(
 	}
 }
 
+fun aurralPlayableStationForFlow(
+	flow: AurralFlowSummary,
+	playlists: List<DomainPlaylist>
+): DomainPlaylist? =
+	aurralStationForFlow(flow, playlists)?.takeIf { station ->
+		station.songCount > 0 || station.songs.isNotEmpty()
+	}
+
 private fun aurralScheduleSummary(
 	scheduleDays: List<Int>,
 	scheduleTime: String

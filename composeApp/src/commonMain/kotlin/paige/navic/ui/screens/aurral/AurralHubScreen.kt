@@ -41,6 +41,7 @@ import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
 import navic.composeapp.generated.resources.action_open_station
+import navic.composeapp.generated.resources.action_play_station
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_start_aurral_flow
 import navic.composeapp.generated.resources.info_aurral_flow_action_failed
@@ -84,6 +85,7 @@ import paige.navic.icons.outlined.Add
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Refresh
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
@@ -99,6 +101,7 @@ fun AurralHubScreen() {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val player = koinInject<MediaPlayerViewModel>()
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val flowActionState by viewModel.flowActionState.collectAsStateWithLifecycle()
@@ -173,6 +176,7 @@ fun AurralHubScreen() {
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
 					onStartFlow = viewModel::startFlow,
+					onPlayStation = { flowId, station -> viewModel.playStation(flowId, station, player) },
 					onOpenStation = { station ->
 						backStack.add(Screen.CollectionDetail(station.id, "stations"))
 					}
@@ -206,6 +210,7 @@ private fun AurralHubContent(
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	val status = state.data
@@ -243,6 +248,7 @@ private fun AurralHubContent(
 		onCreateFlowClick = { showCreateFlowDialog = true },
 		onSetFlowEnabled = onSetFlowEnabled,
 		onStartFlow = onStartFlow,
+		onPlayStation = onPlayStation,
 		onOpenStation = onOpenStation
 	)
 
@@ -323,6 +329,7 @@ private fun AurralHubFlowsSection(
 	onCreateFlowClick: () -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_flows))
@@ -344,13 +351,16 @@ private fun AurralHubFlowsSection(
 			}
 		} else {
 			status.flows.forEach { flow ->
+				val matchingStation = aurralStationForFlow(flow, stationPlaylists)
 				AurralHubFlowRow(
 					flow = flow,
-					station = aurralStationForFlow(flow, stationPlaylists),
+					station = matchingStation,
+					playableStation = aurralPlayableStationForFlow(flow, stationPlaylists),
 					actionInProgress = actionInProgress,
 					active = activeFlowActionId == flow.id,
 					onSetFlowEnabled = onSetFlowEnabled,
 					onStartFlow = onStartFlow,
+					onPlayStation = onPlayStation,
 					onOpenStation = onOpenStation
 				)
 			}
@@ -388,10 +398,12 @@ private fun AurralHubFlowsSection(
 private fun AurralHubFlowRow(
 	flow: AurralFlowSummary,
 	station: DomainPlaylist?,
+	playableStation: DomainPlaylist?,
 	actionInProgress: Boolean,
 	active: Boolean,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
@@ -422,6 +434,14 @@ private fun AurralHubFlowRow(
 			modifier = Modifier.padding(start = 12.dp),
 			verticalAlignment = Alignment.CenterVertically
 		) {
+			playableStation?.let { stationToPlay ->
+				IconButton(
+					onClick = { onPlayStation(flow.id, stationToPlay) },
+					enabled = !actionInProgress
+				) {
+					Icon(Icons.Filled.Play, stringResource(Res.string.action_play_station))
+				}
+			}
 			station?.let { matchingStation ->
 				IconButton(
 					onClick = { onOpenStation(matchingStation) }
@@ -433,7 +453,7 @@ private fun AurralHubFlowRow(
 				onClick = { onStartFlow(flow.id, flow.size) },
 				enabled = flow.enabled && !actionInProgress
 			) {
-				Icon(Icons.Filled.Play, stringResource(Res.string.action_start_aurral_flow))
+				Icon(Icons.Outlined.Refresh, stringResource(Res.string.action_start_aurral_flow))
 			}
 			Switch(
 				checked = flow.enabled,

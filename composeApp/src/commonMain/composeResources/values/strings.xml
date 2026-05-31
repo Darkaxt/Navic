@@ -615,6 +615,7 @@
 	<string name="action_create_aurral_flow">New Flow</string>
 	<string name="action_start_aurral_flow">Run Flow</string>
 	<string name="action_open_station">Open Station</string>
+	<string name="action_play_station">Play Station</string>
 	<string name="action_share">Share</string>
 	<string name="action_track_info">View track info</string>
 	<string name="action_view_album">View album</string>

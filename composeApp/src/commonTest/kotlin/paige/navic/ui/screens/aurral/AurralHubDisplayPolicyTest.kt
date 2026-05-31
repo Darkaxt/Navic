@@ -7,7 +7,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralFlowCapabilities
 import paige.navic.domain.repositories.AurralFlowStats
@@ -133,6 +135,18 @@ class AurralHubDisplayPolicyTest {
 		)
 	}
 
+	@Test
+	fun playableStationForFlowRequiresSongsOrRefreshableSongCount() {
+		val flow = AurralFlowSummary(id = "flow", name = "Discover Mix", enabled = true)
+		val emptyStation = playlist(id = "empty", name = "[A] Discover Mix", songCount = 0)
+		val refreshableStation = playlist(id = "refreshable", name = "[A] Discover Mix", songCount = 4)
+		val stationWithSongs = playlist(id = "songs", name = "[A] Discover Mix", songCount = 0, songs = listOf(song("song-1")))
+
+		assertNull(aurralPlayableStationForFlow(flow, listOf(emptyStation)))
+		assertEquals(refreshableStation, aurralPlayableStationForFlow(flow, listOf(refreshableStation)))
+		assertEquals(stationWithSongs, aurralPlayableStationForFlow(flow, listOf(stationWithSongs)))
+	}
+
 	private fun queueItem(
 		id: String,
 		status: String
@@ -152,14 +166,16 @@ class AurralHubDisplayPolicyTest {
 
 	private fun playlist(
 		id: String,
-		name: String
+		name: String,
+		songCount: Int = 0,
+		songs: List<DomainSong> = emptyList()
 	) = DomainPlaylist(
 		id = id,
 		name = name,
 		owner = "owner",
 		comment = null,
 		coverArtId = null,
-		songCount = 0,
+		songCount = songCount,
 		duration = 0.seconds,
 		createdAt = Instant.DISTANT_PAST,
 		modifiedAt = Instant.DISTANT_PAST,
@@ -167,6 +183,43 @@ class AurralHubDisplayPolicyTest {
 		readOnly = null,
 		allowedUsers = emptyList(),
 		validUntil = null,
-		songs = emptyList()
+		songs = songs
+	)
+
+	private fun song(id: String) = DomainSong(
+		id = id,
+		title = "Song $id",
+		artistName = "Artist",
+		artistId = "artist",
+		albumTitle = null,
+		albumId = null,
+		parentId = null,
+		comment = null,
+		trackNumber = null,
+		discNumber = null,
+		isrc = emptyList(),
+		year = null,
+		genre = null,
+		genres = emptyList(),
+		moods = emptyList(),
+		duration = 30.seconds,
+		bpm = null,
+		contributors = emptyList(),
+		playCount = 0,
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "mp3",
+		mimeType = "audio/mpeg",
+		filePath = null,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = null,
+		explicitStatus = DomainExplicitStatus.Unknown
 	)
 }

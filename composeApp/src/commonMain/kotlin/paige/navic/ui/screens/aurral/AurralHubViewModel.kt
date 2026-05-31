@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.PlaylistRepository
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 
 class AurralHubViewModel(
@@ -75,6 +76,34 @@ class AurralHubViewModel(
 		}
 	}
 
+	fun playStation(
+		flowId: String,
+		station: DomainPlaylist,
+		player: MediaPlayerViewModel
+	) {
+		if (_flowActionState.value is UiState.Loading) return
+
+		viewModelScope.launch {
+			_activeFlowActionId.value = flowId
+			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
+			try {
+				val playableStation = playlistRepository.getPlaylistForPlayback(station)
+				updateStationPlaylist(playableStation)
+				if (playableStation.songs.isEmpty()) {
+					throw IllegalStateException("Station has no songs yet")
+				}
+				player.clearQueue()
+				player.addToQueue(playableStation)
+				player.playAt(0)
+				_flowActionState.value = UiState.Success(null)
+			} catch (error: Exception) {
+				_flowActionState.value = UiState.Error(error, _flowActionState.value.data)
+			} finally {
+				_activeFlowActionId.value = null
+			}
+		}
+	}
+
 	private fun runFlowAction(
 		actionId: String,
 		action: suspend () -> Result<AurralFlowActionResult>
@@ -113,6 +142,12 @@ class AurralHubViewModel(
 			state.data?.let { playlists ->
 				_stationPlaylists.value = playlists.stationPlaylists()
 			}
+		}
+	}
+
+	private fun updateStationPlaylist(playlist: DomainPlaylist) {
+		_stationPlaylists.value = _stationPlaylists.value.map { current ->
+			if (current.id == playlist.id) playlist else current
 		}
 	}
 }
