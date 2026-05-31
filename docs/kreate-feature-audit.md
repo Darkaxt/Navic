@@ -1,6 +1,92 @@
 # Kreate Feature Transplant Audit
 
-Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28).
+Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). GitHub `main` was observed at `eaef513` on 2026-05-31; this matrix remains scoped to music-player behavior relevant to a Navidrome/Subsonic client and excludes YouTube Music, InnerTube, Google-account, and streaming-platform-specific behavior.
+
+## Transplant Matrix
+
+| Kreate feature area | Classification | Navic decision |
+| --- | --- | --- |
+| Media3 audio-focus handling | Adapt | `Respect audio focus` is an Android Playback setting and feeds Media3 `setAudioAttributes(..., handleAudioFocus)`. |
+| Configurable media notification buttons | Adapt | Two Android notification action slots can show Shuffle/Repeat or stay disabled. |
+| Pause listening/scrobble history | Adapt | Playback -> Behaviour can suppress now-playing, scrobble, and offline scrobble queue writes. |
+| Separate in-app playback volume | Adapt | Android Playback volume scales Navic player output separately from device media volume. |
+| Skip silence | Adapt | Android Playback toggle applies Media3 skip-silence behavior when the service starts. |
+| Skip media on error | Adapt | Android Playback toggle advances to the next queued item after recoverable Media3 errors. |
+| Resume on audio-device connect | Adapt | Android Playback toggle resumes a paused queue on supported output-device connection. |
+| Pause between songs | Adapt | Android Playback setting pauses after automatic track changes while keeping manual skips immediate. |
+| Medley/playback-duration mode | Adapt | Android Playback setting can auto-advance after 15, 30, 45, or 60 seconds. |
+| Previous-button smart rewind threshold | Adapt | Android Playback exposes a configurable restart-vs-previous threshold. |
+| Pause when Android volume reaches zero | Adapt | Android Playback setting pauses at zero media volume and resumes only self-paused playback. |
+| Pause/resume audio fade | Adapt | Android Playback setting controls fade durations while keeping immediate playback as default. |
+| Bass boost | Adapt | Android Playback exposes enable and strength controls backed by Android `BassBoost`. |
+| Reverb presets | Adapt | Android Playback exposes Android `PresetReverb` room/hall/plate-style presets. |
+| Loudness enhancer | Adapt | Android `LoudnessEnhancer` is driven by Navidrome ReplayGain rather than YouTube loudness metadata. |
+| Playback pitch | Adapt | Navic extends the Playback Speed sheet with Android pitch and preserves speed/pitch state. |
+| Playback speed badge/long-press on play button | Adapt | Now Playing shows a speed label when not `1.0x` and long-press opens Playback Speed. |
+| Persistent queue | Already covered | Navic already restored queue state; settings now expose persistence/resume behavior. |
+| Queue auto-fill | Adapt | Navic refills from Navidrome/local library similarity, recent genres/moods, or random library. |
+| Shuffle queue size cap | Adapt | Large collection shuffles can be capped while unlimited remains the default. |
+| Song radio | Adapt | Song and Now Playing actions build a Navidrome/local similar-song queue. |
+| Discover queue cleanup | Adapt | Now Playing action removes upcoming starred/playlist-known songs while keeping history/current song. |
+| Quick Picks/library discovery | Adapt | Library row uses Navidrome data instead of YouTube/InnerTube sources. |
+| Dedicated YouTube/InnerTube discovery pages | Skip | Replaced by Navidrome Quick Picks, queue actions, MusicBrainz, and Aurral discovery. |
+| Artist list sort sheet | Adapt | Artist lists expose Kreate-style alphabetical/starred/random plus direction controls. |
+| Playlist song sort sheet | Adapt | Playlist and Station detail pages expose manual/title/artist/album/duration sorting. |
+| Queue duration summary | Already covered | Queue sheet always shows song count plus total runtime for non-empty queues. |
+| Song-row swipe actions | Adapt | Playback settings configure add-to-queue/play-next/disabled behavior per swipe direction. |
+| Queue-row swipe actions | Adapt | Playback settings configure remove/play-next/disabled behavior per swipe direction. |
+| Now-playing indicator | Adapt | Playback setting hides or shows the animated current-song waveform in lists/queue. |
+| Playlist membership indicator | Adapt | Playback setting marks songs already present in synced playlists. |
+| Shake to skip | Adapt | Android foreground accelerometer setting skips after a cooldown-protected shake. |
+| Volume-key track changes | Adapt | Android foreground setting maps volume up/down to next/previous while Navic is open. |
+| Broader background hardware-button interception | Skip | Too invasive for this fork without a separate Android behavior design. |
+| System equalizer shortcut | Already covered | Navic launches the Android system equalizer from Playback and Now Playing actions. |
+| Now Playing action visibility | Adapt | Lyrics, Queue, More, Music Video, Playback Speed, Sleep Timer, Start Radio, Discover, Download, Playlist, and Equalizer visibility are configurable. |
+| Now Playing dynamic background blur/dim | Adapt | Settings expose blur and dim strength instead of hardcoded values. |
+| Now Playing bottom gradient | Adapt | Optional lower scrim follows app background colors. |
+| Now Playing artwork visibility | Adapt | Layout setting can hide the main artwork. |
+| Now Playing artwork size | Adapt | Small/Medium/Big/Biggest/Expanded size selector maps Kreate-style sizing to Navic. |
+| Now Playing pause-shrink artwork | Adapt | Setting controls the paused/inactive artwork shrink behavior. |
+| Now Playing artwork swipe control | Adapt | Setting can disable artwork swipe navigation while preserving global swipe behavior. |
+| Rotating artwork | Adapt | Optional vinyl-style rotating cover exists for active playback. |
+| Now Playing seek buttons | Adapt | Optional 10-second tap and 30-second long-press seek buttons can appear beside time. |
+| Now Playing remaining-time label | Adapt | Optional remaining-time label can appear between elapsed and total time. |
+| Now Playing progress width | Adapt | Layout selector supports compact through expanded timeline widths. |
+| Now Playing controls/timeline order | Adapt | Layout selector can swap timeline and control order. |
+| Now Playing playback-button spacing | Adapt | Layout setting can keep compact buttons or spread controls evenly. |
+| Now Playing controls swipe-up/tap to queue | Adapt | Optional gestures open Queue from the controls area. |
+| Now Playing toolbar visibility/position | Adapt | Existing top/bottom selector now includes Hidden. |
+| Now Playing song info style/icons | Adapt | Settings can show album context and album/artist icons when navigation targets exist. |
+| Now Playing technical info | Adapt | Compact and detailed technical rows use Navidrome metadata such as bit depth, channels, file size, and ReplayGain. |
+| Now Playing shuffle/repeat visibility | Adapt | Layout settings can hide the main shuffle/repeat controls. |
+| Now Playing Up Next preview | Adapt | Optional row shows upcoming queued songs and can include artwork thumbnails. |
+| Mini-player queue button | Adapt | Bottom Bar setting adds a queue button to the mini-player. |
+| Mini-player progress style | Adapt | Bottom Bar setting supports Hidden, Visible, and Seekable progress. |
+| Settings search | Adapt | Root Settings search filters into live editable rows with Settings paths. |
+| Search history controls | Adapt | Recent searches persist and can be paused/cleared. |
+| Auto-download starred songs/albums | Adapt | Data & Storage settings queue downloads on new song/album stars. |
+| Download queue and parallel cap | Adapt | All download paths route through one queue with default parallelism of 3. |
+| Cache usage readouts | Adapt | Data & Storage uses one human-readable byte formatter for cache/download sizes. |
+| Danger-zone confirmations | Adapt | Destructive Data & Storage actions require confirmation. |
+| APK update digest verification | Adapt | In-app updater checks GitHub asset SHA-256 before launching Android installer. |
+| Kreate YouTube iframe/video action | Skip | Navic uses LidaClips/Media3 video clips instead of YouTube iframe playback. |
+| LidaClips video action/background/promotion | Adapt | Kreate's video affordance is mapped to LidaClips cached backgrounds and promoted artwork-area playback. |
+| LidaClips PiP/landscape/fit/keep-screen-on | Adapt | Android clip playback has PiP, landscape, resize, and keep-screen-on controls. |
+| LidaClips remembered video position | Adapt | Last clip position is remembered per clip with near-start/end safeguards. |
+| LidaClips music-session coordination | Adapt | Clip playback can pause/resume Navic music or keep music underneath, per setting. |
+| Lyrics font size | Adapt | Playback -> Lyrics exposes size presets. |
+| Lyrics active-line size animation | Adapt | Playback -> Lyrics can disable active-line grow/shrink. |
+| Lyrics alignment | Adapt | Playback -> Lyrics supports Auto, Start, Center, and End. |
+| Lyrics tap-to-seek | Adapt | Playback -> Lyrics can disable lyric-line seeking. |
+| Lyrics accent background | Adapt | Playback -> Lyrics can show accent backgrounds. |
+| Lyrics artwork | Adapt | Playback -> Lyrics can show the current cover above lyrics. |
+| Server-first translated lyrics | Adapt | Navic prioritizes Subsonic/Navidrome lyrics and merges duplicate-timestamp translation blocks. |
+| YouTube Music login, account state, library sync, and InnerTube playback | Skip | Out of scope; this fork targets Navidrome/Subsonic plus selfhosted LidaClips/Aurral. |
+| Streaming-platform playlists, likes, recommendations, and subscriptions | Skip | Out of scope unless represented through Navidrome, MusicBrainz, LidaClips, or Aurral. |
+| Broad visualizer/animation variants | Skip | High UI churn; not required for the Android selfhosted-client goal. |
+| Dedicated broader Discover page | Skip | Direct Kreate behavior is YouTube/InnerTube-specific; Navic uses Quick Picks, queue actions, and Aurral instead. |
+
+Current import queue: none. The useful music-player pieces from the audited Kreate scope are either adapted, already covered by existing Navic behavior, or intentionally skipped because they depend on YouTube Music/InnerTube/Google-account behavior or would require a separate product design.
 
 ## Already Adapted
 
