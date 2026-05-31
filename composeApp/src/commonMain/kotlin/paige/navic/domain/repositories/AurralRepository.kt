@@ -91,6 +91,31 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun searchArtists(
+		query: String,
+		limit: Int = 12,
+		offset: Int = 0
+	): Result<AurralArtistSearchResult> {
+		val trimmedQuery = query.trim()
+		if (trimmedQuery.isEmpty()) return Result.success(AurralArtistSearchResult())
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val request = AurralArtistSearchRequest(
+			query = trimmedQuery,
+			limit = limit.coerceIn(1, 50),
+			offset = offset.coerceAtLeast(0)
+		)
+
+		return runCatching {
+			apiClient.searchArtists(baseUrl, requestHeaders, request)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist search failed for $trimmedQuery", error)
+		}
+	}
+
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
 		if (!preferenceManager.aurralEnabled) return Result.success(null)
 		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
@@ -383,6 +408,12 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>
 	): AurralDiscoverySummary = error("Aurral discovery is not supported by this client.")
 
+	suspend fun searchArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		request: AurralArtistSearchRequest
+	): AurralArtistSearchResult = error("Aurral artist search is not supported by this client.")
+
 	suspend fun fetchArtistEnrichment(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -514,6 +545,27 @@ private class KtorAurralApiClient : AurralApiClient {
 		}
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
+			response = response.body()
+		)
+	}
+
+	override suspend fun searchArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		request: AurralArtistSearchRequest
+	): AurralArtistSearchResult {
+		val response = client.get(aurralEndpoint(baseUrl, "api/search/artists")) {
+			aurralJsonRequest(requestHeaders)
+			parameter("query", request.query)
+			parameter("limit", request.limit)
+			parameter("offset", request.offset)
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral artist search", response.status))
+		}
+		return aurralArtistSearchResult(
+			baseUrl = baseUrl,
+			query = request.query,
 			response = response.body()
 		)
 	}
@@ -909,6 +961,19 @@ data class AurralDiscoverArtist(
 	val discoveryTier: String? = null
 )
 
+data class AurralArtistSearchRequest(
+	val query: String,
+	val limit: Int = 12,
+	val offset: Int = 0
+)
+
+data class AurralArtistSearchResult(
+	val query: String = "",
+	val count: Int = 0,
+	val offset: Int = 0,
+	val artists: List<AurralDiscoverArtist> = emptyList()
+)
+
 data class AurralFlowSummary(
 	val id: String,
 	val name: String,
@@ -1077,6 +1142,13 @@ internal data class AurralDiscoveryResponseDto(
 	val stale: Boolean = false,
 	val provider: String? = null,
 	@SerialName("discoveryMode") val discoveryMode: String? = null
+)
+
+@Serializable
+internal data class AurralArtistSearchResponseDto(
+	val artists: List<AurralDiscoverArtistDto> = emptyList(),
+	val count: Int = 0,
+	val offset: Int = 0
 )
 
 @Serializable
@@ -1277,6 +1349,18 @@ internal fun aurralDiscoverySummary(
 		stale = response.stale,
 		provider = response.provider?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryMode = response.discoveryMode?.trim()?.takeIf { it.isNotEmpty() }
+	)
+
+internal fun aurralArtistSearchResult(
+	baseUrl: String,
+	query: String,
+	response: AurralArtistSearchResponseDto
+): AurralArtistSearchResult =
+	AurralArtistSearchResult(
+		query = query,
+		count = response.count,
+		offset = response.offset,
+		artists = response.artists.mapNotNull { it.toDiscoverArtist(baseUrl) }
 	)
 
 private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {

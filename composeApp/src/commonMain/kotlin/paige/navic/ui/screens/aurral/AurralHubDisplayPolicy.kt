@@ -56,6 +56,15 @@ fun aurralHubDiscoverArtists(
 		.distinctBy { it.id.trim().lowercase() }
 		.take(limit.coerceAtLeast(0))
 
+fun aurralHubSearchArtists(
+	artists: List<AurralDiscoverArtist>,
+	limit: Int = 8
+): List<AurralDiscoverArtist> =
+	artists
+		.filter { artist -> artist.id.isNotBlank() && artist.name.isNotBlank() }
+		.distinctBy { it.id.trim().lowercase() }
+		.take(limit.coerceAtLeast(0))
+
 fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
 	val artistMbid = artist.id.trim().takeIf { it.isNotEmpty() } ?: return null
 	val artistName = artist.name.trim().takeIf { it.isNotEmpty() } ?: return null

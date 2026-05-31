@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +54,8 @@ import navic.composeapp.generated.resources.info_aurral_flow_action_queued
 import navic.composeapp.generated.resources.info_aurral_flow_action_updated
 import navic.composeapp.generated.resources.info_aurral_flow_permission_required
 import navic.composeapp.generated.resources.info_aurral_flow_sources_unavailable
+import navic.composeapp.generated.resources.info_aurral_search_empty
+import navic.composeapp.generated.resources.info_aurral_search_failed
 import navic.composeapp.generated.resources.info_aurral_discover_empty
 import navic.composeapp.generated.resources.info_aurral_discover_failed
 import navic.composeapp.generated.resources.info_aurral_discover_monitor_added
@@ -68,6 +73,9 @@ import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_flows
 import navic.composeapp.generated.resources.title_aurral_requests
+import navic.composeapp.generated.resources.title_aurral_search
+import navic.composeapp.generated.resources.title_search
+import navic.composeapp.generated.resources.option_aurral_artist_search
 import navic.composeapp.generated.resources.option_aurral_flow_name
 import navic.composeapp.generated.resources.option_aurral_flow_size
 import org.jetbrains.compose.resources.stringResource
@@ -81,6 +89,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralArtistSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowActionResult
@@ -94,6 +103,7 @@ import paige.navic.icons.outlined.Add
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Refresh
+import paige.navic.icons.outlined.Search
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
@@ -115,6 +125,8 @@ fun AurralHubScreen() {
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val discovery by viewModel.discovery.collectAsStateWithLifecycle()
+	val artistSearchQuery by viewModel.artistSearchQuery.collectAsStateWithLifecycle()
+	val artistSearch by viewModel.artistSearch.collectAsStateWithLifecycle()
 	val flowActionState by viewModel.flowActionState.collectAsStateWithLifecycle()
 	val discoverActionState by viewModel.discoverActionState.collectAsStateWithLifecycle()
 	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
@@ -184,6 +196,8 @@ fun AurralHubScreen() {
 				else -> AurralHubContent(
 					state = serviceStatus,
 					discoveryState = discovery,
+					artistSearchQuery = artistSearchQuery,
+					artistSearchState = artistSearch,
 					flowActionState = flowActionState,
 					discoverActionState = discoverActionState,
 					activeFlowActionId = activeFlowActionId,
@@ -194,6 +208,8 @@ fun AurralHubScreen() {
 					onOpenDiscoverArtist = { artist ->
 						aurralArtistRoute(artist)?.let(backStack::add)
 					},
+					onArtistSearchQueryChange = viewModel::updateArtistSearchQuery,
+					onSearchArtists = viewModel::searchArtists,
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
 					onStartFlow = viewModel::startFlow,
@@ -227,6 +243,8 @@ private fun AurralHubConfigurationMessage(
 private fun AurralHubContent(
 	state: UiState<AurralServiceStatus?>,
 	discoveryState: UiState<AurralDiscoverySummary?>,
+	artistSearchQuery: String,
+	artistSearchState: UiState<AurralArtistSearchResult?>,
 	flowActionState: UiState<AurralFlowActionResult?>,
 	discoverActionState: UiState<Unit?>,
 	activeFlowActionId: String?,
@@ -235,6 +253,8 @@ private fun AurralHubContent(
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
+	onArtistSearchQueryChange: (String) -> Unit,
+	onSearchArtists: () -> Unit,
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
@@ -268,6 +288,19 @@ private fun AurralHubContent(
 			AurralHubSummaryRow(card)
 		}
 	}
+
+	AurralHubArtistSearchSection(
+		query = artistSearchQuery,
+		state = artistSearchState,
+		actionState = discoverActionState,
+		activeArtistId = activeDiscoverArtistId,
+		canMonitorArtist = status.addArtist,
+		preferenceManager = preferenceManager,
+		onQueryChange = onArtistSearchQueryChange,
+		onSearch = onSearchArtists,
+		onMonitorArtist = onMonitorDiscoverArtist,
+		onOpenArtist = onOpenDiscoverArtist
+	)
 
 	AurralHubDiscoverSection(
 		state = discoveryState,
@@ -355,6 +388,98 @@ private fun AurralHubContent(
 		Form(Modifier.fillMaxWidth()) {
 			FormRow {
 				Text(aurralFlowActionMessage(flowActionState.data))
+			}
+		}
+	}
+}
+
+@Composable
+private fun AurralHubArtistSearchSection(
+	query: String,
+	state: UiState<AurralArtistSearchResult?>,
+	actionState: UiState<Unit?>,
+	activeArtistId: String?,
+	canMonitorArtist: Boolean,
+	preferenceManager: PreferenceManager,
+	onQueryChange: (String) -> Unit,
+	onSearch: () -> Unit,
+	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenArtist: (AurralDiscoverArtist) -> Unit
+) {
+	AurralHubSectionTitle(stringResource(Res.string.title_aurral_search))
+	val trimmedQuery = query.trim()
+	val artists = state.data?.artists?.let { aurralHubSearchArtists(it) }.orEmpty()
+	val searching = state is UiState.Loading
+	val actionInProgress = actionState is UiState.Loading
+
+	Form(Modifier.fillMaxWidth()) {
+		FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+			TextField(
+				value = query,
+				onValueChange = onQueryChange,
+				label = { Text(stringResource(Res.string.option_aurral_artist_search)) },
+				singleLine = true,
+				enabled = !searching,
+				keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+				keyboardActions = KeyboardActions(
+					onSearch = {
+						if (trimmedQuery.isNotEmpty()) onSearch()
+					}
+				),
+				modifier = Modifier.fillMaxWidth()
+			)
+		}
+		if (artists.isNotEmpty()) {
+			artists.forEach { artist ->
+				AurralHubDiscoverArtistRow(
+					artist = artist,
+					canMonitorArtist = canMonitorArtist,
+					actionInProgress = actionInProgress,
+					active = activeArtistId == artist.id,
+					preferenceManager = preferenceManager,
+					onMonitorArtist = onMonitorArtist,
+					onOpenArtist = onOpenArtist
+				)
+			}
+		} else if (trimmedQuery.isNotEmpty() && state is UiState.Success && state.data != null) {
+			FormRow {
+				Text(stringResource(Res.string.info_aurral_search_empty))
+			}
+		}
+	}
+
+	FormButton(
+		onClick = onSearch,
+		enabled = trimmedQuery.isNotEmpty() && !searching,
+		color = MaterialTheme.colorScheme.primary
+	) {
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.Center
+		) {
+			Icon(Icons.Outlined.Search, null, modifier = Modifier.size(18.dp))
+			Spacer(Modifier.width(8.dp))
+			Text(stringResource(Res.string.title_search))
+		}
+	}
+
+	if (searching) {
+		LinearProgressIndicator(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(bottom = 16.dp)
+		)
+	}
+	if (state is UiState.Error) {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(
+					text = stringResource(
+						Res.string.info_aurral_search_failed,
+						state.error.message ?: state.error::class.simpleName ?: "Unknown error"
+					),
+					color = MaterialTheme.colorScheme.error
+				)
 			}
 		}
 	}

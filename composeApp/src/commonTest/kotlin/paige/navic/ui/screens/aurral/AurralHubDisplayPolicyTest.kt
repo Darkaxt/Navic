@@ -60,6 +60,22 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun searchArtistsDedupeByArtistIdAndCapRows() {
+		assertEquals(
+			listOf("artist-1", "artist-2"),
+			aurralHubSearchArtists(
+				listOf(
+					AurralDiscoverArtist(id = "artist-1", name = "Artist 1"),
+					AurralDiscoverArtist(id = " ARTIST-1 ", name = "Duplicate Artist 1"),
+					AurralDiscoverArtist(id = "artist-2", name = "Artist 2"),
+					AurralDiscoverArtist(id = "artist-3", name = "Artist 3")
+				),
+				limit = 2
+			).map { it.id }
+		)
+	}
+
+	@Test
 	fun summaryCardsExposeDiscoveryRequestsAndFlows() {
 		val cards = aurralHubSummaryCards(
 			AurralServiceStatus(

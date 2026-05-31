@@ -524,6 +524,33 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			artistSearch = AurralArtistSearchResult(
+				query = "Alex",
+				count = 1,
+				artists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Alex Warren"))
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val result = repository.searchArtists(" Alex ").getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.artistSearchBaseUrls)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.artistSearchRequestHeaders
+		)
+		assertEquals(listOf(AurralArtistSearchRequest(query = "Alex", limit = 12, offset = 0)), apiClient.artistSearchRequests)
+		assertEquals("Alex Warren", result.artists.single().name)
+	}
+
+	@Test
 	fun repositoryMonitorDiscoveredArtistUsesAurralArtistPayload(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralBaseUrl = "https://aurral.example.com"
@@ -813,6 +840,7 @@ class AurralRepositoryTest {
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
 		private val discovery: AurralDiscoverySummary = AurralDiscoverySummary(),
+		private val artistSearch: AurralArtistSearchResult = AurralArtistSearchResult(),
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
 		private val sessionToken: String? = null,
 		private val streamToken: String? = null
@@ -823,6 +851,9 @@ class AurralRepositoryTest {
 		val statusRequestHeaders = mutableListOf<Map<String, String>>()
 		val discoveryBaseUrls = mutableListOf<String>()
 		val discoveryRequestHeaders = mutableListOf<Map<String, String>>()
+		val artistSearchBaseUrls = mutableListOf<String>()
+		val artistSearchRequestHeaders = mutableListOf<Map<String, String>>()
+		val artistSearchRequests = mutableListOf<AurralArtistSearchRequest>()
 		val createFlowBaseUrls = mutableListOf<String>()
 		val createFlowRequestHeaders = mutableListOf<Map<String, String>>()
 		val createFlowPayloads = mutableListOf<AurralFlowCreatePayload>()
@@ -870,6 +901,17 @@ class AurralRepositoryTest {
 			discoveryBaseUrls += baseUrl
 			discoveryRequestHeaders += requestHeaders
 			return discovery
+		}
+
+		override suspend fun searchArtists(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			request: AurralArtistSearchRequest
+		): AurralArtistSearchResult {
+			artistSearchBaseUrls += baseUrl
+			artistSearchRequestHeaders += requestHeaders
+			artistSearchRequests += request
+			return artistSearch
 		}
 
 		override suspend fun fetchArtistEnrichment(
