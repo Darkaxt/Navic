@@ -17,6 +17,7 @@ import paige.navic.domain.repositories.AurralFlowCapabilities
 import paige.navic.domain.repositories.AurralFlowStats
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.ui.navigation.Screen
 
 class AurralHubDisplayPolicyTest {
 	@Test
@@ -36,6 +37,26 @@ class AurralHubDisplayPolicyTest {
 			listOf("r1", "r2", "g1"),
 			aurralHubDiscoverArtists(summary, limit = 3).map { it.id }
 		)
+	}
+
+	@Test
+	fun discoverArtistRouteTrimsRequiredFieldsAndKeepsImage() {
+		assertEquals(
+			Screen.AurralArtist(
+				artistMbid = "artist-mbid",
+				artistName = "The Artist",
+				imageUrl = "https://aurral.example.com/artist.jpg"
+			),
+			aurralArtistRoute(
+				AurralDiscoverArtist(
+					id = " artist-mbid ",
+					name = " The Artist ",
+					imageUrl = "https://aurral.example.com/artist.jpg"
+				)
+			)
+		)
+		assertNull(aurralArtistRoute(AurralDiscoverArtist(id = " ", name = "The Artist")))
+		assertNull(aurralArtistRoute(AurralDiscoverArtist(id = "artist-mbid", name = " ")))
 	}
 
 	@Test

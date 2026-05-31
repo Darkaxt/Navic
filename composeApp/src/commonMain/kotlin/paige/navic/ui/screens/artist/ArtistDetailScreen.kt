@@ -483,6 +483,9 @@ fun ArtistDetailScreen(
 									),
 									onClickLocalArtist = { localArtistId ->
 										backStack.add(Screen.ArtistDetail(localArtistId))
+									},
+									onClickAurralArtist = {
+										aurralExternalArtistRoute(row)?.let(backStack::add)
 									}
 								)
 							}
@@ -590,7 +593,8 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 private fun CarouselItemScope.AurralSimilarArtistItem(
 	row: AurralSimilarArtistRow,
 	imageRequestHeaders: Map<String, String>,
-	onClickLocalArtist: (String) -> Unit
+	onClickLocalArtist: (String) -> Unit,
+	onClickAurralArtist: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
 	val localArtistId = row.localArtistId
@@ -614,11 +618,17 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 				.fillMaxWidth()
 				.maskClip(MaterialTheme.shapes.large),
 			shape = RectangleShape,
-			onClick = localArtistId?.let { artistId ->
+			onClick = if (localArtistId != null || !row.inLibrary) {
 				{
 					platformContext.clickSound()
-					onClickLocalArtist(artistId)
+					if (localArtistId != null) {
+						onClickLocalArtist(localArtistId)
+					} else {
+						onClickAurralArtist()
+					}
 				}
+			} else {
+				null
 			}
 		)
 		Text(

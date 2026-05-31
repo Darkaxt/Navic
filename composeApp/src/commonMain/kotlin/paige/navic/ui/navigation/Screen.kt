@@ -93,6 +93,13 @@ sealed interface Screen : NavKey {
 	data object AurralHub : Screen
 	@Immutable
 	@Serializable
+	data class AurralArtist(
+		val artistMbid: String,
+		val artistName: String,
+		val imageUrl: String? = null
+	) : Screen
+	@Immutable
+	@Serializable
 	data class AurralMissingAlbum(
 		val artistId: String,
 		val artistName: String,

@@ -519,9 +519,11 @@
 	<string name="info_aurral_auth_local_or_disabled">Local bypass or disabled</string>
 	<string name="info_aurral_loading_catalog">Loading Aurral catalog...</string>
 	<string name="info_aurral_external_artist">Not in library</string>
+	<string name="info_aurral_artist_in_library">In Navidrome library</string>
 	<string name="info_aurral_match_percent">%1$d%% match</string>
 	<string name="info_aurral_request_status">Aurral: %1$s</string>
 	<string name="info_aurral_no_album_previews">No album previews available</string>
+	<string name="info_aurral_no_artist_albums">No catalog albums found yet</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>
 	<string name="option_position_top">Top</string>

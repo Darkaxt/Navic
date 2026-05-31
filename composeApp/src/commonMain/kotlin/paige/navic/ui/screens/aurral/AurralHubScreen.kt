@@ -191,6 +191,9 @@ fun AurralHubScreen() {
 					stationPlaylists = stationPlaylists,
 					preferenceManager = preferenceManager,
 					onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
+					onOpenDiscoverArtist = { artist ->
+						aurralArtistRoute(artist)?.let(backStack::add)
+					},
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
 					onStartFlow = viewModel::startFlow,
@@ -231,6 +234,7 @@ private fun AurralHubContent(
 	stationPlaylists: List<DomainPlaylist>,
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
@@ -271,7 +275,8 @@ private fun AurralHubContent(
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = status.addArtist,
 		preferenceManager = preferenceManager,
-		onMonitorArtist = onMonitorDiscoverArtist
+		onMonitorArtist = onMonitorDiscoverArtist,
+		onOpenArtist = onOpenDiscoverArtist
 	)
 
 	AurralHubFlowsSection(
@@ -362,7 +367,8 @@ private fun AurralHubDiscoverSection(
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
 	preferenceManager: PreferenceManager,
-	onMonitorArtist: (AurralDiscoverArtist) -> Unit
+	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenArtist: (AurralDiscoverArtist) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
 	val artists = state.data?.let { aurralHubDiscoverArtists(it) }.orEmpty()
@@ -381,7 +387,8 @@ private fun AurralHubDiscoverSection(
 					actionInProgress = actionInProgress,
 					active = activeArtistId == artist.id,
 					preferenceManager = preferenceManager,
-					onMonitorArtist = onMonitorArtist
+					onMonitorArtist = onMonitorArtist,
+					onOpenArtist = onOpenArtist
 				)
 			}
 		}
@@ -437,7 +444,8 @@ private fun AurralHubDiscoverArtistRow(
 	actionInProgress: Boolean,
 	active: Boolean,
 	preferenceManager: PreferenceManager,
-	onMonitorArtist: (AurralDiscoverArtist) -> Unit
+	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenArtist: (AurralDiscoverArtist) -> Unit
 ) {
 	val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 	val requestHeaders = preferenceManager.aurralRequestHeadersMap()
@@ -447,7 +455,10 @@ private fun AurralHubDiscoverArtistRow(
 		emptyMap()
 	}
 
-	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+	FormRow(
+		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+		onClick = { onOpenArtist(artist) }
+	) {
 		CoverArt(
 			modifier = Modifier.size(56.dp),
 			coverArtId = null,

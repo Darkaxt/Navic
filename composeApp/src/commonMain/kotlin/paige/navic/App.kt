@@ -70,6 +70,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
+import paige.navic.ui.screens.aurral.AurralArtistScreen
 import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
@@ -325,6 +326,9 @@ private fun entryProvider(
 		}
 		entry<Screen.AurralHub>(metadata = detailPane("root")) {
 			AurralHubScreen()
+		}
+		entry<Screen.AurralArtist>(metadata = detailPane("root")) { key ->
+			AurralArtistScreen(key)
 		}
 		entry<Screen.AurralMissingAlbum>(metadata = detailPane("root")) { key ->
 			AurralMissingAlbumScreen(key)

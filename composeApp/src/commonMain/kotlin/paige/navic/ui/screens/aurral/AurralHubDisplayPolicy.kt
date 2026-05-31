@@ -9,6 +9,7 @@ import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.ui.navigation.Screen
 
 @Immutable
 enum class AurralHubSection {
@@ -54,6 +55,16 @@ fun aurralHubDiscoverArtists(
 	(discovery.recommendations + discovery.globalTop)
 		.distinctBy { it.id.trim().lowercase() }
 		.take(limit.coerceAtLeast(0))
+
+fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
+	val artistMbid = artist.id.trim().takeIf { it.isNotEmpty() } ?: return null
+	val artistName = artist.name.trim().takeIf { it.isNotEmpty() } ?: return null
+	return Screen.AurralArtist(
+		artistMbid = artistMbid,
+		artistName = artistName,
+		imageUrl = artist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
 
 private fun aurralRequestSummary(status: AurralServiceStatus): String {
 	val active = status.acquisitionQueue.count { aurralAcquisitionProgress(it.status).active }
