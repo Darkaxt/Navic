@@ -147,6 +147,8 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * The Aurral URL defaults to blank, must start with `http://` or `https://`, include a host, use a valid numeric port when present, and omit embedded credentials, query, or fragment parts.
 * Optional Aurral username/password fields generate a Basic Auth `Authorization` header for Aurral API requests. The credentials are separate from Navidrome reverse-proxy Basic Auth.
 * The Aurral settings screen can test connectivity and show service diagnostics including backend health, version, authentication state, signed-in user, native-action permissions, Lidarr configuration, discovery recommendation count, Flow counts, shared playlist count, request count, and current Flow track state.
+* Artist pages can enrich local Navidrome artists with Aurral data when the artist has a MusicBrainz artist id: 30-second preview cards, missing release groups, request/acquisition buttons, existing request status, and Aurral similar artists. Similar artists already in the Navidrome library open the local artist page, while external-only artists are shown muted.
+* Album requests from artist pages use Aurral's acquisition pipeline and update the row to `requested` immediately. The dedicated Aurral hub will turn the same request data into a virtual acquisition queue for queued, searching, available, and failed albums.
 * Flow stream and artwork URL helpers are ready for the next playback slice and use bearer query tokens instead of sharing Navidrome proxy headers with media requests.
 * Settings search includes live Aurral rows for enabling the integration, URL, username, and password.
 
@@ -196,7 +198,7 @@ Open Settings -> Integrations and turn `MusicBrainz and Cover Art Archive` on. N
 
 ### Aurral setup
 
-Open Settings -> Integrations -> `Aurral`, enable the integration, enter your Aurral URL, and optionally enter the Aurral username/password if your backend requires auth. Use `Test connection` to verify the endpoint, then check `Service status` for health, Flow, discovery, Lidarr, and request diagnostics. Native artist/catalog browsing, acquisition marking, and Flow playback are the next Aurral slices and will use this configured connection.
+Open Settings -> Integrations -> `Aurral`, enable the integration, enter your Aurral URL, and optionally enter the Aurral username/password if your backend requires auth. Use `Test connection` to verify the endpoint, then check `Service status` for health, Flow, discovery, Lidarr, and request diagnostics. Artist pages with MusicBrainz artist ids can show Aurral previews, missing albums, request buttons, request status, and similar artists from this configured connection. The next Aurral slices are a native hub, a virtual acquisition queue, Flow/station creation, and Flow playback.
 
 ### ReplayGain loudness boost setup
 

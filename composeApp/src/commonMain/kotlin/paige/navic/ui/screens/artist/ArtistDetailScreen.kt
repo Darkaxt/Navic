@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,12 +27,15 @@ import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -43,9 +47,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -54,10 +61,18 @@ import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
+import navic.composeapp.generated.resources.action_request_album
 import navic.composeapp.generated.resources.count_albums
+import navic.composeapp.generated.resources.info_aurral_external_artist
+import navic.composeapp.generated.resources.info_aurral_loading_catalog
+import navic.composeapp.generated.resources.info_aurral_match_percent
+import navic.composeapp.generated.resources.info_aurral_request_status
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_albums
+import navic.composeapp.generated.resources.title_aurral_missing_albums
+import navic.composeapp.generated.resources.title_aurral_preview_tracks
+import navic.composeapp.generated.resources.title_aurral_similar_artists
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_similar_artists
 import org.jetbrains.compose.resources.pluralStringResource
@@ -71,8 +86,11 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
@@ -85,6 +103,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
+import paige.navic.ui.screens.artist.components.AurralPreviewTracks
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
@@ -374,22 +393,58 @@ fun ArtistDetailScreen(
 									)
 								}
 							}
-							if (state.similarArtists.isEmpty()) return@Column
+							if (state.aurralLoading) {
+								Text(
+									text = stringResource(Res.string.info_aurral_loading_catalog),
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier
+										.fillMaxWidth()
+										.padding(horizontal = 16.dp)
+								)
+							}
+							AurralPreviewTracks(
+								title = stringResource(Res.string.title_aurral_preview_tracks),
+								tracks = state.aurralPreviewTracks.toImmutableList(),
+								modifier = Modifier.fillMaxWidth()
+							)
 							ArtCarousel(
-								stringResource(Res.string.title_similar_artists),
-								state.similarArtists.toImmutableList()
-							) { artist ->
-								ArtCarouselItem(
-									coverArtId = artist.coverArtId, 
-									title = artist.name, 
-									subtitle = pluralStringResource(
-										Res.plurals.count_albums,
-										artist.albumCount,
-										artist.albumCount
-									),
-									contentDescription = null,
-									onClick = dropUnlessResumed {
-										backStack.add(Screen.ArtistDetail(artist.id))
+								stringResource(Res.string.title_aurral_missing_albums),
+								state.aurralMissingAlbums.toImmutableList()
+							) { row ->
+								AurralMissingAlbumItem(
+									row = row,
+									onRequest = { viewModel.requestAurralAlbum(it) }
+								)
+							}
+							if (state.similarArtists.isNotEmpty()) {
+								ArtCarousel(
+									stringResource(Res.string.title_similar_artists),
+									state.similarArtists.toImmutableList()
+								) { artist ->
+									ArtCarouselItem(
+										coverArtId = artist.coverArtId,
+										title = artist.name,
+										subtitle = pluralStringResource(
+											Res.plurals.count_albums,
+											artist.albumCount,
+											artist.albumCount
+										),
+										contentDescription = null,
+										onClick = dropUnlessResumed {
+											backStack.add(Screen.ArtistDetail(artist.id))
+										}
+									)
+								}
+							}
+							ArtCarousel(
+								stringResource(Res.string.title_aurral_similar_artists),
+								state.aurralSimilarArtists.toImmutableList()
+							) { row ->
+								AurralSimilarArtistItem(
+									row = row,
+									onClickLocalArtist = { localArtistId ->
+										backStack.add(Screen.ArtistDetail(localArtistId))
 									}
 								)
 							}
@@ -421,5 +476,130 @@ fun truncateText(text: String, limit: Int): String {
 		text.take(limit) + "..."
 	} else {
 		text
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CarouselItemScope.AurralMissingAlbumItem(
+	row: AurralMissingAlbumRow,
+	onRequest: (AurralMissingAlbumRow) -> Unit
+) {
+	val platformContext = LocalPlatformContext.current
+	val status = row.requestStatus?.trim()?.takeIf { it.isNotEmpty() }
+	val actionText = status?.let {
+		stringResource(Res.string.info_aurral_request_status, it)
+	} ?: stringResource(Res.string.action_request_album)
+
+	Column(
+		modifier = Modifier.fillMaxWidth()
+	) {
+		CoverArt(
+			coverArtId = null,
+			imageUrl = row.coverUrl,
+			imageCacheKey = "aurral-release-group-${row.releaseGroup.id}",
+			contentDescription = row.title,
+			fallbackKind = row.releaseGroup.primaryType ?: "Album",
+			modifier = Modifier
+				.fillMaxWidth()
+				.maskClip(MaterialTheme.shapes.large),
+			shape = RectangleShape
+		)
+		Text(
+			text = row.title,
+			style = MaterialTheme.typography.bodyMedium,
+			fontWeight = FontWeight.Medium,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
+		)
+		row.year?.let { year ->
+			Text(
+				text = year,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+				modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+			)
+		}
+		FilledTonalButton(
+			onClick = {
+				platformContext.clickSound()
+				onRequest(row)
+			},
+			enabled = row.requestable,
+			contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+			colors = ButtonDefaults.filledTonalButtonColors(
+				containerColor = MaterialTheme.colorScheme.secondaryContainer,
+				contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+				disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+				disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+			),
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(top = 8.dp)
+				.heightIn(min = 34.dp)
+		) {
+			Text(
+				text = actionText,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CarouselItemScope.AurralSimilarArtistItem(
+	row: AurralSimilarArtistRow,
+	onClickLocalArtist: (String) -> Unit
+) {
+	val platformContext = LocalPlatformContext.current
+	val localArtistId = row.localArtistId
+	val subtitle = row.matchPercent?.let {
+		stringResource(Res.string.info_aurral_match_percent, it)
+	} ?: if (row.inLibrary) null else stringResource(Res.string.info_aurral_external_artist)
+
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.alpha(if (row.inLibrary) 1f else .62f)
+	) {
+		CoverArt(
+			coverArtId = null,
+			imageUrl = row.artist.imageUrl,
+			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
+			contentDescription = row.artist.name,
+			fallbackKind = "Artist",
+			modifier = Modifier
+				.fillMaxWidth()
+				.maskClip(MaterialTheme.shapes.large),
+			shape = RectangleShape,
+			onClick = localArtistId?.let { artistId ->
+				{
+					platformContext.clickSound()
+					onClickLocalArtist(artistId)
+				}
+			}
+		)
+		Text(
+			text = row.artist.name,
+			style = MaterialTheme.typography.bodyMedium,
+			fontWeight = FontWeight.Medium,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
+		)
+		subtitle?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+			)
+		}
 	}
 }

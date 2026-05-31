@@ -23,7 +23,13 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.AurralSimilarArtistRow
+import paige.navic.domain.models.aurralMissingAlbumRows
+import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.repositories.AlbumRepository
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.PlaylistRepository
@@ -39,7 +45,12 @@ data class ArtistState(
 	val artist: DomainArtist,
 	val albums: List<DomainAlbum>,
 	val topSongs: List<DomainSong>,
-	val similarArtists: List<DomainArtist> = emptyList()
+	val similarArtists: List<DomainArtist> = emptyList(),
+	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
+	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
+	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
+	val aurralLoading: Boolean = false,
+	val aurralError: String? = null
 )
 
 class ArtistDetailViewModel(
@@ -48,6 +59,7 @@ class ArtistDetailViewModel(
 	private val artistRepository: ArtistRepository,
 	private val songRepository: SongRepository,
 	private val albumRepository: AlbumRepository,
+	private val aurralRepository: AurralRepository,
 	playlistRepository: PlaylistRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
@@ -138,11 +150,14 @@ class ArtistDetailViewModel(
 						similarArtists = initialSimilarArtists
 					)
 				)
+				loadAurralEnrichment(domainArtist, domainAlbums)
 
 				repository.fetchArtistMetadata(artistId)
 					.onSuccess { updatedArtist ->
 						val currentState = (_artistState.value as? UiState.Success)?.data
 						if (currentState != null) {
+							val shouldRefreshAurral =
+								updatedArtist.musicBrainzId != currentState.artist.musicBrainzId
 
 							val updatedSimilarArtists =
 								updatedArtist.similarArtistIds.mapNotNull { id ->
@@ -155,6 +170,9 @@ class ArtistDetailViewModel(
 									similarArtists = updatedSimilarArtists
 								)
 							)
+							if (shouldRefreshAurral) {
+								loadAurralEnrichment(updatedArtist, currentState.albums)
+							}
 						}
 					}
 					.onFailure { error ->
@@ -163,6 +181,51 @@ class ArtistDetailViewModel(
 			} catch (e: Exception) {
 				_artistState.value = UiState.Error(e)
 			}
+		}
+	}
+
+	private fun loadAurralEnrichment(
+		artist: DomainArtist,
+		albums: List<DomainAlbum>
+	) {
+		if (artist.musicBrainzId.isNullOrBlank()) return
+		viewModelScope.launch {
+			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+			_artistState.value = UiState.Success(
+				currentState.copy(
+					aurralLoading = true,
+					aurralError = null
+				)
+			)
+
+			aurralRepository.getArtistEnrichment(artist)
+				.onSuccess { enrichment ->
+					val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
+					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onSuccess
+					_artistState.value = UiState.Success(
+						latestState.copy(
+							aurralMissingAlbums = enrichment
+								?.let { aurralMissingAlbumRows(it, albums) }
+								.orEmpty(),
+							aurralSimilarArtists = enrichment
+								?.let { aurralSimilarArtistRows(it, localArtists) }
+								.orEmpty(),
+							aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
+							aurralLoading = false,
+							aurralError = null
+						)
+					)
+				}
+				.onFailure { error ->
+					Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist enrichment", error)
+					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
+					_artistState.value = UiState.Success(
+						latestState.copy(
+							aurralLoading = false,
+							aurralError = error.message ?: error::class.simpleName
+						)
+					)
+				}
 		}
 	}
 
@@ -256,6 +319,46 @@ class ArtistDetailViewModel(
 				_selectedAlbumIsStarred.value = starred
 			}
 		}
+	}
+
+	fun requestAurralAlbum(row: AurralMissingAlbumRow) {
+		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
+		viewModelScope.launch {
+			aurralRepository.requestAlbum(artist, row.releaseGroup)
+				.onSuccess {
+					updateAurralAlbumRequestStatus(row.releaseGroup.id, "requested")
+				}
+				.onFailure { error ->
+					Logger.w("ArtistDetailViewModel", "Failed to request Aurral album", error)
+					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
+					_artistState.value = UiState.Success(
+						latestState.copy(
+							aurralError = error.message ?: error::class.simpleName
+						)
+					)
+				}
+		}
+	}
+
+	private fun updateAurralAlbumRequestStatus(
+		releaseGroupId: String,
+		status: String
+	) {
+		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		_artistState.value = UiState.Success(
+			currentState.copy(
+				aurralMissingAlbums = currentState.aurralMissingAlbums.map { row ->
+					if (row.releaseGroup.id == releaseGroupId) {
+						row.copy(
+							requestStatus = status,
+							requestable = false
+						)
+					} else {
+						row
+					}
+				}
+			)
+		)
 	}
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {

@@ -9,6 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralArtistEnrichment
 
 class AurralRepositoryTest {
 	@Test
@@ -347,5 +348,21 @@ class AurralRepositoryTest {
 			statusRequestHeaders += requestHeaders
 			return serviceStatus
 		}
+
+		override suspend fun fetchArtistEnrichment(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			artistName: String
+		): AurralArtistEnrichment = AurralArtistEnrichment(
+			artistMbid = artistMbid,
+			artistName = artistName
+		)
+
+		override suspend fun requestAlbum(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			payload: AurralAlbumRequestPayload
+		) = Unit
 	}
 }

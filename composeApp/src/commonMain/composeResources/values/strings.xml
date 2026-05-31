@@ -61,6 +61,11 @@
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_aurral">Aurral</string>
 	<string name="title_aurral_service_status">Service status</string>
+	<string name="title_aurral_missing_albums">Missing from library</string>
+	<string name="title_aurral_similar_artists">Aurral similar artists</string>
+	<string name="title_aurral_preview_tracks">30s previews</string>
+	<string name="action_play_preview">Play preview</string>
+	<string name="action_pause_preview">Pause preview</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_musicbrainz_info">MusicBrainz info</string>
 	<string name="title_integrations">Integrations</string>
@@ -489,6 +494,10 @@
 	<string name="info_aurral_service_status_failed">Service status failed: %1$s</string>
 	<string name="info_aurral_auth_required">Required</string>
 	<string name="info_aurral_auth_local_or_disabled">Local bypass or disabled</string>
+	<string name="info_aurral_loading_catalog">Loading Aurral catalog...</string>
+	<string name="info_aurral_external_artist">Not in library</string>
+	<string name="info_aurral_match_percent">%1$d%% match</string>
+	<string name="info_aurral_request_status">Aurral: %1$s</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>
 	<string name="option_position_top">Top</string>
@@ -587,6 +596,7 @@
 	<string name="action_view_album">View album</string>
 	<string name="action_view_playlist">View playlist</string>
 	<string name="action_view_artist">View artist</string>
+	<string name="action_request_album">Request</string>
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_download">Download</string>
