@@ -1,6 +1,6 @@
 # Kreate Feature Transplant Audit
 
-Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). GitHub `main` was observed at `eaef513` on 2026-05-31; this matrix remains scoped to music-player behavior relevant to a Navidrome/Subsonic client and excludes YouTube Music, InnerTube, Google-account, and streaming-platform-specific behavior.
+Reference checked: `knighthat/Kreate` at `eaef5136` (`main`, pushed 2026-05-31). The `228c5e8..eaef5136` upstream delta adds a bottom-menu/action-sheet refactor for song and local-playlist actions. This matrix remains scoped to music-player behavior relevant to a Navidrome/Subsonic client and excludes YouTube Music, InnerTube, Google-account, and streaming-platform-specific behavior.
 
 ## Transplant Matrix
 
@@ -32,6 +32,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). 
 | Dedicated YouTube/InnerTube discovery pages | Skip | Replaced by Navidrome Quick Picks, queue actions, MusicBrainz, and Aurral discovery. |
 | Artist list sort sheet | Adapt | Artist lists expose Kreate-style alphabetical/starred/random plus direction controls. |
 | Playlist song sort sheet | Adapt | Playlist and Station detail pages expose manual/title/artist/album/duration sorting. |
+| Bottom song/playlist action menu | Already covered | Kreate's latest bottom-menu work mostly consolidates play next, enqueue, radio, add/remove playlist, delete playlist, go to artist/album, details, and thumbnail/tag editing. Navic already exposes the selfhosted-compatible actions through song, playlist, collection, queue, and now-playing sheets; thumbnail/tag rewrites remain skipped because Navidrome owns library metadata. |
 | Queue duration summary | Already covered | Queue sheet always shows song count plus total runtime for non-empty queues. |
 | Song-row swipe actions | Adapt | Playback settings configure add-to-queue/play-next/disabled behavior per swipe direction. |
 | Queue-row swipe actions | Adapt | Playback settings configure remove/play-next/disabled behavior per swipe direction. |
@@ -87,7 +88,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). 
 | Broad visualizer/animation variants | Skip | High UI churn; not required for the Android selfhosted-client goal. |
 | Dedicated broader Discover page | Skip | Direct Kreate behavior is YouTube/InnerTube-specific; Navic uses Quick Picks, queue actions, and Aurral instead. |
 
-Current import queue: none. The useful music-player pieces from the audited Kreate scope are either adapted, already covered by existing Navic behavior, or intentionally skipped because they depend on YouTube Music/InnerTube/Google-account behavior or would require a separate product design.
+Current import queue: none. The useful music-player pieces from the audited Kreate scope, including the current upstream bottom-menu delta, are either adapted, already covered by existing Navic behavior, or intentionally skipped because they depend on YouTube Music/InnerTube/Google-account behavior, edit metadata owned by Navidrome, or would require a separate product design.
 
 ## Already Adapted
 
@@ -127,6 +128,7 @@ Current import queue: none. The useful music-player pieces from the audited Krea
 * Quick Picks: Navic now adapts Kreate's Quick Picks/discovery idea as a Library row and song-list sort backed by local Navidrome data. It ranks synced songs by frequent plays, ratings, and recently added albums, skips transient radio entries, can exclude tracks shorter than a configured minimum duration, and keeps normal song-sheet actions including LidaClips, radio, queue, playlist, and download actions. Kreate's Quick Picks page enable setting is adapted as Appearance -> Library -> `Show Quick Picks`, and Navic adds row-size and minimum-duration selectors.
 * Artist list sorting: Navic now exposes the already-supported artist list modes through a Kreate-style top-bar sort sheet, including alphabetical, starred, random, and ascending/descending direction.
 * Playlist song sorting: Navic now adapts Kreate's playlist-song sort idea for playlist and station detail pages. Manual Navidrome order remains the default, with optional title, artist, album, duration, and direction controls.
+* Bottom action menus: Kreate's current `eaef5136` menu work makes song and local-playlist actions available from a shared bottom menu. Navic already covers the transferable Subsonic actions through existing sheets: play next, add to queue, song radio, add to playlist, remove from playlist where playlist context exists, delete playlist, go to artist/album, technical/details rows, and download/offline actions. Kreate actions that rewrite local thumbnails, rename local songs, or export YouTube/cache artifacts remain skipped because Navidrome and the selfhosted integrations own that metadata.
 * Discover queue cleanup: Navic now adapts Kreate's Discover queue cleanup as a now-playing menu action. It removes upcoming queued songs that are already starred or present in any synced playlist, keeps the current song and queue history intact, and reports how many known songs were removed.
 * Start Radio and Discover visibility: Navic now adapts Kreate's `PLAYER_ACTION_START_RADIO` and `PLAYER_ACTION_DISCOVER` visibility preferences as default-on Now Playing action settings, preserving the existing menu by default while letting users hide either action.
 * Download and Add to Playlist visibility: Navic now adapts Kreate's `PLAYER_ACTION_DOWNLOAD` and `PLAYER_ACTION_ADD_TO_PLAYLIST` preferences as default-on Now Playing action settings. Download uses the existing offline download state/actions and is hidden for transient radio streams.
