@@ -65,6 +65,7 @@ data class ArtistState(
 	val aurralMonitored: Boolean? = null,
 	val aurralArtistMbid: String? = null,
 	val aurralArtistName: String? = null,
+	val aurralArtistImageUrl: String? = null,
 	val aurralLoading: Boolean = false,
 	val aurralError: String? = null
 )
@@ -223,8 +224,8 @@ class ArtistDetailViewModel(
 				)
 			)
 
-			val discovery = aurralRepository.getDiscovery(hydrateMissingImages = false).getOrNull()
-			val aurralArtists = discovery
+			val discovery = aurralRepository.getDiscovery().getOrNull()
+			val aurralIdentities = discovery
 				?.let { summary -> aurralArtistIdentityCandidatesForLocalArtist(summary, artist) }
 				.orEmpty()
 				.ifEmpty {
@@ -237,7 +238,11 @@ class ArtistDetailViewModel(
 						)
 					}.orEmpty()
 				}
-				.map { identity ->
+			val verifiedAurralArtistImageUrl = aurralIdentities
+				.firstNotNullOfOrNull { identity ->
+					identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+				}
+			val aurralArtists = aurralIdentities.map { identity ->
 					artist.copy(
 						name = identity.name,
 						musicBrainzId = identity.mbid
@@ -302,6 +307,7 @@ class ArtistDetailViewModel(
 						aurralMonitored = enrichment?.monitored,
 						aurralArtistMbid = aurralArtist.musicBrainzId,
 						aurralArtistName = aurralArtist.name,
+						aurralArtistImageUrl = verifiedAurralArtistImageUrl,
 						aurralLoading = false,
 						aurralError = null
 					)

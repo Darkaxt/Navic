@@ -156,6 +156,7 @@ class AurralHubDisplayPolicyTest {
 				AurralDiscoverArtist(
 					id = "aurral-bond-mbid",
 					name = "Bond",
+					imageUrl = "https://assets.example.com/bond.jpg",
 					recommendedAlbums = listOf(
 						albumSearchItem(
 							id = "release-1",
@@ -171,7 +172,11 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(
 			listOf(
 				AurralArtistIdentity(mbid = "local-stale-mbid", name = "BOND"),
-				AurralArtistIdentity(mbid = "aurral-bond-mbid", name = "Bond")
+				AurralArtistIdentity(
+					mbid = "aurral-bond-mbid",
+					name = "Bond",
+					imageUrl = "https://assets.example.com/bond.jpg"
+				)
 			),
 			aurralArtistIdentityCandidatesForLocalArtist(discovery, localArtist)
 		)

@@ -31,7 +31,8 @@ data class AurralHubSummaryCard(
 @Immutable
 data class AurralArtistIdentity(
 	val mbid: String,
-	val name: String
+	val name: String,
+	val imageUrl: String? = null
 )
 
 fun aurralHubSummaryCards(status: AurralServiceStatus): List<AurralHubSummaryCard> =
@@ -138,7 +139,11 @@ fun aurralArtistIdentityCandidatesForLocalArtist(
 		val mbid = discoveredArtist.id.trim().takeIf { it.isNotEmpty() } ?: return@forEach
 		val name = discoveredArtist.name.trim().takeIf { it.isNotEmpty() } ?: localName ?: mbid
 		if (candidates.none { it.mbid.normalizedAurralKey() == mbid.normalizedAurralKey() }) {
-			candidates += AurralArtistIdentity(mbid = mbid, name = name)
+			candidates += AurralArtistIdentity(
+				mbid = mbid,
+				name = name,
+				imageUrl = discoveredArtist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+			)
 		}
 	}
 

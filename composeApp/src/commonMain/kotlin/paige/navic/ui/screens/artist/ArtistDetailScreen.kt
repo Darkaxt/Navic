@@ -223,6 +223,22 @@ fun ArtistDetailScreen(
 							missingAlbums = state.aurralMissingAlbums
 						).toImmutableList()
 					}
+					val headingImageUrl = artistDetailHeadingImageUrl(
+						artist = state.artist,
+						verifiedExternalImageUrl = state.aurralArtistImageUrl
+					)
+					val headingImageRequestHeaders = if (
+						headingImageUrl != null &&
+						headingImageUrl == state.aurralArtistImageUrl?.trim()
+					) {
+						aurralRequestHeadersForUrl(
+							baseUrl = preferenceManager.aurralBaseUrl,
+							imageUrl = headingImageUrl,
+							requestHeaders = preferenceManager.aurralRequestHeadersMap()
+						)
+					} else {
+						emptyMap()
+					}
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
 						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
@@ -246,6 +262,8 @@ fun ArtistDetailScreen(
 						ArtistDetailScreenHeading(
 							artistName = state.artist.name,
 							coverArtId = state.artist.coverArtId,
+							imageUrl = headingImageUrl,
+							imageRequestHeaders = headingImageRequestHeaders,
 							subtitle = state.artist.biography,
 							lastfm = state.artist.lastFmUrl,
 							innerPadding = contentPadding,

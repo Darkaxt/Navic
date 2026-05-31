@@ -43,6 +43,8 @@ import paige.navic.ui.screens.artist.truncateText
 fun ArtistDetailScreenHeading(
 	artistName: String,
 	coverArtId: String?,
+	imageUrl: String?,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	subtitle: String?,
 	lastfm: String?,
 	innerPadding: PaddingValues,
@@ -61,6 +63,8 @@ fun ArtistDetailScreenHeading(
 		) {
 			CoverArt(
 				coverArtId = coverArtId,
+				imageUrl = imageUrl,
+				imageRequestHeaders = imageRequestHeaders,
 				modifier = Modifier.fillMaxSize(),
 				shape = RectangleShape,
 				square = false
