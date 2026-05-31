@@ -12,6 +12,9 @@ import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.quickPickSongs
 
+private const val AlbumYearDescendingOrder =
+	"CASE WHEN year IS NULL THEN 1 ELSE 0 END ASC, year DESC, LOWER(name) ASC"
+
 // TODO: sort with sql instead
 fun ImmutableList<DomainSong>.sortedByListType(
 	listType: DomainSongListType,
@@ -46,14 +49,19 @@ fun ImmutableList<DomainSong>.sortedByListType(
 	}.toImmutableList()
 }
 
-fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
+internal data class AlbumSqlQueryParts(
+	val where: String?,
+	val orderBy: String
+)
+
+internal fun DomainAlbumListType.toSqlQueryParts(): AlbumSqlQueryParts {
 	val (where, orderBy) = when (this) {
 		DomainAlbumListType.AlphabeticalByArtist ->
 			null to "LOWER(artistName) ASC"
 		DomainAlbumListType.AlphabeticalByName ->
 			null to "LOWER(name) ASC"
 		DomainAlbumListType.Year ->
-			null to "CASE WHEN year IS NULL THEN 1 ELSE 0 END ASC, year DESC, LOWER(name) ASC"
+			null to AlbumYearDescendingOrder
 		DomainAlbumListType.Frequent ->
 			"playCount != 0" to "playCount DESC"
 		DomainAlbumListType.Highest ->
@@ -68,10 +76,15 @@ fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
 		DomainAlbumListType.Starred ->
 			"starredAt IS NOT NULL" to "starredAt ASC"
 		is DomainAlbumListType.ByGenre ->
-			"genre = ?" to "LOWER(name) ASC"
+			"genre = ?" to AlbumYearDescendingOrder
 		is DomainAlbumListType.ByYear ->
 			"COALESCE(year, 0) BETWEEN ? AND ?" to "year DESC, LOWER(name) ASC"
 	}
+	return AlbumSqlQueryParts(where, orderBy)
+}
+
+fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
+	val (where, orderBy) = toSqlQueryParts()
 
 	val sql = buildString {
 		append("SELECT * FROM AlbumEntity")
