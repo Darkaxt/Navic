@@ -28,7 +28,7 @@ class CollectionRepository(
 	suspend fun getLocalData(collectionId: String): DomainSongCollection {
 		return albumDao.getAlbumById(collectionId)?.toDomainModel()
 			?: playlistDao.getPlaylistById(collectionId)?.toDomainModel()
-			?: throw Error("Collection ID $collectionId is neither a known album or playlist")
+			?: throw UnknownCollectionException(collectionId)
 	}
 
 	private suspend fun refreshLocalData(collectionId: String): DomainSongCollection {
@@ -58,7 +58,12 @@ class CollectionRepository(
 		fullRefresh: Boolean,
 		collectionId: String
 	): Flow<UiState<DomainSongCollection>> = flow {
-		val localData = getLocalData(collectionId)
+		val localData = try {
+			getLocalData(collectionId)
+		} catch (error: Exception) {
+			emit(UiState.Error(error = error))
+			return@flow
+		}
 		if (shouldRefreshCollectionOnLoad(fullRefresh, localData)) {
 			emit(UiState.Loading(data = localData))
 			try {
@@ -83,6 +88,10 @@ class CollectionRepository(
 		return sessionManager.api.getAlbumInfo(albumId)
 	}
 }
+
+internal class UnknownCollectionException(collectionId: String) : IllegalStateException(
+	"Collection ID $collectionId is neither a known album or playlist"
+)
 
 internal fun shouldRefreshCollectionOnLoad(
 	fullRefresh: Boolean,

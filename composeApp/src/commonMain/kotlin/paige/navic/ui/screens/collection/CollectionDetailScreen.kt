@@ -60,7 +60,6 @@ import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
-import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenFooterRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRowButtons
@@ -402,8 +401,15 @@ fun CollectionDetailScreen(
 		id = deletionId,
 		onIdClear = { deletionId = null },
 		onRefresh = {
-			backStack.remove(Screen.CollectionDetail(collectionId, tab))
-			viewModel.refreshCollection(false)
+			val effect = collectionDeleteNavigationEffect(
+				endpoint = DeletionEndpoint.PLAYLIST,
+				collectionId = collectionId,
+				tab = tab
+			)
+			effect.routeToRemove?.let { backStack.remove(it) }
+			if (effect.refreshCurrentCollection) {
+				viewModel.refreshCollection(false)
+			}
 		}
 	)
 }

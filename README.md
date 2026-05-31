@@ -109,7 +109,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired `Quick Picks` on the Library screen surfaces synced Navidrome songs from frequent plays, ratings, and recently added albums, with a fallback to the rest of the local song cache. Appearance settings can hide the row, change how many Quick Picks songs are kept, or exclude tracks shorter than a chosen minimum duration.
 * Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
-* Writable normal playlists can be deleted from the playlist detail overflow menu. Aurral `[A]` station playlists stay protected from that detail delete action.
+* Writable normal playlists can be deleted from the playlist detail overflow menu. Aurral `[A]` station playlists stay protected from that detail delete action, and deleting the playlist currently being viewed removes the detail route without refreshing the deleted collection id.
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
 * Synthetic `[Unknown Artist]` entries are hidden from artist rows, artist lists, and artist search results while the underlying songs and albums remain available.
 * Album browsing defaults to release-year ordering from newest to oldest, with unknown years kept after dated albums. The same year ordering is used for artist album rows, More by Artist rows, and Aurral-merged local/missing album rows.
