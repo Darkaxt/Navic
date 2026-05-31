@@ -64,6 +64,7 @@ data class AurralMissingAlbumRow(
 data class AurralSimilarArtistRow(
 	val artist: AurralSimilarArtist,
 	val localArtistId: String?,
+	val localCoverArtId: String? = null,
 	val inLibrary: Boolean,
 	val matchPercent: Int?
 )
@@ -184,27 +185,80 @@ fun aurralAlbumAcquisitionProgress(
 fun aurralSimilarArtistRows(
 	enrichment: AurralArtistEnrichment,
 	localArtists: List<DomainArtist>
-): List<AurralSimilarArtistRow> {
-	val localByMusicBrainzId = localArtists
-		.mapNotNull { artist ->
-			artist.musicBrainzId.normalizedAurralIdOrNull()?.let { it to artist.id }
-		}
-		.toMap()
-	val localByName = localArtists
-		.mapNotNull { artist ->
-			artist.name.normalizedAurralNameOrNull()?.let { it to artist.id }
-		}
-		.toMap()
+): List<AurralSimilarArtistRow> =
+	aurralSimilarArtistRows(
+		enrichment = enrichment,
+		allLocalArtists = localArtists,
+		localSimilarArtists = emptyList()
+	)
 
-	return enrichment.similarArtists.map { artist ->
-		val localArtistId = artist.id.normalizedAurralIdOrNull()?.let(localByMusicBrainzId::get)
+fun aurralSimilarArtistRows(
+	enrichment: AurralArtistEnrichment,
+	allLocalArtists: List<DomainArtist>,
+	localSimilarArtists: List<DomainArtist>
+): List<AurralSimilarArtistRow> {
+	val localByMusicBrainzId = allLocalArtists
+		.mapNotNull { artist ->
+			artist.musicBrainzId.normalizedAurralIdOrNull()?.let { it to artist }
+		}
+		.toMap()
+	val localByName = allLocalArtists
+		.mapNotNull { artist ->
+			artist.name.normalizedAurralNameOrNull()?.let { it to artist }
+		}
+		.toMap()
+	val seenKeys = mutableSetOf<String>()
+
+	val aurralRows = enrichment.similarArtists.map { artist ->
+		val localArtist = artist.id.normalizedAurralIdOrNull()?.let(localByMusicBrainzId::get)
 			?: artist.name.normalizedAurralNameOrNull()?.let(localByName::get)
+		localArtist?.id?.let { seenKeys += "local:$it" }
+		artist.id.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
+		artist.name.normalizedAurralNameOrNull()?.let { seenKeys += "name:$it" }
 		AurralSimilarArtistRow(
 			artist = artist,
-			localArtistId = localArtistId,
-			inLibrary = localArtistId != null,
+			localArtistId = localArtist?.id,
+			localCoverArtId = localArtist?.coverArtId,
+			inLibrary = localArtist != null,
 			matchPercent = artist.matchPercent
 		)
+	}
+
+	val localRows = localSimilarArtists.mapNotNull { artist ->
+		val alreadySeen = listOfNotNull(
+			"local:${artist.id}",
+			artist.musicBrainzId.normalizedAurralIdOrNull()?.let { "mbid:$it" },
+			artist.name.normalizedAurralNameOrNull()?.let { "name:$it" }
+		).any { it in seenKeys }
+		if (alreadySeen) return@mapNotNull null
+		artist.musicBrainzId.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
+		artist.name.normalizedAurralNameOrNull()?.let { seenKeys += "name:$it" }
+		seenKeys += "local:${artist.id}"
+		AurralSimilarArtistRow(
+			artist = AurralSimilarArtist(
+				id = artist.musicBrainzId ?: artist.id,
+				name = artist.name,
+				imageUrl = artist.artistImageUrl,
+				matchPercent = null
+			),
+			localArtistId = artist.id,
+			localCoverArtId = artist.coverArtId,
+			inLibrary = true,
+			matchPercent = null
+		)
+	}
+
+	return aurralRows + localRows
+}
+
+fun aurralPreviewTracksForReleaseGroup(
+	releaseGroup: AurralReleaseGroup,
+	tracks: List<AurralPreviewTrack>
+): List<AurralPreviewTrack> {
+	val releaseTitle = releaseGroup.title.normalizedAurralAlbumTitleOrNull() ?: return emptyList()
+	return tracks.filter { track ->
+		val albumTitle = track.album.normalizedAurralAlbumTitleOrNull() ?: return@filter false
+		albumTitle == releaseTitle
 	}
 }
 
@@ -216,4 +270,10 @@ private fun String?.normalizedAurralNameOrNull(): String? =
 		?.trim()
 		?.lowercase()
 		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralAlbumTitleOrNull(): String? =
+	normalizedAurralNameOrNull()
+		?.replace(Regex("""\s*[\(\[](deluxe|expanded|bonus|remaster|anniversary|edition).*$"""), "")
+		?.trim()
 		?.takeIf { it.isNotEmpty() }

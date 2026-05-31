@@ -29,6 +29,7 @@ import com.kyant.capsule.ContinuousCapsule
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
+import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.stringResource
@@ -40,6 +41,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.Visibility
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -50,6 +52,9 @@ fun ArtistActionButtons(
 	onDeleteDownload: () -> Unit,
 	downloadStatus: DownloadStatus,
 	playEnabled: Boolean,
+	onMonitorInAurral: (() -> Unit)? = null,
+	monitorInAurralEnabled: Boolean = true,
+	monitoringInAurral: Boolean = false,
 	modifier: Modifier = Modifier
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -95,6 +100,33 @@ fun ArtistActionButtons(
 					fontSize = 16.sp,
 					fontFamily = defaultFont(round = 100f)
 				)
+			}
+		}
+
+		onMonitorInAurral?.let { monitor ->
+			OutlinedButton(
+				modifier = Modifier.size(width = 52.dp, height = 44.dp),
+				onClick = {
+					platformContext.clickSound()
+					monitor()
+				},
+				shape = ContinuousCapsule,
+				enabled = monitorInAurralEnabled && !monitoringInAurral,
+				contentPadding = PaddingValues(0.dp)
+			) {
+				if (monitoringInAurral) {
+					CircularProgressIndicator(
+						modifier = Modifier.size(24.dp),
+						strokeWidth = 2.5.dp,
+						color = MaterialTheme.colorScheme.primary
+					)
+				} else {
+					Icon(
+						imageVector = Icons.Outlined.Visibility,
+						contentDescription = stringResource(Res.string.action_monitor_artist),
+						modifier = Modifier.size(24.dp)
+					)
+				}
 			}
 		}
 

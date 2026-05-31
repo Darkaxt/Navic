@@ -40,6 +40,7 @@ internal fun aurralPermissionSummary(status: AurralServiceStatus): String {
 		if (status.accessFlow) add("Flows")
 		if (status.addArtist) add("artist requests")
 		if (status.addAlbum) add("album requests")
+		if (status.changeMonitoring) add("artist monitoring")
 	}
 	return permissions.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "No native actions"
 }

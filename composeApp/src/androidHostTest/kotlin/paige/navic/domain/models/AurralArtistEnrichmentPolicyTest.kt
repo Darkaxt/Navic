@@ -113,6 +113,89 @@ class AurralArtistEnrichmentPolicyTest {
 	}
 
 	@Test
+	fun similarArtistRowsMergeAurralAndLocalRowsWithoutDuplicates() {
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "artist-mbid",
+			artistName = "The Artist",
+			similarArtists = listOf(
+				AurralSimilarArtist(
+					id = "local-mbid",
+					name = "Local Artist",
+					imageUrl = "https://aurral.example.com/local.jpg",
+					matchPercent = 95
+				),
+				AurralSimilarArtist(
+					id = "external-mbid",
+					name = "External Artist",
+					imageUrl = "https://aurral.example.com/external.jpg",
+					matchPercent = 84
+				)
+			)
+		)
+		val localSimilarArtists = listOf(
+			DomainArtist(
+				id = "local-id",
+				name = "Local Artist",
+				coverArtId = "local-cover",
+				musicBrainzId = "local-mbid"
+			),
+			DomainArtist(
+				id = "local-only-id",
+				name = "Local Only",
+				coverArtId = "local-only-cover",
+				artistImageUrl = "https://navidrome.example.com/local-only.jpg"
+			)
+		)
+
+		val rows = aurralSimilarArtistRows(
+			enrichment = enrichment,
+			allLocalArtists = localSimilarArtists,
+			localSimilarArtists = localSimilarArtists
+		)
+
+		assertEquals(listOf("Local Artist", "External Artist", "Local Only"), rows.map { it.artist.name })
+		assertEquals(listOf("local-id", null, "local-only-id"), rows.map { it.localArtistId })
+		assertEquals(listOf("local-cover", null, "local-only-cover"), rows.map { it.localCoverArtId })
+		assertEquals(
+			listOf(
+				"https://aurral.example.com/local.jpg",
+				"https://aurral.example.com/external.jpg",
+				"https://navidrome.example.com/local-only.jpg"
+			),
+			rows.map { it.artist.imageUrl }
+		)
+	}
+
+	@Test
+	fun previewTracksForReleaseGroupUsesAlbumTitleMatchOnly() {
+		val releaseGroup = releaseGroup(id = "rg-album", title = "You'll Be Alright, Kid")
+		val tracks = listOf(
+			AurralPreviewTrack(
+				id = "same-album",
+				title = "Heaven Without You",
+				album = "You'll Be Alright, Kid",
+				previewUrl = "https://example.com/1.mp3"
+			),
+			AurralPreviewTrack(
+				id = "same-album-deluxe",
+				title = "Getaway Car",
+				album = "You'll Be Alright, Kid (Deluxe)",
+				previewUrl = "https://example.com/2.mp3"
+			),
+			AurralPreviewTrack(
+				id = "other-album",
+				title = "Carry You Home",
+				album = "You'll Be Alright, Kid (Chapter 1)",
+				previewUrl = "https://example.com/3.mp3"
+			)
+		)
+
+		val filtered = aurralPreviewTracksForReleaseGroup(releaseGroup, tracks)
+
+		assertEquals(listOf("same-album", "same-album-deluxe"), filtered.map { it.id })
+	}
+
+	@Test
 	fun albumAcquisitionProgressMatchesMusicBrainzId() {
 		val progress = aurralAlbumAcquisitionProgress(
 			albumMusicBrainzId = "ALBUM-MBID",

@@ -18,10 +18,8 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_aurral
-import navic.composeapp.generated.resources.option_aurral_hub
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.subtitle_aurral
-import navic.composeapp.generated.resources.subtitle_aurral_hub
 import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.title_integrations
@@ -31,7 +29,6 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
-import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Form
@@ -86,25 +83,6 @@ fun SettingsIntegrationsScreen() {
 							)
 						}
 						Icon(Icons.Outlined.ChevronForward, null)
-					}
-					if (preferenceManager.aurralEnabled &&
-						configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
-					) {
-						FormRow(
-							onClick = dropUnlessResumed {
-								backStack.add(Screen.AurralHub)
-							}
-						) {
-							Column(Modifier.weight(1f)) {
-								Text(stringResource(Res.string.option_aurral_hub))
-								Text(
-									stringResource(Res.string.subtitle_aurral_hub),
-									style = MaterialTheme.typography.bodyMedium,
-									color = MaterialTheme.colorScheme.onSurfaceVariant
-								)
-							}
-							Icon(Icons.Outlined.ChevronForward, null)
-						}
 					}
 					FormRow(
 						onClick = dropUnlessResumed {

@@ -172,6 +172,7 @@ fun CoverArt(
 	coverArtId: String?,
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	contentDescription: String? = null,
 	fallbackKind: String? = null,
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
@@ -191,8 +192,9 @@ fun CoverArt(
 	val sessionManager = koinInject<SessionManager>()
 	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
 	val usesServerCoverArt = resolvedImageUrl == null
+	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
-	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, resolvedRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(resolvedImageCacheKey)
@@ -201,8 +203,8 @@ fun CoverArt(
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.crossfade(crossfadeMs)
 			.apply {
-				if (usesServerCoverArt) {
-					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				if (resolvedRequestHeaders.isNotEmpty()) {
+					httpHeaders(resolvedRequestHeaders.toNetworkHeaders())
 				}
 			}
 			.build()

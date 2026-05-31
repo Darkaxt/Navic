@@ -139,6 +139,40 @@ class AurralRepositoryArtistEnrichmentTest {
 		)
 	}
 
+	@Test
+	fun releaseGroupCoverImageUrlUsesNormalizedBaseUrlHeadersAndJsonImage(): Unit = runBlocking {
+		val apiClient = FakeAurralArtistApiClient(
+			releaseGroupCoverImageUrl = "/api/image-proxy/cached-cover.webp"
+		)
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val releaseGroup = AurralReleaseGroup(
+			id = " release-group-mbid ",
+			title = " Album Title "
+		)
+
+		assertEquals(
+			"https://aurral.example.com/aurral/api/image-proxy/cached-cover.webp",
+			repository.getReleaseGroupCoverImageUrl(
+				releaseGroup = releaseGroup,
+				artistName = " The Artist "
+			).getOrThrow()
+		)
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.releaseGroupCoverBaseUrls)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.releaseGroupCoverHeaders
+		)
+		assertEquals(listOf("release-group-mbid"), apiClient.releaseGroupCoverMbids)
+		assertEquals(listOf("The Artist"), apiClient.releaseGroupCoverArtistNames)
+		assertEquals(listOf("Album Title"), apiClient.releaseGroupCoverAlbumTitles)
+	}
+
 	private fun artist(
 		musicBrainzId: String? = " artist-mbid "
 	) = DomainArtist(
@@ -151,7 +185,8 @@ class AurralRepositoryArtistEnrichmentTest {
 		private val enrichment: AurralArtistEnrichment = AurralArtistEnrichment(
 			artistMbid = "artist-mbid",
 			artistName = "The Artist"
-		)
+		),
+		private val releaseGroupCoverImageUrl: String? = null
 	) : AurralApiClient {
 		val artistEnrichmentBaseUrls = mutableListOf<String>()
 		val artistEnrichmentRequestHeaders = mutableListOf<Map<String, String>>()
@@ -160,6 +195,11 @@ class AurralRepositoryArtistEnrichmentTest {
 		val requestAlbumBaseUrls = mutableListOf<String>()
 		val requestAlbumHeaders = mutableListOf<Map<String, String>>()
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
+		val releaseGroupCoverBaseUrls = mutableListOf<String>()
+		val releaseGroupCoverHeaders = mutableListOf<Map<String, String>>()
+		val releaseGroupCoverMbids = mutableListOf<String>()
+		val releaseGroupCoverArtistNames = mutableListOf<String>()
+		val releaseGroupCoverAlbumTitles = mutableListOf<String>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -192,6 +232,28 @@ class AurralRepositoryArtistEnrichmentTest {
 			requestAlbumBaseUrls += baseUrl
 			requestAlbumHeaders += requestHeaders
 			requestAlbumPayloads += payload
+		}
+
+		override suspend fun monitorArtist(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			payload: AurralArtistMonitorPayload
+		) = Unit
+
+		override suspend fun fetchReleaseGroupCoverImageUrl(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			releaseGroupMbid: String,
+			artistName: String,
+			albumTitle: String
+		): String? {
+			releaseGroupCoverBaseUrls += baseUrl
+			releaseGroupCoverHeaders += requestHeaders
+			releaseGroupCoverMbids += releaseGroupMbid
+			releaseGroupCoverArtistNames += artistName
+			releaseGroupCoverAlbumTitles += albumTitle
+			return aurralAbsoluteImageUrl(baseUrl, releaseGroupCoverImageUrl)
 		}
 	}
 }

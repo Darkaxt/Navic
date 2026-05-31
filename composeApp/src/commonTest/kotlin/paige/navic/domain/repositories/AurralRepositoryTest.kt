@@ -155,6 +155,56 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralAbsoluteImageUrlResolvesImageProxyPathsAgainstConfiguredBaseUrl() {
+		assertEquals(
+			"https://aurral.example.com/aurral/api/image-proxy/cover.webp",
+			aurralAbsoluteImageUrl(
+				baseUrl = "https://aurral.example.com/aurral/",
+				imageUrl = "/api/image-proxy/cover.webp"
+			)
+		)
+		assertEquals(
+			"https://cdn.example.com/cover.webp",
+			aurralAbsoluteImageUrl(
+				baseUrl = "https://aurral.example.com",
+				imageUrl = "https://cdn.example.com/cover.webp"
+			)
+		)
+		assertNull(aurralAbsoluteImageUrl("aurral.example.com", "/api/image-proxy/cover.webp"))
+		assertNull(aurralAbsoluteImageUrl("https://aurral.example.com", " "))
+	}
+
+	@Test
+	fun aurralRequestHeadersForUrlOnlyUsesHeadersForAurralHostedImages() {
+		val headers = mapOf("Authorization" to "Basic secret")
+
+		assertEquals(
+			headers,
+			aurralRequestHeadersForUrl(
+				baseUrl = "https://aurral.example.com/aurral",
+				imageUrl = "https://aurral.example.com/aurral/api/image-proxy/cover.webp",
+				requestHeaders = headers
+			)
+		)
+		assertEquals(
+			emptyMap(),
+			aurralRequestHeadersForUrl(
+				baseUrl = "https://aurral.example.com/aurral",
+				imageUrl = "https://cdn.example.com/cover.webp",
+				requestHeaders = headers
+			)
+		)
+		assertEquals(
+			emptyMap(),
+			aurralRequestHeadersForUrl(
+				baseUrl = "aurral.example.com",
+				imageUrl = "https://aurral.example.com/api/image-proxy/cover.webp",
+				requestHeaders = headers
+			)
+		)
+	}
+
+	@Test
 	fun aurralConnectionResultClassifiesReachabilityAndAuthFailures() {
 		assertEquals(
 			AurralConnectionResult.Connected,
@@ -414,5 +464,20 @@ class AurralRepositoryTest {
 			requestHeaders: Map<String, String>,
 			payload: AurralAlbumRequestPayload
 		) = Unit
+
+		override suspend fun monitorArtist(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			payload: AurralArtistMonitorPayload
+		) = Unit
+
+		override suspend fun fetchReleaseGroupCoverImageUrl(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			releaseGroupMbid: String,
+			artistName: String,
+			albumTitle: String
+		): String? = null
 	}
 }

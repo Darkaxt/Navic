@@ -10,6 +10,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -124,6 +125,62 @@ class AurralRepository(
 			Logger.w(TAG, "Aurral album request failed for $albumName", error)
 		}
 	}
+
+	suspend fun monitorArtist(artist: DomainArtist): Result<Unit> {
+		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist name is required."))
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val payload = AurralArtistMonitorPayload(
+			foreignArtistId = artistMbid,
+			artistName = artistName,
+			monitorOption = "all",
+			monitored = true
+		)
+
+		return runCatching {
+			apiClient.monitorArtist(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				payload = payload
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist monitoring failed for $artistName", error)
+		}
+	}
+
+	suspend fun getReleaseGroupCoverImageUrl(
+		releaseGroup: AurralReleaseGroup,
+		artistName: String
+	): Result<String?> {
+		val releaseGroupMbid = releaseGroup.id.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(null)
+		val albumTitle = releaseGroup.title.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(null)
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.fetchReleaseGroupCoverImageUrl(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				releaseGroupMbid = releaseGroupMbid,
+				artistName = artistName.trim(),
+				albumTitle = albumTitle
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral release group cover failed for $albumTitle", error)
+		}
+	}
 }
 
 interface AurralApiClient {
@@ -149,6 +206,21 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>,
 		payload: AurralAlbumRequestPayload
 	)
+
+	suspend fun monitorArtist(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		payload: AurralArtistMonitorPayload
+	)
+
+	suspend fun fetchReleaseGroupCoverImageUrl(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		releaseGroupMbid: String,
+		artistName: String,
+		albumTitle: String
+	): String?
 }
 
 private class KtorAurralApiClient : AurralApiClient {
@@ -356,6 +428,67 @@ private class KtorAurralApiClient : AurralApiClient {
 			error(aurralHttpErrorMessage("Aurral album request", response.status))
 		}
 	}
+
+	override suspend fun monitorArtist(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		payload: AurralArtistMonitorPayload
+	) {
+		val artistEndpoint = aurralEndpoint(baseUrl, "api/library/artists/${encodeUrlComponent(artistMbid)}")
+		val existingResponse = client.get(artistEndpoint) {
+			aurralJsonRequest(requestHeaders)
+		}
+		if (existingResponse.status.isSuccess()) {
+			val updateResponse = client.put(artistEndpoint) {
+				aurralJsonRequest(requestHeaders)
+				header("Content-Type", ContentType.Application.Json.toString())
+				setBody(payload.toMonitoringUpdatePayload())
+			}
+			if (updateResponse.status.isSuccess()) return
+			error(aurralHttpErrorMessage("Aurral artist monitoring", updateResponse.status))
+		}
+		if (existingResponse.status != HttpStatusCode.NotFound) {
+			error(aurralHttpErrorMessage("Aurral artist lookup", existingResponse.status))
+		}
+
+		val addResponse = client.post(aurralEndpoint(baseUrl, "api/library/artists")) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(payload)
+		}
+		if (!addResponse.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral artist add", addResponse.status))
+		}
+	}
+
+	override suspend fun fetchReleaseGroupCoverImageUrl(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		releaseGroupMbid: String,
+		artistName: String,
+		albumTitle: String
+	): String? {
+		val response = client.get(
+			aurralEndpoint(
+				baseUrl,
+				"api/artists/release-group/${encodeUrlComponent(releaseGroupMbid)}/cover"
+			)
+		) {
+			aurralJsonRequest(requestHeaders)
+			artistName.takeIf { it.isNotBlank() }?.let { parameter("artistName", it) }
+			albumTitle.takeIf { it.isNotBlank() }?.let { parameter("albumTitle", it) }
+		}
+		return when {
+			response.status.isSuccess() -> response
+				.body<AurralReleaseGroupCoverDto>()
+				.images
+				.firstNotNullOfOrNull { image -> aurralAbsoluteImageUrl(baseUrl, image.image) }
+			response.status == HttpStatusCode.Unauthorized -> null
+			response.status == HttpStatusCode.Forbidden -> null
+			else -> null
+		}
+	}
 }
 
 private fun HttpRequestBuilder.aurralJsonRequest(
@@ -383,6 +516,7 @@ data class AurralServiceStatus(
 	val accessFlow: Boolean = false,
 	val addArtist: Boolean = false,
 	val addAlbum: Boolean = false,
+	val changeMonitoring: Boolean = false,
 	val lidarrConfigured: Boolean = false,
 	val discoveryRecommendationsCount: Int = 0,
 	val discoveryUpdating: Boolean = false,
@@ -424,6 +558,20 @@ data class AurralAlbumRequestPayload(
 )
 
 @Serializable
+data class AurralArtistMonitorPayload(
+	@SerialName("foreignArtistId") val foreignArtistId: String,
+	val artistName: String,
+	val monitorOption: String = "all",
+	val monitored: Boolean = true
+)
+
+@Serializable
+private data class AurralArtistMonitoringUpdatePayload(
+	val monitored: Boolean = true,
+	val monitorOption: String = "all"
+)
+
+@Serializable
 internal data class AurralHealthDto(
 	val status: String = "unknown",
 	@SerialName("appVersion") val appVersion: String? = null,
@@ -458,7 +606,8 @@ internal data class AurralUserDto(
 internal data class AurralPermissionsDto(
 	@SerialName("accessFlow") val accessFlow: Boolean = false,
 	@SerialName("addArtist") val addArtist: Boolean = false,
-	@SerialName("addAlbum") val addAlbum: Boolean = false
+	@SerialName("addAlbum") val addAlbum: Boolean = false,
+	@SerialName("changeMonitoring") val changeMonitoring: Boolean = false
 )
 
 @Serializable
@@ -551,6 +700,16 @@ internal data class AurralSimilarArtistsDto(
 )
 
 @Serializable
+internal data class AurralReleaseGroupCoverDto(
+	val images: List<AurralReleaseGroupCoverImageDto> = emptyList()
+)
+
+@Serializable
+internal data class AurralReleaseGroupCoverImageDto(
+	val image: String? = null
+)
+
+@Serializable
 internal data class AurralSimilarArtistDto(
 	val id: String? = null,
 	val name: String? = null,
@@ -576,6 +735,7 @@ internal fun aurralServiceStatus(
 		accessFlow = user?.permissions?.accessFlow == true,
 		addArtist = user?.permissions?.addArtist == true,
 		addAlbum = user?.permissions?.addAlbum == true,
+		changeMonitoring = user?.permissions?.changeMonitoring == true,
 		lidarrConfigured = health.lidarrConfigured || health.rootFolderConfigured,
 		discoveryRecommendationsCount = health.discovery?.recommendationsCount ?: 0,
 		discoveryUpdating = health.discovery?.isUpdating == true,
@@ -624,6 +784,12 @@ private fun AurralRequestDto.resolvedAlbumMbid(): String? =
 private fun AurralRequestDto.resolvedAlbumName(): String? =
 	albumName?.trim()?.takeIf { it.isNotEmpty() }
 		?: name?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun AurralArtistMonitorPayload.toMonitoringUpdatePayload(): AurralArtistMonitoringUpdatePayload =
+	AurralArtistMonitoringUpdatePayload(
+		monitored = monitored,
+		monitorOption = monitorOption
+	)
 
 internal fun aurralArtistEnrichment(
 	baseUrl: String,
@@ -794,6 +960,39 @@ internal fun aurralReleaseGroupCoverUrl(
 		"api/artists/release-group/${encodeUrlComponent(trimmedReleaseGroupMbid)}/cover"
 	)
 	return if (query.isEmpty()) endpoint else "$endpoint?$query"
+}
+
+internal fun aurralAbsoluteImageUrl(
+	baseUrl: String,
+	imageUrl: String?
+): String? {
+	val trimmedImageUrl = imageUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	if (
+		trimmedImageUrl.startsWith("http://", ignoreCase = true) ||
+		trimmedImageUrl.startsWith("https://", ignoreCase = true)
+	) {
+		return trimmedImageUrl
+	}
+	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl)?.trimEnd('/') ?: return null
+	return when {
+		trimmedImageUrl.startsWith("/") -> configuredBaseUrl + trimmedImageUrl
+		else -> "$configuredBaseUrl/${trimmedImageUrl.trimStart('/')}"
+	}
+}
+
+internal fun aurralRequestHeadersForUrl(
+	baseUrl: String,
+	imageUrl: String?,
+	requestHeaders: Map<String, String>
+): Map<String, String> {
+	if (requestHeaders.isEmpty()) return emptyMap()
+	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl)?.trimEnd('/') ?: return emptyMap()
+	val trimmedImageUrl = imageUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyMap()
+	return if (trimmedImageUrl.startsWith("$configuredBaseUrl/", ignoreCase = true)) {
+		requestHeaders
+	} else {
+		emptyMap()
+	}
 }
 
 internal fun aurralConnectionResult(

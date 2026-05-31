@@ -103,6 +103,9 @@ class ArtistDetailViewModel(
 	private val _selectedAlbumRating = MutableStateFlow(0)
 	val selectedAlbumRating = _selectedAlbumRating.asStateFlow()
 
+	private val _monitoringInAurral = MutableStateFlow(false)
+	val monitoringInAurral = _monitoringInAurral.asStateFlow()
+
 	val isOnline = connectivityManager.isOnline
 
 	val allDownloads = downloadManager.allDownloads
@@ -212,7 +215,13 @@ class ArtistDetailViewModel(
 								.orEmpty(),
 							aurralAlbumRequests = enrichment?.requests.orEmpty(),
 							aurralSimilarArtists = enrichment
-								?.let { aurralSimilarArtistRows(it, localArtists) }
+								?.let {
+									aurralSimilarArtistRows(
+										enrichment = it,
+										allLocalArtists = localArtists,
+										localSimilarArtists = latestState.similarArtists
+									)
+								}
 								.orEmpty(),
 							aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
 							aurralLoading = false,
@@ -376,6 +385,30 @@ class ArtistDetailViewModel(
 				}
 			)
 		)
+	}
+
+	fun monitorArtistInAurral() {
+		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
+		viewModelScope.launch {
+			_monitoringInAurral.value = true
+			aurralRepository.monitorArtist(artist)
+				.onSuccess {
+					val latestState = (_artistState.value as? UiState.Success)?.data
+					if (latestState != null) {
+						_artistState.value = UiState.Success(latestState.copy(aurralError = null))
+					}
+				}
+				.onFailure { error ->
+					Logger.w("ArtistDetailViewModel", "Failed to monitor artist in Aurral", error)
+					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
+					_artistState.value = UiState.Success(
+						latestState.copy(
+							aurralError = error.message ?: error::class.simpleName
+						)
+					)
+				}
+			_monitoringInAurral.value = false
+		}
 	}
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
