@@ -5,6 +5,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
@@ -65,6 +66,25 @@ fun aurralHubSearchArtists(
 		.distinctBy { it.id.trim().lowercase() }
 		.take(limit.coerceAtLeast(0))
 
+fun aurralHubSearchAlbums(
+	albums: List<AurralAlbumSearchItem>,
+	limit: Int = 8
+): List<AurralAlbumSearchItem> =
+	albums
+		.filter { album ->
+			album.id.isNotBlank() &&
+				album.title.isNotBlank() &&
+				album.artistName.isNotBlank() &&
+				album.artistMbid.isNotBlank()
+		}
+		.distinctBy { it.id.trim().lowercase() }
+		.sortedWith(
+			compareBy<AurralAlbumSearchItem> { it.releaseDate.aurralSearchYearOrNull() == null }
+				.thenByDescending { it.releaseDate.aurralSearchYearOrNull() ?: Int.MIN_VALUE }
+				.thenBy { it.title.trim().lowercase() }
+		)
+		.take(limit.coerceAtLeast(0))
+
 fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
 	val artistMbid = artist.id.trim().takeIf { it.isNotEmpty() } ?: return null
 	val artistName = artist.name.trim().takeIf { it.isNotEmpty() } ?: return null
@@ -72,6 +92,25 @@ fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
 		artistMbid = artistMbid,
 		artistName = artistName,
 		imageUrl = artist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
+fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAlbum? {
+	val releaseGroupId = album.id.trim().takeIf { it.isNotEmpty() } ?: return null
+	val title = album.title.trim().takeIf { it.isNotEmpty() } ?: return null
+	val artistMbid = album.artistMbid.trim().takeIf { it.isNotEmpty() } ?: return null
+	val artistName = album.artistName.trim().takeIf { it.isNotEmpty() } ?: return null
+	return Screen.AurralMissingAlbum(
+		artistId = artistMbid,
+		artistName = artistName,
+		artistMbid = artistMbid,
+		releaseGroupId = releaseGroupId,
+		title = title,
+		year = album.releaseDate.aurralSearchYearOrNull()?.toString(),
+		primaryType = album.primaryType?.trim()?.takeIf { it.isNotEmpty() }
+			?: album.secondaryTypes.firstOrNull(),
+		coverUrl = album.coverUrl?.trim()?.takeIf { it.isNotEmpty() },
+		requestStatus = album.status?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
 
@@ -209,3 +248,10 @@ private fun String.normalizedAurralFlowStationName(): String? =
 		.lowercase()
 		.replace(Regex("""\s+"""), " ")
 		.takeIf { it.isNotEmpty() }
+
+private fun String?.aurralSearchYearOrNull(): Int? =
+	this
+		?.trim()
+		?.take(4)
+		?.takeIf { value -> value.length == 4 && value.all { it.isDigit() } }
+		?.toIntOrNull()

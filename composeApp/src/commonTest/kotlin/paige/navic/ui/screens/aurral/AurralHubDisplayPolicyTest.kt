@@ -11,6 +11,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowCapabilities
@@ -73,6 +74,55 @@ class AurralHubDisplayPolicyTest {
 				limit = 2
 			).map { it.id }
 		)
+	}
+
+	@Test
+	fun searchAlbumsDedupeSortByYearRecentToOldestAndCapRows() {
+		assertEquals(
+			listOf("release-2024", "release-2020-a", "release-2020-b", "release-unknown"),
+			aurralHubSearchAlbums(
+				listOf(
+					albumSearchItem(id = "release-unknown", title = "No Date", releaseDate = null),
+					albumSearchItem(id = "release-2020-b", title = "Beta", releaseDate = "2020-02-01"),
+					albumSearchItem(id = "release-2024", title = "Recent", releaseDate = "2024-01-01"),
+					albumSearchItem(id = " RELEASE-2024 ", title = "Duplicate Recent", releaseDate = "2024-05-01"),
+					albumSearchItem(id = "release-2020-a", title = "Alpha", releaseDate = "2020")
+				),
+				limit = 4
+			).map { it.id.trim() }
+		)
+	}
+
+	@Test
+	fun albumSearchRouteUsesNativeMissingAlbumPage() {
+		assertEquals(
+			Screen.AurralMissingAlbum(
+				artistId = "artist-mbid",
+				artistName = "IU",
+				artistMbid = "artist-mbid",
+				releaseGroupId = "release-mbid",
+				title = "Celebrity",
+				year = "2021",
+				primaryType = "Single",
+				coverUrl = "https://aurral.example.com/cover.jpg",
+				requestStatus = "missing"
+			),
+			aurralAlbumSearchRoute(
+				AurralAlbumSearchItem(
+					id = " release-mbid ",
+					title = " Celebrity ",
+					artistName = " IU ",
+					artistMbid = " artist-mbid ",
+					releaseDate = "2021-01-27",
+					primaryType = "Single",
+					coverUrl = "https://aurral.example.com/cover.jpg",
+					status = "missing"
+				)
+			)
+		)
+		assertNull(aurralAlbumSearchRoute(albumSearchItem(id = " ", title = "Album")))
+		assertNull(aurralAlbumSearchRoute(albumSearchItem(id = "release", title = " ")))
+		assertNull(aurralAlbumSearchRoute(albumSearchItem(id = "release", title = "Album", artistMbid = " ")))
 	}
 
 	@Test
@@ -298,5 +348,19 @@ class AurralHubDisplayPolicyTest {
 		coverArtId = null,
 		musicBrainzId = null,
 		explicitStatus = DomainExplicitStatus.Unknown
+	)
+
+	private fun albumSearchItem(
+		id: String,
+		title: String,
+		artistName: String = "Artist",
+		artistMbid: String = "artist-mbid",
+		releaseDate: String? = null
+	) = AurralAlbumSearchItem(
+		id = id,
+		title = title,
+		artistName = artistName,
+		artistMbid = artistMbid,
+		releaseDate = releaseDate
 	)
 }

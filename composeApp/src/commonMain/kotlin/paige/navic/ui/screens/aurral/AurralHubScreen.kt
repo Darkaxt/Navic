@@ -48,7 +48,11 @@ import navic.composeapp.generated.resources.action_open_station
 import navic.composeapp.generated.resources.action_play_flow
 import navic.composeapp.generated.resources.action_play_station
 import navic.composeapp.generated.resources.action_refresh
+import navic.composeapp.generated.resources.action_search_aurral_albums
+import navic.composeapp.generated.resources.action_search_aurral_artists
 import navic.composeapp.generated.resources.action_start_aurral_flow
+import navic.composeapp.generated.resources.info_aurral_album_search_empty
+import navic.composeapp.generated.resources.info_aurral_album_search_failed
 import navic.composeapp.generated.resources.info_aurral_flow_action_failed
 import navic.composeapp.generated.resources.info_aurral_flow_action_queued
 import navic.composeapp.generated.resources.info_aurral_flow_action_updated
@@ -74,7 +78,6 @@ import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_flows
 import navic.composeapp.generated.resources.title_aurral_requests
 import navic.composeapp.generated.resources.title_aurral_search
-import navic.composeapp.generated.resources.title_search
 import navic.composeapp.generated.resources.option_aurral_artist_search
 import navic.composeapp.generated.resources.option_aurral_flow_name
 import navic.composeapp.generated.resources.option_aurral_flow_size
@@ -89,6 +92,8 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralArtistSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
@@ -127,6 +132,7 @@ fun AurralHubScreen() {
 	val discovery by viewModel.discovery.collectAsStateWithLifecycle()
 	val artistSearchQuery by viewModel.artistSearchQuery.collectAsStateWithLifecycle()
 	val artistSearch by viewModel.artistSearch.collectAsStateWithLifecycle()
+	val albumSearch by viewModel.albumSearch.collectAsStateWithLifecycle()
 	val flowActionState by viewModel.flowActionState.collectAsStateWithLifecycle()
 	val discoverActionState by viewModel.discoverActionState.collectAsStateWithLifecycle()
 	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
@@ -198,6 +204,7 @@ fun AurralHubScreen() {
 					discoveryState = discovery,
 					artistSearchQuery = artistSearchQuery,
 					artistSearchState = artistSearch,
+					albumSearchState = albumSearch,
 					flowActionState = flowActionState,
 					discoverActionState = discoverActionState,
 					activeFlowActionId = activeFlowActionId,
@@ -208,8 +215,12 @@ fun AurralHubScreen() {
 					onOpenDiscoverArtist = { artist ->
 						aurralArtistRoute(artist)?.let(backStack::add)
 					},
+					onOpenSearchAlbum = { album ->
+						aurralAlbumSearchRoute(album)?.let(backStack::add)
+					},
 					onArtistSearchQueryChange = viewModel::updateArtistSearchQuery,
 					onSearchArtists = viewModel::searchArtists,
+					onSearchAlbums = viewModel::searchAlbums,
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
 					onStartFlow = viewModel::startFlow,
@@ -245,6 +256,7 @@ private fun AurralHubContent(
 	discoveryState: UiState<AurralDiscoverySummary?>,
 	artistSearchQuery: String,
 	artistSearchState: UiState<AurralArtistSearchResult?>,
+	albumSearchState: UiState<AurralAlbumSearchResult?>,
 	flowActionState: UiState<AurralFlowActionResult?>,
 	discoverActionState: UiState<Unit?>,
 	activeFlowActionId: String?,
@@ -253,8 +265,10 @@ private fun AurralHubContent(
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenSearchAlbum: (AurralAlbumSearchItem) -> Unit,
 	onArtistSearchQueryChange: (String) -> Unit,
 	onSearchArtists: () -> Unit,
+	onSearchAlbums: () -> Unit,
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
@@ -291,15 +305,18 @@ private fun AurralHubContent(
 
 	AurralHubArtistSearchSection(
 		query = artistSearchQuery,
-		state = artistSearchState,
+		artistState = artistSearchState,
+		albumState = albumSearchState,
 		actionState = discoverActionState,
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = status.addArtist,
 		preferenceManager = preferenceManager,
 		onQueryChange = onArtistSearchQueryChange,
-		onSearch = onSearchArtists,
+		onSearchArtists = onSearchArtists,
+		onSearchAlbums = onSearchAlbums,
 		onMonitorArtist = onMonitorDiscoverArtist,
-		onOpenArtist = onOpenDiscoverArtist
+		onOpenArtist = onOpenDiscoverArtist,
+		onOpenAlbum = onOpenSearchAlbum
 	)
 
 	AurralHubDiscoverSection(
@@ -396,20 +413,26 @@ private fun AurralHubContent(
 @Composable
 private fun AurralHubArtistSearchSection(
 	query: String,
-	state: UiState<AurralArtistSearchResult?>,
+	artistState: UiState<AurralArtistSearchResult?>,
+	albumState: UiState<AurralAlbumSearchResult?>,
 	actionState: UiState<Unit?>,
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
 	preferenceManager: PreferenceManager,
 	onQueryChange: (String) -> Unit,
-	onSearch: () -> Unit,
+	onSearchArtists: () -> Unit,
+	onSearchAlbums: () -> Unit,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
-	onOpenArtist: (AurralDiscoverArtist) -> Unit
+	onOpenArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenAlbum: (AurralAlbumSearchItem) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_search))
 	val trimmedQuery = query.trim()
-	val artists = state.data?.artists?.let { aurralHubSearchArtists(it) }.orEmpty()
-	val searching = state is UiState.Loading
+	val artists = artistState.data?.artists?.let { aurralHubSearchArtists(it) }.orEmpty()
+	val albums = albumState.data?.albums?.let { aurralHubSearchAlbums(it) }.orEmpty()
+	val searchingArtists = artistState is UiState.Loading
+	val searchingAlbums = albumState is UiState.Loading
+	val searching = searchingArtists || searchingAlbums
 	val actionInProgress = actionState is UiState.Loading
 
 	Form(Modifier.fillMaxWidth()) {
@@ -423,7 +446,7 @@ private fun AurralHubArtistSearchSection(
 				keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
 				keyboardActions = KeyboardActions(
 					onSearch = {
-						if (trimmedQuery.isNotEmpty()) onSearch()
+						if (trimmedQuery.isNotEmpty()) onSearchArtists()
 					}
 				),
 				modifier = Modifier.fillMaxWidth()
@@ -441,26 +464,42 @@ private fun AurralHubArtistSearchSection(
 					onOpenArtist = onOpenArtist
 				)
 			}
-		} else if (trimmedQuery.isNotEmpty() && state is UiState.Success && state.data != null) {
+		} else if (trimmedQuery.isNotEmpty() && artistState is UiState.Success && artistState.data != null) {
 			FormRow {
 				Text(stringResource(Res.string.info_aurral_search_empty))
 			}
 		}
+		if (albums.isNotEmpty()) {
+			albums.forEach { album ->
+				AurralHubAlbumSearchRow(
+					album = album,
+					preferenceManager = preferenceManager,
+					onOpenAlbum = onOpenAlbum
+				)
+			}
+		} else if (trimmedQuery.isNotEmpty() && albumState is UiState.Success && albumState.data != null) {
+			FormRow {
+				Text(stringResource(Res.string.info_aurral_album_search_empty))
+			}
+		}
 	}
 
-	FormButton(
-		onClick = onSearch,
-		enabled = trimmedQuery.isNotEmpty() && !searching,
-		color = MaterialTheme.colorScheme.primary
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.spacedBy(8.dp)
 	) {
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.Center
-		) {
-			Icon(Icons.Outlined.Search, null, modifier = Modifier.size(18.dp))
-			Spacer(Modifier.width(8.dp))
-			Text(stringResource(Res.string.title_search))
-		}
+		AurralSearchButton(
+			text = stringResource(Res.string.action_search_aurral_artists),
+			onClick = onSearchArtists,
+			enabled = trimmedQuery.isNotEmpty() && !searchingArtists,
+			modifier = Modifier.weight(1f)
+		)
+		AurralSearchButton(
+			text = stringResource(Res.string.action_search_aurral_albums),
+			onClick = onSearchAlbums,
+			enabled = trimmedQuery.isNotEmpty() && !searchingAlbums,
+			modifier = Modifier.weight(1f)
+		)
 	}
 
 	if (searching) {
@@ -470,18 +509,57 @@ private fun AurralHubArtistSearchSection(
 				.padding(bottom = 16.dp)
 		)
 	}
-	if (state is UiState.Error) {
+	if (artistState is UiState.Error) {
 		Form(Modifier.fillMaxWidth()) {
 			FormRow {
 				Text(
 					text = stringResource(
 						Res.string.info_aurral_search_failed,
-						state.error.message ?: state.error::class.simpleName ?: "Unknown error"
+						artistState.error.message ?: artistState.error::class.simpleName ?: "Unknown error"
 					),
 					color = MaterialTheme.colorScheme.error
 				)
 			}
 		}
+	}
+	if (albumState is UiState.Error) {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(
+					text = stringResource(
+						Res.string.info_aurral_album_search_failed,
+						albumState.error.message ?: albumState.error::class.simpleName ?: "Unknown error"
+					),
+					color = MaterialTheme.colorScheme.error
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun AurralSearchButton(
+	text: String,
+	onClick: () -> Unit,
+	enabled: Boolean,
+	modifier: Modifier = Modifier
+) {
+	FormRow(
+		modifier = modifier,
+		onClick = if (enabled) onClick else null,
+		horizontalArrangement = Arrangement.Center,
+		contentPadding = PaddingValues(14.dp),
+		rounding = 5.dp,
+		color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = .5f)
+	) {
+		Icon(
+			Icons.Outlined.Search,
+			null,
+			modifier = Modifier.size(18.dp),
+			tint = MaterialTheme.colorScheme.onPrimary
+		)
+		Spacer(Modifier.width(8.dp))
+		Text(text, color = MaterialTheme.colorScheme.onPrimary)
 	}
 }
 
@@ -626,6 +704,54 @@ private fun AurralHubDiscoverArtistRow(
 	}
 }
 
+@Composable
+private fun AurralHubAlbumSearchRow(
+	album: AurralAlbumSearchItem,
+	preferenceManager: PreferenceManager,
+	onOpenAlbum: (AurralAlbumSearchItem) -> Unit
+) {
+	val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+	val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+	val imageRequestHeaders = if (baseUrl != null) {
+		aurralRequestHeadersForUrl(baseUrl, album.coverUrl, requestHeaders)
+	} else {
+		emptyMap()
+	}
+
+	FormRow(
+		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+		onClick = { onOpenAlbum(album) }
+	) {
+		CoverArt(
+			modifier = Modifier.size(56.dp),
+			coverArtId = null,
+			imageUrl = album.coverUrl,
+			imageRequestHeaders = imageRequestHeaders,
+			contentDescription = album.title,
+			fallbackKind = album.primaryType ?: "Album"
+		)
+		Column(
+			modifier = Modifier
+				.weight(1f)
+				.padding(start = 12.dp)
+		) {
+			Text(
+				text = album.title,
+				fontWeight = FontWeight.Medium,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+			Text(
+				text = aurralAlbumSearchDetail(album),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+	}
+}
+
 private fun aurralDiscoverArtistDetail(artist: AurralDiscoverArtist): String {
 	val tags = artist.matchedTags.ifEmpty { artist.tags }.take(3)
 	return listOfNotNull(
@@ -635,6 +761,23 @@ private fun aurralDiscoverArtistDetail(artist: AurralDiscoverArtist): String {
 		?: artist.discoveryTier
 		?: artist.sourceType
 		?: ""
+}
+
+private fun aurralAlbumSearchDetail(album: AurralAlbumSearchItem): String {
+	val year = album.releaseDate?.trim()?.take(4)?.takeIf { value ->
+		value.length == 4 && value.all { it.isDigit() }
+	}
+	val type = album.primaryType ?: album.secondaryTypes.firstOrNull()
+	val status = when {
+		album.inLibrary -> "in library"
+		else -> album.status
+	}
+	return listOfNotNull(
+		album.artistName,
+		year,
+		type,
+		status
+	).joinToString(" • ")
 }
 
 @Composable

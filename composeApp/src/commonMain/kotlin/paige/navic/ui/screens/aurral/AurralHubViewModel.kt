@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import paige.navic.domain.repositories.AurralArtistSearchResult
+import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.models.AurralFlowSongIdPrefix
@@ -41,6 +42,9 @@ class AurralHubViewModel(
 	private val _artistSearch = MutableStateFlow<UiState<AurralArtistSearchResult?>>(UiState.Success(null))
 	val artistSearch = _artistSearch.asStateFlow()
 
+	private val _albumSearch = MutableStateFlow<UiState<AurralAlbumSearchResult?>>(UiState.Success(null))
+	val albumSearch = _albumSearch.asStateFlow()
+
 	private val _flowActionState = MutableStateFlow<UiState<AurralFlowActionResult?>>(UiState.Success(null))
 	val flowActionState = _flowActionState.asStateFlow()
 
@@ -61,6 +65,7 @@ class AurralHubViewModel(
 		_discovery.value = UiState.Success(null)
 		_artistSearchQuery.value = ""
 		_artistSearch.value = UiState.Success(null)
+		_albumSearch.value = UiState.Success(null)
 		_flowActionState.value = UiState.Success(null)
 		_discoverActionState.value = UiState.Success(null)
 		_activeFlowActionId.value = null
@@ -80,6 +85,7 @@ class AurralHubViewModel(
 		_artistSearchQuery.value = query
 		if (query.isBlank()) {
 			_artistSearch.value = UiState.Success(null)
+			_albumSearch.value = UiState.Success(null)
 		}
 	}
 
@@ -97,6 +103,24 @@ class AurralHubViewModel(
 			_artistSearch.value = result.fold(
 				onSuccess = { UiState.Success(it) },
 				onFailure = { UiState.Error(Exception(it), _artistSearch.value.data) }
+			)
+		}
+	}
+
+	fun searchAlbums() {
+		if (_albumSearch.value is UiState.Loading) return
+		val query = _artistSearchQuery.value.trim()
+		if (query.isEmpty()) {
+			_albumSearch.value = UiState.Success(null)
+			return
+		}
+
+		viewModelScope.launch(Dispatchers.IO) {
+			_albumSearch.value = UiState.Loading(_albumSearch.value.data)
+			val result = repository.searchAlbums(query)
+			_albumSearch.value = result.fold(
+				onSuccess = { UiState.Success(it) },
+				onFailure = { UiState.Error(Exception(it), _albumSearch.value.data) }
 			)
 		}
 	}
