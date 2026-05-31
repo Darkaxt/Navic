@@ -21,6 +21,7 @@ import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_recent
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
+import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
@@ -38,6 +39,7 @@ import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
+import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
@@ -107,7 +109,10 @@ fun LibraryScreenContent(
 	onAddPlaylistToQueue: () -> Unit,
 
 	// genres
-	genresState: UiState<ImmutableList<DomainGenre>>
+	genresState: UiState<ImmutableList<DomainGenre>>,
+
+	// integrations
+	showAurralHub: Boolean
 ) {
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
@@ -143,6 +148,13 @@ fun LibraryScreenContent(
 			destination = Screen.AlbumList(true, DomainAlbumListType.Frequent),
 			start = false
 		)
+		if (showAurralHub) {
+			libraryScreenWideOverviewButton(
+				icon = Icons.Outlined.Link,
+				label = Res.string.title_aurral,
+				destination = Screen.AurralHub
+			)
+		}
 
 		if (quickPicksEnabled) {
 			horizontalSection(

@@ -70,6 +70,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
+import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
 import paige.navic.ui.screens.library.LibraryScreen
@@ -320,6 +321,9 @@ private fun entryProvider(
 			metadata = NowPlayingSceneStrategy.bottomSheet(maxWidth = Dp.Unspecified)
 		) { key ->
 			LidaClipPlayerScreen(key.songId)
+		}
+		entry<Screen.AurralHub>(metadata = detailPane("root")) {
+			AurralHubScreen()
 		}
 		entry<Screen.CollectionDetail>(metadata = detailPane("root")) { key ->
 			CollectionDetailScreen(key.collectionId, key.tab)

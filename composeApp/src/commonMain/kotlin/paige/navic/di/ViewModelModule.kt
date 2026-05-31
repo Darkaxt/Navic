@@ -9,6 +9,7 @@ import paige.navic.ui.components.sheets.ChangelogViewModel
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
+import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -79,6 +80,7 @@ val viewModelModule = module {
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::SettingsAurralViewModel)
+	viewModelOf(::AurralHubViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

@@ -32,6 +32,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QueueDuplicateAction
 import paige.navic.domain.models.duplicateQueueActionFor
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.dialogs.DeletionDialog
@@ -107,6 +108,8 @@ fun LibraryScreen() {
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
+	val showAurralHub = preferenceManager.aurralEnabled &&
+		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -231,7 +234,8 @@ fun LibraryScreen() {
 				onPlayPlaylistNext = { playlistsViewModel.playSelectedPlaylistNext(player) },
 				onAddPlaylistToQueue = { playlistsViewModel.addSelectedPlaylistToQueue(player) },
 
-				genresState = genresState
+				genresState = genresState,
+				showAurralHub = showAurralHub
 			)
 		}
 	}

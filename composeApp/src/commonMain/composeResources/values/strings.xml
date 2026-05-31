@@ -62,6 +62,9 @@
 	<string name="title_aurral">Aurral</string>
 	<string name="title_aurral_service_status">Service status</string>
 	<string name="title_aurral_acquisition_queue">Acquisition queue</string>
+	<string name="title_aurral_discover">Discover</string>
+	<string name="title_aurral_requests">Requests</string>
+	<string name="title_aurral_flows">Flows</string>
 	<string name="title_aurral_missing_albums">Missing from library</string>
 	<string name="title_aurral_similar_artists">Aurral similar artists</string>
 	<string name="title_aurral_preview_tracks">30s previews</string>
@@ -160,6 +163,7 @@
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
 	<string name="subtitle_aurral">Connect artist discovery, acquisition requests, and dynamic Flows from Aurral</string>
+	<string name="subtitle_aurral_hub">Open the native Aurral hub for discovery, requests, and Flows</string>
 	<string name="subtitle_integrations">Connect Navic to your self-hosted media services</string>
 	<string name="subtitle_auto_download_starred_songs">Download a song when you star it while online. Unstarring keeps existing downloads.</string>
 	<string name="subtitle_auto_download_starred_albums">Download album songs when you star an album while online. Unstarring keeps existing downloads.</string>
@@ -393,6 +397,7 @@
 	<string name="subtitle_musicbrainz_artwork_fallback">Fetch public MusicBrainz metadata during playback and recover missing artwork from Cover Art Archive</string>
 	<string name="option_lida_clips">Music video clips</string>
 	<string name="option_aurral">Aurral</string>
+	<string name="option_aurral_hub">Aurral hub</string>
 	<string name="option_auto_download_starred_songs">Auto-download starred songs</string>
 	<string name="option_auto_download_starred_albums">Auto-download starred albums</string>
 	<string name="option_max_concurrent_downloads">Parallel downloads</string>
@@ -494,6 +499,8 @@
 	<string name="info_aurral_service_status_unavailable">Service status not loaded</string>
 	<string name="info_aurral_service_status_failed">Service status failed: %1$s</string>
 	<string name="info_aurral_acquisition_queue_empty">No album acquisitions in progress</string>
+	<string name="info_aurral_hub_disabled">Enable Aurral before opening the native hub.</string>
+	<string name="info_aurral_hub_missing_url">Enter a valid Aurral URL before opening the native hub.</string>
 	<string name="info_aurral_auth_required">Required</string>
 	<string name="info_aurral_auth_local_or_disabled">Local bypass or disabled</string>
 	<string name="info_aurral_loading_catalog">Loading Aurral catalog...</string>
@@ -593,6 +600,7 @@
 	<string name="action_delete">Delete</string>
 	<string name="action_cancel">Cancel</string>
 	<string name="action_refresh">Refresh</string>
+	<string name="action_open_aurral_settings">Open Aurral settings</string>
 	<string name="action_share">Share</string>
 	<string name="action_track_info">View track info</string>
 	<string name="action_view_album">View album</string>

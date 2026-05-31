@@ -90,6 +90,9 @@ sealed interface Screen : NavKey {
 	data class LidaClipPlayer(val songId: String) : Screen
 	@Immutable
 	@Serializable
+	data object AurralHub : Screen
+	@Immutable
+	@Serializable
 	data class CollectionDetail(
 		val collectionId: String,
 		val tab: String
