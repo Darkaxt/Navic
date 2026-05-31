@@ -84,4 +84,15 @@ class ArtistDetailLayoutPolicyTest {
 			albums = emptyList(),
 			topSongs = emptyList()
 		)
+
+	@Test
+	fun artistBiographyPreviewExpandsInlineInsteadOfRequiringExternalLink() {
+		val biography = "A".repeat(205)
+
+		assertTrue(shouldShowArtistBiographyToggle(biography, limit = 200))
+		assertEquals("${"A".repeat(200)}...", artistBiographyDisplayText(biography, expanded = false, limit = 200))
+		assertEquals(biography, artistBiographyDisplayText(biography, expanded = true, limit = 200))
+		assertFalse(shouldShowArtistBiographyToggle("Short biography", limit = 200))
+		assertNull(artistBiographyDisplayText(null, expanded = false, limit = 200))
+	}
 }

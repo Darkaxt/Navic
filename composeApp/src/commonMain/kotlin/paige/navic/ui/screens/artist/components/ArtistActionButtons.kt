@@ -32,6 +32,7 @@ import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_download_failed
 import navic.composeapp.generated.resources.info_aurral_monitor_status_pending
@@ -44,6 +45,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Visibility
 import paige.navic.icons.outlined.VisibilityOff
 import paige.navic.ui.theme.defaultFont
@@ -51,6 +53,7 @@ import paige.navic.ui.theme.defaultFont
 @Composable
 fun ArtistActionButtons(
 	onPlay: () -> Unit,
+	onShuffle: () -> Unit,
 	onDownload: () -> Unit,
 	onCancelDownload: () -> Unit,
 	onDeleteDownload: () -> Unit,
@@ -106,6 +109,23 @@ fun ArtistActionButtons(
 					fontFamily = defaultFont(round = 100f)
 				)
 			}
+		}
+
+		OutlinedButton(
+			modifier = Modifier.size(width = 52.dp, height = 44.dp),
+			onClick = {
+				platformContext.clickSound()
+				onShuffle()
+			},
+			shape = ContinuousCapsule,
+			enabled = playEnabled,
+			contentPadding = PaddingValues(0.dp)
+		) {
+			Icon(
+				Icons.Outlined.Shuffle,
+				contentDescription = stringResource(Res.string.action_shuffle),
+				modifier = Modifier.size(24.dp)
+			)
 		}
 
 		onMonitorInAurral?.let { monitor ->

@@ -80,6 +80,18 @@ fun LibraryScreen() {
 	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
 
+	val newestAlbumsViewModel = koinViewModel<AlbumListViewModel>(
+		key = "libraryNewestAlbums",
+		parameters = { parametersOf(DomainAlbumListType.Newest) }
+	)
+	val newestAlbumsState by newestAlbumsViewModel.albumsState.collectAsStateWithLifecycle()
+
+	val starredAlbumsViewModel = koinViewModel<AlbumListViewModel>(
+		key = "libraryStarredAlbums",
+		parameters = { parametersOf(DomainAlbumListType.Starred) }
+	)
+	val starredAlbumsState by starredAlbumsViewModel.albumsState.collectAsStateWithLifecycle()
+
 	val playlistsViewModel = koinViewModel<PlaylistListViewModel>()
 	val playlistsState by playlistsViewModel.playlistsState.collectAsStateWithLifecycle()
 	val selectedPlaylist by playlistsViewModel.selectedPlaylist.collectAsStateWithLifecycle()
@@ -172,6 +184,8 @@ fun LibraryScreen() {
 			quickPicksViewModel.refreshSongs(false)
 		}
 		albumsViewModel.refreshAlbums(false)
+		newestAlbumsViewModel.refreshAlbums(false)
+		starredAlbumsViewModel.refreshAlbums(false)
 		playlistsViewModel.refreshPlaylists(false)
 		artistsViewModel.refreshArtists(false)
 		genresViewModel.refreshGenres(false)
@@ -203,6 +217,8 @@ fun LibraryScreen() {
 				.padding(top = innerPadding.calculateTopPadding())
 				.background(MaterialTheme.colorScheme.surface),
 			finished = albumsState !is UiState.Loading &&
+				newestAlbumsState !is UiState.Loading &&
+				starredAlbumsState !is UiState.Loading &&
 				(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
@@ -214,6 +230,8 @@ fun LibraryScreen() {
 					quickPicksViewModel.refreshSongs(true)
 				}
 				albumsViewModel.refreshAlbums(true)
+				newestAlbumsViewModel.refreshAlbums(false)
+				starredAlbumsViewModel.refreshAlbums(false)
 				playlistsViewModel.refreshPlaylists(true)
 				artistsViewModel.refreshArtists(true)
 				genresViewModel.refreshGenres(true)
@@ -224,6 +242,8 @@ fun LibraryScreen() {
 			key = listOf(
 				quickPicksState,
 				albumsState,
+				newestAlbumsState,
+				starredAlbumsState,
 				playlistsState,
 				artistsState,
 				genresState,
@@ -269,6 +289,8 @@ fun LibraryScreen() {
 				mostPlayedShortcutsState = mostPlayedShortcutsState,
 
 				albumsState = albumsState,
+				newestAlbumsState = newestAlbumsState,
+				starredAlbumsState = starredAlbumsState,
 				aurralAlbumRequests = libraryAlbumAurralRequests(
 					showAurralHub = aurralConfigured,
 					requests = aurralAlbumRequests
@@ -316,6 +338,8 @@ fun LibraryScreen() {
 	val flattenedErrors = listOf(
 		(quickPicksState as? UiState.Error)?.error,
 		(albumsState as? UiState.Error)?.error,
+		(newestAlbumsState as? UiState.Error)?.error,
+		(starredAlbumsState as? UiState.Error)?.error,
 		(playlistsState as? UiState.Error)?.error,
 		(artistsState as? UiState.Error)?.error,
 		(genresState as? UiState.Error)?.error,
@@ -328,6 +352,8 @@ fun LibraryScreen() {
 		onClearError = {
 			quickPicksViewModel.clearError()
 			albumsViewModel.clearError()
+			newestAlbumsViewModel.clearError()
+			starredAlbumsViewModel.clearError()
 			playlistsViewModel.clearError()
 			artistsViewModel.clearError()
 			genresViewModel.clearError()

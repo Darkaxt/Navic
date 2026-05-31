@@ -6,6 +6,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistState
 
 private const val TopSongRowHeightDp = 84
 private const val MaxTopSongRows = 3
+private const val ArtistBiographyPreviewLimit = 200
 
 fun artistTopSongsGridRows(songCount: Int): Int =
 	songCount.coerceIn(0, MaxTopSongRows)
@@ -35,3 +36,22 @@ fun shouldAnimateArtistDetailStateChange(
 	target: ArtistState
 ): Boolean =
 	artistDetailTransitionKey(initial) != artistDetailTransitionKey(target)
+
+fun artistBiographyDisplayText(
+	biography: String?,
+	expanded: Boolean,
+	limit: Int = ArtistBiographyPreviewLimit
+): String? {
+	val text = biography?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return if (!expanded && text.length > limit) {
+		text.take(limit) + "..."
+	} else {
+		text
+	}
+}
+
+fun shouldShowArtistBiographyToggle(
+	biography: String?,
+	limit: Int = ArtistBiographyPreviewLimit
+): Boolean =
+	biography?.trim()?.let { it.length > limit } == true

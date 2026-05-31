@@ -50,6 +50,8 @@ import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
+import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
+import paige.navic.ui.screens.library.libraryDiscoveryAlbumRows
 import paige.navic.ui.screens.library.mostPlayedShortcutDestination
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
 import paige.navic.ui.core.UiState
@@ -86,6 +88,8 @@ fun LibraryScreenContent(
 
 	// albums
 	albumsState: UiState<ImmutableList<DomainAlbum>>,
+	newestAlbumsState: UiState<ImmutableList<DomainAlbum>>,
+	starredAlbumsState: UiState<ImmutableList<DomainAlbum>>,
 	aurralAlbumRequests: List<AurralAlbumRequest>,
 	selectedAlbum: DomainAlbum?,
 	selectedAlbumIsStarred: Boolean,
@@ -201,6 +205,49 @@ fun LibraryScreenContent(
 				shortcut = shortcut,
 				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
 			)
+		}
+
+		libraryDiscoveryAlbumRows(
+			newestAlbumCount = newestAlbumsState.data.orEmpty().size,
+			starredAlbumCount = starredAlbumsState.data.orEmpty().size
+		).forEach { row ->
+			val title = when (row) {
+				LibraryDiscoveryAlbumRow.NewestAlbums -> Res.string.option_sort_newest
+				LibraryDiscoveryAlbumRow.StarredAlbums -> Res.string.option_sort_starred
+			}
+			val listType = when (row) {
+				LibraryDiscoveryAlbumRow.NewestAlbums -> DomainAlbumListType.Newest
+				LibraryDiscoveryAlbumRow.StarredAlbums -> DomainAlbumListType.Starred
+			}
+			val state = when (row) {
+				LibraryDiscoveryAlbumRow.NewestAlbums -> newestAlbumsState
+				LibraryDiscoveryAlbumRow.StarredAlbums -> starredAlbumsState
+			}
+
+			horizontalSection(
+				title = title,
+				destination = Screen.AlbumList(true, listType),
+				state = state,
+				key = { it.id },
+				seeAll = true
+			) { album ->
+				AlbumListScreenItem(
+					modifier = Modifier.animateItem().width(150.dp),
+					tab = "library",
+					album = album,
+					aurralAlbumRequests = aurralAlbumRequests,
+					selected = album == selectedAlbum,
+					starred = selectedAlbumIsStarred,
+					onSelect = { onSelectAlbum(album) },
+					onDeselect = { onClearAlbumSelection() },
+					onSetStarred = { onStarSelectedAlbum(it) },
+					onSetShareId = { onSetShareId(it) },
+					onPlayNext = onPlayAlbumNext,
+					onAddToQueue = onAddAlbumToQueue,
+					rating = selectedAlbumRating,
+					onSetRating = onRateSelectedAlbum
+				)
+			}
 		}
 
 		horizontalSection(

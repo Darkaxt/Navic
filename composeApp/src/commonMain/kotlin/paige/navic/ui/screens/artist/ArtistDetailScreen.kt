@@ -73,6 +73,7 @@ import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_confirm
+import navic.composeapp.generated.resources.title_lastfm_top_tracks
 import navic.composeapp.generated.resources.title_similar_artists
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -167,7 +168,8 @@ fun ArtistDetailScreen(
 		}
 	}
 
-	val gridState = rememberLazyGridState()
+	val frequentGridState = rememberLazyGridState()
+	val lastFmGridState = rememberLazyGridState()
 
 	var showDownloadDialog by remember { mutableStateOf(false) }
 
@@ -272,12 +274,12 @@ fun ArtistDetailScreen(
 							imageUrl = headingImageUrl,
 							imageRequestHeaders = headingImageRequestHeaders,
 							subtitle = state.artist.biography,
-							lastfm = state.artist.lastFmUrl,
 							innerPadding = contentPadding,
 							scrolled = scrolled
 						)
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },
+							onShuffle = { viewModel.shuffleArtistAlbums(player) },
 							onDownload = {
 								showDownloadDialog = true
 							},
@@ -363,8 +365,70 @@ fun ArtistDetailScreen(
 									}
 									LazyHorizontalGrid(
 										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
-										state = gridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = gridState),
+										state = frequentGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = frequentGridState),
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
+									) {
+										itemsIndexed(songs) { index, song ->
+											val download = allDownloads.find { it.songId == song.id }
+											SongRow(
+												modifier = Modifier.weight(1f),
+												song = song,
+												selected = selection == song,
+												onClick = {
+													if (playerState.currentSong?.id != song.id) {
+														player.clearQueue()
+														songs.forEach { song -> player.addToQueueSingle(song) }
+														player.playAt(index)
+													} else {
+														player.togglePlay()
+													}
+												},
+												onLongClick = {
+													viewModel.selectSong(song)
+												},
+												onDismissRequest = { viewModel.clearSelection() },
+												starredState = selectedSongIsStarred,
+												onAddStar = { viewModel.starSelectedSong() },
+												onRemoveStar = { viewModel.unstarSelectedSong() },
+												download = download,
+												onDownload = { viewModel.downloadSong(song) },
+												onCancelDownload = { viewModel.cancelDownload(song.id) },
+												onDeleteDownload = { viewModel.deleteDownload(song.id) },
+												onPlayNext = { player.playNextSingle(song) },
+												onAddToQueue = { player.addToQueueSingle(song) },
+												onShare = { shareId = song.id },
+												isOnline = isOnline,
+												rating = selectedSongRating,
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
+											)
+										}
+									}
+								}
+							state.lastFmTopSongs.takeIf { state.lastFmTopSongs.isNotEmpty() }
+								?.let { songs ->
+									Row(
+										modifier = Modifier
+											.heightIn(min = 32.dp)
+											.padding(top = 8.dp)
+											.padding(horizontal = 16.dp)
+											.fillMaxWidth(),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											stringResource(Res.string.title_lastfm_top_tracks),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600)
+										)
+									}
+									LazyHorizontalGrid(
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
+										state = lastFmGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = lastFmGridState),
 										modifier = Modifier
 											.fillMaxWidth()
 											.height(artistTopSongsGridHeightDp(songs.size).dp)
@@ -620,14 +684,6 @@ fun ArtistDetailScreen(
 			songs = selectedAlbum?.songs.orEmpty().toPersistentList(),
 			onDismissRequest = { playlistDialogShown = false }
 		)
-	}
-}
-
-fun truncateText(text: String, limit: Int): String {
-	return if (text.length > limit) {
-		text.take(limit) + "..."
-	} else {
-		text
 	}
 }
 

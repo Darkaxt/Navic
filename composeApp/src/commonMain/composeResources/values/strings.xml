@@ -61,6 +61,7 @@
 	<string name="title_lida_clips_recent_clips">Recent clips</string>
 	<string name="title_lida_clips_health_checks">Health checks</string>
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
+	<string name="title_lastfm">Last.fm</string>
 	<string name="title_aurral">Aurral</string>
 	<string name="title_aurral_service_status">Service status</string>
 	<string name="title_aurral_acquisition_queue">Acquisition queue</string>
@@ -76,6 +77,7 @@
 	<string name="title_aurral_similar_artists">Aurral similar artists</string>
 	<string name="title_aurral_preview_tracks">30s previews</string>
 	<string name="title_aurral_recommendations">Recommendations</string>
+	<string name="title_lastfm_top_tracks">Last.fm top tracks</string>
 	<string name="action_play_preview">Play preview</string>
 	<string name="action_pause_preview">Pause preview</string>
 	<string name="title_music_video">Music video</string>
@@ -169,6 +171,7 @@
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
+	<string name="subtitle_lastfm_api_key">Used only for in-app artist top tracks. Leave empty to hide the row.</string>
 	<string name="subtitle_aurral">Connect artist discovery, acquisition requests, and dynamic Flows from Aurral</string>
 	<string name="subtitle_aurral_hub">Open the native Aurral hub for discovery, requests, and Flows</string>
 	<string name="subtitle_integrations">Connect Navic to your self-hosted media services</string>
@@ -434,6 +437,7 @@
 	<string name="option_lida_clips_remember_playback_position">Remember clip position</string>
 	<string name="option_lida_clips_keep_screen_on">Keep screen on</string>
 	<string name="option_lida_clips_sync_paused">Pause LidaClips sync</string>
+	<string name="option_lastfm_api_key">Last.fm API key</string>
 	<string name="option_aurral_enabled">Enable Aurral</string>
 	<string name="option_aurral_base_url">Aurral URL</string>
 	<string name="option_aurral_username">Username</string>
@@ -668,6 +672,7 @@
 	<string name="action_view_shares">Shares</string>
 	<string name="action_clear_search">Clear</string>
 	<string name="action_more">More</string>
+	<string name="action_less">Less</string>
 	<string name="action_add_to_playlist">Add to Playlist</string>
 	<string name="action_add_to_another_playlist">Add to Another Playlist</string>
 	<string name="action_add_all_to_playlist">Add All to Playlist</string>

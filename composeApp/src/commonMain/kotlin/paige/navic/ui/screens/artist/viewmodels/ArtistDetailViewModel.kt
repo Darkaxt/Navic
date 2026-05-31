@@ -42,6 +42,7 @@ import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.DbRepository
+import paige.navic.domain.repositories.LastFmRepository
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
@@ -49,6 +50,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
@@ -58,6 +60,7 @@ data class ArtistState(
 	val artist: DomainArtist,
 	val albums: List<DomainAlbum>,
 	val topSongs: List<DomainSong>,
+	val lastFmTopSongs: List<DomainSong> = emptyList(),
 	val similarArtists: List<DomainArtist> = emptyList(),
 	val aurralAlbumRequests: List<AurralAlbumRequest> = emptyList(),
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
@@ -79,6 +82,7 @@ class ArtistDetailViewModel(
 	private val songRepository: SongRepository,
 	private val albumRepository: AlbumRepository,
 	private val aurralRepository: AurralRepository,
+	private val lastFmRepository: LastFmRepository,
 	playlistRepository: PlaylistRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
@@ -89,7 +93,11 @@ class ArtistDetailViewModel(
 	val artistState = _artistState.asStateFlow()
 	@OptIn(ExperimentalCoroutinesApi::class)
 	val playlistSongIds = artistState
-		.map { state -> (state as? UiState.Success)?.data?.topSongs.orEmpty().map { it.id }.distinct() }
+		.map { state ->
+			(state as? UiState.Success)?.data?.let { data ->
+				(data.topSongs + data.lastFmTopSongs).map { it.id }.distinct()
+			}.orEmpty()
+		}
 		.distinctUntilChanged()
 		.flatMapLatest { playlistRepository.getPlaylistSongIdsFlow(it) }
 		.stateIn(
@@ -160,8 +168,10 @@ class ArtistDetailViewModel(
 					.map { it.toDomainModel() }
 					.sortedByAlbumYearDescending()
 
-				val domainSongs = albumsWithSongs.flatMap { it.songs }
+				val allArtistSongs = albumsWithSongs.flatMap { it.songs }
 					.map { it.toDomainModel() }
+
+				val domainSongs = allArtistSongs
 					.sortedByDescending { it.playCount }
 					.take(12)
 
@@ -179,6 +189,7 @@ class ArtistDetailViewModel(
 						similarArtists = initialSimilarArtists
 					)
 				)
+				loadLastFmTopTracks(domainArtist, allArtistSongs)
 				loadAurralEnrichment(domainArtist, domainAlbums)
 
 				repository.fetchArtistMetadata(artistId)
@@ -199,6 +210,10 @@ class ArtistDetailViewModel(
 									similarArtists = updatedSimilarArtists
 								)
 							)
+							loadLastFmTopTracks(
+								artist = updatedArtist,
+								localSongs = currentState.albums.flatMap { it.songs }
+							)
 							if (shouldRefreshAurral) {
 								loadAurralEnrichment(updatedArtist, currentState.albums)
 							}
@@ -209,6 +224,31 @@ class ArtistDetailViewModel(
 					}
 			} catch (e: Exception) {
 				_artistState.value = UiState.Error(e)
+			}
+		}
+	}
+
+	private fun loadLastFmTopTracks(
+		artist: DomainArtist,
+		localSongs: List<DomainSong>
+	) {
+		viewModelScope.launch {
+			lastFmRepository.getArtistTopTracks(
+				artistName = artist.name,
+				artistMbid = artist.musicBrainzId
+			).onSuccess { tracks ->
+				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onSuccess
+				if (latestState.artist.id != artist.id) return@onSuccess
+				_artistState.value = UiState.Success(
+					latestState.copy(
+						lastFmTopSongs = artistLastFmTopTrackSongs(
+							tracks = tracks,
+							localSongs = localSongs
+						)
+					)
+				)
+			}.onFailure { error ->
+				Logger.w("ArtistDetailViewModel", "Failed to fetch Last.fm top tracks", error)
 			}
 		}
 	}
@@ -588,6 +628,19 @@ class ArtistDetailViewModel(
 			player.setPlaybackOrigin(state.artist.toPlaybackOrigin())
 			state.albums.forEach { album ->
 				player.addToQueue(album)
+			}
+			player.playAt(0)
+		}
+	}
+
+	fun shuffleArtistAlbums(player: MediaPlayerViewModel) {
+		(_artistState.value as? UiState.Success)?.data?.let { state ->
+			val songs = state.albums.flatMap { it.songs }.shuffled()
+			if (songs.isEmpty()) return
+			player.clearQueue()
+			player.setPlaybackOrigin(state.artist.toPlaybackOrigin())
+			songs.forEach { song ->
+				player.addToQueueSingle(song)
 			}
 			player.playAt(0)
 		}

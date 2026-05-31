@@ -3,26 +3,34 @@ package paige.navic.ui.screens.settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_aurral
+import navic.composeapp.generated.resources.option_lastfm_api_key
 import navic.composeapp.generated.resources.option_lida_clips
 import navic.composeapp.generated.resources.subtitle_aurral
+import navic.composeapp.generated.resources.subtitle_lastfm_api_key
 import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.subtitle_lida_clips
 import navic.composeapp.generated.resources.title_integrations
+import navic.composeapp.generated.resources.title_lastfm
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
@@ -98,6 +106,36 @@ fun SettingsIntegrationsScreen() {
 							)
 						}
 						Icon(Icons.Outlined.ChevronForward, null)
+					}
+				}
+				Text(
+					text = stringResource(Res.string.title_lastfm),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(start = 14.dp, top = 16.dp, bottom = 8.dp)
+				)
+				Form {
+					FormRow {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.option_lastfm_api_key))
+							Text(
+								stringResource(Res.string.subtitle_lastfm_api_key),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+							TextField(
+								value = preferenceManager.lastFmApiKey,
+								onValueChange = { preferenceManager.lastFmApiKey = it },
+								modifier = Modifier.padding(top = 8.dp),
+								singleLine = true,
+								keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+								colors = TextFieldDefaults.colors(
+									focusedIndicatorColor = Color.Transparent,
+									unfocusedIndicatorColor = Color.Transparent
+								),
+								shape = MaterialTheme.shapes.medium
+							)
+						}
 					}
 				}
 			}

@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.artist.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -27,17 +31,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
-import paige.navic.ui.screens.artist.truncateText
+import paige.navic.ui.screens.artist.artistBiographyDisplayText
+import paige.navic.ui.screens.artist.shouldShowArtistBiographyToggle
 
 @Composable
 fun ArtistDetailScreenHeading(
@@ -46,12 +49,12 @@ fun ArtistDetailScreenHeading(
 	imageUrl: String?,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	subtitle: String?,
-	lastfm: String?,
 	innerPadding: PaddingValues,
 	scrolled: Boolean
 ) {
 	val layoutDirection = LocalLayoutDirection.current
 	val progress by animateFloatAsState(if (scrolled) 0f else 1f)
+	var biographyExpanded by rememberSaveable(artistName, subtitle) { mutableStateOf(false) }
 	BoxWithConstraints(
 		modifier = Modifier.fillMaxWidth()
 	) {
@@ -90,21 +93,25 @@ fun ArtistDetailScreenHeading(
 					.padding(end = innerPadding.calculateEndPadding(layoutDirection)),
 				verticalArrangement = Arrangement.spacedBy(8.dp)
 			) {
-				subtitle?.let { subtitle ->
+				artistBiographyDisplayText(subtitle, expanded = biographyExpanded)?.let { biography ->
 					Text(
-						text = buildAnnotatedString {
-							append(truncateText(subtitle, 200))
-							if (subtitle.length > 200 && lastfm != null) {
-								append(" ")
-								withLink(LinkAnnotation.Url(lastfm)) {
-									append(stringResource(Res.string.action_more))
-								}
-							}
-						},
+						text = biography,
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurface,
 						modifier = Modifier.widthIn(max = 500.dp)
 					)
+					if (shouldShowArtistBiographyToggle(subtitle)) {
+						Text(
+							text = stringResource(
+								if (biographyExpanded) Res.string.action_less else Res.string.action_more
+							),
+							style = MaterialTheme.typography.labelLarge,
+							color = MaterialTheme.colorScheme.primary,
+							modifier = Modifier.clickable {
+								biographyExpanded = !biographyExpanded
+							}
+						)
+					}
 				}
 				MarqueeText(
 					text = artistName,

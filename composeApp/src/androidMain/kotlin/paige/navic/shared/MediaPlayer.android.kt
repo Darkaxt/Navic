@@ -108,6 +108,7 @@ import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
+import paige.navic.domain.models.shouldSendNowPlayingWidgetUpdate
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
@@ -728,6 +729,8 @@ class AndroidMediaPlayerViewModel(
 	private var playbackFadeRestoreVolume: Float? = null
 	private var autoFillQueueJob: Job? = null
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
+	private var lastNowPlayingWidgetSongId: String? = null
+	private var lastNowPlayingWidgetIsPlaying: Boolean? = null
 	private var nowPlayingVideoClipAudioActive = false
 	private val playbackOriginTracker = PlaybackOriginTracker()
 	private var lastPlaybackOriginCheckpointMillis = 0L
@@ -989,6 +992,7 @@ class AndroidMediaPlayerViewModel(
 		applyReplayGain()
 		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
 		updateProgress()
+		sendNowPlayingBroadcast(isPlaying = controller.isPlaying)
 	}
 
 	private fun MediaController.upcomingMediaItemIndexes(): List<Int> {
@@ -1035,14 +1039,32 @@ class AndroidMediaPlayerViewModel(
 			withContext(Dispatchers.Main.immediate) {
 				val state = _uiState.value
 				if (state.currentSong?.id == currentSong.id) {
-					sendNowPlayingBroadcast(isPlaying = !state.isPaused)
+					sendNowPlayingBroadcast(isPlaying = !state.isPaused, force = true)
 				}
 			}
 		}
 	}
 
-	private fun sendNowPlayingBroadcast(isPlaying: Boolean) {
+	private fun sendNowPlayingBroadcast(isPlaying: Boolean, force: Boolean = false) {
 		val currentSong = _uiState.value.currentSong
+		val currentSongId = currentSong?.id
+		val previousIsPlaying = lastNowPlayingWidgetIsPlaying
+		if (
+			!force &&
+			previousIsPlaying != null &&
+			!shouldSendNowPlayingWidgetUpdate(
+				previousSongId = lastNowPlayingWidgetSongId,
+				currentSongId = currentSongId,
+				previousIsPlaying = previousIsPlaying,
+				currentIsPlaying = isPlaying
+			)
+		) {
+			return
+		}
+
+		lastNowPlayingWidgetSongId = currentSongId
+		lastNowPlayingWidgetIsPlaying = isPlaying
+
 		val intent = Intent("${application.packageName}.NOW_PLAYING_UPDATED").apply {
 			setPackage(application.packageName)
 			putExtra("isPlaying", isPlaying)
