@@ -533,6 +533,7 @@
 	<string name="info_aurral_request_status">Aurral: %1$s</string>
 	<string name="info_aurral_no_album_previews">No album previews available</string>
 	<string name="info_aurral_no_artist_albums">No catalog albums found yet</string>
+	<string name="info_stop_monitoring_artist_confirmation">Stop monitoring %1$s in Aurral?</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>
 	<string name="option_position_top">Top</string>
@@ -642,6 +643,7 @@
 	<string name="action_request_album">Request</string>
 	<string name="action_acquire_album">Acquire</string>
 	<string name="action_monitor_artist">Monitor artist in Aurral</string>
+	<string name="action_stop_monitoring_artist">Stop monitoring</string>
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_download">Download</string>

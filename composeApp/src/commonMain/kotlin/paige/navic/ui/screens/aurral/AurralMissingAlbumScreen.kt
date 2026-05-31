@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_acquire_album
@@ -46,20 +47,25 @@ import navic.composeapp.generated.resources.info_aurral_no_album_previews
 import navic.composeapp.generated.resources.info_aurral_request_status
 import navic.composeapp.generated.resources.title_aurral_missing_album
 import navic.composeapp.generated.resources.title_aurral_preview_tracks
+import navic.composeapp.generated.resources.title_more_by_artist
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.aurralPreviewTracksForReleaseGroup
+import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
@@ -71,6 +77,8 @@ import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.layouts.ArtCarousel
+import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
@@ -81,7 +89,9 @@ import paige.navic.ui.theme.defaultFont
 fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val artistDao = koinInject<ArtistDao>()
+	val albumDao = koinInject<AlbumDao>()
 	val aurralRepository = koinInject<AurralRepository>()
+	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val scope = rememberCoroutineScope()
 	val releaseGroup = remember(route) {
@@ -111,7 +121,17 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	LaunchedEffect(route) {
 		val localArtist = artistDao.getArtistById(route.artistId)?.toDomainModel()
 			?: state.artist
-		state = state.copy(artist = localArtist, coverUrl = route.coverUrl)
+		val localAlbums = albumDao.getAlbumsByArtist(localArtist.id).firstOrNull()
+			?.takeIf { it.isNotEmpty() }
+			?: albumDao.getAlbumsByArtistName(localArtist.name).firstOrNull()
+			?: emptyList()
+		state = state.copy(
+			artist = localArtist,
+			coverUrl = route.coverUrl,
+			moreAlbums = localAlbums
+				.map { it.toDomainModel() }
+				.sortedByAlbumYearDescending()
+		)
 
 		aurralRepository.getArtistEnrichment(localArtist)
 			.onSuccess { enrichment ->
@@ -230,6 +250,22 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 					label = stringResource(Res.string.info_aurral_no_album_previews),
 					modifier = Modifier.padding(top = 24.dp)
 				)
+			}
+			if (state.moreAlbums.isNotEmpty()) {
+				ArtCarousel(
+					title = stringResource(Res.string.title_more_by_artist, state.artist.name),
+					items = state.moreAlbums.toImmutableList()
+				) { album ->
+					ArtCarouselItem(
+						coverArtId = album.coverArtId,
+						title = album.name,
+						subtitle = album.year?.toString(),
+						contentDescription = album.name,
+						onClick = {
+							backStack.add(Screen.CollectionDetail(album.id, "aurral"))
+						}
+					)
+				}
 			}
 			Spacer(Modifier.height(24.dp))
 		}
@@ -363,6 +399,7 @@ private fun AurralMissingAlbumActions(
 private data class AurralMissingAlbumUiState(
 	val artist: DomainArtist,
 	val coverUrl: String?,
+	val moreAlbums: List<DomainAlbum> = emptyList(),
 	val previewTracks: List<AurralPreviewTrack> = emptyList(),
 	val progress: AurralAcquisitionProgress? = null,
 	val loading: Boolean = false,

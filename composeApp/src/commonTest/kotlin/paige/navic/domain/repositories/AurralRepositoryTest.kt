@@ -10,8 +10,11 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralFlowSongIdPrefix
+import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.DomainArtist
 
 class AurralRepositoryTest {
 	@Test
@@ -614,6 +617,131 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryUnmonitorsArtistWithNonePayload(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.setArtistMonitoring(
+			artist = DomainArtist(
+				id = "artist-id",
+				name = "Alex Warren",
+				musicBrainzId = "artist-mbid"
+			),
+			monitored = false
+		).getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com"), apiClient.monitorArtistBaseUrls)
+		assertEquals(listOf("artist-mbid"), apiClient.monitorArtistIds)
+		assertEquals(
+			listOf(
+				AurralArtistMonitorPayload(
+					foreignArtistId = "artist-mbid",
+					artistName = "Alex Warren",
+					monitorOption = "none",
+					monitored = false
+				)
+			),
+			apiClient.monitorArtistPayloads
+		)
+	}
+
+	@Test
+	fun repositoryArtistEnrichmentSurfacesLidarrMonitoringState() {
+		val enrichment = aurralArtistEnrichment(
+			baseUrl = "https://aurral.example.com",
+			details = AurralArtistDetailsDto(
+				id = "artist-mbid",
+				name = "Alex Warren",
+				lidarrData = AurralArtistLidarrDataDto(monitored = true)
+			),
+			preview = AurralArtistPreviewDto(),
+			similar = AurralSimilarArtistsDto(),
+			requests = emptyList()
+		)
+
+		assertEquals(true, enrichment.monitored)
+	}
+
+	@Test
+	fun repositoryKeepsOptimisticAlbumRequestForImmediateArtistRefresh(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Alex Warren",
+				releaseGroups = listOf(AurralReleaseGroup(id = "album-mbid", title = "You'll Be Alright, Kid"))
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val artist = DomainArtist(
+			id = "artist-id",
+			name = "Alex Warren",
+			musicBrainzId = "artist-mbid"
+		)
+
+		repository.requestAlbum(
+			artist = artist,
+			releaseGroup = AurralReleaseGroup(id = "album-mbid", title = "You'll Be Alright, Kid")
+		).getOrThrow()
+
+		val request = repository.getArtistEnrichment(artist).getOrThrow()?.requests?.single()
+
+		assertEquals(
+			AurralAlbumRequest(
+				albumMbid = "album-mbid",
+				albumName = "You'll Be Alright, Kid",
+				artistMbid = "artist-mbid",
+				artistName = "Alex Warren",
+				status = "requested"
+			),
+			request
+		)
+	}
+
+	@Test
+	fun repositoryReusesResolvedReleaseGroupCoverInArtistEnrichment(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Alex Warren",
+				releaseGroups = listOf(AurralReleaseGroup(id = "album-mbid", title = "You'll Be Alright, Kid"))
+			),
+			releaseGroupCoverImageUrl = "https://aurral.example.com/covers/album.webp"
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val artist = DomainArtist(
+			id = "artist-id",
+			name = "Alex Warren",
+			musicBrainzId = "artist-mbid"
+		)
+
+		assertEquals(
+			"https://aurral.example.com/covers/album.webp",
+			repository.getReleaseGroupCoverImageUrl(
+				releaseGroup = AurralReleaseGroup(id = "album-mbid", title = "You'll Be Alright, Kid"),
+				artistName = "Alex Warren"
+			).getOrThrow()
+		)
+
+		assertEquals(
+			"https://aurral.example.com/covers/album.webp",
+			repository.getArtistEnrichment(artist).getOrThrow()?.releaseGroups?.single()?.coverUrl
+		)
+	}
+
+	@Test
 	fun aurralDefaultFlowCreatePayloadMatchesAurralWebDefaults() {
 		assertEquals(
 			AurralFlowCreatePayload(
@@ -876,6 +1004,11 @@ class AurralRepositoryTest {
 		private val discovery: AurralDiscoverySummary = AurralDiscoverySummary(),
 		private val artistSearch: AurralArtistSearchResult = AurralArtistSearchResult(),
 		private val albumSearch: AurralAlbumSearchResult = AurralAlbumSearchResult(),
+		private val artistEnrichment: AurralArtistEnrichment = AurralArtistEnrichment(
+			artistMbid = "artist-mbid",
+			artistName = "Artist"
+		),
+		private val releaseGroupCoverImageUrl: String? = null,
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
 		private val sessionToken: String? = null,
 		private val streamToken: String? = null
@@ -968,7 +1101,7 @@ class AurralRepositoryTest {
 			requestHeaders: Map<String, String>,
 			artistMbid: String,
 			artistName: String
-		): AurralArtistEnrichment = AurralArtistEnrichment(
+		): AurralArtistEnrichment = artistEnrichment.copy(
 			artistMbid = artistMbid,
 			artistName = artistName
 		)
@@ -997,7 +1130,7 @@ class AurralRepositoryTest {
 			releaseGroupMbid: String,
 			artistName: String,
 			albumTitle: String
-		): String? = null
+		): String? = releaseGroupCoverImageUrl
 
 		override suspend fun createFlow(
 			baseUrl: String,

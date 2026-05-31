@@ -5,11 +5,15 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -53,6 +57,7 @@ data class ArtistState(
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
+	val aurralMonitored: Boolean? = null,
 	val aurralLoading: Boolean = false,
 	val aurralError: String? = null
 )
@@ -120,6 +125,11 @@ class ArtistDetailViewModel(
 
 	init {
 		loadArtistData()
+		viewModelScope.launch {
+			aurralRepository.artistStateRevision.drop(1).collect {
+				refreshAurralEnrichment()
+			}
+		}
 	}
 
 	private fun loadArtistData() {
@@ -207,42 +217,70 @@ class ArtistDetailViewModel(
 				)
 			)
 
-			aurralRepository.getArtistEnrichment(artist)
-				.onSuccess { enrichment ->
-					val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
-					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onSuccess
-					_artistState.value = UiState.Success(
-						latestState.copy(
-							aurralMissingAlbums = enrichment
-								?.let { aurralMissingAlbumRows(it, albums) }
-								.orEmpty(),
-							aurralAlbumRequests = enrichment?.requests.orEmpty(),
-							aurralSimilarArtists = enrichment
-								?.let {
-									aurralSimilarArtistRows(
-										enrichment = it,
-										allLocalArtists = localArtists,
-										localSimilarArtists = latestState.similarArtists
-									)
-								}
-								.orEmpty(),
-							aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
-							aurralLoading = false,
-							aurralError = null
-						)
+			val enrichmentResult = aurralRepository.getArtistEnrichment(artist)
+			if (enrichmentResult.isSuccess) {
+				val enrichment = enrichmentResult.getOrNull()
+				val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
+				val missingAlbumRows = enrichment
+					?.let { aurralMissingAlbumRows(it, albums) }
+					.orEmpty()
+					.let { rows -> resolveAurralMissingAlbumCovers(artist, rows) }
+				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+				_artistState.value = UiState.Success(
+					latestState.copy(
+						aurralMissingAlbums = missingAlbumRows,
+						aurralAlbumRequests = enrichment?.requests.orEmpty(),
+						aurralSimilarArtists = enrichment
+							?.let {
+								aurralSimilarArtistRows(
+									enrichment = it,
+									allLocalArtists = localArtists,
+									localSimilarArtists = latestState.similarArtists
+								)
+							}
+							.orEmpty(),
+						aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
+						aurralMonitored = enrichment?.monitored,
+						aurralLoading = false,
+						aurralError = null
 					)
-				}
-				.onFailure { error ->
-					Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist enrichment", error)
-					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
-					_artistState.value = UiState.Success(
-						latestState.copy(
-							aurralLoading = false,
-							aurralError = error.message ?: error::class.simpleName
-						)
+				)
+			} else {
+				val error = enrichmentResult.exceptionOrNull()
+					?: IllegalStateException("Aurral artist enrichment failed")
+				Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist enrichment", error)
+				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+				_artistState.value = UiState.Success(
+					latestState.copy(
+						aurralLoading = false,
+						aurralError = error.message ?: error::class.simpleName
 					)
-				}
+				)
+			}
 		}
+	}
+
+	fun refreshAurralEnrichment() {
+		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		loadAurralEnrichment(currentState.artist, currentState.albums)
+	}
+
+	private suspend fun resolveAurralMissingAlbumCovers(
+		artist: DomainArtist,
+		rows: List<AurralMissingAlbumRow>
+	): List<AurralMissingAlbumRow> = coroutineScope {
+		rows.map { row ->
+			async {
+				if (!row.coverUrl.isNullOrBlank()) {
+					row
+				} else {
+					aurralRepository.getReleaseGroupCoverImageUrl(row.releaseGroup, artist.name)
+						.getOrNull()
+						?.let { coverUrl -> row.copy(coverUrl = coverUrl) }
+						?: row
+				}
+			}
+		}.awaitAll()
 	}
 
 	fun selectSong(song: DomainSong) {
@@ -391,14 +429,23 @@ class ArtistDetailViewModel(
 	}
 
 	fun monitorArtistInAurral() {
+		setArtistMonitoringInAurral(monitored = true)
+	}
+
+	fun setArtistMonitoringInAurral(monitored: Boolean) {
 		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
 		viewModelScope.launch {
 			_monitoringInAurral.value = true
-			aurralRepository.monitorArtist(artist)
+			aurralRepository.setArtistMonitoring(artist, monitored)
 				.onSuccess {
 					val latestState = (_artistState.value as? UiState.Success)?.data
 					if (latestState != null) {
-						_artistState.value = UiState.Success(latestState.copy(aurralError = null))
+						_artistState.value = UiState.Success(
+							latestState.copy(
+								aurralMonitored = monitored,
+								aurralError = null
+							)
+						)
 					}
 				}
 				.onFailure { error ->

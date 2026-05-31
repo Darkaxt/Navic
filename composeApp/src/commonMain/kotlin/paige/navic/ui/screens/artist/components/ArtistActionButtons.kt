@@ -31,6 +31,7 @@ import navic.composeapp.generated.resources.action_cancel_download
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_download_failed
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
@@ -42,6 +43,7 @@ import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Visibility
+import paige.navic.icons.outlined.VisibilityOff
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -55,6 +57,7 @@ fun ArtistActionButtons(
 	onMonitorInAurral: (() -> Unit)? = null,
 	monitorInAurralEnabled: Boolean = true,
 	monitoringInAurral: Boolean = false,
+	monitoredInAurral: Boolean = false,
 	modifier: Modifier = Modifier
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -122,8 +125,18 @@ fun ArtistActionButtons(
 					)
 				} else {
 					Icon(
-						imageVector = Icons.Outlined.Visibility,
-						contentDescription = stringResource(Res.string.action_monitor_artist),
+						imageVector = if (monitoredInAurral) {
+							Icons.Outlined.Visibility
+						} else {
+							Icons.Outlined.VisibilityOff
+						},
+						contentDescription = stringResource(
+							if (monitoredInAurral) {
+								Res.string.action_stop_monitoring_artist
+							} else {
+								Res.string.action_monitor_artist
+							}
+						),
 						modifier = Modifier.size(24.dp)
 					)
 				}

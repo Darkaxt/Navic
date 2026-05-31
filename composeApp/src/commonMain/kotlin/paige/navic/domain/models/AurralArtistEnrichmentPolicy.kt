@@ -9,7 +9,8 @@ data class AurralArtistEnrichment(
 	val releaseGroups: List<AurralReleaseGroup> = emptyList(),
 	val previewTracks: List<AurralPreviewTrack> = emptyList(),
 	val similarArtists: List<AurralSimilarArtist> = emptyList(),
-	val requests: List<AurralAlbumRequest> = emptyList()
+	val requests: List<AurralAlbumRequest> = emptyList(),
+	val monitored: Boolean? = null
 )
 
 @Immutable

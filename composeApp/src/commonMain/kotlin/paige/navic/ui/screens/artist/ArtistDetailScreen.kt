@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -59,14 +60,18 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_see_all
+import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_aurral_external_artist
 import navic.composeapp.generated.resources.info_aurral_loading_catalog
 import navic.composeapp.generated.resources.info_aurral_match_percent
 import navic.composeapp.generated.resources.info_bulk_download_warning
+import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_bulk_download
+import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_similar_artists
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -90,8 +95,10 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
+import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -104,6 +111,8 @@ import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.VisibilityOff
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -161,6 +170,7 @@ fun ArtistDetailScreen(
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	var stopMonitoringDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {
@@ -259,11 +269,18 @@ fun ArtistDetailScreen(
 							onMonitorInAurral = if (preferenceManager.aurralEnabled &&
 								!state.artist.musicBrainzId.isNullOrBlank()
 							) {
-								{ viewModel.monitorArtistInAurral() }
+								{
+									if (state.aurralMonitored == true) {
+										stopMonitoringDialogShown = true
+									} else {
+										viewModel.monitorArtistInAurral()
+									}
+								}
 							} else {
 								null
 							},
 							monitoringInAurral = monitoringInAurral,
+							monitoredInAurral = state.aurralMonitored == true,
 							modifier = Modifier.padding(top = 8.dp)
 						)
 						Column(
@@ -495,6 +512,38 @@ fun ArtistDetailScreen(
 				}
 			}
 		}
+	}
+
+	if (stopMonitoringDialogShown) {
+		val artistName = (artistState as? UiState.Success)?.data?.artist?.name.orEmpty()
+		FormDialog(
+			onDismissRequest = { stopMonitoringDialogShown = false },
+			icon = { Icon(Icons.Outlined.VisibilityOff, contentDescription = null) },
+			title = { Text(stringResource(Res.string.title_confirm)) },
+			content = {
+				Text(
+					text = stringResource(
+						Res.string.info_stop_monitoring_artist_confirmation,
+						artistName
+					)
+				)
+			},
+			buttons = {
+				FormButton(
+					onClick = {
+						stopMonitoringDialogShown = false
+						viewModel.setArtistMonitoringInAurral(monitored = false)
+					}
+				) {
+					Text(stringResource(Res.string.action_stop_monitoring_artist))
+				}
+				FormButton(
+					onClick = { stopMonitoringDialogShown = false }
+				) {
+					Text(stringResource(Res.string.action_cancel))
+				}
+			}
+		)
 	}
 
 	ShareDialog(
