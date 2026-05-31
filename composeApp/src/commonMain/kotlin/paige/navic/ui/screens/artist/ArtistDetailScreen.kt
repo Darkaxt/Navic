@@ -32,6 +32,7 @@ import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -86,6 +87,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -494,17 +496,27 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 	Column(
 		modifier = Modifier.fillMaxWidth()
 	) {
-		CoverArt(
-			coverArtId = null,
-			imageUrl = row.coverUrl,
-			imageCacheKey = "aurral-release-group-${row.releaseGroup.id}",
-			contentDescription = row.title,
-			fallbackKind = row.releaseGroup.primaryType ?: "Album",
+		Box(
 			modifier = Modifier
 				.fillMaxWidth()
-				.maskClip(MaterialTheme.shapes.large),
-			shape = RectangleShape
-		)
+				.maskClip(MaterialTheme.shapes.large)
+		) {
+			CoverArt(
+				coverArtId = null,
+				imageUrl = row.coverUrl,
+				imageCacheKey = "aurral-release-group-${row.releaseGroup.id}",
+				contentDescription = row.title,
+				fallbackKind = row.releaseGroup.primaryType ?: "Album",
+				modifier = Modifier.fillMaxWidth(),
+				shape = RectangleShape
+			)
+			row.acquisitionProgress?.let { progress ->
+				AurralAlbumAcquisitionProgress(
+					progress = progress,
+					modifier = Modifier.align(Alignment.BottomCenter)
+				)
+			}
+		}
 		Text(
 			text = row.title,
 			style = MaterialTheme.typography.bodyMedium,
@@ -546,6 +558,37 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				overflow = TextOverflow.Ellipsis
 			)
 		}
+	}
+}
+
+@Composable
+private fun AurralAlbumAcquisitionProgress(
+	progress: AurralAcquisitionProgress,
+	modifier: Modifier = Modifier
+) {
+	val color = when {
+		progress.failed -> MaterialTheme.colorScheme.error
+		progress.completed -> MaterialTheme.colorScheme.primary
+		else -> MaterialTheme.colorScheme.tertiary
+	}
+	val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f)
+	if (progress.active) {
+		LinearProgressIndicator(
+			modifier = modifier
+				.fillMaxWidth()
+				.height(4.dp),
+			color = color,
+			trackColor = trackColor
+		)
+	} else {
+		LinearProgressIndicator(
+			progress = { 1f },
+			modifier = modifier
+				.fillMaxWidth()
+				.height(4.dp),
+			color = color,
+			trackColor = trackColor
+		)
 	}
 }
 

@@ -61,6 +61,7 @@
 	<string name="title_lida_clips_recent_failures">Recent failures</string>
 	<string name="title_aurral">Aurral</string>
 	<string name="title_aurral_service_status">Service status</string>
+	<string name="title_aurral_acquisition_queue">Acquisition queue</string>
 	<string name="title_aurral_missing_albums">Missing from library</string>
 	<string name="title_aurral_similar_artists">Aurral similar artists</string>
 	<string name="title_aurral_preview_tracks">30s previews</string>
@@ -492,6 +493,7 @@
 	<string name="info_aurral_service_status_loading">Loading service status...</string>
 	<string name="info_aurral_service_status_unavailable">Service status not loaded</string>
 	<string name="info_aurral_service_status_failed">Service status failed: %1$s</string>
+	<string name="info_aurral_acquisition_queue_empty">No album acquisitions in progress</string>
 	<string name="info_aurral_auth_required">Required</string>
 	<string name="info_aurral_auth_local_or_disabled">Local bypass or disabled</string>
 	<string name="info_aurral_loading_catalog">Loading Aurral catalog...</string>

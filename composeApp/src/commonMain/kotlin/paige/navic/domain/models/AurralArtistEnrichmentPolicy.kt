@@ -56,7 +56,8 @@ data class AurralMissingAlbumRow(
 	val year: String?,
 	val coverUrl: String?,
 	val requestStatus: String?,
-	val requestable: Boolean
+	val requestable: Boolean,
+	val acquisitionProgress: AurralAcquisitionProgress? = null
 )
 
 @Immutable
@@ -65,6 +66,14 @@ data class AurralSimilarArtistRow(
 	val localArtistId: String?,
 	val inLibrary: Boolean,
 	val matchPercent: Int?
+)
+
+@Immutable
+data class AurralAcquisitionProgress(
+	val status: String,
+	val active: Boolean,
+	val completed: Boolean,
+	val failed: Boolean
 )
 
 fun aurralMissingAlbumRows(
@@ -107,9 +116,23 @@ fun aurralMissingAlbumRows(
 				},
 				coverUrl = releaseGroup.coverUrl,
 				requestStatus = status,
-				requestable = status == null
+				requestable = status == null,
+				acquisitionProgress = status?.let(::aurralAcquisitionProgress)
 			)
 		}
+}
+
+fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
+	val normalized = status.trim().lowercase()
+	val failed = normalized == "failed" || normalized.contains("fail") || normalized.contains("error")
+	val completed = normalized == "available" || normalized == "added" || normalized == "completed"
+	val active = !failed && !completed
+	return AurralAcquisitionProgress(
+		status = status,
+		active = active,
+		completed = completed,
+		failed = failed
+	)
 }
 
 fun aurralSimilarArtistRows(

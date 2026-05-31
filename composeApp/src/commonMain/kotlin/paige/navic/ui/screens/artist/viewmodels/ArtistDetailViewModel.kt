@@ -26,6 +26,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtistRow
+import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.repositories.AlbumRepository
@@ -351,7 +352,8 @@ class ArtistDetailViewModel(
 					if (row.releaseGroup.id == releaseGroupId) {
 						row.copy(
 							requestStatus = status,
-							requestable = false
+							requestable = false,
+							acquisitionProgress = aurralAcquisitionProgress(status)
 						)
 					} else {
 						row

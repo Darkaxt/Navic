@@ -396,7 +396,22 @@ data class AurralServiceStatus(
 	val flowTracksDone: Int = 0,
 	val flowTracksFailed: Int = 0,
 	val flowPhase: String? = null,
-	val flowMessage: String? = null
+	val flowMessage: String? = null,
+	val acquisitionQueue: List<AurralAcquisitionQueueItem> = emptyList()
+)
+
+data class AurralAcquisitionQueueItem(
+	val id: String,
+	val type: String,
+	val albumId: String?,
+	val albumMbid: String?,
+	val albumName: String,
+	val artistId: String?,
+	val artistMbid: String?,
+	val artistName: String,
+	val status: String,
+	val requestedAt: String?,
+	val inQueue: Boolean
 )
 
 @Serializable
@@ -485,12 +500,18 @@ internal data class AurralFlowHintDto(
 @Serializable
 internal data class AurralRequestDto(
 	val id: String? = null,
+	val type: String? = null,
+	val mbid: String? = null,
+	val name: String? = null,
 	@SerialName("albumId") val albumId: String? = null,
 	@SerialName("albumMbid") val albumMbid: String? = null,
 	@SerialName("albumName") val albumName: String? = null,
+	@SerialName("artistId") val artistId: String? = null,
 	@SerialName("artistMbid") val artistMbid: String? = null,
 	@SerialName("artistName") val artistName: String? = null,
-	val status: String? = null
+	val status: String? = null,
+	@SerialName("requestedAt") val requestedAt: String? = null,
+	@SerialName("inQueue") val inQueue: Boolean = false
 )
 
 @Serializable
@@ -568,9 +589,41 @@ internal fun aurralServiceStatus(
 		flowTracksDone = stats.done,
 		flowTracksFailed = stats.failed,
 		flowPhase = weeklyFlow?.hint?.phase,
-		flowMessage = weeklyFlow?.hint?.message
+		flowMessage = weeklyFlow?.hint?.message,
+		acquisitionQueue = requests.mapNotNull(::aurralAcquisitionQueueItem)
 	)
 }
+
+internal fun aurralAcquisitionQueueItem(request: AurralRequestDto): AurralAcquisitionQueueItem? {
+	val id = request.id?.trim()?.takeIf { it.isNotEmpty() }
+		?: request.albumId?.trim()?.takeIf { it.isNotEmpty() }?.let { "album-$it" }
+		?: request.resolvedAlbumMbid()?.let { "album-$it" }
+		?: return null
+	val albumName = request.resolvedAlbumName() ?: return null
+	val artistName = request.artistName?.trim()?.takeIf { it.isNotEmpty() } ?: "Artist"
+	val status = request.status?.trim()?.takeIf { it.isNotEmpty() } ?: "requested"
+	return AurralAcquisitionQueueItem(
+		id = id,
+		type = request.type?.trim()?.takeIf { it.isNotEmpty() } ?: "album",
+		albumId = request.albumId?.trim()?.takeIf { it.isNotEmpty() },
+		albumMbid = request.resolvedAlbumMbid(),
+		albumName = albumName,
+		artistId = request.artistId?.trim()?.takeIf { it.isNotEmpty() },
+		artistMbid = request.artistMbid?.trim()?.takeIf { it.isNotEmpty() },
+		artistName = artistName,
+		status = status,
+		requestedAt = request.requestedAt?.trim()?.takeIf { it.isNotEmpty() },
+		inQueue = request.inQueue
+	)
+}
+
+private fun AurralRequestDto.resolvedAlbumMbid(): String? =
+	albumMbid?.trim()?.takeIf { it.isNotEmpty() }
+		?: mbid?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun AurralRequestDto.resolvedAlbumName(): String? =
+	albumName?.trim()?.takeIf { it.isNotEmpty() }
+		?: name?.trim()?.takeIf { it.isNotEmpty() }
 
 internal fun aurralArtistEnrichment(
 	baseUrl: String,
@@ -619,8 +672,8 @@ internal fun aurralArtistEnrichment(
 		},
 		requests = requests.map { request ->
 			AurralAlbumRequest(
-				albumMbid = request.albumMbid,
-				albumName = request.albumName,
+				albumMbid = request.resolvedAlbumMbid(),
+				albumName = request.resolvedAlbumName(),
 				artistMbid = request.artistMbid,
 				artistName = request.artistName,
 				status = request.status

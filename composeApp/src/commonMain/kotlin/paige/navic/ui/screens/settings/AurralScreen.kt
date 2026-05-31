@@ -2,11 +2,15 @@ package paige.navic.ui.screens.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -23,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
@@ -36,6 +41,7 @@ import navic.composeapp.generated.resources.info_aurral_failed
 import navic.composeapp.generated.resources.info_aurral_forbidden
 import navic.composeapp.generated.resources.info_aurral_invalid_url
 import navic.composeapp.generated.resources.info_aurral_missing_url
+import navic.composeapp.generated.resources.info_aurral_acquisition_queue_empty
 import navic.composeapp.generated.resources.info_aurral_not_tested
 import navic.composeapp.generated.resources.info_aurral_service_status_failed
 import navic.composeapp.generated.resources.info_aurral_service_status_loading
@@ -62,13 +68,16 @@ import navic.composeapp.generated.resources.option_aurral_username
 import navic.composeapp.generated.resources.option_aurral_version
 import navic.composeapp.generated.resources.subtitle_aurral_enabled
 import navic.composeapp.generated.resources.title_aurral
+import navic.composeapp.generated.resources.title_aurral_acquisition_queue
 import navic.composeapp.generated.resources.title_aurral_service_status
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.repositories.AurralConnectionResult
+import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.components.common.Form
@@ -203,6 +212,10 @@ fun SettingsAurralScreen() {
 						Form(Modifier.fillMaxWidth()) {
 							AurralServiceStatusContent(serviceStatus)
 						}
+						FormTitle(stringResource(Res.string.title_aurral_acquisition_queue))
+						Form(Modifier.fillMaxWidth()) {
+							AurralAcquisitionQueueContent(serviceStatus)
+						}
 						FormButton(
 							onClick = { viewModel.refreshServiceStatus() },
 							enabled = serviceStatus !is UiState.Loading
@@ -211,6 +224,84 @@ fun SettingsAurralScreen() {
 						}
 					}
 				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun AurralAcquisitionQueueContent(state: UiState<AurralServiceStatus?>) {
+	val status = state.data
+	when {
+		status == null && state is UiState.Loading -> FormRow {
+			Text(stringResource(Res.string.info_aurral_service_status_loading))
+		}
+
+		status == null -> FormRow {
+			Text(stringResource(Res.string.info_aurral_service_status_unavailable))
+		}
+
+		status.acquisitionQueue.isEmpty() -> FormRow {
+			Text(stringResource(Res.string.info_aurral_acquisition_queue_empty))
+		}
+
+		else -> status.acquisitionQueue.take(8).forEach { item ->
+			AurralAcquisitionQueueRow(item)
+		}
+	}
+}
+
+@Composable
+private fun AurralAcquisitionQueueRow(item: AurralAcquisitionQueueItem) {
+	val progress = aurralAcquisitionProgress(item.status)
+	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+		Column(Modifier.fillMaxWidth()) {
+			Row(Modifier.fillMaxWidth()) {
+				Column(Modifier.weight(1f)) {
+					Text(
+						text = item.albumName,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+					Text(
+						text = item.artistName,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+				Text(
+					text = item.status,
+					modifier = Modifier.padding(start = 16.dp),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
+			val color = when {
+				progress.failed -> MaterialTheme.colorScheme.error
+				progress.completed -> MaterialTheme.colorScheme.primary
+				else -> MaterialTheme.colorScheme.tertiary
+			}
+			if (progress.active) {
+				LinearProgressIndicator(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 8.dp)
+						.height(3.dp),
+					color = color
+				)
+			} else {
+				LinearProgressIndicator(
+					progress = { 1f },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 8.dp)
+						.height(3.dp),
+					color = color
+				)
 			}
 		}
 	}

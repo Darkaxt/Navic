@@ -63,6 +63,9 @@ class AurralArtistEnrichmentPolicyTest {
 		assertEquals("2026", row.year)
 		assertEquals("processing", row.requestStatus)
 		assertFalse(row.requestable)
+		assertEquals(AurralAcquisitionProgress("processing", active = true, completed = false, failed = false), row.acquisitionProgress)
+		assertEquals(AurralAcquisitionProgress("available", active = false, completed = true, failed = false), aurralAcquisitionProgress("available"))
+		assertEquals(AurralAcquisitionProgress("failed", active = false, completed = false, failed = true), aurralAcquisitionProgress("failed"))
 	}
 
 	@Test

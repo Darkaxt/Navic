@@ -210,8 +210,27 @@ class AurralRepositoryTest {
 				hint = AurralFlowHintDto(phase = "downloading", message = "Downloading track")
 			),
 			requests = listOf(
-				AurralRequestDto(id = "request-1"),
-				AurralRequestDto(id = "request-2")
+				AurralRequestDto(
+					id = "request-1",
+					type = "album",
+					albumId = "101",
+					albumMbid = "album-mbid-1",
+					albumName = "Queued Album",
+					artistId = "201",
+					artistMbid = "artist-mbid-1",
+					artistName = "Queued Artist",
+					status = "processing",
+					requestedAt = "2026-05-31T00:00:00Z",
+					inQueue = true
+				),
+				AurralRequestDto(
+					id = "request-2",
+					type = "album",
+					mbid = "available-mbid",
+					name = "Available Album",
+					artistName = "Available Artist",
+					status = "available"
+				)
 			)
 		)
 
@@ -230,6 +249,37 @@ class AurralRepositoryTest {
 		assertEquals(1, status.enabledFlowsCount)
 		assertEquals(1, status.sharedPlaylistsCount)
 		assertEquals(2, status.requestsCount)
+		assertEquals(
+			listOf(
+				AurralAcquisitionQueueItem(
+					id = "request-1",
+					type = "album",
+					albumId = "101",
+					albumMbid = "album-mbid-1",
+					albumName = "Queued Album",
+					artistId = "201",
+					artistMbid = "artist-mbid-1",
+					artistName = "Queued Artist",
+					status = "processing",
+					requestedAt = "2026-05-31T00:00:00Z",
+					inQueue = true
+				),
+				AurralAcquisitionQueueItem(
+					id = "request-2",
+					type = "album",
+					albumId = null,
+					albumMbid = "available-mbid",
+					albumName = "Available Album",
+					artistId = null,
+					artistMbid = null,
+					artistName = "Available Artist",
+					status = "available",
+					requestedAt = null,
+					inQueue = false
+				)
+			),
+			status.acquisitionQueue
+		)
 		assertEquals(6, status.flowTracksTotal)
 		assertEquals(1, status.flowTracksPending)
 		assertEquals(2, status.flowTracksDownloading)
