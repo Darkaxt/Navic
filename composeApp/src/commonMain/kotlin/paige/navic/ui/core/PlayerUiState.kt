@@ -10,6 +10,7 @@ data class PlayerUiState(
 	val currentSong: DomainSong? = null,
 	val currentCollection: DomainSongCollection? = null,
 	val currentIndex: Int = -1,
+	val upcomingIndexes: List<Int> = emptyList(),
 	val isPaused: Boolean = false,
 	val isShuffleEnabled: Boolean = false,
 	val repeatMode: Int = 0,

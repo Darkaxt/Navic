@@ -59,7 +59,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). 
 | Now Playing song info style/icons | Adapt | Settings can show album context and album/artist icons when navigation targets exist. |
 | Now Playing technical info | Adapt | Compact and detailed technical rows use Navidrome metadata such as bit depth, channels, file size, and ReplayGain. |
 | Now Playing shuffle/repeat visibility | Adapt | Layout settings can hide the main shuffle/repeat controls. |
-| Now Playing Up Next preview | Adapt | Optional row shows upcoming queued songs and can include artwork thumbnails. |
+| Now Playing Up Next preview | Adapt | Optional row shows upcoming queued songs, can include artwork thumbnails, and follows Media3 shuffle/repeat order on Android. |
 | Mini-player queue button | Adapt | Bottom Bar setting adds a queue button to the mini-player. |
 | Mini-player progress style | Adapt | Bottom Bar setting supports Hidden, Visible, and Seekable progress. |
 | Settings search | Adapt | Root Settings search filters into live editable rows with Settings paths. |
@@ -150,7 +150,7 @@ Current import queue: none. The useful music-player pieces from the audited Krea
 * Now Playing info icons: Navic now adapts Kreate's `PLAYER_SONG_INFO_ICON` as `Show album/artist icons`. It defaults off to preserve Navic's current text-only title area and shows icons only when the matching album or artist navigation target exists.
 * Now Playing technical info style: Navic now adapts the useful part of Kreate's Stats for Nerds display as a Now Playing layout selector. Compact preserves the existing format/sample-rate/bitrate row while avoiding weak `null` output, and Detailed adds bit depth, channel count, file size, and ReplayGain when synced metadata is available.
 * Now Playing playback control visibility: Navic now adapts Kreate's `PLAYER_ACTION_SHUFFLE` and `PLAYER_ACTION_LOOP` preferences as default-on Now Playing layout settings. Users can hide the main shuffle and repeat buttons while keeping previous, play/pause, and next controls visible.
-* Now Playing up-next preview: Navic now adapts Kreate's mini-queue settings as opt-in Now Playing layout settings. It shows the next queued songs below the progress row, can show Kreate-style cover thumbnails beside those songs, keeps the default player layout unchanged, and opens the full Queue when tapped.
+* Now Playing up-next preview: Navic now adapts Kreate's mini-queue settings as opt-in Now Playing layout settings. It shows the next queued songs below the progress row, can show Kreate-style cover thumbnails beside those songs, follows Media3's current shuffle/repeat order on Android, keeps the default player layout unchanged, and opens the full Queue when tapped.
 * Mini-player queue button: Navic now adapts Kreate's `PLAYER_ACTION_OPEN_QUEUE_ARROW` as an opt-in mini-player setting under Bottom Bar -> Mini Player. It shows a Queue button beside the mini-player playback buttons only while a song is active.
 * Mini-player progress style: Navic now exposes a Kreate-style mini-player progress setting under Bottom Bar -> Mini Player, with Hidden, Visible, and Seekable modes.
 * Search history controls: Navic now persists recent searches across app restarts, lets the user clear or remove entries from Search, and exposes a Data & Storage setting that hides history while stopping newly submitted queries from being recorded.

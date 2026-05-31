@@ -91,7 +91,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired optional album/artist icons can make Now Playing title and artist navigation more discoverable.
 * Kreate-inspired Now Playing technical info style can keep the compact format/sample-rate/bitrate row or add source stats such as bit depth, channel count, file size, and ReplayGain.
 * Kreate-inspired optional Now Playing shuffle and repeat control visibility.
-* Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails.
+* Kreate-inspired optional Now Playing `Up next` preview for upcoming queued songs, with optional artwork thumbnails. On Android it follows Media3's current shuffle/repeat order instead of only the raw queue order.
 * Kreate-inspired optional mini-player queue button for opening Queue directly from the mini player.
 * Kreate-style mini-player progress can be hidden, shown as a passive bar, or made seekable from Bottom Bar settings.
 * Kreate-inspired queue auto-fill can refill with random library songs, Navidrome/local current-song similarity, or songs that match recent queue genres and moods.

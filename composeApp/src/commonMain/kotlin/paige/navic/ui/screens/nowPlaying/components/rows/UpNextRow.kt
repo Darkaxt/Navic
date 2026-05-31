@@ -67,7 +67,9 @@ fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {
 	val upNextSongs = nowPlayingUpNextItems(
 		queue = playerState.queue,
 		currentIndex = playerState.currentIndex,
-		maxCount = preferenceManager.nowPlayingUpNextCount
+		maxCount = preferenceManager.nowPlayingUpNextCount,
+		repeatMode = playerState.repeatMode,
+		upcomingIndexes = playerState.upcomingIndexes
 	)
 	if (upNextSongs.isEmpty()) return
 

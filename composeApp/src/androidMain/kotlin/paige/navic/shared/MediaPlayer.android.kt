@@ -801,11 +801,11 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-						_uiState.update { it.copy(isShuffleEnabled = shuffleModeEnabled) }
+						updatePlaybackState()
 					}
 
 					override fun onRepeatModeChanged(repeatMode: Int) {
-						_uiState.update { it.copy(repeatMode = repeatMode) }
+						updatePlaybackState()
 					}
 
 					override fun onTracksChanged(tracks: Tracks) {
@@ -911,6 +911,7 @@ class AndroidMediaPlayerViewModel(
 		val controller = controller ?: return
 		val index = controller.currentMediaItemIndex
 		val currentSong = _uiState.value.queue.getOrNull(index)
+		val upcomingIndexes = controller.upcomingMediaItemIndexes()
 
 		val derivedCollection = currentSong?.let { song ->
 			val stateCollection = _uiState.value.currentCollection
@@ -926,6 +927,7 @@ class AndroidMediaPlayerViewModel(
 		_uiState.update { state ->
 			state.copy(
 				currentIndex = index,
+				upcomingIndexes = upcomingIndexes,
 				currentSong = currentSong,
 				currentCollection = derivedCollection ?: state.currentCollection,
 				isPaused = !controller.isPlaying,
@@ -936,6 +938,34 @@ class AndroidMediaPlayerViewModel(
 		applyReplayGain()
 		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
 		updateProgress()
+	}
+
+	private fun MediaController.upcomingMediaItemIndexes(): List<Int> {
+		val itemCount = mediaItemCount
+		val currentIndex = currentMediaItemIndex
+		if (itemCount <= 0 || currentIndex !in 0 until itemCount) return emptyList()
+		if (repeatMode == Player.REPEAT_MODE_ONE) return listOf(currentIndex)
+
+		val timeline = currentTimeline
+		if (timeline.isEmpty) return emptyList()
+
+		val indexes = mutableListOf<Int>()
+		var index = currentIndex
+		repeat(itemCount - 1) {
+			val nextIndex = timeline.getNextWindowIndex(
+				index,
+				repeatMode,
+				shuffleModeEnabled
+			)
+			if (nextIndex == C.INDEX_UNSET || nextIndex !in 0 until itemCount) {
+				return indexes
+			}
+			if (nextIndex == currentIndex) return indexes
+
+			indexes += nextIndex
+			index = nextIndex
+		}
+		return indexes
 	}
 
 	private fun prefetchMusicBrainzArtworkForCurrentSong(

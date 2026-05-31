@@ -21,6 +21,51 @@ class NowPlayingUpNextPolicyTest {
 	}
 
 	@Test
+	fun usesPlayerProvidedUpcomingIndexesForShuffleOrRepeatOrder() {
+		val queue = listOf("one", "two", "three", "four")
+
+		assertEquals(
+			listOf("four", "one"),
+			nowPlayingUpNextItems(
+				queue = queue,
+				currentIndex = 1,
+				maxCount = 2,
+				upcomingIndexes = listOf(3, 0, 2)
+			)
+		)
+	}
+
+	@Test
+	fun repeatAllWrapsFromQueueEndWhenNoPlayerOrderIsAvailable() {
+		val queue = listOf("one", "two", "three")
+
+		assertEquals(
+			listOf("one", "two"),
+			nowPlayingUpNextItems(
+				queue = queue,
+				currentIndex = 2,
+				maxCount = 3,
+				repeatMode = NowPlayingRepeatAll
+			)
+		)
+	}
+
+	@Test
+	fun repeatOneShowsTheCurrentItemAsNext() {
+		val queue = listOf("one", "two", "three")
+
+		assertEquals(
+			listOf("two"),
+			nowPlayingUpNextItems(
+				queue = queue,
+				currentIndex = 1,
+				maxCount = 3,
+				repeatMode = NowPlayingRepeatOne
+			)
+		)
+	}
+
+	@Test
 	fun returnsEmptyWhenCurrentIndexIsInvalidOrAtQueueEnd() {
 		val queue = listOf("one", "two")
 
