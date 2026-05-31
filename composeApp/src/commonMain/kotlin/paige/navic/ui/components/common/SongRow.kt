@@ -236,7 +236,7 @@ fun SongRow(
 				if (starred) onAddStar() else onRemoveStar()
 			},
 			onShare = onShare,
-			onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
+			onPlayMusicVideo = lidaClipsMusicVideoAction(song),
 			onStartSongRadio = if (hasStableNavidromeSongId(song.id)) {
 				{ player.startSongRadio(song) }
 			} else null,

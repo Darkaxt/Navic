@@ -345,7 +345,7 @@ fun SearchScreen(
 												onStartSongRadio = if (hasStableNavidromeSongId(song.id)) {
 													{ player.startSongRadio(song) }
 												} else null,
-												onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
+												onPlayMusicVideo = lidaClipsMusicVideoAction(song),
 												onPlayNext = {
 													queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
 														player.playNextSingle(song)

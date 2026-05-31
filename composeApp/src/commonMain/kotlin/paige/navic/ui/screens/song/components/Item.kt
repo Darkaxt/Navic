@@ -268,7 +268,7 @@ fun SongListScreenItem(
 					rating = rating,
 					onSetStarred = onSetStarred,
 					onShare = { onSetShareId(song.id) },
-					onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
+					onPlayMusicVideo = lidaClipsMusicVideoAction(song),
 					onStartSongRadio = if (hasStableNavidromeSongId(song.id)) onStartSongRadio else null,
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,

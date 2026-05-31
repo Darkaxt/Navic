@@ -299,6 +299,50 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun verifiedMusicVideoActionRequiresAvailableClip() {
+		assertEquals(
+			false,
+			shouldShowVerifiedLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "song-1",
+				clipAvailability = LidaClipAvailability.Unknown
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowVerifiedLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "song-1",
+				clipAvailability = LidaClipAvailability.Unavailable
+			)
+		)
+		assertEquals(
+			true,
+			shouldShowVerifiedLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "song-1",
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+		assertEquals(
+			false,
+			shouldShowVerifiedLidaClipsMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "radio_song-1",
+				clipAvailability = LidaClipAvailability.Available
+			)
+		)
+	}
+
+	@Test
 	fun nowPlayingMusicVideoActionOpensClipScreenWhenConfiguredButNoClipResolved() {
 		assertEquals(
 			LidaClipsNowPlayingMusicVideoAction.OpenPlayer,

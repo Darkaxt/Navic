@@ -106,7 +106,7 @@ fun NowPlayingMoreButton(
 				onShare = {
 					shareId = song.id
 				},
-				onPlayMusicVideo = lidaClipsMusicVideoAction(song.id),
+				onPlayMusicVideo = lidaClipsMusicVideoAction(song),
 				onStartSongRadio = if (shouldShowNowPlayingStartRadioAction(
 						userActionEnabled = preferenceManager.showNowPlayingStartRadioAction,
 						songId = song.id
