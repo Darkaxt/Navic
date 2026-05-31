@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +38,8 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSharedTransitionScope
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.core.UiState
@@ -81,6 +84,7 @@ fun ArtGridItem(
 	coverArtId: String?,
 	title: String,
 	subtitle: String? = null,
+	acquisitionProgress: AurralAcquisitionProgress? = null,
 	fallbackKind: String? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
@@ -101,24 +105,32 @@ fun ArtGridItem(
 				)
 				.then(modifier)
 		) {
-			CoverArt(
-				coverArtId = coverArtId,
-				contentDescription = title,
-				fallbackKind = fallbackKind,
-				modifier = Modifier
-					.fillMaxWidth()
-					.sharedElement(
-						sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
-						boundsTransform = BoundsTransform { _, _ ->
-							tween(
-								durationMillis = 500,
-								easing = EmphasizedDecelerateEasing
-							)
-						},
-						animatedVisibilityScope = LocalNavAnimatedContentScope.current
-					),
-				interactionSource = interactionSource
-			)
+			Box(Modifier.fillMaxWidth()) {
+				CoverArt(
+					coverArtId = coverArtId,
+					contentDescription = title,
+					fallbackKind = fallbackKind,
+					modifier = Modifier
+						.fillMaxWidth()
+						.sharedElement(
+							sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
+							boundsTransform = BoundsTransform { _, _ ->
+								tween(
+									durationMillis = 500,
+									easing = EmphasizedDecelerateEasing
+								)
+							},
+							animatedVisibilityScope = LocalNavAnimatedContentScope.current
+						),
+					interactionSource = interactionSource
+				)
+				acquisitionProgress?.let { progress ->
+					AurralAcquisitionProgressBar(
+						progress = progress,
+						modifier = Modifier.align(Alignment.BottomCenter)
+					)
+				}
+			}
 			Text(
 				text = title,
 				style = MaterialTheme.typography.titleSmallEmphasized,

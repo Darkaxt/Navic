@@ -135,6 +135,52 @@ fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
 	)
 }
 
+fun aurralAlbumAcquisitionProgress(
+	album: DomainAlbum,
+	requests: List<AurralAlbumRequest>
+): AurralAcquisitionProgress? =
+	aurralAlbumAcquisitionProgress(
+		albumMusicBrainzId = album.musicBrainzId,
+		albumName = album.name,
+		artistName = album.artistName,
+		requests = requests
+	)
+
+fun aurralAlbumAcquisitionProgress(
+	albumMusicBrainzId: String?,
+	albumName: String,
+	artistName: String,
+	requests: List<AurralAlbumRequest>
+): AurralAcquisitionProgress? {
+	val normalizedAlbumMbid = albumMusicBrainzId.normalizedAurralIdOrNull()
+	val normalizedAlbumName = albumName.normalizedAurralNameOrNull()
+	val normalizedArtistName = artistName.normalizedAurralNameOrNull()
+	return requests
+		.mapNotNull { request ->
+			val status = request.status?.trim()?.takeIf { it.isNotEmpty() }
+				?: return@mapNotNull null
+			val matchesMbid = normalizedAlbumMbid != null &&
+				request.albumMbid.normalizedAurralIdOrNull() == normalizedAlbumMbid
+			val matchesName = normalizedAlbumName != null &&
+				normalizedArtistName != null &&
+				request.albumName.normalizedAurralNameOrNull() == normalizedAlbumName &&
+				request.artistName.normalizedAurralNameOrNull() == normalizedArtistName
+			if (matchesMbid || matchesName) {
+				aurralAcquisitionProgress(status)
+			} else {
+				null
+			}
+		}
+		.sortedBy { progress ->
+			when {
+				progress.active -> 0
+				progress.failed -> 1
+				else -> 2
+			}
+		}
+		.firstOrNull()
+}
+
 fun aurralSimilarArtistRows(
 	enrichment: AurralArtistEnrichment,
 	localArtists: List<DomainArtist>

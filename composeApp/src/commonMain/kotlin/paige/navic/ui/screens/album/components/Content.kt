@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_albums
 import org.jetbrains.compose.resources.stringResource
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
@@ -16,6 +17,7 @@ import paige.navic.ui.core.UiState
 
 fun LazyGridScope.albumListScreenContent(
 	state: UiState<List<DomainAlbum>>,
+	aurralAlbumRequests: List<AurralAlbumRequest>,
 	starred: Boolean,
 	selectedAlbum: DomainAlbum?,
 	selectedAlbumRating: Int,
@@ -34,6 +36,7 @@ fun LazyGridScope.albumListScreenContent(
 				modifier = Modifier.animateItem(),
 				tab = "albums",
 				album = album,
+				aurralAlbumRequests = aurralAlbumRequests,
 				selected = album == selectedAlbum,
 				starred = starred,
 				onSelect = { onUpdateSelection(album) },

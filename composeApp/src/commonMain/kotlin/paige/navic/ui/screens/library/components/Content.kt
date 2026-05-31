@@ -198,6 +198,7 @@ fun LibraryScreenContent(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library",
 				album = album,
+				aurralAlbumRequests = emptyList(),
 				selected = album == selectedAlbum,
 				starred = selectedAlbumIsStarred,
 				onSelect = { onSelectAlbum(album) },

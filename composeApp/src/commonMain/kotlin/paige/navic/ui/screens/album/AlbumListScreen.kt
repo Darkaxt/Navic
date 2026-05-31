@@ -61,6 +61,7 @@ fun AlbumListScreen(
 	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
 	val albumsState by viewModel.albumsState.collectAsStateWithLifecycle()
+	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
@@ -117,6 +118,7 @@ fun AlbumListScreen(
 			) {
 				albumListScreenContent(
 					state = albumsState,
+					aurralAlbumRequests = aurralAlbumRequests,
 					starred = starred,
 					selectedAlbum = selectedAlbum,
 					selectedAlbumRating = rating,

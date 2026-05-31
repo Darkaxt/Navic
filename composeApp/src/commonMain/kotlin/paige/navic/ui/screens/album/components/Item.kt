@@ -17,7 +17,9 @@ import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
@@ -28,6 +30,7 @@ fun AlbumListScreenItem(
 	modifier: Modifier = Modifier,
 	tab: String,
 	album: DomainAlbum,
+	aurralAlbumRequests: List<AurralAlbumRequest>,
 	selected: Boolean,
 	starred: Boolean,
 	rating: Int,
@@ -62,6 +65,10 @@ fun AlbumListScreenItem(
 			coverArtId = album.coverArtId,
 			title = album.name,
 			subtitle = album.artistName,
+			acquisitionProgress = aurralAlbumAcquisitionProgress(
+				album = album,
+				requests = aurralAlbumRequests
+			),
 			fallbackKind = "Album",
 			id = album.id,
 			tab = tab

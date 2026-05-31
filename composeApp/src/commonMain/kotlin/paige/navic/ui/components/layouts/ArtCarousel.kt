@@ -2,6 +2,7 @@ package paige.navic.ui.components.layouts
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,8 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_see_all
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
+import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.CoverArt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -105,6 +108,7 @@ fun CarouselItemScope.ArtCarouselItem(
 	coverArtId: String?,
 	title: String,
 	subtitle: String? = null,
+	acquisitionProgress: AurralAcquisitionProgress? = null,
 	contentDescription: String?,
 	onSelect: () -> Unit = {},
 	onClick: () -> Unit = {}
@@ -116,20 +120,28 @@ fun CarouselItemScope.ArtCarouselItem(
 		modifier = Modifier
 			.fillMaxWidth()
 	) {
-		CoverArt(
-			coverArtId = coverArtId,
-			contentDescription = contentDescription,
-			modifier = Modifier
-				.fillMaxWidth()
-				.maskClip(MaterialTheme.shapes.large),
-			shape = RectangleShape,
-			onClick = {
-				platformContext.clickSound()
-				focusManager.clearFocus(true)
-				onClick()
-			},
-			onLongClick = onSelect
-		)
+		Box(Modifier.fillMaxWidth()) {
+			CoverArt(
+				coverArtId = coverArtId,
+				contentDescription = contentDescription,
+				modifier = Modifier
+					.fillMaxWidth()
+					.maskClip(MaterialTheme.shapes.large),
+				shape = RectangleShape,
+				onClick = {
+					platformContext.clickSound()
+					focusManager.clearFocus(true)
+					onClick()
+				},
+				onLongClick = onSelect
+			)
+			acquisitionProgress?.let { progress ->
+				AurralAcquisitionProgressBar(
+					progress = progress,
+					modifier = Modifier.align(Alignment.BottomCenter)
+				)
+			}
+		}
 
 		Text(
 			text = title,

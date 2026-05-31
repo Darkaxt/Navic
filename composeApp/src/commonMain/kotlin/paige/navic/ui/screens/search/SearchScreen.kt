@@ -386,6 +386,7 @@ fun SearchScreen(
 										.width(150.dp),
 									tab = "search",
 									album = album,
+									aurralAlbumRequests = emptyList(),
 									selected = album == albumListSelection,
 									starred = albumListStarred,
 									onSelect = { albumListViewModel.selectAlbum(album) },

@@ -32,7 +32,6 @@ import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -87,11 +86,12 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralSimilarArtistRow
+import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.SongRow
@@ -358,6 +358,10 @@ fun ArtistDetailScreen(
 								ArtCarouselItem(
 									coverArtId = album.coverArtId, 
 									title = album.name, 
+									acquisitionProgress = aurralAlbumAcquisitionProgress(
+										album = album,
+										requests = state.aurralAlbumRequests
+									),
 									contentDescription = null,
 									onSelect = { viewModel.selectAlbum(album) },
 									onClick = dropUnlessResumed {
@@ -511,7 +515,7 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				shape = RectangleShape
 			)
 			row.acquisitionProgress?.let { progress ->
-				AurralAlbumAcquisitionProgress(
+				AurralAcquisitionProgressBar(
 					progress = progress,
 					modifier = Modifier.align(Alignment.BottomCenter)
 				)
@@ -558,37 +562,6 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				overflow = TextOverflow.Ellipsis
 			)
 		}
-	}
-}
-
-@Composable
-private fun AurralAlbumAcquisitionProgress(
-	progress: AurralAcquisitionProgress,
-	modifier: Modifier = Modifier
-) {
-	val color = when {
-		progress.failed -> MaterialTheme.colorScheme.error
-		progress.completed -> MaterialTheme.colorScheme.primary
-		else -> MaterialTheme.colorScheme.tertiary
-	}
-	val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f)
-	if (progress.active) {
-		LinearProgressIndicator(
-			modifier = modifier
-				.fillMaxWidth()
-				.height(4.dp),
-			color = color,
-			trackColor = trackColor
-		)
-	} else {
-		LinearProgressIndicator(
-			progress = { 1f },
-			modifier = modifier
-				.fillMaxWidth()
-				.height(4.dp),
-			color = color,
-			trackColor = trackColor
-		)
 	}
 }
 

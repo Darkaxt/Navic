@@ -112,6 +112,65 @@ class AurralArtistEnrichmentPolicyTest {
 		assertEquals(listOf(92, 81, 75), rows.map { it.matchPercent })
 	}
 
+	@Test
+	fun albumAcquisitionProgressMatchesMusicBrainzId() {
+		val progress = aurralAlbumAcquisitionProgress(
+			albumMusicBrainzId = "ALBUM-MBID",
+			albumName = "Local title",
+			artistName = "Local artist",
+			requests = listOf(
+				AurralAlbumRequest(
+					albumMbid = "album-mbid",
+					albumName = "Different title",
+					artistName = "Different artist",
+					status = "processing"
+				)
+			)
+		)
+
+		assertTrue(progress?.active == true)
+		assertFalse(progress.completed)
+		assertFalse(progress.failed)
+	}
+
+	@Test
+	fun albumAcquisitionProgressFallsBackToArtistAndAlbumName() {
+		val progress = aurralAlbumAcquisitionProgress(
+			albumMusicBrainzId = null,
+			albumName = "  You'll Be Alright, Kid ",
+			artistName = "Alex Warren",
+			requests = listOf(
+				AurralAlbumRequest(
+					albumName = "you'll be alright, kid",
+					artistName = " alex   warren ",
+					status = "available"
+				)
+			)
+		)
+
+		assertTrue(progress?.completed == true)
+		assertFalse(progress.active)
+		assertFalse(progress.failed)
+	}
+
+	@Test
+	fun albumAcquisitionProgressDoesNotMatchSameAlbumForDifferentArtist() {
+		val progress = aurralAlbumAcquisitionProgress(
+			albumMusicBrainzId = null,
+			albumName = "Greatest Hits",
+			artistName = "Artist A",
+			requests = listOf(
+				AurralAlbumRequest(
+					albumName = "Greatest Hits",
+					artistName = "Artist B",
+					status = "processing"
+				)
+			)
+		)
+
+		assertNull(progress)
+	}
+
 	private fun releaseGroup(
 		id: String,
 		title: String,

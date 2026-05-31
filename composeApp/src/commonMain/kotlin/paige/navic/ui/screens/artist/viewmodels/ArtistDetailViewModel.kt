@@ -24,6 +24,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
@@ -47,6 +48,7 @@ data class ArtistState(
 	val albums: List<DomainAlbum>,
 	val topSongs: List<DomainSong>,
 	val similarArtists: List<DomainArtist> = emptyList(),
+	val aurralAlbumRequests: List<AurralAlbumRequest> = emptyList(),
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
@@ -208,6 +210,7 @@ class ArtistDetailViewModel(
 							aurralMissingAlbums = enrichment
 								?.let { aurralMissingAlbumRows(it, albums) }
 								.orEmpty(),
+							aurralAlbumRequests = enrichment?.requests.orEmpty(),
 							aurralSimilarArtists = enrichment
 								?.let { aurralSimilarArtistRows(it, localArtists) }
 								.orEmpty(),
@@ -327,7 +330,7 @@ class ArtistDetailViewModel(
 		viewModelScope.launch {
 			aurralRepository.requestAlbum(artist, row.releaseGroup)
 				.onSuccess {
-					updateAurralAlbumRequestStatus(row.releaseGroup.id, "requested")
+					updateAurralAlbumRequestStatus(row, "requested")
 				}
 				.onFailure { error ->
 					Logger.w("ArtistDetailViewModel", "Failed to request Aurral album", error)
@@ -342,12 +345,24 @@ class ArtistDetailViewModel(
 	}
 
 	private fun updateAurralAlbumRequestStatus(
-		releaseGroupId: String,
+		row: AurralMissingAlbumRow,
 		status: String
 	) {
 		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		val releaseGroupId = row.releaseGroup.id
 		_artistState.value = UiState.Success(
 			currentState.copy(
+				aurralAlbumRequests = currentState.aurralAlbumRequests
+					.filterNot { request -> request.albumMbid == releaseGroupId }
+					.plus(
+						AurralAlbumRequest(
+							albumMbid = releaseGroupId,
+							albumName = row.title,
+							artistMbid = currentState.artist.musicBrainzId,
+							artistName = currentState.artist.name,
+							status = status
+						)
+					),
 				aurralMissingAlbums = currentState.aurralMissingAlbums.map { row ->
 					if (row.releaseGroup.id == releaseGroupId) {
 						row.copy(
