@@ -7,27 +7,37 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import paige.navic.data.database.dao.GenreDao
+import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainGenre
+import paige.navic.domain.models.genreGroupsFromAlbums
 import paige.navic.ui.core.UiState
 
 class GenreRepository(
-	private val genreDao: GenreDao,
+	private val albumDao: AlbumDao,
 	private val dbRepository: DbRepository
 ) {
 	private suspend fun getLocalData(): ImmutableList<DomainGenre> {
-		return genreDao
-			.getGenresWithAlbums()
-			.map { it.toDomainModel() }
-			.sortedByDescending { it.albums.count() }
-			.filter { it.albums.isNotEmpty() }
+		return genreGroupsFromAlbums(
+			albumDao
+				.getAllAlbumsList()
+				.map { it.toDomainModel() }
+		)
 			.toImmutableList()
 	}
 
 	private suspend fun refreshLocalData(): ImmutableList<DomainGenre> {
+		dbRepository.syncLibrarySongs().getOrThrow()
 		dbRepository.syncGenres().getOrThrow()
 		return getLocalData()
+	}
+
+	suspend fun getGenreByName(
+		genreName: String,
+		fullRefresh: Boolean
+	): DomainGenre? {
+		val genres = if (fullRefresh) refreshLocalData() else getLocalData()
+		return genres.firstOrNull { it.name.equals(genreName, ignoreCase = true) }
 	}
 
 	fun getGenresFlow(

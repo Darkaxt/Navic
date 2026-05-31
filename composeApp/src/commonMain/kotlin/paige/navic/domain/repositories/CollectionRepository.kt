@@ -14,6 +14,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.ui.core.UiState
@@ -50,6 +51,8 @@ class CollectionRepository(
 				dbRepository.syncPlaylistSongs(playlist.id).getOrThrow()
 				playlistDao.getPlaylistById(playlist.id)!!.toDomainModel()
 			}
+
+			is DomainGenreCollection -> collection
 		}
 		return getLocalData(collectionId)
 	}

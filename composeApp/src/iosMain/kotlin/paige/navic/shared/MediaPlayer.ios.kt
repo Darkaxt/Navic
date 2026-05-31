@@ -16,6 +16,8 @@ import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.IOSScrobbleManager
+import paige.navic.domain.manager.PlaybackOriginCredit
+import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
@@ -24,12 +26,13 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.discoverQueueRemovalIndexes
-import paige.navic.domain.models.limitQueueShuffle
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.songRadioQueue
+import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.PlayerUiState
@@ -81,6 +84,9 @@ import platform.darwin.DISPATCH_TIME_FOREVER
 import platform.darwin.dispatch_semaphore_create
 import platform.darwin.dispatch_semaphore_signal
 import platform.darwin.dispatch_semaphore_wait
+import kotlin.time.Clock
+
+private const val PlaybackOriginCheckpointIntervalMs = 30_000L
 
 class IOSMediaPlayerViewModel(
 	stateRepository: PlayerStateRepository,
@@ -91,6 +97,7 @@ class IOSMediaPlayerViewModel(
 	private val playlistDao: PlaylistDao,
 	private val songDao: SongDao,
 	private val songRepository: SongRepository,
+	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -105,6 +112,8 @@ class IOSMediaPlayerViewModel(
 		IOSScrobbleManager(player, viewModelScope, connectivityManager, syncManager, sessionManager, preferenceManager)
 	private var pendingSyncState: PlayerUiState? = null
 	private var isTransitioningBetweenTracks = false
+	private val playbackOriginTracker = PlaybackOriginTracker()
+	private var lastPlaybackOriginCheckpointMillis = 0L
 
 	init {
 		setupAudioSession()
@@ -259,6 +268,7 @@ class IOSMediaPlayerViewModel(
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
+			setPlaybackOrigin(null)
 			val serverSimilarSongs = withContext(Dispatchers.IO) {
 				fetchServerSimilarSongs(
 					songId = song.id,
@@ -303,6 +313,7 @@ class IOSMediaPlayerViewModel(
 		}.getOrDefault(emptyList())
 
 	override fun playRadio(radio: DomainRadio) {
+		setPlaybackOrigin(null)
 		val radioId = "radio_${radio.name.hashCode()}"
 
 		val dummyRadioSong = DomainSong(
@@ -475,6 +486,7 @@ class IOSMediaPlayerViewModel(
 	}
 
 	override fun clearQueue() {
+		setPlaybackOrigin(null)
 		player.pause()
 		player.replaceCurrentItemWithPlayerItem(null)
 		_uiState.update {
@@ -488,6 +500,14 @@ class IOSMediaPlayerViewModel(
 		player.play()
 		_uiState.update { it.copy(isPaused = false) }
 		scrobbleManager.onIsPlayingChanged(true)
+		val nowMillis = Clock.System.now().toEpochMilliseconds()
+		recordPlaybackOriginCredit(
+			playbackOriginTracker.onPlaybackState(
+				isPlaying = true,
+				nowMillis = nowMillis
+			)
+		)
+		lastPlaybackOriginCheckpointMillis = nowMillis
 		updateNowPlayingInfo(_uiState.value.currentSong)
 	}
 
@@ -495,6 +515,12 @@ class IOSMediaPlayerViewModel(
 		player.pause()
 		_uiState.update { it.copy(isPaused = true) }
 		scrobbleManager.onIsPlayingChanged(false)
+		recordPlaybackOriginCredit(
+			playbackOriginTracker.onPlaybackState(
+				isPlaying = false,
+				nowMillis = Clock.System.now().toEpochMilliseconds()
+			)
+		)
 		updateNowPlayingInfo(_uiState.value.currentSong)
 	}
 
@@ -523,10 +549,7 @@ class IOSMediaPlayerViewModel(
 	}
 
 	override fun shufflePlay(collection: DomainSongCollection) {
-		val shuffledSongs = limitQueueShuffle(
-			songs = collection.songs.shuffled(),
-			limit = preferenceManager.queueShuffleLimit
-		)
+		val shuffledSongs = collection.songs.shuffled()
 		_uiState.update { state ->
 			state.copy(
 				queue = shuffledSongs,
@@ -535,6 +558,12 @@ class IOSMediaPlayerViewModel(
 			)
 		}
 		playAt(0)
+	}
+
+	override fun setPlaybackOrigin(origin: PlaybackOrigin?) {
+		val nowMillis = Clock.System.now().toEpochMilliseconds()
+		recordPlaybackOriginCredit(playbackOriginTracker.setOrigin(origin, nowMillis))
+		lastPlaybackOriginCheckpointMillis = nowMillis
 	}
 
 	override fun setPlaybackSpeed(value: Float) {
@@ -570,9 +599,32 @@ class IOSMediaPlayerViewModel(
 				val current = CMTimeGetSeconds(time)
 				if (!total.isNaN() && total > 0) {
 					_uiState.update { it.copy(progress = (current / total).toFloat()) }
+					checkpointPlaybackOriginIfNeeded(Clock.System.now().toEpochMilliseconds())
 				}
 			}
 		}
+	}
+
+	private fun recordPlaybackOriginCredit(credit: PlaybackOriginCredit?) {
+		if (credit == null) return
+		viewModelScope.launch(Dispatchers.IO) {
+			runCatching {
+				playbackOriginRepository.credit(
+					origin = credit.origin,
+					durationMillis = credit.durationMillis
+				)
+			}.onFailure { error ->
+				Logger.w("IOSMediaPlayerViewModel", "Failed to credit playback origin", error)
+			}
+		}
+	}
+
+	private fun checkpointPlaybackOriginIfNeeded(nowMillis: Long) {
+		if (nowMillis - lastPlaybackOriginCheckpointMillis < PlaybackOriginCheckpointIntervalMs) {
+			return
+		}
+		recordPlaybackOriginCredit(playbackOriginTracker.checkpoint(nowMillis))
+		lastPlaybackOriginCheckpointMillis = nowMillis
 	}
 
 	private fun updateNowPlayingInfo(song: DomainSong?) {

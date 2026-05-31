@@ -9,7 +9,10 @@ class AlbumSqlQueryPolicyTest {
 	fun genreAlbumListsSortByYearFromRecentToOldest() {
 		val parts = DomainAlbumListType.ByGenre("Pop").toSqlQueryParts()
 
-		assertEquals("genre = ?", parts.where)
+		assertEquals(
+			"(genre = ? OR genres = ? OR genres LIKE ? OR genres LIKE ? OR genres LIKE ?)",
+			parts.where
+		)
 		assertEquals(
 			"CASE WHEN year IS NULL THEN 1 ELSE 0 END ASC, year DESC, LOWER(name) ASC",
 			parts.orderBy

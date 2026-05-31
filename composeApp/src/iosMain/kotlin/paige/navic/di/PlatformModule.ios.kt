@@ -63,6 +63,7 @@ actual val platformModule = module {
 			playlistDao = get(),
 			songDao = get(),
 			songRepository = get(),
+			playbackOriginRepository = get(),
 			preferenceManager = get()
 		)
 	}

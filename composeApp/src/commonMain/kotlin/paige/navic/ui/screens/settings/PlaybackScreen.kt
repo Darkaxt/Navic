@@ -68,7 +68,6 @@ import navic.composeapp.generated.resources.option_playlist_indicator
 import navic.composeapp.generated.resources.option_queue_swipe_actions
 import navic.composeapp.generated.resources.option_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.option_queue_swipe_start_to_end_action
-import navic.composeapp.generated.resources.option_queue_shuffle_limit
 import navic.composeapp.generated.resources.option_replay_gain
 import navic.composeapp.generated.resources.option_replay_gain_loudness_boost
 import navic.composeapp.generated.resources.option_respect_audio_focus
@@ -82,7 +81,6 @@ import navic.composeapp.generated.resources.option_song_swipe_start_to_end_actio
 import navic.composeapp.generated.resources.option_smart_rewind
 import navic.composeapp.generated.resources.option_skip_media_on_error
 import navic.composeapp.generated.resources.option_skip_silence
-import navic.composeapp.generated.resources.option_unlimited
 import navic.composeapp.generated.resources.option_volume_keys_skip_tracks
 import navic.composeapp.generated.resources.subtitle_audio_offload
 import navic.composeapp.generated.resources.subtitle_audio_fade
@@ -106,7 +104,6 @@ import navic.composeapp.generated.resources.subtitle_playlist_indicator
 import navic.composeapp.generated.resources.subtitle_queue_swipe_actions
 import navic.composeapp.generated.resources.subtitle_queue_swipe_end_to_start_action
 import navic.composeapp.generated.resources.subtitle_queue_swipe_start_to_end_action
-import navic.composeapp.generated.resources.subtitle_queue_shuffle_limit
 import navic.composeapp.generated.resources.subtitle_replay_gain_loudness_boost
 import navic.composeapp.generated.resources.subtitle_respect_audio_focus
 import navic.composeapp.generated.resources.subtitle_resume_playback_on_audio_device_connect
@@ -435,20 +432,6 @@ fun SettingsPlaybackScreen() {
 								)
 							}
 						}
-						SettingSelectionRow(
-							title = { Text(stringResource(Res.string.option_queue_shuffle_limit)) },
-							items = queueShuffleLimitOptions.toImmutableList(),
-							label = { limit ->
-								if (limit == 0) {
-									stringResource(Res.string.option_unlimited)
-								} else {
-									"$limit songs"
-								}
-							},
-							description = stringResource(Res.string.subtitle_queue_shuffle_limit),
-							selection = preferenceManager.queueShuffleLimit,
-							onSelect = { preferenceManager.queueShuffleLimit = it }
-						)
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_now_playing_indicator)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_now_playing_indicator)) },
@@ -710,4 +693,3 @@ private val medleyModeOptions = listOf(0, 15, 30, 45, 60)
 private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)
 private val audioFadeDurationOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeOptions = listOf(10, 25, 50, 100)
-private val queueShuffleLimitOptions = listOf(0, 50, 100, 200, 500, 1000, 2000, 3000)

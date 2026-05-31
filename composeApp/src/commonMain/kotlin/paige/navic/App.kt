@@ -76,6 +76,7 @@ import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
+import paige.navic.ui.screens.genre.GenreDetailScreen
 import paige.navic.ui.screens.library.LibraryScreen
 import paige.navic.ui.screens.login.LoginScreen
 import paige.navic.ui.screens.lidaClips.LidaClipPlayerScreen
@@ -283,6 +284,9 @@ private fun entryProvider(
 		}
 		entry<Screen.GenreList>(metadata = navtabMetadata) { key ->
 			GenreListScreen(key.nested)
+		}
+		entry<Screen.GenreDetail>(metadata = navtabMetadata) { key ->
+			GenreDetailScreen(key.genreName)
 		}
 		entry<Screen.SongList>(metadata = navtabMetadata) { key ->
 			SongListScreen(key.nested, key.artistId, key.artistName, key.listType)

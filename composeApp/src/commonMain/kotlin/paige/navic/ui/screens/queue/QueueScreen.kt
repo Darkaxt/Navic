@@ -36,6 +36,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.queueItemKeys
 import paige.navic.domain.models.queuePlayNextTargetIndex
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
@@ -61,6 +62,7 @@ fun QueueScreen() {
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val downloadedSongs by viewModel.downloadedSongs.collectAsStateWithLifecycle()
 	val queue = playerState.queue
+	val queueItemKeys = remember(queue) { queueItemKeys(queue) }
 
 	val haptic = LocalHapticFeedback.current
 	val draggableState = rememberDraggableListState(viewModel.listState) { from, to ->
@@ -129,7 +131,7 @@ fun QueueScreen() {
 			draggableItemsIndexed(
 				state = draggableState,
 				items = queue,
-				key = { index, _ -> index }
+				key = { index, _ -> queueItemKeys.getOrElse(index) { index } }
 			) { index, song, isDragging ->
 				val isCurrentQueueItem = playerState.currentIndex == index
 				QueueScreenItem(

@@ -866,16 +866,6 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				selection = preferenceManager.autoFillQueueSource,
 				onSelect = { preferenceManager.autoFillQueueSource = it }
 			))
-			add(selectionRow(
-				id = "playback.queue-shuffle-limit",
-				path = path(playback),
-				title = stringResource(Res.string.option_queue_shuffle_limit),
-				subtitle = stringResource(Res.string.subtitle_queue_shuffle_limit),
-				items = queueShuffleLimitSearchOptions,
-				label = { if (it == 0) stringResource(Res.string.option_unlimited) else "$it songs" },
-				selection = preferenceManager.queueShuffleLimit,
-				onSelect = { preferenceManager.queueShuffleLimit = it }
-			))
 			add(switchRow(
 				id = "playback.now-playing-indicator",
 				path = path(playback),
@@ -1604,7 +1594,6 @@ private val medleyModeSearchOptions = listOf(0, 15, 30, 45, 60)
 private val smartRewindSearchOptions = listOf(1, 2, 3, 5, 10, 15, 30)
 private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
-private val queueShuffleLimitSearchOptions = listOf(0, 50, 100, 200, 500, 1000, 2000, 3000)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
 private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)
 private val quickPicksMinDurationSearchOptions = listOf(0, 30, 60, 120, 180)

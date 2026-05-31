@@ -12,7 +12,9 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
+import paige.navic.ui.screens.genre.viewmodels.GenreDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
+import paige.navic.ui.screens.library.MostPlayedShortcutsViewModel
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.lyrics.viewmodels.LyricsScreenViewModel
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
@@ -67,7 +69,9 @@ val viewModelModule = module {
 	}
 	viewModelOf(::ArtistListViewModel)
 	viewModelOf(::SearchViewModel)
+	viewModelOf(::GenreDetailViewModel)
 	viewModelOf(::GenreListViewModel)
+	viewModelOf(::MostPlayedShortcutsViewModel)
 	viewModelOf(::RadioListViewModel)
 	viewModelOf(::RadioCreateDialogViewModel)
 	viewModelOf(::PlaylistListViewModel)

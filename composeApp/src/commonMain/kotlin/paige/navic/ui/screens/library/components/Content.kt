@@ -23,8 +23,10 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_genres
+import navic.composeapp.generated.resources.title_most_played
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
+import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.ui.navigation.Screen
@@ -33,6 +35,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainGenre
+import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
@@ -47,6 +50,7 @@ import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
+import paige.navic.ui.screens.library.mostPlayedShortcutDestination
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.withoutTop
@@ -76,6 +80,9 @@ fun LibraryScreenContent(
 	onDownloadQuickPick: (DomainSong) -> Unit,
 	onCancelQuickPickDownload: (DomainSong) -> Unit,
 	onDeleteQuickPickDownload: (DomainSong) -> Unit,
+
+	// most played
+	mostPlayedShortcutsState: UiState<ImmutableList<DomainMostPlayedShortcut>>,
 
 	// albums
 	albumsState: UiState<ImmutableList<DomainAlbum>>,
@@ -116,6 +123,7 @@ fun LibraryScreenContent(
 	genresState: UiState<ImmutableList<DomainGenre>>,
 
 ) {
+	val backStack = LocalNavStack.current
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
 
@@ -179,6 +187,20 @@ fun LibraryScreenContent(
 					onDeleteDownload = { onDeleteQuickPickDownload(song) }
 				)
 			}
+		}
+
+		horizontalSection(
+			title = Res.string.title_most_played,
+			destination = Screen.Library(true),
+			state = mostPlayedShortcutsState,
+			key = { "${it.type.name}:${it.id}" },
+			seeAll = false
+		) { shortcut ->
+			MostPlayedShortcutCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				shortcut = shortcut,
+				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
+			)
 		}
 
 		horizontalSection(

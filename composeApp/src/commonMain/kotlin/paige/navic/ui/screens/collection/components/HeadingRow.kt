@@ -21,12 +21,14 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_unknown_genre
 import navic.composeapp.generated.resources.info_unknown_year
 import navic.composeapp.generated.resources.subtitle_playlist
+import navic.composeapp.generated.resources.title_genres
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.LocalSharedTransitionScope
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
@@ -49,6 +51,7 @@ fun CollectionDetailScreenHeadingRow(
 			contentDescription = displayName,
 			fallbackKind = when (collection) {
 				is DomainAlbum -> "Album"
+				is DomainGenreCollection -> "Genre"
 				is DomainPlaylist -> "Playlist"
 			},
 			modifier = Modifier
@@ -83,6 +86,7 @@ fun CollectionDetailScreenHeadingRow(
 			)
 			val subtitle = when (collection) {
 				is DomainAlbum -> collection.artistName
+				is DomainGenreCollection -> null
 				is DomainPlaylist -> collection.comment
 			}
 			subtitle?.let { subtitle ->
@@ -100,13 +104,15 @@ fun CollectionDetailScreenHeadingRow(
 				)
 			}
 			Text(
-				if (collection is DomainAlbum)
-					"${collection.genre ?: stringResource(Res.string.info_unknown_genre)} • ${
+				when (collection) {
+					is DomainAlbum -> "${collection.genre ?: stringResource(Res.string.info_unknown_genre)} • ${
 						collection.year ?: stringResource(
 							Res.string.info_unknown_year
 						)
 					}"
-				else stringResource(Res.string.subtitle_playlist),
+					is DomainGenreCollection -> stringResource(Res.string.title_genres)
+					is DomainPlaylist -> stringResource(Res.string.subtitle_playlist)
+				},
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				style = MaterialTheme.typography.bodySmall,
 				fontFamily = defaultFont(grade = 100, round = 100f)

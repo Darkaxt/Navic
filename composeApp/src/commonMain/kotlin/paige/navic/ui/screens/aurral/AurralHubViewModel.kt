@@ -16,6 +16,7 @@ import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainPlaylistListType
 import paige.navic.domain.models.stationPlaylists
+import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralRepository
@@ -169,6 +170,7 @@ class AurralHubViewModel(
 					throw IllegalStateException("Station has no songs yet")
 				}
 				player.clearQueue()
+				player.setPlaybackOrigin(playableStation.toPlaybackOrigin())
 				player.addToQueue(playableStation)
 				player.playAt(0)
 				_flowActionState.value = UiState.Success(null)
@@ -211,6 +213,7 @@ class AurralHubViewModel(
 					songs = songs
 				)
 				player.clearQueue()
+				player.setPlaybackOrigin(collection.toPlaybackOrigin())
 				player.addToQueue(collection)
 				player.playAt(0)
 				_flowActionState.value = UiState.Success(null)

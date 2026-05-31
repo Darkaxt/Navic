@@ -35,6 +35,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Close
@@ -73,6 +74,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 			modifier = Modifier.size(width = 52.dp, height = buttonHeight),
 			onClick = {
 				platformContext.clickSound()
+				player.setPlaybackOrigin(collection.toPlaybackOrigin())
 				player.shufflePlay(collection)
 			},
 			shape = buttonShape,
@@ -90,6 +92,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 			onClick = {
 				platformContext.clickSound()
 				player.clearQueue()
+				player.setPlaybackOrigin(collection.toPlaybackOrigin())
 				player.addToQueue(collection)
 				player.playAt(0)
 			},

@@ -76,7 +76,7 @@ internal fun DomainAlbumListType.toSqlQueryParts(): AlbumSqlQueryParts {
 		DomainAlbumListType.Starred ->
 			"starredAt IS NOT NULL" to "starredAt ASC"
 		is DomainAlbumListType.ByGenre ->
-			"genre = ?" to AlbumYearDescendingOrder
+			"(genre = ? OR genres = ? OR genres LIKE ? OR genres LIKE ? OR genres LIKE ?)" to AlbumYearDescendingOrder
 		is DomainAlbumListType.ByYear ->
 			"COALESCE(year, 0) BETWEEN ? AND ?" to "year DESC, LOWER(name) ASC"
 	}
@@ -94,8 +94,13 @@ fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
 
 	return RoomRawQuery(sql) { statement ->
 		when (this) {
-			is DomainAlbumListType.ByGenre ->
+			is DomainAlbumListType.ByGenre -> {
 				statement.bindText(1, genre)
+				statement.bindText(2, genre)
+				statement.bindText(3, "$genre||%")
+				statement.bindText(4, "%||$genre||%")
+				statement.bindText(5, "%||$genre")
+			}
 			is DomainAlbumListType.ByYear -> {
 				statement.bindInt(1, fromYear)
 				statement.bindInt(2, toYear)

@@ -70,6 +70,8 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PlaybackOriginCredit
+import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
@@ -79,6 +81,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.discoverQueueRemovalIndexes
@@ -90,7 +93,6 @@ import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.playbackVolumeMultiplier
-import paige.navic.domain.models.limitQueueShuffle
 import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
@@ -115,6 +117,7 @@ import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
+import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.components.common.CoilBitmapLoader
@@ -122,8 +125,11 @@ import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
 import java.io.File
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+
+private const val PlaybackOriginCheckpointIntervalMs = 30_000L
 
 class PlaybackService : MediaSessionService(), KoinComponent {
 	private var mediaSession: MediaSession? = null
@@ -703,6 +709,7 @@ class AndroidMediaPlayerViewModel(
 	private val sessionManager: SessionManager,
 	private val songRepository: SongRepository,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
+	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -722,6 +729,8 @@ class AndroidMediaPlayerViewModel(
 	private var autoFillQueueJob: Job? = null
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
 	private var nowPlayingVideoClipAudioActive = false
+	private val playbackOriginTracker = PlaybackOriginTracker()
+	private var lastPlaybackOriginCheckpointMillis = 0L
 
 	init {
 		connectToService()
@@ -771,7 +780,15 @@ class AndroidMediaPlayerViewModel(
 
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
 						_uiState.update { it.copy(isPaused = !isPlaying) }
+						val nowMillis = Clock.System.now().toEpochMilliseconds()
+						recordPlaybackOriginCredit(
+							playbackOriginTracker.onPlaybackState(
+								isPlaying = isPlaying,
+								nowMillis = nowMillis
+							)
+						)
 						if (isPlaying) {
+							lastPlaybackOriginCheckpointMillis = nowMillis
 							startProgressLoop()
 							maybeAutoFillQueue()
 							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
@@ -890,6 +907,40 @@ class AndroidMediaPlayerViewModel(
 		nowPlayingVideoClipAudioActive = active
 		cancelPlaybackFade()
 		refreshPlaybackVolume()
+	}
+
+	override fun setPlaybackOrigin(origin: PlaybackOrigin?) {
+		viewModelScope.launch {
+			setPlaybackOriginNow(origin)
+		}
+	}
+
+	private fun setPlaybackOriginNow(origin: PlaybackOrigin?) {
+		val nowMillis = Clock.System.now().toEpochMilliseconds()
+		recordPlaybackOriginCredit(playbackOriginTracker.setOrigin(origin, nowMillis))
+		lastPlaybackOriginCheckpointMillis = nowMillis
+	}
+
+	private fun recordPlaybackOriginCredit(credit: PlaybackOriginCredit?) {
+		if (credit == null) return
+		viewModelScope.launch(Dispatchers.IO) {
+			runCatching {
+				playbackOriginRepository.credit(
+					origin = credit.origin,
+					durationMillis = credit.durationMillis
+				)
+			}.onFailure { error ->
+				Logger.w("MediaPlayer", "Failed to credit playback origin", error)
+			}
+		}
+	}
+
+	private fun checkpointPlaybackOriginIfNeeded(nowMillis: Long) {
+		if (nowMillis - lastPlaybackOriginCheckpointMillis < PlaybackOriginCheckpointIntervalMs) {
+			return
+		}
+		recordPlaybackOriginCredit(playbackOriginTracker.checkpoint(nowMillis))
+		lastPlaybackOriginCheckpointMillis = nowMillis
 	}
 
 	private fun refreshCurrentCollection(albumId: String) {
@@ -1078,6 +1129,7 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			while (controller?.isPlaying == true) {
 				val player = controller ?: break
+				checkpointPlaybackOriginIfNeeded(Clock.System.now().toEpochMilliseconds())
 				val duration = player.duration.coerceAtLeast(1)
 				val progress =
 					(player.currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -1344,6 +1396,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun clearQueue() {
 		viewModelScope.launch {
+			setPlaybackOriginNow(null)
 			pendingPlayIndex = null
 			autoFillQueueJob?.cancel()
 			autoFillQueueJob = null
@@ -1435,6 +1488,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
+			setPlaybackOriginNow(null)
 			try {
 				val serverSimilarSongs = withContext(Dispatchers.IO) {
 					fetchServerSimilarSongs(
@@ -1496,6 +1550,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
+			setPlaybackOriginNow(null)
 			val radioId = "radio_${radio.name.hashCode()}"
 
 			val dummyRadioSong = DomainSong(
@@ -1570,10 +1625,7 @@ class AndroidMediaPlayerViewModel(
 	override fun shufflePlay(collection: DomainSongCollection) {
 		viewModelScope.launch {
 			val (shuffledSongs, mediaItems) = withContext(Dispatchers.Default) {
-				val songs = limitQueueShuffle(
-					songs = collection.songs.shuffled(),
-					limit = preferenceManager.queueShuffleLimit
-				)
+				val songs = collection.songs.shuffled()
 				songs to songs.map { it.toMediaItem() }
 			}
 

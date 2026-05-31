@@ -11,6 +11,7 @@ import paige.navic.domain.repositories.GenreRepository
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
+import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.RadioRepository
 import paige.navic.domain.repositories.SearchRepository
@@ -26,6 +27,7 @@ val repositoryModule = module {
 	single { AurralRepository(get()) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
+	singleOf(::PlaybackOriginRepository)
 	singleOf(::SearchRepository)
 	singleOf(::ShareRepository)
 	singleOf(::CollectionRepository)

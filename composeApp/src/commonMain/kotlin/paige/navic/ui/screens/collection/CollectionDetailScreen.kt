@@ -48,6 +48,7 @@ import paige.navic.domain.models.DomainPlaylistSongSortType
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.sortedForPlaylistDetail
+import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
@@ -255,6 +256,7 @@ fun CollectionDetailScreen(
 										onClick = {
 											if (playerState.currentSong?.id != song.id) {
 												player.clearQueue()
+												player.setPlaybackOrigin(album.toPlaybackOrigin())
 												player.addToQueue(album)
 												player.playAt(album.songs.indexOfFirst { it.id == song.id })
 											} else {
@@ -309,6 +311,7 @@ fun CollectionDetailScreen(
 								onClick = {
 									if (playerState.currentSong?.id != song.id) {
 										player.clearQueue()
+										player.setPlaybackOrigin(contentCollection.toPlaybackOrigin())
 										player.addToQueue(contentCollection)
 										player.playAt(index)
 									} else {

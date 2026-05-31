@@ -58,7 +58,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Kreate-inspired Android playback pitch control in the existing Playback Speed sheet.
 * Kreate-inspired `Auto-fill queue` can append synced Navidrome songs when playback reaches the end of the current queue, defaulting to recent-genre refill while still offering random-library and current-song-similar sources. Recent-genre refill keeps additions inside matching genres or moods whenever matches exist, and Similar mode prefers live Navidrome similar-song results when available.
 * Auto-downloading a newly favorited song no longer swaps the active ExoPlayer media item from stream to local file mid-playback, avoiding a sudden restart when the download completes.
-* Kreate-inspired `Shuffle queue limit` can cap how many songs a collection shuffle starts with, while keeping the default unlimited behavior.
+* Collection shuffle now keeps the full shuffled song set instead of applying a queue cap, while queue rows use stable occurrence keys so duplicate songs can remain visible and reorderable in the lazy queue UI.
 * Kreate-inspired `Start song radio` builds a fresh queue from a selected song, preferring Navidrome similar-song results before falling back to locally synced songs with similar artist, album, genre, or mood metadata.
 * Kreate-inspired `Discover queue` action removes upcoming songs that are already starred or present in a synced playlist, while keeping the current song and playback history intact.
 * Kreate-inspired queue duration summary shows the total runtime beside the song count in the Queue sheet.
@@ -107,6 +107,8 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 ### Library and playlist reliability
 
 * Kreate-inspired `Quick Picks` on the Library screen surfaces synced Navidrome songs from frequent plays, ratings, and recently added albums, with a fallback to the rest of the local song cache. Appearance settings can hide the row, change how many Quick Picks songs are kept, or exclude tracks shorter than a chosen minimum duration.
+* The Library screen can surface a local `Most played` shortcuts row for artists, genres, albums, playlists, and `[A]` stations that were explicitly played from Navic. Shortcuts are ranked by effective playback duration instead of raw taps, and open the native destination for that entity.
+* Genre cards now open a native genre detail page instead of only applying an album-list filter. The page shows metrics, queue controls, artists, and albums for the genre, and uses the normal bottom-bar gradient treatment when the mini-player is present. The displayed genre list is cleaned up locally from album tags: case/plural variants are merged, compound tags such as `Soundtracks - Games` contribute to parent genres, and low-signal buckets such as `Other` are hidden.
 * Playlist detail pages auto-refresh when local playlist metadata exists but the song cache has not been hydrated yet.
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 * Writable normal playlists can be deleted from the playlist detail overflow menu. Aurral `[A]` station playlists stay protected from that detail delete action, and deleting the playlist currently being viewed removes the detail route without refreshing the deleted collection id.
@@ -236,9 +238,9 @@ Open Settings -> Playback and turn `Bass boost` on. Use `Bass boost strength` to
 
 Open Settings -> Playback -> `Audio reverb` and choose a preset. `Off` is the default. Android device audio-effect support can vary, and the setting applies to the active player service.
 
-### Shuffle queue limit setup
+### Queue shuffle setup
 
-Open Settings -> Playback -> `Shuffle queue limit` to choose how many songs a collection shuffle should start with. `Unlimited` is the default and preserves current behavior. Limits are applied after shuffling, so large playlists and libraries can still surface different songs on later shuffles.
+Collection shuffle keeps the full shuffled result set. The Queue sheet renders rows lazily and gives duplicate queued songs stable occurrence keys, so large shuffled queues can be browsed without truncating the playback order.
 
 ### Song radio setup
 

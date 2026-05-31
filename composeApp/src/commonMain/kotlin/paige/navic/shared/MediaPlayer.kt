@@ -17,6 +17,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -62,6 +63,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun moveQueueItem(fromIndex: Int, toIndex: Int)
 	abstract fun applyDiscoverQueueFilter(onComplete: (removedCount: Int) -> Unit = {})
 	abstract fun clearQueue()
+	abstract fun setPlaybackOrigin(origin: PlaybackOrigin?)
 	abstract fun playAt(index: Int)
 	abstract fun playNextSingle(song: DomainSong)
 	abstract fun playNext(collection: DomainSongCollection)

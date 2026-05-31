@@ -96,6 +96,9 @@ fun LibraryScreen() {
 	val genresViewModel = koinViewModel<GenreListViewModel>()
 	val genresState by genresViewModel.genresState.collectAsStateWithLifecycle()
 
+	val mostPlayedShortcutsViewModel = koinViewModel<MostPlayedShortcutsViewModel>()
+	val mostPlayedShortcutsState by mostPlayedShortcutsViewModel.shortcutsState.collectAsStateWithLifecycle()
+
 	val loginViewModel = koinViewModel<LoginViewModel>()
 	val loginState by loginViewModel.loginState.collectAsStateWithLifecycle()
 	val isLoggedIn = loginState is LoginUiState.Success
@@ -204,6 +207,7 @@ fun LibraryScreen() {
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
 				genresState !is UiState.Loading &&
+				mostPlayedShortcutsState !is UiState.Loading &&
 				(!aurralConfigured || aurralDiscovery !is UiState.Loading),
 			onRefresh = {
 				if (quickPicksEnabled) {
@@ -217,7 +221,15 @@ fun LibraryScreen() {
 					aurralViewModel.refreshServiceStatus()
 				}
 			},
-			key = listOf(quickPicksState, albumsState, playlistsState, artistsState, genresState, aurralDiscovery)
+			key = listOf(
+				quickPicksState,
+				albumsState,
+				playlistsState,
+				artistsState,
+				genresState,
+				mostPlayedShortcutsState,
+				aurralDiscovery
+			)
 		) {
 			LibraryScreenContent(
 				scrollBehavior = scrollBehavior,
@@ -253,6 +265,8 @@ fun LibraryScreen() {
 				onDownloadQuickPick = { quickPicksViewModel.downloadSong(it) },
 				onCancelQuickPickDownload = { quickPicksViewModel.cancelDownload(it.id) },
 				onDeleteQuickPickDownload = { quickPicksViewModel.deleteDownload(it.id) },
+
+				mostPlayedShortcutsState = mostPlayedShortcutsState,
 
 				albumsState = albumsState,
 				aurralAlbumRequests = libraryAlbumAurralRequests(
@@ -305,6 +319,7 @@ fun LibraryScreen() {
 		(playlistsState as? UiState.Error)?.error,
 		(artistsState as? UiState.Error)?.error,
 		(genresState as? UiState.Error)?.error,
+		(mostPlayedShortcutsState as? UiState.Error)?.error,
 		(aurralDiscovery as? UiState.Error)?.error?.takeIf { aurralConfigured }
 	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
@@ -316,6 +331,7 @@ fun LibraryScreen() {
 			playlistsViewModel.clearError()
 			artistsViewModel.clearError()
 			genresViewModel.clearError()
+			mostPlayedShortcutsViewModel.clearError()
 			aurralViewModel.clearServiceStatus()
 		}
 	)

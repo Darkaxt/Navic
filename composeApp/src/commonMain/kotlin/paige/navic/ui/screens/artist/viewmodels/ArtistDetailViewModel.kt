@@ -36,6 +36,7 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.sortedByAlbumYearDescending
+import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
@@ -584,10 +585,11 @@ class ArtistDetailViewModel(
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
 		(_artistState.value as? UiState.Success)?.data?.let { state ->
 			player.clearQueue()
+			player.setPlaybackOrigin(state.artist.toPlaybackOrigin())
 			state.albums.forEach { album ->
 				player.addToQueue(album)
 			}
-			player.togglePlay()
+			player.playAt(0)
 		}
 	}
 
