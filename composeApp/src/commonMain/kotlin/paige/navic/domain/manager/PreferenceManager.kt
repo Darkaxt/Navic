@@ -143,6 +143,7 @@ class PreferenceManager(
 	var lidaClipsMusicBrainzInfoVideoBackground by preference(false)
 	var lidaClipsVideoFitMode by preference(LidaClipsVideoFitMode.Fit)
 	var lidaClipsVideoCacheSizeMb by preference(DefaultLidaClipsVideoCacheSizeMb)
+	var lidaClipsSaveClipsWithDownloads by preference(false)
 	var lidaClipsPauseMusicPlayback by preference(true)
 	var lidaClipsRememberPlaybackPosition by preference(true)
 	var lidaClipsKeepScreenOn by preference(true)

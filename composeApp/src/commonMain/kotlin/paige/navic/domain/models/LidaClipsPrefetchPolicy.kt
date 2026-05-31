@@ -32,6 +32,17 @@ fun shouldShowLidaClipsMusicVideoAction(
 		userActionEnabled &&
 		(songId == null || hasStableNavidromeSongId(songId))
 
+fun shouldSaveLidaClipWithDownloadedMusic(
+	lidaClipsEnabled: Boolean,
+	lidaClipsBaseUrl: String,
+	saveClipsWithDownloads: Boolean,
+	songId: String?
+): Boolean =
+	lidaClipsEnabled &&
+		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
+		saveClipsWithDownloads &&
+		hasStableNavidromeSongId(songId)
+
 internal fun normalizedLidaClipsBaseUrlOrNull(baseUrl: String): String? =
 	normalizedLidaClipsBaseUrl(baseUrl)?.value
 

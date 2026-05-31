@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.option_lida_clips_official_clips
 import navic.composeapp.generated.resources.option_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.option_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.option_lida_clips_remember_playback_position
+import navic.composeapp.generated.resources.option_lida_clips_save_with_downloads
 import navic.composeapp.generated.resources.option_lida_clips_sync_paused
 import navic.composeapp.generated.resources.option_lida_clips_sync_state
 import navic.composeapp.generated.resources.option_lida_clips_video_cache_size
@@ -83,6 +84,7 @@ import navic.composeapp.generated.resources.subtitle_lida_clips_musicbrainz_vide
 import navic.composeapp.generated.resources.subtitle_lida_clips_pause_music_playback
 import navic.composeapp.generated.resources.subtitle_lida_clips_picture_in_picture
 import navic.composeapp.generated.resources.subtitle_lida_clips_remember_playback_position
+import navic.composeapp.generated.resources.subtitle_lida_clips_save_with_downloads
 import navic.composeapp.generated.resources.subtitle_lida_clips_sync_paused
 import navic.composeapp.generated.resources.subtitle_lida_clips_video_cache_size
 import navic.composeapp.generated.resources.subtitle_lida_clips_video_fit
@@ -249,6 +251,12 @@ fun SettingsLidaClipsScreen() {
 									description = stringResource(Res.string.subtitle_lida_clips_video_cache_size),
 									selection = preferenceManager.lidaClipsVideoCacheSizeMb,
 									onSelect = { preferenceManager.lidaClipsVideoCacheSizeMb = it }
+								)
+								SettingSwitchRow(
+									title = { Text(stringResource(Res.string.option_lida_clips_save_with_downloads)) },
+									subtitle = { Text(stringResource(Res.string.subtitle_lida_clips_save_with_downloads)) },
+									value = preferenceManager.lidaClipsSaveClipsWithDownloads,
+									onSetValue = { preferenceManager.lidaClipsSaveClipsWithDownloads = it }
 								)
 								SettingSwitchRow(
 									title = { Text(stringResource(Res.string.option_lida_clips_pause_music_playback)) },

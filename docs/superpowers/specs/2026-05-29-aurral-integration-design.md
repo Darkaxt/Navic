@@ -6,7 +6,7 @@ Make Aurral a first-class Android integration in this Navic fork, alongside Lida
 
 ## Current State
 
-LidaClips is functionally close to complete for Android now-playing video use: settings, diagnostics, clip lookup, local temporary video cache, background video, foreground promotion, Media3 playback, audio handoff, and app controls are implemented. Persistent/offline clip ownership has started: clips discovered for already-downloaded songs are saved under separate app storage, preferred before the temporary cache, visible in Data & Storage, and cleared with offline music. A later polish pass can add proactive clip acquisition during bulk music downloads.
+LidaClips is functionally close to complete for Android now-playing video use: settings, diagnostics, clip lookup, local temporary video cache, background video, foreground promotion, Media3 playback, audio handoff, and app controls are implemented. Persistent/offline clip ownership is implemented: clips discovered for already-downloaded songs are saved under separate app storage, users can opt into saving matching clips after song downloads complete, persistent clips are preferred before the temporary cache, visible in Data & Storage, and cleared with offline music.
 
 The useful Kreate player feature set is mostly adapted. Remaining Kreate work should be finishing player-quality gaps rather than copying more settings: real-device smoke testing for Android effects, shuffle/repeat-aware Up Next behavior, and any discovery UI that can be backed by Navidrome or Aurral instead of YouTube Music.
 
@@ -94,12 +94,13 @@ This requires a small extension to Navic's Android player media-item policy. Tod
 
 ### LidaClips Completion
 
-LidaClips should be considered complete for the current video playback surface after one Android release cycle of smoke testing. The remaining product improvement is offline clip ownership:
+LidaClips should be considered complete for the current video playback surface after one Android release cycle of smoke testing. Offline clip ownership is now implemented:
 
 - Let users persist a clip alongside an offline song/album when a matching clip exists.
 - Keep persistent clips separate from the temporary Now Playing cache.
 - Use the persistent clip before network lookup/cache fetch.
 - Show clear storage usage under Data & Storage.
+- Optionally resolve and save matching clips after song downloads complete.
 
 This is not required before the first Aurral slice unless the Aurral work touches shared integration storage UI.
 

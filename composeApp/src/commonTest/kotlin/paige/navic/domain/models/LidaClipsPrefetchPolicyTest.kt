@@ -297,4 +297,62 @@ class LidaClipsPrefetchPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun offlineClipDownloadRequiresEnabledConfiguredIntegrationAndStableSongId() {
+		assertEquals(
+			false,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = false,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				saveClipsWithDownloads = true,
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "clips.remaxku.eu",
+				saveClipsWithDownloads = true,
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				saveClipsWithDownloads = false,
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				saveClipsWithDownloads = true,
+				songId = "radio_song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				saveClipsWithDownloads = true,
+				songId = "aurral_flow_1"
+			)
+		)
+		assertEquals(
+			true,
+			shouldSaveLidaClipWithDownloadedMusic(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				saveClipsWithDownloads = true,
+				songId = "song-1"
+			)
+		)
+	}
 }

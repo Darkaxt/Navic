@@ -1291,6 +1291,15 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				onSelect = { preferenceManager.lidaClipsVideoCacheSizeMb = it }
 			))
 			add(switchRow(
+				id = "lida.save-with-downloads",
+				path = path(integrations, lidaClips),
+				title = stringResource(Res.string.option_lida_clips_save_with_downloads),
+				subtitle = stringResource(Res.string.subtitle_lida_clips_save_with_downloads),
+				keywords = listOf("download", "offline", "cache", "music video clips"),
+				value = preferenceManager.lidaClipsSaveClipsWithDownloads,
+				onSetValue = { preferenceManager.lidaClipsSaveClipsWithDownloads = it }
+			))
+			add(switchRow(
 				id = "lida.pause-music",
 				path = path(integrations, lidaClips),
 				title = stringResource(Res.string.option_lida_clips_pause_music_playback),

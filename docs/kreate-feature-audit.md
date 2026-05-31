@@ -74,7 +74,7 @@ Reference checked: `knighthat/Kreate` at `228c5e8` (`main`, pushed 2026-05-28). 
 | LidaClips PiP/landscape/fit/keep-screen-on | Adapt | Android clip playback has PiP, landscape, resize, and keep-screen-on controls. |
 | LidaClips remembered video position | Adapt | Last clip position is remembered per clip with near-start/end safeguards. |
 | LidaClips music-session coordination | Adapt | Clip playback can pause/resume Navic music or keep music underneath, per setting. |
-| LidaClips persistent offline clips | Adapt | Clips resolved for already-downloaded songs are stored separately from the temporary video cache and cleared with offline music. |
+| LidaClips persistent offline clips | Adapt | Clips resolved for already-downloaded songs, or during song downloads when enabled, are stored separately from the temporary video cache and cleared with offline music. |
 | Lyrics font size | Adapt | Playback -> Lyrics exposes size presets. |
 | Lyrics active-line size animation | Adapt | Playback -> Lyrics can disable active-line grow/shrink. |
 | Lyrics alignment | Adapt | Playback -> Lyrics supports Auto, Start, Center, and End. |
@@ -167,7 +167,7 @@ Current import queue: none. The useful music-player pieces from the audited Krea
 * LidaClips playback diagnostics/retry: Navic now surfaces Android Media3 video stream failures as retryable errors in the LidaClips screen and recreates the player on retry.
 * LidaClips music-session coordination: Navic now defaults to Feishin-style clip playback on Android by pausing Navic music while a clip is open and resuming the same paused song when the clip screen closes; a setting can opt out and keep music under clip audio.
 * LidaClips remembered clip position: Kreate remembers the last YouTube video id and current second. Navic now adapts that as an Android LidaClips setting that resumes the last watched position for the same clip while avoiding near-start and near-end positions.
-* LidaClips persistent offline clips: Navic now stores matching clips for already-downloaded songs in persistent app storage, prefers those clips before the temporary cache/network stream, exposes their count and size under Data & Storage and Settings search, and clears them when the paired offline music is deleted.
+* LidaClips persistent offline clips: Navic now stores matching clips for already-downloaded songs in persistent app storage, can optionally resolve and save clips after song downloads complete, prefers those clips before the temporary cache/network stream, exposes their count and size under Data & Storage and Settings search, and clears them when the paired offline music is deleted.
 * MusicBrainz release preference: Navic's playback-time MusicBrainz/Cover Art Archive fallback now requests release-group data in recording lookups and prefers releases whose title or release-group title matches the local Navidrome album title before using MusicBrainz's returned release order, improving missing-cover and Track Info selection when a recording appears on compilations or multiple editions.
 * LidaClips landscape video mode: Navic now exposes an Android opt-in setting that rotates the clip screen to landscape and hides system bars while the LidaClips player is active, then restores the prior activity orientation and bars when the screen closes.
 * LidaClips video fit mode: Navic now exposes an Android LidaClips setting that keeps the full video frame by default or crops to fill the player using Media3's zoom resize mode.

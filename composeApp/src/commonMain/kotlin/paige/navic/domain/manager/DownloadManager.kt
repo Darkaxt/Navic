@@ -45,7 +45,10 @@ import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
+import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
+import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
+import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
 import coil3.PlatformContext as CoilPlatformContext
@@ -59,7 +62,9 @@ class DownloadManager(
 	private val lyricsRepository: LyricsRepository,
 	private val lyricDao: LyricDao,
 	private val sessionManager: SessionManager,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val lidaClipsRepository: LidaClipsRepository,
+	private val lidaClipCacheManager: LidaClipCacheManager
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val client = HttpClient()
@@ -418,6 +423,7 @@ class DownloadManager(
 			cacheAlbumCoverArt(song.albumId)
 			cacheLyrics(song)
 			downloadAudioFile(song)
+			cacheOfflineLidaClip(song)
 
 		} catch (e: Exception) {
 			if (e is CancellationException) throw e
@@ -489,6 +495,44 @@ class DownloadManager(
 		} catch (e: Exception) {
 			if (e is CancellationException) throw e
 			Logger.e("DownloadManager", "Failed to cache lyrics for ${song.id}", e)
+		}
+	}
+
+	private suspend fun cacheOfflineLidaClip(song: DomainSong) {
+		if (!shouldSaveLidaClipWithDownloadedMusic(
+			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+			lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+			saveClipsWithDownloads = preferenceManager.lidaClipsSaveClipsWithDownloads,
+			songId = song.id
+		)) {
+			return
+		}
+
+		try {
+			val clip = lidaClipsRepository.findClipForSong(song, forceRefresh = true)
+				.getOrNull()
+				?: return
+			val requestHeaders = lidaClipsStreamRequestHeaders(
+				baseUrl = preferenceManager.lidaClipsBaseUrl,
+				streamUrl = clip.streamUrl,
+				requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+			)
+
+			lidaClipCacheManager.getOrCacheClip(
+				clip = clip,
+				requestHeaders = requestHeaders,
+				songId = song.id,
+				persistOffline = true
+			).onSuccess { cachedClip ->
+				if (cachedClip != null) {
+					Logger.i("DownloadManager", "cached LidaClips offline clip for ${song.id}")
+				}
+			}.onFailure { error ->
+				Logger.w("DownloadManager", "Failed to cache LidaClips offline clip for ${song.id}", error)
+			}
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			Logger.w("DownloadManager", "Failed to resolve LidaClips offline clip for ${song.id}", e)
 		}
 	}
 
