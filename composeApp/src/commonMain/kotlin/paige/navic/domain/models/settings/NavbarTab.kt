@@ -13,6 +13,7 @@ data class NavbarTab(
 		ALBUMS,
 		PLAYLISTS,
 		ARTISTS,
+		ACTIVITY,
 		SEARCH,
 		GENRES,
 		SONGS,

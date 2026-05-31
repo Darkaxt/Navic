@@ -35,6 +35,7 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.sortedByAlbumYearDescending
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
@@ -46,6 +47,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 
 @Immutable
 data class ArtistState(
@@ -55,6 +57,7 @@ data class ArtistState(
 	val similarArtists: List<DomainArtist> = emptyList(),
 	val aurralAlbumRequests: List<AurralAlbumRequest> = emptyList(),
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
+	val aurralRecommendedAlbums: List<AurralAlbumSearchItem> = emptyList(),
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
 	val aurralMonitored: Boolean? = null,
@@ -225,10 +228,21 @@ class ArtistDetailViewModel(
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
 					.let { rows -> resolveAurralMissingAlbumCovers(artist, rows) }
+				val recommendedAlbums = aurralRepository.getDiscovery()
+					.getOrNull()
+					?.let { discovery ->
+						aurralRecommendedAlbumsForArtist(
+							discovery = discovery,
+							artistMbid = artist.musicBrainzId,
+							artistName = artist.name
+						)
+					}
+					.orEmpty()
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralMissingAlbums = missingAlbumRows,
+						aurralRecommendedAlbums = recommendedAlbums,
 						aurralAlbumRequests = enrichment?.requests.orEmpty(),
 						aurralSimilarArtists = enrichment
 							?.let {

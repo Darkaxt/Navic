@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.title_activity
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_genres
@@ -50,6 +51,7 @@ import paige.navic.icons.filled.Radio
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
 import paige.navic.icons.outlined.Genre
+import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.PlaylistPlay
@@ -88,6 +90,12 @@ private enum class NavItem(
 		icon = Icons.Filled.Artist,
 		iconUnselected = Icons.Outlined.Artist,
 		label = Res.string.title_artists
+	),
+	ACTIVITY(
+		destination = Screen.Activity,
+		icon = Icons.Outlined.History,
+		iconUnselected = Icons.Outlined.History,
+		label = Res.string.title_activity
 	),
 	SEARCH(
 		destination = Screen.Search(),
@@ -149,6 +157,7 @@ fun BottomBar(
 						NavbarTab.Id.ALBUMS -> NavItem.ALBUMS
 						NavbarTab.Id.PLAYLISTS -> NavItem.PLAYLISTS
 						NavbarTab.Id.ARTISTS -> NavItem.ARTISTS
+						NavbarTab.Id.ACTIVITY -> NavItem.ACTIVITY
 						NavbarTab.Id.SEARCH -> NavItem.SEARCH
 						NavbarTab.Id.GENRES -> NavItem.GENRES
 						NavbarTab.Id.SONGS -> NavItem.SONGS
@@ -204,6 +213,7 @@ fun BottomBar(
 						NavbarTab.Id.ALBUMS -> NavItem.ALBUMS
 						NavbarTab.Id.PLAYLISTS -> NavItem.PLAYLISTS
 						NavbarTab.Id.ARTISTS -> NavItem.ARTISTS
+						NavbarTab.Id.ACTIVITY -> NavItem.ACTIVITY
 						NavbarTab.Id.SEARCH -> NavItem.SEARCH
 						NavbarTab.Id.GENRES -> NavItem.GENRES
 						NavbarTab.Id.SONGS -> NavItem.SONGS

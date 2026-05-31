@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.aurral
 
 import androidx.compose.runtime.Immutable
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.isStationPlaylist
@@ -53,9 +54,36 @@ fun aurralHubDiscoverArtists(
 	discovery: AurralDiscoverySummary,
 	limit: Int = 8
 ): List<AurralDiscoverArtist> =
-	(discovery.recommendations + discovery.globalTop)
+	mergeAurralDiscoverArtists(
+		discovery.recommendations +
+			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
+			discovery.globalTop
+	)
+		.take(limit.coerceAtLeast(0))
+
+fun aurralRecommendedAlbumsForArtist(
+	discovery: AurralDiscoverySummary,
+	artistMbid: String?,
+	artistName: String?,
+	limit: Int = 8
+): List<AurralAlbumSearchItem> {
+	val artistKey = artistMbid.normalizedAurralKey()
+	val nameKey = artistName.normalizedAurralName()
+	return (
+		(discovery.recommendations + discovery.globalTop + discovery.basedOn)
+			.filter { artist -> artist.matchesArtist(artistKey, nameKey) }
+			.flatMap { it.recommendedAlbums } +
+			discovery.recentReleases.filter { album -> album.matchesArtist(artistKey, nameKey) }
+		)
+		.filter { album ->
+			album.id.isNotBlank() &&
+				album.title.isNotBlank() &&
+				album.artistName.isNotBlank() &&
+				album.artistMbid.isNotBlank()
+		}
 		.distinctBy { it.id.trim().lowercase() }
 		.take(limit.coerceAtLeast(0))
+}
 
 fun aurralHubSearchArtists(
 	artists: List<AurralDiscoverArtist>,
@@ -95,6 +123,21 @@ fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
 	)
 }
 
+fun aurralArtistRecommendationRoute(
+	artist: AurralDiscoverArtist,
+	localArtists: List<DomainArtist>
+): Screen? {
+	val artistKey = artist.id.normalizedAurralKey()
+	val nameKey = artist.name.normalizedAurralName()
+	val localArtist = localArtists.firstOrNull { local ->
+		val localMbidKey = local.musicBrainzId.normalizedAurralKey()
+		val localNameKey = local.name.normalizedAurralName()
+		(artistKey != null && localMbidKey != null && artistKey == localMbidKey) ||
+			(nameKey != null && localNameKey != null && nameKey == localNameKey)
+	}
+	return localArtist?.let { Screen.ArtistDetail(it.id) } ?: aurralArtistRoute(artist)
+}
+
 fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAlbum? {
 	val releaseGroupId = album.id.trim().takeIf { it.isNotEmpty() } ?: return null
 	val title = album.title.trim().takeIf { it.isNotEmpty() } ?: return null
@@ -113,6 +156,62 @@ fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAl
 		requestStatus = album.status?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
+
+private fun AurralAlbumSearchItem.toDiscoverArtistRecommendation(): AurralDiscoverArtist? {
+	val artistMbid = artistMbid.trim().takeIf { it.isNotEmpty() } ?: return null
+	val artistName = artistName.trim().takeIf { it.isNotEmpty() } ?: return null
+	return AurralDiscoverArtist(
+		id = artistMbid,
+		name = artistName,
+		reason = "Recommended: ${title.trim()}",
+		recommendedAlbums = listOf(this)
+	)
+}
+
+private fun mergeAurralDiscoverArtists(
+	artists: List<AurralDiscoverArtist>
+): List<AurralDiscoverArtist> {
+	val merged = linkedMapOf<String, AurralDiscoverArtist>()
+	artists.forEach { artist ->
+		val key = artist.id.normalizedAurralKey() ?: return@forEach
+		val safeArtist = artist.copy(
+			id = artist.id.trim(),
+			name = artist.name.trim(),
+			recommendedAlbums = artist.recommendedAlbums.distinctBy { it.id.trim().lowercase() }
+		)
+		val existing = merged[key]
+		merged[key] = if (existing == null) {
+			safeArtist
+		} else {
+			existing.copy(
+				imageUrl = existing.imageUrl ?: safeArtist.imageUrl,
+				tags = (existing.tags + safeArtist.tags).distinctBy { it.trim().lowercase() },
+				matchedTags = (existing.matchedTags + safeArtist.matchedTags)
+					.distinctBy { it.trim().lowercase() },
+				reason = existing.reason ?: safeArtist.reason,
+				sourceType = existing.sourceType ?: safeArtist.sourceType,
+				discoveryTier = existing.discoveryTier ?: safeArtist.discoveryTier,
+				recommendedAlbums = (existing.recommendedAlbums + safeArtist.recommendedAlbums)
+					.distinctBy { it.id.trim().lowercase() }
+			)
+		}
+	}
+	return merged.values.toList()
+}
+
+private fun AurralDiscoverArtist.matchesArtist(
+	artistKey: String?,
+	nameKey: String?
+): Boolean =
+	(artistKey != null && id.normalizedAurralKey() == artistKey) ||
+		(nameKey != null && name.normalizedAurralName() == nameKey)
+
+private fun AurralAlbumSearchItem.matchesArtist(
+	artistKey: String?,
+	nameKey: String?
+): Boolean =
+	(artistKey != null && artistMbid.normalizedAurralKey() == artistKey) ||
+		(nameKey != null && artistName.normalizedAurralName() == nameKey)
 
 private fun aurralRequestSummary(status: AurralServiceStatus): String {
 	val active = status.acquisitionQueue.count { aurralAcquisitionProgress(it.status).active }
@@ -259,6 +358,19 @@ private fun String.normalizedAurralFlowStationName(): String? =
 		.lowercase()
 		.replace(Regex("""\s+"""), " ")
 		.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralKey(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
 
 private fun String?.aurralSearchYearOrNull(): Int? =
 	this

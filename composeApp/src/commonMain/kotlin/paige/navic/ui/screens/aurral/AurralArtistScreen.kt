@@ -56,6 +56,7 @@ import navic.composeapp.generated.resources.info_aurral_no_artist_albums
 import navic.composeapp.generated.resources.info_aurral_no_album_previews
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_aurral_preview_tracks
+import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_similar_artists
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -78,6 +79,7 @@ import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.sortedByAlbumYearDescending
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
@@ -134,9 +136,20 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 
 		aurralRepository.getArtistEnrichment(artist)
 			.onSuccess { enrichment ->
+				val recommendedAlbums = aurralRepository.getDiscovery()
+					.getOrNull()
+					?.let { discovery ->
+						aurralRecommendedAlbumsForArtist(
+							discovery = discovery,
+							artistMbid = route.artistMbid,
+							artistName = route.artistName
+						)
+					}
+					.orEmpty()
 				state = state.copy(
 					enrichment = enrichment,
 					missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localAlbums) }.orEmpty(),
+					recommendedAlbums = recommendedAlbums,
 					similarArtists = enrichment?.let {
 						aurralSimilarArtistRows(
 							enrichment = it,
@@ -229,6 +242,34 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 					modifier = Modifier
 						.padding(top = 4.dp)
 						.size(32.dp)
+				)
+			}
+			ArtCarousel(
+				title = stringResource(Res.string.title_aurral_recommendations),
+				items = state.recommendedAlbums.toImmutableList()
+			) { album ->
+				AurralRecommendedAlbumItem(
+					album = album,
+					imageRequestHeaders = aurralRequestHeadersForUrl(
+						baseUrl = baseUrl,
+						imageUrl = album.coverUrl,
+						requestHeaders = requestHeaders
+					),
+					onClick = {
+						backStack.add(
+							Screen.AurralMissingAlbum(
+								artistId = state.localArtist?.id ?: route.artistMbid,
+								artistName = state.artist.name,
+								artistMbid = route.artistMbid,
+								releaseGroupId = album.id,
+								title = album.title,
+								year = album.releaseDate?.trim()?.take(4),
+								primaryType = album.primaryType ?: album.secondaryTypes.firstOrNull(),
+								coverUrl = album.coverUrl,
+								requestStatus = album.status
+							)
+						)
+					}
 				)
 			}
 			ArtCarousel(
@@ -585,6 +626,7 @@ private data class AurralArtistUiState(
 	val heroImageUrl: String? = null,
 	val localAlbums: List<DomainAlbum> = emptyList(),
 	val missingAlbums: List<AurralMissingAlbumRow> = emptyList(),
+	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList(),
 	val similarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val previewTracks: List<AurralPreviewTrack> = emptyList(),
 	val enrichment: AurralArtistEnrichment? = null,

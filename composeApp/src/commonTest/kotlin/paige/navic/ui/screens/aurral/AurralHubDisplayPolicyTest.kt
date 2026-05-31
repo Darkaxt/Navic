@@ -8,6 +8,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
@@ -28,6 +29,14 @@ class AurralHubDisplayPolicyTest {
 				AurralDiscoverArtist(id = "r1", name = "Recommendation 1"),
 				AurralDiscoverArtist(id = "r2", name = "Recommendation 2")
 			),
+			recentReleases = listOf(
+				albumSearchItem(
+					id = "album-1",
+					title = "Recommended Album",
+					artistName = "Release Artist",
+					artistMbid = "release-artist"
+				)
+			),
 			globalTop = listOf(
 				AurralDiscoverArtist(id = "g1", name = "Global 1"),
 				AurralDiscoverArtist(id = "g2", name = "Global 2")
@@ -35,8 +44,39 @@ class AurralHubDisplayPolicyTest {
 		)
 
 		assertEquals(
-			listOf("r1", "r2", "g1"),
+			listOf("r1", "r2", "release-artist"),
 			aurralHubDiscoverArtists(summary, limit = 3).map { it.id }
+		)
+	}
+
+	@Test
+	fun discoverArtistsMergeAlbumRecommendationsIntoMatchingArtistRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(id = "artist-mbid", name = "The Artist")
+			),
+			recentReleases = listOf(
+				albumSearchItem(
+					id = "release-1",
+					title = "New Album",
+					artistName = "The Artist",
+					artistMbid = "artist-mbid",
+					releaseDate = "2026-02-01"
+				)
+			)
+		)
+
+		val artist = aurralHubDiscoverArtists(summary, limit = 8).single()
+
+		assertEquals("artist-mbid", artist.id)
+		assertEquals(listOf("New Album"), artist.recommendedAlbums.map { it.title })
+		assertEquals(
+			listOf("New Album"),
+			aurralRecommendedAlbumsForArtist(
+				discovery = summary,
+				artistMbid = " ARTIST-MBID ",
+				artistName = "The Artist"
+			).map { it.title }
 		)
 	}
 
@@ -58,6 +98,38 @@ class AurralHubDisplayPolicyTest {
 		)
 		assertNull(aurralArtistRoute(AurralDiscoverArtist(id = " ", name = "The Artist")))
 		assertNull(aurralArtistRoute(AurralDiscoverArtist(id = "artist-mbid", name = " ")))
+	}
+
+	@Test
+	fun discoverArtistRecommendationRouteUsesNativeArtistWhenKnown() {
+		val localArtist = DomainArtist(
+			id = "local-artist-id",
+			name = "The Artist",
+			musicBrainzId = "artist-mbid"
+		)
+
+		assertEquals(
+			Screen.ArtistDetail("local-artist-id"),
+			aurralArtistRecommendationRoute(
+				artist = AurralDiscoverArtist(id = " ARTIST-MBID ", name = "Different Case"),
+				localArtists = listOf(localArtist)
+			)
+		)
+		assertEquals(
+			Screen.AurralArtist(
+				artistMbid = "new-artist-mbid",
+				artistName = "New Artist",
+				imageUrl = "https://aurral.example.com/new.jpg"
+			),
+			aurralArtistRecommendationRoute(
+				artist = AurralDiscoverArtist(
+					id = "new-artist-mbid",
+					name = "New Artist",
+					imageUrl = "https://aurral.example.com/new.jpg"
+				),
+				localArtists = listOf(localArtist)
+			)
+		)
 	}
 
 	@Test

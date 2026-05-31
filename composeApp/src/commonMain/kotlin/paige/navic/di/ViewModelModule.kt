@@ -6,6 +6,7 @@ import org.koin.dsl.module
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.components.dialogs.DeletionViewModel
 import paige.navic.ui.components.sheets.ChangelogViewModel
+import paige.navic.ui.screens.activity.ActivityViewModel
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
@@ -81,6 +82,7 @@ val viewModelModule = module {
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::SettingsAurralViewModel)
 	viewModelOf(::AurralHubViewModel)
+	viewModelOf(::ActivityViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

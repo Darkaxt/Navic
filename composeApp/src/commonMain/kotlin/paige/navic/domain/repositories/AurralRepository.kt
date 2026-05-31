@@ -667,10 +667,36 @@ private class KtorAurralApiClient : AurralApiClient {
 		if (!response.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral Discover", response.status))
 		}
+		val discovery = response.body<AurralDiscoveryResponseDto>()
+		val recentReleases = runCatching {
+			fetchRecentReleases(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral recent releases failed", error)
+		}.getOrDefault(emptyList())
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
-			response = response.body()
+			response = discovery,
+			recentReleases = recentReleases
 		)
+	}
+
+	private suspend fun fetchRecentReleases(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumSearchItem> {
+		val response = client.get(aurralEndpoint(baseUrl, "api/library/recent-releases")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		return when {
+			response.status.isSuccess() -> aurralRecentReleases(
+				baseUrl = baseUrl,
+				response = response.body()
+			)
+			response.status == HttpStatusCode.Unauthorized -> emptyList()
+			response.status == HttpStatusCode.Forbidden -> emptyList()
+			response.status == HttpStatusCode.NotFound -> emptyList()
+			else -> error(aurralHttpErrorMessage("Aurral recent releases", response.status))
+		}
 	}
 
 	override suspend fun searchArtists(
@@ -1091,6 +1117,7 @@ data class AurralDiscoverySummary(
 	val recommendations: List<AurralDiscoverArtist> = emptyList(),
 	val globalTop: List<AurralDiscoverArtist> = emptyList(),
 	val basedOn: List<AurralDiscoverArtist> = emptyList(),
+	val recentReleases: List<AurralAlbumSearchItem> = emptyList(),
 	val topTags: List<String> = emptyList(),
 	val topGenres: List<String> = emptyList(),
 	val isUpdating: Boolean = false,
@@ -1107,7 +1134,8 @@ data class AurralDiscoverArtist(
 	val matchedTags: List<String> = emptyList(),
 	val reason: String? = null,
 	val sourceType: String? = null,
-	val discoveryTier: String? = null
+	val discoveryTier: String? = null,
+	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList()
 )
 
 data class AurralArtistSearchRequest(
@@ -1341,9 +1369,13 @@ internal data class AurralAlbumSearchResponseDto(
 @Serializable
 internal data class AurralAlbumSearchItemDto(
 	val id: String? = null,
+	val mbid: String? = null,
+	@SerialName("foreignAlbumId") val foreignAlbumId: String? = null,
 	val title: String? = null,
+	@SerialName("albumName") val albumName: String? = null,
 	@SerialName("artistName") val artistName: String? = null,
 	@SerialName("artistMbid") val artistMbid: String? = null,
+	@SerialName("foreignArtistId") val foreignArtistId: String? = null,
 	@SerialName("releaseDate") val releaseDate: String? = null,
 	@SerialName("primaryType") val primaryType: String? = null,
 	@SerialName("secondaryTypes") val secondaryTypes: List<String> = emptyList(),
@@ -1359,10 +1391,20 @@ internal data class AurralDiscoverArtistDto(
 	val id: String? = null,
 	val mbid: String? = null,
 	@SerialName("foreignArtistId") val foreignArtistId: String? = null,
+	@SerialName("foreignAlbumId") val foreignAlbumId: String? = null,
 	val name: String? = null,
 	@SerialName("artistName") val artistName: String? = null,
+	@SerialName("artistMbid") val artistMbid: String? = null,
+	val title: String? = null,
+	@SerialName("albumName") val albumName: String? = null,
+	val type: String? = null,
 	val image: String? = null,
 	val imageUrl: String? = null,
+	@SerialName("coverUrl") val coverUrl: String? = null,
+	@SerialName("releaseDate") val releaseDate: String? = null,
+	@SerialName("primaryType") val primaryType: String? = null,
+	@SerialName("secondaryTypes") val secondaryTypes: List<String> = emptyList(),
+	val status: String? = null,
 	val tags: List<String> = emptyList(),
 	val genres: List<String> = emptyList(),
 	@SerialName("matchedTags") val matchedTags: List<String> = emptyList(),
@@ -1546,12 +1588,14 @@ internal data class AurralFlowActionDto(
 
 internal fun aurralDiscoverySummary(
 	baseUrl: String,
-	response: AurralDiscoveryResponseDto
+	response: AurralDiscoveryResponseDto,
+	recentReleases: List<AurralAlbumSearchItem> = emptyList()
 ): AurralDiscoverySummary =
 	AurralDiscoverySummary(
 		recommendations = response.recommendations.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) },
+		recentReleases = recentReleases,
 		topTags = response.topTags.cleanedAurralStrings(),
 		topGenres = response.topGenres.cleanedAurralStrings(),
 		isUpdating = response.isUpdating,
@@ -1585,8 +1629,34 @@ internal fun aurralAlbumSearchResult(
 		albums = response.items.mapNotNull { it.toAlbumSearchItem(baseUrl) }
 	)
 
+internal fun aurralRecentReleases(
+	baseUrl: String,
+	response: List<AurralAlbumSearchItemDto>
+): List<AurralAlbumSearchItem> =
+	response.mapNotNull { it.toAlbumSearchItem(baseUrl) }
+
 private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {
-	val artistId = listOf(id, mbid, foreignArtistId)
+	val recommendedAlbum = toRecommendedAlbum(baseUrl)
+	if (recommendedAlbum != null) {
+		val recommendedArtistId = listOf(artistMbid, foreignArtistId)
+			.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+			?: return null
+		val recommendedArtistName = artistName?.trim()?.takeIf { it.isNotEmpty() }
+			?: return null
+		return AurralDiscoverArtist(
+			id = recommendedArtistId,
+			name = recommendedArtistName,
+			imageUrl = null,
+			tags = (tags + genres).cleanedAurralStrings(),
+			matchedTags = matchedTags.cleanedAurralStrings(),
+			reason = "Recommended: ${recommendedAlbum.title}",
+			sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
+			discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
+			recommendedAlbums = listOf(recommendedAlbum)
+		)
+	}
+
+	val artistId = listOf(id, mbid, foreignArtistId, artistMbid)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
 		?: return null
 	val artistName = listOf(name, artistName)
@@ -1604,11 +1674,43 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 	)
 }
 
+private fun AurralDiscoverArtistDto.toRecommendedAlbum(baseUrl: String): AurralAlbumSearchItem? {
+	val kind = type?.trim()?.lowercase()
+	val albumTitle = listOf(albumName, title, name.takeIf { kind == "album" })
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val albumId = listOf(foreignAlbumId, mbid, id)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val safeArtistName = artistName?.trim()?.takeIf { it.isNotEmpty() }
+		?: return null
+	val safeArtistMbid = listOf(artistMbid, foreignArtistId)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	return AurralAlbumSearchItem(
+		id = albumId,
+		title = albumTitle,
+		artistName = safeArtistName,
+		artistMbid = safeArtistMbid,
+		releaseDate = releaseDate?.trim()?.takeIf { it.isNotEmpty() },
+		primaryType = primaryType?.trim()?.takeIf { it.isNotEmpty() },
+		secondaryTypes = secondaryTypes.cleanedAurralStrings(),
+		coverUrl = aurralAbsoluteImageUrl(baseUrl, coverUrl ?: imageUrl ?: image),
+		status = status?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
 private fun AurralAlbumSearchItemDto.toAlbumSearchItem(baseUrl: String): AurralAlbumSearchItem? {
-	val albumId = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val albumTitle = title?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val albumId = listOf(id, mbid, foreignAlbumId)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val albumTitle = listOf(title, albumName)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
 	val safeArtistName = artistName?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val safeArtistMbid = artistMbid?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val safeArtistMbid = listOf(artistMbid, foreignArtistId)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
 	return AurralAlbumSearchItem(
 		id = albumId,
 		title = albumTitle,

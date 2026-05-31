@@ -66,6 +66,7 @@ import paige.navic.ui.components.sheets.shouldRunUpdateCheck
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.activity.ActivityScreen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
 import paige.navic.ui.screens.artist.ArtistListScreen
@@ -275,6 +276,9 @@ private fun entryProvider(
 		}
 		entry<Screen.ArtistList>(metadata = navtabMetadata) { key ->
 			ArtistListScreen(key.nested, key.listType)
+		}
+		entry<Screen.Activity>(metadata = navtabMetadata) {
+			ActivityScreen()
 		}
 		entry<Screen.GenreList>(metadata = navtabMetadata) { key ->
 			GenreListScreen(key.nested)

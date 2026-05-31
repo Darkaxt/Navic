@@ -41,6 +41,10 @@ sealed interface Screen : NavKey {
 
 	@Immutable
 	@Serializable
+	data object Activity : Screen
+
+	@Immutable
+	@Serializable
 	data class AlbumList(
 		val nested: Boolean = false,
 		val listType: DomainAlbumListType = DomainAlbumListType.Year

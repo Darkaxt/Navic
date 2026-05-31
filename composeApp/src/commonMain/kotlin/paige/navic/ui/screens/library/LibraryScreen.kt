@@ -45,7 +45,7 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
-import paige.navic.ui.screens.aurral.aurralArtistRoute
+import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -280,7 +280,10 @@ fun LibraryScreen() {
 				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
 				aurralDiscoverArtistsState = aurralDiscoverArtistsState,
 				onOpenAurralDiscoverArtist = { artist ->
-					aurralArtistRoute(artist)?.let(backStack::add)
+					aurralArtistRecommendationRoute(
+						artist = artist,
+						localArtists = artistsState.data.orEmpty()
+					)?.let(backStack::add)
 				},
 
 				playlistsState = playlistsState,

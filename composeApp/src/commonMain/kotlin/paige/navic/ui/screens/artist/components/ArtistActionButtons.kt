@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.capsule.ContinuousCapsule
@@ -33,6 +34,7 @@ import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_download_failed
+import navic.composeapp.generated.resources.info_aurral_monitor_status_pending
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
@@ -57,7 +59,7 @@ fun ArtistActionButtons(
 	onMonitorInAurral: (() -> Unit)? = null,
 	monitorInAurralEnabled: Boolean = true,
 	monitoringInAurral: Boolean = false,
-	monitoredInAurral: Boolean = false,
+	monitoredInAurral: Boolean? = null,
 	modifier: Modifier = Modifier
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -114,7 +116,7 @@ fun ArtistActionButtons(
 					monitor()
 				},
 				shape = ContinuousCapsule,
-				enabled = monitorInAurralEnabled && !monitoringInAurral,
+				enabled = monitorInAurralEnabled && !monitoringInAurral && monitoredInAurral != null,
 				contentPadding = PaddingValues(0.dp)
 			) {
 				if (monitoringInAurral) {
@@ -124,21 +126,37 @@ fun ArtistActionButtons(
 						color = MaterialTheme.colorScheme.primary
 					)
 				} else {
-					Icon(
-						imageVector = if (monitoredInAurral) {
-							Icons.Outlined.Visibility
-						} else {
-							Icons.Outlined.VisibilityOff
-						},
-						contentDescription = stringResource(
-							if (monitoredInAurral) {
-								Res.string.action_stop_monitoring_artist
+					Box(contentAlignment = Alignment.Center) {
+						Icon(
+							imageVector = if (monitoredInAurral == false) {
+								Icons.Outlined.VisibilityOff
 							} else {
-								Res.string.action_monitor_artist
-							}
-						),
-						modifier = Modifier.size(24.dp)
-					)
+								Icons.Outlined.Visibility
+							},
+							contentDescription = stringResource(
+								when (monitoredInAurral) {
+									true -> Res.string.action_stop_monitoring_artist
+									false -> Res.string.action_monitor_artist
+									null -> Res.string.info_aurral_monitor_status_pending
+								}
+							),
+							modifier = Modifier.size(24.dp)
+						)
+						if (monitoredInAurral == null) {
+							Text(
+								text = "?",
+								color = MaterialTheme.colorScheme.onPrimary,
+								fontSize = 9.sp,
+								fontWeight = FontWeight.Bold,
+								textAlign = TextAlign.Center,
+								modifier = Modifier
+									.align(Alignment.TopEnd)
+									.size(14.dp)
+									.clip(ContinuousCapsule)
+									.background(MaterialTheme.colorScheme.primary)
+							)
+						}
+					}
 				}
 			}
 		}

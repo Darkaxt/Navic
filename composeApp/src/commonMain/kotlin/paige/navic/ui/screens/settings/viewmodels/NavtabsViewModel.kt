@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
+import paige.navic.domain.models.settings.migrateNavbarConfig
 import paige.navic.ui.core.UiState
 
 class NavtabsViewModel(
@@ -30,8 +31,11 @@ class NavtabsViewModel(
 		val raw = settings.getStringOrNull(NavbarConfig.KEY)
 			?: return NavbarConfig.default
 		val config: NavbarConfig = json.decodeFromString(raw)
-		return config.takeIf { it.version == NavbarConfig.VERSION }
-			?: NavbarConfig.default
+		val migrated = migrateNavbarConfig(config)
+		if (migrated != config) {
+			settings[NavbarConfig.KEY] = json.encodeToString(migrated)
+		}
+		return migrated
 	}
 
 	private fun setConfig(newConfig: NavbarConfig) {

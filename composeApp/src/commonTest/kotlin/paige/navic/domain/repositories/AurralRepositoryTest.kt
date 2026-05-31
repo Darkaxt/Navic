@@ -501,6 +501,79 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralDiscoverySummaryTurnsAlbumRecommendationsIntoArtistRowsWithRecommendedAlbums() {
+		val summary = aurralDiscoverySummary(
+			baseUrl = "https://aurral.example.com/aurral",
+			response = AurralDiscoveryResponseDto(
+				recommendations = listOf(
+					AurralDiscoverArtistDto(
+						type = "Album",
+						mbid = "release-group-mbid",
+						albumName = "Recommended Album",
+						artistName = "Recommended Artist",
+						artistMbid = "artist-mbid",
+						releaseDate = "2026-04-03",
+						primaryType = "Album",
+						imageUrl = "/api/images/releases/release-group-mbid",
+						status = "missing"
+					)
+				)
+			)
+		)
+
+		val artist = summary.recommendations.single()
+		assertEquals("artist-mbid", artist.id)
+		assertEquals("Recommended Artist", artist.name)
+		assertEquals("Recommended: Recommended Album", artist.reason)
+		assertEquals(
+			AurralAlbumSearchItem(
+				id = "release-group-mbid",
+				title = "Recommended Album",
+				artistName = "Recommended Artist",
+				artistMbid = "artist-mbid",
+				releaseDate = "2026-04-03",
+				primaryType = "Album",
+				coverUrl = "https://aurral.example.com/aurral/api/images/releases/release-group-mbid",
+				status = "missing"
+			),
+			artist.recommendedAlbums.single()
+		)
+	}
+
+	@Test
+	fun aurralRecentReleasesNormalizesAlbumRows() {
+		assertEquals(
+			listOf(
+				AurralAlbumSearchItem(
+					id = "release-group-mbid",
+					title = "Recommended Album",
+					artistName = "Recommended Artist",
+					artistMbid = "artist-mbid",
+					releaseDate = "2026-04-03",
+					primaryType = "Album",
+					coverUrl = "https://aurral.example.com/aurral/api/images/releases/release-group-mbid",
+					status = "missing"
+				)
+			),
+			aurralRecentReleases(
+				baseUrl = "https://aurral.example.com/aurral",
+				response = listOf(
+					AurralAlbumSearchItemDto(
+						mbid = "release-group-mbid",
+						albumName = "Recommended Album",
+						artistName = "Recommended Artist",
+						artistMbid = "artist-mbid",
+						releaseDate = "2026-04-03",
+						primaryType = "Album",
+						coverUrl = "/api/images/releases/release-group-mbid",
+						status = "missing"
+					)
+				)
+			)
+		)
+	}
+
+	@Test
 	fun repositoryDiscoveryUsesNormalizedBaseUrlAndBasicHeaders(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "

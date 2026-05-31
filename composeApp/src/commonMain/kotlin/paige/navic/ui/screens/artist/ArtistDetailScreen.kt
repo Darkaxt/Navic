@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_albums
+import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_similar_artists
@@ -105,6 +106,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
@@ -270,17 +272,20 @@ fun ArtistDetailScreen(
 								!state.artist.musicBrainzId.isNullOrBlank()
 							) {
 								{
-									if (state.aurralMonitored == true) {
-										stopMonitoringDialogShown = true
-									} else {
-										viewModel.monitorArtistInAurral()
+									when (state.aurralMonitored) {
+										true -> stopMonitoringDialogShown = true
+										false -> viewModel.monitorArtistInAurral()
+										null -> Unit
 									}
 								}
 							} else {
 								null
 							},
+							monitorInAurralEnabled = isAurralMonitorActionVerified(
+								aurralMonitorActionState(state.aurralMonitored)
+							),
 							monitoringInAurral = monitoringInAurral,
-							monitoredInAurral = state.aurralMonitored == true,
+							monitoredInAurral = state.aurralMonitored,
 							modifier = Modifier.padding(top = 8.dp)
 						)
 						Column(
@@ -374,6 +379,35 @@ fun ArtistDetailScreen(
 										}
 									}
 								}
+							ArtCarousel(
+								stringResource(Res.string.title_aurral_recommendations),
+								state.aurralRecommendedAlbums.toImmutableList()
+							) { album ->
+								AurralRecommendedAlbumItem(
+									album = album,
+									imageRequestHeaders = aurralRequestHeadersForUrl(
+										baseUrl = preferenceManager.aurralBaseUrl,
+										imageUrl = album.coverUrl,
+										requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									),
+									onClick = {
+										backStack.add(
+											Screen.AurralMissingAlbum(
+												artistId = state.artist.id,
+												artistName = state.artist.name,
+												artistMbid = state.artist.musicBrainzId.orEmpty(),
+												releaseGroupId = album.id,
+												title = album.title,
+												year = album.releaseDate?.trim()?.take(4),
+												primaryType = album.primaryType
+													?: album.secondaryTypes.firstOrNull(),
+												coverUrl = album.coverUrl,
+												requestStatus = album.status
+											)
+										)
+									}
+								)
+							}
 							ArtCarousel(
 								stringResource(Res.string.title_albums),
 								albumRows
