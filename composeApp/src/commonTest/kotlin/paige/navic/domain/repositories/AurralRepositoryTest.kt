@@ -435,6 +435,124 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralDiscoverySummaryNormalizesArtistRows() {
+		val summary = aurralDiscoverySummary(
+			baseUrl = "https://aurral.example.com/aurral",
+			response = AurralDiscoveryResponseDto(
+				recommendations = listOf(
+					AurralDiscoverArtistDto(
+						id = "artist-mbid",
+						name = "Alex Warren",
+						image = "/api/images/artists/artist-mbid",
+						tags = listOf("pop", "training"),
+						matchedTags = listOf("training"),
+						sourceArtist = "Benson Boone",
+						discoveryTier = "balanced"
+					),
+					AurralDiscoverArtistDto(id = null, name = "Missing Id")
+				),
+				globalTop = listOf(
+					AurralDiscoverArtistDto(
+						mbid = "global-mbid",
+						name = "IU",
+						imageUrl = "https://img.example.com/iu.jpg",
+						sourceType = "global"
+					)
+				),
+				topTags = listOf("pop", "k-pop"),
+				isUpdating = true,
+				stale = true,
+				provider = "lastfm",
+				discoveryMode = "balanced"
+			)
+		)
+
+		assertTrue(summary.isUpdating)
+		assertTrue(summary.stale)
+		assertEquals("lastfm", summary.provider)
+		assertEquals("balanced", summary.discoveryMode)
+		assertEquals(listOf("pop", "k-pop"), summary.topTags)
+		assertEquals(1, summary.recommendations.size)
+		assertEquals(
+			AurralDiscoverArtist(
+				id = "artist-mbid",
+				name = "Alex Warren",
+				imageUrl = "https://aurral.example.com/aurral/api/images/artists/artist-mbid",
+				tags = listOf("pop", "training"),
+				matchedTags = listOf("training"),
+				reason = "Similar to Benson Boone",
+				sourceType = null,
+				discoveryTier = "balanced"
+			),
+			summary.recommendations.single()
+		)
+		assertEquals(
+			AurralDiscoverArtist(
+				id = "global-mbid",
+				name = "IU",
+				imageUrl = "https://img.example.com/iu.jpg",
+				sourceType = "global"
+			),
+			summary.globalTop.single()
+		)
+	}
+
+	@Test
+	fun repositoryDiscoveryUsesNormalizedBaseUrlAndBasicHeaders(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(
+					AurralDiscoverArtist(id = "artist-mbid", name = "Artist")
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val discovery = repository.getDiscovery().getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.discoveryBaseUrls)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.discoveryRequestHeaders
+		)
+		assertEquals("Artist", discovery.recommendations.single().name)
+	}
+
+	@Test
+	fun repositoryMonitorDiscoveredArtistUsesAurralArtistPayload(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.monitorDiscoveredArtist(
+			AurralDiscoverArtist(id = "artist-mbid", name = "Alex Warren")
+		).getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com"), apiClient.monitorArtistBaseUrls)
+		assertEquals(listOf("artist-mbid"), apiClient.monitorArtistIds)
+		assertEquals(
+			listOf(
+				AurralArtistMonitorPayload(
+					foreignArtistId = "artist-mbid",
+					artistName = "Alex Warren",
+					monitorOption = "all",
+					monitored = true
+				)
+			),
+			apiClient.monitorArtistPayloads
+		)
+	}
+
+	@Test
 	fun aurralDefaultFlowCreatePayloadMatchesAurralWebDefaults() {
 		assertEquals(
 			AurralFlowCreatePayload(
@@ -694,6 +812,7 @@ class AurralRepositoryTest {
 	private class FakeAurralApiClient(
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
+		private val discovery: AurralDiscoverySummary = AurralDiscoverySummary(),
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
 		private val sessionToken: String? = null,
 		private val streamToken: String? = null
@@ -702,6 +821,8 @@ class AurralRepositoryTest {
 		val connectionRequestHeaders = mutableListOf<Map<String, String>>()
 		val statusBaseUrls = mutableListOf<String>()
 		val statusRequestHeaders = mutableListOf<Map<String, String>>()
+		val discoveryBaseUrls = mutableListOf<String>()
+		val discoveryRequestHeaders = mutableListOf<Map<String, String>>()
 		val createFlowBaseUrls = mutableListOf<String>()
 		val createFlowRequestHeaders = mutableListOf<Map<String, String>>()
 		val createFlowPayloads = mutableListOf<AurralFlowCreatePayload>()
@@ -719,6 +840,10 @@ class AurralRepositoryTest {
 		val loginRequests = mutableListOf<Pair<String, String>>()
 		val streamTokenBaseUrls = mutableListOf<String>()
 		val streamTokenRequestHeaders = mutableListOf<Map<String, String>>()
+		val monitorArtistBaseUrls = mutableListOf<String>()
+		val monitorArtistRequestHeaders = mutableListOf<Map<String, String>>()
+		val monitorArtistIds = mutableListOf<String>()
+		val monitorArtistPayloads = mutableListOf<AurralArtistMonitorPayload>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -736,6 +861,15 @@ class AurralRepositoryTest {
 			statusBaseUrls += baseUrl
 			statusRequestHeaders += requestHeaders
 			return serviceStatus
+		}
+
+		override suspend fun fetchDiscovery(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): AurralDiscoverySummary {
+			discoveryBaseUrls += baseUrl
+			discoveryRequestHeaders += requestHeaders
+			return discovery
 		}
 
 		override suspend fun fetchArtistEnrichment(
@@ -759,7 +893,12 @@ class AurralRepositoryTest {
 			requestHeaders: Map<String, String>,
 			artistMbid: String,
 			payload: AurralArtistMonitorPayload
-		) = Unit
+		) {
+			monitorArtistBaseUrls += baseUrl
+			monitorArtistRequestHeaders += requestHeaders
+			monitorArtistIds += artistMbid
+			monitorArtistPayloads += payload
+		}
 
 		override suspend fun fetchReleaseGroupCoverImageUrl(
 			baseUrl: String,

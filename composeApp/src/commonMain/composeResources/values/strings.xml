@@ -502,6 +502,10 @@
 	<string name="info_aurral_service_status_loading">Loading service status...</string>
 	<string name="info_aurral_service_status_unavailable">Service status not loaded</string>
 	<string name="info_aurral_service_status_failed">Service status failed: %1$s</string>
+	<string name="info_aurral_discover_empty">No Aurral recommendations ready yet</string>
+	<string name="info_aurral_discover_failed">Discovery failed: %1$s</string>
+	<string name="info_aurral_discover_monitor_added">Artist sent to Aurral monitoring</string>
+	<string name="info_aurral_discover_monitor_failed">Could not monitor artist: %1$s</string>
 	<string name="info_aurral_acquisition_queue_empty">No album acquisitions in progress</string>
 	<string name="info_aurral_flows_empty">No Aurral Flows yet</string>
 	<string name="info_aurral_flow_permission_required">This Aurral user cannot access Flows.</string>

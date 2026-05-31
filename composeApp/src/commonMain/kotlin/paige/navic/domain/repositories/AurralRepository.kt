@@ -77,6 +77,20 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getDiscovery(): Result<AurralDiscoverySummary> {
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.fetchDiscovery(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral discovery failed", error)
+		}
+	}
+
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
 		if (!preferenceManager.aurralEnabled) return Result.success(null)
 		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
@@ -138,6 +152,21 @@ class AurralRepository(
 			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
 		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Artist name is required."))
+		return monitorArtistByAurralId(artistMbid, artistName)
+	}
+
+	suspend fun monitorDiscoveredArtist(artist: AurralDiscoverArtist): Result<Unit> {
+		val artistMbid = artist.id.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist name is required."))
+		return monitorArtistByAurralId(artistMbid, artistName)
+	}
+
+	private suspend fun monitorArtistByAurralId(
+		artistMbid: String,
+		artistName: String
+	): Result<Unit> {
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -349,6 +378,11 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>
 	): AurralServiceStatus
 
+	suspend fun fetchDiscovery(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralDiscoverySummary = error("Aurral discovery is not supported by this client.")
+
 	suspend fun fetchArtistEnrichment(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -465,6 +499,22 @@ private class KtorAurralApiClient : AurralApiClient {
 			authMe = authMe,
 			weeklyFlow = weeklyFlow,
 			requests = requests
+		)
+	}
+
+	override suspend fun fetchDiscovery(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralDiscoverySummary {
+		val response = client.get(aurralEndpoint(baseUrl, "api/discover")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral Discover", response.status))
+		}
+		return aurralDiscoverySummary(
+			baseUrl = baseUrl,
+			response = response.body()
 		)
 	}
 
@@ -836,6 +886,29 @@ data class AurralServiceStatus(
 	val acquisitionQueue: List<AurralAcquisitionQueueItem> = emptyList()
 )
 
+data class AurralDiscoverySummary(
+	val recommendations: List<AurralDiscoverArtist> = emptyList(),
+	val globalTop: List<AurralDiscoverArtist> = emptyList(),
+	val basedOn: List<AurralDiscoverArtist> = emptyList(),
+	val topTags: List<String> = emptyList(),
+	val topGenres: List<String> = emptyList(),
+	val isUpdating: Boolean = false,
+	val stale: Boolean = false,
+	val provider: String? = null,
+	val discoveryMode: String? = null
+)
+
+data class AurralDiscoverArtist(
+	val id: String,
+	val name: String,
+	val imageUrl: String? = null,
+	val tags: List<String> = emptyList(),
+	val matchedTags: List<String> = emptyList(),
+	val reason: String? = null,
+	val sourceType: String? = null,
+	val discoveryTier: String? = null
+)
+
 data class AurralFlowSummary(
 	val id: String,
 	val name: String,
@@ -991,6 +1064,37 @@ internal data class AurralHealthDto(
 internal data class AurralDiscoveryDto(
 	@SerialName("recommendationsCount") val recommendationsCount: Int = 0,
 	@SerialName("isUpdating") val isUpdating: Boolean = false
+)
+
+@Serializable
+internal data class AurralDiscoveryResponseDto(
+	val recommendations: List<AurralDiscoverArtistDto> = emptyList(),
+	@SerialName("globalTop") val globalTop: List<AurralDiscoverArtistDto> = emptyList(),
+	@SerialName("basedOn") val basedOn: List<AurralDiscoverArtistDto> = emptyList(),
+	@SerialName("topTags") val topTags: List<String> = emptyList(),
+	@SerialName("topGenres") val topGenres: List<String> = emptyList(),
+	@SerialName("isUpdating") val isUpdating: Boolean = false,
+	val stale: Boolean = false,
+	val provider: String? = null,
+	@SerialName("discoveryMode") val discoveryMode: String? = null
+)
+
+@Serializable
+internal data class AurralDiscoverArtistDto(
+	val id: String? = null,
+	val mbid: String? = null,
+	@SerialName("foreignArtistId") val foreignArtistId: String? = null,
+	val name: String? = null,
+	@SerialName("artistName") val artistName: String? = null,
+	val image: String? = null,
+	val imageUrl: String? = null,
+	val tags: List<String> = emptyList(),
+	val genres: List<String> = emptyList(),
+	@SerialName("matchedTags") val matchedTags: List<String> = emptyList(),
+	@SerialName("sourceArtist") val sourceArtist: String? = null,
+	@SerialName("sourceArtists") val sourceArtists: List<String> = emptyList(),
+	@SerialName("sourceType") val sourceType: String? = null,
+	@SerialName("discoveryTier") val discoveryTier: String? = null
 )
 
 @Serializable
@@ -1158,6 +1262,58 @@ internal data class AurralFlowActionDto(
 	val message: String? = null,
 	val flow: AurralFlowDto? = null
 )
+
+internal fun aurralDiscoverySummary(
+	baseUrl: String,
+	response: AurralDiscoveryResponseDto
+): AurralDiscoverySummary =
+	AurralDiscoverySummary(
+		recommendations = response.recommendations.mapNotNull { it.toDiscoverArtist(baseUrl) },
+		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) },
+		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) },
+		topTags = response.topTags.cleanedAurralStrings(),
+		topGenres = response.topGenres.cleanedAurralStrings(),
+		isUpdating = response.isUpdating,
+		stale = response.stale,
+		provider = response.provider?.trim()?.takeIf { it.isNotEmpty() },
+		discoveryMode = response.discoveryMode?.trim()?.takeIf { it.isNotEmpty() }
+	)
+
+private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {
+	val artistId = listOf(id, mbid, foreignArtistId)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val artistName = listOf(name, artistName)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	return AurralDiscoverArtist(
+		id = artistId,
+		name = artistName,
+		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
+		tags = (tags + genres).cleanedAurralStrings(),
+		matchedTags = matchedTags.cleanedAurralStrings(),
+		reason = aurralDiscoveryReason(this),
+		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
+		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
+private fun aurralDiscoveryReason(artist: AurralDiscoverArtistDto): String? {
+	val sourceArtist = artist.sourceArtist?.trim()?.takeIf { it.isNotEmpty() }
+	if (sourceArtist != null) return "Similar to $sourceArtist"
+	val sourceArtists = artist.sourceArtists.cleanedAurralStrings()
+	return when {
+		sourceArtists.size == 1 -> "Because you listen to ${sourceArtists.single()}"
+		sourceArtists.size > 1 -> "Because you listen to ${sourceArtists.take(2).joinToString(", ")}"
+		artist.discoveryTier?.trim()?.equals("deeper", ignoreCase = true) == true ->
+			"A deeper discovery pick"
+		else -> null
+	}
+}
+
+private fun List<String>.cleanedAurralStrings(): List<String> =
+	mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+		.distinctBy { it.lowercase() }
 
 internal fun aurralServiceStatus(
 	health: AurralHealthDto,

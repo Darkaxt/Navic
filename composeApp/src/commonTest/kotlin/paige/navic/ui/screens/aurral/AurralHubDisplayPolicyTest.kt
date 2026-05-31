@@ -11,12 +11,33 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowCapabilities
 import paige.navic.domain.repositories.AurralFlowStats
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 
 class AurralHubDisplayPolicyTest {
+	@Test
+	fun discoverArtistsPreferRecommendationsThenGlobalTopAndCapRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(id = "r1", name = "Recommendation 1"),
+				AurralDiscoverArtist(id = "r2", name = "Recommendation 2")
+			),
+			globalTop = listOf(
+				AurralDiscoverArtist(id = "g1", name = "Global 1"),
+				AurralDiscoverArtist(id = "g2", name = "Global 2")
+			)
+		)
+
+		assertEquals(
+			listOf("r1", "r2", "g1"),
+			aurralHubDiscoverArtists(summary, limit = 3).map { it.id }
+		)
+	}
+
 	@Test
 	fun summaryCardsExposeDiscoveryRequestsAndFlows() {
 		val cards = aurralHubSummaryCards(

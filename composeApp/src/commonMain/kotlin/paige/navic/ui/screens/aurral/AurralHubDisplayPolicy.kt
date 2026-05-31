@@ -5,6 +5,8 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
+import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 
@@ -44,6 +46,14 @@ fun aurralHubSummaryCards(status: AurralServiceStatus): List<AurralHubSummaryCar
 			active = status.flowTracksPending > 0 || status.flowTracksDownloading > 0
 		)
 	)
+
+fun aurralHubDiscoverArtists(
+	discovery: AurralDiscoverySummary,
+	limit: Int = 8
+): List<AurralDiscoverArtist> =
+	(discovery.recommendations + discovery.globalTop)
+		.distinctBy { it.id.trim().lowercase() }
+		.take(limit.coerceAtLeast(0))
 
 private fun aurralRequestSummary(status: AurralServiceStatus): String {
 	val active = status.acquisitionQueue.count { aurralAcquisitionProgress(it.status).active }

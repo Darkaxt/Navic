@@ -6,8 +6,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainPlaylistListType
@@ -29,19 +31,31 @@ class AurralHubViewModel(
 	private val _serviceStatus = MutableStateFlow<UiState<AurralServiceStatus?>>(UiState.Success(null))
 	val serviceStatus = _serviceStatus.asStateFlow()
 
+	private val _discovery = MutableStateFlow<UiState<AurralDiscoverySummary?>>(UiState.Success(null))
+	val discovery = _discovery.asStateFlow()
+
 	private val _flowActionState = MutableStateFlow<UiState<AurralFlowActionResult?>>(UiState.Success(null))
 	val flowActionState = _flowActionState.asStateFlow()
 
+	private val _discoverActionState = MutableStateFlow<UiState<Unit?>>(UiState.Success(null))
+	val discoverActionState = _discoverActionState.asStateFlow()
+
 	private val _activeFlowActionId = MutableStateFlow<String?>(null)
 	val activeFlowActionId = _activeFlowActionId.asStateFlow()
+
+	private val _activeDiscoverArtistId = MutableStateFlow<String?>(null)
+	val activeDiscoverArtistId = _activeDiscoverArtistId.asStateFlow()
 
 	private val _stationPlaylists = MutableStateFlow<List<DomainPlaylist>>(emptyList())
 	val stationPlaylists = _stationPlaylists.asStateFlow()
 
 	fun clearServiceStatus() {
 		_serviceStatus.value = UiState.Success(null)
+		_discovery.value = UiState.Success(null)
 		_flowActionState.value = UiState.Success(null)
+		_discoverActionState.value = UiState.Success(null)
 		_activeFlowActionId.value = null
+		_activeDiscoverArtistId.value = null
 		_stationPlaylists.value = emptyList()
 	}
 
@@ -150,6 +164,22 @@ class AurralHubViewModel(
 		}
 	}
 
+	fun monitorDiscoveredArtist(artist: AurralDiscoverArtist) {
+		if (_discoverActionState.value is UiState.Loading) return
+
+		viewModelScope.launch(Dispatchers.IO) {
+			_activeDiscoverArtistId.value = artist.id
+			_discoverActionState.value = UiState.Loading(_discoverActionState.value.data)
+			val result = repository.monitorDiscoveredArtist(artist)
+			_discoverActionState.value = result.fold(
+				onSuccess = { UiState.Success(Unit) },
+				onFailure = { UiState.Error(Exception(it), _discoverActionState.value.data) }
+			)
+			loadServiceStatus()
+			_activeDiscoverArtistId.value = null
+		}
+	}
+
 	private fun runFlowAction(
 		actionId: String,
 		action: suspend () -> Result<AurralFlowActionResult>
@@ -176,18 +206,27 @@ class AurralHubViewModel(
 			onSuccess = { UiState.Success(it) },
 			onFailure = { UiState.Error(Exception(it), _serviceStatus.value.data) }
 		)
+		loadDiscovery()
 		loadStationPlaylists()
 	}
 
+	private suspend fun loadDiscovery() {
+		_discovery.value = UiState.Loading(_discovery.value.data)
+		val result = repository.getDiscovery()
+		_discovery.value = result.fold(
+			onSuccess = { UiState.Success(it) },
+			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }
+		)
+	}
+
 	private suspend fun loadStationPlaylists() {
-		playlistRepository.getPlaylistsFlow(
+		val state = playlistRepository.getPlaylistsFlow(
 			fullRefresh = false,
 			listType = DomainPlaylistListType.Name,
 			reversed = false
-		).collect { state ->
-			state.data?.let { playlists ->
-				_stationPlaylists.value = playlists.stationPlaylists()
-			}
+		).first()
+		state.data?.let { playlists ->
+			_stationPlaylists.value = playlists.stationPlaylists()
 		}
 	}
 
