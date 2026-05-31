@@ -40,6 +40,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
+import navic.composeapp.generated.resources.action_open_station
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_start_aurral_flow
 import navic.composeapp.generated.resources.info_aurral_flow_action_failed
@@ -69,6 +70,7 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
@@ -80,6 +82,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.filled.Settings
+import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
@@ -100,6 +103,7 @@ fun AurralHubScreen() {
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val flowActionState by viewModel.flowActionState.collectAsStateWithLifecycle()
 	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
+	val stationPlaylists by viewModel.stationPlaylists.collectAsStateWithLifecycle()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 
@@ -165,9 +169,13 @@ fun AurralHubScreen() {
 					state = serviceStatus,
 					flowActionState = flowActionState,
 					activeFlowActionId = activeFlowActionId,
+					stationPlaylists = stationPlaylists,
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
-					onStartFlow = viewModel::startFlow
+					onStartFlow = viewModel::startFlow,
+					onOpenStation = { station ->
+						backStack.add(Screen.CollectionDetail(station.id, "stations"))
+					}
 				)
 			}
 		}
@@ -194,9 +202,11 @@ private fun AurralHubContent(
 	state: UiState<AurralServiceStatus?>,
 	flowActionState: UiState<AurralFlowActionResult?>,
 	activeFlowActionId: String?,
+	stationPlaylists: List<DomainPlaylist>,
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
-	onStartFlow: (String, Int) -> Unit
+	onStartFlow: (String, Int) -> Unit,
+	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	val status = state.data
 	if (status == null) {
@@ -229,9 +239,11 @@ private fun AurralHubContent(
 		status = status,
 		flowActionState = flowActionState,
 		activeFlowActionId = activeFlowActionId,
+		stationPlaylists = stationPlaylists,
 		onCreateFlowClick = { showCreateFlowDialog = true },
 		onSetFlowEnabled = onSetFlowEnabled,
-		onStartFlow = onStartFlow
+		onStartFlow = onStartFlow,
+		onOpenStation = onOpenStation
 	)
 
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_acquisition_queue))
@@ -307,9 +319,11 @@ private fun AurralHubFlowsSection(
 	status: AurralServiceStatus,
 	flowActionState: UiState<AurralFlowActionResult?>,
 	activeFlowActionId: String?,
+	stationPlaylists: List<DomainPlaylist>,
 	onCreateFlowClick: () -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
-	onStartFlow: (String, Int) -> Unit
+	onStartFlow: (String, Int) -> Unit,
+	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_flows))
 
@@ -332,10 +346,12 @@ private fun AurralHubFlowsSection(
 			status.flows.forEach { flow ->
 				AurralHubFlowRow(
 					flow = flow,
+					station = aurralStationForFlow(flow, stationPlaylists),
 					actionInProgress = actionInProgress,
 					active = activeFlowActionId == flow.id,
 					onSetFlowEnabled = onSetFlowEnabled,
-					onStartFlow = onStartFlow
+					onStartFlow = onStartFlow,
+					onOpenStation = onOpenStation
 				)
 			}
 		}
@@ -371,10 +387,12 @@ private fun AurralHubFlowsSection(
 @Composable
 private fun AurralHubFlowRow(
 	flow: AurralFlowSummary,
+	station: DomainPlaylist?,
 	actionInProgress: Boolean,
 	active: Boolean,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
-	onStartFlow: (String, Int) -> Unit
+	onStartFlow: (String, Int) -> Unit,
+	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
 		Column(Modifier.weight(1f)) {
@@ -404,6 +422,13 @@ private fun AurralHubFlowRow(
 			modifier = Modifier.padding(start = 12.dp),
 			verticalAlignment = Alignment.CenterVertically
 		) {
+			station?.let { matchingStation ->
+				IconButton(
+					onClick = { onOpenStation(matchingStation) }
+				) {
+					Icon(Icons.Outlined.PlaylistPlay, stringResource(Res.string.action_open_station))
+				}
+			}
 			IconButton(
 				onClick = { onStartFlow(flow.id, flow.size) },
 				enabled = flow.enabled && !actionInProgress

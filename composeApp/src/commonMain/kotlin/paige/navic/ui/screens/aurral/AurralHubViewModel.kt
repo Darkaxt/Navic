@@ -6,14 +6,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.DomainPlaylistListType
+import paige.navic.domain.models.stationPlaylists
 import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.ui.core.UiState
 
 class AurralHubViewModel(
-	private val repository: AurralRepository
+	private val repository: AurralRepository,
+	private val playlistRepository: PlaylistRepository
 ) : ViewModel() {
 	private val _serviceStatus = MutableStateFlow<UiState<AurralServiceStatus?>>(UiState.Success(null))
 	val serviceStatus = _serviceStatus.asStateFlow()
@@ -24,10 +30,14 @@ class AurralHubViewModel(
 	private val _activeFlowActionId = MutableStateFlow<String?>(null)
 	val activeFlowActionId = _activeFlowActionId.asStateFlow()
 
+	private val _stationPlaylists = MutableStateFlow<List<DomainPlaylist>>(emptyList())
+	val stationPlaylists = _stationPlaylists.asStateFlow()
+
 	fun clearServiceStatus() {
 		_serviceStatus.value = UiState.Success(null)
 		_flowActionState.value = UiState.Success(null)
 		_activeFlowActionId.value = null
+		_stationPlaylists.value = emptyList()
 	}
 
 	fun refreshServiceStatus() {
@@ -91,5 +101,18 @@ class AurralHubViewModel(
 			onSuccess = { UiState.Success(it) },
 			onFailure = { UiState.Error(Exception(it), _serviceStatus.value.data) }
 		)
+		loadStationPlaylists()
+	}
+
+	private suspend fun loadStationPlaylists() {
+		playlistRepository.getPlaylistsFlow(
+			fullRefresh = false,
+			listType = DomainPlaylistListType.Name,
+			reversed = false
+		).collect { state ->
+			state.data?.let { playlists ->
+				_stationPlaylists.value = playlists.stationPlaylists()
+			}
+		}
 	}
 }

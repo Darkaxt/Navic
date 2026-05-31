@@ -3,7 +3,11 @@ package paige.navic.ui.screens.aurral
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralFlowCapabilities
 import paige.navic.domain.repositories.AurralFlowStats
@@ -108,6 +112,27 @@ class AurralHubDisplayPolicyTest {
 		)
 	}
 
+	@Test
+	fun stationForFlowMatchesAurralStationDisplayNameOnly() {
+		val station = playlist(id = "station-1", name = "[A]  Discover Mix")
+		val regularPlaylist = playlist(id = "regular", name = "Discover Mix")
+		val otherStation = playlist(id = "station-2", name = "[A] Different")
+
+		assertEquals(
+			station,
+			aurralStationForFlow(
+				flow = AurralFlowSummary(id = "flow", name = "discover   mix", enabled = true),
+				playlists = listOf(regularPlaylist, otherStation, station)
+			)
+		)
+		assertNull(
+			aurralStationForFlow(
+				flow = AurralFlowSummary(id = "flow", name = "Missing", enabled = true),
+				playlists = listOf(regularPlaylist, otherStation, station)
+			)
+		)
+	}
+
 	private fun queueItem(
 		id: String,
 		status: String
@@ -123,5 +148,25 @@ class AurralHubDisplayPolicyTest {
 		status = status,
 		requestedAt = null,
 		inQueue = status == "processing"
+	)
+
+	private fun playlist(
+		id: String,
+		name: String
+	) = DomainPlaylist(
+		id = id,
+		name = name,
+		owner = "owner",
+		comment = null,
+		coverArtId = null,
+		songCount = 0,
+		duration = 0.seconds,
+		createdAt = Instant.DISTANT_PAST,
+		modifiedAt = Instant.DISTANT_PAST,
+		public = null,
+		readOnly = null,
+		allowedUsers = emptyList(),
+		validUntil = null,
+		songs = emptyList()
 	)
 }

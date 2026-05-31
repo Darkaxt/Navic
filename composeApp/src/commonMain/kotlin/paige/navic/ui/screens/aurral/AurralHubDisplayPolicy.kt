@@ -1,7 +1,10 @@
 package paige.navic.ui.screens.aurral
 
 import androidx.compose.runtime.Immutable
+import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.isStationPlaylist
+import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 
@@ -118,6 +121,17 @@ fun aurralFlowDetail(flow: AurralFlowSummary): String {
 	return parts.joinToString("; ")
 }
 
+fun aurralStationForFlow(
+	flow: AurralFlowSummary,
+	playlists: List<DomainPlaylist>
+): DomainPlaylist? {
+	val flowName = flow.name.normalizedAurralFlowStationName() ?: return null
+	return playlists.firstOrNull { playlist ->
+		playlist.isStationPlaylist() &&
+			playlist.stationDisplayName().normalizedAurralFlowStationName() == flowName
+	}
+}
+
 private fun aurralScheduleSummary(
 	scheduleDays: List<Int>,
 	scheduleTime: String
@@ -141,3 +155,11 @@ private fun aurralScheduleSummary(
 	val safeTime = scheduleTime.trim().takeIf { it.isNotEmpty() } ?: "00:00"
 	return "${dayNames.joinToString(", ")} at $safeTime"
 }
+
+private fun String.normalizedAurralFlowStationName(): String? =
+	trim()
+		.removePrefix("[A]")
+		.trim()
+		.lowercase()
+		.replace(Regex("""\s+"""), " ")
+		.takeIf { it.isNotEmpty() }
