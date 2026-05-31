@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -64,7 +66,6 @@ import navic.composeapp.generated.resources.info_aurral_match_percent
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_albums
-import navic.composeapp.generated.resources.title_aurral_missing_albums
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_similar_artists
 import org.jetbrains.compose.resources.stringResource
@@ -77,10 +78,12 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralArtistAlbumRow
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
+import paige.navic.domain.models.aurralArtistAlbumRows
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
@@ -202,6 +205,12 @@ fun ArtistDetailScreen(
 
 				is UiState.Success -> {
 					val state = artistState.data
+					val albumRows = remember(state.albums, state.aurralMissingAlbums) {
+						aurralArtistAlbumRows(
+							localAlbums = state.albums,
+							missingAlbums = state.aurralMissingAlbums
+						).toImmutableList()
+					}
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
 						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
@@ -350,54 +359,90 @@ fun ArtistDetailScreen(
 								}
 							ArtCarousel(
 								stringResource(Res.string.title_albums),
-								state.albums.sortedByDescending { album -> album.playCount }
-									.toImmutableList()
-							) { album ->
-								val albumDownloadStatus by downloadManager
-									.getCollectionDownloadStatus(album.songs.map { it.id })
-									.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
-								ArtCarouselItem(
-									coverArtId = album.coverArtId, 
-									title = album.name, 
-									acquisitionProgress = aurralAlbumAcquisitionProgress(
-										album = album,
-										requests = state.aurralAlbumRequests
-									),
-									contentDescription = null,
-									onSelect = { viewModel.selectAlbum(album) },
-									onClick = dropUnlessResumed {
-										backStack.add(Screen.CollectionDetail(album.id, "artist"))
+								albumRows
+							) { row ->
+								when (row) {
+									is AurralArtistAlbumRow.Local -> {
+										val album = row.album
+										val albumDownloadStatus by downloadManager
+											.getCollectionDownloadStatus(album.songs.map { it.id })
+											.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+										ArtCarouselItem(
+											coverArtId = album.coverArtId,
+											title = album.name,
+											subtitle = album.year?.toString(),
+											acquisitionProgress = aurralAlbumAcquisitionProgress(
+												album = album,
+												requests = state.aurralAlbumRequests
+											),
+											contentDescription = null,
+											onSelect = { viewModel.selectAlbum(album) },
+											onClick = dropUnlessResumed {
+												backStack.add(Screen.CollectionDetail(album.id, "artist"))
+											}
+										)
+										if (selectedAlbum == album) {
+											CollectionSheet(
+												onDismissRequest = { viewModel.clearAlbumSelection() },
+												collection = album,
+												starred = selectedAlbumIsStarred,
+												onShare = { shareId = album.id },
+												onPlayNext = { player.playNext(album) },
+												onAddToQueue = { player.addToQueue(album) },
+												onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
+												onAddAllToPlaylist = { playlistDialogShown = true },
+												downloadStatus = albumDownloadStatus,
+												onDownloadAll = {
+													scope.launch {
+														downloadManager.downloadCollection(album)
+													}
+												},
+												onCancelDownloadAll = {
+													scope.launch {
+														downloadManager.cancelCollectionDownload(album)
+													}
+												},
+												onDeleteDownloadAll = {
+													scope.launch {
+														downloadManager.deleteDownloadedCollection(album)
+													}
+												},
+												rating = selectedAlbumRating,
+												onSetRating = { viewModel.rateSelectedAlbum(it) }
+											)
+										}
 									}
-								)
-								if (selectedAlbum == album) {
-									CollectionSheet(
-										onDismissRequest = { viewModel.clearAlbumSelection() },
-										collection = album,
-										starred = selectedAlbumIsStarred,
-										onShare = { shareId = album.id },
-										onPlayNext = { player.playNext(album) },
-										onAddToQueue = { player.addToQueue(album) },
-										onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
-										onAddAllToPlaylist = { playlistDialogShown = true },
-										downloadStatus = albumDownloadStatus,
-										onDownloadAll = { 
-											scope.launch {
-												downloadManager.downloadCollection(album)
+
+									is AurralArtistAlbumRow.Missing -> {
+										val missingAlbum = row.album
+										val coverUrl = missingAlbum.coverUrl
+										val imageRequestHeaders = aurralRequestHeadersForUrl(
+											baseUrl = preferenceManager.aurralBaseUrl,
+											imageUrl = coverUrl,
+											requestHeaders = preferenceManager.aurralRequestHeadersMap()
+										)
+										AurralMissingAlbumItem(
+											row = missingAlbum,
+											coverUrl = coverUrl,
+											imageRequestHeaders = imageRequestHeaders,
+											grayscale = true,
+											onClick = {
+												backStack.add(
+													Screen.AurralMissingAlbum(
+														artistId = state.artist.id,
+														artistName = state.artist.name,
+														artistMbid = state.artist.musicBrainzId.orEmpty(),
+														releaseGroupId = missingAlbum.releaseGroup.id,
+														title = missingAlbum.title,
+														year = missingAlbum.year,
+														primaryType = missingAlbum.releaseGroup.primaryType,
+														coverUrl = coverUrl,
+														requestStatus = missingAlbum.requestStatus
+													)
+												)
 											}
-										},
-										onCancelDownloadAll = {
-											scope.launch {
-												downloadManager.cancelCollectionDownload(album)
-											}
-										},
-										onDeleteDownloadAll = {
-											scope.launch {
-												downloadManager.deleteDownloadedCollection(album)
-											}
-										},
-										rating = selectedAlbumRating,
-										onSetRating = { viewModel.rateSelectedAlbum(it) }
-									)
+										)
+									}
 								}
 							}
 							if (state.aurralLoading) {
@@ -408,37 +453,6 @@ fun ArtistDetailScreen(
 									modifier = Modifier
 										.fillMaxWidth()
 										.padding(horizontal = 16.dp)
-								)
-							}
-							ArtCarousel(
-								stringResource(Res.string.title_aurral_missing_albums),
-								state.aurralMissingAlbums.toImmutableList()
-							) { row ->
-								val coverUrl = row.coverUrl
-								val imageRequestHeaders = aurralRequestHeadersForUrl(
-									baseUrl = preferenceManager.aurralBaseUrl,
-									imageUrl = coverUrl,
-									requestHeaders = preferenceManager.aurralRequestHeadersMap()
-								)
-								AurralMissingAlbumItem(
-									row = row,
-									coverUrl = coverUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									onClick = {
-										backStack.add(
-											Screen.AurralMissingAlbum(
-												artistId = state.artist.id,
-												artistName = state.artist.name,
-												artistMbid = state.artist.musicBrainzId.orEmpty(),
-												releaseGroupId = row.releaseGroup.id,
-												title = row.title,
-												year = row.year,
-												primaryType = row.releaseGroup.primaryType,
-												coverUrl = coverUrl,
-												requestStatus = row.requestStatus
-											)
-										)
-									}
 								)
 							}
 							val similarRows = state.aurralSimilarArtists.ifEmpty {
@@ -509,9 +523,17 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 	row: AurralMissingAlbumRow,
 	coverUrl: String?,
 	imageRequestHeaders: Map<String, String>,
+	grayscale: Boolean = false,
 	onClick: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
+	val colorFilter = remember(grayscale) {
+		if (grayscale) {
+			ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+		} else {
+			null
+		}
+	}
 
 	Column(
 		modifier = Modifier.fillMaxWidth()
@@ -530,6 +552,7 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				fallbackKind = row.releaseGroup.primaryType ?: "Album",
 				modifier = Modifier.fillMaxWidth(),
 				shape = RectangleShape,
+				colorFilter = colorFilter,
 				onClick = {
 					platformContext.clickSound()
 					onClick()

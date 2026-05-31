@@ -1,23 +1,35 @@
 package paige.navic.ui.screens.aurral
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,8 +37,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
 import navic.composeapp.generated.resources.action_refresh
+import navic.composeapp.generated.resources.action_start_aurral_flow
+import navic.composeapp.generated.resources.info_aurral_flow_action_failed
+import navic.composeapp.generated.resources.info_aurral_flow_action_queued
+import navic.composeapp.generated.resources.info_aurral_flow_action_updated
+import navic.composeapp.generated.resources.info_aurral_flow_permission_required
+import navic.composeapp.generated.resources.info_aurral_flow_sources_unavailable
+import navic.composeapp.generated.resources.info_aurral_flows_empty
 import navic.composeapp.generated.resources.info_aurral_acquisition_queue_empty
 import navic.composeapp.generated.resources.info_aurral_hub_disabled
 import navic.composeapp.generated.resources.info_aurral_hub_missing_url
@@ -35,9 +56,12 @@ import navic.composeapp.generated.resources.info_aurral_service_status_loading
 import navic.composeapp.generated.resources.info_aurral_service_status_unavailable
 import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_aurral_acquisition_queue
+import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_flows
 import navic.composeapp.generated.resources.title_aurral_requests
+import navic.composeapp.generated.resources.option_aurral_flow_name
+import navic.composeapp.generated.resources.option_aurral_flow_size
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -48,14 +72,19 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralFlowActionResult
+import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Play
+import paige.navic.icons.outlined.Add
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.TopBarButton
@@ -69,6 +98,8 @@ fun AurralHubScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
+	val flowActionState by viewModel.flowActionState.collectAsStateWithLifecycle()
+	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 
@@ -130,7 +161,14 @@ fun AurralHubScreen() {
 					onOpenSettings = { backStack.add(Screen.Settings.Aurral) }
 				)
 
-				else -> AurralHubContent(serviceStatus)
+				else -> AurralHubContent(
+					state = serviceStatus,
+					flowActionState = flowActionState,
+					activeFlowActionId = activeFlowActionId,
+					onCreateFlow = viewModel::createFlow,
+					onSetFlowEnabled = viewModel::setFlowEnabled,
+					onStartFlow = viewModel::startFlow
+				)
 			}
 		}
 	}
@@ -152,7 +190,14 @@ private fun AurralHubConfigurationMessage(
 }
 
 @Composable
-private fun AurralHubContent(state: UiState<AurralServiceStatus?>) {
+private fun AurralHubContent(
+	state: UiState<AurralServiceStatus?>,
+	flowActionState: UiState<AurralFlowActionResult?>,
+	activeFlowActionId: String?,
+	onCreateFlow: (String, Int) -> Unit,
+	onSetFlowEnabled: (String, Boolean) -> Unit,
+	onStartFlow: (String, Int) -> Unit
+) {
 	val status = state.data
 	if (status == null) {
 		Form(Modifier.fillMaxWidth()) {
@@ -172,12 +217,22 @@ private fun AurralHubContent(state: UiState<AurralServiceStatus?>) {
 		}
 		return
 	}
+	var showCreateFlowDialog by rememberSaveable { mutableStateOf(false) }
 
 	Form(Modifier.fillMaxWidth()) {
 		aurralHubSummaryCards(status).forEach { card ->
 			AurralHubSummaryRow(card)
 		}
 	}
+
+	AurralHubFlowsSection(
+		status = status,
+		flowActionState = flowActionState,
+		activeFlowActionId = activeFlowActionId,
+		onCreateFlowClick = { showCreateFlowDialog = true },
+		onSetFlowEnabled = onSetFlowEnabled,
+		onStartFlow = onStartFlow
+	)
 
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_acquisition_queue))
 	Form(Modifier.fillMaxWidth()) {
@@ -190,6 +245,18 @@ private fun AurralHubContent(state: UiState<AurralServiceStatus?>) {
 				AurralHubQueueRow(item)
 			}
 		}
+	}
+
+	if (showCreateFlowDialog) {
+		AurralCreateFlowDialog(
+			defaultName = nextAurralFlowName(status.flows),
+			creating = flowActionState is UiState.Loading && activeFlowActionId == "create",
+			onDismissRequest = { showCreateFlowDialog = false },
+			onCreate = { name, size ->
+				showCreateFlowDialog = false
+				onCreateFlow(name, size)
+			}
+		)
 	}
 
 	AnimatedVisibility(state is UiState.Loading) {
@@ -212,7 +279,208 @@ private fun AurralHubContent(state: UiState<AurralServiceStatus?>) {
 			}
 		}
 	}
+	if (flowActionState is UiState.Error) {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(
+					text = stringResource(
+						Res.string.info_aurral_flow_action_failed,
+						flowActionState.error.message
+							?: flowActionState.error::class.simpleName
+							?: "Unknown error"
+					),
+					color = MaterialTheme.colorScheme.error
+				)
+			}
+		}
+	} else if (flowActionState is UiState.Success && flowActionState.data != null) {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(aurralFlowActionMessage(flowActionState.data))
+			}
+		}
+	}
 }
+
+@Composable
+private fun AurralHubFlowsSection(
+	status: AurralServiceStatus,
+	flowActionState: UiState<AurralFlowActionResult?>,
+	activeFlowActionId: String?,
+	onCreateFlowClick: () -> Unit,
+	onSetFlowEnabled: (String, Boolean) -> Unit,
+	onStartFlow: (String, Int) -> Unit
+) {
+	AurralHubSectionTitle(stringResource(Res.string.title_aurral_flows))
+
+	if (!status.accessFlow) {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(stringResource(Res.string.info_aurral_flow_permission_required))
+			}
+		}
+		return
+	}
+
+	val actionInProgress = flowActionState is UiState.Loading
+	Form(Modifier.fillMaxWidth()) {
+		if (status.flows.isEmpty()) {
+			FormRow {
+				Text(stringResource(Res.string.info_aurral_flows_empty))
+			}
+		} else {
+			status.flows.forEach { flow ->
+				AurralHubFlowRow(
+					flow = flow,
+					actionInProgress = actionInProgress,
+					active = activeFlowActionId == flow.id,
+					onSetFlowEnabled = onSetFlowEnabled,
+					onStartFlow = onStartFlow
+				)
+			}
+		}
+	}
+
+	if (canCreateAurralFlow(status)) {
+		FormButton(
+			onClick = onCreateFlowClick,
+			enabled = !actionInProgress,
+			color = MaterialTheme.colorScheme.primary
+		) {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.Center
+			) {
+				Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp))
+				Spacer(Modifier.width(8.dp))
+				Text(stringResource(Res.string.action_create_aurral_flow))
+			}
+		}
+	} else {
+		Form(Modifier.fillMaxWidth()) {
+			FormRow {
+				Text(
+					text = stringResource(Res.string.info_aurral_flow_sources_unavailable),
+					color = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun AurralHubFlowRow(
+	flow: AurralFlowSummary,
+	actionInProgress: Boolean,
+	active: Boolean,
+	onSetFlowEnabled: (String, Boolean) -> Unit,
+	onStartFlow: (String, Int) -> Unit
+) {
+	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+		Column(Modifier.weight(1f)) {
+			Text(
+				text = flow.name,
+				fontWeight = FontWeight.Medium,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+			Text(
+				text = aurralFlowDetail(flow),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+			if (active) {
+				LinearProgressIndicator(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 8.dp)
+						.height(3.dp)
+				)
+			}
+		}
+		Row(
+			modifier = Modifier.padding(start = 12.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			IconButton(
+				onClick = { onStartFlow(flow.id, flow.size) },
+				enabled = flow.enabled && !actionInProgress
+			) {
+				Icon(Icons.Filled.Play, stringResource(Res.string.action_start_aurral_flow))
+			}
+			Switch(
+				checked = flow.enabled,
+				onCheckedChange = { onSetFlowEnabled(flow.id, it) },
+				enabled = !actionInProgress
+			)
+		}
+	}
+}
+
+@Composable
+private fun AurralCreateFlowDialog(
+	defaultName: String,
+	creating: Boolean,
+	onDismissRequest: () -> Unit,
+	onCreate: (String, Int) -> Unit
+) {
+	var name by rememberSaveable(defaultName) { mutableStateOf(defaultName) }
+	var sizeText by rememberSaveable { mutableStateOf("30") }
+	val size = sizeText.trim().toIntOrNull()
+	val valid = name.trim().isNotEmpty() && size != null && size > 0
+
+	FormDialog(
+		onDismissRequest = onDismissRequest,
+		icon = { Icon(Icons.Outlined.Add, null) },
+		title = { Text(stringResource(Res.string.title_aurral_create_flow)) },
+		buttons = {
+			FormButton(
+				onClick = { onCreate(name, size ?: 30) },
+				enabled = valid && !creating,
+				color = MaterialTheme.colorScheme.primary
+			) {
+				if (creating) {
+					CircularProgressIndicator(modifier = Modifier.size(20.dp))
+				} else {
+					Text(stringResource(Res.string.action_create_aurral_flow))
+				}
+			}
+			FormButton(
+				onClick = onDismissRequest,
+				enabled = !creating
+			) {
+				Text(stringResource(Res.string.action_cancel))
+			}
+		},
+		content = {
+			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				TextField(
+					value = name,
+					onValueChange = { name = it },
+					label = { Text(stringResource(Res.string.option_aurral_flow_name)) },
+					singleLine = true
+				)
+				TextField(
+					value = sizeText,
+					onValueChange = { sizeText = it.filter(Char::isDigit).take(3) },
+					label = { Text(stringResource(Res.string.option_aurral_flow_size)) },
+					singleLine = true
+				)
+			}
+		}
+	)
+}
+
+@Composable
+private fun aurralFlowActionMessage(result: AurralFlowActionResult): String =
+	result.message
+		?: if (result.tracksQueued > 0) {
+			stringResource(Res.string.info_aurral_flow_action_queued, result.tracksQueued)
+		} else {
+			stringResource(Res.string.info_aurral_flow_action_updated)
+		}
 
 @Composable
 private fun AurralHubSummaryRow(card: AurralHubSummaryCard) {

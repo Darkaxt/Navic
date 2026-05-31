@@ -19,6 +19,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
@@ -29,6 +31,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.util.core.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.time.Clock
 
 private const val TAG = "AurralRepository"
 internal const val AURRAL_BASE_URL_REQUIRED_MESSAGE = "Enter the Aurral URL first."
@@ -155,6 +158,86 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun createFlow(
+		name: String,
+		size: Int,
+		scheduleDay: Int = currentAurralScheduleDay()
+	): Result<AurralFlowActionResult> {
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val payload = runCatching {
+			aurralDefaultFlowCreatePayload(
+				name = name,
+				size = size,
+				scheduleDay = scheduleDay
+			)
+		}.getOrElse { error ->
+			return Result.failure(IllegalStateException(error.message ?: "Flow details are invalid."))
+		}
+
+		return runCatching {
+			apiClient.createFlow(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				payload = payload
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral Flow creation failed for ${payload.name}", error)
+		}
+	}
+
+	suspend fun setFlowEnabled(
+		flowId: String,
+		enabled: Boolean
+	): Result<AurralFlowActionResult> {
+		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.setFlowEnabled(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				flowId = trimmedFlowId,
+				enabled = enabled
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral Flow enable update failed for $trimmedFlowId", error)
+		}
+	}
+
+	suspend fun startFlow(
+		flowId: String,
+		limit: Int
+	): Result<AurralFlowActionResult> {
+		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		val safeLimit = limit.takeIf { it > 0 } ?: 30
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.startFlow(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				flowId = trimmedFlowId,
+				limit = safeLimit
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral Flow start failed for $trimmedFlowId", error)
+		}
+	}
+
 	suspend fun getReleaseGroupCoverImageUrl(
 		releaseGroup: AurralReleaseGroup,
 		artistName: String
@@ -221,6 +304,26 @@ interface AurralApiClient {
 		artistName: String,
 		albumTitle: String
 	): String?
+
+	suspend fun createFlow(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		payload: AurralFlowCreatePayload
+	): AurralFlowActionResult = error("Aurral Flow creation is not supported by this client.")
+
+	suspend fun setFlowEnabled(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		enabled: Boolean
+	): AurralFlowActionResult = error("Aurral Flow updates are not supported by this client.")
+
+	suspend fun startFlow(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		limit: Int
+	): AurralFlowActionResult = error("Aurral Flow starts are not supported by this client.")
 }
 
 private class KtorAurralApiClient : AurralApiClient {
@@ -429,6 +532,60 @@ private class KtorAurralApiClient : AurralApiClient {
 		}
 	}
 
+	override suspend fun createFlow(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		payload: AurralFlowCreatePayload
+	): AurralFlowActionResult {
+		val response = client.post(aurralEndpoint(baseUrl, "api/weekly-flow/flows")) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(payload)
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral Flow creation", response.status))
+		}
+		return response.body<AurralFlowActionDto>().toResult()
+	}
+
+	override suspend fun setFlowEnabled(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		enabled: Boolean
+	): AurralFlowActionResult {
+		val response = client.put(
+			aurralEndpoint(baseUrl, "api/weekly-flow/flows/${encodeUrlComponent(flowId)}/enabled")
+		) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(AurralFlowEnabledPayload(enabled))
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral Flow update", response.status))
+		}
+		return response.body<AurralFlowActionDto>().toResult()
+	}
+
+	override suspend fun startFlow(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		limit: Int
+	): AurralFlowActionResult {
+		val response = client.post(
+			aurralEndpoint(baseUrl, "api/weekly-flow/start/${encodeUrlComponent(flowId)}")
+		) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(AurralFlowStartPayload(limit))
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral Flow start", response.status))
+		}
+		return response.body<AurralFlowActionDto>().toResult()
+	}
+
 	override suspend fun monitorArtist(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -531,7 +688,56 @@ data class AurralServiceStatus(
 	val flowTracksFailed: Int = 0,
 	val flowPhase: String? = null,
 	val flowMessage: String? = null,
+	val flows: List<AurralFlowSummary> = emptyList(),
+	val flowCapabilities: AurralFlowCapabilities = AurralFlowCapabilities(),
 	val acquisitionQueue: List<AurralAcquisitionQueueItem> = emptyList()
+)
+
+data class AurralFlowSummary(
+	val id: String,
+	val name: String,
+	val enabled: Boolean,
+	val size: Int = 30,
+	val nextRunAt: Long? = null,
+	val mix: AurralFlowMix = AurralFlowMix(),
+	val tags: List<String> = emptyList(),
+	val relatedArtists: List<String> = emptyList(),
+	val scheduleDays: List<Int> = emptyList(),
+	val scheduleTime: String = "00:00",
+	val stats: AurralFlowStats = AurralFlowStats()
+)
+
+@Serializable
+data class AurralFlowMix(
+	val discover: Int = 34,
+	val mix: Int = 33,
+	val trending: Int = 33,
+	val focus: Int = 0
+)
+
+data class AurralFlowStats(
+	val total: Int = 0,
+	val pending: Int = 0,
+	val downloading: Int = 0,
+	val done: Int = 0,
+	val failed: Int = 0
+)
+
+data class AurralFlowCapabilities(
+	val lastfmRequired: Boolean = false,
+	val availableSources: List<String> = emptyList(),
+	val unavailableSources: Map<String, String> = emptyMap()
+)
+
+data class AurralFlowActionResult(
+	val success: Boolean = false,
+	val flowId: String? = null,
+	val enabled: Boolean? = null,
+	val tracksQueued: Int = 0,
+	val reserveTracks: Int = 0,
+	val jobIds: List<String> = emptyList(),
+	val message: String? = null,
+	val flow: AurralFlowSummary? = null
 )
 
 data class AurralAcquisitionQueueItem(
@@ -563,6 +769,28 @@ data class AurralArtistMonitorPayload(
 	val artistName: String,
 	val monitorOption: String = "all",
 	val monitored: Boolean = true
+)
+
+@Serializable
+data class AurralFlowCreatePayload(
+	val name: String,
+	val size: Int,
+	val mix: AurralFlowMix = AurralFlowMix(),
+	val deepDive: Boolean = false,
+	val tags: List<String> = emptyList(),
+	@SerialName("relatedArtists") val relatedArtists: List<String> = emptyList(),
+	@SerialName("scheduleDays") val scheduleDays: List<Int>,
+	@SerialName("scheduleTime") val scheduleTime: String = "00:00"
+)
+
+@Serializable
+private data class AurralFlowEnabledPayload(
+	val enabled: Boolean
+)
+
+@Serializable
+private data class AurralFlowStartPayload(
+	val limit: Int
 )
 
 @Serializable
@@ -614,7 +842,9 @@ internal data class AurralPermissionsDto(
 internal data class AurralWeeklyFlowStatusDto(
 	val flows: List<AurralFlowDto> = emptyList(),
 	@SerialName("sharedPlaylists") val sharedPlaylists: List<AurralSharedPlaylistDto> = emptyList(),
+	@SerialName("flowStats") val flowStats: Map<String, AurralFlowStatsDto> = emptyMap(),
 	val stats: AurralFlowStatsDto = AurralFlowStatsDto(),
+	val capabilities: AurralFlowCapabilitiesDto = AurralFlowCapabilitiesDto(),
 	val hint: AurralFlowHintDto? = null
 )
 
@@ -622,7 +852,14 @@ internal data class AurralWeeklyFlowStatusDto(
 internal data class AurralFlowDto(
 	val id: String? = null,
 	val name: String? = null,
-	val enabled: Boolean = false
+	val enabled: Boolean = false,
+	val size: Int? = null,
+	@SerialName("nextRunAt") val nextRunAt: Long? = null,
+	val mix: AurralFlowMixDto = AurralFlowMixDto(),
+	val tags: List<String> = emptyList(),
+	@SerialName("relatedArtists") val relatedArtists: List<String> = emptyList(),
+	@SerialName("scheduleDays") val scheduleDays: List<Int> = emptyList(),
+	@SerialName("scheduleTime") val scheduleTime: String? = null
 )
 
 @Serializable
@@ -638,6 +875,21 @@ internal data class AurralFlowStatsDto(
 	val downloading: Int = 0,
 	val done: Int = 0,
 	val failed: Int = 0
+)
+
+@Serializable
+internal data class AurralFlowMixDto(
+	val discover: Int = 34,
+	val mix: Int = 33,
+	val trending: Int = 33,
+	val focus: Int = 0
+)
+
+@Serializable
+internal data class AurralFlowCapabilitiesDto(
+	@SerialName("lastfmRequired") val lastfmRequired: Boolean = false,
+	@SerialName("availableSources") val availableSources: List<String> = emptyList(),
+	@SerialName("unavailableSources") val unavailableSources: Map<String, String> = emptyMap()
 )
 
 @Serializable
@@ -718,6 +970,18 @@ internal data class AurralSimilarArtistDto(
 	val match: Int? = null
 )
 
+@Serializable
+internal data class AurralFlowActionDto(
+	val success: Boolean = false,
+	@SerialName("flowId") val flowId: String? = null,
+	val enabled: Boolean? = null,
+	@SerialName("tracksQueued") val tracksQueued: Int = 0,
+	@SerialName("reserveTracks") val reserveTracks: Int = 0,
+	@SerialName("jobIds") val jobIds: List<String> = emptyList(),
+	val message: String? = null,
+	val flow: AurralFlowDto? = null
+)
+
 internal fun aurralServiceStatus(
 	health: AurralHealthDto,
 	authMe: AurralAuthMeDto?,
@@ -726,6 +990,10 @@ internal fun aurralServiceStatus(
 ): AurralServiceStatus {
 	val user = authMe?.user ?: health.user
 	val stats = weeklyFlow?.stats ?: AurralFlowStatsDto()
+	val flows = weeklyFlow?.flows.orEmpty().mapNotNull { flow ->
+		val id = flow.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		flow.toSummary(weeklyFlow?.flowStats?.get(id))
+	}
 	return AurralServiceStatus(
 		healthStatus = health.status,
 		appVersion = health.appVersion,
@@ -750,9 +1018,97 @@ internal fun aurralServiceStatus(
 		flowTracksFailed = stats.failed,
 		flowPhase = weeklyFlow?.hint?.phase,
 		flowMessage = weeklyFlow?.hint?.message,
+		flows = flows,
+		flowCapabilities = weeklyFlow?.capabilities?.toCapabilities() ?: AurralFlowCapabilities(),
 		acquisitionQueue = requests.mapNotNull(::aurralAcquisitionQueueItem)
 	)
 }
+
+internal fun aurralDefaultFlowCreatePayload(
+	name: String,
+	size: Int,
+	scheduleDay: Int
+): AurralFlowCreatePayload {
+	val trimmedName = name.trim().takeIf { it.isNotEmpty() }
+		?: error("Flow name is required.")
+	if (size <= 0) error("Flow size must be positive.")
+	if (scheduleDay !in 0..6) error("Flow schedule day must be between 0 and 6.")
+	return AurralFlowCreatePayload(
+		name = trimmedName,
+		size = size,
+		mix = AurralFlowMix(discover = 34, mix = 33, trending = 33, focus = 0),
+		scheduleDays = listOf(scheduleDay),
+		scheduleTime = "00:00"
+	)
+}
+
+internal fun currentAurralScheduleDay(): Int {
+	val isoDay = Clock.System.now()
+		.toLocalDateTime(TimeZone.currentSystemDefault())
+		.dayOfWeek
+		.ordinal + 1
+	return if (isoDay == 7) 0 else isoDay
+}
+
+private fun AurralFlowDto.toSummary(stats: AurralFlowStatsDto? = null): AurralFlowSummary? {
+	val id = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val name = name?.trim()?.takeIf { it.isNotEmpty() } ?: "Flow"
+	val safeSize = size?.takeIf { it > 0 } ?: 30
+	return AurralFlowSummary(
+		id = id,
+		name = name,
+		enabled = enabled,
+		size = safeSize,
+		nextRunAt = nextRunAt,
+		mix = mix.toMix(),
+		tags = tags.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		relatedArtists = relatedArtists.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		scheduleDays = scheduleDays.filter { it in 0..6 },
+		scheduleTime = scheduleTime?.trim()?.takeIf { it.isNotEmpty() } ?: "00:00",
+		stats = stats.toStats()
+	)
+}
+
+private fun AurralFlowMixDto.toMix(): AurralFlowMix =
+	AurralFlowMix(
+		discover = discover,
+		mix = mix,
+		trending = trending,
+		focus = focus
+	)
+
+private fun AurralFlowStatsDto?.toStats(): AurralFlowStats =
+	AurralFlowStats(
+		total = this?.total ?: 0,
+		pending = this?.pending ?: 0,
+		downloading = this?.downloading ?: 0,
+		done = this?.done ?: 0,
+		failed = this?.failed ?: 0
+	)
+
+private fun AurralFlowCapabilitiesDto.toCapabilities(): AurralFlowCapabilities =
+	AurralFlowCapabilities(
+		lastfmRequired = lastfmRequired,
+		availableSources = availableSources.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		unavailableSources = unavailableSources.mapNotNull { (key, value) ->
+			val normalizedKey = key.trim().takeIf(String::isNotEmpty) ?: return@mapNotNull null
+			val normalizedValue = value.trim().takeIf(String::isNotEmpty) ?: return@mapNotNull null
+			normalizedKey to normalizedValue
+		}.toMap()
+	)
+
+private fun AurralFlowActionDto.toResult(): AurralFlowActionResult =
+	AurralFlowActionResult(
+		success = success,
+		flowId = flow?.id?.trim()?.takeIf { it.isNotEmpty() }
+			?: flowId?.trim()?.takeIf { it.isNotEmpty() },
+		enabled = enabled ?: flow?.enabled,
+		tracksQueued = tracksQueued,
+		reserveTracks = reserveTracks,
+		jobIds = jobIds.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		message = message?.trim()?.takeIf { it.isNotEmpty() },
+		flow = flow?.toSummary()
+	)
 
 internal fun aurralAcquisitionQueueItem(request: AurralRequestDto): AurralAcquisitionQueueItem? {
 	val id = request.id?.trim()?.takeIf { it.isNotEmpty() }

@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -183,7 +184,8 @@ fun CoverArt(
 	crossfadeMs: Int = 500,
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
-	shape: Shape? = null
+	shape: Shape? = null,
+	colorFilter: ColorFilter? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
@@ -247,6 +249,7 @@ fun CoverArt(
 		contentDescription = contentDescription,
 		modifier = commonModifier,
 		contentScale = ContentScale.Crop,
+		colorFilter = colorFilter,
 		error = {
 			LaunchedEffect(it.result.throwable) {
 				Logger.w(

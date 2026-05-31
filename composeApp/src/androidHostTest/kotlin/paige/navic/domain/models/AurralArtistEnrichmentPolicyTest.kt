@@ -17,12 +17,14 @@ class AurralArtistEnrichmentPolicyTest {
 			releaseGroups = listOf(
 				releaseGroup(id = "rg-owned-mbid", title = "Owned by MBID"),
 				releaseGroup(id = "rg-owned-title", title = "Acoustic Sessions"),
+				releaseGroup(id = "rg-owned-compact-title", title = "2Cellos"),
 				releaseGroup(id = "rg-missing", title = "Future Record")
 			)
 		)
 		val localAlbums = listOf(
 			album(name = "Different local title", musicBrainzId = "rg-owned-mbid"),
-			album(name = " acoustic sessions ", musicBrainzId = null)
+			album(name = " acoustic sessions ", musicBrainzId = null),
+			album(name = "2 Cellos", musicBrainzId = null)
 		)
 
 		val rows = aurralMissingAlbumRows(enrichment, localAlbums)
@@ -254,6 +256,36 @@ class AurralArtistEnrichmentPolicyTest {
 		assertNull(progress)
 	}
 
+	@Test
+	fun artistAlbumRowsMergeLocalAndMissingAlbumsWithLocalWinsDedupeAndNewestFirstSort() {
+		val localAlbums = listOf(
+			album(name = "Old Local", musicBrainzId = null, year = 2018),
+			album(name = "Local New", musicBrainzId = "local-new-mbid", year = 2024),
+			album(name = "Unknown Local", musicBrainzId = null, year = null),
+			album(name = "2 Cellos", musicBrainzId = null, year = 2011)
+		)
+		val missingRows = listOf(
+			missingAlbum(title = "Missing Middle", id = "missing-middle", year = "2023"),
+			missingAlbum(title = "Local New", id = "local-new-mbid", year = "2025"),
+			missingAlbum(title = "2Cellos", id = "missing-compact-title", year = "2020"),
+			missingAlbum(title = "Unknown Missing", id = "unknown-missing", year = null)
+		)
+
+		val rows = aurralArtistAlbumRows(
+			localAlbums = localAlbums,
+			missingAlbums = missingRows
+		)
+
+		assertEquals(
+			listOf("Local New", "Missing Middle", "Old Local", "2 Cellos", "Unknown Local", "Unknown Missing"),
+			rows.map { it.title }
+		)
+		assertEquals(listOf(2024, 2023, 2018, 2011, null, null), rows.map { it.year })
+		assertTrue(rows[0] is AurralArtistAlbumRow.Local)
+		assertTrue(rows[1] is AurralArtistAlbumRow.Missing)
+		assertTrue(rows.last() is AurralArtistAlbumRow.Missing)
+	}
+
 	private fun releaseGroup(
 		id: String,
 		title: String,
@@ -270,13 +302,14 @@ class AurralArtistEnrichmentPolicyTest {
 
 	private fun album(
 		name: String,
-		musicBrainzId: String?
+		musicBrainzId: String?,
+		year: Int? = null
 	) = DomainAlbum(
 		id = name,
 		name = name,
 		artistName = "The Artist",
 		artistId = "artist-id",
-		year = null,
+		year = year,
 		coverArtId = name,
 		genre = null,
 		genres = emptyList(),
@@ -290,5 +323,22 @@ class AurralArtistEnrichmentPolicyTest {
 		version = null,
 		musicBrainzId = musicBrainzId,
 		songs = emptyList()
+	)
+
+	private fun missingAlbum(
+		title: String,
+		id: String,
+		year: String?
+	) = AurralMissingAlbumRow(
+		releaseGroup = releaseGroup(
+			id = id,
+			title = title,
+			firstReleaseDate = year?.let { "$it-01-01" }
+		),
+		title = title,
+		year = year,
+		coverUrl = "https://aurral.example.com/$id.jpg",
+		requestStatus = null,
+		requestable = true
 	)
 }

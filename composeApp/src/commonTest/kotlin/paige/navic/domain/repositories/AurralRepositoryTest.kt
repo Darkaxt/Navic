@@ -340,6 +340,103 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralServiceStatusKeepsFlowSummariesStatsAndCapabilities() {
+		val status = aurralServiceStatus(
+			health = AurralHealthDto(status = "ok"),
+			authMe = AurralAuthMeDto(
+				user = AurralUserDto(
+					username = "darka",
+					permissions = AurralPermissionsDto(accessFlow = true)
+				)
+			),
+			weeklyFlow = AurralWeeklyFlowStatusDto(
+				flows = listOf(
+					AurralFlowDto(
+						id = "flow-1",
+						name = "Training",
+						enabled = true,
+						size = 30,
+						nextRunAt = 1780100000000,
+						mix = AurralFlowMixDto(discover = 34, mix = 33, trending = 33, focus = 0),
+						scheduleDays = listOf(1, 3),
+						scheduleTime = "06:00"
+					),
+					AurralFlowDto(
+						id = "flow-2",
+						name = "Recovery",
+						enabled = false,
+						size = 15,
+						mix = AurralFlowMixDto(discover = 0, mix = 0, trending = 0, focus = 100),
+						tags = listOf("ambient"),
+						relatedArtists = listOf("Tycho")
+					)
+				),
+				flowStats = mapOf(
+					"flow-1" to AurralFlowStatsDto(total = 7, pending = 2, downloading = 1, done = 4),
+					"flow-2" to AurralFlowStatsDto(total = 0)
+				),
+				capabilities = AurralFlowCapabilitiesDto(
+					lastfmRequired = false,
+					availableSources = listOf("discover", "mix", "trending", "focus")
+				)
+			),
+			requests = emptyList()
+		)
+
+		assertEquals(
+			listOf(
+				AurralFlowSummary(
+					id = "flow-1",
+					name = "Training",
+					enabled = true,
+					size = 30,
+					nextRunAt = 1780100000000,
+					mix = AurralFlowMix(discover = 34, mix = 33, trending = 33, focus = 0),
+					scheduleDays = listOf(1, 3),
+					scheduleTime = "06:00",
+					stats = AurralFlowStats(total = 7, pending = 2, downloading = 1, done = 4)
+				),
+				AurralFlowSummary(
+					id = "flow-2",
+					name = "Recovery",
+					enabled = false,
+					size = 15,
+					mix = AurralFlowMix(discover = 0, mix = 0, trending = 0, focus = 100),
+					tags = listOf("ambient"),
+					relatedArtists = listOf("Tycho"),
+					stats = AurralFlowStats(total = 0)
+				)
+			),
+			status.flows
+		)
+		assertEquals(
+			AurralFlowCapabilities(
+				lastfmRequired = false,
+				availableSources = listOf("discover", "mix", "trending", "focus")
+			),
+			status.flowCapabilities
+		)
+	}
+
+	@Test
+	fun aurralDefaultFlowCreatePayloadMatchesAurralWebDefaults() {
+		assertEquals(
+			AurralFlowCreatePayload(
+				name = "Discover 2",
+				size = 30,
+				mix = AurralFlowMix(discover = 34, mix = 33, trending = 33, focus = 0),
+				scheduleDays = listOf(3),
+				scheduleTime = "00:00"
+			),
+			aurralDefaultFlowCreatePayload(
+				name = " Discover 2 ",
+				size = 30,
+				scheduleDay = 3
+			)
+		)
+	}
+
+	@Test
 	fun repositoryTestConnectionRequiresConfiguredBaseUrl(): Unit = runBlocking {
 		val apiClient = FakeAurralApiClient()
 		val repository = AurralRepository(
@@ -422,6 +519,75 @@ class AurralRepositoryTest {
 		)
 	}
 
+	@Test
+	fun repositoryCreateFlowUsesNormalizedBaseUrlHeadersAndDefaultPayload(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com/aurral/"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient
+		)
+
+		val result = repository.createFlow(
+			name = " Training ",
+			size = 25,
+			scheduleDay = 5
+		).getOrThrow()
+
+		assertTrue(result.success)
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.createFlowBaseUrls)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.createFlowRequestHeaders
+		)
+		assertEquals(
+			listOf(
+				AurralFlowCreatePayload(
+					name = "Training",
+					size = 25,
+					mix = AurralFlowMix(discover = 34, mix = 33, trending = 33, focus = 0),
+					scheduleDays = listOf(5),
+					scheduleTime = "00:00"
+				)
+			),
+			apiClient.createFlowPayloads
+		)
+	}
+
+	@Test
+	fun repositoryFlowActionsUseNormalizedBaseUrlHeadersAndFlowIds(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com/"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient
+		)
+
+		repository.setFlowEnabled(" flow-1 ", true).getOrThrow()
+		repository.startFlow(" flow-1 ", limit = 30).getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com"), apiClient.setFlowEnabledBaseUrls)
+		assertEquals(listOf("flow-1" to true), apiClient.setFlowEnabledRequests)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.setFlowEnabledRequestHeaders
+		)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.startFlowBaseUrls)
+		assertEquals(listOf("flow-1" to 30), apiClient.startFlowRequests)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.startFlowRequestHeaders
+		)
+	}
+
 	private class FakeAurralApiClient(
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus()
@@ -430,6 +596,15 @@ class AurralRepositoryTest {
 		val connectionRequestHeaders = mutableListOf<Map<String, String>>()
 		val statusBaseUrls = mutableListOf<String>()
 		val statusRequestHeaders = mutableListOf<Map<String, String>>()
+		val createFlowBaseUrls = mutableListOf<String>()
+		val createFlowRequestHeaders = mutableListOf<Map<String, String>>()
+		val createFlowPayloads = mutableListOf<AurralFlowCreatePayload>()
+		val setFlowEnabledBaseUrls = mutableListOf<String>()
+		val setFlowEnabledRequestHeaders = mutableListOf<Map<String, String>>()
+		val setFlowEnabledRequests = mutableListOf<Pair<String, Boolean>>()
+		val startFlowBaseUrls = mutableListOf<String>()
+		val startFlowRequestHeaders = mutableListOf<Map<String, String>>()
+		val startFlowRequests = mutableListOf<Pair<String, Int>>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -479,5 +654,40 @@ class AurralRepositoryTest {
 			artistName: String,
 			albumTitle: String
 		): String? = null
+
+		override suspend fun createFlow(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			payload: AurralFlowCreatePayload
+		): AurralFlowActionResult {
+			createFlowBaseUrls += baseUrl
+			createFlowRequestHeaders += requestHeaders
+			createFlowPayloads += payload
+			return AurralFlowActionResult(success = true, flowId = "flow-created")
+		}
+
+		override suspend fun setFlowEnabled(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			flowId: String,
+			enabled: Boolean
+		): AurralFlowActionResult {
+			setFlowEnabledBaseUrls += baseUrl
+			setFlowEnabledRequestHeaders += requestHeaders
+			setFlowEnabledRequests += flowId to enabled
+			return AurralFlowActionResult(success = true, flowId = flowId, enabled = enabled)
+		}
+
+		override suspend fun startFlow(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			flowId: String,
+			limit: Int
+		): AurralFlowActionResult {
+			startFlowBaseUrls += baseUrl
+			startFlowRequestHeaders += requestHeaders
+			startFlowRequests += flowId to limit
+			return AurralFlowActionResult(success = true, flowId = flowId, tracksQueued = limit)
+		}
 	}
 }

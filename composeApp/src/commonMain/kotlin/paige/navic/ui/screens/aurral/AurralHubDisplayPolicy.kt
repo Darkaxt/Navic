@@ -2,6 +2,7 @@ package paige.navic.ui.screens.aurral
 
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 
 @Immutable
@@ -77,3 +78,66 @@ private fun statusSummary(
 	count: Int,
 	label: String
 ): String = "$count $label"
+
+fun canCreateAurralFlow(status: AurralServiceStatus): Boolean =
+	status.accessFlow && status.flowCapabilities.unavailableSources.isEmpty()
+
+fun nextAurralFlowName(
+	flows: List<AurralFlowSummary>,
+	baseName: String = "Discover"
+): String {
+	val normalizedBase = baseName.trim().takeIf { it.isNotEmpty() } ?: "Discover"
+	val existingNames = flows
+		.map { it.name.trim().lowercase() }
+		.filter { it.isNotEmpty() }
+		.toSet()
+	if (normalizedBase.lowercase() !in existingNames) return normalizedBase
+	var index = 2
+	while (index < 10000) {
+		val candidate = "$normalizedBase $index"
+		if (candidate.lowercase() !in existingNames) return candidate
+		index += 1
+	}
+	return "$normalizedBase ${flows.size + 1}"
+}
+
+fun aurralFlowDetail(flow: AurralFlowSummary): String {
+	val stats = flow.stats
+	val statusParts = buildList {
+		if (stats.done > 0) add(statusSummary(stats.done, "ready"))
+		if (stats.pending > 0) add(statusSummary(stats.pending, "pending"))
+		if (stats.downloading > 0) add(statusSummary(stats.downloading, "downloading"))
+		if (stats.failed > 0) add(statusSummary(stats.failed, "failed"))
+	}
+	val schedule = aurralScheduleSummary(flow.scheduleDays, flow.scheduleTime)
+	val parts = buildList {
+		add(pluralSummary(flow.size, "track"))
+		if (statusParts.isNotEmpty()) add(statusParts.joinToString(", "))
+		if (schedule.isNotEmpty()) add(schedule)
+	}
+	return parts.joinToString("; ")
+}
+
+private fun aurralScheduleSummary(
+	scheduleDays: List<Int>,
+	scheduleTime: String
+): String {
+	val dayNames = scheduleDays
+		.distinct()
+		.sorted()
+		.mapNotNull { day ->
+			when (day) {
+				0 -> "Sun"
+				1 -> "Mon"
+				2 -> "Tue"
+				3 -> "Wed"
+				4 -> "Thu"
+				5 -> "Fri"
+				6 -> "Sat"
+				else -> null
+			}
+		}
+	if (dayNames.isEmpty()) return ""
+	val safeTime = scheduleTime.trim().takeIf { it.isNotEmpty() } ?: "00:00"
+	return "${dayNames.joinToString(", ")} at $safeTime"
+}

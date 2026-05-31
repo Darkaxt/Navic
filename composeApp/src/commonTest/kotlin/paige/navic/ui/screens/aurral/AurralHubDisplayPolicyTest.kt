@@ -2,8 +2,12 @@ package paige.navic.ui.screens.aurral
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralFlowCapabilities
+import paige.navic.domain.repositories.AurralFlowStats
+import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 
 class AurralHubDisplayPolicyTest {
@@ -44,6 +48,64 @@ class AurralHubDisplayPolicyTest {
 		assertEquals("2 / 3 enabled", cards[2].value)
 		assertEquals("10 tracks: 4 pending, 2 downloading, 3 ready, 1 failed; 1 shared playlist", cards[2].detail)
 		assertTrue(cards[2].active)
+	}
+
+	@Test
+	fun flowCreationRequiresFlowPermissionAndAvailableSources() {
+		assertTrue(
+			canCreateAurralFlow(
+				AurralServiceStatus(
+					accessFlow = true,
+					flowCapabilities = AurralFlowCapabilities(
+						availableSources = listOf("discover", "mix", "trending")
+					)
+				)
+			)
+		)
+		assertFalse(
+			canCreateAurralFlow(
+				AurralServiceStatus(
+					accessFlow = true,
+					flowCapabilities = AurralFlowCapabilities(
+						lastfmRequired = true,
+						unavailableSources = mapOf("discover" to "Last.fm API key required")
+					)
+				)
+			)
+		)
+		assertFalse(canCreateAurralFlow(AurralServiceStatus(accessFlow = false)))
+	}
+
+	@Test
+	fun nextFlowNameAvoidsDuplicates() {
+		assertEquals(
+			"Discover 3",
+			nextAurralFlowName(
+				flows = listOf(
+					AurralFlowSummary(id = "1", name = "Discover", enabled = false),
+					AurralFlowSummary(id = "2", name = "Discover 2", enabled = false)
+				),
+				baseName = "Discover"
+			)
+		)
+	}
+
+	@Test
+	fun flowDetailSummarizesStatsAndSchedule() {
+		assertEquals(
+			"30 tracks; 6 ready, 2 pending; Tue, Thu at 06:00",
+			aurralFlowDetail(
+				AurralFlowSummary(
+					id = "flow-1",
+					name = "Training",
+					enabled = true,
+					size = 30,
+					scheduleDays = listOf(2, 4),
+					scheduleTime = "06:00",
+					stats = AurralFlowStats(total = 8, pending = 2, done = 6)
+				)
+			)
+		)
 	}
 
 	private fun queueItem(

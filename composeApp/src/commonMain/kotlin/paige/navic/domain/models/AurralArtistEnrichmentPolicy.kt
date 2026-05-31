@@ -61,6 +61,28 @@ data class AurralMissingAlbumRow(
 )
 
 @Immutable
+sealed interface AurralArtistAlbumRow {
+	val title: String
+	val year: Int?
+
+	@Immutable
+	data class Local(
+		val album: DomainAlbum
+	) : AurralArtistAlbumRow {
+		override val title: String = album.name
+		override val year: Int? = album.year
+	}
+
+	@Immutable
+	data class Missing(
+		val album: AurralMissingAlbumRow
+	) : AurralArtistAlbumRow {
+		override val title: String = album.title
+		override val year: Int? = album.year.toAurralYearOrNull()
+	}
+}
+
+@Immutable
 data class AurralSimilarArtistRow(
 	val artist: AurralSimilarArtist,
 	val localArtistId: String?,
@@ -85,7 +107,7 @@ fun aurralMissingAlbumRows(
 		.mapNotNull { it.musicBrainzId.normalizedAurralIdOrNull() }
 		.toSet()
 	val localTitles = localAlbums
-		.mapNotNull { it.name.normalizedAurralNameOrNull() }
+		.flatMap { it.name.normalizedAurralAlbumDedupeKeys() }
 		.toSet()
 	val requestsByMusicBrainzId = enrichment.requests
 		.mapNotNull { request ->
@@ -101,9 +123,9 @@ fun aurralMissingAlbumRows(
 	return enrichment.releaseGroups
 		.filter { releaseGroup ->
 			val musicBrainzId = releaseGroup.id.normalizedAurralIdOrNull()
-			val title = releaseGroup.title.normalizedAurralNameOrNull()
+			val titleKeys = releaseGroup.title.normalizedAurralAlbumDedupeKeys()
 			(musicBrainzId == null || musicBrainzId !in localMusicBrainzIds) &&
-				(title == null || title !in localTitles)
+				titleKeys.none { it in localTitles }
 		}
 		.map { releaseGroup ->
 			val request = releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
@@ -121,6 +143,41 @@ fun aurralMissingAlbumRows(
 				acquisitionProgress = status?.let(::aurralAcquisitionProgress)
 			)
 		}
+}
+
+fun aurralArtistAlbumRows(
+	localAlbums: List<DomainAlbum>,
+	missingAlbums: List<AurralMissingAlbumRow>
+): List<AurralArtistAlbumRow> {
+	val localMusicBrainzIds = localAlbums
+		.mapNotNull { it.musicBrainzId.normalizedAurralIdOrNull() }
+		.toSet()
+	val localTitleKeys = localAlbums
+		.flatMap { it.name.normalizedAurralAlbumDedupeKeys() }
+		.toSet()
+	val seenMissingKeys = mutableSetOf<String>()
+	val localRows = localAlbums.map(AurralArtistAlbumRow::Local)
+	val missingRows = missingAlbums.mapNotNull { row ->
+		val musicBrainzId = row.releaseGroup.id.normalizedAurralIdOrNull()
+		val titleKeys = row.title.normalizedAurralAlbumDedupeKeys()
+		val matchesLocal = (musicBrainzId != null && musicBrainzId in localMusicBrainzIds) ||
+			titleKeys.any { it in localTitleKeys }
+		if (matchesLocal) return@mapNotNull null
+
+		val rowKeys = listOfNotNull(musicBrainzId?.let { "mbid:$it" }) +
+			titleKeys.map { "title:$it" }
+		if (rowKeys.any { it in seenMissingKeys }) return@mapNotNull null
+		seenMissingKeys += rowKeys
+
+		AurralArtistAlbumRow.Missing(row)
+	}
+
+	return (localRows + missingRows).sortedWith(
+		compareBy<AurralArtistAlbumRow> { it.year == null }
+			.thenByDescending { it.year ?: Int.MIN_VALUE }
+			.thenBy { it.title.lowercase() }
+			.thenBy { row -> if (row is AurralArtistAlbumRow.Local) 0 else 1 }
+	)
 }
 
 fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
@@ -277,3 +334,18 @@ private fun String?.normalizedAurralAlbumTitleOrNull(): String? =
 		?.replace(Regex("""\s*[\(\[](deluxe|expanded|bonus|remaster|anniversary|edition).*$"""), "")
 		?.trim()
 		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralAlbumDedupeKeys(): Set<String> {
+	val normalized = normalizedAurralAlbumTitleOrNull() ?: return emptySet()
+	val compact = normalized.filter { it.isLetterOrDigit() }
+	return setOf(normalized, compact)
+		.filter { it.isNotEmpty() }
+		.toSet()
+}
+
+private fun String?.toAurralYearOrNull(): Int? =
+	this
+		?.trim()
+		?.take(4)
+		?.takeIf { value -> value.length == 4 && value.all { it.isDigit() } }
+		?.toIntOrNull()
