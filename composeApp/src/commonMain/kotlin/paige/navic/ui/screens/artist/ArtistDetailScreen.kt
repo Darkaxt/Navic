@@ -269,7 +269,7 @@ fun ArtistDetailScreen(
 							downloadStatus = downloadStatus,
 							playEnabled = state.albums.isNotEmpty(),
 							onMonitorInAurral = if (preferenceManager.aurralEnabled &&
-								!state.artist.musicBrainzId.isNullOrBlank()
+								!(state.aurralArtistMbid ?: state.artist.musicBrainzId).isNullOrBlank()
 							) {
 								{
 									when (state.aurralMonitored) {
@@ -337,10 +337,12 @@ fun ArtistDetailScreen(
 										)
 									}
 									LazyHorizontalGrid(
-										rows = GridCells.Fixed(3),
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
 										state = gridState,
 										flingBehavior = rememberSnapFlingBehavior(lazyGridState = gridState),
-										modifier = Modifier.fillMaxWidth().height(250.dp)
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
 									) {
 										itemsIndexed(songs) { index, song ->
 											val download = allDownloads.find { it.songId == song.id }

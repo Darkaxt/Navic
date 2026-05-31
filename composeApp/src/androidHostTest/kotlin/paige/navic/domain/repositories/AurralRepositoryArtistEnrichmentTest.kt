@@ -224,6 +224,12 @@ class AurralRepositoryArtistEnrichmentTest {
 			return enrichment
 		}
 
+		override suspend fun fetchLibraryArtistMonitoring(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String
+		): Boolean? = null
+
 		override suspend fun requestAlbum(
 			baseUrl: String,
 			requestHeaders: Map<String, String>,

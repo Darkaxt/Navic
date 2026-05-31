@@ -47,6 +47,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.aurral.aurralArtistIdentityForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 
 @Immutable
@@ -61,6 +62,8 @@ data class ArtistState(
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
 	val aurralMonitored: Boolean? = null,
+	val aurralArtistMbid: String? = null,
+	val aurralArtistName: String? = null,
 	val aurralLoading: Boolean = false,
 	val aurralError: String? = null
 )
@@ -210,7 +213,6 @@ class ArtistDetailViewModel(
 		artist: DomainArtist,
 		albums: List<DomainAlbum>
 	) {
-		if (artist.musicBrainzId.isNullOrBlank()) return
 		viewModelScope.launch {
 			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 			_artistState.value = UiState.Success(
@@ -220,21 +222,42 @@ class ArtistDetailViewModel(
 				)
 			)
 
-			val enrichmentResult = aurralRepository.getArtistEnrichment(artist)
+			val discovery = aurralRepository.getDiscovery().getOrNull()
+			val aurralIdentity = discovery?.let { summary ->
+				aurralArtistIdentityForLocalArtist(summary, artist)
+			}
+			val aurralArtist = aurralIdentity?.let { identity ->
+				artist.copy(
+					name = identity.name,
+					musicBrainzId = identity.mbid
+				)
+			} ?: artist.takeIf { !it.musicBrainzId.isNullOrBlank() }
+
+			if (aurralArtist == null) {
+				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+				_artistState.value = UiState.Success(
+					latestState.copy(
+						aurralLoading = false,
+						aurralError = null
+					)
+				)
+				return@launch
+			}
+
+			val enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
 			if (enrichmentResult.isSuccess) {
 				val enrichment = enrichmentResult.getOrNull()
 				val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
-					.let { rows -> resolveAurralMissingAlbumCovers(artist, rows) }
-				val recommendedAlbums = aurralRepository.getDiscovery()
-					.getOrNull()
+					.let { rows -> resolveAurralMissingAlbumCovers(aurralArtist, rows) }
+				val recommendedAlbums = discovery
 					?.let { discovery ->
 						aurralRecommendedAlbumsForArtist(
 							discovery = discovery,
-							artistMbid = artist.musicBrainzId,
-							artistName = artist.name
+							artistMbid = aurralArtist.musicBrainzId,
+							artistName = aurralArtist.name
 						)
 					}
 					.orEmpty()
@@ -255,6 +278,8 @@ class ArtistDetailViewModel(
 							.orEmpty(),
 						aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
 						aurralMonitored = enrichment?.monitored,
+						aurralArtistMbid = aurralArtist.musicBrainzId,
+						aurralArtistName = aurralArtist.name,
 						aurralLoading = false,
 						aurralError = null
 					)
@@ -447,7 +472,8 @@ class ArtistDetailViewModel(
 	}
 
 	fun setArtistMonitoringInAurral(monitored: Boolean) {
-		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
+		val state = (_artistState.value as? UiState.Success)?.data ?: return
+		val artist = state.aurralActionArtist() ?: return
 		viewModelScope.launch {
 			_monitoringInAurral.value = true
 			aurralRepository.setArtistMonitoring(artist, monitored)
@@ -515,4 +541,17 @@ class ArtistDetailViewModel(
 			}
 		}
 	}
+}
+
+private fun ArtistState.aurralActionArtist(): DomainArtist? {
+	val artistMbid = aurralArtistMbid?.trim()?.takeIf { it.isNotEmpty() }
+		?: artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		?: return null
+	val artistName = aurralArtistName?.trim()?.takeIf { it.isNotEmpty() }
+		?: artist.name.trim().takeIf { it.isNotEmpty() }
+		?: artistMbid
+	return artist.copy(
+		name = artistName,
+		musicBrainzId = artistMbid
+	)
 }

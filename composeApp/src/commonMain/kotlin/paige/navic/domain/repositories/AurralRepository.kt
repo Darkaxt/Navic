@@ -160,12 +160,22 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			apiClient.fetchArtistEnrichment(
+			val enrichment = apiClient.fetchArtistEnrichment(
 				baseUrl = baseUrl,
 				requestHeaders = requestHeaders,
 				artistMbid = artistMbid,
 				artistName = artist.name
-			).withLocalArtistState()
+			)
+			val libraryArtistMonitoring = runCatching {
+				apiClient.fetchLibraryArtistMonitoring(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistMbid = artistMbid
+				)
+			}.onFailure { error ->
+				Logger.w(TAG, "Aurral library artist monitoring lookup failed for ${artist.name}", error)
+			}.getOrNull()
+			enrichment.withLocalArtistState(libraryArtistMonitoring)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist enrichment failed for ${artist.name}", error)
 		}
@@ -476,7 +486,9 @@ class AurralRepository(
 		_artistStateRevision.value = _artistStateRevision.value + 1
 	}
 
-	private fun AurralArtistEnrichment.withLocalArtistState(): AurralArtistEnrichment {
+	private fun AurralArtistEnrichment.withLocalArtistState(
+		libraryArtistMonitoring: Boolean?
+	): AurralArtistEnrichment {
 		val existingRequestKeys = requests
 			.mapNotNull { request -> request.albumMbid.normalizedAurralCacheKey() }
 			.toSet()
@@ -502,7 +514,9 @@ class AurralRepository(
 		return copy(
 			releaseGroups = releaseGroupsWithCovers,
 			requests = mergedRequests,
-			monitored = artistKey?.let(optimisticArtistMonitoringByMbid::get) ?: monitored
+			monitored = artistKey?.let(optimisticArtistMonitoringByMbid::get)
+				?: monitored
+				?: libraryArtistMonitoring
 		)
 	}
 }
@@ -544,6 +558,12 @@ interface AurralApiClient {
 		artistMbid: String,
 		artistName: String
 	): AurralArtistEnrichment
+
+	suspend fun fetchLibraryArtistMonitoring(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String
+	): Boolean?
 
 	suspend fun requestAlbum(
 		baseUrl: String,
@@ -775,6 +795,25 @@ private class KtorAurralApiClient : AurralApiClient {
 			similar = similar,
 			requests = requests
 		)
+	}
+
+	override suspend fun fetchLibraryArtistMonitoring(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String
+	): Boolean? {
+		val response = client.get(
+			aurralEndpoint(baseUrl, "api/library/artists/${encodeUrlComponent(artistMbid)}")
+		) {
+			aurralJsonRequest(requestHeaders)
+		}
+		return when {
+			response.status.isSuccess() -> response.body<AurralLibraryArtistDto>().monitored ?: false
+			response.status == HttpStatusCode.NotFound -> false
+			response.status == HttpStatusCode.Unauthorized -> null
+			response.status == HttpStatusCode.Forbidden -> null
+			else -> error(aurralHttpErrorMessage("Aurral library artist lookup", response.status))
+		}
 	}
 
 	private suspend fun fetchArtistDetails(
@@ -1524,6 +1563,12 @@ internal data class AurralArtistDetailsDto(
 @Serializable
 internal data class AurralArtistLidarrDataDto(
 	val monitored: Boolean? = null
+)
+
+@Serializable
+internal data class AurralLibraryArtistDto(
+	val monitored: Boolean? = null,
+	@SerialName("monitorOption") val monitorOption: String? = null
 )
 
 @Serializable

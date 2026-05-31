@@ -133,6 +133,43 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun localArtistAurralIdentityCanUseDiscoveryNameWhenLocalMbidDiffers() {
+		val localArtist = DomainArtist(
+			id = "local-bond",
+			name = "BOND",
+			musicBrainzId = "local-stale-mbid"
+		)
+		val discovery = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "aurral-bond-mbid",
+					name = "Bond",
+					recommendedAlbums = listOf(
+						albumSearchItem(
+							id = "release-1",
+							title = "Recommended Bond Album",
+							artistName = "Bond",
+							artistMbid = "aurral-bond-mbid"
+						)
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			AurralArtistIdentity(mbid = "aurral-bond-mbid", name = "Bond"),
+			aurralArtistIdentityForLocalArtist(discovery, localArtist)
+		)
+		assertEquals(
+			listOf("Recommended Bond Album"),
+			aurralRecommendedAlbumsForLocalArtist(
+				discovery = discovery,
+				artist = localArtist
+			).map { it.title }
+		)
+	}
+
+	@Test
 	fun searchArtistsDedupeByArtistIdAndCapRows() {
 		assertEquals(
 			listOf("artist-1", "artist-2"),

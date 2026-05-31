@@ -741,6 +741,53 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistEnrichmentUsesLibraryMonitoringWhenDetailsDoNotIncludeLidarrState(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Bond",
+				monitored = null
+			),
+			libraryArtistMonitoring = true
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val enrichment = repository.getArtistEnrichment(
+			DomainArtist(id = "local-bond", name = "BOND", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals(true, enrichment?.monitored)
+		assertEquals(listOf("artist-mbid"), apiClient.libraryArtistMonitoringRequests)
+	}
+
+	@Test
+	fun repositoryArtistEnrichmentTreatsMissingLibraryArtistAsVerifiedUnmonitored(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Bond",
+				monitored = null
+			),
+			libraryArtistMonitoring = false
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val enrichment = repository.getArtistEnrichment(
+			DomainArtist(id = "local-bond", name = "BOND", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals(false, enrichment?.monitored)
+	}
+
+	@Test
 	fun repositoryKeepsOptimisticAlbumRequestForImmediateArtistRefresh(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -1081,6 +1128,7 @@ class AurralRepositoryTest {
 			artistMbid = "artist-mbid",
 			artistName = "Artist"
 		),
+		private val libraryArtistMonitoring: Boolean? = null,
 		private val releaseGroupCoverImageUrl: String? = null,
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
 		private val sessionToken: String? = null,
@@ -1119,6 +1167,7 @@ class AurralRepositoryTest {
 		val monitorArtistRequestHeaders = mutableListOf<Map<String, String>>()
 		val monitorArtistIds = mutableListOf<String>()
 		val monitorArtistPayloads = mutableListOf<AurralArtistMonitorPayload>()
+		val libraryArtistMonitoringRequests = mutableListOf<String>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -1178,6 +1227,15 @@ class AurralRepositoryTest {
 			artistMbid = artistMbid,
 			artistName = artistName
 		)
+
+		override suspend fun fetchLibraryArtistMonitoring(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String
+		): Boolean? {
+			libraryArtistMonitoringRequests += artistMbid
+			return libraryArtistMonitoring
+		}
 
 		override suspend fun requestAlbum(
 			baseUrl: String,
