@@ -16,6 +16,9 @@ fun lidaClipVideoCacheSizeBytes(cacheSizeMb: Int): Long =
 fun shouldUseCachedLidaClipVideo(cacheSizeMb: Int, cacheFileExists: Boolean): Boolean =
 	cacheSizeMb > 0 && cacheFileExists
 
+fun shouldUseOfflineLidaClipVideo(offlineFileExists: Boolean): Boolean =
+	offlineFileExists
+
 fun lidaClipsVideoCacheSizeLabel(cacheSizeMb: Int): String =
 	when {
 		cacheSizeMb <= 0 -> "Off"
@@ -33,6 +36,24 @@ fun lidaClipCacheFileExtension(
 		mimeType?.safeVideoExtensionFromMimeType(),
 		streamUrl?.safeVideoExtensionFromPath()
 	).firstOrNull() ?: "mp4"
+
+fun lidaClipOfflineFileName(
+	songId: String,
+	clipId: Int,
+	extension: String
+): String =
+	"${lidaClipOfflineFilePrefix(songId)}$clipId.${extension.safeVideoExtensionFromText() ?: "mp4"}"
+
+fun lidaClipOfflineFilePrefix(songId: String): String {
+	val encodedSongId = songId.trim()
+		.takeIf { it.isNotEmpty() }
+		?.encodeToByteArray()
+		?.joinToString("") { byte ->
+			(byte.toInt() and 0xff).toString(16).padStart(2, '0')
+		}
+		?: "unknown"
+	return "song-$encodedSongId-"
+}
 
 fun lidaClipCachePrunePlan(
 	files: List<LidaClipCacheFileInfo>,
@@ -70,7 +91,13 @@ private fun String.safeVideoExtensionFromPath(): String? {
 	val path = substringBefore('?').substringBefore('#')
 	val extension = path.substringAfterLast('.', missingDelimiterValue = "")
 		.trim()
+	return extension.safeVideoExtensionFromText()
+}
+
+private fun String.safeVideoExtensionFromText(): String? {
+	val extension = trim()
 		.lowercase()
+		.filter { it.isLetterOrDigit() }
 	return extension.takeIf { it in SafeLidaClipVideoExtensions }
 }
 

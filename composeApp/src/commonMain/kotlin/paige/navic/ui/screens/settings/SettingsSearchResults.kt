@@ -38,6 +38,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.models.MaxNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
@@ -103,8 +104,13 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
+	val storageManager = koinInject<StorageManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
+	val lidaClipOfflineFiles = remember { storageManager.listLidaClipOfflineFiles() }
+	val lidaClipOfflineSize = remember(lidaClipOfflineFiles) {
+		lidaClipOfflineFiles.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+	}
 	val platformContext = LocalPlatformContext.current
 	val isAndroid = platformContext.name.lowercase().startsWith("android")
 	val isApple = listOf("ios", "ipados").contains(platformContext.name.lowercase())
@@ -1145,6 +1151,14 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			),
 			keywords = listOf("cover art archive", "metadata", "artwork", "cache"),
 			value = musicBrainzCacheValueText(musicBrainzCacheStats.totalSongs)
+		))
+		add(valueRow(
+			id = "data.lida-offline-clips",
+			path = path(dataStorage, cacheManagement),
+			title = stringResource(Res.string.option_lida_clips_offline_clips),
+			subtitle = lidaClipsOfflineClipCountText(lidaClipOfflineFiles.size),
+			keywords = listOf("lida", "music video clips", "offline", "cache", "download"),
+			value = lidaClipsOfflineStorageSizeText(lidaClipOfflineSize)
 		))
 		add(switchRow(
 			id = "data.pause-search-history",

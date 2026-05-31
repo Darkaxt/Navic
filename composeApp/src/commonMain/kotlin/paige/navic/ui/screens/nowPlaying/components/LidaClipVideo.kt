@@ -73,13 +73,13 @@ fun ExtraScreenLidaClipBackground(
 	) {
 		cachedClip = null
 		val currentSong = song ?: return@LaunchedEffect
-		if (!enabled || !preferenceManager.lidaClipsEnabled || preferenceManager.lidaClipsVideoCacheSizeMb <= 0) {
+		if (!enabled || !preferenceManager.lidaClipsEnabled) {
 			return@LaunchedEffect
 		}
 		lidaClipsRepository.findClipForSong(currentSong)
 			.onSuccess { clip ->
 				cachedClip = clip
-					?.let(lidaClipCacheManager::cachedClipFor)
+					?.let { lidaClipCacheManager.cachedClipFor(currentSong.id, it) }
 					?.takeIf { isCachedLidaClipStreamUrl(it.streamUrl) }
 			}
 			.onFailure {

@@ -18,6 +18,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.downloadQueueDownloads
 import paige.navic.domain.repositories.DbRepository
@@ -28,6 +29,7 @@ class SettingsDataStorageViewModel(
 	private val dbRepository: DbRepository,
 	private val syncDao: SyncActionDao,
 	private val downloadManager: DownloadManager,
+	private val storageManager: StorageManager,
 	private val songRepository: SongRepository,
 	private val songDao: SongDao,
 	connectivityManager: ConnectivityManager
@@ -52,6 +54,10 @@ class SettingsDataStorageViewModel(
 	val pendingDownloadCount = downloadManager.pendingDownloadCount.stateIn(
 		viewModelScope, SharingStarted.WhileSubscribed(5000), 0
 	)
+	private val _lidaClipOfflineClipCount = MutableStateFlow(0)
+	val lidaClipOfflineClipCount = _lidaClipOfflineClipCount.asStateFlow()
+	private val _lidaClipOfflineStorageSize = MutableStateFlow(0L)
+	val lidaClipOfflineStorageSize = _lidaClipOfflineStorageSize.asStateFlow()
 	val downloadQueueItems = downloadManager.allDownloads
 		.map { downloads ->
 			val queueDownloads = downloadQueueDownloads(downloads)
@@ -88,6 +94,7 @@ class SettingsDataStorageViewModel(
 
 	init {
 		loadPendingActions()
+		refreshLidaClipOfflineStorage()
 	}
 
 	private fun loadPendingActions() {
@@ -118,6 +125,16 @@ class SettingsDataStorageViewModel(
 
 	fun clearAllDownloads() {
 		downloadManager.clearAllDownloads()
+		_lidaClipOfflineClipCount.value = 0
+		_lidaClipOfflineStorageSize.value = 0L
+	}
+
+	private fun refreshLidaClipOfflineStorage() {
+		viewModelScope.launch(Dispatchers.IO) {
+			val files = storageManager.listLidaClipOfflineFiles()
+			_lidaClipOfflineClipCount.value = files.size
+			_lidaClipOfflineStorageSize.value = files.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+		}
 	}
 
 	fun downloadEntireLibrary() {

@@ -237,6 +237,7 @@ class DownloadManager(
 		scope.launch {
 			val download = downloadDao.getDownloadById(songId)
 			download?.filePath?.let { storageManager.deleteFile(it) }
+			storageManager.clearLidaClipOfflineFilesForSong(songId)
 			downloadDao.deleteDownload(songId)
 		}
 	}
@@ -261,6 +262,7 @@ class DownloadManager(
 		scope.launch(Dispatchers.IO) {
 			cancelAllActiveDownloads()
 			storageManager.clearDownloads()
+			storageManager.clearLidaClipOfflineFiles()
 			downloadDao.clearAllDownloads()
 			Logger.i("DownloadManager", "cleared all downloads")
 		}

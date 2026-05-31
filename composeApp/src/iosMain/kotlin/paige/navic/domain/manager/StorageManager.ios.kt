@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import paige.navic.domain.models.LidaClipCacheFileInfo
+import paige.navic.domain.models.lidaClipOfflineFileName
+import paige.navic.domain.models.lidaClipOfflineFilePrefix
 import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSDate
 import platform.Foundation.NSDocumentDirectory
@@ -39,6 +41,18 @@ actual class StorageManager {
 
 	actual fun getLidaClipVideoCacheTempPath(clipId: Int, extension: String): String {
 		return lidaClipVideoCacheDir().URLByAppendingPathComponent("$clipId.$extension.part")!!.path!!
+	}
+
+	actual fun getLidaClipOfflinePath(songId: String, clipId: Int, extension: String): String {
+		return lidaClipOfflineDir()
+			.URLByAppendingPathComponent(lidaClipOfflineFileName(songId, clipId, extension))!!
+			.path!!
+	}
+
+	actual fun getLidaClipOfflineTempPath(songId: String, clipId: Int, extension: String): String {
+		return lidaClipOfflineDir()
+			.URLByAppendingPathComponent("${lidaClipOfflineFileName(songId, clipId, extension)}.part")!!
+			.path!!
 	}
 
 	actual fun deleteFile(path: String): Boolean {
@@ -72,14 +86,22 @@ actual class StorageManager {
 	}
 
 	actual fun listLidaClipVideoCacheFiles(): List<LidaClipCacheFileInfo> {
+		return listFiles(lidaClipVideoCacheDir())
+	}
+
+	actual fun listLidaClipOfflineFiles(): List<LidaClipCacheFileInfo> {
+		return listFiles(lidaClipOfflineDir())
+	}
+
+	private fun listFiles(directoryUrl: NSURL): List<LidaClipCacheFileInfo> {
 		val manager = NSFileManager.defaultManager
-		val dir = lidaClipVideoCacheDir().path ?: return emptyList()
+		val dir = directoryUrl.path ?: return emptyList()
 		val names = manager.contentsOfDirectoryAtPath(dir, null).orEmpty()
 		return names
 			.mapNotNull { it as? String }
 			.filterNot { it.endsWith(".part") }
 			.mapNotNull { name ->
-				val path = lidaClipVideoCacheDir().URLByAppendingPathComponent(name)?.path
+				val path = directoryUrl.URLByAppendingPathComponent(name)?.path
 					?: return@mapNotNull null
 				val attributes = manager.attributesOfItemAtPath(path, null)
 				LidaClipCacheFileInfo(
@@ -122,11 +144,34 @@ actual class StorageManager {
 		clearDirectory(lidaClipVideoCacheDir())
 	}
 
+	actual fun clearLidaClipOfflineFiles() {
+		clearDirectory(lidaClipOfflineDir())
+	}
+
+	actual fun clearLidaClipOfflineFilesForSong(songId: String) {
+		val manager = NSFileManager.defaultManager
+		val dir = lidaClipOfflineDir()
+		val prefix = lidaClipOfflineFilePrefix(songId)
+		val dirPath = dir.path ?: return
+		manager.contentsOfDirectoryAtPath(dirPath, null)
+			.orEmpty()
+			.mapNotNull { it as? String }
+			.filter { it.startsWith(prefix) }
+			.forEach { name ->
+				dir.URLByAppendingPathComponent(name)?.path?.let { path ->
+					manager.removeItemAtPath(path, null)
+				}
+			}
+	}
+
 	private fun downloadsDir(): NSURL =
 		directory(NSDocumentDirectory, "downloads")
 
 	private fun lidaClipVideoCacheDir(): NSURL =
 		directory(NSCachesDirectory, "lida_clips")
+
+	private fun lidaClipOfflineDir(): NSURL =
+		directory(NSDocumentDirectory, "lida_clips")
 
 	private fun directory(directory: ULong, child: String): NSURL {
 		val manager = NSFileManager.defaultManager

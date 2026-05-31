@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
@@ -28,6 +29,7 @@ class NowPlayingViewModel(
 	private val songRepository: SongRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
 	private val lidaClipCacheManager: LidaClipCacheManager,
+	private val downloadManager: DownloadManager,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
 
@@ -132,13 +134,16 @@ class NowPlayingViewModel(
 			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
 				.onSuccess { clip ->
 					val cachedClip = clip?.let {
+						val persistOffline = downloadManager.isDownloaded(song.id)
 						lidaClipCacheManager.getOrCacheClip(
 							clip = it,
 							requestHeaders = lidaClipsStreamRequestHeaders(
 								baseUrl = preferenceManager.lidaClipsBaseUrl,
 								streamUrl = it.streamUrl,
 								requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-							)
+							),
+							songId = song.id,
+							persistOffline = persistOffline
 						).getOrElse { null }
 					}
 					if (currentLidaClipSongId == song.id) {

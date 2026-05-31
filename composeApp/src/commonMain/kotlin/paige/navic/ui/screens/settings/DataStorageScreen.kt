@@ -73,6 +73,7 @@ import navic.composeapp.generated.resources.option_downloaded_songs
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
+import navic.composeapp.generated.resources.option_lida_clips_offline_clips
 import navic.composeapp.generated.resources.option_max_concurrent_downloads
 import navic.composeapp.generated.resources.option_musicbrainz_cache
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
@@ -143,6 +144,8 @@ fun SettingsDataStorageScreen() {
 	val downloadSize by viewModel.downloadSize.collectAsStateWithLifecycle(0L)
 	val pendingDownloadCount by viewModel.pendingDownloadCount.collectAsStateWithLifecycle(0)
 	val downloadQueueItems by viewModel.downloadQueueItems.collectAsStateWithLifecycle()
+	val lidaClipOfflineClipCount by viewModel.lidaClipOfflineClipCount.collectAsStateWithLifecycle()
+	val lidaClipOfflineStorageSize by viewModel.lidaClipOfflineStorageSize.collectAsStateWithLifecycle()
 	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
@@ -157,6 +160,9 @@ fun SettingsDataStorageScreen() {
 	var imageCacheSizeText by remember { mutableStateOf(calculating) }
 
 	val downloadedSize = remember(downloadSize) { downloadStorageSizeText(downloadSize) }
+	val lidaClipOfflineSize = remember(lidaClipOfflineStorageSize) {
+		lidaClipsOfflineStorageSizeText(lidaClipOfflineStorageSize)
+	}
 
 	val smoothSyncProgress by animateFloatAsState(
 		if (syncState.isSyncing) syncState.progress else 0f,
@@ -383,6 +389,14 @@ fun SettingsDataStorageScreen() {
 							)
 						},
 						value = downloadedSize
+					)
+
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_lida_clips_offline_clips)) },
+						subtitle = {
+							Text(lidaClipsOfflineClipCountText(lidaClipOfflineClipCount))
+						},
+						value = lidaClipOfflineSize
 					)
 
 					SettingValueRow(

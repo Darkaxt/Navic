@@ -26,6 +26,41 @@ class LidaClipCachePolicyTest {
 	}
 
 	@Test
+	fun offlineVideoFeatureUsesPersistentFilesWithoutDependingOnTemporaryCacheSize() {
+		assertFalse(shouldUseOfflineLidaClipVideo(offlineFileExists = false))
+		assertTrue(shouldUseOfflineLidaClipVideo(offlineFileExists = true))
+	}
+
+	@Test
+	fun offlineFileNamesEncodeSongIdsAndSanitizeExtensions() {
+		assertEquals(
+			"song-736f6e672f31-42.mp4",
+			lidaClipOfflineFileName(
+				songId = "song/1",
+				clipId = 42,
+				extension = "mp4"
+			)
+		)
+		assertEquals(
+			"song-736f6e672f31-42.mp4",
+			lidaClipOfflineFileName(
+				songId = "song/1",
+				clipId = 42,
+				extension = "../mp4"
+			)
+		)
+		assertEquals(
+			"song-unknown-42.mp4",
+			lidaClipOfflineFileName(
+				songId = " ",
+				clipId = 42,
+				extension = "exe"
+			)
+		)
+		assertEquals("song-736f6e672f31-", lidaClipOfflineFilePrefix("song/1"))
+	}
+
+	@Test
 	fun cacheExtensionUsesSafeVideoExtensionWithMp4Fallback() {
 		assertEquals(
 			"webm",

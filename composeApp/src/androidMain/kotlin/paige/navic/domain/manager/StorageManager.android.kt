@@ -6,6 +6,8 @@ import io.ktor.utils.io.jvm.javaio.copyTo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import paige.navic.domain.models.LidaClipCacheFileInfo
+import paige.navic.domain.models.lidaClipOfflineFileName
+import paige.navic.domain.models.lidaClipOfflineFilePrefix
 import java.io.File
 import java.io.FileOutputStream
 
@@ -24,6 +26,14 @@ actual class StorageManager(
 
 	actual fun getLidaClipVideoCacheTempPath(clipId: Int, extension: String): String {
 		return File(lidaClipVideoCacheDir(), "$clipId.$extension.part").absolutePath
+	}
+
+	actual fun getLidaClipOfflinePath(songId: String, clipId: Int, extension: String): String {
+		return File(lidaClipOfflineDir(), lidaClipOfflineFileName(songId, clipId, extension)).absolutePath
+	}
+
+	actual fun getLidaClipOfflineTempPath(songId: String, clipId: Int, extension: String): String {
+		return File(lidaClipOfflineDir(), "${lidaClipOfflineFileName(songId, clipId, extension)}.part").absolutePath
 	}
 
 	actual fun deleteFile(path: String): Boolean {
@@ -59,17 +69,11 @@ actual class StorageManager(
 	}
 
 	actual fun listLidaClipVideoCacheFiles(): List<LidaClipCacheFileInfo> {
-		return lidaClipVideoCacheDir()
-			.listFiles()
-			.orEmpty()
-			.filter { it.isFile && !it.name.endsWith(".part") }
-			.map {
-				LidaClipCacheFileInfo(
-					path = it.absolutePath,
-					sizeBytes = it.length(),
-					lastModifiedMillis = it.lastModified()
-				)
-			}
+		return listFiles(lidaClipVideoCacheDir())
+	}
+
+	actual fun listLidaClipOfflineFiles(): List<LidaClipCacheFileInfo> {
+		return listFiles(lidaClipOfflineDir())
 	}
 
 	actual suspend fun saveFile(path: String, channel: ByteReadChannel) {
@@ -89,6 +93,19 @@ actual class StorageManager(
 		lidaClipVideoCacheDir().listFiles()?.forEach { it.deleteRecursively() }
 	}
 
+	actual fun clearLidaClipOfflineFiles() {
+		lidaClipOfflineDir().listFiles()?.forEach { it.deleteRecursively() }
+	}
+
+	actual fun clearLidaClipOfflineFilesForSong(songId: String) {
+		val prefix = lidaClipOfflineFilePrefix(songId)
+		lidaClipOfflineDir()
+			.listFiles()
+			.orEmpty()
+			.filter { it.isFile && it.name.startsWith(prefix) }
+			.forEach { it.delete() }
+	}
+
 	private fun downloadsDir(): File {
 		val dir = File(context.filesDir, "downloads")
 		if (!dir.exists()) dir.mkdirs()
@@ -100,4 +117,23 @@ actual class StorageManager(
 		if (!dir.exists()) dir.mkdirs()
 		return dir
 	}
+
+	private fun lidaClipOfflineDir(): File {
+		val dir = File(context.filesDir, "lida_clips")
+		if (!dir.exists()) dir.mkdirs()
+		return dir
+	}
+
+	private fun listFiles(dir: File): List<LidaClipCacheFileInfo> =
+		dir
+			.listFiles()
+			.orEmpty()
+			.filter { it.isFile && !it.name.endsWith(".part") }
+			.map {
+				LidaClipCacheFileInfo(
+					path = it.absolutePath,
+					sizeBytes = it.length(),
+					lastModifiedMillis = it.lastModified()
+				)
+			}
 }

@@ -6,7 +6,7 @@ Make Aurral a first-class Android integration in this Navic fork, alongside Lida
 
 ## Current State
 
-LidaClips is functionally close to complete for Android now-playing video use: settings, diagnostics, clip lookup, local temporary video cache, background video, foreground promotion, Media3 playback, audio handoff, and app controls are implemented. The remaining LidaClips gap is persistent/offline clip ownership: downloaded clips are currently temporary cache assets, not first-class offline assets paired with downloaded music.
+LidaClips is functionally close to complete for Android now-playing video use: settings, diagnostics, clip lookup, local temporary video cache, background video, foreground promotion, Media3 playback, audio handoff, and app controls are implemented. Persistent/offline clip ownership has started: clips discovered for already-downloaded songs are saved under separate app storage, preferred before the temporary cache, visible in Data & Storage, and cleared with offline music. A later polish pass can add proactive clip acquisition during bulk music downloads.
 
 The useful Kreate player feature set is mostly adapted. Remaining Kreate work should be finishing player-quality gaps rather than copying more settings: real-device smoke testing for Android effects, shuffle/repeat-aware Up Next behavior, and any discovery UI that can be backed by Navidrome or Aurral instead of YouTube Music.
 

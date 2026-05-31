@@ -7,15 +7,22 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.LidaClipCacheManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.LidaClipsRepository
+import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.ui.core.UiState
 
 class LidaClipPlayerViewModel(
 	private val songId: String,
 	private val collectionRepository: CollectionRepository,
-	private val repository: LidaClipsRepository
+	private val repository: LidaClipsRepository,
+	private val cacheManager: LidaClipCacheManager,
+	private val downloadManager: DownloadManager,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _clipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Loading())
 	val clipState = _clipState.asStateFlow()
@@ -39,10 +46,42 @@ class LidaClipPlayerViewModel(
 					forceRefresh = forceRefresh
 				)
 			}
+			val persistOffline = downloadManager.isDownloaded(song?.id ?: songId)
 			_clipState.value = result.fold(
-				onSuccess = { UiState.Success(it) },
+				onSuccess = { clip ->
+					UiState.Success(
+						clip?.let {
+							clipForPlayback(
+								clip = it,
+								songId = song?.id ?: songId,
+								persistOffline = persistOffline
+							)
+						}
+					)
+				},
 				onFailure = { UiState.Error(Exception(it), _clipState.value.data) }
 			)
 		}
+	}
+
+	private suspend fun clipForPlayback(
+		clip: DomainLidaClip,
+		songId: String,
+		persistOffline: Boolean
+	): DomainLidaClip {
+		if (!persistOffline) {
+			return cacheManager.cachedClipFor(songId, clip) ?: clip
+		}
+
+		return cacheManager.getOrCacheClip(
+			clip = clip,
+			requestHeaders = lidaClipsStreamRequestHeaders(
+				baseUrl = preferenceManager.lidaClipsBaseUrl,
+				streamUrl = clip.streamUrl,
+				requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+			),
+			songId = songId,
+			persistOffline = true
+		).getOrNull() ?: clip
 	}
 }

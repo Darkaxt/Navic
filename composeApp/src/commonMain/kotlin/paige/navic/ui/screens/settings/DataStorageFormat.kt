@@ -10,6 +10,15 @@ fun downloadStorageSizeText(bytes: Long): String =
 fun imageCacheStorageSizeText(bytes: Long): String =
 	storageSizeText(bytes)
 
+fun lidaClipsOfflineStorageSizeText(bytes: Long): String =
+	storageSizeText(bytes)
+
+fun lidaClipsOfflineClipCountText(clips: Int): String =
+	countLabel(
+		count = clips.coerceAtLeast(0),
+		singular = "clip"
+	)
+
 fun musicBrainzCacheValueText(cachedSongs: Int): String =
 	countLabel(
 		count = cachedSongs.coerceAtLeast(0),

@@ -33,6 +33,14 @@ class DataStorageScreenFormatterTest {
 	}
 
 	@Test
+	fun lidaClipsOfflineStorageTextSummarizesClipsAndSize() {
+		assertEquals("0 clips", lidaClipsOfflineClipCountText(0))
+		assertEquals("1 clip", lidaClipsOfflineClipCountText(1))
+		assertEquals("12 clips", lidaClipsOfflineClipCountText(12))
+		assertEquals("1.5 GB", lidaClipsOfflineStorageSizeText(1536L * 1024L * 1024L))
+	}
+
+	@Test
 	fun musicBrainzCacheTextSummarizesCachedSongsAndResultTypes() {
 		assertEquals("0 songs", musicBrainzCacheValueText(0))
 		assertEquals("1 song", musicBrainzCacheValueText(1))
