@@ -161,6 +161,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 
 * GitHub Actions permissions and vulnerable transitive build dependencies were hardened for the fork's Security & Quality findings.
 * The in-app update prompt prefers the release `Navic.apk`, downloads it inside Navic on Android with visible progress, verifies the GitHub asset SHA-256 digest when present, and launches the system package installer instead of sending the APK URL to a browser. Tapping About -> version forces an update check; if no newer release exists, Navic confirms that you are already on the latest version.
+* Android registers the Coil image-loader singleton from the `Application` before Compose starts, avoiding the duplicate singleton-factory crash seen when early artwork/media-session loads race the UI bootstrap.
 * `v1.0.10-beta1` intentionally jumps the patch number as an updater bridge for alpha builds whose older updater mis-sorted beta tags.
 * Android release builds require the fork's stable release signing secrets and pin the expected release certificate fingerprint, so public APK updates keep the same package signature.
 * GitHub tag releases publish the signed Android APK as soon as the Android job finishes; the optional iOS IPA is attached later only if its packaging job succeeds.

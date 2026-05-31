@@ -50,12 +50,11 @@ import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
 import androidx.savedstate.serialization.SavedStateConfiguration
-import coil3.compose.setSingletonImageLoaderFactory
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import org.koin.compose.koinInject
-import paige.navic.di.initializeSingletonImageLoader
+import paige.navic.di.InstallSingletonImageLoaderFactory
 import paige.navic.domain.manager.BottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
@@ -133,11 +132,7 @@ val LocalBottomBarScrollManager = staticCompositionLocalOf<BottomBarScrollManage
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun App() {
-	// Keep non-Android targets on Navic's network-capable Coil loader. Android also exposes
-	// this through Application so early widget/media-session image loads cannot create default Coil.
-	setSingletonImageLoaderFactory { platformContext ->
-		initializeSingletonImageLoader(platformContext)
-	}
+	InstallSingletonImageLoaderFactory()
 
 	val platformContext = rememberPlatformContext()
 	val sessionManager = koinInject<SessionManager>()
