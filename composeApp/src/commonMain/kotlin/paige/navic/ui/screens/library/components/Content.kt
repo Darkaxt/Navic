@@ -277,7 +277,7 @@ fun LibraryScreenContent(
 			destination = Screen.AurralHub,
 			state = aurralDiscoverArtistsState,
 			key = { it.id.trim().ifEmpty { it.name } },
-			seeAll = false
+			seeAll = true
 		) { artist ->
 			AurralDiscoverArtistCard(
 				modifier = Modifier.animateItem().width(150.dp),

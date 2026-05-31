@@ -48,6 +48,7 @@ import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
+import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
@@ -122,12 +123,7 @@ fun NowPlayingScreen() {
 			{ backStack.add(Screen.Lyrics) }
 		}
 		NowPlayingArtworkTapDestination.TrackInfo -> {
-			{
-				song?.id?.let { songId ->
-					backStack.remove(Screen.NowPlaying)
-					backStack.add(Screen.SongDetail(songId))
-				}
-			}
+			{ backStack.add(Screen.MusicBrainzInfo) }
 		}
 		null -> null
 	}
@@ -167,7 +163,11 @@ fun NowPlayingScreen() {
 					)
 					val showMusicVideoAction = musicVideoAction != null
 					val showMusicBrainzInfoAction =
-						preferenceManager.musicBrainzArtworkFallbackEnabled && song != null
+						shouldShowNowPlayingMusicBrainzInfoAction(
+							fallbackEnabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+							hasCurrentSong = song != null,
+							artworkTapDestination = artworkTapDestination
+						)
 					val showQueueAction = preferenceManager.showNowPlayingQueueAction
 					val visibleActionCount = listOf(
 						showLyricsAction,

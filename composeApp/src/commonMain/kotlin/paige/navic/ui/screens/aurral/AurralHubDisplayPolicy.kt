@@ -67,6 +67,16 @@ fun aurralHubDiscoverArtists(
 	)
 		.take(limit.coerceAtLeast(0))
 
+fun aurralHubDiscoverHasMore(
+	discovery: AurralDiscoverySummary,
+	visibleLimit: Int = 8
+): Boolean =
+	mergeAurralDiscoverArtists(
+		discovery.recommendations +
+			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
+			discovery.globalTop
+	).size > visibleLimit.coerceAtLeast(0)
+
 fun aurralRecommendedAlbumsForArtist(
 	discovery: AurralDiscoverySummary,
 	artistMbid: String?,
@@ -94,16 +104,45 @@ fun aurralRecommendedAlbumsForArtist(
 fun aurralArtistIdentityForLocalArtist(
 	discovery: AurralDiscoverySummary,
 	artist: DomainArtist
-): AurralArtistIdentity? {
-	val discoveredArtist = aurralDiscoverArtistForLocalArtist(discovery, artist)
-	if (discoveredArtist != null) {
-		val mbid = discoveredArtist.id.trim().takeIf { it.isNotEmpty() } ?: return null
-		val name = discoveredArtist.name.trim().takeIf { it.isNotEmpty() } ?: artist.name
-		return AurralArtistIdentity(mbid = mbid, name = name)
+): AurralArtistIdentity? =
+	aurralArtistIdentityCandidatesForLocalArtist(discovery, artist).firstOrNull()
+
+fun aurralArtistIdentityCandidatesForLocalArtist(
+	discovery: AurralDiscoverySummary,
+	artist: DomainArtist
+): List<AurralArtistIdentity> {
+	val localMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+	val localName = artist.name.trim().takeIf { it.isNotEmpty() }
+	val localMbidKey = localMbid.normalizedAurralKey()
+	val localNameKey = localName.normalizedAurralName()
+	val discoveredArtists = aurralDiscoverArtistsForLocalArtist(discovery)
+	val candidates = mutableListOf<AurralArtistIdentity>()
+
+	if (localMbid != null) {
+		candidates += AurralArtistIdentity(
+			mbid = localMbid,
+			name = localName ?: localMbid
+		)
 	}
-	val localMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val localName = artist.name.trim().takeIf { it.isNotEmpty() } ?: localMbid
-	return AurralArtistIdentity(mbid = localMbid, name = localName)
+
+	listOfNotNull(
+		discoveredArtists.firstOrNull { discoveredArtist ->
+			localMbidKey != null &&
+				discoveredArtist.id.normalizedAurralKey() == localMbidKey
+		},
+		discoveredArtists.firstOrNull { discoveredArtist ->
+			localNameKey != null &&
+				discoveredArtist.name.normalizedAurralName() == localNameKey
+		}
+	).forEach { discoveredArtist ->
+		val mbid = discoveredArtist.id.trim().takeIf { it.isNotEmpty() } ?: return@forEach
+		val name = discoveredArtist.name.trim().takeIf { it.isNotEmpty() } ?: localName ?: mbid
+		if (candidates.none { it.mbid.normalizedAurralKey() == mbid.normalizedAurralKey() }) {
+			candidates += AurralArtistIdentity(mbid = mbid, name = name)
+		}
+	}
+
+	return candidates
 }
 
 fun aurralRecommendedAlbumsForLocalArtist(
@@ -111,11 +150,10 @@ fun aurralRecommendedAlbumsForLocalArtist(
 	artist: DomainArtist,
 	limit: Int = 8
 ): List<AurralAlbumSearchItem> {
-	val identity = aurralArtistIdentityForLocalArtist(discovery, artist)
 	return aurralRecommendedAlbumsForArtist(
 		discovery = discovery,
-		artistMbid = identity?.mbid ?: artist.musicBrainzId,
-		artistName = identity?.name ?: artist.name,
+		artistMbid = artist.musicBrainzId,
+		artistName = artist.name,
 		limit = limit
 	)
 }
@@ -173,26 +211,15 @@ fun aurralArtistRecommendationRoute(
 	return localArtist?.let { Screen.ArtistDetail(it.id) } ?: aurralArtistRoute(artist)
 }
 
-private fun aurralDiscoverArtistForLocalArtist(
-	discovery: AurralDiscoverySummary,
-	artist: DomainArtist
-): AurralDiscoverArtist? {
-	val localMbidKey = artist.musicBrainzId.normalizedAurralKey()
-	val localNameKey = artist.name.normalizedAurralName()
-	val artists = mergeAurralDiscoverArtists(
+private fun aurralDiscoverArtistsForLocalArtist(
+	discovery: AurralDiscoverySummary
+): List<AurralDiscoverArtist> =
+	mergeAurralDiscoverArtists(
 		discovery.recommendations +
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop +
 			discovery.basedOn
 	)
-	return artists.firstOrNull { discoveredArtist ->
-		localMbidKey != null &&
-			discoveredArtist.id.normalizedAurralKey() == localMbidKey
-	} ?: artists.firstOrNull { discoveredArtist ->
-		localNameKey != null &&
-			discoveredArtist.name.normalizedAurralName() == localNameKey
-	}
-}
 
 fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAlbum? {
 	val releaseGroupId = album.id.trim().takeIf { it.isNotEmpty() } ?: return null

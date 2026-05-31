@@ -40,6 +40,8 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "AurralRepository"
+private const val AURRAL_DISCOVERY_IMAGE_HYDRATION_LIMIT = 12
+private const val AURRAL_DISCOVERY_IMAGE_SEARCH_LIMIT = 5
 internal const val AURRAL_BASE_URL_REQUIRED_MESSAGE = "Enter the Aurral URL first."
 internal const val AURRAL_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"Aurral URL must start with http:// or https://."
@@ -53,6 +55,7 @@ class AurralRepository(
 	private val optimisticAlbumRequestsByMbid = mutableMapOf<String, AurralAlbumRequest>()
 	private val optimisticArtistMonitoringByMbid = mutableMapOf<String, Boolean>()
 	private val releaseGroupCoverUrlsByMbid = mutableMapOf<String, String>()
+	private val discoverArtistImageUrlsByName = mutableMapOf<String, String?>()
 	private val _artistStateRevision = MutableStateFlow(0)
 	val artistStateRevision = _artistStateRevision.asStateFlow()
 
@@ -85,7 +88,9 @@ class AurralRepository(
 		}
 	}
 
-	suspend fun getDiscovery(): Result<AurralDiscoverySummary> {
+	suspend fun getDiscovery(
+		hydrateMissingImages: Boolean = true
+	): Result<AurralDiscoverySummary> {
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -93,7 +98,12 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			apiClient.fetchDiscovery(baseUrl, requestHeaders)
+			val discovery = apiClient.fetchDiscovery(baseUrl, requestHeaders)
+			if (hydrateMissingImages) {
+				hydrateMissingDiscoveryArtistImages(baseUrl, requestHeaders, discovery)
+			} else {
+				discovery
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral discovery failed", error)
 		}
@@ -486,6 +496,79 @@ class AurralRepository(
 		_artistStateRevision.value = _artistStateRevision.value + 1
 	}
 
+	private suspend fun hydrateMissingDiscoveryArtistImages(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		discovery: AurralDiscoverySummary
+	): AurralDiscoverySummary =
+		discovery.copy(
+			recommendations = hydrateMissingDiscoveryArtistImages(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artists = discovery.recommendations
+			),
+			globalTop = hydrateMissingDiscoveryArtistImages(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artists = discovery.globalTop
+			),
+			basedOn = hydrateMissingDiscoveryArtistImages(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artists = discovery.basedOn
+			)
+		)
+
+	private suspend fun hydrateMissingDiscoveryArtistImages(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artists: List<AurralDiscoverArtist>
+	): List<AurralDiscoverArtist> =
+		artists.mapIndexed { index, artist ->
+			if (index >= AURRAL_DISCOVERY_IMAGE_HYDRATION_LIMIT || !artist.imageUrl.isNullOrBlank()) {
+				artist
+			} else {
+				val imageUrl = discoveryArtistImageUrlByName(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistName = artist.name
+				)
+				imageUrl?.let { artist.copy(imageUrl = it) } ?: artist
+			}
+		}
+
+	private suspend fun discoveryArtistImageUrlByName(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistName: String
+	): String? {
+		val nameKey = artistName.normalizedAurralImageLookupName() ?: return null
+		if (discoverArtistImageUrlsByName.containsKey(nameKey)) {
+			return discoverArtistImageUrlsByName[nameKey]
+		}
+		val imageUrl = runCatching {
+			apiClient.searchArtists(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				request = AurralArtistSearchRequest(
+					query = artistName.trim(),
+					limit = AURRAL_DISCOVERY_IMAGE_SEARCH_LIMIT,
+					offset = 0
+				)
+			).artists
+				.firstOrNull { candidate ->
+					candidate.name.normalizedAurralImageLookupName() == nameKey &&
+						!candidate.imageUrl.isNullOrBlank()
+				}
+				?.imageUrl
+				?.let { aurralAbsoluteImageUrl(baseUrl, it) }
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral discovery image lookup failed for $artistName", error)
+		}.getOrNull()
+		discoverArtistImageUrlsByName[nameKey] = imageUrl
+		return imageUrl
+	}
+
 	private fun AurralArtistEnrichment.withLocalArtistState(
 		libraryArtistMonitoring: Boolean?
 	): AurralArtistEnrichment {
@@ -523,6 +606,13 @@ class AurralRepository(
 
 private fun String?.normalizedAurralCacheKey(): String? =
 	this?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralImageLookupName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
 
 interface AurralApiClient {
 	suspend fun testConnection(

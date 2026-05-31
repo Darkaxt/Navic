@@ -37,3 +37,12 @@ fun nowPlayingArtworkTapDestination(
 		NowPlayingArtworkTapAction.TrackInfo -> NowPlayingArtworkTapDestination.TrackInfo
 	}
 }
+
+fun shouldShowNowPlayingMusicBrainzInfoAction(
+	fallbackEnabled: Boolean,
+	hasCurrentSong: Boolean,
+	artworkTapDestination: NowPlayingArtworkTapDestination?
+): Boolean =
+	fallbackEnabled &&
+		hasCurrentSong &&
+		artworkTapDestination != NowPlayingArtworkTapDestination.TrackInfo

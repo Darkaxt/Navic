@@ -47,7 +47,8 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.aurral.aurralArtistIdentityForLocalArtist
+import paige.navic.ui.screens.aurral.AurralArtistIdentity
+import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 
 @Immutable
@@ -222,18 +223,28 @@ class ArtistDetailViewModel(
 				)
 			)
 
-			val discovery = aurralRepository.getDiscovery().getOrNull()
-			val aurralIdentity = discovery?.let { summary ->
-				aurralArtistIdentityForLocalArtist(summary, artist)
-			}
-			val aurralArtist = aurralIdentity?.let { identity ->
-				artist.copy(
-					name = identity.name,
-					musicBrainzId = identity.mbid
-				)
-			} ?: artist.takeIf { !it.musicBrainzId.isNullOrBlank() }
+			val discovery = aurralRepository.getDiscovery(hydrateMissingImages = false).getOrNull()
+			val aurralArtists = discovery
+				?.let { summary -> aurralArtistIdentityCandidatesForLocalArtist(summary, artist) }
+				.orEmpty()
+				.ifEmpty {
+					artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }?.let { mbid ->
+						listOf(
+							AurralArtistIdentity(
+								mbid = mbid,
+								name = artist.name.trim().takeIf { it.isNotEmpty() } ?: mbid
+							)
+						)
+					}.orEmpty()
+				}
+				.map { identity ->
+					artist.copy(
+						name = identity.name,
+						musicBrainzId = identity.mbid
+					)
+				}
 
-			if (aurralArtist == null) {
+			if (aurralArtists.isEmpty()) {
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 				_artistState.value = UiState.Success(
 					latestState.copy(
@@ -244,7 +255,18 @@ class ArtistDetailViewModel(
 				return@launch
 			}
 
-			val enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
+			var aurralArtist = aurralArtists.first()
+			var enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
+			if (enrichmentResult.isFailure) {
+				for (candidateArtist in aurralArtists.drop(1)) {
+					val candidateResult = aurralRepository.getArtistEnrichment(candidateArtist)
+					if (candidateResult.isSuccess) {
+						aurralArtist = candidateArtist
+						enrichmentResult = candidateResult
+						break
+					}
+				}
+			}
 			if (enrichmentResult.isSuccess) {
 				val enrichment = enrichmentResult.getOrNull()
 				val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }

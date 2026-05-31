@@ -158,8 +158,7 @@ fun NowPlayingMoreButton(
 					{ downloadManager.deleteDownload(song.id) }
 				} else null,
 				onTrackInfo = dropUnlessResumed {
-					backStack.remove(Screen.NowPlaying)
-					backStack.add(Screen.SongDetail(song.id))
+					backStack.add(Screen.MusicBrainzInfo)
 				},
 				rating = songRating,
 				onSetRating = onSetSongRating,

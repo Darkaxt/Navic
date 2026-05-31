@@ -111,4 +111,43 @@ class NowPlayingArtworkInteractionPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun musicBrainzInfoActionIsHiddenWhenArtworkTapAlreadyOpensTrackInfo() {
+		assertFalse(
+			shouldShowNowPlayingMusicBrainzInfoAction(
+				fallbackEnabled = true,
+				hasCurrentSong = true,
+				artworkTapDestination = NowPlayingArtworkTapDestination.TrackInfo
+			)
+		)
+		assertTrue(
+			shouldShowNowPlayingMusicBrainzInfoAction(
+				fallbackEnabled = true,
+				hasCurrentSong = true,
+				artworkTapDestination = NowPlayingArtworkTapDestination.Lyrics
+			)
+		)
+		assertTrue(
+			shouldShowNowPlayingMusicBrainzInfoAction(
+				fallbackEnabled = true,
+				hasCurrentSong = true,
+				artworkTapDestination = null
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingMusicBrainzInfoAction(
+				fallbackEnabled = false,
+				hasCurrentSong = true,
+				artworkTapDestination = null
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingMusicBrainzInfoAction(
+				fallbackEnabled = true,
+				hasCurrentSong = false,
+				artworkTapDestination = null
+			)
+		)
+	}
 }

@@ -50,6 +50,7 @@ import navic.composeapp.generated.resources.action_play_station
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_search_aurral_albums
 import navic.composeapp.generated.resources.action_search_aurral_artists
+import navic.composeapp.generated.resources.action_see_all
 import navic.composeapp.generated.resources.action_start_aurral_flow
 import navic.composeapp.generated.resources.info_aurral_album_search_empty
 import navic.composeapp.generated.resources.info_aurral_album_search_failed
@@ -574,7 +575,12 @@ private fun AurralHubDiscoverSection(
 	onOpenArtist: (AurralDiscoverArtist) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
-	val artists = state.data?.let { aurralHubDiscoverArtists(it) }.orEmpty()
+	var showAllDiscover by rememberSaveable { mutableStateOf(false) }
+	val discovery = state.data
+	val artists = discovery
+		?.let { aurralHubDiscoverArtists(it, limit = if (showAllDiscover) Int.MAX_VALUE else 8) }
+		.orEmpty()
+	val hasMoreArtists = !showAllDiscover && discovery?.let { aurralHubDiscoverHasMore(it) } == true
 	val actionInProgress = actionState is UiState.Loading
 
 	Form(Modifier.fillMaxWidth()) {
@@ -594,6 +600,14 @@ private fun AurralHubDiscoverSection(
 					onOpenArtist = onOpenArtist
 				)
 			}
+		}
+	}
+	if (hasMoreArtists) {
+		FormButton(
+			onClick = { showAllDiscover = true },
+			color = MaterialTheme.colorScheme.secondaryContainer
+		) {
+			Text(stringResource(Res.string.action_see_all))
 		}
 	}
 

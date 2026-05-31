@@ -24,3 +24,4 @@ acknowledgements.json
 /gradle/gradle-daemon-jvm.properties
 prepare/
 *.mobileprovision
+aurral-debug.env

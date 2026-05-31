@@ -38,6 +38,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import paige.navic.LocalNavStack
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
@@ -45,6 +46,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainPlaylistSongSortType
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.sortedForPlaylistDetail
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
@@ -53,9 +55,12 @@ import paige.navic.icons.outlined.Note
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.dialogs.DeletionDialog
+import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenFooterRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRowButtons
@@ -75,6 +80,7 @@ fun CollectionDetailScreen(
 	tab: String
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
 
 	val viewModel = koinViewModel<CollectionDetailViewModel>(
 		key = collectionId,
@@ -105,6 +111,7 @@ fun CollectionDetailScreen(
 
 	var shareId by remember { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
+	var deletionId by remember { mutableStateOf<String?>(null) }
 
 	val albumInfoState by viewModel.albumInfoState.collectAsState()
 	val selectedSongIsStarred by viewModel.selectedSongIsStarred.collectAsStateWithLifecycle()
@@ -153,6 +160,9 @@ fun CollectionDetailScreen(
 				onSetPlaylistSongSorting = { playlistSongSorting = it },
 				selectedPlaylistSongReversed = playlistSongReversed,
 				onSetPlaylistSongReversed = { playlistSongReversed = it },
+				onDelete = (displayedCollection as? DomainPlaylist)
+					?.takeIf { canDeletePlaylistFromDetail(it) }
+					?.let { playlist -> { deletionId = playlist.id } },
 				refreshCollection = { viewModel.refreshCollection(false) }
 			)
 		},
@@ -385,5 +395,15 @@ fun CollectionDetailScreen(
 		onIdClear = { shareId = null; viewModel.clearSelection() },
 		expiry = shareExpiry,
 		onExpiryChange = { shareExpiry = it }
+	)
+
+	DeletionDialog(
+		endpoint = DeletionEndpoint.PLAYLIST,
+		id = deletionId,
+		onIdClear = { deletionId = null },
+		onRefresh = {
+			backStack.remove(Screen.CollectionDetail(collectionId, tab))
+			viewModel.refreshCollection(false)
+		}
 	)
 }

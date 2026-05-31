@@ -53,6 +53,7 @@ fun CollectionDetailScreenTopBar(
 	onSetPlaylistSongSorting: (DomainPlaylistSongSortType) -> Unit,
 	selectedPlaylistSongReversed: Boolean,
 	onSetPlaylistSongReversed: (Boolean) -> Unit,
+	onDelete: (() -> Unit)? = null,
 	refreshCollection: () -> Unit
 ) {
 	val uriHandler = LocalUriHandler.current
@@ -111,7 +112,8 @@ fun CollectionDetailScreenTopBar(
 						rating = rating,
 						onSetRating = onSetRating,
 						starred = starred,
-						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null
+						onSetStarred = if (onSetStarred != null && starred != null) { { onSetStarred(!starred) } } else null,
+						onDelete = onDelete
 					)
 				}
 			}

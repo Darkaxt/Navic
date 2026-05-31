@@ -23,3 +23,6 @@ fun List<DomainPlaylist>.stationPlaylists(): List<DomainPlaylist> =
 
 fun List<DomainPlaylist>.regularPlaylists(): List<DomainPlaylist> =
 	filterNot { it.isStationPlaylist() }
+
+fun canDeletePlaylistFromDetail(playlist: DomainPlaylist): Boolean =
+	!playlist.isStationPlaylist() && playlist.readOnly != true

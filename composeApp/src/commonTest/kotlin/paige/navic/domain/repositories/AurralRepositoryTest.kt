@@ -600,6 +600,43 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryDiscoveryHydratesMissingRecommendationImageFromExactArtistSearch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(
+					AurralDiscoverArtist(id = "weak-bond-mbid", name = "Bond", imageUrl = null)
+				)
+			),
+			artistSearch = AurralArtistSearchResult(
+				query = "Bond",
+				count = 1,
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "correct-bond-mbid",
+						name = "BOND",
+						imageUrl = "https://assets.example.com/bond.jpg"
+					)
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val discovery = repository.getDiscovery().getOrThrow()
+
+		assertEquals("weak-bond-mbid", discovery.recommendations.single().id)
+		assertEquals("https://assets.example.com/bond.jpg", discovery.recommendations.single().imageUrl)
+		assertEquals(
+			listOf(AurralArtistSearchRequest(query = "Bond", limit = 5, offset = 0)),
+			apiClient.artistSearchRequests
+		)
+	}
+
+	@Test
 	fun repositoryArtistSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "

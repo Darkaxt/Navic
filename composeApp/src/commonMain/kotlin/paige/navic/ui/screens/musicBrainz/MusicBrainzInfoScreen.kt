@@ -1,16 +1,20 @@
 package paige.navic.ui.screens.musicBrainz
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,8 +47,6 @@ import navic.composeapp.generated.resources.info_musicbrainz_release_group_type
 import navic.composeapp.generated.resources.info_musicbrainz_release_group_url
 import navic.composeapp.generated.resources.info_musicbrainz_release_title
 import navic.composeapp.generated.resources.info_musicbrainz_release_url
-import navic.composeapp.generated.resources.info_musicbrainz_source_priority
-import navic.composeapp.generated.resources.info_musicbrainz_source_priority_value
 import navic.composeapp.generated.resources.info_musicbrainz_status
 import navic.composeapp.generated.resources.info_musicbrainz_tags
 import navic.composeapp.generated.resources.info_musicbrainz_unavailable
@@ -61,8 +63,6 @@ import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzMetadataDisplayField
 import paige.navic.domain.repositories.MusicBrainzMetadataField
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
-import paige.navic.domain.repositories.musicBrainzMetadataDisplayFields
-import paige.navic.domain.repositories.musicBrainzMetadataUrlOrNull
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Info
 import paige.navic.icons.outlined.KeyboardArrowDown
@@ -99,15 +99,14 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val rows = remember(metadata) {
-		musicBrainzMetadataDisplayFields(metadata)
+	val trackRows = remember(song, preferenceManager.replayGainMode) {
+		song?.let { musicBrainzInfoTrackRows(it, preferenceManager.replayGainMode) }.orEmpty()
 	}
-	val primaryMusicBrainzUrl = metadata?.recordingUrl
-		?: metadata?.releaseUrl
-		?: metadata?.releaseGroupUrl
-		?: rows.firstNotNullOfOrNull { row ->
-			row.url ?: musicBrainzMetadataUrlOrNull(row.field, row.value)
-		}
+	val metadataRows = remember(metadata) { musicBrainzInfoMetadataRows(metadata) }
+	val resourceLinks = remember(metadata) { musicBrainzInfoResourceLinks(metadata) }
+	val primaryMusicBrainzUrl = resourceLinks.firstOrNull { link ->
+		link.url.startsWith("https://musicbrainz.org/", ignoreCase = true)
+	}?.url ?: resourceLinks.firstOrNull()?.url
 
 	LaunchedEffect(song?.id, preferenceManager.musicBrainzArtworkFallbackEnabled) {
 		if (song != null && preferenceManager.musicBrainzArtworkFallbackEnabled) {
@@ -194,13 +193,20 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 						)
 					}
 				}
-				item {
-					MusicBrainzInfoRow(
-						label = stringResource(Res.string.info_musicbrainz_source_priority),
-						value = stringResource(Res.string.info_musicbrainz_source_priority_value)
-					)
+				if (resourceLinks.isNotEmpty()) {
+					item {
+						MusicBrainzInfoResourceButtonRow(
+							links = resourceLinks,
+							onOpenUrl = uriHandler::openUri
+						)
+					}
 				}
-				if (rows.isEmpty()) {
+				trackRows.forEach { row ->
+					item {
+						MusicBrainzInfoTrackFieldRow(row)
+					}
+				}
+				if (metadataRows.isEmpty()) {
 					item {
 						MusicBrainzInfoRow(
 							label = stringResource(Res.string.title_musicbrainz_info),
@@ -214,12 +220,9 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 						)
 					}
 				} else {
-					rows.forEach { row ->
+					metadataRows.forEach { row ->
 						item {
-							MusicBrainzInfoFieldRow(
-								row = row,
-								onOpenUrl = uriHandler::openUri
-							)
+							MusicBrainzInfoFieldRow(row)
 						}
 					}
 				}
@@ -229,16 +232,43 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 }
 
 @Composable
-private fun MusicBrainzInfoFieldRow(
-	row: MusicBrainzMetadataDisplayField,
+private fun MusicBrainzInfoResourceButtonRow(
+	links: List<MusicBrainzInfoResourceLink>,
 	onOpenUrl: (String) -> Unit
 ) {
-	val url = row.url ?: musicBrainzMetadataUrlOrNull(row.field, row.value)
+	LazyRow(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = 28.dp)
+			.padding(bottom = 18.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		items(links, key = { it.url }) { link ->
+			OutlinedButton(onClick = { onOpenUrl(link.url) }) {
+				Text(
+					text = link.label,
+					maxLines = 1
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun MusicBrainzInfoTrackFieldRow(row: MusicBrainzInfoTrackRow) {
+	MusicBrainzInfoRow(
+		label = stringResource(row.title),
+		value = row.value
+	)
+}
+
+@Composable
+private fun MusicBrainzInfoFieldRow(
+	row: MusicBrainzMetadataDisplayField
+) {
 	MusicBrainzInfoRow(
 		label = stringResource(row.field.stringResource),
-		value = row.value,
-		url = url,
-		onOpenUrl = onOpenUrl
+		value = row.value
 	)
 }
 

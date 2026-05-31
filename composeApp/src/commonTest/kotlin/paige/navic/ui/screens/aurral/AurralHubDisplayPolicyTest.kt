@@ -133,7 +133,19 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
-	fun localArtistAurralIdentityCanUseDiscoveryNameWhenLocalMbidDiffers() {
+	fun discoverArtistsExposeWhenMoreRowsAreAvailable() {
+		val summary = AurralDiscoverySummary(
+			recommendations = (1..9).map { index ->
+				AurralDiscoverArtist(id = "artist-$index", name = "Artist $index")
+			}
+		)
+
+		assertTrue(aurralHubDiscoverHasMore(summary, visibleLimit = 8))
+		assertFalse(aurralHubDiscoverHasMore(summary, visibleLimit = 9))
+	}
+
+	@Test
+	fun localArtistAurralIdentityCandidatesPreferLocalMbidBeforeDiscoveryNameMatch() {
 		val localArtist = DomainArtist(
 			id = "local-bond",
 			name = "BOND",
@@ -157,7 +169,14 @@ class AurralHubDisplayPolicyTest {
 		)
 
 		assertEquals(
-			AurralArtistIdentity(mbid = "aurral-bond-mbid", name = "Bond"),
+			listOf(
+				AurralArtistIdentity(mbid = "local-stale-mbid", name = "BOND"),
+				AurralArtistIdentity(mbid = "aurral-bond-mbid", name = "Bond")
+			),
+			aurralArtistIdentityCandidatesForLocalArtist(discovery, localArtist)
+		)
+		assertEquals(
+			AurralArtistIdentity(mbid = "local-stale-mbid", name = "BOND"),
 			aurralArtistIdentityForLocalArtist(discovery, localArtist)
 		)
 		assertEquals(
