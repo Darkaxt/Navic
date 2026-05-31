@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,6 +24,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.title_aurral_search
 import navic.composeapp.generated.resources.count_albums
 import navic.composeapp.generated.resources.title_artists
 import org.jetbrains.compose.resources.pluralStringResource
@@ -37,6 +40,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.layouts.ArtGridItem
@@ -44,13 +48,19 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.aurral.AurralArtistSearchDialog
+import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.aurral.aurralArtistRoute
 import paige.navic.ui.screens.artist.components.ArtistListScreenSortButton
 import paige.navic.ui.screens.artist.components.ArtistListScreenContent
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Add
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -72,8 +82,28 @@ fun ArtistListScreen(
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
+	val aurralConfigured = preferenceManager.aurralEnabled &&
+		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralViewModel = koinViewModel<AurralHubViewModel>(key = "artistListAurral")
+	val aurralServiceStatus by aurralViewModel.serviceStatus.collectAsStateWithLifecycle()
+	val aurralArtistSearchQuery by aurralViewModel.artistSearchQuery.collectAsStateWithLifecycle()
+	val aurralArtistSearch by aurralViewModel.artistSearch.collectAsStateWithLifecycle()
+	val aurralDiscoverActionState by aurralViewModel.discoverActionState.collectAsStateWithLifecycle()
+	val aurralActiveDiscoverArtistId by aurralViewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
+	var aurralSearchDialogShown by rememberSaveable { mutableStateOf(false) }
+	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val actions: @Composable RowScope.() -> Unit = {
+		if (aurralConfigured) {
+			TopBarButton(
+				onClick = {
+					aurralSearchDialogShown = true
+					aurralViewModel.refreshServiceStatus()
+				}
+			) {
+				Icon(Icons.Outlined.Add, stringResource(Res.string.title_aurral_search))
+			}
+		}
 		ArtistListScreenSortButton(
 			nested = nested,
 			selectedSorting = selectedSorting,
@@ -81,6 +111,19 @@ fun ArtistListScreen(
 			selectedReversed = selectedReversed,
 			onSetReversed = { viewModel.setReversed(it) }
 		)
+	}
+
+	LaunchedEffect(
+		aurralConfigured,
+		preferenceManager.aurralBaseUrl,
+		preferenceManager.aurralUsername,
+		preferenceManager.aurralPassword
+	) {
+		if (aurralConfigured) {
+			aurralViewModel.refreshServiceStatus()
+		} else {
+			aurralViewModel.clearServiceStatus()
+		}
 	}
 
 	Scaffold(
@@ -128,6 +171,27 @@ fun ArtistListScreen(
 		error = (artistsState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+
+	if (aurralSearchDialogShown) {
+		AurralArtistSearchDialog(
+			query = aurralArtistSearchQuery,
+			artistState = aurralArtistSearch,
+			actionState = aurralDiscoverActionState,
+			activeArtistId = aurralActiveDiscoverArtistId,
+			canMonitorArtist = aurralServiceStatus.data?.addArtist ?: true,
+			preferenceManager = preferenceManager,
+			onQueryChange = aurralViewModel::updateArtistSearchQuery,
+			onSearchArtists = aurralViewModel::searchArtists,
+			onMonitorArtist = aurralViewModel::monitorDiscoveredArtist,
+			onOpenArtist = { artist ->
+				aurralArtistRoute(artist)?.let { route ->
+					aurralSearchDialogShown = false
+					backStack.add(route)
+				}
+			},
+			onDismissRequest = { aurralSearchDialogShown = false }
+		)
+	}
 }
 
 @Composable

@@ -21,11 +21,12 @@ import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_recent
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
-import navic.composeapp.generated.resources.title_aurral
+import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
 import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
@@ -40,7 +41,6 @@ import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
-import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
@@ -100,6 +100,8 @@ fun LibraryScreenContent(
 	onStarSelectedArtist: (Boolean) -> Unit,
 	onPlayArtistNext: () -> Unit,
 	onAddArtistToQueue: () -> Unit,
+	aurralDiscoverArtistsState: UiState<List<AurralDiscoverArtist>>,
+	onOpenAurralDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 
 	// playlists
 	playlistsState: UiState<ImmutableList<DomainPlaylist>>,
@@ -113,8 +115,6 @@ fun LibraryScreenContent(
 	// genres
 	genresState: UiState<ImmutableList<DomainGenre>>,
 
-	// integrations
-	showAurralHub: Boolean
 ) {
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
@@ -150,14 +150,6 @@ fun LibraryScreenContent(
 			destination = Screen.AlbumList(true, DomainAlbumListType.Frequent),
 			start = false
 		)
-		if (showAurralHub) {
-			libraryScreenWideOverviewButton(
-				icon = Icons.Outlined.Link,
-				label = Res.string.title_aurral,
-				destination = Screen.AurralHub
-			)
-		}
-
 		if (quickPicksEnabled) {
 			horizontalSection(
 				title = Res.string.option_sort_quick_picks,
@@ -277,6 +269,20 @@ fun LibraryScreenContent(
 				onSetStarred = { onStarSelectedArtist(it) },
 				onPlayNext = onPlayArtistNext,
 				onAddToQueue = onAddArtistToQueue
+			)
+		}
+
+		horizontalSection(
+			title = Res.string.title_aurral_discover,
+			destination = Screen.AurralHub,
+			state = aurralDiscoverArtistsState,
+			key = { it.id.trim().ifEmpty { it.name } },
+			seeAll = false
+		) { artist ->
+			AurralDiscoverArtistCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				artist = artist,
+				onOpenArtist = onOpenAurralDiscoverArtist
 			)
 		}
 

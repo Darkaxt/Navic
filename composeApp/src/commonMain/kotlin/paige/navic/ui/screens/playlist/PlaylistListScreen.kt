@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_create_playlist
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
@@ -51,6 +53,7 @@ import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.stationPlaylists
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
@@ -63,6 +66,9 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.aurral.AurralCreateFlowDialog
+import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.aurral.nextAurralFlowName
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenSortButton
 import paige.navic.ui.screens.playlist.components.playlistListScreenContent
 import paige.navic.ui.screens.playlist.dialogs.PlaylistCreateDialog
@@ -86,6 +92,12 @@ fun PlaylistListScreen(
 	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val aurralConfigured = preferenceManager.aurralEnabled &&
+		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralViewModel = koinViewModel<AurralHubViewModel>(key = "stationListAurral")
+	val aurralServiceStatus by aurralViewModel.serviceStatus.collectAsStateWithLifecycle()
+	val aurralFlowActionState by aurralViewModel.flowActionState.collectAsStateWithLifecycle()
+	val aurralActiveFlowActionId by aurralViewModel.activeFlowActionId.collectAsStateWithLifecycle()
 
 	val platformContext = LocalPlatformContext.current
 	val scrollManager = LocalBottomBarScrollManager.current
@@ -103,6 +115,26 @@ fun PlaylistListScreen(
 	val gridState = rememberLazyGridState()
 	val title = if (stationsOnly) Res.string.title_stations else Res.string.title_playlists
 	val tab = if (stationsOnly) "stations" else "playlists"
+
+	LaunchedEffect(
+		stationsOnly,
+		aurralConfigured,
+		preferenceManager.aurralBaseUrl,
+		preferenceManager.aurralUsername,
+		preferenceManager.aurralPassword
+	) {
+		if (stationsOnly && aurralConfigured) {
+			aurralViewModel.refreshServiceStatus()
+		} else if (stationsOnly) {
+			aurralViewModel.clearServiceStatus()
+		}
+	}
+
+	LaunchedEffect(stationsOnly, aurralFlowActionState) {
+		if (stationsOnly && aurralFlowActionState is UiState.Success && aurralFlowActionState.data != null) {
+			viewModel.refreshPlaylists(true)
+		}
+	}
 
 	val actions: @Composable RowScope.() -> Unit = {
 		PlaylistListScreenSortButton(
@@ -130,7 +162,7 @@ fun PlaylistListScreen(
 			}
 		},
 		floatingActionButton = {
-			if (!stationsOnly) {
+			if (!stationsOnly || aurralConfigured) {
 				AnimatedContent(
 					!scrollManager.isTriggered
 						|| preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never,
@@ -156,7 +188,13 @@ fun PlaylistListScreen(
 						) {
 							Icon(
 								imageVector = Icons.Outlined.Add,
-								contentDescription = stringResource(Res.string.title_create_playlist),
+								contentDescription = stringResource(
+									if (stationsOnly) {
+										Res.string.title_aurral_create_flow
+									} else {
+										Res.string.title_create_playlist
+									}
+								),
 								modifier = Modifier.size(26.dp)
 							)
 						}
@@ -175,7 +213,12 @@ fun PlaylistListScreen(
 				.padding(top = innerPadding.calculateTopPadding())
 				.background(MaterialTheme.colorScheme.surface),
 			finished = playlistsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshPlaylists(true) },
+			onRefresh = {
+				viewModel.refreshPlaylists(true)
+				if (stationsOnly && aurralConfigured) {
+					aurralViewModel.refreshServiceStatus()
+				}
+			},
 			key = playlistsState
 		) {
 			ArtGrid(
@@ -228,10 +271,22 @@ fun PlaylistListScreen(
 	)
 
 	if (createDialogShown) {
-		PlaylistCreateDialog(
-			onDismissRequest = { createDialogShown = false },
-			onRefresh = { viewModel.refreshPlaylists(true) }
-		)
+		if (stationsOnly) {
+			AurralCreateFlowDialog(
+				defaultName = nextAurralFlowName(aurralServiceStatus.data?.flows.orEmpty()),
+				creating = aurralFlowActionState is UiState.Loading && aurralActiveFlowActionId == "create",
+				onDismissRequest = { createDialogShown = false },
+				onCreate = { name, size ->
+					createDialogShown = false
+					aurralViewModel.createFlow(name, size)
+				}
+			)
+		} else {
+			PlaylistCreateDialog(
+				onDismissRequest = { createDialogShown = false },
+				onRefresh = { viewModel.refreshPlaylists(true) }
+			)
+		}
 	}
 }
 

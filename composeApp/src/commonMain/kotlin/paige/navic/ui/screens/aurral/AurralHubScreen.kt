@@ -641,7 +641,7 @@ private fun AurralHubDiscoverSection(
 }
 
 @Composable
-private fun AurralHubDiscoverArtistRow(
+fun AurralHubDiscoverArtistRow(
 	artist: AurralDiscoverArtist,
 	canMonitorArtist: Boolean,
 	actionInProgress: Boolean,
@@ -750,17 +750,6 @@ private fun AurralHubAlbumSearchRow(
 			)
 		}
 	}
-}
-
-private fun aurralDiscoverArtistDetail(artist: AurralDiscoverArtist): String {
-	val tags = artist.matchedTags.ifEmpty { artist.tags }.take(3)
-	return listOfNotNull(
-		artist.reason,
-		tags.takeIf { it.isNotEmpty() }?.joinToString(", ")
-	).joinToString(" • ").takeIf { it.isNotEmpty() }
-		?: artist.discoveryTier
-		?: artist.sourceType
-		?: ""
 }
 
 private fun aurralAlbumSearchDetail(album: AurralAlbumSearchItem): String {
@@ -939,7 +928,7 @@ private fun AurralHubFlowRow(
 }
 
 @Composable
-private fun AurralCreateFlowDialog(
+fun AurralCreateFlowDialog(
 	defaultName: String,
 	creating: Boolean,
 	onDismissRequest: () -> Unit,

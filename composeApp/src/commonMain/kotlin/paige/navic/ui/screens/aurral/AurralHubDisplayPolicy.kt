@@ -217,6 +217,17 @@ fun shouldOfferAurralDirectFlowPlayback(
 		flow.stats.done > 0 &&
 		aurralPlayableStationForFlow(flow, playlists) == null
 
+fun aurralDiscoverArtistDetail(artist: AurralDiscoverArtist): String {
+	val tags = artist.matchedTags.ifEmpty { artist.tags }.take(3)
+	return listOfNotNull(
+		artist.reason,
+		tags.takeIf { it.isNotEmpty() }?.joinToString(", ")
+	).joinToString(" • ").takeIf { it.isNotEmpty() }
+		?: artist.discoveryTier
+		?: artist.sourceType
+		?: ""
+}
+
 private fun aurralScheduleSummary(
 	scheduleDays: List<Int>,
 	scheduleTime: String

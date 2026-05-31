@@ -1,0 +1,73 @@
+package paige.navic.ui.screens.library.components
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.dropUnlessResumed
+import org.koin.compose.koinInject
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.screens.aurral.aurralDiscoverArtistDetail
+
+@Composable
+fun AurralDiscoverArtistCard(
+	artist: AurralDiscoverArtist,
+	modifier: Modifier = Modifier,
+	onOpenArtist: (AurralDiscoverArtist) -> Unit
+) {
+	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+	val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+	val imageRequestHeaders = if (baseUrl != null) {
+		aurralRequestHeadersForUrl(baseUrl, artist.imageUrl, requestHeaders)
+	} else {
+		emptyMap()
+	}
+
+	Column(
+		modifier = modifier.clickable(
+			onClick = dropUnlessResumed {
+				platformContext.clickSound()
+				onOpenArtist(artist)
+			}
+		)
+	) {
+		CoverArt(
+			coverArtId = null,
+			imageUrl = artist.imageUrl,
+			imageRequestHeaders = imageRequestHeaders,
+			contentDescription = artist.name,
+			fallbackKind = "Artist",
+			modifier = Modifier.fillMaxWidth()
+		)
+		Text(
+			text = artist.name,
+			style = MaterialTheme.typography.titleSmallEmphasized,
+			fontWeight = FontWeight.Medium,
+			maxLines = 2,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+		)
+		Text(
+			text = aurralDiscoverArtistDetail(artist),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			maxLines = 2,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.fillMaxWidth()
+		)
+	}
+}

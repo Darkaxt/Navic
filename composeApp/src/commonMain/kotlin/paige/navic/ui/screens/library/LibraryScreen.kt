@@ -24,6 +24,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
@@ -43,6 +44,8 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
+import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.aurral.aurralArtistRoute
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -97,6 +100,9 @@ fun LibraryScreen() {
 	val loginState by loginViewModel.loginState.collectAsStateWithLifecycle()
 	val isLoggedIn = loginState is LoginUiState.Success
 
+	val aurralViewModel = koinViewModel<AurralHubViewModel>(key = "libraryAurral")
+	val aurralDiscovery by aurralViewModel.discovery.collectAsStateWithLifecycle()
+
 	var shareId by rememberSaveable { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 	var playlistDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -105,12 +111,36 @@ fun LibraryScreen() {
 	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
 
 	val player = koinInject<MediaPlayerViewModel>()
+	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
-	val showAurralHub = preferenceManager.aurralEnabled &&
+	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralDiscoverArtistsState = when (val state = aurralDiscovery) {
+		is UiState.Error -> UiState.Error(
+			state.error,
+			libraryAurralDiscoverArtists(
+				aurralConfigured = aurralConfigured,
+				discovery = state.data
+			)
+		)
+
+		is UiState.Loading -> UiState.Loading(
+			libraryAurralDiscoverArtists(
+				aurralConfigured = aurralConfigured,
+				discovery = state.data
+			)
+		)
+
+		is UiState.Success -> UiState.Success(
+			libraryAurralDiscoverArtists(
+				aurralConfigured = aurralConfigured,
+				discovery = state.data
+			)
+		)
+	}
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -144,6 +174,20 @@ fun LibraryScreen() {
 		genresViewModel.refreshGenres(false)
 	}
 
+	LaunchedEffect(
+		isLoggedIn,
+		aurralConfigured,
+		preferenceManager.aurralBaseUrl,
+		preferenceManager.aurralUsername,
+		preferenceManager.aurralPassword
+	) {
+		if (isLoggedIn && aurralConfigured) {
+			aurralViewModel.refreshServiceStatus()
+		} else {
+			aurralViewModel.clearServiceStatus()
+		}
+	}
+
 	Scaffold(
 		topBar = { RootTopBar({ Text(stringResource(Res.string.title_library)) }, scrollBehavior) },
 		bottomBar = {
@@ -159,7 +203,8 @@ fun LibraryScreen() {
 				(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
 				playlistsState !is UiState.Loading &&
 				artistsState !is UiState.Loading &&
-				genresState !is UiState.Loading,
+				genresState !is UiState.Loading &&
+				(!aurralConfigured || aurralDiscovery !is UiState.Loading),
 			onRefresh = {
 				if (quickPicksEnabled) {
 					quickPicksViewModel.refreshSongs(true)
@@ -168,8 +213,11 @@ fun LibraryScreen() {
 				playlistsViewModel.refreshPlaylists(true)
 				artistsViewModel.refreshArtists(true)
 				genresViewModel.refreshGenres(true)
+				if (aurralConfigured) {
+					aurralViewModel.refreshServiceStatus()
+				}
 			},
-			key = listOf(quickPicksState, albumsState, playlistsState, artistsState, genresState)
+			key = listOf(quickPicksState, albumsState, playlistsState, artistsState, genresState, aurralDiscovery)
 		) {
 			LibraryScreenContent(
 				scrollBehavior = scrollBehavior,
@@ -208,7 +256,7 @@ fun LibraryScreen() {
 
 				albumsState = albumsState,
 				aurralAlbumRequests = libraryAlbumAurralRequests(
-					showAurralHub = showAurralHub,
+					showAurralHub = aurralConfigured,
 					requests = aurralAlbumRequests
 				),
 				selectedAlbum = selectedAlbum,
@@ -230,6 +278,10 @@ fun LibraryScreen() {
 				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
 				onPlayArtistNext = { if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(player)},
 				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
+				aurralDiscoverArtistsState = aurralDiscoverArtistsState,
+				onOpenAurralDiscoverArtist = { artist ->
+					aurralArtistRoute(artist)?.let(backStack::add)
+				},
 
 				playlistsState = playlistsState,
 				selectedPlaylist = selectedPlaylist,
@@ -239,8 +291,7 @@ fun LibraryScreen() {
 				onPlayPlaylistNext = { playlistsViewModel.playSelectedPlaylistNext(player) },
 				onAddPlaylistToQueue = { playlistsViewModel.addSelectedPlaylistToQueue(player) },
 
-				genresState = genresState,
-				showAurralHub = showAurralHub
+				genresState = genresState
 			)
 		}
 	}
@@ -250,7 +301,8 @@ fun LibraryScreen() {
 		(albumsState as? UiState.Error)?.error,
 		(playlistsState as? UiState.Error)?.error,
 		(artistsState as? UiState.Error)?.error,
-		(genresState as? UiState.Error)?.error
+		(genresState as? UiState.Error)?.error,
+		(aurralDiscovery as? UiState.Error)?.error?.takeIf { aurralConfigured }
 	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
 	ErrorSnackbar(
@@ -261,6 +313,7 @@ fun LibraryScreen() {
 			playlistsViewModel.clearError()
 			artistsViewModel.clearError()
 			genresViewModel.clearError()
+			aurralViewModel.clearServiceStatus()
 		}
 	)
 
