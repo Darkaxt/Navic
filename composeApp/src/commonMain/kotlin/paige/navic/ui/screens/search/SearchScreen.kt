@@ -136,6 +136,7 @@ fun SearchScreen(
 	val albumListSelection by albumListViewModel.selectedAlbum.collectAsState()
 	val albumListStarred by albumListViewModel.starred.collectAsState()
 	val selectedAlbumRating by albumListViewModel.rating.collectAsStateWithLifecycle()
+	val aurralAlbumRequests by albumListViewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
 
 	val query = viewModel.searchQuery
 	val state by viewModel.searchState.collectAsState()
@@ -386,7 +387,7 @@ fun SearchScreen(
 										.width(150.dp),
 									tab = "search",
 									album = album,
-									aurralAlbumRequests = emptyList(),
+									aurralAlbumRequests = aurralAlbumRequests,
 									selected = album == albumListSelection,
 									starred = albumListStarred,
 									onSelect = { albumListViewModel.selectAlbum(album) },

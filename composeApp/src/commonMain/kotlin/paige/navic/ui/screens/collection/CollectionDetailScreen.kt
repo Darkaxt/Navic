@@ -112,6 +112,7 @@ fun CollectionDetailScreen(
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
+	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsState()
 	val allDownloads by viewModel.allDownloads.collectAsState()
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
@@ -356,6 +357,7 @@ fun CollectionDetailScreen(
 					collectionDetailScreenMoreByArtistRow(
 						artistName = artistName,
 						artistAlbums = otherAlbums,
+						aurralAlbumRequests = aurralAlbumRequests,
 						selectedAlbum = selectedAlbum,
 						onSetShareId = { shareId = it },
 						onPlayNext = if (selectedAlbum != null) { { player.playNext(selectedAlbum as DomainSongCollection) } } else null,

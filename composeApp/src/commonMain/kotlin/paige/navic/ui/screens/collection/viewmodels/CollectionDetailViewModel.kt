@@ -18,17 +18,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
+import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.domain.manager.ConnectivityManager
-import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.ui.core.UiState
 
@@ -37,6 +40,7 @@ class CollectionDetailViewModel(
 	private val repository: CollectionRepository,
 	private val songRepository: SongRepository,
 	private val albumRepository: AlbumRepository,
+	private val aurralRepository: AurralRepository,
 	playlistRepository: PlaylistRepository,
 	private val downloadManager: DownloadManager,
 	private val sessionManager: SessionManager,
@@ -104,6 +108,9 @@ class CollectionDetailViewModel(
 	private val _selectedAlbumRating = MutableStateFlow(0)
 	val selectedAlbumRating = _selectedAlbumRating.asStateFlow()
 
+	private val _aurralAlbumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
+	val aurralAlbumRequests = _aurralAlbumRequests.asStateFlow()
+
 	private val _rating = MutableStateFlow(0)
 	val rating = _rating.asStateFlow()
 
@@ -116,6 +123,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun refreshCollection(fullRefresh: Boolean) {
+		refreshAurralAcquisitionRequests()
 		viewModelScope.launch {
 			repository.getCollectionFlow(fullRefresh, collectionId).collect {
 				_collectionState.value = it
@@ -130,6 +138,18 @@ class CollectionDetailViewModel(
 					}
 				}
 			}
+		}
+	}
+
+	private fun refreshAurralAcquisitionRequests() {
+		viewModelScope.launch {
+			aurralRepository.getServiceStatus()
+				.onSuccess { status ->
+					_aurralAlbumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
+				}
+				.onFailure {
+					_aurralAlbumRequests.value = emptyList()
+				}
 		}
 	}
 
@@ -282,3 +302,11 @@ class CollectionDetailViewModel(
 		return downloadManager.getCollectionDownloadStatus(songs.map { it.id })
 	}
 }
+
+private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
+	albumMbid = albumMbid,
+	albumName = albumName,
+	artistMbid = artistMbid,
+	artistName = artistName,
+	status = status
+)

@@ -18,7 +18,9 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -29,6 +31,7 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 	artistName: String,
 	artistAlbums: List<DomainAlbum>,
+	aurralAlbumRequests: List<AurralAlbumRequest>,
 	selectedAlbum: DomainAlbum?,
 	onSetShareId: (String) -> Unit,
 	onPlayNext: (() -> Unit)?,
@@ -60,6 +63,10 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 				coverArtId = album.coverArtId,
 				title = album.name,
 				contentDescription = album.name,
+				acquisitionProgress = aurralAlbumAcquisitionProgress(
+					album = album,
+					requests = aurralAlbumRequests
+				),
 				onSelect = { onSelect(album) },
 				onClick = dropUnlessResumed {
 					backStack.add(Screen.CollectionDetail(album.id, tab))
