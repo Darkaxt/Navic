@@ -278,7 +278,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 					modifier = Modifier.padding(horizontal = 24.dp)
 				)
 			}
-			if (state.previewTracks.isNotEmpty()) {
+			if (shouldShowAurralArtistGlobalPreviewRow(state.previewTracks)) {
 				AurralPreviewTracks(
 					title = stringResource(Res.string.title_aurral_preview_tracks),
 					tracks = state.previewTracks.toImmutableList(),
