@@ -27,6 +27,7 @@ import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.ui.navigation.Screen
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -78,6 +79,7 @@ fun LibraryScreenContent(
 
 	// albums
 	albumsState: UiState<ImmutableList<DomainAlbum>>,
+	aurralAlbumRequests: List<AurralAlbumRequest>,
 	selectedAlbum: DomainAlbum?,
 	selectedAlbumIsStarred: Boolean,
 	selectedAlbumRating: Int,
@@ -198,7 +200,7 @@ fun LibraryScreenContent(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library",
 				album = album,
-				aurralAlbumRequests = emptyList(),
+				aurralAlbumRequests = aurralAlbumRequests,
 				selected = album == selectedAlbum,
 				starred = selectedAlbumIsStarred,
 				onSelect = { onSelectAlbum(album) },

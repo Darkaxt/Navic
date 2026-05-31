@@ -72,6 +72,7 @@ fun LibraryScreen() {
 		parameters = { parametersOf(DomainAlbumListType.Recent) }
 	)
 	val albumsState by albumsViewModel.albumsState.collectAsStateWithLifecycle()
+	val aurralAlbumRequests by albumsViewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
 	val selectedAlbum by albumsViewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
@@ -206,6 +207,10 @@ fun LibraryScreen() {
 				onDeleteQuickPickDownload = { quickPicksViewModel.deleteDownload(it.id) },
 
 				albumsState = albumsState,
+				aurralAlbumRequests = libraryAlbumAurralRequests(
+					showAurralHub = showAurralHub,
+					requests = aurralAlbumRequests
+				),
 				selectedAlbum = selectedAlbum,
 				selectedAlbumIsStarred = selectedAlbumIsStarred,
 				selectedAlbumRating = selectedAlbumRating,
