@@ -170,6 +170,24 @@ class ChangelogReleaseTest {
 	}
 
 	@Test
+	fun gammaReleaseOutranksHigherNumberedBetaRelease() {
+		assertEquals(
+			true,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.10-beta77",
+				remoteTag = "v1.0.10-gamma1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.10-gamma1",
+				remoteTag = "v1.0.10-beta88"
+			)
+		)
+	}
+
+	@Test
 	fun patchBridgeReleaseOutranksLegacyAlphaBuilds() {
 		assertEquals(
 			true,

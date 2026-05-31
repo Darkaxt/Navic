@@ -21,6 +21,7 @@ import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
@@ -82,7 +83,11 @@ fun PlaylistListScreenItem(
 				onDismissRequest = onDeselect,
 				collection = playlist,
 				onShare = { onSetShareId(playlist.id) },
-				onDelete = { onSetDeletionId(playlist.id) },
+				onDelete = if (canDeletePlaylistFromDetail(playlist)) {
+					{ onSetDeletionId(playlist.id) }
+				} else {
+					null
+				},
 				onPlayNext = onPlayNext,
 				onAddToQueue = onAddToQueue,
 				onAddAllToPlaylist = { playlistDialogShown = true },

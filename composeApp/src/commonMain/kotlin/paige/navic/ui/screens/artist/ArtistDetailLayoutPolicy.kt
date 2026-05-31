@@ -15,7 +15,7 @@ fun artistDetailHeadingImageUrl(
 	artist: DomainArtist,
 	verifiedExternalImageUrl: String? = null
 ): String? {
-	if (!artist.coverArtId.isNullOrBlank()) return null
+	val verifiedImageUrl = verifiedExternalImageUrl?.trim()?.takeIf { it.isNotEmpty() }
+	if (verifiedImageUrl != null) return verifiedImageUrl
 	return artist.artistImageUrl?.trim()?.takeIf { it.isNotEmpty() }
-		?: verifiedExternalImageUrl?.trim()?.takeIf { it.isNotEmpty() }
 }

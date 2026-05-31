@@ -274,7 +274,7 @@ fun LibraryScreenContent(
 
 		horizontalSection(
 			title = Res.string.title_aurral_discover,
-			destination = Screen.AurralHub,
+			destination = Screen.AurralDiscoverList,
 			state = aurralDiscoverArtistsState,
 			key = { it.id.trim().ifEmpty { it.name } },
 			seeAll = true

@@ -29,10 +29,10 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
-	fun playlistDeletionFromDetailIsOnlyOfferedForWritableRegularPlaylists() {
+	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))
-		assertFalse(canDeletePlaylistFromDetail(playlist(id = "readonly", name = "Training").copy(readOnly = true)))
+		assertTrue(canDeletePlaylistFromDetail(playlist(id = "readonly", name = "Training").copy(readOnly = true)))
 	}
 
 	private fun playlist(id: String, name: String) = DomainPlaylist(

@@ -145,6 +145,38 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverListArtistsExposeFullMergedRecommendationSet() {
+		val summary = AurralDiscoverySummary(
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(id = "artist-$index", name = "Artist $index")
+			},
+			recentReleases = listOf(
+				albumSearchItem(
+					id = "release-1",
+					title = "Recommended Album",
+					artistName = "Artist 5",
+					artistMbid = "artist-5"
+				),
+				albumSearchItem(
+					id = "release-new",
+					title = "New Artist Album",
+					artistName = "New Artist",
+					artistMbid = "artist-new"
+				)
+			)
+		)
+
+		val artists = aurralDiscoverListArtists(summary)
+
+		assertEquals(13, artists.size)
+		assertEquals(
+			listOf("Recommended Album"),
+			artists.single { it.id == "artist-5" }.recommendedAlbums.map { it.title }
+		)
+		assertTrue(artists.any { it.id == "artist-new" && it.name == "New Artist" })
+	}
+
+	@Test
 	fun localArtistAurralIdentityCandidatesPreferLocalMbidBeforeDiscoveryNameMatch() {
 		val localArtist = DomainArtist(
 			id = "local-bond",

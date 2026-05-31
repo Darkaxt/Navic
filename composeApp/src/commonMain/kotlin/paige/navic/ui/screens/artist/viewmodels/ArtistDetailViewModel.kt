@@ -238,18 +238,14 @@ class ArtistDetailViewModel(
 						)
 					}.orEmpty()
 				}
-			val verifiedAurralArtistImageUrl = aurralIdentities
-				.firstNotNullOfOrNull { identity ->
-					identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
-				}
-			val aurralArtists = aurralIdentities.map { identity ->
-					artist.copy(
-						name = identity.name,
-						musicBrainzId = identity.mbid
-					)
-				}
+			val aurralArtistCandidates = aurralIdentities.map { identity ->
+				identity to artist.copy(
+					name = identity.name,
+					musicBrainzId = identity.mbid
+				)
+			}
 
-			if (aurralArtists.isEmpty()) {
+			if (aurralArtistCandidates.isEmpty()) {
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 				_artistState.value = UiState.Success(
 					latestState.copy(
@@ -260,20 +256,40 @@ class ArtistDetailViewModel(
 				return@launch
 			}
 
-			var aurralArtist = aurralArtists.first()
+			var selectedCandidate = aurralArtistCandidates.first()
+			var aurralArtist = selectedCandidate.second
 			var enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
-			if (enrichmentResult.isFailure) {
-				for (candidateArtist in aurralArtists.drop(1)) {
+			if (enrichmentResult.isFailure || enrichmentResult.getOrNull()?.monitored == null) {
+				for (candidate in aurralArtistCandidates.drop(1)) {
+					val candidateArtist = candidate.second
 					val candidateResult = aurralRepository.getArtistEnrichment(candidateArtist)
-					if (candidateResult.isSuccess) {
+					val currentMonitoring = enrichmentResult.getOrNull()?.monitored
+					val candidateMonitoring = candidateResult.getOrNull()?.monitored
+					val shouldUseCandidate = when {
+						candidateResult.isFailure -> false
+						enrichmentResult.isFailure -> true
+						currentMonitoring == null && candidateMonitoring != null -> true
+						enrichmentResult.getOrNull() == null && candidateResult.getOrNull() != null -> true
+						else -> false
+					}
+					if (shouldUseCandidate) {
+						selectedCandidate = candidate
 						aurralArtist = candidateArtist
 						enrichmentResult = candidateResult
+					}
+					if (enrichmentResult.isSuccess && enrichmentResult.getOrNull()?.monitored != null) {
 						break
 					}
 				}
 			}
 			if (enrichmentResult.isSuccess) {
 				val enrichment = enrichmentResult.getOrNull()
+				val verifiedAurralArtistImageUrl = selectedCandidate.first.imageUrl
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
+					?: aurralIdentities.firstNotNullOfOrNull { identity ->
+						identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+					}
 				val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }

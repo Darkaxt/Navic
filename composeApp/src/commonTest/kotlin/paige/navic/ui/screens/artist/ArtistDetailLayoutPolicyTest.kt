@@ -16,7 +16,7 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
-	fun headingUsesArtistImageUrlWhenServerCoverIsMissing() {
+	fun headingUsesVerifiedExternalImageBeforePotentiallyStaleServerCover() {
 		assertEquals(
 			"https://assets.example.com/bond.jpg",
 			artistDetailHeadingImageUrl(
@@ -40,7 +40,8 @@ class ArtistDetailLayoutPolicyTest {
 				verifiedExternalImageUrl = " https://aurral.example.com/bond.webp "
 			)
 		)
-		assertNull(
+		assertEquals(
+			"https://aurral.example.com/bond.webp",
 			artistDetailHeadingImageUrl(
 				artist = DomainArtist(
 					id = "bond",

@@ -85,10 +85,12 @@ import navic.composeapp.generated.resources.option_aurral_flow_size
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -121,6 +123,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 
 @Composable
 fun AurralHubScreen() {
@@ -139,6 +142,11 @@ fun AurralHubScreen() {
 	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
 	val activeDiscoverArtistId by viewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
 	val stationPlaylists by viewModel.stationPlaylists.collectAsStateWithLifecycle()
+	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
+		key = "aurralHubLocalArtists",
+		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) }
+	)
+	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 
@@ -214,8 +222,12 @@ fun AurralHubScreen() {
 					preferenceManager = preferenceManager,
 					onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
 					onOpenDiscoverArtist = { artist ->
-						aurralArtistRoute(artist)?.let(backStack::add)
+						aurralArtistRecommendationRoute(
+							artist = artist,
+							localArtists = localArtistsState.data.orEmpty()
+						)?.let(backStack::add)
 					},
+					onOpenDiscoverList = { backStack.add(Screen.AurralDiscoverList) },
 					onOpenSearchAlbum = { album ->
 						aurralAlbumSearchRoute(album)?.let(backStack::add)
 					},
@@ -266,6 +278,7 @@ private fun AurralHubContent(
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenDiscoverList: () -> Unit,
 	onOpenSearchAlbum: (AurralAlbumSearchItem) -> Unit,
 	onArtistSearchQueryChange: (String) -> Unit,
 	onSearchArtists: () -> Unit,
@@ -327,7 +340,8 @@ private fun AurralHubContent(
 		canMonitorArtist = status.addArtist,
 		preferenceManager = preferenceManager,
 		onMonitorArtist = onMonitorDiscoverArtist,
-		onOpenArtist = onOpenDiscoverArtist
+		onOpenArtist = onOpenDiscoverArtist,
+		onOpenDiscoverList = onOpenDiscoverList
 	)
 
 	AurralHubFlowsSection(
@@ -572,15 +586,15 @@ private fun AurralHubDiscoverSection(
 	canMonitorArtist: Boolean,
 	preferenceManager: PreferenceManager,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
-	onOpenArtist: (AurralDiscoverArtist) -> Unit
+	onOpenArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenDiscoverList: () -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
-	var showAllDiscover by rememberSaveable { mutableStateOf(false) }
 	val discovery = state.data
 	val artists = discovery
-		?.let { aurralHubDiscoverArtists(it, limit = if (showAllDiscover) Int.MAX_VALUE else 8) }
+		?.let { aurralHubDiscoverArtists(it) }
 		.orEmpty()
-	val hasMoreArtists = !showAllDiscover && discovery?.let { aurralHubDiscoverHasMore(it) } == true
+	val hasMoreArtists = discovery?.let { aurralHubDiscoverHasMore(it) } == true
 	val actionInProgress = actionState is UiState.Loading
 
 	Form(Modifier.fillMaxWidth()) {
@@ -604,7 +618,7 @@ private fun AurralHubDiscoverSection(
 	}
 	if (hasMoreArtists) {
 		FormButton(
-			onClick = { showAllDiscover = true },
+			onClick = onOpenDiscoverList,
 			color = MaterialTheme.colorScheme.secondaryContainer
 		) {
 			Text(stringResource(Res.string.action_see_all))

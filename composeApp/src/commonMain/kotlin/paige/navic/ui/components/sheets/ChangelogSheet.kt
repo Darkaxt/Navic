@@ -134,8 +134,9 @@ private fun parseAppReleaseVersion(value: String): AppReleaseVersion? {
 	val match = appReleaseVersionPattern.matchEntire(value.trim()) ?: return null
 	val preReleaseLabel = match.groupValues[4].takeIf { it.isNotBlank() }?.lowercase()
 	val preReleaseRank = when (preReleaseLabel) {
-		null -> 3
-		"rc" -> 2
+		null -> 4
+		"rc" -> 3
+		"gamma" -> 2
 		"beta" -> 1
 		"alpha" -> 0
 		else -> -1

@@ -61,22 +61,23 @@ fun aurralHubDiscoverArtists(
 	discovery: AurralDiscoverySummary,
 	limit: Int = 8
 ): List<AurralDiscoverArtist> =
-	mergeAurralDiscoverArtists(
-		discovery.recommendations +
-			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
-			discovery.globalTop
-	)
+	aurralDiscoverListArtists(discovery)
 		.take(limit.coerceAtLeast(0))
 
 fun aurralHubDiscoverHasMore(
 	discovery: AurralDiscoverySummary,
 	visibleLimit: Int = 8
 ): Boolean =
+	aurralDiscoverListArtists(discovery).size > visibleLimit.coerceAtLeast(0)
+
+fun aurralDiscoverListArtists(
+	discovery: AurralDiscoverySummary
+): List<AurralDiscoverArtist> =
 	mergeAurralDiscoverArtists(
 		discovery.recommendations +
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop
-	).size > visibleLimit.coerceAtLeast(0)
+	)
 
 fun aurralRecommendedAlbumsForArtist(
 	discovery: AurralDiscoverySummary,
