@@ -27,7 +27,7 @@ val repositoryModule = module {
 	single { AurralRepository(get()) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
-	singleOf(::PlaybackOriginRepository)
+	single { PlaybackOriginRepository(get()) }
 	singleOf(::SearchRepository)
 	singleOf(::ShareRepository)
 	singleOf(::CollectionRepository)
