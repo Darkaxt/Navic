@@ -41,6 +41,36 @@ class ActivityDisplayPolicyTest {
 	}
 
 	@Test
+	fun downloadQueueControlsExposeRetryAndDiscardForFailedRowsOnly() {
+		val controls = navicDownloadQueueControls(
+			listOf(
+				activityDownloadItem("song-1", DownloadStatus.DOWNLOADING),
+				activityDownloadItem("song-2", DownloadStatus.QUEUED),
+				activityDownloadItem("song-3", DownloadStatus.FAILED),
+				activityDownloadItem("song-4", DownloadStatus.FAILED)
+			)
+		)
+
+		assertEquals(2, controls.failedCount)
+		assertTrue(controls.canRetryFailedDownloads)
+		assertTrue(controls.canDiscardFailedDownloads)
+	}
+
+	@Test
+	fun downloadQueueControlsStayHiddenWithoutFailures() {
+		val controls = navicDownloadQueueControls(
+			listOf(
+				activityDownloadItem("song-1", DownloadStatus.DOWNLOADING),
+				activityDownloadItem("song-2", DownloadStatus.QUEUED)
+			)
+		)
+
+		assertEquals(0, controls.failedCount)
+		assertFalse(controls.canRetryFailedDownloads)
+		assertFalse(controls.canDiscardFailedDownloads)
+	}
+
+	@Test
 	fun aurralSummaryCombinesAlbumAcquisitionsAndFlowWork() {
 		val summary = aurralActivitySummary(
 			AurralServiceStatus(
@@ -69,6 +99,37 @@ class ActivityDisplayPolicyTest {
 		assertEquals("Waiting for service status", summary.detail)
 		assertFalse(summary.active)
 		assertFalse(summary.failed)
+	}
+
+	@Test
+	fun aurralAcquisitionRowsCanCancelWhenAurralExposesADeleteTarget() {
+		assertTrue(aurralAcquisitionQueueItemControls(aurralQueueItem("1", "processing")).canCancel)
+		assertTrue(
+			aurralAcquisitionQueueItemControls(
+				aurralQueueItem("2", "failed").copy(albumId = null, artistMbid = "artist-mbid")
+			).canCancel
+		)
+		assertFalse(
+			aurralAcquisitionQueueItemControls(
+				aurralQueueItem("3", "processing").copy(albumId = null, artistMbid = null)
+			).canCancel
+		)
+	}
+
+	@Test
+	fun aurralAcquisitionRowsRetryOnlyFailedAlbumsWithRequiredMbids() {
+		assertTrue(aurralAcquisitionQueueItemControls(aurralQueueItem("1", "failed")).canRetry)
+		assertFalse(aurralAcquisitionQueueItemControls(aurralQueueItem("2", "processing")).canRetry)
+		assertFalse(
+			aurralAcquisitionQueueItemControls(
+				aurralQueueItem("3", "failed").copy(albumMbid = null)
+			).canRetry
+		)
+		assertFalse(
+			aurralAcquisitionQueueItemControls(
+				aurralQueueItem("4", "failed").copy(artistMbid = null)
+			).canRetry
+		)
 	}
 
 	@Test

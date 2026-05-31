@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -58,12 +59,15 @@ import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
+import paige.navic.domain.models.aurralOwnershipStatusForProgress
+import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
 import paige.navic.domain.models.aurralPreviewTracksForReleaseGroup
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -201,9 +205,9 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 		Column(
 			modifier = Modifier
 				.fillMaxSize()
-				.padding(innerPadding)
+				.padding(top = innerPadding.calculateTopPadding())
 				.verticalScroll(rememberScrollState())
-				.padding(top = 20.dp, bottom = 32.dp),
+				.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
 			horizontalAlignment = Alignment.CenterHorizontally
 		) {
 			AurralMissingAlbumHero(
@@ -239,10 +243,17 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 						.size(32.dp)
 				)
 			} else if (state.previewTracks.isNotEmpty()) {
+				val fallbackTrackStatus = aurralOwnershipStatusForProgress(state.progress)
 				AurralPreviewTracks(
 					title = stringResource(Res.string.title_aurral_preview_tracks),
 					tracks = state.previewTracks.toImmutableList(),
-					modifier = Modifier.fillMaxWidth()
+					modifier = Modifier.fillMaxWidth(),
+					ownershipStatuses = state.previewTracks.associate { track ->
+						track.id to aurralPreviewTrackOwnershipStatus(
+							track = track,
+							fallbackAlbumStatus = fallbackTrackStatus
+						)
+					}.toImmutableMap()
 				)
 			} else {
 				ContentUnavailable(
@@ -260,6 +271,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 						coverArtId = album.coverArtId,
 						title = album.name,
 						subtitle = album.year?.toString(),
+						ownershipStatus = AurralOwnershipStatus.Owned,
 						contentDescription = album.name,
 						onClick = {
 							backStack.add(Screen.CollectionDetail(album.id, "aurral"))

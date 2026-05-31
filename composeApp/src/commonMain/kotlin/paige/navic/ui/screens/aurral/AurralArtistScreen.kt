@@ -70,6 +70,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralArtistAlbumRow
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.DomainAlbum
@@ -86,6 +87,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.Visibility
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -136,7 +138,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 
 		aurralRepository.getArtistEnrichment(artist)
 			.onSuccess { enrichment ->
-				val recommendedAlbums = aurralRepository.getDiscovery()
+				val recommendedAlbums = aurralRepository.getDiscovery(hydrateMissingImages = false)
 					.getOrNull()
 					?.let { discovery ->
 						aurralRecommendedAlbumsForArtist(
@@ -203,9 +205,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 		Column(
 			modifier = Modifier
 				.fillMaxSize()
-				.padding(innerPadding)
+				.padding(top = innerPadding.calculateTopPadding())
 				.verticalScroll(rememberScrollState())
-				.padding(top = 20.dp, bottom = 32.dp),
+				.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
 			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
@@ -475,6 +477,7 @@ private fun CarouselItemScope.AurralArtistLocalAlbumItem(
 		coverArtId = album.coverArtId,
 		title = album.name,
 		subtitle = album.year?.toString(),
+		ownershipStatus = AurralOwnershipStatus.Owned,
 		contentDescription = album.name,
 		onClick = onClick
 	)
@@ -516,6 +519,12 @@ private fun CarouselItemScope.AurralArtistMissingAlbumItem(
 					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
+			AurralOwnershipStatusDot(
+				status = aurralMissingAlbumOwnershipStatus(row),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(8.dp)
+			)
 		}
 		Text(
 			text = row.title,

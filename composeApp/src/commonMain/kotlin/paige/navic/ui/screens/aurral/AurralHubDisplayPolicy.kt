@@ -3,6 +3,10 @@ package paige.navic.ui.screens.aurral
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.models.aurralOwnershipStatusForProgress
+import paige.navic.domain.models.aurralOwnershipStatusForStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
@@ -245,6 +249,23 @@ fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAl
 		requestStatus = album.status?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
+
+fun aurralAlbumSearchDestination(album: AurralAlbumSearchItem): Screen? {
+	val libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
+	if (album.inLibrary && libraryAlbumId != null) {
+		return Screen.CollectionDetail(libraryAlbumId, "search")
+	}
+	return aurralAlbumSearchRoute(album)
+}
+
+fun aurralSearchAlbumOwnershipStatus(album: AurralAlbumSearchItem): AurralOwnershipStatus =
+	when {
+		album.inLibrary || !album.libraryAlbumId.isNullOrBlank() -> AurralOwnershipStatus.Owned
+		else -> aurralOwnershipStatusForStatus(album.status)
+	}
+
+fun aurralMissingAlbumOwnershipStatus(row: AurralMissingAlbumRow): AurralOwnershipStatus =
+	aurralOwnershipStatusForProgress(row.acquisitionProgress)
 
 private fun AurralAlbumSearchItem.toDiscoverArtistRecommendation(): AurralDiscoverArtist? {
 	val artistMbid = artistMbid.trim().takeIf { it.isNotEmpty() } ?: return null

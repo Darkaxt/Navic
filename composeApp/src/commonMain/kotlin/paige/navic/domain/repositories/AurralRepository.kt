@@ -6,6 +6,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -16,6 +17,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.SerialName
@@ -170,24 +173,90 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			val enrichment = apiClient.fetchArtistEnrichment(
-				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				artistMbid = artistMbid,
-				artistName = artist.name
-			)
-			val libraryArtistMonitoring = runCatching {
-				apiClient.fetchLibraryArtistMonitoring(
-					baseUrl = baseUrl,
-					requestHeaders = requestHeaders,
-					artistMbid = artistMbid
-				)
-			}.onFailure { error ->
-				Logger.w(TAG, "Aurral library artist monitoring lookup failed for ${artist.name}", error)
-			}.getOrNull()
-			enrichment.withLocalArtistState(libraryArtistMonitoring)
+			coroutineScope {
+				val enrichment = async {
+					apiClient.fetchArtistEnrichment(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = artistMbid,
+						artistName = artist.name
+					)
+				}
+				val libraryArtistMonitoring = async {
+					runCatching {
+						apiClient.fetchLibraryArtistMonitoring(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = artistMbid
+						)
+					}.onFailure { error ->
+						Logger.w(TAG, "Aurral library artist monitoring lookup failed for ${artist.name}", error)
+					}.getOrNull()
+				}
+				enrichment.await().withLocalArtistState(libraryArtistMonitoring.await())
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist enrichment failed for ${artist.name}", error)
+		}
+	}
+
+	suspend fun cancelAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
+		val target = aurralAcquisitionDeleteTarget(item)
+			?: return Result.failure(IllegalStateException("Aurral request delete target is unavailable."))
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.cancelAcquisitionRequest(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				target = target
+			)
+			item.albumMbid.normalizedAurralCacheKey()?.let { albumKey ->
+				if (optimisticAlbumRequestsByMbid.remove(albumKey) != null) {
+					bumpArtistStateRevision()
+				}
+			}
+			Unit
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral acquisition cancel failed for ${item.albumName}", error)
+		}
+	}
+
+	suspend fun retryAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
+		val albumMbid = item.albumMbid?.trim()?.takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Album MusicBrainz ID is required."))
+		val artistMbid = item.artistMbid?.trim()?.takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
+		val albumName = item.albumName.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Album title is required."))
+		val artistName = item.artistName.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist name is required."))
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val payload = AurralAlbumRequestPayload(
+			albumMbid = albumMbid,
+			albumName = albumName,
+			artistMbid = artistMbid,
+			artistName = artistName,
+			triggerSearch = true
+		)
+
+		return runCatching {
+			apiClient.requestAlbum(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				payload = payload
+			)
+			rememberOptimisticAlbumRequest(payload)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral acquisition retry failed for $albumName", error)
 		}
 	}
 
@@ -479,7 +548,6 @@ class AurralRepository(
 		val artistKey = artistMbid.normalizedAurralCacheKey() ?: return
 		if (optimisticArtistMonitoringByMbid[artistKey] == monitored) return
 		optimisticArtistMonitoringByMbid[artistKey] = monitored
-		bumpArtistStateRevision()
 	}
 
 	private fun rememberReleaseGroupCoverUrl(
@@ -660,6 +728,12 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>,
 		payload: AurralAlbumRequestPayload
 	)
+
+	suspend fun cancelAcquisitionRequest(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		target: AurralAcquisitionDeleteTarget
+	): Unit = error("Aurral request cancellation is not supported by this client.")
 
 	suspend fun monitorArtist(
 		baseUrl: String,
@@ -857,33 +931,39 @@ private class KtorAurralApiClient : AurralApiClient {
 		requestHeaders: Map<String, String>,
 		artistMbid: String,
 		artistName: String
-	): AurralArtistEnrichment {
-		val details = fetchArtistDetails(
-			baseUrl = baseUrl,
-			requestHeaders = requestHeaders,
-			artistMbid = artistMbid,
-			artistName = artistName
-		)
-		val preview = fetchArtistPreview(
-			baseUrl = baseUrl,
-			requestHeaders = requestHeaders,
-			artistMbid = artistMbid,
-			artistName = artistName
-		)
-		val similar = fetchSimilarArtists(
-			baseUrl = baseUrl,
-			requestHeaders = requestHeaders,
-			artistMbid = artistMbid,
-			artistName = artistName
-		)
-		val requests = fetchRequests(baseUrl, requestHeaders)
+	): AurralArtistEnrichment = coroutineScope {
+		val details = async {
+			fetchArtistDetails(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		}
+		val preview = async {
+			fetchArtistPreview(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		}
+		val similar = async {
+			fetchSimilarArtists(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		}
+		val requests = async { fetchRequests(baseUrl, requestHeaders) }
 
-		return aurralArtistEnrichment(
+		aurralArtistEnrichment(
 			baseUrl = baseUrl,
-			details = details,
-			preview = preview,
-			similar = similar,
-			requests = requests
+			details = details.await(),
+			preview = preview.await(),
+			similar = similar.await(),
+			requests = requests.await()
 		)
 	}
 
@@ -1023,6 +1103,27 @@ private class KtorAurralApiClient : AurralApiClient {
 		}
 		if (!response.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral album request", response.status))
+		}
+	}
+
+	override suspend fun cancelAcquisitionRequest(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		target: AurralAcquisitionDeleteTarget
+	) {
+		val path = when (target) {
+			is AurralAcquisitionDeleteTarget.Album -> {
+				"api/requests/album/${encodeUrlComponent(target.albumId)}"
+			}
+			is AurralAcquisitionDeleteTarget.Artist -> {
+				"api/requests/${encodeUrlComponent(target.artistMbid)}"
+			}
+		}
+		val response = client.delete(aurralEndpoint(baseUrl, path)) {
+			aurralJsonRequest(requestHeaders)
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral request cancellation", response.status))
 		}
 	}
 
@@ -1241,6 +1342,11 @@ data class AurralServiceStatus(
 	val flowCapabilities: AurralFlowCapabilities = AurralFlowCapabilities(),
 	val acquisitionQueue: List<AurralAcquisitionQueueItem> = emptyList()
 )
+
+sealed class AurralAcquisitionDeleteTarget {
+	data class Album(val albumId: String) : AurralAcquisitionDeleteTarget()
+	data class Artist(val artistMbid: String) : AurralAcquisitionDeleteTarget()
+}
 
 data class AurralDiscoverySummary(
 	val recommendations: List<AurralDiscoverArtist> = emptyList(),
@@ -1682,7 +1788,11 @@ internal data class AurralPreviewTrackDto(
 	val title: String? = null,
 	val album: String? = null,
 	@SerialName("preview_url") val previewUrl: String? = null,
-	@SerialName("duration_ms") val durationMs: Long? = null
+	@SerialName("duration_ms") val durationMs: Long? = null,
+	val owned: Boolean? = null,
+	val requested: Boolean? = null,
+	@SerialName("inLibrary") val inLibrary: Boolean? = null,
+	val status: String? = null
 )
 
 @Serializable
@@ -2100,6 +2210,10 @@ internal fun aurralAcquisitionQueueItem(request: AurralRequestDto): AurralAcquis
 	)
 }
 
+fun aurralAcquisitionDeleteTarget(item: AurralAcquisitionQueueItem): AurralAcquisitionDeleteTarget? =
+	item.albumId?.trim()?.takeIf { it.isNotEmpty() }?.let(AurralAcquisitionDeleteTarget::Album)
+		?: item.artistMbid?.trim()?.takeIf { it.isNotEmpty() }?.let(AurralAcquisitionDeleteTarget::Artist)
+
 private fun AurralRequestDto.resolvedAlbumMbid(): String? =
 	albumMbid?.trim()?.takeIf { it.isNotEmpty() }
 		?: mbid?.trim()?.takeIf { it.isNotEmpty() }
@@ -2146,7 +2260,11 @@ internal fun aurralArtistEnrichment(
 				title = title,
 				album = track.album,
 				previewUrl = track.previewUrl,
-				durationMs = track.durationMs
+				durationMs = track.durationMs,
+				owned = track.owned,
+				requested = track.requested,
+				inLibrary = track.inLibrary,
+				status = track.status
 			)
 		},
 		similarArtists = similar.artists.mapNotNull { artist ->

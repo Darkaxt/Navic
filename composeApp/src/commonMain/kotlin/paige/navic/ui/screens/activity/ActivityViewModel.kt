@@ -16,6 +16,7 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.downloadQueueDownloads
+import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.LidaClipsRepository
@@ -25,7 +26,7 @@ import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 import paige.navic.ui.core.UiState
 
 class ActivityViewModel(
-	downloadManager: DownloadManager,
+	private val downloadManager: DownloadManager,
 	private val songDao: SongDao,
 	private val aurralRepository: AurralRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
@@ -69,6 +70,30 @@ class ActivityViewModel(
 	fun refresh() {
 		refreshAurralStatus()
 		refreshLidaClipsStatus()
+	}
+
+	fun retryFailedDownloads() {
+		downloadManager.retryFailedDownloads()
+	}
+
+	fun discardFailedDownloads() {
+		downloadManager.discardFailedDownloads()
+	}
+
+	fun cancelAurralAcquisition(item: AurralAcquisitionQueueItem) {
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.cancelAcquisitionRequest(item)
+				.onFailure { error -> _aurralStatus.value = UiState.Error(error.asException(), _aurralStatus.value.data) }
+			refreshAurralStatus()
+		}
+	}
+
+	fun retryAurralAcquisition(item: AurralAcquisitionQueueItem) {
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.retryAcquisitionRequest(item)
+				.onFailure { error -> _aurralStatus.value = UiState.Error(error.asException(), _aurralStatus.value.data) }
+			refreshAurralStatus()
+		}
 	}
 
 	private fun refreshAurralStatus() {

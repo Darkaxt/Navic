@@ -53,6 +53,8 @@ import navic.composeapp.generated.resources.info_no_search_results
 import navic.composeapp.generated.resources.info_not_available_offline
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_all
+import navic.composeapp.generated.resources.title_aurral_albums
+import navic.composeapp.generated.resources.title_aurral_artists
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_songs
 import org.jetbrains.compose.resources.StringResource
@@ -99,10 +101,16 @@ import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
+import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
+import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
+import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
+import paige.navic.ui.screens.library.components.AurralDiscoverArtistCard
 import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.search.viewmodels.visibleSearchHistory
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),
@@ -129,6 +137,7 @@ fun SearchScreen(
 	val artistListSelection by artistListViewModel.selectedArtist.collectAsState()
 	val artistListSelectionAlbums by artistListViewModel.selectedArtistAlbums.collectAsState()
 	val artistListStarred by artistListViewModel.starred.collectAsState()
+	val allLocalArtistsState by artistListViewModel.artistsState.collectAsStateWithLifecycle()
 
 	val albumListViewModel = koinViewModel<AlbumListViewModel> {
 		parametersOf(DomainAlbumListType.AlphabeticalByName)
@@ -212,15 +221,14 @@ fun SearchScreen(
 				is UiState.Error -> ErrorBox(uiState, padding = contentPadding)
 				is UiState.Success -> {
 					val results = uiState.data
-					val showAll = selectedCategory == SearchCategory.ALL
-					val albums =
-						if (showAll || selectedCategory == SearchCategory.ALBUMS) results.filterIsInstance<DomainAlbum>() else emptyList()
-					val artists =
-						if (showAll || selectedCategory == SearchCategory.ARTISTS) results.filterIsInstance<DomainArtist>() else emptyList()
-					val songs =
-						if (showAll || selectedCategory == SearchCategory.SONGS) results.filterIsInstance<DomainSong>() else emptyList()
+					val buckets = searchResultBuckets(results, selectedCategory)
+					val albums = buckets.albums
+					val artists = buckets.artists
+					val songs = buckets.songs
+					val aurralArtists = buckets.aurralArtists
+					val aurralAlbums = buckets.aurralAlbums
 
-					if (query.text.isNotBlank() && albums.isEmpty() && artists.isEmpty() && songs.isEmpty()) {
+					if (query.text.isNotBlank() && buckets.isEmpty) {
 						ContentUnavailable(
 							icon = Icons.Outlined.NoSearchResults,
 							label = stringResource(Res.string.info_no_search_results)
@@ -402,6 +410,34 @@ fun SearchScreen(
 							}
 
 							horizontalSection(
+								title = Res.string.title_aurral_albums,
+								destination = Screen.AurralHub,
+								state = UiState.Success(aurralAlbums),
+								key = { it.id },
+								seeAll = false
+							) { album ->
+								val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+								val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+								AurralAlbumSearchCard(
+									modifier = Modifier.animateItem(fadeInSpec = null)
+										.width(150.dp),
+									album = album,
+									imageRequestHeaders = if (baseUrl != null) {
+										aurralRequestHeadersForUrl(
+											baseUrl = baseUrl,
+											imageUrl = album.coverUrl,
+											requestHeaders = requestHeaders
+										)
+									} else {
+										emptyMap()
+									},
+									onClick = {
+										aurralAlbumSearchDestination(album)?.let(backStack::add)
+									}
+								)
+							}
+
+							horizontalSection(
 								title = Res.string.title_artists,
 								destination = Screen.ArtistList(true),
 								state = UiState.Success(artists),
@@ -421,6 +457,26 @@ fun SearchScreen(
 									onSetStarred = { artistListViewModel.starArtist(it) },
 									onPlayNext = { artistListViewModel.playArtistAlbumsNext(player) },
 									onAddToQueue = { artistListViewModel.addArtistAlbumsToQueue(player) }
+								)
+							}
+
+							horizontalSection(
+								title = Res.string.title_aurral_artists,
+								destination = Screen.AurralHub,
+								state = UiState.Success(aurralArtists),
+								key = { it.id },
+								seeAll = false
+							) { artist ->
+								AurralDiscoverArtistCard(
+									modifier = Modifier.animateItem(fadeInSpec = null)
+										.width(150.dp),
+									artist = artist,
+									onOpenArtist = {
+										aurralArtistRecommendationRoute(
+											artist = it,
+											localArtists = allLocalArtistsState.data.orEmpty()
+										)?.let(backStack::add)
+									}
 								)
 							}
 						} else {

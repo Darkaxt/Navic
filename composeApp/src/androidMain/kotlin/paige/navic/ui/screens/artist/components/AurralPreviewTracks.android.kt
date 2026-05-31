@@ -41,6 +41,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -51,16 +52,20 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 
 @Composable
 actual fun AurralPreviewTracks(
 	title: String,
 	tracks: ImmutableList<AurralPreviewTrack>,
-	modifier: Modifier
+	modifier: Modifier,
+	ownershipStatuses: ImmutableMap<String, AurralOwnershipStatus>
 ) {
 	val previewTracks = remember(tracks) {
 		tracks.filter { !it.previewUrl.isNullOrBlank() }
@@ -152,6 +157,8 @@ actual fun AurralPreviewTracks(
 				val isPlayingTrack = playingTrackId == track.id
 				AurralPreviewTrackCard(
 					track = track,
+					ownershipStatus = ownershipStatuses[track.id]
+						?: aurralPreviewTrackOwnershipStatus(track),
 					isPlaying = isPlayingTrack,
 					isLoading = loadingTrackId == track.id,
 					progress = if (isPlayingTrack) progress else 0f,
@@ -184,6 +191,7 @@ actual fun AurralPreviewTracks(
 @Composable
 private fun AurralPreviewTrackCard(
 	track: AurralPreviewTrack,
+	ownershipStatus: AurralOwnershipStatus,
 	isPlaying: Boolean,
 	isLoading: Boolean,
 	progress: Float,
@@ -204,7 +212,7 @@ private fun AurralPreviewTrackCard(
 				horizontalArrangement = Arrangement.spacedBy(12.dp),
 				modifier = Modifier
 					.fillMaxWidth()
-					.padding(12.dp)
+					.padding(start = 12.dp, top = 12.dp, end = 28.dp, bottom = 12.dp)
 			) {
 				IconButton(
 					onClick = onClick,
@@ -239,6 +247,13 @@ private fun AurralPreviewTrackCard(
 					)
 				}
 			}
+			AurralOwnershipStatusDot(
+				status = ownershipStatus,
+				modifier = Modifier
+					.align(Alignment.TopEnd)
+					.padding(10.dp),
+				size = 9.dp
+			)
 			if (isLoading) {
 				LinearProgressIndicator(
 					modifier = Modifier

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.activity
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,17 +14,23 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_discard_failed_downloads
 import navic.composeapp.generated.resources.action_refresh
+import navic.composeapp.generated.resources.action_retry
+import navic.composeapp.generated.resources.action_retry_failed_downloads
 import navic.composeapp.generated.resources.info_download_status_downloading
 import navic.composeapp.generated.resources.info_download_status_failed
 import navic.composeapp.generated.resources.info_download_status_queued
@@ -105,6 +112,11 @@ fun ActivityScreen() {
 				title = stringResource(Res.string.option_download_queue),
 				summary = navicDownloadActivitySummary(downloadItems)
 			) {
+				NavicDownloadControlsRow(
+					controls = navicDownloadQueueControls(downloadItems),
+					onRetryFailedDownloads = viewModel::retryFailedDownloads,
+					onDiscardFailedDownloads = viewModel::discardFailedDownloads
+				)
 				downloadItems.take(ACTIVITY_ITEM_LIMIT).forEach { item ->
 					ActivityDownloadRow(item)
 				}
@@ -119,7 +131,13 @@ fun ActivityScreen() {
 				aurralStatus.data?.acquisitionQueue
 					.orEmpty()
 					.take(ACTIVITY_ITEM_LIMIT)
-					.forEach { item -> AurralQueueRow(item) }
+					.forEach { item ->
+						AurralQueueRow(
+							item = item,
+							onCancel = viewModel::cancelAurralAcquisition,
+							onRetry = viewModel::retryAurralAcquisition
+						)
+					}
 			}
 
 			ActivitySection(
@@ -137,6 +155,36 @@ fun ActivityScreen() {
 					.filter { check -> !check.ok && !check.skipped }
 					.take(ACTIVITY_ITEM_LIMIT)
 					.forEach { check -> LidaClipsHealthRow(check) }
+			}
+		}
+	}
+}
+
+@Composable
+private fun NavicDownloadControlsRow(
+	controls: NavicDownloadQueueControls,
+	onRetryFailedDownloads: () -> Unit,
+	onDiscardFailedDownloads: () -> Unit
+) {
+	if (!controls.canRetryFailedDownloads && !controls.canDiscardFailedDownloads) return
+	FormRow(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			if (controls.canRetryFailedDownloads) {
+				TextButton(onClick = onRetryFailedDownloads) {
+					Text(stringResource(Res.string.action_retry_failed_downloads))
+				}
+			}
+			if (controls.canDiscardFailedDownloads) {
+				TextButton(onClick = onDiscardFailedDownloads) {
+					Text(
+						text = stringResource(Res.string.action_discard_failed_downloads),
+						color = MaterialTheme.colorScheme.error
+					)
+				}
 			}
 		}
 	}
@@ -245,8 +293,13 @@ private fun ActivityDownloadRow(item: ActivityDownloadItem) {
 }
 
 @Composable
-private fun AurralQueueRow(item: AurralAcquisitionQueueItem) {
+private fun AurralQueueRow(
+	item: AurralAcquisitionQueueItem,
+	onCancel: (AurralAcquisitionQueueItem) -> Unit,
+	onRetry: (AurralAcquisitionQueueItem) -> Unit
+) {
 	val progress = aurralAcquisitionProgress(item.status)
+	val controls = aurralAcquisitionQueueItemControls(item)
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
 		Column(Modifier.fillMaxWidth()) {
 			Row(Modifier.fillMaxWidth()) {
@@ -284,6 +337,29 @@ private fun AurralQueueRow(item: AurralAcquisitionQueueItem) {
 						.padding(top = 8.dp)
 						.height(3.dp)
 				)
+			}
+			if (controls.canRetry || controls.canCancel) {
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 8.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+					verticalAlignment = Alignment.CenterVertically
+				) {
+					if (controls.canRetry) {
+						TextButton(onClick = { onRetry(item) }) {
+							Text(stringResource(Res.string.action_retry))
+						}
+					}
+					if (controls.canCancel) {
+						TextButton(onClick = { onCancel(item) }) {
+							Text(
+								text = stringResource(Res.string.action_cancel),
+								color = MaterialTheme.colorScheme.error
+							)
+						}
+					}
+				}
 			}
 		}
 	}

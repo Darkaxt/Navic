@@ -229,6 +229,14 @@ class DownloadManager(
 		}
 	}
 
+	fun discardFailedDownloads() {
+		scope.launch(Dispatchers.IO) {
+			downloadDao.getAllDownloadsList()
+				.filter { it.status == DownloadStatus.FAILED }
+				.forEach { downloadDao.deleteDownload(it.songId) }
+		}
+	}
+
 	fun cancelCollectionDownload(collection: DomainSongCollection) {
 		scope.launch(Dispatchers.IO) {
 			collection.songs.forEach { song ->

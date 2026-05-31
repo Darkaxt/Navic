@@ -7,6 +7,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
@@ -291,6 +297,98 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun albumOwnershipStatusMapsOwnedRequestedAndMissingRows() {
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			aurralSearchAlbumOwnershipStatus(
+				albumSearchItem(
+					id = "owned",
+					title = "Owned",
+					inLibrary = true
+				)
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			aurralSearchAlbumOwnershipStatus(
+				albumSearchItem(
+					id = "requested",
+					title = "Requested",
+					status = "processing"
+				)
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			aurralSearchAlbumOwnershipStatus(
+				albumSearchItem(
+					id = "missing",
+					title = "Missing",
+					status = "missing"
+				)
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			aurralMissingAlbumOwnershipStatus(
+				missingAlbumRow(
+					title = "Requested Missing",
+					progress = AurralAcquisitionProgress(
+						status = "requested",
+						active = true,
+						completed = false,
+						failed = false
+					)
+				)
+			)
+		)
+		assertEquals(AurralOwnershipStatus.Missing, aurralMissingAlbumOwnershipStatus(missingAlbumRow()))
+	}
+
+	@Test
+	fun previewTrackOwnershipStatusMapsOwnedRequestedAndUnrequestedSongs() {
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			aurralPreviewTrackOwnershipStatus(
+				AurralPreviewTrack(
+					id = "owned-track",
+					title = "Owned",
+					owned = true
+				)
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			aurralPreviewTrackOwnershipStatus(
+				AurralPreviewTrack(
+					id = "requested-track",
+					title = "Requested",
+					requested = true
+				)
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			aurralPreviewTrackOwnershipStatus(
+				AurralPreviewTrack(
+					id = "fallback-track",
+					title = "Fallback"
+				),
+				fallbackAlbumStatus = AurralOwnershipStatus.Partial
+			)
+		)
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			aurralPreviewTrackOwnershipStatus(
+				AurralPreviewTrack(
+					id = "unrequested-track",
+					title = "Unrequested"
+				)
+			)
+		)
+	}
+
+	@Test
 	fun summaryCardsExposeDiscoveryRequestsAndFlows() {
 		val cards = aurralHubSummaryCards(
 			AurralServiceStatus(
@@ -520,12 +618,32 @@ class AurralHubDisplayPolicyTest {
 		title: String,
 		artistName: String = "Artist",
 		artistMbid: String = "artist-mbid",
-		releaseDate: String? = null
+		releaseDate: String? = null,
+		inLibrary: Boolean = false,
+		status: String? = null
 	) = AurralAlbumSearchItem(
 		id = id,
 		title = title,
 		artistName = artistName,
 		artistMbid = artistMbid,
-		releaseDate = releaseDate
+		releaseDate = releaseDate,
+		inLibrary = inLibrary,
+		status = status
+	)
+
+	private fun missingAlbumRow(
+		title: String = "Missing",
+		progress: AurralAcquisitionProgress? = null
+	) = AurralMissingAlbumRow(
+		releaseGroup = AurralReleaseGroup(
+			id = "release-$title",
+			title = title
+		),
+		title = title,
+		year = null,
+		coverUrl = null,
+		requestStatus = progress?.status,
+		requestable = progress == null,
+		acquisitionProgress = progress
 	)
 }

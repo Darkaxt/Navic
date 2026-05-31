@@ -3,6 +3,7 @@ package paige.navic.ui.screens.activity
 import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.LidaClipsServiceStatus
 
@@ -30,6 +31,19 @@ data class ActivityDownloadItem(
 	val albumTitle: String?,
 	val status: DownloadStatus,
 	val progress: Float
+)
+
+@Immutable
+data class NavicDownloadQueueControls(
+	val failedCount: Int,
+	val canRetryFailedDownloads: Boolean,
+	val canDiscardFailedDownloads: Boolean
+)
+
+@Immutable
+data class AurralAcquisitionQueueItemControls(
+	val canCancel: Boolean,
+	val canRetry: Boolean
 )
 
 fun navicDownloadActivitySummary(downloads: List<ActivityDownloadItem>): ActivitySummary {
@@ -60,6 +74,27 @@ fun navicDownloadActivitySummary(downloads: List<ActivityDownloadItem>): Activit
 			failed = failed > 0
 		)
 	}
+}
+
+fun navicDownloadQueueControls(downloads: List<ActivityDownloadItem>): NavicDownloadQueueControls {
+	val failedCount = downloads.count { item -> item.status == DownloadStatus.FAILED }
+	return NavicDownloadQueueControls(
+		failedCount = failedCount,
+		canRetryFailedDownloads = failedCount > 0,
+		canDiscardFailedDownloads = failedCount > 0
+	)
+}
+
+fun aurralAcquisitionQueueItemControls(item: AurralAcquisitionQueueItem): AurralAcquisitionQueueItemControls {
+	val progress = aurralAcquisitionProgress(item.status)
+	return AurralAcquisitionQueueItemControls(
+		canCancel = !item.albumId.isNullOrBlank() || !item.artistMbid.isNullOrBlank(),
+		canRetry = progress.failed &&
+			!item.albumMbid.isNullOrBlank() &&
+			item.albumName.isNotBlank() &&
+			!item.artistMbid.isNullOrBlank() &&
+			item.artistName.isNotBlank()
+	)
 }
 
 fun aurralActivitySummary(status: AurralServiceStatus?): ActivitySummary {

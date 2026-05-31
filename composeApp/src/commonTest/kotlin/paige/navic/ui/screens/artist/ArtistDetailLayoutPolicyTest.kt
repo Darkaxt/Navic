@@ -2,7 +2,9 @@ package paige.navic.ui.screens.artist
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import paige.navic.domain.models.DomainArtist
 
 class ArtistDetailLayoutPolicyTest {
@@ -53,4 +55,33 @@ class ArtistDetailLayoutPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun artistPageTransitionKeyIgnoresAurralOnlyStateChanges() {
+		val baseState = artistStateForTransition("artist-1").copy(
+			aurralLoading = true,
+			aurralMonitored = null
+		)
+		val enrichedState = baseState.copy(
+			aurralLoading = false,
+			aurralMonitored = true,
+			aurralArtistImageUrl = "https://aurral.example.com/artist.webp"
+		)
+
+		assertEquals(artistDetailTransitionKey(baseState), artistDetailTransitionKey(enrichedState))
+		assertFalse(shouldAnimateArtistDetailStateChange(baseState, enrichedState))
+		assertTrue(
+			shouldAnimateArtistDetailStateChange(
+				baseState,
+				artistStateForTransition("artist-2")
+			)
+		)
+	}
+
+	private fun artistStateForTransition(artistId: String) =
+		paige.navic.ui.screens.artist.viewmodels.ArtistState(
+			artist = DomainArtist(id = artistId, name = artistId),
+			albums = emptyList(),
+			topSongs = emptyList()
+		)
 }

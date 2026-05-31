@@ -2,6 +2,7 @@ package paige.navic.ui.screens.aurral
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,10 +30,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,6 +94,7 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.aurralAcquisitionProgress
@@ -113,6 +118,7 @@ import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Refresh
 import paige.navic.icons.outlined.Search
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
@@ -229,7 +235,7 @@ fun AurralHubScreen() {
 					},
 					onOpenDiscoverList = { backStack.add(Screen.AurralDiscoverList) },
 					onOpenSearchAlbum = { album ->
-						aurralAlbumSearchRoute(album)?.let(backStack::add)
+						aurralAlbumSearchDestination(album)?.let(backStack::add)
 					},
 					onArtistSearchQueryChange = viewModel::updateArtistSearchQuery,
 					onSearchArtists = viewModel::searchArtists,
@@ -745,19 +751,37 @@ private fun AurralHubAlbumSearchRow(
 	} else {
 		emptyMap()
 	}
+	val ownershipStatus = aurralSearchAlbumOwnershipStatus(album)
+	val colorFilter = remember(ownershipStatus) {
+		if (ownershipStatus == AurralOwnershipStatus.Missing) {
+			ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+		} else {
+			null
+		}
+	}
 
 	FormRow(
 		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
 		onClick = { onOpenAlbum(album) }
 	) {
-		CoverArt(
-			modifier = Modifier.size(56.dp),
-			coverArtId = null,
-			imageUrl = album.coverUrl,
-			imageRequestHeaders = imageRequestHeaders,
-			contentDescription = album.title,
-			fallbackKind = album.primaryType ?: "Album"
-		)
+		Box {
+			CoverArt(
+				modifier = Modifier.size(56.dp),
+				coverArtId = null,
+				imageUrl = album.coverUrl,
+				imageRequestHeaders = imageRequestHeaders,
+				contentDescription = album.title,
+				fallbackKind = album.primaryType ?: "Album",
+				colorFilter = colorFilter
+			)
+			AurralOwnershipStatusDot(
+				status = ownershipStatus,
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(5.dp),
+				size = 9.dp
+			)
+		}
 		Column(
 			modifier = Modifier
 				.weight(1f)

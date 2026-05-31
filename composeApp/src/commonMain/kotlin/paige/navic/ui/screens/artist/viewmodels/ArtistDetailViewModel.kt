@@ -29,6 +29,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
@@ -224,7 +225,40 @@ class ArtistDetailViewModel(
 				)
 			)
 
-			val discovery = aurralRepository.getDiscovery().getOrNull()
+			val primaryAurralArtist = artist.musicBrainzId
+				?.trim()
+				?.takeIf { it.isNotEmpty() }
+				?.let { mbid ->
+					artist.copy(
+						name = artist.name.trim().takeIf { it.isNotEmpty() } ?: mbid,
+						musicBrainzId = mbid
+					)
+				}
+			val primaryEnrichmentDeferred = primaryAurralArtist?.let { aurralArtist ->
+				async { aurralRepository.getArtistEnrichment(aurralArtist) }
+			}
+			val discoveryDeferred = async {
+				aurralRepository.getDiscovery(hydrateMissingImages = false).getOrNull()
+			}
+			var primaryEnrichmentResult: Result<AurralArtistEnrichment?>? = primaryEnrichmentDeferred
+				?.await()
+				?.also { result ->
+					val monitored = result.getOrNull()?.monitored
+					if (monitored == true) {
+						val latestState = (_artistState.value as? UiState.Success)?.data
+						if (latestState != null) {
+							_artistState.value = UiState.Success(
+								latestState.copy(
+									aurralMonitored = true,
+									aurralArtistMbid = primaryAurralArtist.musicBrainzId,
+									aurralArtistName = primaryAurralArtist.name,
+									aurralError = null
+								)
+							)
+						}
+					}
+				}
+			val discovery = discoveryDeferred.await()
 			val aurralIdentities = discovery
 				?.let { summary -> aurralArtistIdentityCandidatesForLocalArtist(summary, artist) }
 				.orEmpty()
@@ -258,7 +292,9 @@ class ArtistDetailViewModel(
 
 			var selectedCandidate = aurralArtistCandidates.first()
 			var aurralArtist = selectedCandidate.second
-			var enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
+			var enrichmentResult = primaryEnrichmentResult
+				?.takeIf { primaryAurralArtist?.musicBrainzId == aurralArtist.musicBrainzId }
+				?: aurralRepository.getArtistEnrichment(aurralArtist)
 			if (enrichmentResult.isFailure || enrichmentResult.getOrNull()?.monitored == null) {
 				for (candidate in aurralArtistCandidates.drop(1)) {
 					val candidateArtist = candidate.second

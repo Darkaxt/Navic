@@ -86,6 +86,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralArtistAlbumRow
 import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
@@ -94,6 +95,7 @@ import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.FormButton
@@ -107,6 +109,7 @@ import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
+import paige.navic.ui.screens.aurral.aurralMissingAlbumOwnershipStatus
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
@@ -190,8 +193,12 @@ fun ArtistDetailScreen(
 			}
 		}
 	) { contentPadding ->
+		val transitionTarget = (artistState as? UiState.Success)
+			?.data
+			?.let(::artistDetailTransitionKey)
+			?: artistState::class.simpleName.orEmpty()
 		AnimatedContent(
-			targetState = artistState,
+			targetState = transitionTarget,
 			transitionSpec = {
 				(fadeIn(
 					animationSpec = effectSpec
@@ -205,10 +212,10 @@ fun ArtistDetailScreen(
 				))
 			},
 			modifier = Modifier.fillMaxSize()
-		) { artistState ->
-			when (artistState) {
+		) {
+			when (val currentArtistState = artistState) {
 				is UiState.Error -> Box(Modifier.fillMaxSize().padding(contentPadding)) {
-					ErrorBox(artistState)
+					ErrorBox(currentArtistState)
 				}
 
 				is UiState.Loading -> Box(Modifier.fillMaxSize()) {
@@ -216,7 +223,7 @@ fun ArtistDetailScreen(
 				}
 
 				is UiState.Success -> {
-					val state = artistState.data
+					val state = currentArtistState.data
 					val albumRows = remember(state.albums, state.aurralMissingAlbums) {
 						aurralArtistAlbumRows(
 							localAlbums = state.albums,
@@ -446,6 +453,7 @@ fun ArtistDetailScreen(
 												album = album,
 												requests = state.aurralAlbumRequests
 											),
+											ownershipStatus = AurralOwnershipStatus.Owned,
 											contentDescription = null,
 											onSelect = { viewModel.selectAlbum(album) },
 											onClick = dropUnlessResumed {
@@ -670,6 +678,12 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 					modifier = Modifier.align(Alignment.BottomCenter)
 				)
 			}
+			AurralOwnershipStatusDot(
+				status = aurralMissingAlbumOwnershipStatus(row),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(8.dp)
+			)
 		}
 		Text(
 			text = row.title,

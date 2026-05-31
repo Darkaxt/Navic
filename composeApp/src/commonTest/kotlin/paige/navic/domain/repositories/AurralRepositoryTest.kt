@@ -761,6 +761,80 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryCancelsAlbumAcquisitionByAlbumId(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com/aurral/"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.cancelAcquisitionRequest(
+			AurralAcquisitionQueueItem(
+				id = "lidarr-history-10320",
+				type = "album",
+				albumId = "337",
+				albumMbid = "album-mbid",
+				albumName = "Time of Your Life",
+				artistId = "artist-id",
+				artistMbid = "artist-mbid",
+				artistName = "2CELLOS",
+				status = "processing",
+				requestedAt = null,
+				inQueue = false
+			)
+		).getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.cancelAcquisitionBaseUrls)
+		val expectedTargets: List<AurralAcquisitionDeleteTarget> =
+			listOf(AurralAcquisitionDeleteTarget.Album("337"))
+		assertEquals(expectedTargets, apiClient.cancelAcquisitionTargets)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.cancelAcquisitionRequestHeaders
+		)
+	}
+
+	@Test
+	fun repositoryRetriesFailedAlbumAcquisitionWithAlbumRequestPayload(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient()
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.retryAcquisitionRequest(
+			AurralAcquisitionQueueItem(
+				id = "request-1",
+				type = "album",
+				albumId = "337",
+				albumMbid = "album-mbid",
+				albumName = "Time of Your Life",
+				artistId = "artist-id",
+				artistMbid = "artist-mbid",
+				artistName = "2CELLOS",
+				status = "failed",
+				requestedAt = null,
+				inQueue = false
+			)
+		).getOrThrow()
+
+		assertEquals(
+			listOf(
+				AurralAlbumRequestPayload(
+					albumMbid = "album-mbid",
+					albumName = "Time of Your Life",
+					artistMbid = "artist-mbid",
+					artistName = "2CELLOS",
+					triggerSearch = true
+				)
+			),
+			apiClient.requestAlbumPayloads
+		)
+	}
+
+	@Test
 	fun repositoryArtistEnrichmentSurfacesLidarrMonitoringState() {
 		val enrichment = aurralArtistEnrichment(
 			baseUrl = "https://aurral.example.com",
@@ -1205,6 +1279,10 @@ class AurralRepositoryTest {
 		val monitorArtistIds = mutableListOf<String>()
 		val monitorArtistPayloads = mutableListOf<AurralArtistMonitorPayload>()
 		val libraryArtistMonitoringRequests = mutableListOf<String>()
+		val cancelAcquisitionBaseUrls = mutableListOf<String>()
+		val cancelAcquisitionRequestHeaders = mutableListOf<Map<String, String>>()
+		val cancelAcquisitionTargets = mutableListOf<AurralAcquisitionDeleteTarget>()
+		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -1278,7 +1356,19 @@ class AurralRepositoryTest {
 			baseUrl: String,
 			requestHeaders: Map<String, String>,
 			payload: AurralAlbumRequestPayload
-		) = Unit
+		) {
+			requestAlbumPayloads += payload
+		}
+
+		override suspend fun cancelAcquisitionRequest(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			target: AurralAcquisitionDeleteTarget
+		) {
+			cancelAcquisitionBaseUrls += baseUrl
+			cancelAcquisitionRequestHeaders += requestHeaders
+			cancelAcquisitionTargets += target
+		}
 
 		override suspend fun monitorArtist(
 			baseUrl: String,

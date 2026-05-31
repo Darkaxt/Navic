@@ -34,7 +34,9 @@ import navic.composeapp.generated.resources.action_see_all
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -109,6 +111,7 @@ fun CarouselItemScope.ArtCarouselItem(
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
+	ownershipStatus: AurralOwnershipStatus? = null,
 	contentDescription: String?,
 	onSelect: () -> Unit = {},
 	onClick: () -> Unit = {}
@@ -139,6 +142,14 @@ fun CarouselItemScope.ArtCarouselItem(
 				AurralAcquisitionProgressBar(
 					progress = progress,
 					modifier = Modifier.align(Alignment.BottomCenter)
+				)
+			}
+			ownershipStatus?.let { status ->
+				AurralOwnershipStatusDot(
+					status = status,
+					modifier = Modifier
+						.align(Alignment.TopStart)
+						.padding(8.dp)
 				)
 			}
 		}
