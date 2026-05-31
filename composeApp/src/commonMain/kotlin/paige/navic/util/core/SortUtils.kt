@@ -52,6 +52,8 @@ fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
 			null to "LOWER(artistName) ASC"
 		DomainAlbumListType.AlphabeticalByName ->
 			null to "LOWER(name) ASC"
+		DomainAlbumListType.Year ->
+			null to "CASE WHEN year IS NULL THEN 1 ELSE 0 END ASC, year DESC, LOWER(name) ASC"
 		DomainAlbumListType.Frequent ->
 			"playCount != 0" to "playCount DESC"
 		DomainAlbumListType.Highest ->
@@ -68,7 +70,7 @@ fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
 		is DomainAlbumListType.ByGenre ->
 			"genre = ?" to "LOWER(name) ASC"
 		is DomainAlbumListType.ByYear ->
-			"COALESCE(year, 0) BETWEEN ? AND ?" to "LOWER(name) ASC"
+			"COALESCE(year, 0) BETWEEN ? AND ?" to "year DESC, LOWER(name) ASC"
 	}
 
 	val sql = buildString {

@@ -30,6 +30,7 @@ import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
+import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
@@ -135,7 +136,9 @@ class ArtistDetailViewModel(
 					albumsWithSongs = albumDao.getAlbumsByArtistName(domainArtist.name).firstOrNull() ?: emptyList()
 				}
 
-				val domainAlbums = albumsWithSongs.map { it.toDomainModel() }
+				val domainAlbums = albumsWithSongs
+					.map { it.toDomainModel() }
+					.sortedByAlbumYearDescending()
 
 				val domainSongs = albumsWithSongs.flatMap { it.songs }
 					.map { it.toDomainModel() }

@@ -111,6 +111,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * Playlist list and library play actions refresh empty or partially cached playlists before handing them to the player.
 * Playlists whose names start with `[A] ` are shown separately as `Stations`, with the marker hidden in station cards, station lists, playlist details, and action sheets.
 * Synthetic `[Unknown Artist]` entries are hidden from artist rows, artist lists, and artist search results while the underlying songs and albums remain available.
+* Album browsing defaults to release-year ordering from newest to oldest, with unknown years kept after dated albums. The same year ordering is used for artist album rows, More by Artist rows, and Aurral-merged local/missing album rows.
 * Artist lists now have a Kreate-style sort sheet for alphabetical, starred, and random artist views, including ascending/descending direction.
 * Playlist and station detail pages now have a Kreate-style song sort sheet for manual order, title, artist, album, and duration while preserving manual playlist order by default.
 

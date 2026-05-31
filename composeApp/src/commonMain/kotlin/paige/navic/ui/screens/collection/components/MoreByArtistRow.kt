@@ -19,6 +19,7 @@ import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
@@ -50,7 +51,7 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 
 		ArtCarousel(
 			title = stringResource(Res.string.title_more_by_artist, artistName),
-			items = artistAlbums.sortedByDescending { it.playCount }.toImmutableList()
+			items = artistAlbums.sortedByAlbumYearDescending().toImmutableList()
 		) { album ->
 			val downloadStatus by downloadManager
 				.getCollectionDownloadStatus(album.songs.map { it.id })

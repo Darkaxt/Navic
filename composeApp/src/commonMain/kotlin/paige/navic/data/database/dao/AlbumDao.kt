@@ -44,15 +44,15 @@ interface AlbumDao {
 	suspend fun getAlbumRating(albumId: String): Int?
 
 	@Transaction
-	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC")
+	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByArtist(artistId: String): Flow<List<AlbumWithSongs>>
 
 	@Transaction
-	@Query("SELECT * FROM AlbumEntity WHERE artistName = :artistName ORDER BY year DESC")
+	@Query("SELECT * FROM AlbumEntity WHERE artistName = :artistName ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByArtistName(artistName: String): Flow<List<AlbumWithSongs>>
 
 	@Transaction
-	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId AND albumId != :albumId ORDER BY year DESC")
+	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId AND albumId != :albumId ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByArtistExcluding(artistId: String, albumId: String): Flow<List<AlbumWithSongs>>
 
 	@Transaction

@@ -21,7 +21,7 @@ import paige.navic.ui.core.UiState
 
 @OptIn(ExperimentalCoroutinesApi::class)
 open class AlbumListViewModel(
-	initialListType: DomainAlbumListType = DomainAlbumListType.AlphabeticalByArtist,
+	initialListType: DomainAlbumListType = DomainAlbumListType.Year,
 	private val repository: AlbumRepository,
 	private val sessionManager: SessionManager,
 	private val aurralRepository: AurralRepository

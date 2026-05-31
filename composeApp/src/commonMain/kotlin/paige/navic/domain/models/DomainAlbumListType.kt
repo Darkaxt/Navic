@@ -40,6 +40,10 @@ sealed class DomainAlbumListType(val value: String) {
 
 	@Serializable
 	@Immutable
+	data object Year : DomainAlbumListType("year")
+
+	@Serializable
+	@Immutable
 	data class ByYear(val fromYear: Int, val toYear: Int) : DomainAlbumListType("byYear")
 
 	@Serializable

@@ -28,6 +28,7 @@ fun AlbumListScreenSortButton(
 	val entries = remember {
 		persistentListOf(
 			DomainAlbumListType.AlphabeticalByArtist,
+			DomainAlbumListType.Year,
 			DomainAlbumListType.Frequent,
 			DomainAlbumListType.Recent,
 			DomainAlbumListType.Newest,
