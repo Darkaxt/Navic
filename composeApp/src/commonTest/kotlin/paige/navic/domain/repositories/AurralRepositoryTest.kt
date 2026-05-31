@@ -8,8 +8,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralFlowSongIdPrefix
 
 class AurralRepositoryTest {
 	@Test
@@ -130,6 +132,20 @@ class AurralRepositoryTest {
 				sessionToken = " session-token "
 			)
 		)
+	}
+
+	@Test
+	fun aurralFlowStreamUrlCanUseShortStreamToken() {
+		assertEquals(
+			"https://aurral.example.com/api/weekly-flow/stream/job-123?st=stream-token",
+			aurralFlowStreamTokenUrl(
+				baseUrl = "https://aurral.example.com",
+				jobId = " job-123 ",
+				streamToken = " stream-token "
+			)
+		)
+		assertNull(aurralFlowStreamTokenUrl("https://aurral.example.com", "", "stream-token"))
+		assertNull(aurralFlowStreamTokenUrl("https://aurral.example.com", "job-123", ""))
 	}
 
 	@Test
@@ -588,9 +604,99 @@ class AurralRepositoryTest {
 		)
 	}
 
+	@Test
+	fun repositoryFlowPlayableSongsUseDoneJobsAndSessionToken(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com/aurral/"
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			flowJobs = listOf(
+				AurralFlowJobDto(
+					id = "job-ready",
+					artistName = "Alex Warren",
+					trackName = "Heaven Without You",
+					albumName = "You'll Be Alright, Kid",
+					status = "done",
+					playlistType = "flow-1",
+					artistMbid = "artist-mbid",
+					albumMbid = "album-mbid",
+					trackMbid = "track-mbid",
+					releaseYear = "2025",
+					durationMs = 187000
+				),
+				AurralFlowJobDto(
+					id = "job-pending",
+					artistName = "Pending Artist",
+					trackName = "Pending Track",
+					status = "pending",
+					playlistType = "flow-1"
+				)
+			),
+			sessionToken = "session-token"
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val songs = repository.getFlowPlayableSongs(" flow-1 ").getOrThrow()
+
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.loginBaseUrls)
+		assertEquals(listOf("user" to "pass"), apiClient.loginRequests)
+		assertEquals(listOf("https://aurral.example.com/aurral"), apiClient.fetchFlowJobsBaseUrls)
+		assertEquals(listOf("flow-1" to 200), apiClient.fetchFlowJobsRequests)
+		assertEquals(1, songs.size)
+		val song = songs.first()
+		assertEquals("${AurralFlowSongIdPrefix}job-ready", song.id)
+		assertEquals("Heaven Without You", song.title)
+		assertEquals("Alex Warren", song.artistName)
+		assertEquals("You'll Be Alright, Kid", song.albumTitle)
+		assertEquals("artist-mbid", song.artistId)
+		assertEquals("album-mbid", song.albumId)
+		assertEquals("track-mbid", song.musicBrainzId)
+		assertEquals(2025, song.year)
+		assertEquals(187000.milliseconds, song.duration)
+		assertEquals(
+			"https://aurral.example.com/aurral/api/weekly-flow/stream/job-ready?token=session-token",
+			song.filePath
+		)
+	}
+
+	@Test
+	fun repositoryFlowPlayableSongsCanFallbackToShortStreamToken(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com/"
+			aurralUsername = "user"
+			aurralPassword = "pass"
+		}
+		val apiClient = FakeAurralApiClient(
+			flowJobs = listOf(
+				AurralFlowJobDto(
+					id = "job-ready",
+					artistName = "Artist",
+					trackName = "Track",
+					status = "done"
+				)
+			),
+			sessionToken = null,
+			streamToken = "stream-token"
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val songs = repository.getFlowPlayableSongs("flow-1").getOrThrow()
+
+		assertEquals(
+			"https://aurral.example.com/api/weekly-flow/stream/job-ready?st=stream-token",
+			songs.single().filePath
+		)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.streamTokenBaseUrls)
+	}
+
 	private class FakeAurralApiClient(
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
-		private val serviceStatus: AurralServiceStatus = AurralServiceStatus()
+		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
+		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
+		private val sessionToken: String? = null,
+		private val streamToken: String? = null
 	) : AurralApiClient {
 		val connectionBaseUrls = mutableListOf<String>()
 		val connectionRequestHeaders = mutableListOf<Map<String, String>>()
@@ -605,6 +711,14 @@ class AurralRepositoryTest {
 		val startFlowBaseUrls = mutableListOf<String>()
 		val startFlowRequestHeaders = mutableListOf<Map<String, String>>()
 		val startFlowRequests = mutableListOf<Pair<String, Int>>()
+		val fetchFlowJobsBaseUrls = mutableListOf<String>()
+		val fetchFlowJobsRequestHeaders = mutableListOf<Map<String, String>>()
+		val fetchFlowJobsRequests = mutableListOf<Pair<String, Int>>()
+		val loginBaseUrls = mutableListOf<String>()
+		val loginRequestHeaders = mutableListOf<Map<String, String>>()
+		val loginRequests = mutableListOf<Pair<String, String>>()
+		val streamTokenBaseUrls = mutableListOf<String>()
+		val streamTokenRequestHeaders = mutableListOf<Map<String, String>>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -688,6 +802,39 @@ class AurralRepositoryTest {
 			startFlowRequestHeaders += requestHeaders
 			startFlowRequests += flowId to limit
 			return AurralFlowActionResult(success = true, flowId = flowId, tracksQueued = limit)
+		}
+
+		override suspend fun fetchFlowJobs(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			flowId: String,
+			limit: Int
+		): List<AurralFlowJobDto> {
+			fetchFlowJobsBaseUrls += baseUrl
+			fetchFlowJobsRequestHeaders += requestHeaders
+			fetchFlowJobsRequests += flowId to limit
+			return flowJobs
+		}
+
+		override suspend fun login(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			username: String,
+			password: String
+		): AurralAuthSessionDto? {
+			loginBaseUrls += baseUrl
+			loginRequestHeaders += requestHeaders
+			loginRequests += username to password
+			return sessionToken?.let { AurralAuthSessionDto(token = it) }
+		}
+
+		override suspend fun fetchStreamToken(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): AurralStreamTokenDto? {
+			streamTokenBaseUrls += baseUrl
+			streamTokenRequestHeaders += requestHeaders
+			return streamToken?.let { AurralStreamTokenDto(token = it) }
 		}
 	}
 }

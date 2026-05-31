@@ -147,6 +147,25 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(stationWithSongs, aurralPlayableStationForFlow(flow, listOf(stationWithSongs)))
 	}
 
+	@Test
+	fun directFlowPlaybackIsOfferedOnlyWhenNoPlayableStationAndJobsAreReady() {
+		val readyFlow = AurralFlowSummary(
+			id = "flow",
+			name = "Discover Mix",
+			enabled = true,
+			stats = AurralFlowStats(done = 3)
+		)
+		val pendingFlow = readyFlow.copy(stats = AurralFlowStats(done = 0, pending = 3))
+		val playableStation = playlist(id = "station", name = "[A] Discover Mix", songCount = 3)
+		val emptyStation = playlist(id = "empty", name = "[A] Discover Mix", songCount = 0)
+
+		assertTrue(shouldOfferAurralDirectFlowPlayback(readyFlow, listOf(emptyStation)))
+		assertTrue(shouldOfferAurralDirectFlowPlayback(readyFlow, emptyList()))
+		assertFalse(shouldOfferAurralDirectFlowPlayback(readyFlow, listOf(playableStation)))
+		assertFalse(shouldOfferAurralDirectFlowPlayback(pendingFlow, listOf(emptyStation)))
+		assertFalse(shouldOfferAurralDirectFlowPlayback(readyFlow.copy(enabled = false), listOf(emptyStation)))
+	}
+
 	private fun queueItem(
 		id: String,
 		status: String

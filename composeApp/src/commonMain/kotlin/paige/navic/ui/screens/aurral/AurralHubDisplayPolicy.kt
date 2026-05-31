@@ -140,6 +140,14 @@ fun aurralPlayableStationForFlow(
 		station.songCount > 0 || station.songs.isNotEmpty()
 	}
 
+fun shouldOfferAurralDirectFlowPlayback(
+	flow: AurralFlowSummary,
+	playlists: List<DomainPlaylist>
+): Boolean =
+	flow.enabled &&
+		flow.stats.done > 0 &&
+		aurralPlayableStationForFlow(flow, playlists) == null
+
 private fun aurralScheduleSummary(
 	scheduleDays: List<Int>,
 	scheduleTime: String

@@ -8,15 +8,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainPlaylistListType
 import paige.navic.domain.models.stationPlaylists
 import paige.navic.domain.repositories.AurralFlowActionResult
+import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 class AurralHubViewModel(
 	private val repository: AurralRepository,
@@ -94,6 +98,48 @@ class AurralHubViewModel(
 				}
 				player.clearQueue()
 				player.addToQueue(playableStation)
+				player.playAt(0)
+				_flowActionState.value = UiState.Success(null)
+			} catch (error: Exception) {
+				_flowActionState.value = UiState.Error(error, _flowActionState.value.data)
+			} finally {
+				_activeFlowActionId.value = null
+			}
+		}
+	}
+
+	fun playFlowDirect(
+		flow: AurralFlowSummary,
+		player: MediaPlayerViewModel
+	) {
+		if (_flowActionState.value is UiState.Loading) return
+
+		viewModelScope.launch {
+			_activeFlowActionId.value = flow.id
+			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
+			try {
+				val songs = repository.getFlowPlayableSongs(flow.id).getOrThrow()
+				if (songs.isEmpty()) {
+					throw IllegalStateException("Flow has no ready tracks yet")
+				}
+				val collection = DomainPlaylist(
+					id = "$AurralFlowSongIdPrefix${flow.id}",
+					name = flow.name,
+					owner = "Aurral",
+					comment = null,
+					coverArtId = null,
+					songCount = songs.size,
+					duration = songs.fold(0.seconds) { total, song -> total + song.duration },
+					createdAt = Instant.DISTANT_PAST,
+					modifiedAt = Instant.DISTANT_PAST,
+					public = null,
+					readOnly = true,
+					allowedUsers = emptyList(),
+					validUntil = null,
+					songs = songs
+				)
+				player.clearQueue()
+				player.addToQueue(collection)
 				player.playAt(0)
 				_flowActionState.value = UiState.Success(null)
 			} catch (error: Exception) {

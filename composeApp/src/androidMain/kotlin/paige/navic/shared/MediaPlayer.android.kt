@@ -73,6 +73,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
+import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
@@ -1784,6 +1785,10 @@ class AndroidMediaPlayerViewModel(
 			.build()
 
 		val uri = when {
+			id.startsWith(AurralFlowSongIdPrefix) && !filePath.isNullOrEmpty() -> {
+				filePath.toUri()
+			}
+
 			id.startsWith("radio_") && !filePath.isNullOrEmpty() -> {
 				filePath.toUri()
 			}

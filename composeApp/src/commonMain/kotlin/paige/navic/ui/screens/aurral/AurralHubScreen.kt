@@ -41,6 +41,7 @@ import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
 import navic.composeapp.generated.resources.action_open_station
+import navic.composeapp.generated.resources.action_play_flow
 import navic.composeapp.generated.resources.action_play_station
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_start_aurral_flow
@@ -176,6 +177,7 @@ fun AurralHubScreen() {
 					onCreateFlow = viewModel::createFlow,
 					onSetFlowEnabled = viewModel::setFlowEnabled,
 					onStartFlow = viewModel::startFlow,
+					onPlayFlow = { flow -> viewModel.playFlowDirect(flow, player) },
 					onPlayStation = { flowId, station -> viewModel.playStation(flowId, station, player) },
 					onOpenStation = { station ->
 						backStack.add(Screen.CollectionDetail(station.id, "stations"))
@@ -210,6 +212,7 @@ private fun AurralHubContent(
 	onCreateFlow: (String, Int) -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayFlow: (AurralFlowSummary) -> Unit,
 	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
@@ -248,6 +251,7 @@ private fun AurralHubContent(
 		onCreateFlowClick = { showCreateFlowDialog = true },
 		onSetFlowEnabled = onSetFlowEnabled,
 		onStartFlow = onStartFlow,
+		onPlayFlow = onPlayFlow,
 		onPlayStation = onPlayStation,
 		onOpenStation = onOpenStation
 	)
@@ -329,6 +333,7 @@ private fun AurralHubFlowsSection(
 	onCreateFlowClick: () -> Unit,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayFlow: (AurralFlowSummary) -> Unit,
 	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
@@ -352,14 +357,17 @@ private fun AurralHubFlowsSection(
 		} else {
 			status.flows.forEach { flow ->
 				val matchingStation = aurralStationForFlow(flow, stationPlaylists)
+				val playableStation = aurralPlayableStationForFlow(flow, stationPlaylists)
 				AurralHubFlowRow(
 					flow = flow,
 					station = matchingStation,
-					playableStation = aurralPlayableStationForFlow(flow, stationPlaylists),
+					playableStation = playableStation,
+					offerDirectPlayback = shouldOfferAurralDirectFlowPlayback(flow, stationPlaylists),
 					actionInProgress = actionInProgress,
 					active = activeFlowActionId == flow.id,
 					onSetFlowEnabled = onSetFlowEnabled,
 					onStartFlow = onStartFlow,
+					onPlayFlow = onPlayFlow,
 					onPlayStation = onPlayStation,
 					onOpenStation = onOpenStation
 				)
@@ -399,10 +407,12 @@ private fun AurralHubFlowRow(
 	flow: AurralFlowSummary,
 	station: DomainPlaylist?,
 	playableStation: DomainPlaylist?,
+	offerDirectPlayback: Boolean,
 	actionInProgress: Boolean,
 	active: Boolean,
 	onSetFlowEnabled: (String, Boolean) -> Unit,
 	onStartFlow: (String, Int) -> Unit,
+	onPlayFlow: (AurralFlowSummary) -> Unit,
 	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
@@ -440,6 +450,14 @@ private fun AurralHubFlowRow(
 					enabled = !actionInProgress
 				) {
 					Icon(Icons.Filled.Play, stringResource(Res.string.action_play_station))
+				}
+			}
+			if (playableStation == null && offerDirectPlayback) {
+				IconButton(
+					onClick = { onPlayFlow(flow) },
+					enabled = !actionInProgress
+				) {
+					Icon(Icons.Filled.Play, stringResource(Res.string.action_play_flow))
 				}
 			}
 			station?.let { matchingStation ->

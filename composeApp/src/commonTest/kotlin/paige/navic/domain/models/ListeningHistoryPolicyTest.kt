@@ -40,4 +40,15 @@ class ListeningHistoryPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun listeningHistoryIgnoresTransientAurralFlowSongs() {
+		assertFalse(
+			shouldSubmitListeningHistory(
+				enableScrobbling = true,
+				pauseListeningHistory = false,
+				songId = "${AurralFlowSongIdPrefix}job-1"
+			)
+		)
+	}
 }

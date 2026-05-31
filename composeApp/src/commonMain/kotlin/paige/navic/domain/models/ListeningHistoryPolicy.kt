@@ -7,4 +7,4 @@ fun shouldSubmitListeningHistory(
 ): Boolean =
 	enableScrobbling &&
 		!pauseListeningHistory &&
-		!songId.isNullOrBlank()
+		hasStableNavidromeSongId(songId)

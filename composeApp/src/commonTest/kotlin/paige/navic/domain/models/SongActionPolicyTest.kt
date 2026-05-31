@@ -11,6 +11,7 @@ class SongActionPolicyTest {
 		assertFalse(hasStableNavidromeSongId(""))
 		assertFalse(hasStableNavidromeSongId("   "))
 		assertFalse(hasStableNavidromeSongId("radio_live"))
+		assertFalse(hasStableNavidromeSongId("${AurralFlowSongIdPrefix}job-1"))
 
 		assertTrue(hasStableNavidromeSongId("song-1"))
 	}

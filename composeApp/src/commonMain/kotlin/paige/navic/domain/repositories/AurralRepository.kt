@@ -24,14 +24,18 @@ import kotlinx.datetime.toLocalDateTime
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
 import paige.navic.domain.models.AurralSimilarArtist
+import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainSong
 import paige.navic.util.core.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "AurralRepository"
 internal const val AURRAL_BASE_URL_REQUIRED_MESSAGE = "Enter the Aurral URL first."
@@ -238,6 +242,74 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getFlowPlayableSongs(
+		flowId: String,
+		limit: Int = 200
+	): Result<List<DomainSong>> {
+		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		val safeLimit = limit.takeIf { it > 0 } ?: 200
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			val readyJobs = apiClient.fetchFlowJobs(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				flowId = trimmedFlowId,
+				limit = safeLimit
+			).filter { it.status.equals("done", ignoreCase = true) }
+			if (readyJobs.isEmpty()) return@runCatching emptyList()
+
+			val sessionToken = aurralLoginSessionToken(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders
+			)
+			val streamToken = if (sessionToken == null && requestHeaders.isNotEmpty()) {
+				runCatching {
+					apiClient.fetchStreamToken(baseUrl, requestHeaders)?.token?.trim()?.takeIf { it.isNotEmpty() }
+				}.getOrNull()
+			} else {
+				null
+			}
+			val allowUnauthenticatedStream = sessionToken == null &&
+				streamToken == null &&
+				requestHeaders.isEmpty()
+
+			readyJobs.mapNotNull { job ->
+				job.toDomainSong(
+					baseUrl = baseUrl,
+					sessionToken = sessionToken,
+					streamToken = streamToken,
+					allowUnauthenticatedStream = allowUnauthenticatedStream
+				)
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral Flow playable songs failed for $trimmedFlowId", error)
+		}
+	}
+
+	private suspend fun aurralLoginSessionToken(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): String? {
+		val username = preferenceManager.aurralUsername.trim().takeIf { it.isNotEmpty() }
+			?: return null
+		val password = preferenceManager.aurralPassword.trim().takeIf { it.isNotEmpty() }
+			?: return null
+		return runCatching {
+			apiClient.login(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				username = username,
+				password = password
+			)?.token?.trim()?.takeIf { it.isNotEmpty() }
+		}.getOrNull()
+	}
+
 	suspend fun getReleaseGroupCoverImageUrl(
 		releaseGroup: AurralReleaseGroup,
 		artistName: String
@@ -324,6 +396,25 @@ interface AurralApiClient {
 		flowId: String,
 		limit: Int
 	): AurralFlowActionResult = error("Aurral Flow starts are not supported by this client.")
+
+	suspend fun fetchFlowJobs(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		limit: Int
+	): List<AurralFlowJobDto> = error("Aurral Flow jobs are not supported by this client.")
+
+	suspend fun login(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		username: String,
+		password: String
+	): AurralAuthSessionDto? = null
+
+	suspend fun fetchStreamToken(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralStreamTokenDto? = null
 }
 
 private class KtorAurralApiClient : AurralApiClient {
@@ -586,6 +677,58 @@ private class KtorAurralApiClient : AurralApiClient {
 		return response.body<AurralFlowActionDto>().toResult()
 	}
 
+	override suspend fun fetchFlowJobs(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		flowId: String,
+		limit: Int
+	): List<AurralFlowJobDto> {
+		val response = client.get(
+			aurralEndpoint(baseUrl, "api/weekly-flow/jobs/${encodeUrlComponent(flowId)}")
+		) {
+			aurralJsonRequest(requestHeaders)
+			parameter("limit", limit)
+		}
+		return when {
+			response.status.isSuccess() -> response.body()
+			else -> error(aurralHttpErrorMessage("Aurral Flow jobs", response.status))
+		}
+	}
+
+	override suspend fun login(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		username: String,
+		password: String
+	): AurralAuthSessionDto? {
+		val response = client.post(aurralEndpoint(baseUrl, "api/auth/login")) {
+			aurralJsonRequest(requestHeaders)
+			header("Content-Type", ContentType.Application.Json.toString())
+			setBody(AurralLoginPayload(username = username, password = password))
+		}
+		return when {
+			response.status == HttpStatusCode.Unauthorized -> null
+			response.status == HttpStatusCode.Forbidden -> null
+			response.status.isSuccess() -> response.body()
+			else -> error(aurralHttpErrorMessage("Aurral login", response.status))
+		}
+	}
+
+	override suspend fun fetchStreamToken(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralStreamTokenDto? {
+		val response = client.post(aurralEndpoint(baseUrl, "api/health/stream-token")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		return when {
+			response.status == HttpStatusCode.Unauthorized -> null
+			response.status == HttpStatusCode.Forbidden -> null
+			response.status.isSuccess() -> response.body()
+			else -> error(aurralHttpErrorMessage("Aurral stream token", response.status))
+		}
+	}
+
 	override suspend fun monitorArtist(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -791,6 +934,40 @@ private data class AurralFlowEnabledPayload(
 @Serializable
 private data class AurralFlowStartPayload(
 	val limit: Int
+)
+
+@Serializable
+internal data class AurralLoginPayload(
+	val username: String,
+	val password: String
+)
+
+@Serializable
+data class AurralAuthSessionDto(
+	val token: String? = null,
+	@SerialName("expiresAt") val expiresAt: String? = null
+)
+
+@Serializable
+data class AurralStreamTokenDto(
+	val token: String? = null,
+	@SerialName("expiresIn") val expiresIn: Int? = null
+)
+
+@Serializable
+data class AurralFlowJobDto(
+	val id: String? = null,
+	@SerialName("artistName") val artistName: String? = null,
+	@SerialName("trackName") val trackName: String? = null,
+	@SerialName("albumName") val albumName: String? = null,
+	val status: String? = null,
+	@SerialName("playlistType") val playlistType: String? = null,
+	@SerialName("artistMbid") val artistMbid: String? = null,
+	@SerialName("albumMbid") val albumMbid: String? = null,
+	@SerialName("trackMbid") val trackMbid: String? = null,
+	@SerialName("releaseYear") val releaseYear: String? = null,
+	@SerialName("durationMs") val durationMs: Long? = null,
+	@SerialName("finalPath") val finalPath: String? = null
 )
 
 @Serializable
@@ -1110,6 +1287,76 @@ private fun AurralFlowActionDto.toResult(): AurralFlowActionResult =
 		flow = flow?.toSummary()
 	)
 
+private fun AurralFlowJobDto.toDomainSong(
+	baseUrl: String,
+	sessionToken: String?,
+	streamToken: String?,
+	allowUnauthenticatedStream: Boolean
+): DomainSong? {
+	val jobId = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val title = trackName?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val streamUrl = when {
+		!sessionToken.isNullOrBlank() -> aurralFlowStreamUrl(baseUrl, jobId, sessionToken)
+		!streamToken.isNullOrBlank() -> aurralFlowStreamTokenUrl(baseUrl, jobId, streamToken)
+		allowUnauthenticatedStream -> aurralFlowRawStreamUrl(baseUrl, jobId)
+		else -> null
+	} ?: return null
+	val fileExtension = finalPath
+		?.substringBefore('?')
+		?.substringAfterLast('/')
+		?.substringAfterLast('.', "")
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+		?: "mp3"
+
+	return DomainSong(
+		id = "$AurralFlowSongIdPrefix$jobId",
+		title = title,
+		artistName = artistName?.trim()?.takeIf { it.isNotEmpty() } ?: "Aurral",
+		artistId = artistMbid?.trim()?.takeIf { it.isNotEmpty() } ?: "",
+		albumTitle = albumName?.trim()?.takeIf { it.isNotEmpty() },
+		albumId = albumMbid?.trim()?.takeIf { it.isNotEmpty() },
+		parentId = null,
+		comment = null,
+		trackNumber = null,
+		discNumber = null,
+		isrc = emptyList(),
+		year = releaseYear?.trim()?.take(4)?.toIntOrNull(),
+		genre = null,
+		genres = emptyList(),
+		moods = emptyList(),
+		duration = durationMs?.takeIf { it > 0 }?.milliseconds ?: 0.milliseconds,
+		bpm = null,
+		contributors = emptyList(),
+		playCount = 0,
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = fileExtension,
+		mimeType = fileExtension.toAurralAudioMimeType(),
+		filePath = streamUrl,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = trackMbid?.trim()?.takeIf { it.isNotEmpty() },
+		explicitStatus = DomainExplicitStatus.Unknown
+	)
+}
+
+private fun String.toAurralAudioMimeType(): String =
+	when (lowercase()) {
+		"flac" -> "audio/flac"
+		"m4a", "mp4" -> "audio/mp4"
+		"ogg", "oga" -> "audio/ogg"
+		"wav" -> "audio/wav"
+		"aac" -> "audio/aac"
+		else -> "audio/mpeg"
+	}
+
 internal fun aurralAcquisitionQueueItem(request: AurralRequestDto): AurralAcquisitionQueueItem? {
 	val id = request.id?.trim()?.takeIf { it.isNotEmpty() }
 		?: request.albumId?.trim()?.takeIf { it.isNotEmpty() }?.let { "album-$it" }
@@ -1277,6 +1524,34 @@ internal fun aurralFlowStreamUrl(
 		configuredBaseUrl,
 		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
 	) + "?token=${encodeUrlComponent(trimmedToken)}"
+}
+
+internal fun aurralFlowStreamTokenUrl(
+	baseUrl: String,
+	jobId: String,
+	streamToken: String?
+): String? {
+	val trimmedJobId = jobId.trim()
+	val trimmedToken = streamToken?.trim().orEmpty()
+	if (trimmedJobId.isEmpty() || trimmedToken.isEmpty()) return null
+	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
+	return aurralEndpoint(
+		configuredBaseUrl,
+		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
+	) + "?st=${encodeUrlComponent(trimmedToken)}"
+}
+
+private fun aurralFlowRawStreamUrl(
+	baseUrl: String,
+	jobId: String
+): String? {
+	val trimmedJobId = jobId.trim()
+	if (trimmedJobId.isEmpty()) return null
+	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
+	return aurralEndpoint(
+		configuredBaseUrl,
+		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
+	)
 }
 
 internal fun aurralFlowArtworkUrl(
