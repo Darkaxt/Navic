@@ -143,6 +143,11 @@ fun aurralMissingAlbumRows(
 				acquisitionProgress = status?.let(::aurralAcquisitionProgress)
 			)
 		}
+		.sortedWith(
+			compareBy<AurralMissingAlbumRow> { it.year.toAurralYearOrNull() == null }
+				.thenByDescending { it.year.toAurralYearOrNull() ?: Int.MIN_VALUE }
+				.thenBy { it.title.lowercase() }
+		)
 }
 
 fun aurralArtistAlbumRows(

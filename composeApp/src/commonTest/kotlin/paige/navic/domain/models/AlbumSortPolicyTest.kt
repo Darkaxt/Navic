@@ -38,6 +38,24 @@ class AlbumSortPolicyTest {
 		)
 	}
 
+	@Test
+	fun aurralMissingAlbumRowsSortByYearFromRecentToOldest() {
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "artist",
+			artistName = "Artist",
+			releaseGroups = listOf(
+				releaseGroup(id = "old", title = "Old", firstReleaseDate = "2001-02-03"),
+				releaseGroup(id = "unknown", title = "Unknown", firstReleaseDate = null),
+				releaseGroup(id = "recent", title = "Recent", firstReleaseDate = "2024")
+			)
+		)
+
+		assertEquals(
+			listOf("Recent", "Old", "Unknown"),
+			aurralMissingAlbumRows(enrichment, localAlbums = emptyList()).map { it.title }
+		)
+	}
+
 	private fun album(
 		id: String,
 		name: String,
@@ -78,5 +96,15 @@ class AlbumSortPolicyTest {
 		coverUrl = null,
 		requestStatus = null,
 		requestable = true
+	)
+
+	private fun releaseGroup(
+		id: String,
+		title: String,
+		firstReleaseDate: String?
+	) = AurralReleaseGroup(
+		id = id,
+		title = title,
+		firstReleaseDate = firstReleaseDate
 	)
 }
