@@ -41,13 +41,14 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
 import paige.navic.domain.models.externalFallbackArtworkCacheKey
 import paige.navic.domain.models.externalFallbackArtworkUrl
+import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
-import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
@@ -157,12 +158,14 @@ fun NowPlayingScreen() {
 				},
 				actions = {
 					val showLyricsAction = preferenceManager.showNowPlayingLyricsAction
-					val showMusicVideoAction = shouldShowLidaClipsMusicVideoAction(
+					val musicVideoAction = lidaClipsNowPlayingMusicVideoAction(
 						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
 						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
 						userActionEnabled = preferenceManager.showNowPlayingMusicVideoAction,
-						songId = song?.id
-					) && lidaClip != null
+						songId = song?.id,
+						hasResolvedClip = lidaClip != null
+					)
+					val showMusicVideoAction = musicVideoAction != null
 					val showMusicBrainzInfoAction =
 						preferenceManager.musicBrainzArtworkFallbackEnabled && song != null
 					val showQueueAction = preferenceManager.showNowPlayingQueueAction
@@ -203,7 +206,13 @@ fun NowPlayingScreen() {
 							icon = Icons.Outlined.Movie,
 							contentDescription = stringResource(Res.string.action_play_music_video),
 							onClick = dropUnlessResumed {
-								foregroundClipSongId = if (showClipInArtwork) null else song?.id
+								when (musicVideoAction) {
+									LidaClipsNowPlayingMusicVideoAction.ToggleArtworkClip ->
+										foregroundClipSongId = if (showClipInArtwork) null else song?.id
+
+									LidaClipsNowPlayingMusicVideoAction.OpenPlayer ->
+										song?.id?.let { backStack.add(Screen.LidaClipPlayer(it)) }
+								}
 							},
 							isStartRounded = actionIndex == 0,
 							isEndRounded = actionIndex == visibleActionCount - 1,

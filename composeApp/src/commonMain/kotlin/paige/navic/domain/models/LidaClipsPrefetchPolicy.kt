@@ -32,6 +32,34 @@ fun shouldShowLidaClipsMusicVideoAction(
 		userActionEnabled &&
 		(songId == null || hasStableNavidromeSongId(songId))
 
+enum class LidaClipsNowPlayingMusicVideoAction {
+	OpenPlayer,
+	ToggleArtworkClip
+}
+
+fun lidaClipsNowPlayingMusicVideoAction(
+	lidaClipsEnabled: Boolean,
+	lidaClipsBaseUrl: String,
+	userActionEnabled: Boolean,
+	songId: String?,
+	hasResolvedClip: Boolean
+): LidaClipsNowPlayingMusicVideoAction? =
+	if (shouldShowLidaClipsMusicVideoAction(
+			lidaClipsEnabled = lidaClipsEnabled,
+			lidaClipsBaseUrl = lidaClipsBaseUrl,
+			userActionEnabled = userActionEnabled,
+			songId = songId
+		)
+	) {
+		if (hasResolvedClip) {
+			LidaClipsNowPlayingMusicVideoAction.ToggleArtworkClip
+		} else {
+			LidaClipsNowPlayingMusicVideoAction.OpenPlayer
+		}
+	} else {
+		null
+	}
+
 fun shouldSaveLidaClipWithDownloadedMusic(
 	lidaClipsEnabled: Boolean,
 	lidaClipsBaseUrl: String,

@@ -299,6 +299,40 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun nowPlayingMusicVideoActionOpensClipScreenWhenConfiguredButNoClipResolved() {
+		assertEquals(
+			LidaClipsNowPlayingMusicVideoAction.OpenPlayer,
+			lidaClipsNowPlayingMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "song-1",
+				hasResolvedClip = false
+			)
+		)
+		assertEquals(
+			LidaClipsNowPlayingMusicVideoAction.ToggleArtworkClip,
+			lidaClipsNowPlayingMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "song-1",
+				hasResolvedClip = true
+			)
+		)
+		assertEquals(
+			null,
+			lidaClipsNowPlayingMusicVideoAction(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				userActionEnabled = true,
+				songId = "radio_song-1",
+				hasResolvedClip = false
+			)
+		)
+	}
+
+	@Test
 	fun offlineClipDownloadRequiresEnabledConfiguredIntegrationAndStableSongId() {
 		assertEquals(
 			false,
