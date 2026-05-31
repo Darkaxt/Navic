@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
 import paige.navic.domain.repositories.LidaClipsHealthCheck
 import paige.navic.domain.repositories.LidaClipsHealthStatus
 import paige.navic.domain.repositories.LidaClipsRecentFailure
@@ -171,9 +172,57 @@ class ActivityDisplayPolicyTest {
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
 		assertEquals("Sync running", summary.value)
-		assertEquals("2 recent failures, 1 health check failed", summary.detail)
+		assertEquals("1 health check failed", summary.detail)
 		assertTrue(summary.active)
 		assertTrue(summary.failed)
+	}
+
+	@Test
+	fun lidaClipsSummaryPrioritizesDownloadQueueOverRecentFailures() {
+		val summary = lidaClipsActivitySummary(
+			LidaClipsServiceStatus(
+				activeClips = 10,
+				officialClips = 7,
+				fallbackClips = 3,
+				syncPaused = false,
+				syncRunning = false,
+				downloadQueue = listOf(
+					lidaClipsDownloadQueueItem(42, "Queued Track", "queued"),
+					lidaClipsDownloadQueueItem(43, "Active Track", "downloading")
+				),
+				recentFailures = listOf(
+					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
+				)
+			)
+		)
+
+		assertEquals(ActivitySection.LidaClips, summary.section)
+		assertEquals("2 clip downloads", summary.value)
+		assertEquals("1 queued, 1 downloading", summary.detail)
+		assertTrue(summary.active)
+		assertFalse(summary.failed)
+	}
+
+	@Test
+	fun lidaClipsSummaryDoesNotTreatRecentFailuresAsTheDownloadQueue() {
+		val summary = lidaClipsActivitySummary(
+			LidaClipsServiceStatus(
+				activeClips = 10,
+				officialClips = 7,
+				fallbackClips = 3,
+				syncPaused = false,
+				syncRunning = false,
+				recentFailures = listOf(
+					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
+				)
+			)
+		)
+
+		assertEquals(ActivitySection.LidaClips, summary.section)
+		assertEquals("No active clip downloads", summary.value)
+		assertEquals("Queue is clear", summary.detail)
+		assertFalse(summary.active)
+		assertFalse(summary.failed)
 	}
 
 	private fun activityDownloadItem(
@@ -203,5 +252,18 @@ class ActivityDisplayPolicyTest {
 		status = status,
 		requestedAt = null,
 		inQueue = true
+	)
+
+	private fun lidaClipsDownloadQueueItem(
+		id: Int,
+		title: String,
+		status: String
+	) = LidaClipsDownloadQueueItem(
+		lidarrTrackId = id,
+		artist = "Artist",
+		album = "Album",
+		track = title,
+		status = status,
+		durationSeconds = 180
 	)
 }

@@ -288,7 +288,7 @@ private class KtorLidaClipsApiClient : LidaClipsApiClient {
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): LidaClipsDashboardDto {
-		val response = client.get(lidaClipsEndpoint(baseUrl, "api/v1/dashboard")) {
+		val response = client.get(lidaClipsDashboardUrl(baseUrl)) {
 			lidaClipsJsonRequest(requestHeaders)
 		}
 		if (!response.status.isSuccess()) {
@@ -365,8 +365,18 @@ data class LidaClipsServiceStatus(
 	val syncPaused: Boolean,
 	val syncRunning: Boolean,
 	val recentClips: List<DomainLidaClip> = emptyList(),
+	val downloadQueue: List<LidaClipsDownloadQueueItem> = emptyList(),
 	val health: LidaClipsHealthStatus = LidaClipsHealthStatus(),
 	val recentFailures: List<LidaClipsRecentFailure> = emptyList()
+)
+
+data class LidaClipsDownloadQueueItem(
+	val lidarrTrackId: Int?,
+	val artist: String?,
+	val album: String?,
+	val track: String?,
+	val status: String,
+	val durationSeconds: Int?
 )
 
 data class LidaClipsHealthStatus(
@@ -400,8 +410,32 @@ internal data class LidaClipsDashboardDto(
 	@SerialName("fallback_clips") val fallbackClips: Int = 0,
 	@SerialName("sync_paused") val syncPaused: Boolean = false,
 	@SerialName("recent_clips") val recentClips: List<LidaClipsClipDto> = emptyList(),
-	@SerialName("recent_failures") val recentFailures: List<LidaClipsRecentFailureDto> = emptyList()
+	@SerialName("recent_failures") val recentFailures: List<LidaClipsRecentFailureDto> = emptyList(),
+	@SerialName("download_queue") val downloadQueue: List<LidaClipsDownloadQueueItemDto> = emptyList(),
+	val queue: List<LidaClipsDownloadQueueItemDto> = emptyList(),
+	val targets: List<LidaClipsDownloadQueueItemDto> = emptyList()
 )
+
+@Serializable
+internal data class LidaClipsDownloadQueueItemDto(
+	@SerialName("lidarr_track_id") val lidarrTrackId: Int? = null,
+	val artist: String? = null,
+	val album: String? = null,
+	val track: String? = null,
+	val title: String? = null,
+	val status: String? = null,
+	val mode: String? = null,
+	val duration: Int? = null
+) {
+	fun toDomainModel() = LidaClipsDownloadQueueItem(
+		lidarrTrackId = lidarrTrackId,
+		artist = artist,
+		album = album,
+		track = track ?: title,
+		status = status.cleanLidaClipsStatus() ?: mode.cleanLidaClipsStatus() ?: "queued",
+		durationSeconds = duration
+	)
+}
 
 @Serializable
 internal data class LidaClipsRecentFailureDto(
@@ -481,9 +515,23 @@ internal fun lidaClipsServiceStatus(
 		recentClips = dashboard.recentClips.mapNotNull { clip ->
 			runCatching { clip.toDomainModel(baseUrl) }.getOrNull()
 		},
+		downloadQueue = dashboard.lidaClipsDownloadQueueItems().map { it.toDomainModel() },
 		health = health.toDomainModel(),
 		recentFailures = dashboard.recentFailures.map { it.toDomainModel() }
 	)
+
+private fun LidaClipsDashboardDto.lidaClipsDownloadQueueItems(): List<LidaClipsDownloadQueueItemDto> =
+	(downloadQueue + queue + targets).distinctBy { item ->
+		listOf(
+			item.lidarrTrackId?.toString().orEmpty(),
+			item.artist.orEmpty(),
+			item.album.orEmpty(),
+			item.track ?: item.title.orEmpty()
+		).joinToString("|")
+	}
+
+private fun String?.cleanLidaClipsStatus(): String? =
+	this?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
 
 internal fun lidaClipsEndpoint(baseUrl: String, path: String): String =
 	"${normalizeLidaClipsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"
@@ -536,6 +584,9 @@ internal fun lidaClipsNavidromeClipUrl(baseUrl: String, songId: String): String 
 		baseUrl = baseUrl,
 		path = "api/v1/navidrome/${encodePathSegment(songId)}/clip"
 	)
+
+internal fun lidaClipsDashboardUrl(baseUrl: String): String =
+	lidaClipsEndpoint(baseUrl, "api/v1/dashboard?include_queue=true")
 
 internal fun lidaClipsClipSearchUrl(
 	baseUrl: String,

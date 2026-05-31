@@ -34,9 +34,6 @@ import navic.composeapp.generated.resources.action_retry_failed_downloads
 import navic.composeapp.generated.resources.info_download_status_downloading
 import navic.composeapp.generated.resources.info_download_status_failed
 import navic.composeapp.generated.resources.info_download_status_queued
-import navic.composeapp.generated.resources.info_lida_clips_lidarr_track_id
-import navic.composeapp.generated.resources.info_lida_clips_recent_failure_reason
-import navic.composeapp.generated.resources.info_lida_clips_unknown_track
 import navic.composeapp.generated.resources.info_progress
 import navic.composeapp.generated.resources.title_activity
 import navic.composeapp.generated.resources.title_aurral
@@ -48,8 +45,8 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
 import paige.navic.domain.repositories.LidaClipsHealthCheck
-import paige.navic.domain.repositories.LidaClipsRecentFailure
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
@@ -60,7 +57,6 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.lidaClipsHealthFailureDisplay
-import paige.navic.ui.screens.settings.lidaClipsRecentFailureTitle
 
 private const val ACTIVITY_ITEM_LIMIT = 6
 
@@ -146,10 +142,10 @@ fun ActivityScreen() {
 				loading = lidaClipsStatus is UiState.Loading,
 				error = (lidaClipsStatus as? UiState.Error)?.error
 			) {
-				lidaClipsStatus.data?.recentFailures
+				lidaClipsStatus.data?.downloadQueue
 					.orEmpty()
 					.take(ACTIVITY_ITEM_LIMIT)
-					.forEach { failure -> LidaClipsFailureRow(failure) }
+					.forEach { item -> LidaClipsDownloadQueueRow(item) }
 				lidaClipsStatus.data?.health?.checks
 					.orEmpty()
 					.filter { check -> !check.ok && !check.skipped }
@@ -366,29 +362,37 @@ private fun AurralQueueRow(
 }
 
 @Composable
-private fun LidaClipsFailureRow(failure: LidaClipsRecentFailure) {
+private fun LidaClipsDownloadQueueRow(item: LidaClipsDownloadQueueItem) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-		Column(Modifier.fillMaxWidth()) {
+		Row(Modifier.fillMaxWidth()) {
+			Column(Modifier.weight(1f)) {
+				Text(
+					text = lidaClipsDownloadQueueTitle(item),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+				lidaClipsDownloadQueueSubtitle(item)?.let { subtitle ->
+					Text(
+						text = subtitle,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
 			Text(
-				text = lidaClipsRecentFailureTitle(
-					failure = failure,
-					unknownTrackText = stringResource(Res.string.info_lida_clips_unknown_track),
-					lidarrTrackText = failure.lidarrTrackId?.let {
-						stringResource(Res.string.info_lida_clips_lidarr_track_id, it)
-					}
-				),
+				text = lidaClipsDownloadQueueStatusText(item),
+				modifier = Modifier.padding(start = 16.dp),
+				style = MaterialTheme.typography.bodyMedium,
+				color = if (item.isFailedLidaClipsDownload()) {
+					MaterialTheme.colorScheme.error
+				} else {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				},
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis
 			)
-			failure.reason?.trim()?.takeIf { it.isNotEmpty() }?.let { reason ->
-				Text(
-					text = stringResource(Res.string.info_lida_clips_recent_failure_reason, reason),
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.error,
-					maxLines = 2,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
 		}
 	}
 }
@@ -432,3 +436,26 @@ private fun downloadSubtitle(item: ActivityDownloadItem): String? =
 		.filter { it.isNotEmpty() }
 		.joinToString(" - ")
 		.takeIf { it.isNotEmpty() }
+
+private fun lidaClipsDownloadQueueTitle(item: LidaClipsDownloadQueueItem): String =
+	item.track?.trim()?.takeIf { it.isNotEmpty() }
+		?: item.lidarrTrackId?.let { id -> "Track $id" }
+		?: "Clip download"
+
+private fun lidaClipsDownloadQueueSubtitle(item: LidaClipsDownloadQueueItem): String? =
+	listOfNotNull(item.artist, item.album)
+		.map { it.trim() }
+		.filter { it.isNotEmpty() }
+		.joinToString(" - ")
+		.takeIf { it.isNotEmpty() }
+
+@Composable
+private fun lidaClipsDownloadQueueStatusText(item: LidaClipsDownloadQueueItem): String =
+	when (item.status) {
+		"queued" -> stringResource(Res.string.info_download_status_queued)
+		"downloading" -> stringResource(Res.string.info_download_status_downloading)
+		"failed" -> stringResource(Res.string.info_download_status_failed)
+		else -> item.status.replace('_', ' ').replaceFirstChar { char ->
+			if (char.isLowerCase()) char.titlecase() else char.toString()
+		}
+	}

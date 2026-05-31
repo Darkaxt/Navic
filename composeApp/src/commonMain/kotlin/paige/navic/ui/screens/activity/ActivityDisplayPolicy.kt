@@ -5,6 +5,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
 import paige.navic.domain.repositories.LidaClipsServiceStatus
 
 @Immutable
@@ -158,26 +159,59 @@ fun lidaClipsActivitySummary(status: LidaClipsServiceStatus?): ActivitySummary {
 	}
 
 	val failedHealthChecks = status.health.checks.count { check -> !check.ok && !check.skipped }
+	val queue = status.downloadQueue
+	if (queue.isNotEmpty()) {
+		val queued = queue.count { item -> item.isQueuedLidaClipsDownload() }
+		val downloading = queue.count { item -> item.isActiveLidaClipsDownload() }
+		val failed = queue.count { item -> item.isFailedLidaClipsDownload() }
+		val queueDetail = activityCountDetail(
+			listOf(
+				queued to "queued",
+				downloading to "downloading",
+				failed to "failed"
+			),
+			emptyDetail = "Queue is active"
+		) ?: "Queue is active"
+		val healthDetail = activityCountDetail(
+			listOf(failedHealthChecks to "health check failed"),
+			emptyDetail = null
+		)
+
+		return ActivitySummary(
+			section = ActivitySection.LidaClips,
+			value = pluralSummary(queue.size, "clip download"),
+			detail = listOfNotNull(queueDetail, healthDetail).joinToString("; "),
+			active = status.syncRunning || queued > 0 || downloading > 0,
+			failed = failed > 0 || failedHealthChecks > 0
+		)
+	}
+
 	val detail = activityCountDetail(
-		listOf(
-			status.recentFailures.size to "recent failure",
-			failedHealthChecks to "health check failed"
-		),
-		emptyDetail = "No recent failures"
-	) ?: "No recent failures"
+		listOf(failedHealthChecks to "health check failed"),
+		emptyDetail = "Queue is clear"
+	) ?: "Queue is clear"
 
 	return ActivitySummary(
 		section = ActivitySection.LidaClips,
 		value = when {
 			status.syncPaused -> "Sync paused"
 			status.syncRunning -> "Sync running"
-			else -> "Sync idle"
+			else -> "No active clip downloads"
 		},
 		detail = detail,
 		active = status.syncRunning,
-		failed = status.recentFailures.isNotEmpty() || failedHealthChecks > 0
+		failed = failedHealthChecks > 0
 	)
 }
+
+fun LidaClipsDownloadQueueItem.isQueuedLidaClipsDownload(): Boolean =
+	status in setOf("queued", "pending", "waiting")
+
+fun LidaClipsDownloadQueueItem.isActiveLidaClipsDownload(): Boolean =
+	status in setOf("downloading", "running", "processing", "active")
+
+fun LidaClipsDownloadQueueItem.isFailedLidaClipsDownload(): Boolean =
+	status in setOf("failed", "error")
 
 private fun activityCountDetail(
 	parts: List<Pair<Int, String>>,
@@ -196,6 +230,7 @@ private fun pluralSummary(
 	when (label) {
 		"health check failed" -> "$count health check${if (count == 1) "" else "s"} failed"
 		"active",
+		"queued",
 		"pending",
 		"downloading",
 		"ready",

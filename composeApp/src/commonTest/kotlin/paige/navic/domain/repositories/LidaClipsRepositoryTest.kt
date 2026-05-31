@@ -95,6 +95,14 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun lidaClipsDashboardUrlRequestsDownloadQueue() {
+		assertEquals(
+			"https://clips.remaxku.eu/api/v1/dashboard?include_queue=true",
+			lidaClipsDashboardUrl("https://clips.remaxku.eu/")
+		)
+	}
+
+	@Test
 	fun lidaClipsClipSearchUrlEncodesMetadataAsQueryParameters() {
 		assertEquals(
 			"https://clips.remaxku.eu/api/v1/clips?artist=AC%2FDC&album=Live%20%26%20Rare&track=Thunderstruck%20%28Live%29",
