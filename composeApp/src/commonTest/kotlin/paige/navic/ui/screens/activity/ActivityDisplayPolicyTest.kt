@@ -3,16 +3,13 @@ package paige.navic.ui.screens.activity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
-import paige.navic.domain.repositories.LidaClipsHealthCheck
-import paige.navic.domain.repositories.LidaClipsHealthStatus
-import paige.navic.domain.repositories.LidaClipsRecentFailure
-import paige.navic.domain.repositories.LidaClipsServiceStatus
 
 class ActivityDisplayPolicyTest {
 	@Test
@@ -116,6 +113,29 @@ class ActivityDisplayPolicyTest {
 	}
 
 	@Test
+	fun integrationHealthErrorsAreNotShownInTheActivityQueuePage() {
+		assertNull(
+			activityQueueSectionError(
+				ActivitySection.Aurral,
+				Exception("Aurral health returned HTTP 404")
+			)
+		)
+		assertNull(
+			activityQueueSectionError(
+				ActivitySection.LidaClips,
+				Exception("LidaClips health returned HTTP 404")
+			)
+		)
+
+		val queueError = Exception("Aurral acquisition queue returned HTTP 500")
+
+		assertSame(
+			queueError,
+			activityQueueSectionError(ActivitySection.Aurral, queueError)
+		)
+	}
+
+	@Test
 	fun aurralAcquisitionRowsCanCancelWhenAurralExposesADeleteTarget() {
 		assertTrue(aurralAcquisitionQueueItemControls(aurralQueueItem("1", "processing")).canCancel)
 		assertTrue(
@@ -147,67 +167,19 @@ class ActivityDisplayPolicyTest {
 	}
 
 	@Test
-	fun lidaClipsSummaryHighlightsRunningSyncFailuresAndHealthChecks() {
-		val summary = lidaClipsActivitySummary(
-			status = LidaClipsServiceStatus(
-				activeClips = 10,
-				officialClips = 7,
-				fallbackClips = 3,
-				syncPaused = false,
-				syncRunning = true,
-				health = LidaClipsHealthStatus(
-					status = "degraded",
-					checks = listOf(
-						LidaClipsHealthCheck(
-							name = "scanner",
-							ok = false,
-							error = "offline",
-							address = null,
-							path = null,
-							skipped = false
-						),
-						LidaClipsHealthCheck(
-							name = "optional",
-							ok = false,
-							error = "skipped",
-							address = null,
-							path = null,
-							skipped = true
-						)
-					)
-				),
-				recentFailures = listOf(
-					LidaClipsRecentFailure(null, "Artist", null, "Track", "not found", null, null),
-					LidaClipsRecentFailure(42, null, null, null, "timeout", null, null)
-				)
-			),
-			downloads = emptyList()
-		)
+	fun lidaClipsSummaryReportsOnlyClientQueueState() {
+		val summary = lidaClipsActivitySummary(downloads = emptyList())
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
-		assertEquals("Sync running", summary.value)
-		assertEquals("Clip download queue is empty; 1 health check failed; 2 recent issues", summary.detail)
-		assertTrue(summary.active)
-		assertTrue(summary.failed)
+		assertEquals("No active clip downloads", summary.value)
+		assertEquals("Queue is clear", summary.detail)
+		assertFalse(summary.active)
+		assertFalse(summary.failed)
 	}
 
 	@Test
-	fun lidaClipsSummaryPrioritizesDownloadQueueOverRecentFailures() {
+	fun lidaClipsSummaryReportsClientDownloadQueue() {
 		val summary = lidaClipsActivitySummary(
-			status = LidaClipsServiceStatus(
-				activeClips = 10,
-				officialClips = 7,
-				fallbackClips = 3,
-				syncPaused = false,
-				syncRunning = false,
-				downloadQueue = listOf(
-					lidaClipsDownloadQueueItem(42, "Queued Track", "queued"),
-					lidaClipsDownloadQueueItem(43, "Active Track", "downloading")
-				),
-				recentFailures = listOf(
-					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
-				)
-			),
 			downloads = listOf(
 				lidaClipDownload("song-queued", "Queued Track", DownloadStatus.QUEUED),
 				lidaClipDownload("song-active", "Active Track", DownloadStatus.DOWNLOADING)
@@ -222,48 +194,18 @@ class ActivityDisplayPolicyTest {
 	}
 
 	@Test
-	fun lidaClipsSummaryDoesNotTreatRecentFailuresAsTheDownloadQueue() {
+	fun lidaClipsSummaryReportsFailedClientQueueRows() {
 		val summary = lidaClipsActivitySummary(
-			status = LidaClipsServiceStatus(
-				activeClips = 10,
-				officialClips = 7,
-				fallbackClips = 3,
-				syncPaused = false,
-				syncRunning = false,
-				recentFailures = listOf(
-					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
-				)
-			),
-			downloads = emptyList()
+			downloads = listOf(
+				lidaClipDownload("song-failed", "Failed Track", DownloadStatus.FAILED)
+			)
 		)
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
-		assertEquals("No active clip downloads", summary.value)
-		assertEquals("Clip download queue is empty; 1 recent issue", summary.detail)
+		assertEquals("1 clip download", summary.value)
+		assertEquals("1 failed", summary.detail)
 		assertFalse(summary.active)
-		assertFalse(summary.failed)
-	}
-
-	@Test
-	fun lidaClipsSummaryIgnoresBackendDashboardQueueWhenClientQueueIsEmpty() {
-		val summary = lidaClipsActivitySummary(
-			status = LidaClipsServiceStatus(
-				activeClips = 10,
-				officialClips = 7,
-				fallbackClips = 3,
-				syncPaused = false,
-				syncRunning = false,
-				downloadQueue = listOf(
-					lidaClipsDownloadQueueItem(42, "Backend Queued", "queued")
-				)
-			),
-			downloads = emptyList()
-		)
-
-		assertEquals("No active clip downloads", summary.value)
-		assertEquals("Clip download queue is empty", summary.detail)
-		assertFalse(summary.active)
-		assertFalse(summary.failed)
+		assertTrue(summary.failed)
 	}
 
 	private fun activityDownloadItem(
@@ -295,19 +237,6 @@ class ActivityDisplayPolicyTest {
 		inQueue = true
 	)
 
-	private fun lidaClipsDownloadQueueItem(
-		id: Int,
-		title: String,
-		status: String
-	) = LidaClipsDownloadQueueItem(
-		lidarrTrackId = id,
-		artist = "Artist",
-		album = "Album",
-		track = title,
-		status = status,
-		durationSeconds = 180
-	)
-
 	private fun lidaClipDownload(
 		songId: String,
 		title: String,
@@ -330,4 +259,5 @@ class ActivityDisplayPolicyTest {
 		persistOffline = false,
 		updatedAtMillis = 1_000L
 	)
+
 }

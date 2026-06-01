@@ -139,6 +139,20 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getActivityStatus(): Result<AurralServiceStatus> {
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral activity status failed", error)
+		}
+	}
+
 	suspend fun getDiscovery(
 		hydrateMissingImages: Boolean = true
 	): Result<AurralDiscoverySummary> {
@@ -1132,6 +1146,12 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>
 	): AurralServiceStatus
 
+	suspend fun fetchActivityStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralServiceStatus =
+		fetchServiceStatus(baseUrl, requestHeaders)
+
 	suspend fun fetchDiscovery(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
@@ -1279,6 +1299,22 @@ private class KtorAurralApiClient : AurralApiClient {
 
 		return aurralServiceStatus(
 			health = health,
+			authMe = authMe,
+			weeklyFlow = weeklyFlow,
+			requests = requests
+		)
+	}
+
+	override suspend fun fetchActivityStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralServiceStatus {
+		val authMe = fetchAuthMe(baseUrl, requestHeaders)
+		val weeklyFlow = fetchWeeklyFlowStatus(baseUrl, requestHeaders)
+		val requests = fetchRequests(baseUrl, requestHeaders)
+
+		return aurralServiceStatus(
+			health = AurralHealthDto(),
 			authMe = authMe,
 			weeklyFlow = weeklyFlow,
 			requests = requests

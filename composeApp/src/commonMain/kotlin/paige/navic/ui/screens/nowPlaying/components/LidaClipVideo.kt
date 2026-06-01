@@ -39,6 +39,7 @@ import paige.navic.domain.models.shouldMuteMusicForNowPlayingPromotedLidaClip
 import paige.navic.domain.models.shouldMuteNowPlayingBackgroundLidaClipVideo
 import paige.navic.domain.models.shouldMuteNowPlayingPromotedLidaClipVideo
 import paige.navic.domain.models.shouldPlayNowPlayingLidaClipVideo
+import paige.navic.domain.models.shouldRecoverLidaClipFromPlaybackError
 import paige.navic.domain.models.shouldShowLidaClipExtraScreenBackground
 import paige.navic.domain.models.shouldShowNowPlayingLidaClipControls
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
@@ -113,6 +114,7 @@ fun NowPlayingLidaClipBackground(
 	backgroundVideoMode: LidaClipsBackgroundVideoMode,
 	playerProgress: Float,
 	musicIsPaused: Boolean,
+	onRecoverablePlaybackError: () -> Unit = {},
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -154,7 +156,12 @@ fun NowPlayingLidaClipBackground(
 			retryKey = 0,
 			onPlaybackReady = {},
 			onFirstFrameRendered = { hasRenderedFirstFrame = true },
-			onPlaybackError = {},
+			onPlaybackError = { message ->
+				if (shouldRecoverLidaClipFromPlaybackError(message)) {
+					hasRenderedFirstFrame = false
+					onRecoverablePlaybackError()
+				}
+			},
 			onPlaybackPositionChange = {},
 			modifier = videoModifier
 		)
@@ -169,6 +176,7 @@ fun NowPlayingLidaClipArtwork(
 	clip: DomainLidaClip,
 	playerProgress: Float,
 	musicIsPaused: Boolean,
+	onRecoverablePlaybackError: () -> Unit = {},
 	modifier: Modifier = Modifier
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -249,7 +257,12 @@ fun NowPlayingLidaClipArtwork(
 			},
 			onPlaybackError = { message ->
 				hasRenderedFirstFrame = false
-				playbackState = playbackState.onError(message)
+				if (shouldRecoverLidaClipFromPlaybackError(message)) {
+					playbackState = playbackState.onReady()
+					onRecoverablePlaybackError()
+				} else {
+					playbackState = playbackState.onError(message)
+				}
 			},
 			onPlaybackPositionChange = {},
 			modifier = Modifier.matchParentSize().graphicsLayer {

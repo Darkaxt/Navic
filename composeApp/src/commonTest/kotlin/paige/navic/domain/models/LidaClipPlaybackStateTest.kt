@@ -44,4 +44,26 @@ class LidaClipPlaybackStateTest {
 		assertEquals(1, retrying.retryKey)
 		assertNull(retrying.onReady().errorMessage)
 	}
+
+	@Test
+	fun missingLocalVideoFileIsRecoverableByRefreshingTheClip() {
+		assertEquals(
+			true,
+			shouldRecoverLidaClipFromPlaybackError(
+				"Video playback failed: ERROR_CODE_IO_FILE_NOT_FOUND"
+			)
+		)
+		assertEquals(
+			true,
+			shouldRecoverLidaClipFromPlaybackError(
+				"Source error: file not found"
+			)
+		)
+		assertEquals(
+			false,
+			shouldRecoverLidaClipFromPlaybackError(
+				"Video playback failed: ERROR_CODE_DECODING_FAILED"
+			)
+		)
+	}
 }

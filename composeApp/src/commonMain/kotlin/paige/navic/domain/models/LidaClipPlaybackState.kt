@@ -29,3 +29,9 @@ fun lidaClipPlaybackErrorMessage(
 		"Video playback failed: $detail"
 	}
 }
+
+fun shouldRecoverLidaClipFromPlaybackError(message: String): Boolean {
+	val normalized = message.trim().lowercase()
+	return "error_code_io_file_not_found" in normalized ||
+		"file not found" in normalized
+}

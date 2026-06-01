@@ -22,10 +22,7 @@ import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.LidaClipsRepository
-import paige.navic.domain.repositories.LidaClipsServiceStatus
 import paige.navic.domain.repositories.configuredAurralBaseUrl
-import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 import paige.navic.ui.core.UiState
 
 class ActivityViewModel(
@@ -33,7 +30,6 @@ class ActivityViewModel(
 	private val lidaClipDownloadManager: LidaClipDownloadManager,
 	private val songDao: SongDao,
 	private val aurralRepository: AurralRepository,
-	private val lidaClipsRepository: LidaClipsRepository,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	val downloadItems = downloadManager.allDownloads
@@ -79,12 +75,8 @@ class ActivityViewModel(
 	private val _aurralStatus = MutableStateFlow<UiState<AurralServiceStatus?>>(UiState.Success(null))
 	val aurralStatus = _aurralStatus.asStateFlow()
 
-	private val _lidaClipsStatus = MutableStateFlow<UiState<LidaClipsServiceStatus?>>(UiState.Success(null))
-	val lidaClipsStatus = _lidaClipsStatus.asStateFlow()
-
 	fun refresh() {
 		refreshAurralStatus()
-		refreshLidaClipsStatus()
 	}
 
 	fun retryFailedDownloads() {
@@ -143,30 +135,10 @@ class ActivityViewModel(
 
 		viewModelScope.launch(Dispatchers.IO) {
 			_aurralStatus.value = UiState.Loading(_aurralStatus.value.data)
-			val result = aurralRepository.getServiceStatus()
+			val result = aurralRepository.getActivityStatus()
 			_aurralStatus.value = result.fold(
 				onSuccess = { UiState.Success(it) },
 				onFailure = { error -> UiState.Error(error.asException(), _aurralStatus.value.data) }
-			)
-		}
-	}
-
-	private fun refreshLidaClipsStatus() {
-		if (
-			!preferenceManager.lidaClipsEnabled ||
-			configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl) == null
-		) {
-			_lidaClipsStatus.value = UiState.Success(null)
-			return
-		}
-		if (_lidaClipsStatus.value is UiState.Loading) return
-
-		viewModelScope.launch(Dispatchers.IO) {
-			_lidaClipsStatus.value = UiState.Loading(_lidaClipsStatus.value.data)
-			val result = lidaClipsRepository.getServiceStatus()
-			_lidaClipsStatus.value = result.fold(
-				onSuccess = { UiState.Success(it) },
-				onFailure = { error -> UiState.Error(error.asException(), _lidaClipsStatus.value.data) }
 			)
 		}
 	}

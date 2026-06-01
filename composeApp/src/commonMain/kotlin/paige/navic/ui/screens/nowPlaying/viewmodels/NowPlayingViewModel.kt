@@ -138,7 +138,9 @@ class NowPlayingViewModel(
 		lastLidaClipsPrefetchKey = nextPrefetchKey
 		lastLidaClipsPrefetchTimeMillis = nowMillis
 		lidaClipLookupJob?.cancel()
-		_lidaClipState.value = UiState.Loading(_lidaClipState.value.data)
+		_lidaClipState.value = UiState.Loading(
+			if (forceRefresh) null else _lidaClipState.value.data
+		)
 		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
 			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
 				.onSuccess { clip ->
@@ -162,7 +164,7 @@ class NowPlayingViewModel(
 							onFailure = { error ->
 								UiState.Error(
 									error as? Exception ?: Exception(error.message, error),
-									_lidaClipState.value.data
+									if (forceRefresh) null else _lidaClipState.value.data
 								)
 							}
 						) ?: UiState.Success(null)
@@ -172,7 +174,7 @@ class NowPlayingViewModel(
 					if (currentLidaClipSongId == song.id) {
 						_lidaClipState.value = UiState.Error(
 							error as? Exception ?: Exception(error.message, error),
-							_lidaClipState.value.data
+							if (forceRefresh) null else _lidaClipState.value.data
 						)
 					}
 				}

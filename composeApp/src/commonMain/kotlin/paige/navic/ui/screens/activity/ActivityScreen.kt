@@ -49,7 +49,6 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.LidaClipDownloadQueueControls
 import paige.navic.domain.models.lidaClipDownloadQueueControls
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
-import paige.navic.domain.repositories.LidaClipsHealthCheck
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
@@ -59,7 +58,6 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.settings.lidaClipsHealthFailureDisplay
 
 private const val ACTIVITY_ITEM_LIMIT = 6
 
@@ -69,7 +67,6 @@ fun ActivityScreen() {
 	val downloadItems by viewModel.downloadItems.collectAsStateWithLifecycle()
 	val lidaClipDownloadItems by viewModel.lidaClipDownloadItems.collectAsStateWithLifecycle()
 	val aurralStatus by viewModel.aurralStatus.collectAsStateWithLifecycle()
-	val lidaClipsStatus by viewModel.lidaClipsStatus.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
 	LaunchedEffect(Unit) {
@@ -84,8 +81,7 @@ fun ActivityScreen() {
 				actions = {
 					TopBarButton(
 						onClick = viewModel::refresh,
-						enabled = aurralStatus !is UiState.Loading &&
-							lidaClipsStatus !is UiState.Loading
+						enabled = aurralStatus !is UiState.Loading
 					) {
 						Icon(Icons.Outlined.Refresh, stringResource(Res.string.action_refresh))
 					}
@@ -127,7 +123,10 @@ fun ActivityScreen() {
 				title = stringResource(Res.string.title_aurral),
 				summary = aurralActivitySummary(aurralStatus.data),
 				loading = aurralStatus is UiState.Loading,
-				error = (aurralStatus as? UiState.Error)?.error
+				error = activityQueueSectionError(
+					ActivitySection.Aurral,
+					(aurralStatus as? UiState.Error)?.error
+				)
 			) {
 				aurralStatus.data?.acquisitionQueue
 					.orEmpty()
@@ -143,12 +142,7 @@ fun ActivityScreen() {
 
 			ActivitySection(
 				title = stringResource(Res.string.title_lida_clips),
-				summary = lidaClipsActivitySummary(
-					status = lidaClipsStatus.data,
-					downloads = lidaClipDownloadItems
-				),
-				loading = lidaClipsStatus is UiState.Loading,
-				error = (lidaClipsStatus as? UiState.Error)?.error
+				summary = lidaClipsActivitySummary(downloads = lidaClipDownloadItems)
 			) {
 				LidaClipDownloadControlsRow(
 					controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
@@ -157,18 +151,12 @@ fun ActivityScreen() {
 					onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
 				)
 				lidaClipDownloadItems
-					.take(ACTIVITY_ITEM_LIMIT)
 					.forEach { item ->
 						LidaClipDownloadRow(
 							item = item,
 							onCancel = viewModel::cancelLidaClipDownload
 						)
 					}
-				lidaClipsStatus.data?.health?.checks
-					.orEmpty()
-					.filter { check -> !check.ok && !check.skipped }
-					.take(ACTIVITY_ITEM_LIMIT)
-					.forEach { check -> LidaClipsHealthRow(check) }
 			}
 		}
 	}
@@ -505,29 +493,6 @@ private fun LidaClipDownloadRow(
 						)
 					}
 				}
-			}
-		}
-	}
-}
-
-@Composable
-private fun LidaClipsHealthRow(check: LidaClipsHealthCheck) {
-	val display = lidaClipsHealthFailureDisplay(check)
-	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-		Column(Modifier.fillMaxWidth()) {
-			Text(
-				text = display.name,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
-			display.detail?.let { detail ->
-				Text(
-					text = detail,
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.error,
-					maxLines = 2,
-					overflow = TextOverflow.Ellipsis
-				)
 			}
 		}
 	}

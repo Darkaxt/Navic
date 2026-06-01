@@ -78,6 +78,20 @@ class LidaClipsRepository(
 		}
 	}
 
+	suspend fun getActivityStatus(): Result<LidaClipsServiceStatus> {
+		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
+			?: return Result.failure(IllegalStateException(LIDA_CLIPS_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+
+		return runCatching {
+			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "LidaClips activity status failed", error)
+		}
+	}
+
 	suspend fun setSyncPaused(syncPaused: Boolean): Result<LidaClipsServiceStatus> {
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -163,6 +177,12 @@ interface LidaClipsApiClient {
 		requestHeaders: Map<String, String>
 	): LidaClipsServiceStatus
 
+	suspend fun fetchActivityStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsServiceStatus =
+		fetchServiceStatus(baseUrl, requestHeaders)
+
 	suspend fun setSyncPaused(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -224,6 +244,17 @@ private class KtorLidaClipsApiClient : LidaClipsApiClient {
 			dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
 			control = fetchServiceControl(baseUrl, requestHeaders),
 			health = fetchServiceHealth(baseUrl, requestHeaders)
+		)
+
+	override suspend fun fetchActivityStatus(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): LidaClipsServiceStatus =
+		lidaClipsServiceStatus(
+			baseUrl = baseUrl,
+			dashboard = fetchServiceDashboard(baseUrl, requestHeaders),
+			control = fetchServiceControl(baseUrl, requestHeaders),
+			health = LidaClipsHealthDto()
 		)
 
 	override suspend fun setSyncPaused(

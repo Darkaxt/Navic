@@ -271,6 +271,10 @@ fun NowPlayingScreen() {
 					backgroundVideoMode = preferenceManager.lidaClipsBackgroundVideoMode,
 					playerProgress = playerState.progress,
 					musicIsPaused = playerState.isPaused,
+					onRecoverablePlaybackError = {
+						foregroundClipSongId = null
+						viewModel.refreshLidaClip()
+					},
 					modifier = Modifier.fillMaxSize()
 				)
 			}
@@ -326,7 +330,11 @@ fun NowPlayingScreen() {
 								showClipInArtwork = showClipInArtwork,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
-								onArtworkTap = onArtworkTap
+								onArtworkTap = onArtworkTap,
+								onLidaClipRecoverablePlaybackError = {
+									foregroundClipSongId = null
+									viewModel.refreshLidaClip()
+								}
 							)
 						}
 						NowPlayingControlsRow(
@@ -353,7 +361,11 @@ fun NowPlayingScreen() {
 								showClipInArtwork = showClipInArtwork,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
-								onArtworkTap = onArtworkTap
+								onArtworkTap = onArtworkTap,
+								onLidaClipRecoverablePlaybackError = {
+									foregroundClipSongId = null
+									viewModel.refreshLidaClip()
+								}
 							)
 						}
 						NowPlayingControlsRow(
@@ -380,6 +392,7 @@ private fun NowPlayingMediaSlot(
 	musicIsPaused: Boolean,
 	isLandscape: Boolean,
 	onArtworkTap: (() -> Unit)?,
+	onLidaClipRecoverablePlaybackError: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	Box(modifier) {
@@ -393,6 +406,7 @@ private fun NowPlayingMediaSlot(
 			clip = clip,
 			playerProgress = playerProgress,
 			musicIsPaused = musicIsPaused,
+			onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
 			modifier = Modifier.matchParentSize()
 		)
 	}
