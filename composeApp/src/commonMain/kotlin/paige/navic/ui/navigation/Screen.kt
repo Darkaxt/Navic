@@ -199,6 +199,9 @@ sealed interface Screen : NavKey {
 		data object LastFm : Settings
 		@Immutable
 		@Serializable
+		data object Bindery : Settings
+		@Immutable
+		@Serializable
 		data object Aurral : Settings
 		@Immutable
 		@Serializable

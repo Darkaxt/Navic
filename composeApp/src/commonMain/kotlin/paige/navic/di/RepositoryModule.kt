@@ -5,6 +5,7 @@ import org.koin.dsl.module
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
+import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.domain.repositories.GenreRepository
@@ -25,6 +26,7 @@ val repositoryModule = module {
 	singleOf(::DbRepository)
 	singleOf(::GenreRepository)
 	single { LastFmRepository(get()) }
+	single { BinderyRepository(get()) }
 	single { LidaClipsRepository(get()) }
 	single { AurralRepository(get()) }
 	singleOf(::LyricsRepository)

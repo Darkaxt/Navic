@@ -9,6 +9,7 @@ import org.koin.dsl.module
 import paige.navic.data.database.dao.PlaybackOriginDao
 import paige.navic.data.database.entities.PlaybackOriginEntity
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.LastFmRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import kotlin.test.AfterTest
@@ -48,6 +49,20 @@ class RepositoryModuleTest {
 		}
 
 		assertIs<LastFmRepository>(app.koin.get<LastFmRepository>())
+	}
+
+	@Test
+	fun binderyRepositoryResolvesWithDefaultApiClient() {
+		val app = startKoin {
+			modules(
+				module {
+					single { PreferenceManager(MapSettings()) }
+				},
+				repositoryModule
+			)
+		}
+
+		assertIs<BinderyRepository>(app.koin.get<BinderyRepository>())
 	}
 }
 

@@ -29,6 +29,7 @@ import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsAurralViewModel
+import paige.navic.ui.screens.settings.viewmodels.SettingsBinderyViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsLastFmViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
@@ -87,6 +88,7 @@ val viewModelModule = module {
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::SettingsAurralViewModel)
 	viewModelOf(::SettingsLastFmViewModel)
+	viewModelOf(::SettingsBinderyViewModel)
 	viewModelOf(::AurralHubViewModel)
 	viewModelOf(::ActivityViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)

@@ -133,6 +133,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val network = stringResource(Res.string.title_network)
 	val lidaClips = stringResource(Res.string.title_lida_clips)
 	val lastFm = stringResource(Res.string.title_lastfm)
+	val bindery = stringResource(Res.string.title_bindery)
 	val aurral = stringResource(Res.string.title_aurral)
 	val cacheManagement = stringResource(Res.string.title_cache_management)
 	val miniPlayer = stringResource(Res.string.title_mini_player)
@@ -1342,6 +1343,34 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keyboardType = KeyboardType.Password,
 			isPassword = true,
 			onValueChange = { preferenceManager.lastFmApiKey = it }
+		))
+		add(switchRow(
+			id = "bindery.enabled",
+			path = path(integrations, bindery),
+			title = stringResource(Res.string.option_bindery_enabled),
+			subtitle = stringResource(Res.string.subtitle_bindery_enabled),
+			keywords = listOf("Bindery", "OPDS", "audiobooks", "long-form"),
+			value = preferenceManager.binderyEnabled,
+			onSetValue = { preferenceManager.binderyEnabled = it }
+		))
+		add(textFieldRow(
+			id = "bindery.opds-url",
+			path = path(integrations, bindery),
+			title = stringResource(Res.string.option_bindery_opds_url),
+			value = preferenceManager.binderyOpdsBaseUrl,
+			keywords = listOf("Bindery", "OPDS", "endpoint", "server", "audiobooks"),
+			keyboardType = KeyboardType.Uri,
+			onValueChange = { preferenceManager.binderyOpdsBaseUrl = it }
+		))
+		add(textFieldRow(
+			id = "bindery.api-key",
+			path = path(integrations, bindery),
+			title = stringResource(Res.string.option_bindery_api_key),
+			value = preferenceManager.binderyApiKey,
+			keywords = listOf("Bindery", "OPDS", "token", "audiobooks"),
+			keyboardType = KeyboardType.Password,
+			isPassword = true,
+			onValueChange = { preferenceManager.binderyApiKey = it }
 		))
 		add(textFieldRow(
 			id = "aurral.base-url",

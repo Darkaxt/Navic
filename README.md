@@ -2,7 +2,7 @@
 
 # Navic
 
-A personalized Navidrome client fork with Android playback controls, LidaClips music videos, Aurral integration, and reverse-proxy auth.
+A personalized Navidrome client fork with Android playback controls, LidaClips music videos, Aurral integration, Bindery OPDS 2 setup, and reverse-proxy auth.
 
 [![Add to Obtainium](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/obtainium.svg)][ADD_TO_OBTAINIUM]
 [![AltSource provides links for most sideloading apps, like Feather](https://raw.githubusercontent.com/NavicApp/Branding/refs/heads/main/assets/altsource.svg)][ALTSOURCE]
@@ -24,12 +24,12 @@ A personalized Navidrome client fork with Android playback controls, LidaClips m
 
 ## Fork additions
 
-This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, LidaClips music-video playback, and self-hosted Aurral discovery/acquisition workflows.
+This fork keeps upstream Navic as the base client and adds features for reverse-proxy setups, Android playback control, LidaClips music-video playback, self-hosted Aurral discovery/acquisition workflows, and Bindery OPDS 2 audiobook integration groundwork.
 
 ### Settings discovery
 
 * Settings has a search field that filters matching settings into live, editable result rows, with each result showing its Settings path.
-* The filtered rows cover common Appearance, Now Playing, Bottom Bar, Playback, Data & Storage, Integrations, LidaClips, Aurral, and Developer preferences without forcing navigation into the owning settings page.
+* The filtered rows cover common Appearance, Now Playing, Bottom Bar, Playback, Data & Storage, Integrations, LidaClips, Aurral, Last.fm, Bindery, and Developer preferences without forcing navigation into the owning settings page.
 
 ### Reverse proxy and server access
 
@@ -217,7 +217,11 @@ Open Settings -> Integrations and turn `MusicBrainz and Cover Art Archive` on. N
 
 ### Last.fm artist setup
 
-Open Settings -> Integrations and enter a Last.fm API key if you want artist pages to resolve Last.fm top tracks in-app. Navic only uses the key for the artist top-tracks lookup, then matches those titles against locally synced songs so playback still uses your Navidrome library. Leave the key blank to hide the row.
+Open Settings -> Integrations -> `Last.fm`, enable the integration, and enter a Last.fm API key if you want artist pages to resolve Last.fm top tracks in-app. Use `Test connection` to validate the key, then review `Service status` for the configured key state, integration state, native artist top-track support, and validation sample. Navic only uses the key for the artist top-tracks lookup, then matches those titles against locally synced songs so playback still uses your Navidrome library. Leave the key blank or disable the integration to hide the row.
+
+### Bindery setup
+
+Open Settings -> Integrations -> `Bindery`, enable the integration, enter the canonical OPDS 2 URL such as `https://bindery.example.com/opds`, and enter the Bindery API key. Navic sends the key as `X-Api-Key` to OPDS catalogs, manifests, covers, and future audio resources. Use `Test connection` to validate the OPDS root, then review `Service status` for OPDS URL/API-key state, root navigation count, audiobook, author, series, search, progress-sync, and pagination capability detection. Current client work is the configuration and API-capability foundation; native Audible-like audiobook browsing/playback still depends on Bindery exposing fast paginated audiobook feeds and progress/resume endpoints.
 
 ### Aurral setup
 
