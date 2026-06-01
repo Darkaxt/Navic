@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -185,7 +187,8 @@ fun CoverArt(
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
 	shape: Shape? = null,
-	colorFilter: ColorFilter? = null
+	colorFilter: ColorFilter? = null,
+	artworkResolving: Boolean = false
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
@@ -241,7 +244,8 @@ fun CoverArt(
 			fallbackContent = fallbackContent,
 			fallbackKind = fallbackKind,
 			fallbackLabelStyle = fallbackLabelStyle,
-			modifier = commonModifier
+			modifier = commonModifier,
+			showLoadingIndicator = artworkResolving
 		)
 	}
 	SubcomposeAsyncImage(
@@ -250,6 +254,15 @@ fun CoverArt(
 		modifier = commonModifier,
 		contentScale = ContentScale.Crop,
 		colorFilter = colorFilter,
+		loading = {
+			CoverArtFallback(
+				fallbackContent = fallbackContent,
+				fallbackKind = fallbackKind,
+				fallbackLabelStyle = fallbackLabelStyle,
+				modifier = Modifier.fillMaxSize(),
+				showLoadingIndicator = true
+			)
+		},
 		error = {
 			LaunchedEffect(it.result.throwable) {
 				Logger.w(
@@ -276,7 +289,8 @@ private fun CoverArtFallback(
 	fallbackContent: CoverArtFallbackContent,
 	fallbackKind: String?,
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	showLoadingIndicator: Boolean = false
 ) {
 	val seed = stablePositiveHash(fallbackContent.seedSource)
 	val palette = coverArtFallbackPalette(fallbackContent.seedSource)
@@ -362,6 +376,16 @@ private fun CoverArtFallback(
 					modifier = Modifier.matchParentSize()
 				)
 			}
+		}
+		if (showLoadingIndicator) {
+			CircularProgressIndicator(
+				modifier = Modifier
+					.align(Alignment.TopEnd)
+					.padding(10.dp)
+					.size(22.dp),
+				color = Color(0xFFF5F2EA).copy(alpha = .88f),
+				strokeWidth = 2.dp
+			)
 		}
 	}
 }

@@ -433,7 +433,8 @@ class AurralHubDisplayPolicyTest {
 			Screen.AurralDiscoverTag("soundtrack"),
 			aurralDiscoverCollectionRoute(tagRow)
 		)
-		assertNull(
+		assertEquals(
+			Screen.AurralDiscoverCollection("TopTags"),
 			aurralDiscoverCollectionRoute(
 				AurralDiscoveryCollectionRow.Tags(tags = listOf("soundtrack"))
 			)

@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,11 +53,13 @@ fun ArtistDetailScreenHeading(
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	subtitle: String?,
 	innerPadding: PaddingValues,
-	scrolled: Boolean
+	scrolled: Boolean,
+	artworkResolving: Boolean = false
 ) {
 	val layoutDirection = LocalLayoutDirection.current
 	val progress by animateFloatAsState(if (scrolled) 0f else 1f)
 	var biographyExpanded by rememberSaveable(artistName, subtitle) { mutableStateOf(false) }
+	val biographyScrollState = rememberScrollState()
 	BoxWithConstraints(
 		modifier = Modifier.fillMaxWidth()
 	) {
@@ -75,7 +80,8 @@ fun ArtistDetailScreenHeading(
 					imageRequestHeaders = imageRequestHeaders,
 					modifier = Modifier.fillMaxSize(),
 					shape = RectangleShape,
-					square = false
+					square = false,
+					artworkResolving = artworkResolving
 				)
 				Box(
 					modifier = Modifier
@@ -98,26 +104,6 @@ fun ArtistDetailScreenHeading(
 						.padding(end = innerPadding.calculateEndPadding(layoutDirection)),
 					verticalArrangement = Arrangement.spacedBy(8.dp)
 				) {
-					if (!biographyExpanded) {
-						artistBiographyDisplayText(subtitle, expanded = false)?.let { biography ->
-							Text(
-								text = biography,
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurface,
-								modifier = Modifier.widthIn(max = 500.dp)
-							)
-						}
-						if (shouldShowArtistBiographyToggle(subtitle)) {
-							Text(
-								text = stringResource(Res.string.action_more),
-								style = MaterialTheme.typography.labelLarge,
-								color = MaterialTheme.colorScheme.primary,
-								modifier = Modifier.clickable {
-									biographyExpanded = true
-								}
-							)
-						}
-					}
 					MarqueeText(
 						text = artistName,
 						style = MaterialTheme.typography.displaySmall.copy(
@@ -130,29 +116,41 @@ fun ArtistDetailScreenHeading(
 					)
 				}
 			}
-			if (biographyExpanded) {
-				artistBiographyDisplayText(subtitle, expanded = true)?.let { biography ->
-					Column(
+			artistBiographyDisplayText(subtitle, expanded = biographyExpanded)?.let { biography ->
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(horizontal = 20.dp)
+						.padding(start = innerPadding.calculateStartPadding(layoutDirection))
+						.padding(end = innerPadding.calculateEndPadding(layoutDirection))
+						.padding(top = 12.dp),
+					verticalArrangement = Arrangement.spacedBy(8.dp)
+				) {
+					Text(
+						text = biography,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurface,
 						modifier = Modifier
-							.fillMaxWidth()
-							.padding(horizontal = 20.dp)
-							.padding(start = innerPadding.calculateStartPadding(layoutDirection))
-							.padding(end = innerPadding.calculateEndPadding(layoutDirection))
-							.padding(top = 12.dp),
-						verticalArrangement = Arrangement.spacedBy(8.dp)
-					) {
+							.widthIn(max = 500.dp)
+							.then(
+								if (biographyExpanded) {
+									Modifier
+										.heightIn(max = 160.dp)
+										.verticalScroll(biographyScrollState)
+								} else {
+									Modifier
+								}
+							)
+					)
+					if (shouldShowArtistBiographyToggle(subtitle)) {
 						Text(
-							text = biography,
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurface,
-							modifier = Modifier.widthIn(max = 500.dp)
-						)
-						Text(
-							text = stringResource(Res.string.action_less),
+							text = stringResource(
+								if (biographyExpanded) Res.string.action_less else Res.string.action_more
+							),
 							style = MaterialTheme.typography.labelLarge,
 							color = MaterialTheme.colorScheme.primary,
 							modifier = Modifier.clickable {
-								biographyExpanded = false
+								biographyExpanded = !biographyExpanded
 							}
 						)
 					}

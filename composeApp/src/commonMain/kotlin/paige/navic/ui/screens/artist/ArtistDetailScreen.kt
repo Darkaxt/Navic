@@ -319,7 +319,8 @@ fun ArtistDetailScreen(
 							imageRequestHeaders = headingImageRequestHeaders,
 							subtitle = state.artist.biography,
 							innerPadding = contentPadding,
-							scrolled = scrolled
+							scrolled = scrolled,
+							artworkResolving = state.aurralLoading
 						)
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },

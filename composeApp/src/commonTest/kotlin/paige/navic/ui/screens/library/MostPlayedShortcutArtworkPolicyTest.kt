@@ -54,6 +54,38 @@ class MostPlayedShortcutArtworkPolicyTest {
 	}
 
 	@Test
+	fun artistShortcutsPreferPlayedSongArtworkBeforeAlbumFallback() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = emptyList(),
+			albums = listOf(
+				MostPlayedShortcutAlbumArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-album-cover",
+					year = 2021,
+					name = "IU Album"
+				)
+			),
+			songs = listOf(
+				MostPlayedShortcutSongArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-song-cover",
+					year = 2024,
+					albumTitle = "IU Single",
+					title = "Love wins all",
+					playCount = 12
+				)
+			)
+		).single()
+
+		assertEquals("iu-song-cover", resolved.coverArtId)
+	}
+
+	@Test
 	fun artistShortcutsCanResolveAlbumArtworkByNormalizedArtistName() {
 		val shortcut = mostPlayedArtistShortcut(id = "aurral-artist-id", title = "  Iu  ", coverArtId = null)
 
@@ -173,6 +205,30 @@ class MostPlayedShortcutArtworkPolicyTest {
 					year = 2021,
 					albumTitle = "IU Single",
 					title = "Celebrity",
+					playCount = 12
+				)
+			)
+		).single()
+
+		assertEquals("iu-song-cover", resolved.coverArtId)
+	}
+
+	@Test
+	fun artistShortcutsCanResolveSongArtworkByArtistNameToken() {
+		val shortcut = mostPlayedArtistShortcut(id = "aurral-artist-id", title = "IU", coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = emptyList(),
+			albums = emptyList(),
+			songs = listOf(
+				MostPlayedShortcutSongArtwork(
+					artistId = "different-local-id",
+					artistName = "IU (아이유)",
+					coverArtId = "iu-song-cover",
+					year = 2024,
+					albumTitle = "IU Single",
+					title = "Love wins all",
 					playCount = 12
 				)
 			)

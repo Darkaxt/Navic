@@ -44,9 +44,9 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 		} else {
 			shortcut.copy(
 				coverArtId = shortcut.coverArtId.cleanArtworkValue()?.takeIf { it.isAbsoluteHttpUrl() }
-					?: albums.albumArtworkFor(shortcut)
-					?: songs.songArtworkFor(shortcut)
 					?: artists.artistImageUrlFor(shortcut)
+					?: songs.songArtworkFor(shortcut)
+					?: albums.albumArtworkFor(shortcut)
 					?: artists.artistCoverArtIdFor(shortcut)
 					?: shortcut.coverArtId.cleanArtworkValue()
 			)
@@ -55,9 +55,6 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 
 private fun DomainMostPlayedShortcut.normalizedArtistId(): String? =
 	id.normalizedArtworkMatchKey()
-
-private fun DomainMostPlayedShortcut.normalizedArtistName(): String? =
-	title.normalizedArtworkMatchName()
 
 private fun List<MostPlayedShortcutArtistArtwork>.artistImageUrlFor(
 	shortcut: DomainMostPlayedShortcut
@@ -103,15 +100,15 @@ private fun List<MostPlayedShortcutSongArtwork>.songArtworkFor(
 
 private fun MostPlayedShortcutArtistArtwork.matches(shortcut: DomainMostPlayedShortcut): Boolean =
 	id.normalizedArtworkMatchKey()?.let { it == shortcut.normalizedArtistId() } == true ||
-		name.normalizedArtworkMatchName()?.let { it == shortcut.normalizedArtistName() } == true
+		artworkNamesMatch(name, shortcut.title)
 
 private fun MostPlayedShortcutAlbumArtwork.matches(shortcut: DomainMostPlayedShortcut): Boolean =
 	artistId.normalizedArtworkMatchKey()?.let { it == shortcut.normalizedArtistId() } == true ||
-		artistName.normalizedArtworkMatchName()?.let { it == shortcut.normalizedArtistName() } == true
+		artworkNamesMatch(artistName, shortcut.title)
 
 private fun MostPlayedShortcutSongArtwork.matches(shortcut: DomainMostPlayedShortcut): Boolean =
 	artistId.normalizedArtworkMatchKey()?.let { it == shortcut.normalizedArtistId() } == true ||
-		artistName.normalizedArtworkMatchName()?.let { it == shortcut.normalizedArtistName() } == true
+		artworkNamesMatch(artistName, shortcut.title)
 
 private fun String?.cleanArtworkValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
@@ -128,6 +125,81 @@ private fun String?.normalizedArtworkMatchName(): String? =
 		?.lowercase()
 		?.replace(Regex("""\s+"""), " ")
 		?.takeIf { it.isNotEmpty() }
+
+private fun artworkNamesMatch(
+	candidateName: String?,
+	shortcutName: String
+): Boolean {
+	val candidate = candidateName.normalizedArtworkMatchName() ?: return false
+	val shortcut = shortcutName.normalizedArtworkMatchName() ?: return false
+	if (candidate == shortcut) return true
+	if (shortcut.length in 2..3 && (
+			candidate.startsWith(shortcut) ||
+				candidate.contains(" $shortcut") ||
+				candidate.contains("($shortcut") ||
+				candidate.contains("/$shortcut") ||
+				candidate.contains(",$shortcut") ||
+				candidate.contains(", $shortcut")
+			)
+	) {
+		return true
+	}
+
+	val candidateCompact = candidate.compactArtworkName()
+	val shortcutCompact = shortcut.compactArtworkName()
+	if (candidateCompact.isNotEmpty() && candidateCompact == shortcutCompact) return true
+	val candidateWordText = candidate.artworkWordText()
+	val shortcutWordText = shortcut.artworkWordText()
+	if (shortcutWordText.isNotEmpty() && " $candidateWordText ".contains(" $shortcutWordText ")) {
+		return true
+	}
+
+	val shortcutWords = shortcut.artworkNameWords()
+	if (shortcutWords.isEmpty()) return false
+	val candidateWords = candidate.artworkNameWords()
+	return shortcutWords.all { it in candidateWords }
+}
+
+private fun String.compactArtworkName(): String =
+	buildString {
+		for (index in indices) {
+			val char = this@compactArtworkName[index]
+			if (char.isArtworkNameCharacter()) append(char)
+		}
+	}
+
+private fun String.artworkWordText(): String =
+	buildString {
+		var previousWasSeparator = true
+		for (index in indices) {
+			val char = this@artworkWordText[index]
+			if (char.isArtworkNameCharacter()) {
+				append(char)
+				previousWasSeparator = false
+			} else if (!previousWasSeparator) {
+				append(' ')
+				previousWasSeparator = true
+			}
+		}
+	}.trim()
+
+private fun String.artworkNameWords(): Set<String> =
+	buildSet {
+		val current = StringBuilder()
+		for (index in indices) {
+			val char = this@artworkNameWords[index]
+			if (char.isArtworkNameCharacter()) {
+				current.append(char)
+			} else if (current.isNotEmpty()) {
+				add(current.toString())
+				current.clear()
+			}
+		}
+		if (current.isNotEmpty()) add(current.toString())
+	}
+
+private fun Char.isArtworkNameCharacter(): Boolean =
+	this in '0'..'9' || this in 'a'..'z' || this in 'A'..'Z' || code >= 128
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)

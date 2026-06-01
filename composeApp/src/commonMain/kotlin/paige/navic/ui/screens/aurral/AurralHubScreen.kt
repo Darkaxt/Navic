@@ -142,6 +142,7 @@ import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
+import paige.navic.ui.screens.library.components.AurralDiscoverTagWall
 
 @Composable
 fun AurralHubScreen() {
@@ -308,7 +309,7 @@ private fun AurralHubContent(
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
-	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow.Artists) -> Unit,
+	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow) -> Unit,
 	onOpenTag: (String) -> Unit,
 	onOpenSearchAlbum: (AurralAlbumSearchItem) -> Unit,
 	onArtistSearchQueryChange: (String) -> Unit,
@@ -663,7 +664,7 @@ private fun AurralHubDiscoverSection(
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenAlbum: (AurralAlbumSearchItem) -> Unit,
-	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow.Artists) -> Unit,
+	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow) -> Unit,
 	onOpenTag: (String) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
@@ -705,15 +706,18 @@ private fun AurralHubDiscoverSection(
 						)
 					}
 
-					is AurralDiscoveryCollectionRow.Tags -> row.tags.forEach { tag ->
-						AurralHubDiscoverTagRow(
-							tag = tag,
+					is AurralDiscoveryCollectionRow.Tags -> FormRow(
+						contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+					) {
+						AurralDiscoverTagWall(
+							tags = row.tags,
+							modifier = Modifier.fillMaxWidth(),
 							onOpenTag = onOpenTag
 						)
 					}
 				}
 			}
-			if (row is AurralDiscoveryCollectionRow.Artists && aurralDiscoverCollectionRoute(row) != null) {
+			if (aurralDiscoverCollectionRoute(row) != null) {
 				FormButton(
 					onClick = { onOpenDiscoverCollection(row) },
 					color = MaterialTheme.colorScheme.secondaryContainer

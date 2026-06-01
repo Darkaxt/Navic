@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -180,8 +182,15 @@ fun ArtGridPlaceholder(
 				// placeholders shouldn't use continuous corners
 				// because it's less performant
 				.clip(RoundedCornerShape(16.0.dp))
-				.shimmerLoading()
-		)
+				.shimmerLoading(),
+			contentAlignment = Alignment.Center
+		) {
+			CircularProgressIndicator(
+				modifier = Modifier.size(22.dp),
+				color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .72f),
+				strokeWidth = 2.dp
+			)
+		}
 		Box(
 			modifier = Modifier
 				.padding(top = 6.dp)

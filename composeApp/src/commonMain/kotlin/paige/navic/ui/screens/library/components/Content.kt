@@ -2,9 +2,13 @@ package paige.navic.ui.screens.library.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -63,6 +67,7 @@ import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
+import paige.navic.ui.components.layouts.header
 import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
@@ -455,21 +460,39 @@ fun LibraryScreenContent(
 					)
 				}
 
-				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.tags),
-					key = { it.lowercase() },
-					seeAll = false
-				) { tag ->
-					AurralDiscoverTagCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						tag = tag,
+				is AurralDiscoveryCollectionRow.Tags -> {
+					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralHub
+					aurralTagBrickSection(
+						title = row.kind.titleResource(),
+						destination = destination,
+						tags = row.tags,
+						seeAll = destination != Screen.AurralHub,
 						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
 					)
 				}
 			}
 		}
+	}
+}
+
+private fun LazyGridScope.aurralTagBrickSection(
+	title: StringResource,
+	destination: Screen,
+	tags: List<String>,
+	seeAll: Boolean,
+	onOpenTag: (String) -> Unit
+) {
+	if (tags.isEmpty()) return
+	header(title, destination = destination, active = seeAll)
+	item(span = { GridItemSpan(maxLineSpan) }) {
+		AurralDiscoverTagWall(
+			tags = tags,
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 16.dp)
+				.padding(bottom = 4.dp),
+			onOpenTag = onOpenTag
+		)
 	}
 }
 

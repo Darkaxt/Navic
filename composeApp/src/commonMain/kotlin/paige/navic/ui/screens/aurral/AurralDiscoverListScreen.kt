@@ -51,8 +51,10 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.library.components.AurralDiscoverArtistCard
+import paige.navic.ui.screens.library.components.AurralDiscoverTagWall
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Artist
 import paige.navic.util.ui.withoutTop
@@ -140,17 +142,41 @@ fun AurralDiscoverListScreen(
 					}
 				}
 				.orEmpty()
+			val tags = discoveryState.data
+				?.takeIf { selectedCollection == AurralDiscoveryCollectionKind.TopTags && tagFilter == null }
+				?.let { discovery -> aurralDiscoverTopTags(discovery) }
+				.orEmpty()
 			val localArtists = localArtistsState.data.orEmpty()
 			ArtGrid(
 				state = gridState,
 				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if (artists.isEmpty()) {
+				verticalArrangement = if (artists.isEmpty() && tags.isEmpty()) {
 					Arrangement.Center
 				} else {
 					Arrangement.spacedBy(12.dp)
 				}
 			) {
-				if (artists.isNotEmpty()) {
+				if (tags.isNotEmpty()) {
+					item(span = { GridItemSpan(maxLineSpan) }) {
+						Row(
+							Modifier
+								.background(MaterialTheme.colorScheme.surface)
+								.padding(bottom = 8.dp),
+							verticalAlignment = Alignment.CenterVertically
+						) {
+							Text(
+								"${tags.size} tags",
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+					}
+					item(span = { GridItemSpan(maxLineSpan) }) {
+						AurralDiscoverTagWall(
+							tags = tags,
+							onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) }
+						)
+					}
+				} else if (artists.isNotEmpty()) {
 					item(span = { GridItemSpan(maxLineSpan) }) {
 						Row(
 							Modifier
