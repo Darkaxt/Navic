@@ -1,5 +1,6 @@
 package paige.navic.di
 
+import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import org.koin.core.context.GlobalContext.stopKoin
@@ -7,6 +8,8 @@ import org.koin.core.context.startKoin
 import org.koin.dsl.module
 import paige.navic.data.database.dao.PlaybackOriginDao
 import paige.navic.data.database.entities.PlaybackOriginEntity
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.LastFmRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -31,6 +34,20 @@ class RepositoryModuleTest {
 		}
 
 		assertIs<PlaybackOriginRepository>(app.koin.get<PlaybackOriginRepository>())
+	}
+
+	@Test
+	fun lastFmRepositoryResolvesWithDefaultApiClient() {
+		val app = startKoin {
+			modules(
+				module {
+					single { PreferenceManager(MapSettings()) }
+				},
+				repositoryModule
+			)
+		}
+
+		assertIs<LastFmRepository>(app.koin.get<LastFmRepository>())
 	}
 }
 

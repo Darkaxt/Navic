@@ -19,9 +19,10 @@ private const val LASTFM_BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 private const val TAG = "LastFmRepository"
 
 class LastFmRepository(
-	private val preferenceManager: PreferenceManager,
-	private val apiClient: LastFmApiClient = KtorLastFmApiClient()
+	private val preferenceManager: PreferenceManager
 ) {
+	private val apiClient: LastFmApiClient = KtorLastFmApiClient()
+
 	suspend fun getArtistTopTracks(
 		artistName: String,
 		artistMbid: String?,

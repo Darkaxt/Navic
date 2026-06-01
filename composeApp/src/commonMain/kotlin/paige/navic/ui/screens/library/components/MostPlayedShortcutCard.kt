@@ -16,19 +16,35 @@ fun MostPlayedShortcutCard(
 	onOpen: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
+	val artwork = mostPlayedShortcutArtwork(shortcut.coverArtId)
 	ArtGridItem(
 		modifier = modifier,
 		onClick = dropUnlessResumed {
 			platformContext.clickSound()
 			onOpen()
 		},
-		coverArtId = shortcut.coverArtId,
+		coverArtId = artwork.coverArtId,
+		imageUrl = artwork.imageUrl,
 		title = shortcut.title,
 		subtitle = mostPlayedShortcutSubtitle(shortcut),
 		fallbackKind = shortcut.type.fallbackKind(),
 		id = "${shortcut.type.name}-${shortcut.id}",
 		tab = "most-played"
 	)
+}
+
+data class MostPlayedShortcutArtwork(
+	val coverArtId: String?,
+	val imageUrl: String?
+)
+
+fun mostPlayedShortcutArtwork(coverArtId: String?): MostPlayedShortcutArtwork {
+	val trimmed = coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+	return if (trimmed != null && trimmed.isAbsoluteHttpUrl()) {
+		MostPlayedShortcutArtwork(coverArtId = null, imageUrl = trimmed)
+	} else {
+		MostPlayedShortcutArtwork(coverArtId = trimmed, imageUrl = null)
+	}
 }
 
 private fun mostPlayedShortcutSubtitle(shortcut: DomainMostPlayedShortcut): String {
@@ -50,3 +66,6 @@ private fun PlaybackOriginType.displayLabel(): String =
 	}
 
 private fun PlaybackOriginType.fallbackKind(): String = displayLabel()
+
+private fun String.isAbsoluteHttpUrl(): Boolean =
+	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)

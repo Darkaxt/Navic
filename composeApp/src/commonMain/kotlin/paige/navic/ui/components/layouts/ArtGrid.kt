@@ -82,6 +82,7 @@ fun ArtGridItem(
 	onClick: () -> Unit,
 	onLongClick: (() -> Unit)? = null,
 	coverArtId: String?,
+	imageUrl: String? = null,
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
@@ -108,6 +109,7 @@ fun ArtGridItem(
 			Box(Modifier.fillMaxWidth()) {
 				CoverArt(
 					coverArtId = coverArtId,
+					imageUrl = imageUrl,
 					contentDescription = title,
 					fallbackKind = fallbackKind,
 					modifier = Modifier
