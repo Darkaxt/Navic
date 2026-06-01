@@ -110,7 +110,9 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.FormButton
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.SongRow
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -195,6 +197,18 @@ fun ArtistDetailScreen(
 	var stopMonitoringDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val artistData = (artistState as? UiState.Success)?.data
+	val artistAurralMonitorPending = artistData?.let { data ->
+		aurralArtistMonitoringConfirmationItem(
+			queue = aurralConfirmationQueue,
+			artistMbid = data.aurralArtistMbid ?: data.artist.musicBrainzId
+		)
+	}?.status == AurralConfirmationStatus.Pending
+	val artistIntegrationIndicators = artistData?.let { data ->
+		integrationLoadingIndicators(
+			aurralLoading = data.aurralLoading || monitoringInAurral || artistAurralMonitorPending,
+			lastFmLoading = data.lastFmLoading
+		)
+	}.orEmpty()
 	val aurralFeedback = artistData?.aurralFeedback
 	val aurralFeedbackMessage = when (aurralFeedback) {
 		AurralArtistActionFeedback.MonitoringQueued ->
@@ -239,37 +253,34 @@ fun ArtistDetailScreen(
 			?.data
 			?.let(::artistDetailTransitionKey)
 			?: artistState::class.simpleName.orEmpty()
-		AnimatedContent(
-			targetState = transitionTarget,
-			transitionSpec = {
-				(fadeIn(
-					animationSpec = effectSpec
-				) + scaleIn(
-					initialScale = 0.8f,
-					animationSpec = spatialSpec
-				)) togetherWith (fadeOut(
-					animationSpec = effectSpec
-				) + scaleOut(
-					animationSpec = spatialSpec
-				))
-			},
-			modifier = Modifier.fillMaxSize()
-		) {
-			when (val currentArtistState = artistState) {
-				is UiState.Error -> Box(Modifier.fillMaxSize().padding(contentPadding)) {
-					ErrorBox(currentArtistState)
-				}
+		Box(Modifier.fillMaxSize()) {
+			AnimatedContent(
+				targetState = transitionTarget,
+				transitionSpec = {
+					(fadeIn(
+						animationSpec = effectSpec
+					) + scaleIn(
+						initialScale = 0.8f,
+						animationSpec = spatialSpec
+					)) togetherWith (fadeOut(
+						animationSpec = effectSpec
+					) + scaleOut(
+						animationSpec = spatialSpec
+					))
+				},
+				modifier = Modifier.fillMaxSize()
+			) {
+				when (val currentArtistState = artistState) {
+					is UiState.Error -> Box(Modifier.fillMaxSize().padding(contentPadding)) {
+						ErrorBox(currentArtistState)
+					}
 
-				is UiState.Loading -> Box(Modifier.fillMaxSize()) {
-					ContainedLoadingIndicator(Modifier.size(80.dp).align(Alignment.Center))
-				}
+					is UiState.Loading -> Box(Modifier.fillMaxSize()) {
+						ContainedLoadingIndicator(Modifier.size(80.dp).align(Alignment.Center))
+					}
 
-				is UiState.Success -> {
-					val state = currentArtistState.data
-					val aurralMonitorPending = aurralArtistMonitoringConfirmationItem(
-						queue = aurralConfirmationQueue,
-						artistMbid = state.aurralArtistMbid ?: state.artist.musicBrainzId
-					)?.status == AurralConfirmationStatus.Pending
+					is UiState.Success -> {
+						val state = currentArtistState.data
 					val albumRows = remember(state.albums, state.aurralMissingAlbums) {
 						aurralArtistAlbumRows(
 							localAlbums = state.albums,
@@ -357,7 +368,7 @@ fun ArtistDetailScreen(
 								aurralMonitorActionState(state.aurralMonitored)
 							),
 							monitoringInAurral = monitoringInAurral,
-							monitorPendingInAurral = aurralMonitorPending,
+							monitorPendingInAurral = artistAurralMonitorPending,
 							monitoredInAurral = state.aurralMonitored,
 							modifier = Modifier.padding(top = 8.dp)
 						)
@@ -683,6 +694,16 @@ fun ArtistDetailScreen(
 					}
 				}
 			}
+		}
+			IntegrationLoadingIndicatorStrip(
+				indicators = artistIntegrationIndicators,
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(
+						start = 12.dp,
+						top = contentPadding.calculateTopPadding() + 8.dp
+					)
+			)
 		}
 	}
 

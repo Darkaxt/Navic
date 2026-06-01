@@ -69,6 +69,8 @@ import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -85,6 +87,7 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val musicBrainzMetadataBySongId by musicBrainzArtworkRepository.metadataBySongId.collectAsStateWithLifecycle()
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
+	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 
 	val metadata = song?.id?.let(musicBrainzMetadataBySongId::get)
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
@@ -159,6 +162,17 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 				song = song,
 				enabled = preferenceManager.lidaClipsMusicBrainzInfoVideoBackground,
 				modifier = Modifier.fillMaxSize()
+			)
+			IntegrationLoadingIndicatorStrip(
+				indicators = integrationLoadingIndicators(
+					musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(
+						start = 12.dp,
+						top = contentPadding.calculateTopPadding() + 8.dp
+					)
 			)
 			if (song == null) {
 				ContentUnavailable(

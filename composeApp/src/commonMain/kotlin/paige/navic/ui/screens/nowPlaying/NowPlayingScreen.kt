@@ -63,10 +63,13 @@ import paige.navic.icons.outlined.Lyrics
 import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetActionButton
 import paige.navic.ui.components.toolbars.SheetToolbar
+import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipArtwork
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipBackground
@@ -90,6 +93,7 @@ fun NowPlayingScreen() {
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
+	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 	val song = playerState.currentSong
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
@@ -271,6 +275,19 @@ fun NowPlayingScreen() {
 				)
 			}
 			if (!isPlayerCurrent) return@Box
+			IntegrationLoadingIndicatorStrip(
+				indicators = integrationLoadingIndicators(
+					lidaClipsLoading = lidaClipState is UiState.Loading,
+					musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true,
+					lyricsLoading = lyricsAvailableState is UiState.Loading
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(
+						start = 14.dp,
+						top = contentPadding.calculateTopPadding() + 8.dp
+					)
+			)
 			BoxWithConstraints(
 				modifier = Modifier
 					.padding(horizontal = 8.dp)

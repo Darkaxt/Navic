@@ -72,6 +72,7 @@ data class ArtistState(
 	val aurralArtistName: String? = null,
 	val aurralArtistImageUrl: String? = null,
 	val aurralLoading: Boolean = false,
+	val lastFmLoading: Boolean = false,
 	val aurralError: String? = null,
 	val aurralFeedback: AurralArtistActionFeedback? = null
 )
@@ -241,6 +242,10 @@ class ArtistDetailViewModel(
 		localSongs: List<DomainSong>
 	) {
 		viewModelScope.launch {
+			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+			if (currentState.artist.id == artist.id) {
+				_artistState.value = UiState.Success(currentState.copy(lastFmLoading = true))
+			}
 			lastFmRepository.getArtistTopTracks(
 				artistName = artist.name,
 				artistMbid = artist.musicBrainzId
@@ -252,11 +257,16 @@ class ArtistDetailViewModel(
 						lastFmTopSongs = artistLastFmTopTrackSongs(
 							tracks = tracks,
 							localSongs = localSongs
-						)
+						),
+						lastFmLoading = false
 					)
 				)
 			}.onFailure { error ->
 				Logger.w("ArtistDetailViewModel", "Failed to fetch Last.fm top tracks", error)
+				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
+				if (latestState.artist.id == artist.id) {
+					_artistState.value = UiState.Success(latestState.copy(lastFmLoading = false))
+				}
 			}
 		}
 	}

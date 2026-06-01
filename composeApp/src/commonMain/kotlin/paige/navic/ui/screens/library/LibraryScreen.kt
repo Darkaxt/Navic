@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.library
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -15,7 +17,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_library
@@ -36,6 +40,8 @@ import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -213,46 +219,47 @@ fun LibraryScreen() {
 			RootBottomBar(scrolled = scrollManager.isTriggered)
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = albumsState !is UiState.Loading &&
-				newestAlbumsState !is UiState.Loading &&
-				starredAlbumsState !is UiState.Loading &&
-				(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
-				playlistsState !is UiState.Loading &&
-				artistsState !is UiState.Loading &&
-				genresState !is UiState.Loading &&
-				mostPlayedShortcutsState !is UiState.Loading &&
-				(!aurralConfigured || aurralDiscovery !is UiState.Loading),
-			onRefresh = {
-				if (quickPicksEnabled) {
-					quickPicksViewModel.refreshSongs(true)
-				}
-				albumsViewModel.refreshAlbums(true)
-				newestAlbumsViewModel.refreshAlbums(false)
-				starredAlbumsViewModel.refreshAlbums(false)
-				playlistsViewModel.refreshPlaylists(true)
-				artistsViewModel.refreshArtists(true)
-				genresViewModel.refreshGenres(true)
-				if (aurralConfigured) {
-					aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
-				}
-			},
-			key = listOf(
-				quickPicksState,
-				albumsState,
-				newestAlbumsState,
-				starredAlbumsState,
-				playlistsState,
-				artistsState,
-				genresState,
-				mostPlayedShortcutsState,
-				aurralDiscovery
-			)
-		) {
-			LibraryScreenContent(
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = albumsState !is UiState.Loading &&
+					newestAlbumsState !is UiState.Loading &&
+					starredAlbumsState !is UiState.Loading &&
+					(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
+					playlistsState !is UiState.Loading &&
+					artistsState !is UiState.Loading &&
+					genresState !is UiState.Loading &&
+					mostPlayedShortcutsState !is UiState.Loading &&
+					(!aurralConfigured || aurralDiscovery !is UiState.Loading),
+				onRefresh = {
+					if (quickPicksEnabled) {
+						quickPicksViewModel.refreshSongs(true)
+					}
+					albumsViewModel.refreshAlbums(true)
+					newestAlbumsViewModel.refreshAlbums(false)
+					starredAlbumsViewModel.refreshAlbums(false)
+					playlistsViewModel.refreshPlaylists(true)
+					artistsViewModel.refreshArtists(true)
+					genresViewModel.refreshGenres(true)
+					if (aurralConfigured) {
+						aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
+					}
+				},
+				key = listOf(
+					quickPicksState,
+					albumsState,
+					newestAlbumsState,
+					starredAlbumsState,
+					playlistsState,
+					artistsState,
+					genresState,
+					mostPlayedShortcutsState,
+					aurralDiscovery
+				)
+			) {
+				LibraryScreenContent(
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
@@ -336,6 +343,18 @@ fun LibraryScreen() {
 				onAddPlaylistToQueue = { playlistsViewModel.addSelectedPlaylistToQueue(player) },
 
 				genresState = genresState
+				)
+			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = integrationLoadingIndicators(
+					aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(
+						start = 12.dp,
+						top = innerPadding.calculateTopPadding() + 8.dp
+					)
 			)
 		}
 	}

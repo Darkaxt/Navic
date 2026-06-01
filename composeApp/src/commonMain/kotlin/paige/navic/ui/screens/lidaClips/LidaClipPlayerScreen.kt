@@ -53,7 +53,9 @@ import paige.navic.icons.outlined.Refresh
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 
@@ -137,6 +139,14 @@ fun LidaClipPlayerScreen(songId: String) {
 					}
 				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = integrationLoadingIndicators(
+					lidaClipsLoading = state is UiState.Loading
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = 8.dp)
+			)
 		}
 	}
 }

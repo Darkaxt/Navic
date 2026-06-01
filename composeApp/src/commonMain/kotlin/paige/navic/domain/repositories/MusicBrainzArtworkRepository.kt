@@ -57,9 +57,13 @@ class MusicBrainzArtworkRepository(
 	}
 	private val cacheLock = Any()
 	private val serverCoverFailureLock = Any()
+	private val resolvingSongIdsLock = Any()
 	private val failedServerCoverSongIds = mutableSetOf<String>()
+	private val resolvingSongIds = mutableSetOf<String>()
 	private val _serverCoverLoadFailedSongIds = MutableStateFlow<Set<String>>(emptySet())
 	val serverCoverLoadFailedSongIds = _serverCoverLoadFailedSongIds.asStateFlow()
+	private val _resolvingSongIds = MutableStateFlow<Set<String>>(emptySet())
+	val resolvingMusicBrainzSongIds = _resolvingSongIds.asStateFlow()
 	private val requestThrottle = Mutex()
 	private var lastRequestMillis = 0L
 	private val client = HttpClient {
@@ -165,45 +169,62 @@ class MusicBrainzArtworkRepository(
 				return@runCatching null
 			}
 
-			val recording = if (shouldResolveMetadata || shouldResolveArtwork) {
-				musicBrainzLookupMbidOrNull(song.musicBrainzId)
-					?.let { fetchRecording(it) }
-					?: searchRecording(song)
-			} else {
-				null
-			}
-			val resolved = if (shouldResolveArtwork) {
-				resolveArtwork(
-					albumMusicBrainzId = albumMusicBrainzId,
-					albumTitle = song.albumTitle,
-					recordingReleases = recording?.releases.orEmpty()
-				)
-			} else {
-				null
-			}
-			val metadata = recording?.let {
-				val metadataRecording = if (shouldResolveMetadata) {
-					recording.withSelectedReleaseRelationMetadata(
+			withResolvingMusicBrainzSong(song.id) {
+				val recording = if (shouldResolveMetadata || shouldResolveArtwork) {
+					musicBrainzLookupMbidOrNull(song.musicBrainzId)
+						?.let { fetchRecording(it) }
+						?: searchRecording(song)
+				} else {
+					null
+				}
+				val resolved = if (shouldResolveArtwork) {
+					resolveArtwork(
+						albumMusicBrainzId = albumMusicBrainzId,
+						albumTitle = song.albumTitle,
+						recordingReleases = recording?.releases.orEmpty()
+					)
+				} else {
+					null
+				}
+				val metadata = recording?.let {
+					val metadataRecording = if (shouldResolveMetadata) {
+						recording.withSelectedReleaseRelationMetadata(
+							preferredReleaseMbid = resolved?.releaseMbid,
+							preferredAlbumTitle = song.albumTitle
+						)
+					} else {
+						recording
+					}
+					musicBrainzTrackMetadata(
+						recording = metadataRecording,
 						preferredReleaseMbid = resolved?.releaseMbid,
 						preferredAlbumTitle = song.albumTitle
 					)
-				} else {
-					recording
 				}
-				musicBrainzTrackMetadata(
-					recording = metadataRecording,
-					preferredReleaseMbid = resolved?.releaseMbid,
-					preferredAlbumTitle = song.albumTitle
-				)
-			}
-			val entry = resolved?.let {
-				MusicBrainzArtworkCacheEntry(
+				val entry = resolved?.let {
+					MusicBrainzArtworkCacheEntry(
+						songId = song.id,
+						fingerprint = fingerprint,
+						status = MusicBrainzArtworkCacheStatus.Found,
+						imageUrl = it.imageUrl,
+						sourceMbid = it.sourceMbid,
+						sourceType = it.sourceType,
+						metadata = metadata,
+						metadataLookupAttempted = shouldResolveMetadata,
+						metadataSchemaVersion = if (shouldResolveMetadata) {
+							MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
+						} else {
+							0
+						},
+						updatedAtMillis = currentTimeMillis()
+					)
+				} ?: MusicBrainzArtworkCacheEntry(
 					songId = song.id,
 					fingerprint = fingerprint,
-					status = MusicBrainzArtworkCacheStatus.Found,
-					imageUrl = it.imageUrl,
-					sourceMbid = it.sourceMbid,
-					sourceType = it.sourceType,
+					status = MusicBrainzArtworkCacheStatus.NotFound,
+					imageUrl = null,
+					sourceMbid = null,
+					sourceType = null,
 					metadata = metadata,
 					metadataLookupAttempted = shouldResolveMetadata,
 					metadataSchemaVersion = if (shouldResolveMetadata) {
@@ -213,25 +234,9 @@ class MusicBrainzArtworkRepository(
 					},
 					updatedAtMillis = currentTimeMillis()
 				)
-			} ?: MusicBrainzArtworkCacheEntry(
-				songId = song.id,
-				fingerprint = fingerprint,
-				status = MusicBrainzArtworkCacheStatus.NotFound,
-				imageUrl = null,
-				sourceMbid = null,
-				sourceType = null,
-				metadata = metadata,
-				metadataLookupAttempted = shouldResolveMetadata,
-				metadataSchemaVersion = if (shouldResolveMetadata) {
-					MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION
-				} else {
-					0
-				},
-				updatedAtMillis = currentTimeMillis()
-			)
-
-			putCacheEntry(entry)
-			entry.takeIf { it.status == MusicBrainzArtworkCacheStatus.Found }
+				putCacheEntry(entry)
+				entry.takeIf { it.status == MusicBrainzArtworkCacheStatus.Found }
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "MusicBrainz artwork lookup failed for ${song.id}", error)
 		}
@@ -452,6 +457,30 @@ class MusicBrainzArtworkRepository(
 		}
 
 	private fun currentTimeMillis() = Clock.System.now().toEpochMilliseconds()
+
+	private suspend fun <T> withResolvingMusicBrainzSong(
+		songId: String,
+		block: suspend () -> T
+	): T {
+		setMusicBrainzSongResolving(songId, resolving = true)
+		return try {
+			block()
+		} finally {
+			setMusicBrainzSongResolving(songId, resolving = false)
+		}
+	}
+
+	private fun setMusicBrainzSongResolving(songId: String, resolving: Boolean) {
+		if (songId.isBlank()) return
+		synchronized(resolvingSongIdsLock) {
+			if (resolving) {
+				resolvingSongIds.add(songId)
+			} else {
+				resolvingSongIds.remove(songId)
+			}
+			_resolvingSongIds.value = resolvingSongIds.toSet()
+		}
+	}
 }
 
 internal fun shouldResolveMusicBrainzMetadataOnPlayback(
