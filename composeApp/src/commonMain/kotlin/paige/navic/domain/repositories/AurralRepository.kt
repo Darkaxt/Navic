@@ -852,6 +852,11 @@ private class KtorAurralApiClient : AurralApiClient {
 			error(aurralHttpErrorMessage("Aurral Discover", response.status))
 		}
 		val discovery = response.body<AurralDiscoveryResponseDto>()
+		val recentlyAdded = runCatching {
+			fetchRecentlyAdded(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral recently added failed", error)
+		}.getOrDefault(emptyList())
 		val recentReleases = runCatching {
 			fetchRecentReleases(baseUrl, requestHeaders)
 		}.onFailure { error ->
@@ -860,8 +865,28 @@ private class KtorAurralApiClient : AurralApiClient {
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
 			response = discovery,
+			recentlyAdded = recentlyAdded,
 			recentReleases = recentReleases
 		)
+	}
+
+	private suspend fun fetchRecentlyAdded(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralDiscoverArtist> {
+		val response = client.get(aurralEndpoint(baseUrl, "api/library/recent")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		return when {
+			response.status.isSuccess() -> aurralRecentlyAddedArtists(
+				baseUrl = baseUrl,
+				response = response.body()
+			)
+			response.status == HttpStatusCode.Unauthorized -> emptyList()
+			response.status == HttpStatusCode.Forbidden -> emptyList()
+			response.status == HttpStatusCode.NotFound -> emptyList()
+			else -> error(aurralHttpErrorMessage("Aurral recently added", response.status))
+		}
 	}
 
 	private suspend fun fetchRecentReleases(
@@ -1349,6 +1374,7 @@ sealed class AurralAcquisitionDeleteTarget {
 }
 
 data class AurralDiscoverySummary(
+	val recentlyAdded: List<AurralDiscoverArtist> = emptyList(),
 	val recommendations: List<AurralDiscoverArtist> = emptyList(),
 	val globalTop: List<AurralDiscoverArtist> = emptyList(),
 	val basedOn: List<AurralDiscoverArtist> = emptyList(),
@@ -1834,9 +1860,11 @@ internal data class AurralFlowActionDto(
 internal fun aurralDiscoverySummary(
 	baseUrl: String,
 	response: AurralDiscoveryResponseDto,
+	recentlyAdded: List<AurralDiscoverArtist> = emptyList(),
 	recentReleases: List<AurralAlbumSearchItem> = emptyList()
 ): AurralDiscoverySummary =
 	AurralDiscoverySummary(
+		recentlyAdded = recentlyAdded,
 		recommendations = response.recommendations.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) },
@@ -1880,6 +1908,12 @@ internal fun aurralRecentReleases(
 ): List<AurralAlbumSearchItem> =
 	response.mapNotNull { it.toAlbumSearchItem(baseUrl) }
 
+internal fun aurralRecentlyAddedArtists(
+	baseUrl: String,
+	response: List<AurralDiscoverArtistDto>
+): List<AurralDiscoverArtist> =
+	response.mapNotNull { it.toRecentlyAddedArtist(baseUrl) }
+
 private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {
 	val recommendedAlbum = toRecommendedAlbum(baseUrl)
 	if (recommendedAlbum != null) {
@@ -1914,6 +1948,24 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 		tags = (tags + genres).cleanedAurralStrings(),
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		reason = aurralDiscoveryReason(this),
+		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
+		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
+private fun AurralDiscoverArtistDto.toRecentlyAddedArtist(baseUrl: String): AurralDiscoverArtist? {
+	val artistId = listOf(foreignArtistId, mbid, artistMbid, id)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val artistName = listOf(artistName, name, id)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	return AurralDiscoverArtist(
+		id = artistId,
+		name = artistName,
+		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
+		tags = (tags + genres).cleanedAurralStrings(),
+		matchedTags = matchedTags.cleanedAurralStrings(),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
 	)

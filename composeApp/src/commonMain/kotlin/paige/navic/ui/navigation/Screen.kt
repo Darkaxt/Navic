@@ -106,6 +106,11 @@ sealed interface Screen : NavKey {
 	data object AurralDiscoverList : Screen
 	@Immutable
 	@Serializable
+	data class AurralDiscoverTag(
+		val tag: String
+	) : Screen
+	@Immutable
+	@Serializable
 	data class AurralArtist(
 		val artistMbid: String,
 		val artistName: String,
@@ -184,6 +189,9 @@ sealed interface Screen : NavKey {
 		@Immutable
 		@Serializable
 		data object LidaClips : Settings
+		@Immutable
+		@Serializable
+		data object LastFm : Settings
 		@Immutable
 		@Serializable
 		data object Aurral : Settings

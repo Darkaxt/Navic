@@ -98,6 +98,7 @@ import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
 import paige.navic.ui.screens.settings.SettingsIntegrationsScreen
+import paige.navic.ui.screens.settings.SettingsLastFmScreen
 import paige.navic.ui.screens.settings.SettingsLidaClipsScreen
 import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
 import paige.navic.ui.screens.settings.SettingsPlaybackScreen
@@ -334,6 +335,9 @@ private fun entryProvider(
 		entry<Screen.AurralDiscoverList>(metadata = detailPane("root")) {
 			AurralDiscoverListScreen()
 		}
+		entry<Screen.AurralDiscoverTag>(metadata = detailPane("root")) { key ->
+			AurralDiscoverListScreen(tag = key.tag)
+		}
 		entry<Screen.AurralArtist>(metadata = detailPane("root")) { key ->
 			AurralArtistScreen(key)
 		}
@@ -389,6 +393,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.LidaClips>(metadata = detailPane("settings")) {
 			SettingsLidaClipsScreen()
+		}
+		entry<Screen.Settings.LastFm>(metadata = detailPane("settings")) {
+			SettingsLastFmScreen()
 		}
 		entry<Screen.Settings.Aurral>(metadata = detailPane("settings")) {
 			SettingsAurralScreen()

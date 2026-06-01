@@ -19,9 +19,52 @@ private const val LASTFM_BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 private const val TAG = "LastFmRepository"
 
 class LastFmRepository(
-	private val preferenceManager: PreferenceManager
-) {
+	private val preferenceManager: PreferenceManager,
 	private val apiClient: LastFmApiClient = KtorLastFmApiClient()
+) {
+	suspend fun testConnection(): LastFmConnectionResult {
+		val apiKey = preferenceManager.lastFmApiKey.trim()
+		if (apiKey.isEmpty()) return LastFmConnectionResult.MissingApiKey
+
+		return runCatching {
+			apiClient.probeService(apiKey)
+		}.fold(
+			onSuccess = { probe ->
+				LastFmConnectionResult.Connected(sampleArtistCount = probe.sampleArtistCount)
+			},
+			onFailure = { error ->
+				if ((error as? LastFmApiException)?.code in invalidApiKeyErrorCodes) {
+					LastFmConnectionResult.InvalidApiKey
+				} else {
+					Logger.w(TAG, "Last.fm connection test failed", error)
+					LastFmConnectionResult.Failed(error.message ?: error::class.simpleName ?: "Unknown error")
+				}
+			}
+		)
+	}
+
+	suspend fun getServiceStatus(): Result<LastFmServiceStatus> {
+		val apiKey = preferenceManager.lastFmApiKey.trim()
+		if (apiKey.isEmpty()) {
+			return Result.success(
+				LastFmServiceStatus(
+					apiKeyConfigured = false,
+					artistTopTracksEnabled = false
+				)
+			)
+		}
+
+		return runCatching {
+			val probe = apiClient.probeService(apiKey)
+			LastFmServiceStatus(
+				apiKeyConfigured = true,
+				artistTopTracksEnabled = true,
+				sampleArtistCount = probe.sampleArtistCount
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Last.fm service status failed", error)
+		}
+	}
 
 	suspend fun getArtistTopTracks(
 		artistName: String,
@@ -54,6 +97,8 @@ interface LastFmApiClient {
 		artistMbid: String?,
 		limit: Int
 	): List<LastFmTopTrack>
+
+	suspend fun probeService(apiKey: String): LastFmServiceProbe
 }
 
 private class KtorLastFmApiClient : LastFmApiClient {
@@ -96,13 +141,67 @@ private class KtorLastFmApiClient : LastFmApiClient {
 		}
 		return response.body<LastFmTopTracksResponseDto>().toTopTracks()
 	}
+
+	override suspend fun probeService(apiKey: String): LastFmServiceProbe {
+		val response = client.get(LASTFM_BASE_URL) {
+			parameter("method", "chart.getTopArtists")
+			parameter("api_key", apiKey)
+			parameter("format", "json")
+			parameter("limit", 1)
+		}
+		if (!response.status.isSuccess()) {
+			error("Last.fm returned ${response.status.value}")
+		}
+		return response.body<LastFmChartTopArtistsResponseDto>().toServiceProbe()
+	}
 }
+
+private val invalidApiKeyErrorCodes = setOf(10, 26)
+
+sealed interface LastFmConnectionResult {
+	data object MissingApiKey : LastFmConnectionResult
+	data object InvalidApiKey : LastFmConnectionResult
+	data class Connected(val sampleArtistCount: Int) : LastFmConnectionResult
+	data class Failed(val message: String) : LastFmConnectionResult
+}
+
+data class LastFmServiceStatus(
+	val apiKeyConfigured: Boolean,
+	val artistTopTracksEnabled: Boolean,
+	val sampleArtistCount: Int? = null
+)
+
+data class LastFmServiceProbe(
+	val sampleArtistCount: Int
+)
+
+class LastFmApiException(
+	val code: Int?,
+	detail: String
+) : IllegalStateException(detail)
 
 @Serializable
 internal data class LastFmTopTracksResponseDto(
 	@SerialName("toptracks") val topTracks: LastFmTopTracksDto? = null,
 	val error: Int? = null,
 	val message: String? = null
+)
+
+@Serializable
+internal data class LastFmChartTopArtistsResponseDto(
+	@SerialName("artists") val artists: LastFmChartArtistsDto? = null,
+	val error: Int? = null,
+	val message: String? = null
+)
+
+@Serializable
+internal data class LastFmChartArtistsDto(
+	val artist: List<LastFmChartArtistDto> = emptyList()
+)
+
+@Serializable
+internal data class LastFmChartArtistDto(
+	val name: String? = null
 )
 
 @Serializable
@@ -126,7 +225,7 @@ internal data class LastFmTopTrackAttrDto(
 internal fun LastFmTopTracksResponseDto.toTopTracks(): List<LastFmTopTrack> {
 	error?.let { code ->
 		val detail = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Last.fm error $code"
-		error(detail)
+		throw LastFmApiException(code = code, detail = detail)
 	}
 	return topTracks?.track.orEmpty().mapIndexedNotNull { index, track ->
 		val name = track.name?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapIndexedNotNull null
@@ -137,4 +236,14 @@ internal fun LastFmTopTracksResponseDto.toTopTracks(): List<LastFmTopTrack> {
 			url = track.url?.trim()?.takeIf { it.isNotEmpty() }
 		)
 	}
+}
+
+internal fun LastFmChartTopArtistsResponseDto.toServiceProbe(): LastFmServiceProbe {
+	error?.let { code ->
+		val detail = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Last.fm error $code"
+		throw LastFmApiException(code = code, detail = detail)
+	}
+	return LastFmServiceProbe(
+		sampleArtistCount = artists?.artist.orEmpty().count { !it.name.isNullOrBlank() }
+	)
 }

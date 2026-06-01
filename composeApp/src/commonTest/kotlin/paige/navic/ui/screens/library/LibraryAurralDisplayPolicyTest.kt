@@ -71,9 +71,19 @@ class LibraryAurralDisplayPolicyTest {
 	@Test
 	fun libraryAurralCollectionRowsExposeEachConfiguredAurralBucket() {
 		val discovery = AurralDiscoverySummary(
-			recommendations = listOf(AurralDiscoverArtist(id = "recommended", name = "Recommended")),
+			recentlyAdded = listOf(AurralDiscoverArtist(id = "recent-artist", name = "Recently Added Artist")),
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(id = "seed-$index", name = "Seed $index")
+			} + listOf(
+				AurralDiscoverArtist(id = "recommended-1", name = "Recommended 1", matchedTags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-2", name = "Recommended 2", matchedTags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-3", name = "Recommended 3", matchedTags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-4", name = "Recommended 4", matchedTags = listOf("soundtrack"))
+			),
 			basedOn = listOf(AurralDiscoverArtist(id = "based-on", name = "Based On")),
 			globalTop = listOf(AurralDiscoverArtist(id = "global", name = "Global")),
+			topTags = listOf("soundtrack", "instrumental"),
+			topGenres = listOf("soundtrack"),
 			recentReleases = listOf(
 				AurralAlbumSearchItem(
 					id = "release",
@@ -92,16 +102,19 @@ class LibraryAurralDisplayPolicyTest {
 
 		assertEquals(
 			listOf(
+				"RecentlyAddedArtists",
+				AurralDiscoveryCollectionKind.RecentReleases,
 				AurralDiscoveryCollectionKind.RecommendedArtists,
 				AurralDiscoveryCollectionKind.BasedOnArtists,
 				AurralDiscoveryCollectionKind.GlobalTopArtists,
-				AurralDiscoveryCollectionKind.RecentReleases
-			),
-			rows.map { it.kind }
+				"GenreArtists",
+				"TopTags"
+			).map { it.toString() },
+			rows.map { it.kind.toString() }
 		)
 		assertEquals(
 			listOf("release"),
-			(rows.last() as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+			(rows[1] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
 		)
 		assertEquals(
 			emptyList(),

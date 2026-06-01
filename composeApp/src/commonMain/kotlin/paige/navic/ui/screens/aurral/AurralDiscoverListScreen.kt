@@ -50,10 +50,13 @@ import paige.navic.util.ui.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun AurralDiscoverListScreen() {
+fun AurralDiscoverListScreen(tag: String? = null) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
-	val viewModel = koinViewModel<AurralHubViewModel>(key = "aurralDiscoverList")
+	val tagFilter = tag?.trim()?.takeIf { it.isNotEmpty() }
+	val viewModel = koinViewModel<AurralHubViewModel>(
+		key = tagFilter?.let { "aurralDiscoverList:$it" } ?: "aurralDiscoverList"
+	)
 	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
 		key = "aurralDiscoverListLocalArtists",
 		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) }
@@ -80,7 +83,7 @@ fun AurralDiscoverListScreen() {
 	Scaffold(
 		topBar = {
 			NestedTopBar(
-				title = { Text(stringResource(Res.string.title_aurral_discover)) }
+				title = { Text(tagFilter?.let { "#$it" } ?: stringResource(Res.string.title_aurral_discover)) }
 			)
 		},
 		bottomBar = {
@@ -102,7 +105,13 @@ fun AurralDiscoverListScreen() {
 			key = discoveryState
 		) {
 			val artists = discoveryState.data
-				?.let(::aurralDiscoverListArtists)
+				?.let { discovery ->
+					if (tagFilter == null) {
+						aurralDiscoverListArtists(discovery)
+					} else {
+						aurralDiscoverTagArtists(discovery, tagFilter)
+					}
+				}
 				.orEmpty()
 			val localArtists = localArtistsState.data.orEmpty()
 			ArtGrid(

@@ -41,10 +41,13 @@ data class AurralArtistIdentity(
 
 @Immutable
 enum class AurralDiscoveryCollectionKind {
+	RecentlyAddedArtists,
+	RecentReleases,
 	RecommendedArtists,
 	BasedOnArtists,
 	GlobalTopArtists,
-	RecentReleases
+	GenreArtists,
+	TopTags
 }
 
 @Immutable
@@ -54,13 +57,20 @@ sealed interface AurralDiscoveryCollectionRow {
 	@Immutable
 	data class Artists(
 		override val kind: AurralDiscoveryCollectionKind,
-		val artists: List<AurralDiscoverArtist>
+		val artists: List<AurralDiscoverArtist>,
+		val tag: String? = null
 	) : AurralDiscoveryCollectionRow
 
 	@Immutable
 	data class Albums(
 		override val kind: AurralDiscoveryCollectionKind,
 		val albums: List<AurralAlbumSearchItem>
+	) : AurralDiscoveryCollectionRow
+
+	@Immutable
+	data class Tags(
+		override val kind: AurralDiscoveryCollectionKind = AurralDiscoveryCollectionKind.TopTags,
+		val tags: List<String>
 	) : AurralDiscoveryCollectionRow
 }
 
@@ -105,6 +115,26 @@ fun aurralDiscoveryCollectionRows(
 ): List<AurralDiscoveryCollectionRow> {
 	val safeLimit = limit.coerceAtLeast(0)
 	return buildList {
+		val recentlyAdded = aurralHubSearchArtists(discovery.recentlyAdded, safeLimit)
+		if (recentlyAdded.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.RecentlyAddedArtists,
+					artists = recentlyAdded
+				)
+			)
+		}
+
+		val recentReleases = aurralHubSearchAlbums(discovery.recentReleases, safeLimit)
+		if (recentReleases.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Albums(
+					kind = AurralDiscoveryCollectionKind.RecentReleases,
+					albums = recentReleases
+				)
+			)
+		}
+
 		val recommendations = aurralHubSearchArtists(discovery.recommendations, safeLimit)
 		if (recommendations.isNotEmpty()) {
 			add(
@@ -135,16 +165,24 @@ fun aurralDiscoveryCollectionRows(
 			)
 		}
 
-		val recentReleases = aurralHubSearchAlbums(discovery.recentReleases, safeLimit)
-		if (recentReleases.isNotEmpty()) {
-			add(
-				AurralDiscoveryCollectionRow.Albums(
-					kind = AurralDiscoveryCollectionKind.RecentReleases,
-					albums = recentReleases
-				)
-			)
+		addAll(aurralDiscoveryGenreRows(discovery, safeLimit))
+
+		val topTags = aurralDiscoveryTopTags(discovery, safeLimit)
+		if (topTags.isNotEmpty()) {
+			add(AurralDiscoveryCollectionRow.Tags(tags = topTags))
 		}
 	}
+}
+
+fun aurralDiscoverTagArtists(
+	discovery: AurralDiscoverySummary,
+	tag: String,
+	limit: Int = Int.MAX_VALUE
+): List<AurralDiscoverArtist> {
+	val normalizedTag = tag.normalizedAurralName() ?: return emptyList()
+	return aurralDiscoverListArtists(discovery)
+		.filter { artist -> artist.matchesAurralTag(normalizedTag) }
+		.take(limit.coerceAtLeast(0))
 }
 
 fun aurralDiscoverListArtists(
@@ -381,6 +419,63 @@ private fun mergeAurralDiscoverArtists(
 	}
 	return merged.values.toList()
 }
+
+private fun aurralDiscoveryGenreRows(
+	discovery: AurralDiscoverySummary,
+	limit: Int
+): List<AurralDiscoveryCollectionRow.Artists> {
+	val safeLimit = limit.coerceAtLeast(0)
+	if (safeLimit == 0) return emptyList()
+	val usedArtistIds = discovery.recommendations
+		.take(12)
+		.mapNotNull { it.id.normalizedAurralKey() }
+		.toMutableSet()
+	val candidatePool = discovery.recommendations.drop(8)
+	return discovery.topGenres
+		.cleanedAurralDisplayStrings()
+		.mapNotNull { genre ->
+			val normalizedGenre = genre.normalizedAurralName() ?: return@mapNotNull null
+			val artists = candidatePool
+				.asSequence()
+				.filter { artist ->
+					val artistId = artist.id.normalizedAurralKey()
+					artistId != null &&
+						artistId !in usedArtistIds &&
+						artist.matchesAurralTag(normalizedGenre)
+				}
+				.sortedWith(compareBy<AurralDiscoverArtist> { it.name.trim().lowercase() })
+				.take(safeLimit)
+				.toList()
+			if (artists.size < 4) {
+				null
+			} else {
+				usedArtistIds += artists.mapNotNull { it.id.normalizedAurralKey() }
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.GenreArtists,
+					artists = artists,
+					tag = genre
+				)
+			}
+		}
+		.take(4)
+}
+
+private fun aurralDiscoveryTopTags(
+	discovery: AurralDiscoverySummary,
+	limit: Int
+): List<String> =
+	discovery.topTags
+		.cleanedAurralDisplayStrings()
+		.take(limit.coerceAtLeast(0))
+
+private fun AurralDiscoverArtist.matchesAurralTag(normalizedTag: String): Boolean =
+	(matchedTags.ifEmpty { tags })
+		.mapNotNull { it.normalizedAurralName() }
+		.any { tag -> tag == normalizedTag || tag.contains(normalizedTag) || normalizedTag.contains(tag) }
+
+private fun List<String>.cleanedAurralDisplayStrings(): List<String> =
+	mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+		.distinctBy { it.lowercase() }
 
 private fun AurralDiscoverArtist.matchesArtist(
 	artistKey: String?,

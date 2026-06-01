@@ -22,7 +22,10 @@ import navic.composeapp.generated.resources.option_sort_recent
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_aurral_based_on_library
+import navic.composeapp.generated.resources.title_aurral_because_you_like
+import navic.composeapp.generated.resources.title_aurral_explore_by_tag
 import navic.composeapp.generated.resources.title_aurral_global_top
+import navic.composeapp.generated.resources.title_aurral_recently_added
 import navic.composeapp.generated.resources.title_aurral_recent_releases
 import navic.composeapp.generated.resources.title_aurral_recommended_for_you
 import navic.composeapp.generated.resources.title_genres
@@ -367,10 +370,18 @@ fun LibraryScreenContent(
 			when (row) {
 				is AurralDiscoveryCollectionRow.Artists -> horizontalSection(
 					title = row.kind.titleResource(),
-					destination = Screen.AurralDiscoverList,
+					titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+						listOf(row.tag.orEmpty())
+					} else {
+						emptyList()
+					},
+					destination = row.tag
+						?.takeIf { row.kind == AurralDiscoveryCollectionKind.GenreArtists }
+						?.let(Screen::AurralDiscoverTag)
+						?: Screen.AurralDiscoverList,
 					state = UiState.Success(row.artists),
 					key = { it.id.trim().ifEmpty { it.name } },
-					seeAll = true
+					seeAll = row.kind != AurralDiscoveryCollectionKind.RecentlyAddedArtists
 				) { artist ->
 					AurralDiscoverArtistCard(
 						modifier = Modifier.animateItem().width(150.dp),
@@ -393,6 +404,20 @@ fun LibraryScreenContent(
 						onClick = { onOpenAurralDiscoverAlbum(album) }
 					)
 				}
+
+				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.tags),
+					key = { it.lowercase() },
+					seeAll = false
+				) { tag ->
+					AurralDiscoverTagCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						tag = tag,
+						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
+					)
+				}
 			}
 		}
 
@@ -410,10 +435,13 @@ fun LibraryScreenContent(
 
 private fun AurralDiscoveryCollectionKind.titleResource(): StringResource =
 	when (this) {
+		AurralDiscoveryCollectionKind.RecentlyAddedArtists -> Res.string.title_aurral_recently_added
+		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
 		AurralDiscoveryCollectionKind.RecommendedArtists -> Res.string.title_aurral_recommended_for_you
 		AurralDiscoveryCollectionKind.BasedOnArtists -> Res.string.title_aurral_based_on_library
 		AurralDiscoveryCollectionKind.GlobalTopArtists -> Res.string.title_aurral_global_top
-		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
+		AurralDiscoveryCollectionKind.GenreArtists -> Res.string.title_aurral_because_you_like
+		AurralDiscoveryCollectionKind.TopTags -> Res.string.title_aurral_explore_by_tag
 	}
 
 private fun UiState<ImmutableList<DomainPlaylist>>.filterPlaylists(

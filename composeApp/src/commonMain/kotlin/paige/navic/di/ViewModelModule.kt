@@ -30,6 +30,7 @@ import paige.navic.ui.screens.settings.viewmodels.LyricsPriorityViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsAurralViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsDataStorageViewModel
+import paige.navic.ui.screens.settings.viewmodels.SettingsLastFmViewModel
 import paige.navic.ui.screens.settings.viewmodels.SettingsLidaClipsViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareDialogViewModel
 import paige.navic.ui.screens.share.viewmodels.ShareListViewModel
@@ -85,6 +86,7 @@ val viewModelModule = module {
 	viewModelOf(::SongDetailViewModel)
 	viewModelOf(::SettingsDataStorageViewModel)
 	viewModelOf(::SettingsAurralViewModel)
+	viewModelOf(::SettingsLastFmViewModel)
 	viewModelOf(::AurralHubViewModel)
 	viewModelOf(::ActivityViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)

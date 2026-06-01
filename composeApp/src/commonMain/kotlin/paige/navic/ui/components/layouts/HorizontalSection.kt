@@ -35,6 +35,7 @@ import paige.navic.ui.core.UiState
 fun <T> LazyGridScope.horizontalSection(
 	seeAll: Boolean,
 	title: StringResource,
+	titleFormatArgs: List<Any> = emptyList(),
 	destination: NavKey,
 	state: UiState<List<T>>,
 	key: (T) -> Any,
@@ -44,7 +45,7 @@ fun <T> LazyGridScope.horizontalSection(
 
 	if (data.isEmpty() && state !is UiState.Loading) return
 
-	header(title, destination = destination, active = seeAll)
+	header(title, *titleFormatArgs.toTypedArray(), destination = destination, active = seeAll)
 
 	item(span = { GridItemSpan(maxLineSpan) }) {
 		LazyRow(
@@ -75,7 +76,7 @@ fun LazyGridScope.header(
 ) {
 	item(span = { GridItemSpan(1) }) {
 		Text(
-			stringResource(title, formatArgs),
+			stringResource(title, *formatArgs),
 			style = MaterialTheme.typography.titleMediumEmphasized,
 			fontWeight = FontWeight(600),
 			modifier = Modifier.heightIn(min = 32.dp).padding(top = 12.dp, start = 16.dp)

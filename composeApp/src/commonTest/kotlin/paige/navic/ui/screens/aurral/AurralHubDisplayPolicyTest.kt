@@ -185,9 +185,17 @@ class AurralHubDisplayPolicyTest {
 	@Test
 	fun discoveryCollectionRowsKeepAurralBucketsSeparate() {
 		val summary = AurralDiscoverySummary(
-			recommendations = listOf(
-				AurralDiscoverArtist(id = "recommended-1", name = "Recommended 1"),
-				AurralDiscoverArtist(id = "recommended-2", name = "Recommended 2")
+			recentlyAdded = listOf(
+				AurralDiscoverArtist(id = "recent-artist", name = "Recently Added Artist")
+			),
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(id = "seed-$index", name = "Seed $index")
+			} + listOf(
+				AurralDiscoverArtist(id = "recommended-1", name = "Recommended 1", tags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-2", name = "Recommended 2", tags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-3", name = "Recommended 3", tags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-4", name = "Recommended 4", tags = listOf("soundtrack")),
+				AurralDiscoverArtist(id = "recommended-5", name = "Recommended 5", tags = listOf("electronic"))
 			),
 			basedOn = listOf(
 				AurralDiscoverArtist(id = "based-on-1", name = "Based On 1")
@@ -195,6 +203,8 @@ class AurralHubDisplayPolicyTest {
 			globalTop = listOf(
 				AurralDiscoverArtist(id = "global-1", name = "Global 1")
 			),
+			topTags = listOf("soundtrack", "video game music"),
+			topGenres = listOf("soundtrack", "electronic"),
 			recentReleases = listOf(
 				albumSearchItem(id = "release-2026", title = "Recent Release", releaseDate = "2026-01-01")
 			)
@@ -204,20 +214,27 @@ class AurralHubDisplayPolicyTest {
 
 		assertEquals(
 			listOf(
+				"RecentlyAddedArtists",
+				AurralDiscoveryCollectionKind.RecentReleases,
 				AurralDiscoveryCollectionKind.RecommendedArtists,
 				AurralDiscoveryCollectionKind.BasedOnArtists,
 				AurralDiscoveryCollectionKind.GlobalTopArtists,
-				AurralDiscoveryCollectionKind.RecentReleases
-			),
-			rows.map { it.kind }
+				"GenreArtists",
+				"TopTags"
+			).map { it.toString() },
+			rows.map { it.kind.toString() }
 		)
 		assertEquals(
-			listOf("recommended-1", "recommended-2"),
+			listOf("recent-artist"),
 			(rows[0] as AurralDiscoveryCollectionRow.Artists).artists.map { it.id }
 		)
 		assertEquals(
+			listOf("seed-1", "seed-2", "seed-3", "seed-4", "seed-5", "seed-6", "seed-7", "seed-8"),
+			(rows[2] as AurralDiscoveryCollectionRow.Artists).artists.map { it.id }
+		)
+		assertEquals(
 			listOf("release-2026"),
-			(rows[3] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+			(rows[1] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
 		)
 	}
 

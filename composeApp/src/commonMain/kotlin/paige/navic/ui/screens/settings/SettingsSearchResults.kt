@@ -132,6 +132,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val lyrics = stringResource(Res.string.action_lyrics)
 	val network = stringResource(Res.string.title_network)
 	val lidaClips = stringResource(Res.string.title_lida_clips)
+	val lastFm = stringResource(Res.string.title_lastfm)
 	val aurral = stringResource(Res.string.title_aurral)
 	val cacheManagement = stringResource(Res.string.title_cache_management)
 	val miniPlayer = stringResource(Res.string.title_mini_player)
@@ -1322,6 +1323,16 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keywords = listOf("Aurral", "Flows", "artist acquisition", "self hosted"),
 			value = preferenceManager.aurralEnabled,
 			onSetValue = { preferenceManager.aurralEnabled = it }
+		))
+		add(textFieldRow(
+			id = "lastfm.api-key",
+			path = path(integrations, lastFm),
+			title = stringResource(Res.string.option_lastfm_api_key),
+			value = preferenceManager.lastFmApiKey,
+			keywords = listOf("Last.fm", "artist top tracks", "scrobble", "recommendations"),
+			keyboardType = KeyboardType.Password,
+			isPassword = true,
+			onValueChange = { preferenceManager.lastFmApiKey = it }
 		))
 		add(textFieldRow(
 			id = "aurral.base-url",
