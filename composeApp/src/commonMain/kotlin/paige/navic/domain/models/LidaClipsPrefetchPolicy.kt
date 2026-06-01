@@ -38,8 +38,20 @@ fun shouldShowLidaClipsMusicVideoAction(
 		userActionEnabled &&
 		(songId == null || hasStableNavidromeSongId(songId))
 
+fun shouldTreatLidaClipAsMusicVideo(clip: DomainLidaClip?): Boolean {
+	val qualityTier = clip?.qualityTier?.trim()?.lowercase() ?: return false
+	return qualityTier != "fallback" &&
+		qualityTier != "still" &&
+		qualityTier != "static" &&
+		qualityTier != "placeholder"
+}
+
 fun lidaClipAvailability(clip: DomainLidaClip?): LidaClipAvailability =
-	if (clip == null) LidaClipAvailability.Unavailable else LidaClipAvailability.Available
+	if (shouldTreatLidaClipAsMusicVideo(clip)) {
+		LidaClipAvailability.Available
+	} else {
+		LidaClipAvailability.Unavailable
+	}
 
 fun shouldShowVerifiedLidaClipsMusicVideoAction(
 	lidaClipsEnabled: Boolean,

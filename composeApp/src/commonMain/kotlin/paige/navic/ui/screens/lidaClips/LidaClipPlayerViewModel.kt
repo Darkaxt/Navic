@@ -11,6 +11,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.isCachedLidaClipStreamUrl
+import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.ui.core.UiState
@@ -47,7 +48,7 @@ class LidaClipPlayerViewModel(
 			val persistOffline = downloadManager.isDownloaded(song?.id ?: songId)
 			val playbackResult = result.fold(
 				onSuccess = { clip ->
-					if (clip == null) {
+					if (clip == null || !shouldTreatLidaClipAsMusicVideo(clip)) {
 						Result.success(null)
 					} else {
 						runCatching {

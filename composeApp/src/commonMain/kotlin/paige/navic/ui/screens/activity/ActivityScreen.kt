@@ -10,17 +10,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +52,8 @@ import paige.navic.domain.models.LidaClipDownloadQueueControls
 import paige.navic.domain.models.lidaClipDownloadQueueControls
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Close
+import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
@@ -115,29 +119,35 @@ fun ActivityScreen() {
 					onClearDownloadQueue = viewModel::clearDownloadQueue
 				)
 				downloadItems.take(ACTIVITY_ITEM_LIMIT).forEach { item ->
-					ActivityDownloadRow(item)
+					ActivityDownloadRow(
+						item = item,
+						onCancel = viewModel::cancelDownload,
+						onRetry = viewModel::retryDownload
+					)
 				}
 			}
 
-			ActivitySection(
-				title = stringResource(Res.string.title_aurral),
-				summary = aurralActivitySummary(aurralStatus.data),
-				loading = aurralStatus is UiState.Loading,
-				error = activityQueueSectionError(
-					ActivitySection.Aurral,
-					(aurralStatus as? UiState.Error)?.error
-				)
-			) {
-				aurralStatus.data?.acquisitionQueue
-					.orEmpty()
-					.take(ACTIVITY_ITEM_LIMIT)
-					.forEach { item ->
-						AurralQueueRow(
-							item = item,
-							onCancel = viewModel::cancelAurralAcquisition,
-							onRetry = viewModel::retryAurralAcquisition
-						)
-					}
+			if (shouldShowAurralActivitySection(aurralStatus.data)) {
+				ActivitySection(
+					title = stringResource(Res.string.title_aurral),
+					summary = aurralActivitySummary(aurralStatus.data),
+					loading = aurralStatus is UiState.Loading,
+					error = activityQueueSectionError(
+						ActivitySection.Aurral,
+						(aurralStatus as? UiState.Error)?.error
+					)
+				) {
+					aurralStatus.data?.acquisitionQueue
+						.orEmpty()
+						.take(ACTIVITY_ITEM_LIMIT)
+						.forEach { item ->
+							AurralQueueRow(
+								item = item,
+								onCancel = viewModel::cancelAurralAcquisition,
+								onRetry = viewModel::retryAurralAcquisition
+							)
+						}
+				}
 			}
 
 			ActivitySection(
@@ -154,7 +164,8 @@ fun ActivityScreen() {
 					.forEach { item ->
 						LidaClipDownloadRow(
 							item = item,
-							onCancel = viewModel::cancelLidaClipDownload
+							onCancel = viewModel::cancelLidaClipDownload,
+							onRetry = viewModel::retryLidaClipDownload
 						)
 					}
 			}
@@ -174,35 +185,14 @@ private fun LidaClipDownloadControlsRow(
 		!controls.canDiscardFailedDownloads &&
 		!controls.canClearDownloadQueue
 	) return
-	FormRow(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-		Row(
-			modifier = Modifier.fillMaxWidth(),
-			horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-			verticalAlignment = Alignment.CenterVertically
-		) {
-			if (controls.canRetryFailedDownloads) {
-				TextButton(onClick = onRetryFailedDownloads) {
-					Text(stringResource(Res.string.action_retry_failed_downloads))
-				}
-			}
-			if (controls.canDiscardFailedDownloads) {
-				TextButton(onClick = onDiscardFailedDownloads) {
-					Text(
-						text = stringResource(Res.string.action_discard_failed_downloads),
-						color = MaterialTheme.colorScheme.error
-					)
-				}
-			}
-			if (controls.canClearDownloadQueue) {
-				TextButton(onClick = onClearDownloadQueue) {
-					Text(
-						text = stringResource(Res.string.action_clear_download_queue),
-						color = MaterialTheme.colorScheme.error
-					)
-				}
-			}
-		}
-	}
+	QueueControlsRow(
+		canRetryFailedDownloads = controls.canRetryFailedDownloads,
+		canDiscardFailedDownloads = controls.canDiscardFailedDownloads,
+		canClearDownloadQueue = controls.canClearDownloadQueue,
+		onRetryFailedDownloads = onRetryFailedDownloads,
+		onDiscardFailedDownloads = onDiscardFailedDownloads,
+		onClearDownloadQueue = onClearDownloadQueue
+	)
 }
 
 @Composable
@@ -217,32 +207,53 @@ private fun NavicDownloadControlsRow(
 		!controls.canDiscardFailedDownloads &&
 		!controls.canClearDownloadQueue
 	) return
-	FormRow(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+	QueueControlsRow(
+		canRetryFailedDownloads = controls.canRetryFailedDownloads,
+		canDiscardFailedDownloads = controls.canDiscardFailedDownloads,
+		canClearDownloadQueue = controls.canClearDownloadQueue,
+		onRetryFailedDownloads = onRetryFailedDownloads,
+		onDiscardFailedDownloads = onDiscardFailedDownloads,
+		onClearDownloadQueue = onClearDownloadQueue
+	)
+}
+
+@Composable
+private fun QueueControlsRow(
+	canRetryFailedDownloads: Boolean,
+	canDiscardFailedDownloads: Boolean,
+	canClearDownloadQueue: Boolean,
+	onRetryFailedDownloads: () -> Unit,
+	onDiscardFailedDownloads: () -> Unit,
+	onClearDownloadQueue: () -> Unit
+) {
+	FormRow(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
 		Row(
 			modifier = Modifier.fillMaxWidth(),
-			horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+			horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
 			verticalAlignment = Alignment.CenterVertically
 		) {
-			if (controls.canRetryFailedDownloads) {
-				TextButton(onClick = onRetryFailedDownloads) {
-					Text(stringResource(Res.string.action_retry_failed_downloads))
-				}
+			if (canRetryFailedDownloads) {
+				QueueActionIconButton(
+					icon = Icons.Outlined.Refresh,
+					contentDescription = stringResource(Res.string.action_retry_failed_downloads),
+					onClick = onRetryFailedDownloads
+				)
 			}
-			if (controls.canDiscardFailedDownloads) {
-				TextButton(onClick = onDiscardFailedDownloads) {
-					Text(
-						text = stringResource(Res.string.action_discard_failed_downloads),
-						color = MaterialTheme.colorScheme.error
-					)
-				}
+			if (canDiscardFailedDownloads) {
+				QueueActionIconButton(
+					icon = Icons.Outlined.Delete,
+					contentDescription = stringResource(Res.string.action_discard_failed_downloads),
+					onClick = onDiscardFailedDownloads,
+					tint = MaterialTheme.colorScheme.error
+				)
 			}
-			if (controls.canClearDownloadQueue) {
-				TextButton(onClick = onClearDownloadQueue) {
-					Text(
-						text = stringResource(Res.string.action_clear_download_queue),
-						color = MaterialTheme.colorScheme.error
-					)
-				}
+			if (canClearDownloadQueue) {
+				QueueActionIconButton(
+					icon = Icons.Outlined.Close,
+					contentDescription = stringResource(Res.string.action_clear_download_queue),
+					onClick = onClearDownloadQueue,
+					tint = MaterialTheme.colorScheme.error
+				)
 			}
 		}
 	}
@@ -298,10 +309,17 @@ private fun ActivitySummaryRow(summary: ActivitySummary) {
 }
 
 @Composable
-private fun ActivityDownloadRow(item: ActivityDownloadItem) {
+private fun ActivityDownloadRow(
+	item: ActivityDownloadItem,
+	onCancel: (String) -> Unit,
+	onRetry: (String) -> Unit
+) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
 		Column(Modifier.fillMaxWidth()) {
-			Row(Modifier.fillMaxWidth()) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically
+			) {
 				Column(Modifier.weight(1f)) {
 					Text(
 						text = item.title,
@@ -330,6 +348,24 @@ private fun ActivityDownloadRow(item: ActivityDownloadItem) {
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
+				if (item.status == DownloadStatus.FAILED) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Refresh,
+						contentDescription = stringResource(Res.string.action_retry),
+						onClick = { onRetry(item.songId) }
+					)
+				}
+				if (item.status == DownloadStatus.DOWNLOADING ||
+					item.status == DownloadStatus.QUEUED ||
+					item.status == DownloadStatus.FAILED
+				) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Close,
+						contentDescription = stringResource(Res.string.action_cancel),
+						onClick = { onCancel(item.songId) },
+						tint = MaterialTheme.colorScheme.error
+					)
+				}
 			}
 			if (item.status == DownloadStatus.DOWNLOADING) {
 				Text(
@@ -360,7 +396,10 @@ private fun AurralQueueRow(
 	val controls = aurralAcquisitionQueueItemControls(item)
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
 		Column(Modifier.fillMaxWidth()) {
-			Row(Modifier.fillMaxWidth()) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically
+			) {
 				Column(Modifier.weight(1f)) {
 					Text(
 						text = item.albumName,
@@ -387,6 +426,21 @@ private fun AurralQueueRow(
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
+				if (controls.canRetry) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Refresh,
+						contentDescription = stringResource(Res.string.action_retry),
+						onClick = { onRetry(item) }
+					)
+				}
+				if (controls.canCancel) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Close,
+						contentDescription = stringResource(Res.string.action_cancel),
+						onClick = { onCancel(item) },
+						tint = MaterialTheme.colorScheme.error
+					)
+				}
 			}
 			if (progress.active) {
 				LinearProgressIndicator(
@@ -396,29 +450,6 @@ private fun AurralQueueRow(
 						.height(3.dp)
 				)
 			}
-			if (controls.canRetry || controls.canCancel) {
-				Row(
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(top = 8.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					if (controls.canRetry) {
-						TextButton(onClick = { onRetry(item) }) {
-							Text(stringResource(Res.string.action_retry))
-						}
-					}
-					if (controls.canCancel) {
-						TextButton(onClick = { onCancel(item) }) {
-							Text(
-								text = stringResource(Res.string.action_cancel),
-								color = MaterialTheme.colorScheme.error
-							)
-						}
-					}
-				}
-			}
 		}
 	}
 }
@@ -426,11 +457,15 @@ private fun AurralQueueRow(
 @Composable
 private fun LidaClipDownloadRow(
 	item: LidaClipDownloadEntity,
-	onCancel: (String) -> Unit
+	onCancel: (String) -> Unit,
+	onRetry: (String) -> Unit
 ) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
 		Column(Modifier.fillMaxWidth()) {
-			Row(Modifier.fillMaxWidth()) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically
+			) {
 				Column(Modifier.weight(1f)) {
 					Text(
 						text = item.title,
@@ -459,6 +494,24 @@ private fun LidaClipDownloadRow(
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
+				if (item.status == DownloadStatus.FAILED) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Refresh,
+						contentDescription = stringResource(Res.string.action_retry),
+						onClick = { onRetry(item.songId) }
+					)
+				}
+				if (item.status == DownloadStatus.DOWNLOADING ||
+					item.status == DownloadStatus.QUEUED ||
+					item.status == DownloadStatus.FAILED
+				) {
+					QueueActionIconButton(
+						icon = Icons.Outlined.Close,
+						contentDescription = stringResource(Res.string.action_cancel),
+						onClick = { onCancel(item.songId) },
+						tint = MaterialTheme.colorScheme.error
+					)
+				}
 			}
 			if (item.status == DownloadStatus.DOWNLOADING) {
 				Text(
@@ -475,26 +528,23 @@ private fun LidaClipDownloadRow(
 						.height(3.dp)
 				)
 			}
-			if (item.status == DownloadStatus.DOWNLOADING ||
-				item.status == DownloadStatus.QUEUED ||
-				item.status == DownloadStatus.FAILED
-			) {
-				Row(
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(top = 8.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					TextButton(onClick = { onCancel(item.songId) }) {
-						Text(
-							text = stringResource(Res.string.action_cancel),
-							color = MaterialTheme.colorScheme.error
-						)
-					}
-				}
-			}
 		}
+	}
+}
+
+@Composable
+private fun QueueActionIconButton(
+	icon: ImageVector,
+	contentDescription: String,
+	onClick: () -> Unit,
+	tint: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
+	IconButton(onClick = onClick) {
+		Icon(
+			imageVector = icon,
+			contentDescription = contentDescription,
+			tint = tint
+		)
 	}
 }
 
@@ -504,7 +554,7 @@ private fun downloadStatusText(status: DownloadStatus): String =
 		DownloadStatus.DOWNLOADING -> stringResource(Res.string.info_download_status_downloading)
 		DownloadStatus.QUEUED -> stringResource(Res.string.info_download_status_queued)
 		DownloadStatus.FAILED -> stringResource(Res.string.info_download_status_failed)
-		DownloadStatus.DOWNLOADED,
+		DownloadStatus.DOWNLOADED -> "Ready"
 		DownloadStatus.NOT_DOWNLOADED -> status.name.lowercase()
 	}
 

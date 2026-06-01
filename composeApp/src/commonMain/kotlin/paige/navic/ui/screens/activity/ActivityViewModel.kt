@@ -83,6 +83,14 @@ class ActivityViewModel(
 		downloadManager.retryFailedDownloads()
 	}
 
+	fun retryDownload(songId: String) {
+		downloadManager.retryFailedDownload(songId)
+	}
+
+	fun cancelDownload(songId: String) {
+		downloadManager.cancelDownload(songId)
+	}
+
 	fun discardFailedDownloads() {
 		downloadManager.discardFailedDownloads()
 	}
@@ -93,6 +101,10 @@ class ActivityViewModel(
 
 	fun retryFailedLidaClipDownloads() {
 		lidaClipDownloadManager.retryFailedDownloads()
+	}
+
+	fun retryLidaClipDownload(songId: String) {
+		lidaClipDownloadManager.retryDownload(songId)
 	}
 
 	fun discardFailedLidaClipDownloads() {

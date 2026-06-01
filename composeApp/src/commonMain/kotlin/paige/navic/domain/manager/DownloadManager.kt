@@ -48,6 +48,8 @@ import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
+import paige.navic.domain.models.shouldFailHostedDownload
+import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.util.core.Logger
@@ -208,6 +210,22 @@ class DownloadManager(
 			val songsToRetry = retryPlan.songIdsToRetry
 				.mapNotNull { songId -> songsById[songId]?.toDomainModel() }
 			queueSongDownloads(songsToRetry)
+		}
+	}
+
+	fun retryFailedDownload(songId: String) {
+		scope.launch(Dispatchers.IO) {
+			val download = downloadDao.getDownloadById(songId)
+			if (download?.status != DownloadStatus.FAILED) return@launch
+
+			val song = songDao.getSongsByIds(listOf(songId))
+				.firstOrNull()
+				?.toDomainModel()
+			if (song == null) {
+				downloadDao.deleteDownload(songId)
+				return@launch
+			}
+			queueSongDownloads(listOf(song))
 		}
 	}
 
@@ -429,20 +447,28 @@ class DownloadManager(
 	}
 
 	private suspend fun executeDownloadProcess(song: DomainSong) {
-		try {
-			Logger.i("DownloadManager", "beginning download for ${song.id}")
-			downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.DOWNLOADING, 0f))
+		while (true) {
+			try {
+				Logger.i("DownloadManager", "beginning download for ${song.id}")
+				downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.DOWNLOADING, 0f))
 
-			cacheSongCoverArt(song.coverArtId)
-			cacheAlbumCoverArt(song.albumId)
-			cacheLyrics(song)
-			downloadAudioFile(song)
-			cacheOfflineLidaClip(song)
-
-		} catch (e: Exception) {
-			if (e is CancellationException) throw e
-			Logger.e("DownloadManager", "Failed to download song ${song.id}", e)
-			downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.FAILED, 0f))
+				cacheSongCoverArt(song.coverArtId)
+				cacheAlbumCoverArt(song.albumId)
+				cacheLyrics(song)
+				downloadAudioFile(song)
+				cacheOfflineLidaClip(song)
+				return
+			} catch (e: Exception) {
+				if (e is CancellationException) throw e
+				if (shouldFailHostedDownload(e)) {
+					Logger.e("DownloadManager", "Navidrome service appears unavailable while downloading ${song.id}", e)
+					downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.FAILED, 0f))
+					return
+				}
+				Logger.w("DownloadManager", "Download retry queued for ${song.id}", e)
+				downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.QUEUED, 0f))
+				delay(HOSTED_DOWNLOAD_RETRY_DELAY_MS)
+			}
 		}
 	}
 
@@ -512,7 +538,7 @@ class DownloadManager(
 		}
 	}
 
-	private suspend fun cacheOfflineLidaClip(song: DomainSong) {
+	private fun cacheOfflineLidaClip(song: DomainSong) {
 		if (!shouldSaveLidaClipWithDownloadedMusic(
 			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
 			lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
@@ -522,24 +548,27 @@ class DownloadManager(
 			return
 		}
 
-		try {
-			val clip = lidaClipsRepository.findClipForSong(song, forceRefresh = true)
-				.getOrNull()
-				?: return
-			lidaClipDownloadManager.getOrQueueClipForPlayback(
-				songId = song.id,
-				clip = clip,
-				persistOffline = true
-			).onSuccess { cachedClip ->
-				if (cachedClip != null) {
-					Logger.i("DownloadManager", "cached LidaClips offline clip for ${song.id}")
+		scope.launch(Dispatchers.IO) {
+			try {
+				val clip = lidaClipsRepository.findClipForSong(song, forceRefresh = true)
+					.getOrNull()
+					?.takeIf { shouldTreatLidaClipAsMusicVideo(it) }
+					?: return@launch
+				lidaClipDownloadManager.getOrQueueClipForPlayback(
+					songId = song.id,
+					clip = clip,
+					persistOffline = true
+				).onSuccess { cachedClip ->
+					if (cachedClip != null) {
+						Logger.i("DownloadManager", "cached LidaClips offline clip for ${song.id}")
+					}
+				}.onFailure { error ->
+					Logger.w("DownloadManager", "Failed to cache LidaClips offline clip for ${song.id}", error)
 				}
-			}.onFailure { error ->
-				Logger.w("DownloadManager", "Failed to cache LidaClips offline clip for ${song.id}", error)
+			} catch (e: Exception) {
+				if (e is CancellationException) throw e
+				Logger.w("DownloadManager", "Failed to resolve LidaClips offline clip for ${song.id}", e)
 			}
-		} catch (e: Exception) {
-			if (e is CancellationException) throw e
-			Logger.w("DownloadManager", "Failed to resolve LidaClips offline clip for ${song.id}", e)
 		}
 	}
 
@@ -600,5 +629,6 @@ class DownloadManager(
 	private companion object {
 		const val DOWNLOAD_SLOT_RETRY_DELAY_MS = 250L
 		const val LIBRARY_PROGRESS_POLL_DELAY_MS = 500L
+		const val HOSTED_DOWNLOAD_RETRY_DELAY_MS = 30_000L
 	}
 }

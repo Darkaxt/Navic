@@ -7,7 +7,7 @@ import paige.navic.data.database.entities.LidaClipDownloadEntity
 
 class LidaClipDownloadSummaryPolicyTest {
 	@Test
-	fun lidaClipDownloadQueueIncludesOnlyPendingAndFailedRows() {
+	fun lidaClipDownloadQueueIncludesActiveFailedAndCompletedRows() {
 		val rows = lidaClipDownloadQueueDownloads(
 			listOf(
 				lidaClipDownload("song-downloading", DownloadStatus.DOWNLOADING),
@@ -18,7 +18,7 @@ class LidaClipDownloadSummaryPolicyTest {
 		)
 
 		assertEquals(
-			listOf("song-downloading", "song-queued", "song-failed"),
+			listOf("song-downloading", "song-queued", "song-failed", "song-downloaded"),
 			rows.map { it.songId }
 		)
 	}
@@ -41,6 +41,19 @@ class LidaClipDownloadSummaryPolicyTest {
 			listOf("song-downloading", "song-queued", "song-failed"),
 			clearLidaClipDownloadQueueSongIds(rows)
 		)
+	}
+
+	@Test
+	fun lidaClipClearQueueIncludesCompletedRowsShownInActivity() {
+		val rows = listOf(
+			lidaClipDownload("song-downloaded", DownloadStatus.DOWNLOADED)
+		)
+
+		assertEquals(
+			listOf("song-downloaded"),
+			clearLidaClipDownloadQueueSongIds(rows)
+		)
+		assertEquals(true, lidaClipDownloadQueueControls(rows).canClearDownloadQueue)
 	}
 
 	private fun lidaClipDownload(

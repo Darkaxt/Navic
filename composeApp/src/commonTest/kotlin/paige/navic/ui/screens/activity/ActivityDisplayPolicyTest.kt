@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LidaClipDownloadEntity
@@ -106,14 +105,26 @@ class ActivityDisplayPolicyTest {
 	fun aurralSummaryWaitsForVerifiedServiceStatus() {
 		val summary = aurralActivitySummary(null)
 
-		assertEquals("Not checked", summary.value)
-		assertEquals("Waiting for service status", summary.detail)
+		assertEquals("No active Aurral requests", summary.value)
+		assertEquals("Queue is clear", summary.detail)
 		assertFalse(summary.active)
 		assertFalse(summary.failed)
 	}
 
 	@Test
-	fun integrationHealthErrorsAreNotShownInTheActivityQueuePage() {
+	fun aurralActivitySectionIsShownOnlyWhenThereIsQueueWork() {
+		assertFalse(shouldShowAurralActivitySection(null))
+		assertFalse(shouldShowAurralActivitySection(AurralServiceStatus()))
+		assertTrue(
+			shouldShowAurralActivitySection(
+				AurralServiceStatus(acquisitionQueue = listOf(aurralQueueItem("1", "processing")))
+			)
+		)
+		assertTrue(shouldShowAurralActivitySection(AurralServiceStatus(flowTracksPending = 1)))
+	}
+
+	@Test
+	fun integrationStatusErrorsAreNotShownInTheActivityQueuePage() {
 		assertNull(
 			activityQueueSectionError(
 				ActivitySection.Aurral,
@@ -122,16 +133,15 @@ class ActivityDisplayPolicyTest {
 		)
 		assertNull(
 			activityQueueSectionError(
+				ActivitySection.Aurral,
+				Exception("Aurral auth returned HTTP 404")
+			)
+		)
+		assertNull(
+			activityQueueSectionError(
 				ActivitySection.LidaClips,
 				Exception("LidaClips health returned HTTP 404")
 			)
-		)
-
-		val queueError = Exception("Aurral acquisition queue returned HTTP 500")
-
-		assertSame(
-			queueError,
-			activityQueueSectionError(ActivitySection.Aurral, queueError)
 		)
 	}
 
@@ -206,6 +216,21 @@ class ActivityDisplayPolicyTest {
 		assertEquals("1 failed", summary.detail)
 		assertFalse(summary.active)
 		assertTrue(summary.failed)
+	}
+
+	@Test
+	fun lidaClipsSummaryKeepsCompletedClientClipRowsVisible() {
+		val summary = lidaClipsActivitySummary(
+			downloads = listOf(
+				lidaClipDownload("song-ready", "Ready Track", DownloadStatus.DOWNLOADED)
+			)
+		)
+
+		assertEquals(ActivitySection.LidaClips, summary.section)
+		assertEquals("1 clip download", summary.value)
+		assertEquals("1 ready", summary.detail)
+		assertFalse(summary.active)
+		assertFalse(summary.failed)
 	}
 
 	private fun activityDownloadItem(

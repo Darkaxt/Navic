@@ -144,4 +144,24 @@ class DownloadSummaryPolicyTest {
 			)
 		)
 	}
+
+	@Test
+	fun hostedDownloadFailuresAreReservedForServiceDownErrors() {
+		assertEquals(
+			true,
+			shouldFailHostedDownload(Exception("Stream request failed for song-1: HTTP 503 Service Unavailable"))
+		)
+		assertEquals(
+			true,
+			shouldFailHostedDownload(Exception("Unable to resolve host clips.remaxku.eu"))
+		)
+		assertEquals(
+			false,
+			shouldFailHostedDownload(Exception("Video playback failed: ERROR_CODE_IO_FILE_NOT_FOUND"))
+		)
+		assertEquals(
+			false,
+			shouldFailHostedDownload(Exception("Stream request failed for song-1: HTTP 404 Not Found"))
+		)
+	}
 }

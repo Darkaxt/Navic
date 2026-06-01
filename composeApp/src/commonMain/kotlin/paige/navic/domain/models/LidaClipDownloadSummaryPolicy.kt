@@ -17,17 +17,18 @@ fun lidaClipDownloadQueueDownloads(downloads: List<LidaClipDownloadEntity>): Lis
 		.filter { download ->
 			download.status == DownloadStatus.DOWNLOADING ||
 				download.status == DownloadStatus.QUEUED ||
-				download.status == DownloadStatus.FAILED
+				download.status == DownloadStatus.FAILED ||
+				download.status == DownloadStatus.DOWNLOADED
 		}
-		.sortedBy { download ->
+		.sortedWith(compareBy<LidaClipDownloadEntity> { download ->
 			when (download.status) {
 				DownloadStatus.DOWNLOADING -> 0
 				DownloadStatus.QUEUED -> 1
 				DownloadStatus.FAILED -> 2
-				DownloadStatus.DOWNLOADED,
-				DownloadStatus.NOT_DOWNLOADED -> 3
+				DownloadStatus.DOWNLOADED -> 3
+				DownloadStatus.NOT_DOWNLOADED -> 4
 			}
-		}
+		}.thenByDescending { download -> download.updatedAtMillis })
 
 fun lidaClipDownloadQueueControls(downloads: List<LidaClipDownloadEntity>): LidaClipDownloadQueueControls {
 	val queueDownloads = lidaClipDownloadQueueDownloads(downloads)

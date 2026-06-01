@@ -18,6 +18,7 @@ import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
+import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.SongRepository
@@ -144,14 +145,16 @@ class NowPlayingViewModel(
 		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
 			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
 				.onSuccess { clip ->
-					val cachedClipResult = clip?.let {
-						val persistOffline = downloadManager.isDownloaded(song.id)
-						lidaClipDownloadManager.getOrQueueClipForPlayback(
-							songId = song.id,
-							clip = it,
-							persistOffline = persistOffline
-						)
-					}
+					val cachedClipResult = clip
+						?.takeIf { shouldTreatLidaClipAsMusicVideo(it) }
+						?.let {
+							val persistOffline = downloadManager.isDownloaded(song.id)
+							lidaClipDownloadManager.getOrQueueClipForPlayback(
+								songId = song.id,
+								clip = it,
+								persistOffline = persistOffline
+							)
+						}
 					if (currentLidaClipSongId == song.id) {
 						_lidaClipState.value = cachedClipResult?.fold(
 							onSuccess = { cachedClip ->

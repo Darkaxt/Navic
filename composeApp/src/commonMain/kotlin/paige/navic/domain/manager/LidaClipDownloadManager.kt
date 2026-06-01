@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -18,6 +19,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.lidaClipCacheFileExtension
+import paige.navic.domain.models.shouldFailHostedDownload
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
@@ -100,6 +102,23 @@ class LidaClipDownloadManager(
 		}
 	}
 
+	fun retryDownload(songId: String) {
+		scope.launch(Dispatchers.IO) {
+			lidaClipDownloadDao.getAllDownloadsList()
+				.firstOrNull { download ->
+					download.songId == songId &&
+						download.status == DownloadStatus.FAILED
+				}
+				?.let { download ->
+					getOrQueueClipForPlayback(
+						songId = download.songId,
+						clip = download.toDomainLidaClip(),
+						persistOffline = download.persistOffline
+					)
+				}
+		}
+	}
+
 	fun discardFailedDownloads() {
 		scope.launch(Dispatchers.IO) {
 			lidaClipDownloadDao.deleteDownloadsWithStatus(DownloadStatus.FAILED)
@@ -115,6 +134,7 @@ class LidaClipDownloadManager(
 			lidaClipDownloadDao.deleteDownloadsWithStatus(DownloadStatus.DOWNLOADING)
 			lidaClipDownloadDao.deleteDownloadsWithStatus(DownloadStatus.QUEUED)
 			lidaClipDownloadDao.deleteDownloadsWithStatus(DownloadStatus.FAILED)
+			lidaClipDownloadDao.deleteDownloadsWithStatus(DownloadStatus.DOWNLOADED)
 		}
 	}
 
@@ -136,69 +156,84 @@ class LidaClipDownloadManager(
 		)
 		lidaClipDownloadDao.insertDownload(queued)
 
-		return try {
-			lidaClipDownloadDao.insertDownload(
-				queued.copy(
-					status = DownloadStatus.DOWNLOADING,
-					progress = 0f,
-					updatedAtMillis = nowMillis()
+		while (true) {
+			try {
+				lidaClipDownloadDao.insertDownload(
+					queued.copy(
+						status = DownloadStatus.DOWNLOADING,
+						progress = 0f,
+						updatedAtMillis = nowMillis()
+					)
 				)
-			)
 
-			var lastProgress = 0f
-			val cachedClip = lidaClipCacheManager.getOrCacheClip(
-				clip = clip,
-				requestHeaders = lidaClipsStreamRequestHeaders(
-					baseUrl = preferenceManager.lidaClipsBaseUrl,
-					streamUrl = clip.streamUrl,
-					requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-				),
-				songId = songId,
-				persistOffline = persistOffline,
-				onProgress = { progress ->
-					val boundedProgress = progress.coerceIn(0f, 1f)
-					if (boundedProgress - lastProgress >= 0.01f || boundedProgress == 1f) {
-						lastProgress = boundedProgress
-						scope.launch(Dispatchers.IO) {
-							lidaClipDownloadDao.insertDownload(
-								queued.copy(
-									status = DownloadStatus.DOWNLOADING,
-									progress = boundedProgress,
-									updatedAtMillis = nowMillis()
+				var lastProgress = 0f
+				val cachedClip = lidaClipCacheManager.getOrCacheClip(
+					clip = clip,
+					requestHeaders = lidaClipsStreamRequestHeaders(
+						baseUrl = preferenceManager.lidaClipsBaseUrl,
+						streamUrl = clip.streamUrl,
+						requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
+					),
+					songId = songId,
+					persistOffline = persistOffline,
+					onProgress = { progress ->
+						val boundedProgress = progress.coerceIn(0f, 1f)
+						if (boundedProgress - lastProgress >= 0.01f || boundedProgress == 1f) {
+							lastProgress = boundedProgress
+							scope.launch(Dispatchers.IO) {
+								lidaClipDownloadDao.insertDownload(
+									queued.copy(
+										status = DownloadStatus.DOWNLOADING,
+										progress = boundedProgress,
+										updatedAtMillis = nowMillis()
+									)
 								)
-							)
+							}
 						}
 					}
-				}
-			).getOrThrow()
-				?: error("LidaClips video cache is disabled")
+				).getOrThrow()
+					?: error("LidaClips video cache is disabled")
 
-			val filePath = cachedFilePathFor(songId, clip)
-				?: error("LidaClips video was not cached for playback")
-			val playableClip = cachedClip.copy(streamUrl = storageManager.fileUri(filePath))
-			lidaClipDownloadDao.insertDownload(
-				queued.copy(
-					status = DownloadStatus.DOWNLOADED,
-					progress = 1f,
-					filePath = filePath,
-					updatedAtMillis = nowMillis()
+				val filePath = cachedFilePathFor(songId, clip)
+					?: error("LidaClips video was not cached for playback")
+				val playableClip = cachedClip.copy(streamUrl = storageManager.fileUri(filePath))
+				lidaClipDownloadDao.insertDownload(
+					queued.copy(
+						status = DownloadStatus.DOWNLOADED,
+						progress = 1f,
+						filePath = filePath,
+						updatedAtMillis = nowMillis()
+					)
 				)
-			)
-			Result.success(playableClip)
-		} catch (error: CancellationException) {
-			lidaClipDownloadDao.deleteDownload(songId)
-			Result.failure(error)
-		} catch (error: Throwable) {
-			Logger.w(TAG, "Failed to cache LidaClips video for song $songId", error)
-			lidaClipDownloadDao.insertDownload(
-				queued.copy(
-					status = DownloadStatus.FAILED,
-					progress = 0f,
-					filePath = null,
-					updatedAtMillis = nowMillis()
+				return Result.success(playableClip)
+			} catch (error: CancellationException) {
+				lidaClipDownloadDao.deleteDownload(songId)
+				return Result.failure(error)
+			} catch (error: Throwable) {
+				if (shouldFailHostedDownload(error)) {
+					Logger.w(TAG, "LidaClips service appears unavailable while caching song $songId", error)
+					lidaClipDownloadDao.insertDownload(
+						queued.copy(
+							status = DownloadStatus.FAILED,
+							progress = 0f,
+							filePath = null,
+							updatedAtMillis = nowMillis()
+						)
+					)
+					return Result.failure(error)
+				}
+
+				Logger.w(TAG, "LidaClips cache retry queued for song $songId", error)
+				lidaClipDownloadDao.insertDownload(
+					queued.copy(
+						status = DownloadStatus.QUEUED,
+						progress = 0f,
+						filePath = null,
+						updatedAtMillis = nowMillis()
+					)
 				)
-			)
-			Result.failure(error)
+				delay(HOSTED_DOWNLOAD_RETRY_DELAY_MS)
+			}
 		}
 	}
 
@@ -293,4 +328,8 @@ class LidaClipDownloadManager(
 		val job: Job,
 		val result: CompletableDeferred<Result<DomainLidaClip?>>
 	)
+
+	private companion object {
+		const val HOSTED_DOWNLOAD_RETRY_DELAY_MS = 30_000L
+	}
 }

@@ -377,6 +377,26 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipMusicVideoVerificationRejectsStaticFallbackClips() {
+		assertEquals(
+			true,
+			shouldTreatLidaClipAsMusicVideo(lidaClip(qualityTier = "official"))
+		)
+		assertEquals(
+			true,
+			shouldTreatLidaClipAsMusicVideo(lidaClip(qualityTier = "hd"))
+		)
+		assertEquals(
+			false,
+			shouldTreatLidaClipAsMusicVideo(lidaClip(qualityTier = "fallback"))
+		)
+		assertEquals(
+			false,
+			shouldTreatLidaClipAsMusicVideo(lidaClip(qualityTier = "FALLBACK"))
+		)
+	}
+
+	@Test
 	fun offlineClipDownloadRequiresEnabledConfiguredIntegrationAndStableSongId() {
 		assertEquals(
 			false,
@@ -433,4 +453,19 @@ class LidaClipsPrefetchPolicyTest {
 			)
 		)
 	}
+
+	private fun lidaClip(qualityTier: String?) = DomainLidaClip(
+		id = 1,
+		navidromeSongId = "song-1",
+		title = "Clip",
+		artist = "Artist",
+		album = "Album",
+		track = "Track",
+		durationSeconds = 180,
+		mimeType = "video/mp4",
+		score = 1f,
+		qualityTier = qualityTier,
+		fileName = "clip.mp4",
+		streamUrl = "https://clips.example.com/api/v1/stream/1"
+	)
 }
