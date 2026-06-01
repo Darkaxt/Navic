@@ -50,7 +50,6 @@ import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
-import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
 import coil3.PlatformContext as CoilPlatformContext
@@ -66,7 +65,7 @@ class DownloadManager(
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
 	private val lidaClipsRepository: LidaClipsRepository,
-	private val lidaClipCacheManager: LidaClipCacheManager
+	private val lidaClipDownloadManager: LidaClipDownloadManager
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val client = HttpClient()
@@ -527,16 +526,9 @@ class DownloadManager(
 			val clip = lidaClipsRepository.findClipForSong(song, forceRefresh = true)
 				.getOrNull()
 				?: return
-			val requestHeaders = lidaClipsStreamRequestHeaders(
-				baseUrl = preferenceManager.lidaClipsBaseUrl,
-				streamUrl = clip.streamUrl,
-				requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-			)
-
-			lidaClipCacheManager.getOrCacheClip(
-				clip = clip,
-				requestHeaders = requestHeaders,
+			lidaClipDownloadManager.getOrQueueClipForPlayback(
 				songId = song.id,
+				clip = clip,
 				persistOffline = true
 			).onSuccess { cachedClip ->
 				if (cachedClip != null) {

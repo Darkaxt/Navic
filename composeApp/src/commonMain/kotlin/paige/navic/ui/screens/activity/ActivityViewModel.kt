@@ -13,9 +13,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.SongDao
+import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.downloadQueueDownloads
+import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
@@ -27,6 +30,7 @@ import paige.navic.ui.core.UiState
 
 class ActivityViewModel(
 	private val downloadManager: DownloadManager,
+	private val lidaClipDownloadManager: LidaClipDownloadManager,
 	private val songDao: SongDao,
 	private val aurralRepository: AurralRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
@@ -61,6 +65,17 @@ class ActivityViewModel(
 			emptyList<ActivityDownloadItem>().toImmutableList()
 		)
 
+	val lidaClipDownloadItems = lidaClipDownloadManager.allDownloads
+		.map { downloads ->
+			lidaClipDownloadQueueDownloads(downloads).toImmutableList()
+		}
+		.flowOn(Dispatchers.IO)
+		.stateIn(
+			viewModelScope,
+			SharingStarted.WhileSubscribed(5000),
+			emptyList<LidaClipDownloadEntity>().toImmutableList()
+		)
+
 	private val _aurralStatus = MutableStateFlow<UiState<AurralServiceStatus?>>(UiState.Success(null))
 	val aurralStatus = _aurralStatus.asStateFlow()
 
@@ -82,6 +97,22 @@ class ActivityViewModel(
 
 	fun clearDownloadQueue() {
 		downloadManager.clearDownloadQueue()
+	}
+
+	fun retryFailedLidaClipDownloads() {
+		lidaClipDownloadManager.retryFailedDownloads()
+	}
+
+	fun discardFailedLidaClipDownloads() {
+		lidaClipDownloadManager.discardFailedDownloads()
+	}
+
+	fun clearLidaClipDownloadQueue() {
+		lidaClipDownloadManager.clearDownloadQueue()
+	}
+
+	fun cancelLidaClipDownload(songId: String) {
+		lidaClipDownloadManager.cancelDownload(songId)
 	}
 
 	fun cancelAurralAcquisition(item: AurralAcquisitionQueueItem) {

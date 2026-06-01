@@ -61,9 +61,4 @@ class LidaClipPresentationPolicyTest {
 		assertTrue(shouldMuteMusicForNowPlayingPromotedLidaClip())
 		assertFalse(shouldPauseMusicForNowPlayingPromotedLidaClip())
 	}
-
-	@Test
-	fun lidaClipStreamTimeoutAllowsSlowerSelfHostedResponses() {
-		assertEquals(30_000, lidaClipStreamTimeoutMs())
-	}
 }

@@ -28,7 +28,6 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import paige.navic.R
 import paige.navic.domain.models.DomainLidaClip
-import paige.navic.domain.models.lidaClipStreamTimeoutMs
 import paige.navic.domain.models.lidaClipPlaybackErrorMessage
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.shouldCropLidaClipsVideoFrame
@@ -66,8 +65,6 @@ actual fun PlatformLidaClipPlayer(
 	val player = remember(context, clip.streamUrl, requestHeaders, retryKey, startPositionMs, startProgress) {
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(requestHeaders)
-			.setConnectTimeoutMs(lidaClipStreamTimeoutMs())
-			.setReadTimeoutMs(lidaClipStreamTimeoutMs())
 		val dataSourceFactory = DefaultDataSource.Factory(
 			context,
 			httpDataSourceFactory

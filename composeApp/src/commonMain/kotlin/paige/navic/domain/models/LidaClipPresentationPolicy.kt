@@ -4,8 +4,6 @@ import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import kotlin.math.roundToLong
 
-private const val LIDA_CLIP_STREAM_TIMEOUT_MS = 30_000
-
 fun shouldShowLidaClipBackgroundVideo(mode: LidaClipsBackgroundVideoMode): Boolean =
 	mode != LidaClipsBackgroundVideoMode.Off
 
@@ -38,5 +36,3 @@ fun shouldPlayNowPlayingLidaClipVideo(musicIsPaused: Boolean): Boolean =
 fun shouldMuteMusicForNowPlayingPromotedLidaClip(): Boolean = true
 
 fun shouldPauseMusicForNowPlayingPromotedLidaClip(): Boolean = false
-
-fun lidaClipStreamTimeoutMs(): Int = LIDA_CLIP_STREAM_TIMEOUT_MS

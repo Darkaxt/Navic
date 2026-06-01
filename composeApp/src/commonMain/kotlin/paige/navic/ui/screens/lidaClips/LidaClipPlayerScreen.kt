@@ -231,6 +231,9 @@ private fun LidaClipPlayerContent(
 			onPlaybackReady = {
 				playbackState = playbackState.onReady()
 			},
+			onFirstFrameRendered = {
+				playbackState = playbackState.onReady()
+			},
 			onPlaybackError = { message ->
 				playbackState = playbackState.onError(message)
 			},

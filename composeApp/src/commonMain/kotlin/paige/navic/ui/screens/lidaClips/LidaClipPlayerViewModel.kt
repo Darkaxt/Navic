@@ -8,21 +8,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.manager.LidaClipCacheManager
-import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.LidaClipsRepository
-import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.ui.core.UiState
 
 class LidaClipPlayerViewModel(
 	private val songId: String,
 	private val collectionRepository: CollectionRepository,
 	private val repository: LidaClipsRepository,
-	private val cacheManager: LidaClipCacheManager,
-	private val downloadManager: DownloadManager,
-	private val preferenceManager: PreferenceManager
+	private val lidaClipDownloadManager: LidaClipDownloadManager,
+	private val downloadManager: DownloadManager
 ) : ViewModel() {
 	private val _clipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Loading())
 	val clipState = _clipState.asStateFlow()
@@ -47,19 +45,30 @@ class LidaClipPlayerViewModel(
 				)
 			}
 			val persistOffline = downloadManager.isDownloaded(song?.id ?: songId)
-			_clipState.value = result.fold(
+			val playbackResult = result.fold(
 				onSuccess = { clip ->
-					UiState.Success(
-						clip?.let {
+					if (clip == null) {
+						Result.success(null)
+					} else {
+						runCatching {
 							clipForPlayback(
-								clip = it,
+								clip = clip,
 								songId = song?.id ?: songId,
 								persistOffline = persistOffline
 							)
 						}
-					)
+					}
 				},
-				onFailure = { UiState.Error(Exception(it), _clipState.value.data) }
+				onFailure = { Result.failure(it) }
+			)
+			_clipState.value = playbackResult.fold(
+				onSuccess = { clip -> UiState.Success(clip) },
+				onFailure = { error ->
+					UiState.Error(
+						error as? Exception ?: Exception(error.message, error),
+						_clipState.value.data
+					)
+				}
 			)
 		}
 	}
@@ -69,19 +78,16 @@ class LidaClipPlayerViewModel(
 		songId: String,
 		persistOffline: Boolean
 	): DomainLidaClip {
-		if (!persistOffline) {
-			return cacheManager.cachedClipFor(songId, clip) ?: clip
-		}
-
-		return cacheManager.getOrCacheClip(
-			clip = clip,
-			requestHeaders = lidaClipsStreamRequestHeaders(
-				baseUrl = preferenceManager.lidaClipsBaseUrl,
-				streamUrl = clip.streamUrl,
-				requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-			),
+		val cachedClip = lidaClipDownloadManager.getOrQueueClipForPlayback(
 			songId = songId,
-			persistOffline = true
-		).getOrNull() ?: clip
+			clip = clip,
+			persistOffline = persistOffline
+		).getOrThrow()
+			?: error("LidaClips video cache is disabled")
+
+		if (!isCachedLidaClipStreamUrl(cachedClip.streamUrl)) {
+			error("LidaClips video was not cached for playback")
+		}
+		return cachedClip
 	}
 }

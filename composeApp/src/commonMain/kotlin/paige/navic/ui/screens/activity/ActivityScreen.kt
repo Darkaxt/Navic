@@ -44,9 +44,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.LidaClipDownloadQueueControls
+import paige.navic.domain.models.lidaClipDownloadQueueControls
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
-import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
 import paige.navic.domain.repositories.LidaClipsHealthCheck
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Refresh
@@ -65,6 +67,7 @@ private const val ACTIVITY_ITEM_LIMIT = 6
 fun ActivityScreen() {
 	val viewModel = koinViewModel<ActivityViewModel>()
 	val downloadItems by viewModel.downloadItems.collectAsStateWithLifecycle()
+	val lidaClipDownloadItems by viewModel.lidaClipDownloadItems.collectAsStateWithLifecycle()
 	val aurralStatus by viewModel.aurralStatus.collectAsStateWithLifecycle()
 	val lidaClipsStatus by viewModel.lidaClipsStatus.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -140,19 +143,75 @@ fun ActivityScreen() {
 
 			ActivitySection(
 				title = stringResource(Res.string.title_lida_clips),
-				summary = lidaClipsActivitySummary(lidaClipsStatus.data),
+				summary = lidaClipsActivitySummary(
+					status = lidaClipsStatus.data,
+					downloads = lidaClipDownloadItems
+				),
 				loading = lidaClipsStatus is UiState.Loading,
 				error = (lidaClipsStatus as? UiState.Error)?.error
 			) {
-				lidaClipsStatus.data?.downloadQueue
-					.orEmpty()
+				LidaClipDownloadControlsRow(
+					controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
+					onRetryFailedDownloads = viewModel::retryFailedLidaClipDownloads,
+					onDiscardFailedDownloads = viewModel::discardFailedLidaClipDownloads,
+					onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
+				)
+				lidaClipDownloadItems
 					.take(ACTIVITY_ITEM_LIMIT)
-					.forEach { item -> LidaClipsDownloadQueueRow(item) }
+					.forEach { item ->
+						LidaClipDownloadRow(
+							item = item,
+							onCancel = viewModel::cancelLidaClipDownload
+						)
+					}
 				lidaClipsStatus.data?.health?.checks
 					.orEmpty()
 					.filter { check -> !check.ok && !check.skipped }
 					.take(ACTIVITY_ITEM_LIMIT)
 					.forEach { check -> LidaClipsHealthRow(check) }
+			}
+		}
+	}
+}
+
+@Composable
+private fun LidaClipDownloadControlsRow(
+	controls: LidaClipDownloadQueueControls,
+	onRetryFailedDownloads: () -> Unit,
+	onDiscardFailedDownloads: () -> Unit,
+	onClearDownloadQueue: () -> Unit
+) {
+	if (
+		!controls.canRetryFailedDownloads &&
+		!controls.canDiscardFailedDownloads &&
+		!controls.canClearDownloadQueue
+	) return
+	FormRow(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			if (controls.canRetryFailedDownloads) {
+				TextButton(onClick = onRetryFailedDownloads) {
+					Text(stringResource(Res.string.action_retry_failed_downloads))
+				}
+			}
+			if (controls.canDiscardFailedDownloads) {
+				TextButton(onClick = onDiscardFailedDownloads) {
+					Text(
+						text = stringResource(Res.string.action_discard_failed_downloads),
+						color = MaterialTheme.colorScheme.error
+					)
+				}
+			}
+			if (controls.canClearDownloadQueue) {
+				TextButton(onClick = onClearDownloadQueue) {
+					Text(
+						text = stringResource(Res.string.action_clear_download_queue),
+						color = MaterialTheme.colorScheme.error
+					)
+				}
 			}
 		}
 	}
@@ -377,37 +436,76 @@ private fun AurralQueueRow(
 }
 
 @Composable
-private fun LidaClipsDownloadQueueRow(item: LidaClipsDownloadQueueItem) {
+private fun LidaClipDownloadRow(
+	item: LidaClipDownloadEntity,
+	onCancel: (String) -> Unit
+) {
 	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-		Row(Modifier.fillMaxWidth()) {
-			Column(Modifier.weight(1f)) {
-				Text(
-					text = lidaClipsDownloadQueueTitle(item),
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-				lidaClipsDownloadQueueSubtitle(item)?.let { subtitle ->
+		Column(Modifier.fillMaxWidth()) {
+			Row(Modifier.fillMaxWidth()) {
+				Column(Modifier.weight(1f)) {
 					Text(
-						text = subtitle,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						text = item.title,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis
 					)
+					lidaClipDownloadSubtitle(item)?.let { subtitle ->
+						Text(
+							text = subtitle,
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis
+						)
+					}
+				}
+				Text(
+					text = downloadStatusText(item.status),
+					modifier = Modifier.padding(start = 16.dp),
+					style = MaterialTheme.typography.bodyMedium,
+					color = if (item.status == DownloadStatus.FAILED) {
+						MaterialTheme.colorScheme.error
+					} else {
+						MaterialTheme.colorScheme.onSurfaceVariant
+					},
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
+			if (item.status == DownloadStatus.DOWNLOADING) {
+				Text(
+					text = stringResource(Res.string.info_progress),
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.primary,
+					modifier = Modifier.padding(top = 8.dp)
+				)
+				LinearProgressIndicator(
+					progress = { item.progress.coerceIn(0f, 1f) },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 4.dp)
+						.height(3.dp)
+				)
+			}
+			if (item.status == DownloadStatus.DOWNLOADING ||
+				item.status == DownloadStatus.QUEUED ||
+				item.status == DownloadStatus.FAILED
+			) {
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 8.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+					verticalAlignment = Alignment.CenterVertically
+				) {
+					TextButton(onClick = { onCancel(item.songId) }) {
+						Text(
+							text = stringResource(Res.string.action_cancel),
+							color = MaterialTheme.colorScheme.error
+						)
+					}
 				}
 			}
-			Text(
-				text = lidaClipsDownloadQueueStatusText(item),
-				modifier = Modifier.padding(start = 16.dp),
-				style = MaterialTheme.typography.bodyMedium,
-				color = if (item.isFailedLidaClipsDownload()) {
-					MaterialTheme.colorScheme.error
-				} else {
-					MaterialTheme.colorScheme.onSurfaceVariant
-				},
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis
-			)
 		}
 	}
 }
@@ -452,25 +550,9 @@ private fun downloadSubtitle(item: ActivityDownloadItem): String? =
 		.joinToString(" - ")
 		.takeIf { it.isNotEmpty() }
 
-private fun lidaClipsDownloadQueueTitle(item: LidaClipsDownloadQueueItem): String =
-	item.track?.trim()?.takeIf { it.isNotEmpty() }
-		?: item.lidarrTrackId?.let { id -> "Track $id" }
-		?: "Clip download"
-
-private fun lidaClipsDownloadQueueSubtitle(item: LidaClipsDownloadQueueItem): String? =
-	listOfNotNull(item.artist, item.album)
+private fun lidaClipDownloadSubtitle(item: LidaClipDownloadEntity): String? =
+	listOfNotNull(item.artist, item.album, item.qualityTier)
 		.map { it.trim() }
 		.filter { it.isNotEmpty() }
 		.joinToString(" - ")
 		.takeIf { it.isNotEmpty() }
-
-@Composable
-private fun lidaClipsDownloadQueueStatusText(item: LidaClipsDownloadQueueItem): String =
-	when (item.status) {
-		"queued" -> stringResource(Res.string.info_download_status_queued)
-		"downloading" -> stringResource(Res.string.info_download_status_downloading)
-		"failed" -> stringResource(Res.string.info_download_status_failed)
-		else -> item.status.replace('_', ' ').replaceFirstChar { char ->
-			if (char.isLowerCase()) char.titlecase() else char.toString()
-		}
-	}

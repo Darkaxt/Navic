@@ -10,17 +10,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.manager.LidaClipCacheManager
+import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
+import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import kotlin.time.Clock
@@ -30,7 +30,7 @@ class NowPlayingViewModel(
 	private val songRepository: SongRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
 	private val lyricsRepository: LyricsRepository,
-	private val lidaClipCacheManager: LidaClipCacheManager,
+	private val lidaClipDownloadManager: LidaClipDownloadManager,
 	private val downloadManager: DownloadManager,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
@@ -142,21 +142,30 @@ class NowPlayingViewModel(
 		lidaClipLookupJob = viewModelScope.launch(Dispatchers.IO) {
 			lidaClipsRepository.findClipForSong(song, forceRefresh = forceRefresh)
 				.onSuccess { clip ->
-					val cachedClip = clip?.let {
+					val cachedClipResult = clip?.let {
 						val persistOffline = downloadManager.isDownloaded(song.id)
-						lidaClipCacheManager.getOrCacheClip(
-							clip = it,
-							requestHeaders = lidaClipsStreamRequestHeaders(
-								baseUrl = preferenceManager.lidaClipsBaseUrl,
-								streamUrl = it.streamUrl,
-								requestHeaders = preferenceManager.lidaClipsRequestHeadersMap()
-							),
+						lidaClipDownloadManager.getOrQueueClipForPlayback(
 							songId = song.id,
+							clip = it,
 							persistOffline = persistOffline
-						).getOrElse { null }
+						)
 					}
 					if (currentLidaClipSongId == song.id) {
-						_lidaClipState.value = UiState.Success(cachedClip)
+						_lidaClipState.value = cachedClipResult?.fold(
+							onSuccess = { cachedClip ->
+								UiState.Success(
+									cachedClip?.takeIf {
+										isCachedLidaClipStreamUrl(it.streamUrl)
+									}
+								)
+							},
+							onFailure = { error ->
+								UiState.Error(
+									error as? Exception ?: Exception(error.message, error),
+									_lidaClipState.value.data
+								)
+							}
+						) ?: UiState.Success(null)
 					}
 				}
 				.onFailure { error ->

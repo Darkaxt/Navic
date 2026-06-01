@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
@@ -148,7 +149,7 @@ class ActivityDisplayPolicyTest {
 	@Test
 	fun lidaClipsSummaryHighlightsRunningSyncFailuresAndHealthChecks() {
 		val summary = lidaClipsActivitySummary(
-			LidaClipsServiceStatus(
+			status = LidaClipsServiceStatus(
 				activeClips = 10,
 				officialClips = 7,
 				fallbackClips = 3,
@@ -179,7 +180,8 @@ class ActivityDisplayPolicyTest {
 					LidaClipsRecentFailure(null, "Artist", null, "Track", "not found", null, null),
 					LidaClipsRecentFailure(42, null, null, null, "timeout", null, null)
 				)
-			)
+			),
+			downloads = emptyList()
 		)
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
@@ -192,7 +194,7 @@ class ActivityDisplayPolicyTest {
 	@Test
 	fun lidaClipsSummaryPrioritizesDownloadQueueOverRecentFailures() {
 		val summary = lidaClipsActivitySummary(
-			LidaClipsServiceStatus(
+			status = LidaClipsServiceStatus(
 				activeClips = 10,
 				officialClips = 7,
 				fallbackClips = 3,
@@ -205,6 +207,10 @@ class ActivityDisplayPolicyTest {
 				recentFailures = listOf(
 					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
 				)
+			),
+			downloads = listOf(
+				lidaClipDownload("song-queued", "Queued Track", DownloadStatus.QUEUED),
+				lidaClipDownload("song-active", "Active Track", DownloadStatus.DOWNLOADING)
 			)
 		)
 
@@ -218,7 +224,7 @@ class ActivityDisplayPolicyTest {
 	@Test
 	fun lidaClipsSummaryDoesNotTreatRecentFailuresAsTheDownloadQueue() {
 		val summary = lidaClipsActivitySummary(
-			LidaClipsServiceStatus(
+			status = LidaClipsServiceStatus(
 				activeClips = 10,
 				officialClips = 7,
 				fallbackClips = 3,
@@ -227,12 +233,35 @@ class ActivityDisplayPolicyTest {
 				recentFailures = listOf(
 					LidaClipsRecentFailure(null, "Artist", null, "Old failure", "not found", null, null)
 				)
-			)
+			),
+			downloads = emptyList()
 		)
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
 		assertEquals("No active clip downloads", summary.value)
 		assertEquals("Clip download queue is empty; 1 recent issue", summary.detail)
+		assertFalse(summary.active)
+		assertFalse(summary.failed)
+	}
+
+	@Test
+	fun lidaClipsSummaryIgnoresBackendDashboardQueueWhenClientQueueIsEmpty() {
+		val summary = lidaClipsActivitySummary(
+			status = LidaClipsServiceStatus(
+				activeClips = 10,
+				officialClips = 7,
+				fallbackClips = 3,
+				syncPaused = false,
+				syncRunning = false,
+				downloadQueue = listOf(
+					lidaClipsDownloadQueueItem(42, "Backend Queued", "queued")
+				)
+			),
+			downloads = emptyList()
+		)
+
+		assertEquals("No active clip downloads", summary.value)
+		assertEquals("Clip download queue is empty", summary.detail)
 		assertFalse(summary.active)
 		assertFalse(summary.failed)
 	}
@@ -277,5 +306,28 @@ class ActivityDisplayPolicyTest {
 		track = title,
 		status = status,
 		durationSeconds = 180
+	)
+
+	private fun lidaClipDownload(
+		songId: String,
+		title: String,
+		status: DownloadStatus
+	) = LidaClipDownloadEntity(
+		songId = songId,
+		clipId = songId.hashCode(),
+		title = title,
+		artist = "Artist",
+		album = "Album",
+		track = title,
+		durationSeconds = 180,
+		mimeType = "video/mp4",
+		qualityTier = "official",
+		fileName = "$songId.mp4",
+		streamUrl = "https://clips.example.com/api/v1/stream/$songId",
+		status = status,
+		progress = 0f,
+		filePath = null,
+		persistOffline = false,
+		updatedAtMillis = 1_000L
 	)
 }

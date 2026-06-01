@@ -144,29 +144,10 @@ fun LibraryScreen() {
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
-	val aurralCollectionRowsState = when (val state = aurralDiscovery) {
-		is UiState.Error -> UiState.Error(
-			state.error,
-			libraryAurralCollectionRows(
-				aurralConfigured = aurralConfigured,
-				discovery = state.data
-			)
-		)
-
-		is UiState.Loading -> UiState.Loading(
-			libraryAurralCollectionRows(
-				aurralConfigured = aurralConfigured,
-				discovery = state.data
-			)
-		)
-
-		is UiState.Success -> UiState.Success(
-			libraryAurralCollectionRows(
-				aurralConfigured = aurralConfigured,
-				discovery = state.data
-			)
-		)
-	}
+	val aurralCollectionRowsState = libraryAurralCollectionRowsState(
+		aurralConfigured = aurralConfigured,
+		discoveryState = aurralDiscovery
+	)
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -374,8 +355,7 @@ fun LibraryScreen() {
 		(playlistsState as? UiState.Error)?.error,
 		(artistsState as? UiState.Error)?.error,
 		(genresState as? UiState.Error)?.error,
-		(mostPlayedShortcutsState as? UiState.Error)?.error,
-		(aurralDiscovery as? UiState.Error)?.error?.takeIf { aurralConfigured }
+		(mostPlayedShortcutsState as? UiState.Error)?.error
 	).mapNotNull { it?.stackTraceToString() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
 	ErrorSnackbar(

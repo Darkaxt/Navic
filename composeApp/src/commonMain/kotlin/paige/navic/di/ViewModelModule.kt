@@ -99,7 +99,7 @@ val viewModelModule = module {
 			songRepository = get(),
 			lidaClipsRepository = get(),
 			lyricsRepository = get(),
-			lidaClipCacheManager = get(),
+			lidaClipDownloadManager = get(),
 			downloadManager = get(),
 			preferenceManager = get()
 		)
@@ -109,9 +109,8 @@ val viewModelModule = module {
 			songId = params.get(),
 			collectionRepository = get(),
 			repository = get(),
-			cacheManager = get(),
-			downloadManager = get(),
-			preferenceManager = get()
+			lidaClipDownloadManager = get(),
+			downloadManager = get()
 		)
 	}
 	viewModelOf(::NavtabsViewModel)

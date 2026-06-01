@@ -321,4 +321,37 @@ class LibraryAurralDisplayPolicyTest {
 			libraryAurralLoadingPlaceholderVisible(UiState.Success(emptyList()))
 		)
 	}
+
+	@Test
+	fun libraryAurralCollectionRowsStateTreatsDiscoveryErrorsAsDegradedRows() {
+		val discovery = AurralDiscoverySummary(
+			recentlyAdded = listOf(
+				AurralDiscoverArtist(
+					id = "cached",
+					name = "Cached",
+					imageUrl = "https://aurral.example.com/cached.jpg"
+				)
+			)
+		)
+
+		val stateWithCachedData = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Error(Exception("Aurral Discover returned HTTP 404"), discovery)
+		)
+		val stateWithoutData = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Error(Exception("Aurral Discover returned HTTP 404"), null)
+		)
+
+		assertEquals(
+			UiState.Success(
+				libraryAurralCollectionRows(
+					aurralConfigured = true,
+					discovery = discovery
+				)
+			),
+			stateWithCachedData
+		)
+		assertEquals(UiState.Success(emptyList()), stateWithoutData)
+	}
 }

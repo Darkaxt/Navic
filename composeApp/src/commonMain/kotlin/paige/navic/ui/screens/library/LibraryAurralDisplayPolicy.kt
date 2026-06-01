@@ -38,6 +38,21 @@ fun libraryAurralCollectionRows(
 		emptyList()
 	}
 
+fun libraryAurralCollectionRowsState(
+	aurralConfigured: Boolean,
+	discoveryState: UiState<AurralDiscoverySummary?>
+): UiState<List<AurralDiscoveryCollectionRow>> {
+	val rows = libraryAurralCollectionRows(
+		aurralConfigured = aurralConfigured,
+		discovery = discoveryState.data
+	)
+	return when (discoveryState) {
+		is UiState.Loading -> UiState.Loading(rows)
+		is UiState.Success -> UiState.Success(rows)
+		is UiState.Error -> UiState.Success(rows)
+	}
+}
+
 fun libraryLocalOwnershipStatus(
 	aurralConfigured: Boolean
 ): AurralOwnershipStatus? =

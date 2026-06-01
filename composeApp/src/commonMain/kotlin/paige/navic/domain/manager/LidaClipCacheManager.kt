@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.bodyAsChannel
@@ -31,7 +32,8 @@ class LidaClipCacheManager(
 		clip: DomainLidaClip,
 		requestHeaders: Map<String, String>,
 		songId: String? = null,
-		persistOffline: Boolean = false
+		persistOffline: Boolean = false,
+		onProgress: (Float) -> Unit = {}
 	): Result<DomainLidaClip?> {
 		val extension = lidaClipCacheFileExtension(
 			mimeType = clip.mimeType,
@@ -45,7 +47,7 @@ class LidaClipCacheManager(
 		}
 
 		if (persistOffline && !songId.isNullOrBlank()) {
-			return getOrSaveOfflineClip(songId, clip, requestHeaders, extension)
+			return getOrSaveOfflineClip(songId, clip, requestHeaders, extension, onProgress)
 		}
 
 		val cacheSizeMb = preferenceManager.lidaClipsVideoCacheSizeMb
@@ -67,7 +69,7 @@ class LidaClipCacheManager(
 				val tempPath = storageManager.getLidaClipVideoCacheTempPath(clip.id, extension)
 				try {
 					storageManager.deleteFile(tempPath)
-					downloadClip(clip, requestHeaders, tempPath)
+					downloadClip(clip, requestHeaders, tempPath, onProgress)
 					if (storageManager.getFileSize(tempPath) <= 0L) {
 						error("Cached LidaClips video was empty")
 					}
@@ -119,7 +121,8 @@ class LidaClipCacheManager(
 		songId: String,
 		clip: DomainLidaClip,
 		requestHeaders: Map<String, String>,
-		extension: String
+		extension: String,
+		onProgress: (Float) -> Unit
 	): Result<DomainLidaClip?> {
 		val offlinePath = storageManager.getLidaClipOfflinePath(songId, clip.id, extension)
 		offlineClipOrNull(songId, clip, extension)?.let {
@@ -135,7 +138,7 @@ class LidaClipCacheManager(
 				val tempPath = storageManager.getLidaClipOfflineTempPath(songId, clip.id, extension)
 				try {
 					storageManager.deleteFile(tempPath)
-					downloadClip(clip, requestHeaders, tempPath)
+					downloadClip(clip, requestHeaders, tempPath, onProgress)
 					if (storageManager.getFileSize(tempPath) <= 0L) {
 						error("Offline LidaClips video was empty")
 					}
@@ -187,12 +190,18 @@ class LidaClipCacheManager(
 	private suspend fun downloadClip(
 		clip: DomainLidaClip,
 		requestHeaders: Map<String, String>,
-		tempPath: String
+		tempPath: String,
+		onProgress: (Float) -> Unit
 	) {
 		val request = client.prepareRequest(clip.streamUrl) {
 			method = HttpMethod.Get
 			requestHeaders.forEach { (key, value) ->
 				header(key, value)
+			}
+			onDownload { bytesSentTotal, contentLength ->
+				if (contentLength != null && contentLength > 0L) {
+					onProgress((bytesSentTotal.toDouble() / contentLength).toFloat())
+				}
 			}
 		}
 

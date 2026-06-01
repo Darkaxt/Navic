@@ -2,10 +2,11 @@ package paige.navic.ui.screens.activity
 
 import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.LidaClipsDownloadQueueItem
 import paige.navic.domain.repositories.LidaClipsServiceStatus
 
 @Immutable
@@ -149,23 +150,16 @@ fun aurralActivitySummary(status: AurralServiceStatus?): ActivitySummary {
 	)
 }
 
-fun lidaClipsActivitySummary(status: LidaClipsServiceStatus?): ActivitySummary {
-	if (status == null) {
-		return ActivitySummary(
-			section = ActivitySection.LidaClips,
-			value = "Not checked",
-			detail = "Waiting for service status",
-			active = false,
-			failed = false
-		)
-	}
-
-	val failedHealthChecks = status.health.checks.count { check -> !check.ok && !check.skipped }
-	val queue = status.downloadQueue
+fun lidaClipsActivitySummary(
+	status: LidaClipsServiceStatus?,
+	downloads: List<LidaClipDownloadEntity>
+): ActivitySummary {
+	val failedHealthChecks = status?.health?.checks.orEmpty().count { check -> !check.ok && !check.skipped }
+	val queue = lidaClipDownloadQueueDownloads(downloads)
 	if (queue.isNotEmpty()) {
-		val queued = queue.count { item -> item.isQueuedLidaClipsDownload() }
-		val downloading = queue.count { item -> item.isActiveLidaClipsDownload() }
-		val failed = queue.count { item -> item.isFailedLidaClipsDownload() }
+		val queued = queue.count { item -> item.status == DownloadStatus.QUEUED }
+		val downloading = queue.count { item -> item.status == DownloadStatus.DOWNLOADING }
+		val failed = queue.count { item -> item.status == DownloadStatus.FAILED }
 		val queueDetail = activityCountDetail(
 			listOf(
 				queued to "queued",
@@ -183,8 +177,18 @@ fun lidaClipsActivitySummary(status: LidaClipsServiceStatus?): ActivitySummary {
 			section = ActivitySection.LidaClips,
 			value = pluralSummary(queue.size, "clip download"),
 			detail = listOfNotNull(queueDetail, healthDetail).joinToString("; "),
-			active = status.syncRunning || queued > 0 || downloading > 0,
+			active = status?.syncRunning == true || queued > 0 || downloading > 0,
 			failed = failed > 0 || failedHealthChecks > 0
+		)
+	}
+
+	if (status == null) {
+		return ActivitySummary(
+			section = ActivitySection.LidaClips,
+			value = "Not checked",
+			detail = "Waiting for service status",
+			active = false,
+			failed = false
 		)
 	}
 
@@ -215,15 +219,6 @@ fun lidaClipsActivitySummary(status: LidaClipsServiceStatus?): ActivitySummary {
 		failed = failedHealthChecks > 0
 	)
 }
-
-fun LidaClipsDownloadQueueItem.isQueuedLidaClipsDownload(): Boolean =
-	status in setOf("queued", "pending", "waiting")
-
-fun LidaClipsDownloadQueueItem.isActiveLidaClipsDownload(): Boolean =
-	status in setOf("downloading", "running", "processing", "active")
-
-fun LidaClipsDownloadQueueItem.isFailedLidaClipsDownload(): Boolean =
-	status in setOf("failed", "error")
 
 private fun activityCountDetail(
 	parts: List<Pair<Int, String>>,
