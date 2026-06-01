@@ -507,7 +507,7 @@ class AurralRepositoryTest {
 			response = AurralDiscoveryResponseDto(
 				fallbackGenres = listOf(
 					AurralFallbackGenreSectionDto(
-						genre = "Soundtracks - Games",
+						name = "Soundtracks - Games",
 						artists = listOf(
 							AurralDiscoverArtistDto(
 								id = "game-artist",

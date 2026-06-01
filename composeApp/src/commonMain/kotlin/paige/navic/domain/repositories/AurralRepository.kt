@@ -1624,6 +1624,7 @@ internal data class AurralDiscoveryResponseDto(
 @Serializable
 internal data class AurralFallbackGenreSectionDto(
 	val genre: String? = null,
+	val name: String? = null,
 	val title: String? = null,
 	val artists: List<AurralDiscoverArtistDto> = emptyList()
 )
@@ -1990,7 +1991,7 @@ private fun AurralDiscoverArtistDto.toRecentlyAddedArtist(baseUrl: String): Aurr
 }
 
 private fun AurralFallbackGenreSectionDto.toFallbackGenreSection(baseUrl: String): AurralFallbackGenreSection? {
-	val safeGenre = listOf(genre, title)
+	val safeGenre = listOf(genre, name, title)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
 		?: return null
 	val safeArtists = artists

@@ -128,6 +128,63 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
+	fun libraryAurralCollectionRowsExposeLiveAurralDiscoverShape() {
+		val discovery = AurralDiscoverySummary(
+			recentlyAdded = listOf(AurralDiscoverArtist(id = "recent", name = "Recently Added")),
+			recentReleases = listOf(
+				AurralAlbumSearchItem(
+					id = "recent-release",
+					title = "Recent Release",
+					artistName = "Release Artist",
+					artistMbid = "release-artist",
+					releaseDate = "2026-05-01"
+				)
+			),
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "recommended-artist",
+					name = "Recommended Artist",
+					tags = listOf("electronic"),
+					matchedTags = listOf("electronic")
+				)
+			),
+			globalTop = listOf(
+				AurralDiscoverArtist(
+					id = "global-artist",
+					name = "Global Artist",
+					tags = listOf("classical"),
+					matchedTags = listOf("classical")
+				)
+			),
+			basedOn = listOf(
+				AurralDiscoverArtist(id = "based-on", name = "Based On Artist")
+			),
+			topGenres = listOf("electronic", "classical"),
+			topTags = listOf("electronic", "classical")
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			limit = 8
+		)
+
+		assertEquals(
+			listOf(
+				AurralDiscoveryCollectionKind.RecentlyAddedArtists,
+				AurralDiscoveryCollectionKind.RecentReleases,
+				AurralDiscoveryCollectionKind.RecommendedArtists,
+				AurralDiscoveryCollectionKind.BasedOnArtists,
+				AurralDiscoveryCollectionKind.GlobalTopArtists,
+				AurralDiscoveryCollectionKind.GenreArtists,
+				AurralDiscoveryCollectionKind.GenreArtists,
+				AurralDiscoveryCollectionKind.TopTags
+			),
+			rows.map { it.kind }
+		)
+	}
+
+	@Test
 	fun libraryShowsAurralLoadingPlaceholderOnlyWithoutCachedRows() {
 		assertEquals(
 			true,
