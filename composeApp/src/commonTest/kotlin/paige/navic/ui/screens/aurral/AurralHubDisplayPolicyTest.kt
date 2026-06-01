@@ -21,6 +21,7 @@ import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
+import paige.navic.domain.repositories.AurralFallbackGenreSection
 import paige.navic.domain.repositories.AurralFlowCapabilities
 import paige.navic.domain.repositories.AurralFlowStats
 import paige.navic.domain.repositories.AurralFlowSummary
@@ -235,6 +236,37 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(
 			listOf("release-2026"),
 			(rows[1] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+		)
+	}
+
+	@Test
+	fun aurralDiscoveryCollectionRowsPreferBackendFallbackGenreSections() {
+		val summary = AurralDiscoverySummary(
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(id = "seed-$index", name = "Seed $index")
+			},
+			topGenres = listOf("soundtrack"),
+			fallbackGenres = listOf(
+				AurralFallbackGenreSection(
+					genre = "Soundtracks - Games",
+					artists = listOf(
+						AurralDiscoverArtist(id = "game-1", name = "Game 1"),
+						AurralDiscoverArtist(id = "game-2", name = "Game 2"),
+						AurralDiscoverArtist(id = "game-3", name = "Game 3"),
+						AurralDiscoverArtist(id = "game-4", name = "Game 4")
+					)
+				)
+			)
+		)
+
+		val genreRows = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.filter { it.kind == AurralDiscoveryCollectionKind.GenreArtists }
+
+		assertEquals(listOf("Soundtracks - Games"), genreRows.map { it.tag })
+		assertEquals(
+			listOf("game-1", "game-2", "game-3", "game-4"),
+			genreRows.single().artists.map { it.id }
 		)
 	}
 

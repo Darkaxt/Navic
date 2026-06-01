@@ -426,6 +426,23 @@ private fun aurralDiscoveryGenreRows(
 ): List<AurralDiscoveryCollectionRow.Artists> {
 	val safeLimit = limit.coerceAtLeast(0)
 	if (safeLimit == 0) return emptyList()
+	val fallbackRows = discovery.fallbackGenres
+		.mapNotNull { section ->
+			val genre = section.genre.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+			val artists = aurralHubSearchArtists(section.artists, safeLimit)
+			if (artists.isEmpty()) {
+				null
+			} else {
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.GenreArtists,
+					artists = artists,
+					tag = genre
+				)
+			}
+		}
+		.take(4)
+	if (fallbackRows.isNotEmpty()) return fallbackRows
+
 	val usedArtistIds = discovery.recommendations
 		.take(12)
 		.mapNotNull { it.id.normalizedAurralKey() }

@@ -501,6 +501,44 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralDiscoverySummaryPreservesFallbackGenreSections() {
+		val summary = aurralDiscoverySummary(
+			baseUrl = "https://aurral.example.com/aurral",
+			response = AurralDiscoveryResponseDto(
+				fallbackGenres = listOf(
+					AurralFallbackGenreSectionDto(
+						genre = "Soundtracks - Games",
+						artists = listOf(
+							AurralDiscoverArtistDto(
+								id = "game-artist",
+								name = "Game Artist",
+								image = "/api/images/artists/game-artist"
+							),
+							AurralDiscoverArtistDto(id = null, name = "Missing Id")
+						)
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				AurralFallbackGenreSection(
+					genre = "Soundtracks - Games",
+					artists = listOf(
+						AurralDiscoverArtist(
+							id = "game-artist",
+							name = "Game Artist",
+							imageUrl = "https://aurral.example.com/aurral/api/images/artists/game-artist"
+						)
+					)
+				)
+			),
+			summary.fallbackGenres
+		)
+	}
+
+	@Test
 	fun aurralDiscoverySummaryTurnsAlbumRecommendationsIntoArtistRowsWithRecommendedAlbums() {
 		val summary = aurralDiscoverySummary(
 			baseUrl = "https://aurral.example.com/aurral",

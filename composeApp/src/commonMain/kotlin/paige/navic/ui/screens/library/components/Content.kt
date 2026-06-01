@@ -232,6 +232,61 @@ fun LibraryScreenContent(
 			)
 		}
 
+		aurralCollectionRowsState.data.orEmpty().forEach { row ->
+			when (row) {
+				is AurralDiscoveryCollectionRow.Artists -> horizontalSection(
+					title = row.kind.titleResource(),
+					titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+						listOf(row.tag.orEmpty())
+					} else {
+						emptyList()
+					},
+					destination = row.tag
+						?.takeIf { row.kind == AurralDiscoveryCollectionKind.GenreArtists }
+						?.let(Screen::AurralDiscoverTag)
+						?: Screen.AurralDiscoverList,
+					state = UiState.Success(row.artists),
+					key = { it.id.trim().ifEmpty { it.name } },
+					seeAll = row.kind != AurralDiscoveryCollectionKind.RecentlyAddedArtists
+				) { artist ->
+					AurralDiscoverArtistCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						artist = artist,
+						onOpenArtist = onOpenAurralDiscoverArtist
+					)
+				}
+
+				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.albums),
+					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
+					seeAll = false
+				) { album ->
+					AurralAlbumSearchCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						album = album,
+						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
+						onClick = { onOpenAurralDiscoverAlbum(album) }
+					)
+				}
+
+				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.tags),
+					key = { it.lowercase() },
+					seeAll = false
+				) { tag ->
+					AurralDiscoverTagCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						tag = tag,
+						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
+					)
+				}
+			}
+		}
+
 		libraryDiscoveryAlbumRows(
 			newestAlbumCount = newestAlbumsState.data.orEmpty().size,
 			starredAlbumCount = starredAlbumsState.data.orEmpty().size
@@ -364,61 +419,6 @@ fun LibraryScreenContent(
 				onPlayNext = onPlayArtistNext,
 				onAddToQueue = onAddArtistToQueue
 			)
-		}
-
-		aurralCollectionRowsState.data.orEmpty().forEach { row ->
-			when (row) {
-				is AurralDiscoveryCollectionRow.Artists -> horizontalSection(
-					title = row.kind.titleResource(),
-					titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
-						listOf(row.tag.orEmpty())
-					} else {
-						emptyList()
-					},
-					destination = row.tag
-						?.takeIf { row.kind == AurralDiscoveryCollectionKind.GenreArtists }
-						?.let(Screen::AurralDiscoverTag)
-						?: Screen.AurralDiscoverList,
-					state = UiState.Success(row.artists),
-					key = { it.id.trim().ifEmpty { it.name } },
-					seeAll = row.kind != AurralDiscoveryCollectionKind.RecentlyAddedArtists
-				) { artist ->
-					AurralDiscoverArtistCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						artist = artist,
-						onOpenArtist = onOpenAurralDiscoverArtist
-					)
-				}
-
-				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.albums),
-					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
-					seeAll = false
-				) { album ->
-					AurralAlbumSearchCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						album = album,
-						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
-						onClick = { onOpenAurralDiscoverAlbum(album) }
-					)
-				}
-
-				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.tags),
-					key = { it.lowercase() },
-					seeAll = false
-				) { tag ->
-					AurralDiscoverTagCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						tag = tag,
-						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
-					)
-				}
-			}
 		}
 
 		horizontalSection(

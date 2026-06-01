@@ -1379,6 +1379,7 @@ data class AurralDiscoverySummary(
 	val globalTop: List<AurralDiscoverArtist> = emptyList(),
 	val basedOn: List<AurralDiscoverArtist> = emptyList(),
 	val recentReleases: List<AurralAlbumSearchItem> = emptyList(),
+	val fallbackGenres: List<AurralFallbackGenreSection> = emptyList(),
 	val topTags: List<String> = emptyList(),
 	val topGenres: List<String> = emptyList(),
 	val isUpdating: Boolean = false,
@@ -1397,6 +1398,11 @@ data class AurralDiscoverArtist(
 	val sourceType: String? = null,
 	val discoveryTier: String? = null,
 	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList()
+)
+
+data class AurralFallbackGenreSection(
+	val genre: String,
+	val artists: List<AurralDiscoverArtist>
 )
 
 data class AurralArtistSearchRequest(
@@ -1603,12 +1609,20 @@ internal data class AurralDiscoveryResponseDto(
 	val recommendations: List<AurralDiscoverArtistDto> = emptyList(),
 	@SerialName("globalTop") val globalTop: List<AurralDiscoverArtistDto> = emptyList(),
 	@SerialName("basedOn") val basedOn: List<AurralDiscoverArtistDto> = emptyList(),
+	@SerialName("fallbackGenres") val fallbackGenres: List<AurralFallbackGenreSectionDto> = emptyList(),
 	@SerialName("topTags") val topTags: List<String> = emptyList(),
 	@SerialName("topGenres") val topGenres: List<String> = emptyList(),
 	@SerialName("isUpdating") val isUpdating: Boolean = false,
 	val stale: Boolean = false,
 	val provider: String? = null,
 	@SerialName("discoveryMode") val discoveryMode: String? = null
+)
+
+@Serializable
+internal data class AurralFallbackGenreSectionDto(
+	val genre: String? = null,
+	val title: String? = null,
+	val artists: List<AurralDiscoverArtistDto> = emptyList()
 )
 
 @Serializable
@@ -1869,6 +1883,7 @@ internal fun aurralDiscoverySummary(
 		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) },
 		recentReleases = recentReleases,
+		fallbackGenres = response.fallbackGenres.mapNotNull { it.toFallbackGenreSection(baseUrl) },
 		topTags = response.topTags.cleanedAurralStrings(),
 		topGenres = response.topGenres.cleanedAurralStrings(),
 		isUpdating = response.isUpdating,
@@ -1968,6 +1983,20 @@ private fun AurralDiscoverArtistDto.toRecentlyAddedArtist(baseUrl: String): Aurr
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
+private fun AurralFallbackGenreSectionDto.toFallbackGenreSection(baseUrl: String): AurralFallbackGenreSection? {
+	val safeGenre = listOf(genre, title)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val safeArtists = artists
+		.mapNotNull { it.toDiscoverArtist(baseUrl) }
+		.distinctBy { it.id.trim().lowercase() }
+	if (safeArtists.isEmpty()) return null
+	return AurralFallbackGenreSection(
+		genre = safeGenre,
+		artists = safeArtists
 	)
 }
 
