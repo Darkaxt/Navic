@@ -39,6 +39,31 @@ data class AurralArtistIdentity(
 	val imageUrl: String? = null
 )
 
+@Immutable
+enum class AurralDiscoveryCollectionKind {
+	RecommendedArtists,
+	BasedOnArtists,
+	GlobalTopArtists,
+	RecentReleases
+}
+
+@Immutable
+sealed interface AurralDiscoveryCollectionRow {
+	val kind: AurralDiscoveryCollectionKind
+
+	@Immutable
+	data class Artists(
+		override val kind: AurralDiscoveryCollectionKind,
+		val artists: List<AurralDiscoverArtist>
+	) : AurralDiscoveryCollectionRow
+
+	@Immutable
+	data class Albums(
+		override val kind: AurralDiscoveryCollectionKind,
+		val albums: List<AurralAlbumSearchItem>
+	) : AurralDiscoveryCollectionRow
+}
+
 fun aurralHubSummaryCards(status: AurralServiceStatus): List<AurralHubSummaryCard> =
 	listOf(
 		AurralHubSummaryCard(
@@ -73,6 +98,54 @@ fun aurralHubDiscoverHasMore(
 	visibleLimit: Int = 8
 ): Boolean =
 	aurralDiscoverListArtists(discovery).size > visibleLimit.coerceAtLeast(0)
+
+fun aurralDiscoveryCollectionRows(
+	discovery: AurralDiscoverySummary,
+	limit: Int = 8
+): List<AurralDiscoveryCollectionRow> {
+	val safeLimit = limit.coerceAtLeast(0)
+	return buildList {
+		val recommendations = aurralHubSearchArtists(discovery.recommendations, safeLimit)
+		if (recommendations.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.RecommendedArtists,
+					artists = recommendations
+				)
+			)
+		}
+
+		val basedOn = aurralHubSearchArtists(discovery.basedOn, safeLimit)
+		if (basedOn.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.BasedOnArtists,
+					artists = basedOn
+				)
+			)
+		}
+
+		val globalTop = aurralHubSearchArtists(discovery.globalTop, safeLimit)
+		if (globalTop.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Artists(
+					kind = AurralDiscoveryCollectionKind.GlobalTopArtists,
+					artists = globalTop
+				)
+			)
+		}
+
+		val recentReleases = aurralHubSearchAlbums(discovery.recentReleases, safeLimit)
+		if (recentReleases.isNotEmpty()) {
+			add(
+				AurralDiscoveryCollectionRow.Albums(
+					kind = AurralDiscoveryCollectionKind.RecentReleases,
+					albums = recentReleases
+				)
+			)
+		}
+	}
+}
 
 fun aurralDiscoverListArtists(
 	discovery: AurralDiscoverySummary

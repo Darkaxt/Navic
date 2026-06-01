@@ -21,14 +21,23 @@ import navic.composeapp.generated.resources.option_sort_random
 import navic.composeapp.generated.resources.option_sort_recent
 import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
-import navic.composeapp.generated.resources.title_aurral_discover
+import navic.composeapp.generated.resources.title_aurral_based_on_library
+import navic.composeapp.generated.resources.title_aurral_global_top
+import navic.composeapp.generated.resources.title_aurral_recent_releases
+import navic.composeapp.generated.resources.title_aurral_recommended_for_you
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_most_played
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
+import org.jetbrains.compose.resources.StringResource
+import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
@@ -47,6 +56,9 @@ import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.layouts.horizontalSection
+import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
+import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
+import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
@@ -111,8 +123,9 @@ fun LibraryScreenContent(
 	onStarSelectedArtist: (Boolean) -> Unit,
 	onPlayArtistNext: () -> Unit,
 	onAddArtistToQueue: () -> Unit,
-	aurralDiscoverArtistsState: UiState<List<AurralDiscoverArtist>>,
+	aurralCollectionRowsState: UiState<List<AurralDiscoveryCollectionRow>>,
 	onOpenAurralDiscoverArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenAurralDiscoverAlbum: (AurralAlbumSearchItem) -> Unit,
 
 	// playlists
 	playlistsState: UiState<ImmutableList<DomainPlaylist>>,
@@ -128,6 +141,15 @@ fun LibraryScreenContent(
 
 ) {
 	val backStack = LocalNavStack.current
+	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralBaseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+	val aurralRequestHeaders = preferenceManager.aurralRequestHeadersMap()
+	fun aurralImageRequestHeaders(imageUrl: String?): Map<String, String> =
+		if (aurralBaseUrl != null) {
+			aurralRequestHeadersForUrl(aurralBaseUrl, imageUrl, aurralRequestHeaders)
+		} else {
+			emptyMap()
+		}
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
 
@@ -341,18 +363,37 @@ fun LibraryScreenContent(
 			)
 		}
 
-		horizontalSection(
-			title = Res.string.title_aurral_discover,
-			destination = Screen.AurralDiscoverList,
-			state = aurralDiscoverArtistsState,
-			key = { it.id.trim().ifEmpty { it.name } },
-			seeAll = true
-		) { artist ->
-			AurralDiscoverArtistCard(
-				modifier = Modifier.animateItem().width(150.dp),
-				artist = artist,
-				onOpenArtist = onOpenAurralDiscoverArtist
-			)
+		aurralCollectionRowsState.data.orEmpty().forEach { row ->
+			when (row) {
+				is AurralDiscoveryCollectionRow.Artists -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralDiscoverList,
+					state = UiState.Success(row.artists),
+					key = { it.id.trim().ifEmpty { it.name } },
+					seeAll = true
+				) { artist ->
+					AurralDiscoverArtistCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						artist = artist,
+						onOpenArtist = onOpenAurralDiscoverArtist
+					)
+				}
+
+				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.albums),
+					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
+					seeAll = false
+				) { album ->
+					AurralAlbumSearchCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						album = album,
+						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
+						onClick = { onOpenAurralDiscoverAlbum(album) }
+					)
+				}
+			}
 		}
 
 		horizontalSection(
@@ -366,6 +407,14 @@ fun LibraryScreenContent(
 		}
 	}
 }
+
+private fun AurralDiscoveryCollectionKind.titleResource(): StringResource =
+	when (this) {
+		AurralDiscoveryCollectionKind.RecommendedArtists -> Res.string.title_aurral_recommended_for_you
+		AurralDiscoveryCollectionKind.BasedOnArtists -> Res.string.title_aurral_based_on_library
+		AurralDiscoveryCollectionKind.GlobalTopArtists -> Res.string.title_aurral_global_top
+		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
+	}
 
 private fun UiState<ImmutableList<DomainPlaylist>>.filterPlaylists(
 	stationsOnly: Boolean

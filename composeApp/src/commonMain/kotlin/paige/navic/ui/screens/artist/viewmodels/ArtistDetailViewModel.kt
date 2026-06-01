@@ -36,7 +36,6 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.sortedByAlbumYearDescending
-import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
@@ -50,6 +49,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.artist.artistDetailPlaybackOrigin
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
@@ -625,7 +625,7 @@ class ArtistDetailViewModel(
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
 		(_artistState.value as? UiState.Success)?.data?.let { state ->
 			player.clearQueue()
-			player.setPlaybackOrigin(state.artist.toPlaybackOrigin())
+			player.setPlaybackOrigin(artistDetailPlaybackOrigin(state))
 			state.albums.forEach { album ->
 				player.addToQueue(album)
 			}
@@ -638,7 +638,7 @@ class ArtistDetailViewModel(
 			val songs = state.albums.flatMap { it.songs }.shuffled()
 			if (songs.isEmpty()) return
 			player.clearQueue()
-			player.setPlaybackOrigin(state.artist.toPlaybackOrigin())
+			player.setPlaybackOrigin(artistDetailPlaybackOrigin(state))
 			songs.forEach { song ->
 				player.addToQueueSingle(song)
 			}

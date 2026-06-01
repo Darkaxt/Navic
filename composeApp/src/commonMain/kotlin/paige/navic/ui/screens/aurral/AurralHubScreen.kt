@@ -78,14 +78,19 @@ import navic.composeapp.generated.resources.info_aurral_service_status_loading
 import navic.composeapp.generated.resources.info_aurral_service_status_unavailable
 import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_aurral_acquisition_queue
+import navic.composeapp.generated.resources.title_aurral_based_on_library
 import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_flows
+import navic.composeapp.generated.resources.title_aurral_global_top
+import navic.composeapp.generated.resources.title_aurral_recent_releases
+import navic.composeapp.generated.resources.title_aurral_recommended_for_you
 import navic.composeapp.generated.resources.title_aurral_requests
 import navic.composeapp.generated.resources.title_aurral_search
 import navic.composeapp.generated.resources.option_aurral_artist_search
 import navic.composeapp.generated.resources.option_aurral_flow_name
 import navic.composeapp.generated.resources.option_aurral_flow_size
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -347,6 +352,7 @@ private fun AurralHubContent(
 		preferenceManager = preferenceManager,
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
+		onOpenAlbum = onOpenSearchAlbum,
 		onOpenDiscoverList = onOpenDiscoverList
 	)
 
@@ -593,32 +599,48 @@ private fun AurralHubDiscoverSection(
 	preferenceManager: PreferenceManager,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit,
+	onOpenAlbum: (AurralAlbumSearchItem) -> Unit,
 	onOpenDiscoverList: () -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
 	val discovery = state.data
-	val artists = discovery
-		?.let { aurralHubDiscoverArtists(it) }
+	val rows = discovery
+		?.let { aurralDiscoveryCollectionRows(it) }
 		.orEmpty()
 	val hasMoreArtists = discovery?.let { aurralHubDiscoverHasMore(it) } == true
 	val actionInProgress = actionState is UiState.Loading
 
-	Form(Modifier.fillMaxWidth()) {
-		when {
-			artists.isEmpty() -> FormRow {
+	when {
+		rows.isEmpty() -> Form(Modifier.fillMaxWidth()) {
+			FormRow {
 				Text(stringResource(Res.string.info_aurral_discover_empty))
 			}
+		}
 
-			else -> artists.forEach { artist ->
-				AurralHubDiscoverArtistRow(
-					artist = artist,
-					canMonitorArtist = canMonitorArtist,
-					actionInProgress = actionInProgress,
-					active = activeArtistId == artist.id,
-					preferenceManager = preferenceManager,
-					onMonitorArtist = onMonitorArtist,
-					onOpenArtist = onOpenArtist
-				)
+		else -> rows.forEach { row ->
+			AurralHubDiscoveryCollectionTitle(stringResource(row.kind.titleResource()))
+			Form(Modifier.fillMaxWidth()) {
+				when (row) {
+					is AurralDiscoveryCollectionRow.Artists -> row.artists.forEach { artist ->
+						AurralHubDiscoverArtistRow(
+							artist = artist,
+							canMonitorArtist = canMonitorArtist,
+							actionInProgress = actionInProgress,
+							active = activeArtistId == artist.id,
+							preferenceManager = preferenceManager,
+							onMonitorArtist = onMonitorArtist,
+							onOpenArtist = onOpenArtist
+						)
+					}
+
+					is AurralDiscoveryCollectionRow.Albums -> row.albums.forEach { album ->
+						AurralHubAlbumSearchRow(
+							album = album,
+							preferenceManager = preferenceManager,
+							onOpenAlbum = onOpenAlbum
+						)
+					}
+				}
 			}
 		}
 	}
@@ -672,6 +694,17 @@ private fun AurralHubDiscoverSection(
 		}
 		else -> Unit
 	}
+}
+
+@Composable
+private fun AurralHubDiscoveryCollectionTitle(title: String) {
+	Text(
+		text = title,
+		style = MaterialTheme.typography.titleSmall,
+		fontWeight = FontWeight.SemiBold,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = Modifier.padding(top = 10.dp, start = 4.dp, bottom = 4.dp)
+	)
 }
 
 @Composable
@@ -1082,6 +1115,14 @@ private fun AurralHubSectionTitle(title: String) {
 		modifier = Modifier.padding(start = 14.dp, bottom = 8.dp)
 	)
 }
+
+private fun AurralDiscoveryCollectionKind.titleResource(): StringResource =
+	when (this) {
+		AurralDiscoveryCollectionKind.RecommendedArtists -> Res.string.title_aurral_recommended_for_you
+		AurralDiscoveryCollectionKind.BasedOnArtists -> Res.string.title_aurral_based_on_library
+		AurralDiscoveryCollectionKind.GlobalTopArtists -> Res.string.title_aurral_global_top
+		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
+	}
 
 @Composable
 private fun AurralHubQueueRow(item: AurralAcquisitionQueueItem) {

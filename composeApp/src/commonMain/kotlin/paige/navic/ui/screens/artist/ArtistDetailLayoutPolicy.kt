@@ -2,6 +2,8 @@ package paige.navic.ui.screens.artist
 
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 
 private const val TopSongRowHeightDp = 84
@@ -21,6 +23,16 @@ fun artistDetailHeadingImageUrl(
 	val verifiedImageUrl = verifiedExternalImageUrl?.trim()?.takeIf { it.isNotEmpty() }
 	if (verifiedImageUrl != null) return verifiedImageUrl
 	return artist.artistImageUrl?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+fun artistDetailPlaybackOrigin(state: ArtistState): PlaybackOrigin {
+	val resolvedArtwork = artistDetailHeadingImageUrl(
+		artist = state.artist,
+		verifiedExternalImageUrl = state.aurralArtistImageUrl
+	)
+	return state.artist.toPlaybackOrigin().copy(
+		coverArtId = resolvedArtwork ?: state.artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+	)
 }
 
 @Immutable

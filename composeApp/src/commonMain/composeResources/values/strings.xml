@@ -77,6 +77,10 @@
 	<string name="title_aurral_similar_artists">Aurral similar artists</string>
 	<string name="title_aurral_preview_tracks">30s previews</string>
 	<string name="title_aurral_recommendations">Recommendations</string>
+	<string name="title_aurral_recommended_for_you">Recommended for you</string>
+	<string name="title_aurral_based_on_library">Based on your library</string>
+	<string name="title_aurral_global_top">Global Aurral picks</string>
+	<string name="title_aurral_recent_releases">Aurral recent releases</string>
 	<string name="title_lastfm_top_tracks">Last.fm top tracks</string>
 	<string name="action_play_preview">Play preview</string>
 	<string name="action_pause_preview">Pause preview</string>

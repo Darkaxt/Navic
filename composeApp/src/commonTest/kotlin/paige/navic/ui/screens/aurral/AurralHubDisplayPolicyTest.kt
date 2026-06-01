@@ -183,6 +183,45 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoveryCollectionRowsKeepAurralBucketsSeparate() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(id = "recommended-1", name = "Recommended 1"),
+				AurralDiscoverArtist(id = "recommended-2", name = "Recommended 2")
+			),
+			basedOn = listOf(
+				AurralDiscoverArtist(id = "based-on-1", name = "Based On 1")
+			),
+			globalTop = listOf(
+				AurralDiscoverArtist(id = "global-1", name = "Global 1")
+			),
+			recentReleases = listOf(
+				albumSearchItem(id = "release-2026", title = "Recent Release", releaseDate = "2026-01-01")
+			)
+		)
+
+		val rows = aurralDiscoveryCollectionRows(summary, limit = 8)
+
+		assertEquals(
+			listOf(
+				AurralDiscoveryCollectionKind.RecommendedArtists,
+				AurralDiscoveryCollectionKind.BasedOnArtists,
+				AurralDiscoveryCollectionKind.GlobalTopArtists,
+				AurralDiscoveryCollectionKind.RecentReleases
+			),
+			rows.map { it.kind }
+		)
+		assertEquals(
+			listOf("recommended-1", "recommended-2"),
+			(rows[0] as AurralDiscoveryCollectionRow.Artists).artists.map { it.id }
+		)
+		assertEquals(
+			listOf("release-2026"),
+			(rows[3] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+		)
+	}
+
+	@Test
 	fun localArtistAurralIdentityCandidatesPreferLocalMbidBeforeDiscoveryNameMatch() {
 		val localArtist = DomainArtist(
 			id = "local-bond",

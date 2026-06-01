@@ -3,8 +3,11 @@ package paige.navic.ui.screens.library
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
+import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
+import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 
 class LibraryAurralDisplayPolicyTest {
 	@Test
@@ -61,6 +64,51 @@ class LibraryAurralDisplayPolicyTest {
 				aurralConfigured = false,
 				discovery = discovery,
 				limit = 4
+			)
+		)
+	}
+
+	@Test
+	fun libraryAurralCollectionRowsExposeEachConfiguredAurralBucket() {
+		val discovery = AurralDiscoverySummary(
+			recommendations = listOf(AurralDiscoverArtist(id = "recommended", name = "Recommended")),
+			basedOn = listOf(AurralDiscoverArtist(id = "based-on", name = "Based On")),
+			globalTop = listOf(AurralDiscoverArtist(id = "global", name = "Global")),
+			recentReleases = listOf(
+				AurralAlbumSearchItem(
+					id = "release",
+					title = "Recent Release",
+					artistName = "Artist",
+					artistMbid = "artist-mbid"
+				)
+			)
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			limit = 8
+		)
+
+		assertEquals(
+			listOf(
+				AurralDiscoveryCollectionKind.RecommendedArtists,
+				AurralDiscoveryCollectionKind.BasedOnArtists,
+				AurralDiscoveryCollectionKind.GlobalTopArtists,
+				AurralDiscoveryCollectionKind.RecentReleases
+			),
+			rows.map { it.kind }
+		)
+		assertEquals(
+			listOf("release"),
+			(rows.last() as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+		)
+		assertEquals(
+			emptyList(),
+			libraryAurralCollectionRows(
+				aurralConfigured = false,
+				discovery = discovery,
+				limit = 8
 			)
 		)
 	}

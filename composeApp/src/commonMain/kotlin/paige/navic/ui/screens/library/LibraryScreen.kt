@@ -45,6 +45,7 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
 import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
@@ -133,24 +134,24 @@ fun LibraryScreen() {
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
-	val aurralDiscoverArtistsState = when (val state = aurralDiscovery) {
+	val aurralCollectionRowsState = when (val state = aurralDiscovery) {
 		is UiState.Error -> UiState.Error(
 			state.error,
-			libraryAurralDiscoverArtists(
+			libraryAurralCollectionRows(
 				aurralConfigured = aurralConfigured,
 				discovery = state.data
 			)
 		)
 
 		is UiState.Loading -> UiState.Loading(
-			libraryAurralDiscoverArtists(
+			libraryAurralCollectionRows(
 				aurralConfigured = aurralConfigured,
 				discovery = state.data
 			)
 		)
 
 		is UiState.Success -> UiState.Success(
-			libraryAurralDiscoverArtists(
+			libraryAurralCollectionRows(
 				aurralConfigured = aurralConfigured,
 				discovery = state.data
 			)
@@ -314,12 +315,15 @@ fun LibraryScreen() {
 				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
 				onPlayArtistNext = { if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(player)},
 				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
-				aurralDiscoverArtistsState = aurralDiscoverArtistsState,
+				aurralCollectionRowsState = aurralCollectionRowsState,
 				onOpenAurralDiscoverArtist = { artist ->
 					aurralArtistRecommendationRoute(
 						artist = artist,
 						localArtists = artistsState.data.orEmpty()
 					)?.let(backStack::add)
+				},
+				onOpenAurralDiscoverAlbum = { album ->
+					aurralAlbumSearchDestination(album)?.let(backStack::add)
 				},
 
 				playlistsState = playlistsState,

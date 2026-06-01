@@ -57,6 +57,23 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
+	fun playbackOriginUsesVerifiedArtistImageShownInHeading() {
+		val origin = artistDetailPlaybackOrigin(
+			artistStateForTransition("iu").copy(
+				artist = DomainArtist(
+					id = "iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = null
+				),
+				aurralArtistImageUrl = " https://aurral.example.com/iu.webp "
+			)
+		)
+
+		assertEquals("https://aurral.example.com/iu.webp", origin.coverArtId)
+	}
+
+	@Test
 	fun artistPageTransitionKeyIgnoresAurralOnlyStateChanges() {
 		val baseState = artistStateForTransition("artist-1").copy(
 			aurralLoading = true,

@@ -12,6 +12,14 @@ import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.relations.AlbumWithSongs
 import paige.navic.util.core.Logger
 
+data class AlbumArtistArtwork(
+	val artistId: String?,
+	val artistName: String?,
+	val coverArtId: String?,
+	val year: Int?,
+	val name: String
+)
+
 @Dao
 interface AlbumDao {
 	@Transaction
@@ -80,6 +88,16 @@ interface AlbumDao {
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE albumId IN (:ids)")
 	suspend fun getAlbumsByIds(ids: List<String>): List<AlbumWithSongs>
+
+	@Query(
+		"""
+		SELECT artistId, artistName, coverArtId, year, name
+		FROM AlbumEntity
+		WHERE coverArtId != ''
+		ORDER BY year DESC, name COLLATE NOCASE ASC
+		"""
+	)
+	fun observeAlbumArtistArtwork(): Flow<List<AlbumArtistArtwork>>
 
 	@Transaction
 	suspend fun updateAllAlbums(remoteAlbums: List<AlbumEntity>) {
