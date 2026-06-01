@@ -110,6 +110,22 @@ fun aurralDiscoverArtistMonitorActionState(
 ): AurralMonitorActionState? =
 	artist.monitored?.let(::aurralMonitorActionState)
 
+fun aurralMonitorStateForLocalArtist(
+	artist: DomainArtist,
+	libraryArtists: List<AurralDiscoverArtist>
+): AurralMonitorActionState? {
+	if (libraryArtists.isEmpty()) return null
+	val artistKey = artist.musicBrainzId.normalizedAurralKey()
+	val fallbackArtistKey = artist.id.normalizedAurralKey()
+	val nameKey = artist.name.normalizedAurralName()
+	val match = libraryArtists.firstOrNull { candidate ->
+		(artistKey != null && candidate.id.normalizedAurralKey() == artistKey) ||
+			(fallbackArtistKey != null && candidate.id.normalizedAurralKey() == fallbackArtistKey) ||
+			(nameKey != null && candidate.name.normalizedAurralName() == nameKey)
+	}
+	return match?.let(::aurralDiscoverArtistMonitorActionState)
+}
+
 fun aurralHubDiscoverHasMore(
 	discovery: AurralDiscoverySummary,
 	visibleLimit: Int = 8

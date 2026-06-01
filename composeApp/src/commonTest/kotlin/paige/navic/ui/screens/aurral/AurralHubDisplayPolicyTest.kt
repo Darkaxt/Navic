@@ -196,6 +196,50 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun localArtistMonitorStateUsesVerifiedAurralLibraryArtistRows() {
+		val libraryArtists = listOf(
+			AurralDiscoverArtist(
+				id = "artist-mbid",
+				name = "Different Display Name",
+				monitored = true
+			),
+			AurralDiscoverArtist(
+				id = "other-mbid",
+				name = "Name Match",
+				monitored = false
+			)
+		)
+
+		assertEquals(
+			AurralMonitorActionState.Monitored,
+			aurralMonitorStateForLocalArtist(
+				artist = DomainArtist(
+					id = "local-id",
+					name = "Artist",
+					musicBrainzId = "ARTIST-MBID"
+				),
+				libraryArtists = libraryArtists
+			)
+		)
+		assertEquals(
+			AurralMonitorActionState.NotMonitored,
+			aurralMonitorStateForLocalArtist(
+				artist = DomainArtist(
+					id = "local-id",
+					name = "  Name   Match  "
+				),
+				libraryArtists = libraryArtists
+			)
+		)
+		assertNull(
+			aurralMonitorStateForLocalArtist(
+				artist = DomainArtist(id = "local-id", name = "Unknown Artist"),
+				libraryArtists = libraryArtists
+			)
+		)
+	}
+
+	@Test
 	fun discoverArtistsExposeWhenMoreRowsAreAvailable() {
 		val summary = AurralDiscoverySummary(
 			recommendations = (1..9).map { index ->

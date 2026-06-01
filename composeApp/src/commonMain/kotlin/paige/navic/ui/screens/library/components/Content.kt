@@ -64,6 +64,7 @@ import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 import paige.navic.ui.screens.aurral.aurralDiscoverCollectionRoute
+import paige.navic.ui.screens.aurral.aurralMonitorStateForLocalArtist
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
@@ -130,6 +131,7 @@ fun LibraryScreenContent(
 	onStarSelectedArtist: (Boolean) -> Unit,
 	onPlayArtistNext: () -> Unit,
 	onAddArtistToQueue: () -> Unit,
+	aurralLibraryArtists: List<AurralDiscoverArtist>,
 	aurralCollectionRowsState: UiState<List<AurralDiscoveryCollectionRow>>,
 	onOpenAurralDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenAurralDiscoverAlbum: (AurralAlbumSearchItem) -> Unit,
@@ -368,6 +370,10 @@ fun LibraryScreenContent(
 				selected = artist == selectedArtist,
 				selectedArtistAlbums = selectedArtistAlbums,
 				starred = selectedArtistIsStarred,
+				aurralMonitorState = aurralMonitorStateForLocalArtist(
+					artist = artist,
+					libraryArtists = aurralLibraryArtists
+				),
 				onSelect = { onSelectArtist(artist) },
 				onDeselect = { onClearArtistSelection() },
 				onSetStarred = { onStarSelectedArtist(it) },

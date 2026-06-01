@@ -17,8 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.ImmutableList
@@ -42,6 +44,7 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -202,6 +205,7 @@ fun ArtistsScreenItem(
 	selected: Boolean,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
 	starred: Boolean,
+	aurralMonitorState: AurralMonitorActionState? = null,
 	onSelect: () -> Unit,
 	onDeselect: () -> Unit,
 	onPlayNext: () -> Unit,
@@ -228,6 +232,16 @@ fun ArtistsScreenItem(
 				artist.albumCount,
 				artist.albumCount
 			),
+			coverOverlay = aurralMonitorState?.let { state ->
+				{
+					AurralArtistMonitorBadge(
+						state = state,
+						modifier = Modifier
+							.align(Alignment.TopStart)
+							.padding(8.dp)
+					)
+				}
+			},
 			id = artist.id,
 			tab = tab
 		)

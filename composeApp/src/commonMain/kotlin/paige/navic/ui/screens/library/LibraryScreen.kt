@@ -315,6 +315,7 @@ fun LibraryScreen() {
 				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
 				onPlayArtistNext = { if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(player)},
 				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
+				aurralLibraryArtists = aurralDiscovery.data?.libraryArtists.orEmpty(),
 				aurralCollectionRowsState = aurralCollectionRowsState,
 				onOpenAurralDiscoverArtist = { artist ->
 					aurralArtistRecommendationRoute(

@@ -1,20 +1,15 @@
 package paige.navic.ui.screens.library.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -25,13 +20,10 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.CoverArt
-import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.aurral.aurralDiscoverArtistDetail
 import paige.navic.ui.screens.aurral.aurralDiscoverArtistMonitorActionState
-import paige.navic.icons.Icons
-import paige.navic.icons.outlined.Visibility
-import paige.navic.icons.outlined.VisibilityOff
 
 @Composable
 fun AurralDiscoverArtistCard(
@@ -91,35 +83,6 @@ fun AurralDiscoverArtistCard(
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.fillMaxWidth()
-		)
-	}
-}
-
-@Composable
-private fun AurralArtistMonitorBadge(
-	state: AurralMonitorActionState,
-	modifier: Modifier = Modifier
-) {
-	Box(
-		modifier = modifier
-			.size(28.dp)
-			.clip(CircleShape)
-			.background(MaterialTheme.colorScheme.surface.copy(alpha = .86f)),
-		contentAlignment = Alignment.Center
-	) {
-		Icon(
-			imageVector = when (state) {
-				AurralMonitorActionState.Monitored -> Icons.Outlined.Visibility
-				AurralMonitorActionState.NotMonitored -> Icons.Outlined.VisibilityOff
-				AurralMonitorActionState.PendingVerification -> Icons.Outlined.Visibility
-			},
-			contentDescription = null,
-			tint = when (state) {
-				AurralMonitorActionState.Monitored -> MaterialTheme.colorScheme.primary
-				AurralMonitorActionState.NotMonitored -> MaterialTheme.colorScheme.onSurfaceVariant
-				AurralMonitorActionState.PendingVerification -> MaterialTheme.colorScheme.onSurfaceVariant
-			},
-			modifier = Modifier.size(18.dp)
 		)
 	}
 }

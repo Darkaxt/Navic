@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
@@ -89,6 +90,7 @@ fun ArtGridItem(
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
 	ownershipStatus: AurralOwnershipStatus? = null,
+	coverOverlay: (@Composable BoxScope.() -> Unit)? = null,
 	fallbackKind: String? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
@@ -143,6 +145,7 @@ fun ArtGridItem(
 							.padding(8.dp)
 					)
 				}
+				coverOverlay?.invoke(this)
 			}
 			Text(
 				text = title,
