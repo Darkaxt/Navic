@@ -46,7 +46,6 @@ import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_create_aurral_flow
-import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_open_aurral_settings
 import navic.composeapp.generated.resources.action_open_station
 import navic.composeapp.generated.resources.action_play_flow
@@ -101,6 +100,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainArtistListType
@@ -111,10 +111,12 @@ import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralArtistSearchResult
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralFlowSummary
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
@@ -126,6 +128,7 @@ import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Refresh
 import paige.navic.icons.outlined.Search
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
@@ -137,6 +140,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 
 @Composable
@@ -144,6 +148,7 @@ fun AurralHubScreen() {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
@@ -156,6 +161,7 @@ fun AurralHubScreen() {
 	val activeFlowActionId by viewModel.activeFlowActionId.collectAsStateWithLifecycle()
 	val activeDiscoverArtistId by viewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
 	val stationPlaylists by viewModel.stationPlaylists.collectAsStateWithLifecycle()
+	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
 		key = "aurralHubLocalArtists",
 		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) }
@@ -209,6 +215,7 @@ fun AurralHubScreen() {
 			}
 		}
 	) { innerPadding ->
+		AurralConfirmationQueueSnackbar(aurralRepository)
 		Column(
 			Modifier
 				.padding(innerPadding)
@@ -237,6 +244,7 @@ fun AurralHubScreen() {
 					activeFlowActionId = activeFlowActionId,
 					activeDiscoverArtistId = activeDiscoverArtistId,
 					stationPlaylists = stationPlaylists,
+					confirmationQueue = confirmationQueue,
 					preferenceManager = preferenceManager,
 					onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
 					onOpenDiscoverArtist = { artist ->
@@ -296,6 +304,7 @@ private fun AurralHubContent(
 	activeFlowActionId: String?,
 	activeDiscoverArtistId: String?,
 	stationPlaylists: List<DomainPlaylist>,
+	confirmationQueue: List<AurralConfirmationQueueItem>,
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
@@ -312,8 +321,41 @@ private fun AurralHubContent(
 	onPlayStation: (String, DomainPlaylist) -> Unit,
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
+	val snackbarState = LocalSnackbarState.current
 	val status = state.data
 	val canMonitorArtist = status?.addArtist == true
+	val discoverSuccessMessage = stringResource(Res.string.info_aurral_discover_monitor_added)
+	val discoverErrorMessage = (discoverActionState as? UiState.Error)?.let { actionError ->
+		stringResource(
+			Res.string.info_aurral_discover_monitor_failed,
+			actionError.error.message ?: actionError.error::class.simpleName ?: "Unknown error"
+		)
+	}
+	val flowSuccessMessage = (flowActionState as? UiState.Success)?.data?.let { result ->
+		aurralFlowActionMessage(result)
+	}
+	val flowErrorMessage = (flowActionState as? UiState.Error)?.let { actionError ->
+		stringResource(
+			Res.string.info_aurral_flow_action_failed,
+			actionError.error.message ?: actionError.error::class.simpleName ?: "Unknown error"
+		)
+	}
+	LaunchedEffect(discoverActionState) {
+		when (discoverActionState) {
+			is UiState.Success -> if (discoverActionState.data != null) {
+				snackbarState.showSnackbar(discoverSuccessMessage)
+			}
+			is UiState.Error -> discoverErrorMessage?.let { snackbarState.showSnackbar(it) }
+			else -> Unit
+		}
+	}
+	LaunchedEffect(flowActionState) {
+		when (flowActionState) {
+			is UiState.Success -> flowSuccessMessage?.let { snackbarState.showSnackbar(it) }
+			is UiState.Error -> flowErrorMessage?.let { snackbarState.showSnackbar(it) }
+			else -> Unit
+		}
+	}
 	if (status == null) {
 		Form(Modifier.fillMaxWidth()) {
 			FormRow {
@@ -348,6 +390,7 @@ private fun AurralHubContent(
 		actionState = discoverActionState,
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = canMonitorArtist,
+		confirmationQueue = confirmationQueue,
 		preferenceManager = preferenceManager,
 		onQueryChange = onArtistSearchQueryChange,
 		onSearchArtists = onSearchArtists,
@@ -362,6 +405,7 @@ private fun AurralHubContent(
 		actionState = discoverActionState,
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = canMonitorArtist,
+		confirmationQueue = confirmationQueue,
 		preferenceManager = preferenceManager,
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
@@ -461,6 +505,7 @@ private fun AurralHubArtistSearchSection(
 	actionState: UiState<Unit?>,
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
+	confirmationQueue: List<AurralConfirmationQueueItem>,
 	preferenceManager: PreferenceManager,
 	onQueryChange: (String) -> Unit,
 	onSearchArtists: () -> Unit,
@@ -502,6 +547,7 @@ private fun AurralHubArtistSearchSection(
 					canMonitorArtist = canMonitorArtist,
 					actionInProgress = actionInProgress,
 					active = activeArtistId == artist.id,
+					monitorState = aurralDiscoverArtistMonitorActionState(artist, confirmationQueue),
 					preferenceManager = preferenceManager,
 					onMonitorArtist = onMonitorArtist,
 					onOpenArtist = onOpenArtist
@@ -612,6 +658,7 @@ private fun AurralHubDiscoverSection(
 	actionState: UiState<Unit?>,
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
+	confirmationQueue: List<AurralConfirmationQueueItem>,
 	preferenceManager: PreferenceManager,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit,
@@ -643,6 +690,7 @@ private fun AurralHubDiscoverSection(
 							canMonitorArtist = canMonitorArtist,
 							actionInProgress = actionInProgress,
 							active = activeArtistId == artist.id,
+							monitorState = aurralDiscoverArtistMonitorActionState(artist, confirmationQueue),
 							preferenceManager = preferenceManager,
 							onMonitorArtist = onMonitorArtist,
 							onOpenArtist = onOpenArtist
@@ -750,6 +798,7 @@ fun AurralHubDiscoverArtistRow(
 	canMonitorArtist: Boolean,
 	actionInProgress: Boolean,
 	active: Boolean,
+	monitorState: AurralMonitorActionState,
 	preferenceManager: PreferenceManager,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit
@@ -793,19 +842,20 @@ fun AurralHubDiscoverArtistRow(
 				overflow = TextOverflow.Ellipsis
 			)
 		}
-		if (canMonitorArtist) {
-			IconButton(
-				onClick = { onMonitorArtist(artist) },
-				enabled = !actionInProgress
-			) {
-				if (active) {
-					CircularProgressIndicator(modifier = Modifier.size(20.dp))
-				} else {
-					Icon(Icons.Outlined.Add, stringResource(Res.string.action_monitor_artist))
-				}
+	if (canMonitorArtist) {
+		val monitorEnabled = !actionInProgress && monitorState == AurralMonitorActionState.NotMonitored
+		IconButton(
+			onClick = { onMonitorArtist(artist) },
+			enabled = monitorEnabled
+		) {
+			if (active) {
+				CircularProgressIndicator(modifier = Modifier.size(20.dp))
+			} else {
+				AurralArtistMonitorBadge(state = monitorState)
 			}
 		}
 	}
+}
 }
 
 @Composable

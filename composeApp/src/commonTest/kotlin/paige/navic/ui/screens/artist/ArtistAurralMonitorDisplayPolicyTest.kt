@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ArtistAurralMonitorDisplayPolicyTest {
@@ -21,5 +22,7 @@ class ArtistAurralMonitorDisplayPolicyTest {
 		)
 		assertTrue(isAurralMonitorActionVerified(AurralMonitorActionState.Monitored))
 		assertTrue(isAurralMonitorActionVerified(AurralMonitorActionState.NotMonitored))
+		assertFalse(isAurralMonitorActionVerified(AurralMonitorActionState.PendingVerification))
+		assertFalse(isAurralMonitorActionVerified(AurralMonitorActionState.PendingConfirmation))
 	}
 }

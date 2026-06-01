@@ -11,10 +11,13 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
+import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.aurralMonitorActionState
@@ -110,6 +113,26 @@ fun aurralDiscoverArtistMonitorActionState(
 ): AurralMonitorActionState? =
 	artist.monitored?.let(::aurralMonitorActionState)
 
+fun aurralDiscoverArtistMonitorActionState(
+	artist: AurralDiscoverArtist,
+	confirmationQueue: List<AurralConfirmationQueueItem>
+): AurralMonitorActionState {
+	val confirmation = aurralArtistMonitoringConfirmationItem(confirmationQueue, artist.id)
+	return when (confirmation?.status) {
+		AurralConfirmationStatus.Pending -> AurralMonitorActionState.PendingConfirmation
+		AurralConfirmationStatus.Confirmed -> {
+			if (confirmation.expectedMonitored == false) {
+				AurralMonitorActionState.NotMonitored
+			} else {
+				AurralMonitorActionState.Monitored
+			}
+		}
+		AurralConfirmationStatus.Failed, null ->
+			artist.monitored?.let(::aurralMonitorActionState)
+				?: AurralMonitorActionState.PendingVerification
+	}
+}
+
 fun aurralMonitorStateForLocalArtist(
 	artist: DomainArtist,
 	libraryArtists: List<AurralDiscoverArtist>
@@ -124,6 +147,28 @@ fun aurralMonitorStateForLocalArtist(
 			(nameKey != null && candidate.name.normalizedAurralName() == nameKey)
 	}
 	return match?.let(::aurralDiscoverArtistMonitorActionState)
+}
+
+fun aurralMonitorStateForLocalArtist(
+	artist: DomainArtist,
+	libraryArtists: List<AurralDiscoverArtist>,
+	confirmationQueue: List<AurralConfirmationQueueItem>
+): AurralMonitorActionState? {
+	val confirmation = aurralArtistMonitoringConfirmationItem(
+		queue = confirmationQueue,
+		artistMbid = artist.musicBrainzId ?: artist.id
+	)
+	return when (confirmation?.status) {
+		AurralConfirmationStatus.Pending -> AurralMonitorActionState.PendingConfirmation
+		AurralConfirmationStatus.Confirmed -> {
+			if (confirmation.expectedMonitored == false) {
+				AurralMonitorActionState.NotMonitored
+			} else {
+				AurralMonitorActionState.Monitored
+			}
+		}
+		AurralConfirmationStatus.Failed, null -> aurralMonitorStateForLocalArtist(artist, libraryArtists)
+	}
 }
 
 fun aurralHubDiscoverHasMore(
@@ -142,8 +187,12 @@ fun aurralDiscoveryCollectionRows(
 	limit: Int = 8
 ): List<AurralDiscoveryCollectionRow> {
 	val safeLimit = limit.coerceAtLeast(0)
+	val libraryArtists = discovery.libraryArtists
 	return buildList {
-		val recentlyAdded = aurralHubSearchArtists(discovery.recentlyAdded, safeLimit)
+		val recentlyAdded = aurralHubSearchArtists(
+			discovery.recentlyAdded.withLibraryArtistMonitoring(libraryArtists),
+			safeLimit
+		)
 		if (recentlyAdded.isNotEmpty()) {
 			add(
 				AurralDiscoveryCollectionRow.Artists(
@@ -163,7 +212,10 @@ fun aurralDiscoveryCollectionRows(
 			)
 		}
 
-		val recommendations = aurralHubSearchArtists(discovery.recommendations, safeLimit)
+		val recommendations = aurralHubSearchArtists(
+			discovery.recommendations.withLibraryArtistMonitoring(libraryArtists),
+			safeLimit
+		)
 		if (recommendations.isNotEmpty()) {
 			add(
 				AurralDiscoveryCollectionRow.Artists(
@@ -173,7 +225,10 @@ fun aurralDiscoveryCollectionRows(
 			)
 		}
 
-		val basedOn = aurralHubSearchArtists(discovery.basedOn, safeLimit)
+		val basedOn = aurralHubSearchArtists(
+			discovery.basedOn.withLibraryArtistMonitoring(libraryArtists),
+			safeLimit
+		)
 		if (basedOn.isNotEmpty()) {
 			add(
 				AurralDiscoveryCollectionRow.Artists(
@@ -183,7 +238,10 @@ fun aurralDiscoveryCollectionRows(
 			)
 		}
 
-		val globalTop = aurralHubSearchArtists(discovery.globalTop, safeLimit)
+		val globalTop = aurralHubSearchArtists(
+			discovery.globalTop.withLibraryArtistMonitoring(libraryArtists),
+			safeLimit
+		)
 		if (globalTop.isNotEmpty()) {
 			add(
 				AurralDiscoveryCollectionRow.Artists(
@@ -251,7 +309,7 @@ fun aurralDiscoverCollectionArtists(
 
 		AurralDiscoveryCollectionKind.GenreArtists,
 		AurralDiscoveryCollectionKind.TopTags -> emptyList()
-	}
+	}.withLibraryArtistMonitoring(discovery.libraryArtists)
 
 fun aurralDiscoverCollectionRoute(row: AurralDiscoveryCollectionRow): Screen? =
 	when (row) {
@@ -504,13 +562,11 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 		.mapNotNull { artist -> artist.name.normalizedAurralName()?.let { it to artist } }
 		.toMap()
 	return map { artist ->
-		if (artist.monitored != null) {
-			artist
-		} else {
-			val libraryArtist = artist.id.normalizedAurralKey()?.let(libraryById::get)
-				?: artist.name.normalizedAurralName()?.let(libraryByName::get)
-			libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) } ?: artist
-		}
+		val libraryArtist = artist.id.normalizedAurralKey()?.let(libraryById::get)
+			?: artist.name.normalizedAurralName()?.let(libraryByName::get)
+		libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) }
+			?: artist.takeIf { it.monitored != null }
+			?: artist.copy(monitored = false)
 	}
 }
 
@@ -523,7 +579,10 @@ private fun aurralDiscoveryGenreRows(
 	val fallbackRows = discovery.fallbackGenres
 		.mapNotNull { section ->
 			val genre = section.genre.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-			val artists = aurralHubSearchArtists(section.artists, safeLimit)
+			val artists = aurralHubSearchArtists(
+				section.artists.withLibraryArtistMonitoring(discovery.libraryArtists),
+				safeLimit
+			)
 			if (artists.isEmpty()) {
 				null
 			} else {

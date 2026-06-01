@@ -109,6 +109,7 @@ import paige.navic.ui.screens.search.components.SearchScreenChips
 import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.search.viewmodels.visibleSearchHistory
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 
@@ -125,6 +126,7 @@ fun SearchScreen(
 	nested: Boolean
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
 
 	val viewModel = koinViewModel<SearchViewModel>()
 	val selectedSong by viewModel.selectedSong.collectAsStateWithLifecycle()
@@ -146,6 +148,7 @@ fun SearchScreen(
 	val albumListStarred by albumListViewModel.starred.collectAsState()
 	val selectedAlbumRating by albumListViewModel.rating.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by albumListViewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
+	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 
 	val query = viewModel.searchQuery
 	val state by viewModel.searchState.collectAsState()
@@ -471,6 +474,7 @@ fun SearchScreen(
 									modifier = Modifier.animateItem(fadeInSpec = null)
 										.width(150.dp),
 									artist = artist,
+									confirmationQueue = aurralConfirmationQueue,
 									onOpenArtist = {
 										aurralArtistRecommendationRoute(
 											artist = it,

@@ -72,8 +72,16 @@ data class ArtistState(
 	val aurralArtistName: String? = null,
 	val aurralArtistImageUrl: String? = null,
 	val aurralLoading: Boolean = false,
-	val aurralError: String? = null
+	val aurralError: String? = null,
+	val aurralFeedback: AurralArtistActionFeedback? = null
 )
+
+enum class AurralArtistActionFeedback {
+	MonitoringQueued,
+	UnmonitoringQueued,
+	MonitoringEnabled,
+	MonitoringDisabled
+}
 
 class ArtistDetailViewModel(
 	private val artistId: String,
@@ -597,16 +605,21 @@ class ArtistDetailViewModel(
 		val artist = state.aurralActionArtist() ?: return
 		viewModelScope.launch {
 			_monitoringInAurral.value = true
+			_artistState.value = UiState.Success(
+				state.copy(
+					aurralError = null,
+					aurralFeedback = if (monitored) {
+						AurralArtistActionFeedback.MonitoringQueued
+					} else {
+						AurralArtistActionFeedback.UnmonitoringQueued
+					}
+				)
+			)
 			aurralRepository.setArtistMonitoring(artist, monitored)
 				.onSuccess {
 					val latestState = (_artistState.value as? UiState.Success)?.data
 					if (latestState != null) {
-						_artistState.value = UiState.Success(
-							latestState.copy(
-								aurralMonitored = monitored,
-								aurralError = null
-							)
-						)
+						_artistState.value = UiState.Success(latestState.copy(aurralError = null))
 					}
 				}
 				.onFailure { error ->
@@ -614,12 +627,23 @@ class ArtistDetailViewModel(
 					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
 					_artistState.value = UiState.Success(
 						latestState.copy(
-							aurralError = error.message ?: error::class.simpleName
+							aurralError = error.message ?: error::class.simpleName,
+							aurralFeedback = null
 						)
 					)
 				}
 			_monitoringInAurral.value = false
 		}
+	}
+
+	fun clearAurralError() {
+		val state = (_artistState.value as? UiState.Success)?.data ?: return
+		_artistState.value = UiState.Success(state.copy(aurralError = null))
+	}
+
+	fun clearAurralFeedback() {
+		val state = (_artistState.value as? UiState.Success)?.data ?: return
+		_artistState.value = UiState.Success(state.copy(aurralFeedback = null))
 	}
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {

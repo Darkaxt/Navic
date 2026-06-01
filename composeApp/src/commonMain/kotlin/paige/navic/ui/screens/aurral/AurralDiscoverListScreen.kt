@@ -41,6 +41,7 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.ArtGrid
@@ -63,6 +64,7 @@ fun AurralDiscoverListScreen(
 	tag: String? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
 	val backStack = LocalNavStack.current
 	val tagFilter = tag?.trim()?.takeIf { it.isNotEmpty() }
 	val selectedCollection = aurralDiscoverCollectionKind(collectionKind)
@@ -77,6 +79,7 @@ fun AurralDiscoverListScreen(
 	)
 	val discoveryState by viewModel.discovery.collectAsStateWithLifecycle()
 	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
+	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val gridState = rememberLazyGridState()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
@@ -114,6 +117,7 @@ fun AurralDiscoverListScreen(
 			}
 		}
 	) { innerPadding ->
+		AurralConfirmationQueueSnackbar(aurralRepository)
 		PullToRefreshBox(
 			modifier = Modifier
 				.padding(top = innerPadding.calculateTopPadding())
@@ -168,6 +172,7 @@ fun AurralDiscoverListScreen(
 						AurralDiscoverArtistCard(
 							modifier = Modifier.animateItem(),
 							artist = artist,
+							confirmationQueue = confirmationQueue,
 							onOpenArtist = {
 								aurralArtistRecommendationRoute(
 									artist = artist,

@@ -15,6 +15,8 @@ import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AurralReleaseGroup
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.repositories.AurralConfirmationStatus
+import paige.navic.domain.repositories.AurralConfirmationType
 
 class AurralRepositoryTest {
 	@Test
@@ -709,6 +711,93 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryDiscoveryCachesLibraryArtistsWithinTtl(): Unit = runBlocking {
+		var nowMillis = 1_000L
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "ARTIST-MBID", name = "BOND", monitored = true))
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient,
+			nowMillis = { nowMillis }
+		)
+
+		assertEquals(true, repository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+		nowMillis += AURRAL_LIBRARY_ARTISTS_CACHE_TTL.inWholeMilliseconds - 1
+		assertEquals(true, repository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+
+		assertEquals(listOf("https://aurral.example.com"), apiClient.libraryArtistsBaseUrls)
+
+		nowMillis += 2
+		repository.getLibraryDiscovery().getOrThrow()
+
+		assertEquals(
+			listOf("https://aurral.example.com", "https://aurral.example.com"),
+			apiClient.libraryArtistsBaseUrls
+		)
+	}
+
+	@Test
+	fun repositoryArtistEnrichmentUsesCachedLibraryMonitoringWithoutPerArtistLookup(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond", monitored = false)),
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Bond",
+				monitored = null
+			),
+			libraryArtistMonitoring = true
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.getLibraryDiscovery().getOrThrow()
+		val enrichment = repository.getArtistEnrichment(
+			DomainArtist(id = "local-bond", name = "BOND", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals(false, enrichment?.monitored)
+		assertEquals(emptyList(), apiClient.libraryArtistMonitoringRequests)
+	}
+
+	@Test
+	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond", monitored = false))
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		assertEquals(false, repository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+
+		repository.setArtistMonitoring(
+			artist = DomainArtist(id = "local-bond", name = "BOND", musicBrainzId = "artist-mbid"),
+			monitored = true
+		).getOrThrow()
+
+		assertEquals(false, repository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+		assertEquals(AurralConfirmationStatus.Pending, repository.confirmationQueue.value.single().status)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.libraryArtistsBaseUrls)
+	}
+
+	@Test
 	fun repositoryArtistSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
@@ -796,6 +885,15 @@ class AurralRepositoryTest {
 			),
 			apiClient.monitorArtistPayloads
 		)
+		assertEquals(
+			AurralConfirmationStatus.Pending,
+			repository.confirmationQueue.value.single().status
+		)
+		assertEquals(
+			AurralConfirmationType.ArtistMonitoring,
+			repository.confirmationQueue.value.single().type
+		)
+		assertEquals(true, repository.confirmationQueue.value.single().expectedMonitored)
 	}
 
 	@Test
@@ -1305,6 +1403,7 @@ class AurralRepositoryTest {
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
 		private val discovery: AurralDiscoverySummary = AurralDiscoverySummary(),
+		private val libraryArtists: List<AurralDiscoverArtist> = discovery.libraryArtists,
 		private val artistSearch: AurralArtistSearchResult = AurralArtistSearchResult(),
 		private val albumSearch: AurralAlbumSearchResult = AurralAlbumSearchResult(),
 		private val artistEnrichment: AurralArtistEnrichment = AurralArtistEnrichment(
@@ -1323,6 +1422,8 @@ class AurralRepositoryTest {
 		val statusRequestHeaders = mutableListOf<Map<String, String>>()
 		val discoveryBaseUrls = mutableListOf<String>()
 		val discoveryRequestHeaders = mutableListOf<Map<String, String>>()
+		val libraryArtistsBaseUrls = mutableListOf<String>()
+		val libraryArtistsRequestHeaders = mutableListOf<Map<String, String>>()
 		val artistSearchBaseUrls = mutableListOf<String>()
 		val artistSearchRequestHeaders = mutableListOf<Map<String, String>>()
 		val artistSearchRequests = mutableListOf<AurralArtistSearchRequest>()
@@ -1381,6 +1482,15 @@ class AurralRepositoryTest {
 			discoveryBaseUrls += baseUrl
 			discoveryRequestHeaders += requestHeaders
 			return discovery
+		}
+
+		override suspend fun fetchLibraryArtists(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): List<AurralDiscoverArtist> {
+			libraryArtistsBaseUrls += baseUrl
+			libraryArtistsRequestHeaders += requestHeaders
+			return libraryArtists
 		}
 
 		override suspend fun searchArtists(

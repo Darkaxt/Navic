@@ -26,6 +26,7 @@ import navic.composeapp.generated.resources.title_aurral_search
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AurralArtistSearchResult
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Search
@@ -42,6 +43,7 @@ fun AurralArtistSearchDialog(
 	actionState: UiState<Unit?>,
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
+	confirmationQueue: List<AurralConfirmationQueueItem> = emptyList(),
 	preferenceManager: PreferenceManager,
 	onQueryChange: (String) -> Unit,
 	onSearchArtists: () -> Unit,
@@ -104,6 +106,7 @@ fun AurralArtistSearchDialog(
 								canMonitorArtist = canMonitorArtist,
 								actionInProgress = actionInProgress,
 								active = activeArtistId == artist.id,
+								monitorState = aurralDiscoverArtistMonitorActionState(artist, confirmationQueue),
 								preferenceManager = preferenceManager,
 								onMonitorArtist = onMonitorArtist,
 								onOpenArtist = onOpenArtist

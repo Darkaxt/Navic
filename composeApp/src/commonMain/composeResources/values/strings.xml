@@ -210,6 +210,7 @@
 	<string name="subtitle_lida_clips_sync_paused">Tell the LidaClips backend to pause scheduled clip syncs</string>
 	<string name="subtitle_aurral_enabled">Show native Aurral diagnostics now. Artist discovery, acquisition, and Flow playback will use this connection.</string>
 	<string name="info_aurral_monitor_status_pending">Checking Aurral monitor status</string>
+	<string name="info_aurral_monitor_confirmation_pending">Waiting for Aurral confirmation</string>
 
 	<string name="option_off">Off</string>
 	<string name="option_unlimited">Unlimited</string>
@@ -607,6 +608,11 @@
 	<string name="info_aurral_request_status">Aurral: %1$s</string>
 	<string name="info_aurral_no_album_previews">No album previews available</string>
 	<string name="info_aurral_no_artist_albums">No catalog albums found yet</string>
+	<string name="info_aurral_monitor_waiting">Monitor request sent. Waiting for Aurral and Lidarr confirmation.</string>
+	<string name="info_aurral_unmonitor_waiting">Stop-monitoring request sent. Waiting for Aurral and Lidarr confirmation.</string>
+	<string name="info_aurral_monitor_confirmed">Artist monitoring confirmed in Aurral</string>
+	<string name="info_aurral_monitor_stopped">Artist monitoring stopped in Aurral</string>
+	<string name="info_aurral_monitor_failed">Aurral monitor confirmation failed: %1$s</string>
 	<string name="info_stop_monitoring_artist_confirmation">Stop monitoring %1$s in Aurral?</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>

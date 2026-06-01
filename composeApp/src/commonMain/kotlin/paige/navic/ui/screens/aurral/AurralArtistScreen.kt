@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -52,6 +53,7 @@ import navic.composeapp.generated.resources.info_aurral_artist_in_library
 import navic.composeapp.generated.resources.info_aurral_external_artist
 import navic.composeapp.generated.resources.info_aurral_loading_catalog
 import navic.composeapp.generated.resources.info_aurral_match_percent
+import navic.composeapp.generated.resources.info_aurral_monitor_waiting
 import navic.composeapp.generated.resources.info_aurral_no_artist_albums
 import navic.composeapp.generated.resources.info_aurral_no_album_previews
 import navic.composeapp.generated.resources.title_albums
@@ -63,6 +65,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.mappers.toDomainModel
@@ -81,7 +84,9 @@ import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralRepository
+import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Note
@@ -107,7 +112,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	val aurralRepository = koinInject<AurralRepository>()
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
 	val scope = rememberCoroutineScope()
+	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	var state by remember(route) {
 		mutableStateOf(
 			AurralArtistUiState(
@@ -160,6 +167,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 						)
 					}.orEmpty(),
 					previewTracks = enrichment?.previewTracks.orEmpty(),
+					monitorConfirmed = enrichment?.monitored == true,
 					loading = false,
 					error = null
 				)
@@ -168,6 +176,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				state = state.copy(loading = false, error = error)
 			}
 	}
+
+	val monitorWaitingMessage = stringResource(Res.string.info_aurral_monitor_waiting)
+	AurralConfirmationQueueSnackbar(aurralRepository)
 
 	Scaffold(
 		topBar = {
@@ -220,6 +231,11 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			AurralArtistActions(
 				localArtist = state.localArtist,
 				monitoring = state.monitoring,
+				monitorPending = aurralArtistMonitoringConfirmationItem(
+					queue = confirmationQueue,
+					artistMbid = state.artist.musicBrainzId
+				)?.status == AurralConfirmationStatus.Pending,
+				monitorConfirmed = state.monitorConfirmed,
 				onOpenLocalArtist = { localArtist ->
 					backStack.add(Screen.ArtistDetail(localArtist.id))
 				},
@@ -227,7 +243,11 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 					platformContext.clickSound()
 					scope.launch {
 						state = state.copy(monitoring = true, error = null)
+						launch { snackbarState.showSnackbar(monitorWaitingMessage) }
 						aurralRepository.monitorArtist(state.artist)
+							.onSuccess {
+								state = state.copy(error = null)
+							}
 							.onFailure { error -> state = state.copy(error = error) }
 						state = state.copy(monitoring = false)
 					}
@@ -419,6 +439,8 @@ private fun AurralArtistHero(
 private fun AurralArtistActions(
 	localArtist: DomainArtist?,
 	monitoring: Boolean,
+	monitorPending: Boolean,
+	monitorConfirmed: Boolean,
 	onOpenLocalArtist: (DomainArtist) -> Unit,
 	onMonitorArtist: () -> Unit
 ) {
@@ -440,9 +462,9 @@ private fun AurralArtistActions(
 		OutlinedButton(
 			modifier = Modifier.weight(1f),
 			onClick = onMonitorArtist,
-			enabled = !monitoring
+			enabled = !monitoring && !monitorPending && !monitorConfirmed
 		) {
-			if (monitoring) {
+			if (monitoring || monitorPending) {
 				CircularProgressIndicator(
 					modifier = Modifier
 						.size(20.dp)
@@ -641,5 +663,6 @@ private data class AurralArtistUiState(
 	val enrichment: AurralArtistEnrichment? = null,
 	val loading: Boolean = false,
 	val monitoring: Boolean = false,
+	val monitorConfirmed: Boolean = false,
 	val error: Throwable? = null
 )

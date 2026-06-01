@@ -35,6 +35,7 @@ import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_download_failed
+import navic.composeapp.generated.resources.info_aurral_monitor_confirmation_pending
 import navic.composeapp.generated.resources.info_aurral_monitor_status_pending
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
@@ -48,6 +49,7 @@ import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Visibility
 import paige.navic.icons.outlined.VisibilityOff
+import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -62,6 +64,7 @@ fun ArtistActionButtons(
 	onMonitorInAurral: (() -> Unit)? = null,
 	monitorInAurralEnabled: Boolean = true,
 	monitoringInAurral: Boolean = false,
+	monitorPendingInAurral: Boolean = false,
 	monitoredInAurral: Boolean? = null,
 	modifier: Modifier = Modifier
 ) {
@@ -129,6 +132,12 @@ fun ArtistActionButtons(
 		}
 
 		onMonitorInAurral?.let { monitor ->
+			val monitorState = when {
+				monitorPendingInAurral -> AurralMonitorActionState.PendingConfirmation
+				monitoredInAurral == true -> AurralMonitorActionState.Monitored
+				monitoredInAurral == false -> AurralMonitorActionState.NotMonitored
+				else -> AurralMonitorActionState.PendingVerification
+			}
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = 44.dp),
 				onClick = {
@@ -136,7 +145,10 @@ fun ArtistActionButtons(
 					monitor()
 				},
 				shape = ContinuousCapsule,
-				enabled = monitorInAurralEnabled && !monitoringInAurral && monitoredInAurral != null,
+				enabled = monitorInAurralEnabled &&
+					!monitoringInAurral &&
+					!monitorPendingInAurral &&
+					monitoredInAurral != null,
 				contentPadding = PaddingValues(0.dp)
 			) {
 				if (monitoringInAurral) {
@@ -148,21 +160,23 @@ fun ArtistActionButtons(
 				} else {
 					Box(contentAlignment = Alignment.Center) {
 						Icon(
-							imageVector = if (monitoredInAurral == false) {
-								Icons.Outlined.VisibilityOff
-							} else {
-								Icons.Outlined.Visibility
+							imageVector = when (monitorState) {
+								AurralMonitorActionState.NotMonitored -> Icons.Outlined.VisibilityOff
+								else -> Icons.Outlined.Visibility
 							},
 							contentDescription = stringResource(
-								when (monitoredInAurral) {
-									true -> Res.string.action_stop_monitoring_artist
-									false -> Res.string.action_monitor_artist
-									null -> Res.string.info_aurral_monitor_status_pending
+								when (monitorState) {
+									AurralMonitorActionState.Monitored -> Res.string.action_stop_monitoring_artist
+									AurralMonitorActionState.NotMonitored -> Res.string.action_monitor_artist
+									AurralMonitorActionState.PendingConfirmation ->
+										Res.string.info_aurral_monitor_confirmation_pending
+									AurralMonitorActionState.PendingVerification ->
+										Res.string.info_aurral_monitor_status_pending
 								}
 							),
 							modifier = Modifier.size(24.dp)
 						)
-						if (monitoredInAurral == null) {
+						if (monitorState == AurralMonitorActionState.PendingVerification) {
 							Text(
 								text = "?",
 								color = MaterialTheme.colorScheme.onPrimary,
@@ -174,6 +188,14 @@ fun ArtistActionButtons(
 									.size(14.dp)
 									.clip(ContinuousCapsule)
 									.background(MaterialTheme.colorScheme.primary)
+							)
+						} else if (monitorState == AurralMonitorActionState.PendingConfirmation) {
+							CircularProgressIndicator(
+								modifier = Modifier
+									.align(Alignment.TopEnd)
+									.size(14.dp),
+								strokeWidth = 2.dp,
+								color = MaterialTheme.colorScheme.primary
 							)
 						}
 					}

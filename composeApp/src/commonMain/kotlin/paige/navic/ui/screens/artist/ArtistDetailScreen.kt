@@ -35,6 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -66,6 +67,10 @@ import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_aurral_external_artist
 import navic.composeapp.generated.resources.info_aurral_loading_catalog
 import navic.composeapp.generated.resources.info_aurral_match_percent
+import navic.composeapp.generated.resources.info_aurral_monitor_confirmed
+import navic.composeapp.generated.resources.info_aurral_monitor_stopped
+import navic.composeapp.generated.resources.info_aurral_monitor_waiting
+import navic.composeapp.generated.resources.info_aurral_unmonitor_waiting
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
 import navic.composeapp.generated.resources.option_sort_frequent
@@ -82,6 +87,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -92,6 +98,9 @@ import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.aurralArtistAlbumRows
+import paige.navic.domain.repositories.AurralConfirmationStatus
+import paige.navic.domain.repositories.AurralRepository
+import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
@@ -99,6 +108,7 @@ import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
@@ -109,11 +119,13 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.aurral.AurralConfirmationQueueSnackbar
 import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
 import paige.navic.ui.screens.aurral.aurralMissingAlbumOwnershipStatus
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
+import paige.navic.ui.screens.artist.viewmodels.AurralArtistActionFeedback
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
@@ -127,12 +139,14 @@ fun ArtistDetailScreen(
 	artistId: String
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
 
 	val viewModel = koinViewModel<ArtistDetailViewModel>(
 		key = artistId,
 		parameters = { parametersOf(artistId) }
 	)
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 
@@ -150,6 +164,7 @@ fun ArtistDetailScreen(
 	val backStack = LocalNavStack.current
 	val layoutDirection = LocalLayoutDirection.current
 	val artistState by viewModel.artistState.collectAsStateWithLifecycle()
+	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsState()
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
@@ -178,6 +193,31 @@ fun ArtistDetailScreen(
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	var stopMonitoringDialogShown by rememberSaveable { mutableStateOf(false) }
+
+	val artistData = (artistState as? UiState.Success)?.data
+	val aurralFeedback = artistData?.aurralFeedback
+	val aurralFeedbackMessage = when (aurralFeedback) {
+		AurralArtistActionFeedback.MonitoringQueued ->
+			stringResource(Res.string.info_aurral_monitor_waiting)
+		AurralArtistActionFeedback.UnmonitoringQueued ->
+			stringResource(Res.string.info_aurral_unmonitor_waiting)
+		AurralArtistActionFeedback.MonitoringEnabled ->
+			stringResource(Res.string.info_aurral_monitor_confirmed)
+		AurralArtistActionFeedback.MonitoringDisabled ->
+			stringResource(Res.string.info_aurral_monitor_stopped)
+		null -> null
+	}
+	LaunchedEffect(aurralFeedback) {
+		val message = aurralFeedbackMessage ?: return@LaunchedEffect
+		snackbarState.showSnackbar(message)
+		viewModel.clearAurralFeedback()
+	}
+
+	ErrorSnackbar(
+		error = artistData?.aurralError?.let(::Exception),
+		onClearError = { viewModel.clearAurralError() }
+	)
+	AurralConfirmationQueueSnackbar(aurralRepository)
 
 	Scaffold(
 		topBar = {
@@ -226,6 +266,10 @@ fun ArtistDetailScreen(
 
 				is UiState.Success -> {
 					val state = currentArtistState.data
+					val aurralMonitorPending = aurralArtistMonitoringConfirmationItem(
+						queue = aurralConfirmationQueue,
+						artistMbid = state.aurralArtistMbid ?: state.artist.musicBrainzId
+					)?.status == AurralConfirmationStatus.Pending
 					val albumRows = remember(state.albums, state.aurralMissingAlbums) {
 						aurralArtistAlbumRows(
 							localAlbums = state.albums,
@@ -312,6 +356,7 @@ fun ArtistDetailScreen(
 								aurralMonitorActionState(state.aurralMonitored)
 							),
 							monitoringInAurral = monitoringInAurral,
+							monitorPendingInAurral = aurralMonitorPending,
 							monitoredInAurral = state.aurralMonitored,
 							modifier = Modifier.padding(top = 8.dp)
 						)

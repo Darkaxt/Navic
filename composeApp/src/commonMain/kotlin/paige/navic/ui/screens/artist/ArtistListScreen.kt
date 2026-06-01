@@ -42,6 +42,7 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
@@ -56,6 +57,7 @@ import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.aurral.AurralArtistSearchDialog
+import paige.navic.ui.screens.aurral.AurralConfirmationQueueSnackbar
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.aurral.aurralArtistRoute
 import paige.navic.ui.screens.artist.components.ArtistListScreenSortButton
@@ -72,6 +74,7 @@ fun ArtistListScreen(
 	listType: DomainArtistListType
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
 
 	val viewModel = koinViewModel<ArtistListViewModel>(
 		key = listType.toString(),
@@ -93,6 +96,7 @@ fun ArtistListScreen(
 	val aurralArtistSearch by aurralViewModel.artistSearch.collectAsStateWithLifecycle()
 	val aurralDiscoverActionState by aurralViewModel.discoverActionState.collectAsStateWithLifecycle()
 	val aurralActiveDiscoverArtistId by aurralViewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
+	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	var aurralSearchDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -174,6 +178,7 @@ fun ArtistListScreen(
 		error = (artistsState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+	AurralConfirmationQueueSnackbar(aurralRepository)
 
 	if (aurralSearchDialogShown) {
 		AurralArtistSearchDialog(
@@ -182,6 +187,7 @@ fun ArtistListScreen(
 			actionState = aurralDiscoverActionState,
 			activeArtistId = aurralActiveDiscoverArtistId,
 			canMonitorArtist = aurralServiceStatus.data?.addArtist ?: true,
+			confirmationQueue = aurralConfirmationQueue,
 			preferenceManager = preferenceManager,
 			onQueryChange = aurralViewModel::updateArtistSearchQuery,
 			onSearchArtists = aurralViewModel::searchArtists,

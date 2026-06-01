@@ -19,6 +19,9 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
+import paige.navic.domain.repositories.AurralConfirmationStatus
+import paige.navic.domain.repositories.AurralConfirmationType
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFallbackGenreSection
@@ -175,6 +178,29 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverArtistMonitorStateShowsConfirmationQueuePending() {
+		val queue = listOf(
+			AurralConfirmationQueueItem(
+				id = "artist-monitor:artist",
+				type = AurralConfirmationType.ArtistMonitoring,
+				status = AurralConfirmationStatus.Pending,
+				title = "Artist",
+				artistMbid = "artist",
+				expectedMonitored = true,
+				updatedAtMillis = 1L
+			)
+		)
+
+		assertEquals(
+			AurralMonitorActionState.PendingConfirmation,
+			aurralDiscoverArtistMonitorActionState(
+				artist = AurralDiscoverArtist(id = "artist", name = "Artist", monitored = false),
+				confirmationQueue = queue
+			)
+		)
+	}
+
+	@Test
 	fun discoverArtistsMergeVerifiedMonitoringFromLibraryArtistRows() {
 		val summary = AurralDiscoverySummary(
 			recommendations = listOf(
@@ -192,6 +218,66 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(
 			true,
 			aurralHubDiscoverArtists(summary).single().monitored
+		)
+	}
+
+	@Test
+	fun discoverArtistsTreatMissingLibraryMatchAsVerifiedNotMonitoredWhenLibraryRowsLoaded() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(AurralDiscoverArtist(id = "missing-mbid", name = "Missing")),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "known-mbid", name = "Known", monitored = true))
+		)
+
+		assertEquals(
+			false,
+			aurralHubDiscoverArtists(summary).single().monitored
+		)
+	}
+
+	@Test
+	fun discoveryCollectionRowsMergeVerifiedMonitoringFromLibraryArtistRows() {
+		val summary = AurralDiscoverySummary(
+			recentlyAdded = listOf(AurralDiscoverArtist(id = "recent-mbid", name = "Recent Artist")),
+			recommendations = listOf(AurralDiscoverArtist(id = "recommendation-mbid", name = "Recommendation")),
+			basedOn = listOf(AurralDiscoverArtist(id = "based-on-mbid", name = "Based On")),
+			globalTop = listOf(AurralDiscoverArtist(id = "global-mbid", name = "Global")),
+			fallbackGenres = listOf(
+				AurralFallbackGenreSection(
+					genre = "soundtrack",
+					artists = listOf(AurralDiscoverArtist(id = "genre-mbid", name = "Genre Artist"))
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(id = "RECENT-MBID", name = "Recent Artist", monitored = true),
+				AurralDiscoverArtist(id = "recommendation-mbid", name = "Recommendation", monitored = false),
+				AurralDiscoverArtist(id = "based-on-mbid", name = "Based On", monitored = true),
+				AurralDiscoverArtist(id = "global-mbid", name = "Global", monitored = false),
+				AurralDiscoverArtist(id = "genre-mbid", name = "Genre Artist", monitored = true)
+			)
+		)
+
+		val rows = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+
+		assertEquals(
+			listOf(true, false, true, false, true),
+			rows.map { it.artists.single().monitored }
+		)
+	}
+
+	@Test
+	fun discoverCollectionArtistsMergeVerifiedMonitoringFromLibraryArtistRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Artist")),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "ARTIST-MBID", name = "Artist", monitored = true))
+		)
+
+		assertEquals(
+			true,
+			aurralDiscoverCollectionArtists(
+				discovery = summary,
+				kind = AurralDiscoveryCollectionKind.RecommendedArtists
+			).single().monitored
 		)
 	}
 

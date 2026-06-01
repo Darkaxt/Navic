@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist
 
 enum class AurralMonitorActionState {
 	PendingVerification,
+	PendingConfirmation,
 	Monitored,
 	NotMonitored
 }
@@ -14,7 +15,7 @@ fun aurralMonitorActionState(aurralMonitored: Boolean?): AurralMonitorActionStat
 	}
 
 fun isAurralMonitorActionVerified(state: AurralMonitorActionState): Boolean =
-	state != AurralMonitorActionState.PendingVerification
+	state == AurralMonitorActionState.Monitored || state == AurralMonitorActionState.NotMonitored
 
 fun shouldShowVerifiedAurralMonitorAction(aurralMonitored: Boolean?): Boolean =
 	isAurralMonitorActionVerified(aurralMonitorActionState(aurralMonitored))

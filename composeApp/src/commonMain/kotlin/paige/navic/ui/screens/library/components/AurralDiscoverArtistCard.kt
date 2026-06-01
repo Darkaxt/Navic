@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.AurralConfirmationQueueItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
@@ -28,6 +29,7 @@ import paige.navic.ui.screens.aurral.aurralDiscoverArtistMonitorActionState
 @Composable
 fun AurralDiscoverArtistCard(
 	artist: AurralDiscoverArtist,
+	confirmationQueue: List<AurralConfirmationQueueItem> = emptyList(),
 	modifier: Modifier = Modifier,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit
 ) {
@@ -40,7 +42,7 @@ fun AurralDiscoverArtistCard(
 	} else {
 		emptyMap()
 	}
-	val monitorState = aurralDiscoverArtistMonitorActionState(artist)
+	val monitorState = aurralDiscoverArtistMonitorActionState(artist, confirmationQueue)
 
 	Column(
 		modifier = modifier.clickable(
@@ -59,14 +61,12 @@ fun AurralDiscoverArtistCard(
 				fallbackKind = "Artist",
 				modifier = Modifier.fillMaxWidth()
 			)
-			monitorState?.let { state ->
-				AurralArtistMonitorBadge(
-					state = state,
-					modifier = Modifier
-						.align(Alignment.TopStart)
-						.padding(8.dp)
-				)
-			}
+			AurralArtistMonitorBadge(
+				state = monitorState,
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(8.dp)
+			)
 		}
 		Text(
 			text = artist.name,

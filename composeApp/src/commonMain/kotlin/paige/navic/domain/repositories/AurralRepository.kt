@@ -18,9 +18,15 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -40,25 +46,67 @@ import paige.navic.util.core.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 private const val TAG = "AurralRepository"
 private const val AURRAL_DISCOVERY_IMAGE_HYDRATION_LIMIT = 12
 private const val AURRAL_DISCOVERY_IMAGE_SEARCH_LIMIT = 5
+private const val AURRAL_MONITOR_CONFIRMATION_POLLS_PER_CYCLE = 18
+private const val AURRAL_CONFIRMATION_QUEUE_RETAINED_ITEMS = 20
+private val AURRAL_MONITOR_CONFIRMATION_DELAY: Duration = 10.seconds
+private val AURRAL_CONFIRMATION_REEMIT_DELAY: Duration = 3.minutes
+internal val AURRAL_LIBRARY_ARTISTS_CACHE_TTL: Duration = 10.minutes
 internal const val AURRAL_BASE_URL_REQUIRED_MESSAGE = "Enter the Aurral URL first."
 internal const val AURRAL_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"Aurral URL must start with http:// or https://."
 internal const val AURRAL_BASE_URL_INVALID_HOST_MESSAGE =
 	"Aurral URL must include a host and cannot include credentials, a query, or a fragment."
 
+enum class AurralConfirmationType {
+	ArtistMonitoring
+}
+
+enum class AurralConfirmationStatus {
+	Pending,
+	Confirmed,
+	Failed
+}
+
+private enum class AurralConfirmationPollResult {
+	Pending,
+	Confirmed,
+	Failed
+}
+
+data class AurralConfirmationQueueItem(
+	val id: String,
+	val type: AurralConfirmationType,
+	val status: AurralConfirmationStatus,
+	val title: String,
+	val artistMbid: String? = null,
+	val expectedMonitored: Boolean? = null,
+	val message: String? = null,
+	val updatedAtMillis: Long
+)
+
 class AurralRepository(
 	private val preferenceManager: PreferenceManager,
-	private val apiClient: AurralApiClient = KtorAurralApiClient()
+	private val apiClient: AurralApiClient = KtorAurralApiClient(),
+	private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+	private val confirmationWorkerEnabled: Boolean = false
 ) {
 	private val optimisticAlbumRequestsByMbid = mutableMapOf<String, AurralAlbumRequest>()
 	private val optimisticArtistMonitoringByMbid = mutableMapOf<String, Boolean>()
 	private val releaseGroupCoverUrlsByMbid = mutableMapOf<String, String>()
 	private val discoverArtistImageUrlsByName = mutableMapOf<String, String?>()
+	private var libraryArtistsCache: AurralLibraryArtistsCacheEntry? = null
+	private val confirmationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+	private val confirmationJobs = mutableMapOf<String, Job>()
+	private val _confirmationQueue = MutableStateFlow<List<AurralConfirmationQueueItem>>(emptyList())
+	val confirmationQueue = _confirmationQueue.asStateFlow()
 	private val _artistStateRevision = MutableStateFlow(0)
 	val artistStateRevision = _artistStateRevision.asStateFlow()
 
@@ -102,6 +150,9 @@ class AurralRepository(
 
 		return runCatching {
 			val discovery = apiClient.fetchDiscovery(baseUrl, requestHeaders)
+				.withLibraryArtists(
+					libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
+				)
 			if (hydrateMissingImages) {
 				hydrateMissingDiscoveryArtistImages(baseUrl, requestHeaders, discovery)
 			} else {
@@ -186,12 +237,27 @@ class AurralRepository(
 					)
 				}
 				val libraryArtistMonitoring = async {
-					runCatching {
+					getCachedLibraryArtistMonitoring(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = artistMbid,
+						artistName = artist.name
+					) ?: runCatching {
 						apiClient.fetchLibraryArtistMonitoring(
 							baseUrl = baseUrl,
 							requestHeaders = requestHeaders,
 							artistMbid = artistMbid
 						)
+					}.onSuccess { monitored ->
+						monitored?.let {
+							rememberLibraryArtistMonitoring(
+								baseUrl = baseUrl,
+								requestHeaders = requestHeaders,
+								artistMbid = artistMbid,
+								artistName = artist.name,
+								monitored = it
+							)
+						}
 					}.onFailure { error ->
 						Logger.w(TAG, "Aurral library artist monitoring lookup failed for ${artist.name}", error)
 					}.getOrNull()
@@ -337,7 +403,24 @@ class AurralRepository(
 			monitorOption = if (monitored) "all" else "none",
 			monitored = monitored
 		)
+		val confirmationId = aurralArtistMonitoringConfirmationId(artistMbid)
 
+		upsertConfirmationQueueItem(
+			AurralConfirmationQueueItem(
+				id = confirmationId,
+				type = AurralConfirmationType.ArtistMonitoring,
+				status = AurralConfirmationStatus.Pending,
+				title = artistName,
+				artistMbid = artistMbid,
+				expectedMonitored = monitored,
+				message = if (monitored) {
+					"Waiting for Aurral to confirm artist monitoring."
+				} else {
+					"Waiting for Aurral to confirm monitoring stopped."
+				},
+				updatedAtMillis = nowMillis()
+			)
+		)
 		return runCatching {
 			apiClient.monitorArtist(
 				baseUrl = baseUrl,
@@ -345,8 +428,30 @@ class AurralRepository(
 				artistMbid = artistMbid,
 				payload = payload
 			)
-			rememberOptimisticArtistMonitoring(artistMbid, monitored)
+			if (confirmationWorkerEnabled) {
+				startArtistMonitoringConfirmationWorker(
+					confirmationId = confirmationId,
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistMbid = artistMbid,
+					artistName = artistName,
+					monitored = monitored,
+					payload = payload
+				)
+			}
 		}.onFailure { error ->
+			upsertConfirmationQueueItem(
+				AurralConfirmationQueueItem(
+					id = confirmationId,
+					type = AurralConfirmationType.ArtistMonitoring,
+					status = AurralConfirmationStatus.Failed,
+					title = artistName,
+					artistMbid = artistMbid,
+					expectedMonitored = monitored,
+					message = error.message ?: error::class.simpleName ?: "Aurral confirmation failed.",
+					updatedAtMillis = nowMillis()
+				)
+			)
 			Logger.w(TAG, "Aurral artist monitoring failed for $artistName", error)
 		}
 	}
@@ -546,11 +651,18 @@ class AurralRepository(
 
 	private fun rememberOptimisticArtistMonitoring(
 		artistMbid: String,
+		artistName: String,
 		monitored: Boolean
 	) {
 		val artistKey = artistMbid.normalizedAurralCacheKey() ?: return
 		if (optimisticArtistMonitoringByMbid[artistKey] == monitored) return
 		optimisticArtistMonitoringByMbid[artistKey] = monitored
+		libraryArtistsCache = libraryArtistsCache?.withMonitoring(
+			artistMbid = artistMbid,
+			artistName = artistName,
+			monitored = monitored
+		)
+		bumpArtistStateRevision()
 	}
 
 	private fun rememberReleaseGroupCoverUrl(
@@ -565,6 +677,206 @@ class AurralRepository(
 
 	private fun bumpArtistStateRevision() {
 		_artistStateRevision.value = _artistStateRevision.value + 1
+	}
+
+	private fun upsertConfirmationQueueItem(item: AurralConfirmationQueueItem) {
+		val retained = _confirmationQueue.value
+			.filterNot { queued -> queued.id == item.id }
+			.takeLast(AURRAL_CONFIRMATION_QUEUE_RETAINED_ITEMS - 1)
+		_confirmationQueue.value = retained + item
+	}
+
+	private fun startArtistMonitoringConfirmationWorker(
+		confirmationId: String,
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String,
+		monitored: Boolean,
+		payload: AurralArtistMonitorPayload
+	) {
+		confirmationJobs.remove(confirmationId)?.cancel()
+		confirmationJobs[confirmationId] = confirmationScope.launch {
+			try {
+				while (true) {
+					when (
+						pollArtistMonitoringConfirmation(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = artistMbid,
+							expectedMonitored = monitored
+						)
+					) {
+						AurralConfirmationPollResult.Confirmed -> {
+							upsertConfirmationQueueItem(
+								AurralConfirmationQueueItem(
+									id = confirmationId,
+									type = AurralConfirmationType.ArtistMonitoring,
+									status = AurralConfirmationStatus.Confirmed,
+									title = artistName,
+									artistMbid = artistMbid,
+									expectedMonitored = monitored,
+									message = if (monitored) {
+										"Aurral confirmed artist monitoring."
+									} else {
+										"Aurral confirmed monitoring stopped."
+									},
+									updatedAtMillis = nowMillis()
+								)
+							)
+							rememberOptimisticArtistMonitoring(artistMbid, artistName, monitored)
+							return@launch
+						}
+
+						AurralConfirmationPollResult.Failed -> {
+							markArtistMonitoringConfirmationFailed(
+								confirmationId = confirmationId,
+								artistMbid = artistMbid,
+								artistName = artistName,
+								monitored = monitored,
+								message = "Aurral monitor confirmation failed."
+							)
+							return@launch
+						}
+
+						AurralConfirmationPollResult.Pending -> Unit
+					}
+
+					delay(AURRAL_CONFIRMATION_REEMIT_DELAY)
+					runCatching {
+						apiClient.monitorArtist(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = artistMbid,
+							payload = payload
+						)
+					}.onFailure { error ->
+						markArtistMonitoringConfirmationFailed(
+							confirmationId = confirmationId,
+							artistMbid = artistMbid,
+							artistName = artistName,
+							monitored = monitored,
+							message = error.message ?: error::class.simpleName ?: "Aurral monitor request failed."
+						)
+						Logger.w(TAG, "Aurral artist monitoring re-request failed for $artistName", error)
+						return@launch
+					}
+				}
+			} finally {
+				confirmationJobs.remove(confirmationId)
+			}
+		}
+	}
+
+	private suspend fun pollArtistMonitoringConfirmation(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		expectedMonitored: Boolean
+	): AurralConfirmationPollResult {
+		repeat(AURRAL_MONITOR_CONFIRMATION_POLLS_PER_CYCLE) { attempt ->
+			val monitored = runCatching {
+				apiClient.fetchLibraryArtistMonitoring(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistMbid = artistMbid
+				)
+			}.getOrElse { error ->
+				Logger.w(TAG, "Aurral artist monitoring confirmation lookup failed", error)
+				return AurralConfirmationPollResult.Failed
+			}
+			if (monitored == expectedMonitored) return AurralConfirmationPollResult.Confirmed
+			if (monitored == null) return AurralConfirmationPollResult.Failed
+			if (attempt < AURRAL_MONITOR_CONFIRMATION_POLLS_PER_CYCLE - 1) {
+				delay(AURRAL_MONITOR_CONFIRMATION_DELAY)
+			}
+		}
+		return AurralConfirmationPollResult.Pending
+	}
+
+	private fun markArtistMonitoringConfirmationFailed(
+		confirmationId: String,
+		artistMbid: String,
+		artistName: String,
+		monitored: Boolean,
+		message: String
+	) {
+		upsertConfirmationQueueItem(
+			AurralConfirmationQueueItem(
+				id = confirmationId,
+				type = AurralConfirmationType.ArtistMonitoring,
+				status = AurralConfirmationStatus.Failed,
+				title = artistName,
+				artistMbid = artistMbid,
+				expectedMonitored = monitored,
+				message = message,
+				updatedAtMillis = nowMillis()
+			)
+		)
+	}
+
+	private suspend fun getCachedLibraryArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralDiscoverArtist> {
+		val cacheKey = aurralLibraryArtistsCacheKey(baseUrl, requestHeaders)
+		val currentTime = nowMillis()
+		libraryArtistsCache
+			?.takeIf { it.key == cacheKey && it.isFresh(currentTime) }
+			?.let { return it.artists.withOptimisticMonitoring() }
+
+		val cachedFallback = libraryArtistsCache?.takeIf { it.key == cacheKey }
+		return runCatching {
+			apiClient.fetchLibraryArtists(baseUrl, requestHeaders)
+		}.onSuccess { artists ->
+			libraryArtistsCache = AurralLibraryArtistsCacheEntry(
+				key = cacheKey,
+				artists = artists.withOptimisticMonitoring(),
+				loadedAtMillis = currentTime
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral library artists failed", error)
+		}.getOrElse {
+			cachedFallback?.artists?.withOptimisticMonitoring().orEmpty()
+		}
+	}
+
+	private fun getCachedLibraryArtistMonitoring(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): Boolean? {
+		val cacheKey = aurralLibraryArtistsCacheKey(baseUrl, requestHeaders)
+		val currentTime = nowMillis()
+		return artistMbid.normalizedAurralCacheKey()?.let(optimisticArtistMonitoringByMbid::get)
+			?: libraryArtistsCache
+			?.takeIf { it.key == cacheKey && it.isFresh(currentTime) }
+			?.artists
+			?.findAurralLibraryArtist(artistMbid, artistName)
+			?.monitored
+	}
+
+	private fun rememberLibraryArtistMonitoring(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String,
+		monitored: Boolean
+	) {
+		val cacheKey = aurralLibraryArtistsCacheKey(baseUrl, requestHeaders)
+		val currentTime = nowMillis()
+		val current = libraryArtistsCache?.takeIf { it.key == cacheKey }
+		libraryArtistsCache = (current ?: AurralLibraryArtistsCacheEntry(
+			key = cacheKey,
+			artists = emptyList(),
+			loadedAtMillis = currentTime
+		)).withMonitoring(
+			artistMbid = artistMbid,
+			artistName = artistName,
+			monitored = monitored,
+			loadedAtMillis = currentTime
+		)
 	}
 
 	private suspend fun hydrateMissingDiscoveryArtistImages(
@@ -673,6 +985,130 @@ class AurralRepository(
 				?: libraryArtistMonitoring
 		)
 	}
+
+	private fun AurralDiscoverySummary.withLibraryArtists(
+		libraryArtists: List<AurralDiscoverArtist>
+	): AurralDiscoverySummary {
+		val monitoredLibraryArtists = libraryArtists.withOptimisticMonitoring()
+		return copy(
+			recentlyAdded = recentlyAdded.withLibraryArtistMonitoring(monitoredLibraryArtists),
+			recommendations = recommendations.withLibraryArtistMonitoring(monitoredLibraryArtists),
+			globalTop = globalTop.withLibraryArtistMonitoring(monitoredLibraryArtists),
+			basedOn = basedOn.withLibraryArtistMonitoring(monitoredLibraryArtists),
+			libraryArtists = monitoredLibraryArtists,
+			fallbackGenres = fallbackGenres.map { section ->
+				section.copy(artists = section.artists.withLibraryArtistMonitoring(monitoredLibraryArtists))
+			}
+		)
+	}
+
+	private fun List<AurralDiscoverArtist>.withOptimisticMonitoring(): List<AurralDiscoverArtist> =
+		map { artist ->
+			artist.id.normalizedAurralCacheKey()
+				?.let(optimisticArtistMonitoringByMbid::get)
+				?.let { monitored -> artist.copy(monitored = monitored) }
+				?: artist
+		}
+}
+
+private data class AurralLibraryArtistsCacheEntry(
+	val key: String,
+	val artists: List<AurralDiscoverArtist>,
+	val loadedAtMillis: Long
+) {
+	fun isFresh(nowMillis: Long): Boolean =
+		nowMillis >= loadedAtMillis &&
+			nowMillis - loadedAtMillis < AURRAL_LIBRARY_ARTISTS_CACHE_TTL.inWholeMilliseconds
+
+	fun withMonitoring(
+		artistMbid: String,
+		artistName: String,
+		monitored: Boolean,
+		loadedAtMillis: Long = this.loadedAtMillis
+	): AurralLibraryArtistsCacheEntry {
+		val updated = artists.updateAurralLibraryArtistMonitoring(
+			artistMbid = artistMbid,
+			artistName = artistName,
+			monitored = monitored
+		)
+		return copy(artists = updated, loadedAtMillis = loadedAtMillis)
+	}
+}
+
+private fun aurralLibraryArtistsCacheKey(
+	baseUrl: String,
+	requestHeaders: Map<String, String>
+): String =
+	buildString {
+		append(baseUrl.trimEnd('/'))
+		requestHeaders.toSortedMap().forEach { (key, value) ->
+			append('|')
+			append(key.lowercase())
+			append('=')
+			append(value.hashCode())
+		}
+	}
+
+private fun aurralArtistMonitoringConfirmationId(artistMbid: String): String =
+	"artist-monitor:${artistMbid.normalizedAurralCacheKey() ?: artistMbid.trim()}"
+
+fun aurralArtistMonitoringConfirmationItem(
+	queue: List<AurralConfirmationQueueItem>,
+	artistMbid: String?
+): AurralConfirmationQueueItem? {
+	val normalizedMbid = artistMbid.normalizedAurralCacheKey() ?: return null
+	val confirmationId = aurralArtistMonitoringConfirmationId(normalizedMbid)
+	return queue.lastOrNull { item ->
+		item.type == AurralConfirmationType.ArtistMonitoring &&
+			(item.id == confirmationId || item.artistMbid.normalizedAurralCacheKey() == normalizedMbid)
+	}
+}
+
+private fun List<AurralDiscoverArtist>.findAurralLibraryArtist(
+	artistMbid: String,
+	artistName: String
+): AurralDiscoverArtist? {
+	val artistKey = artistMbid.normalizedAurralCacheKey()
+	val artistNameKey = artistName.normalizedAurralImageLookupName()
+	return firstOrNull { artist ->
+		(artistKey != null && artist.id.normalizedAurralCacheKey() == artistKey) ||
+			(artistNameKey != null && artist.name.normalizedAurralImageLookupName() == artistNameKey)
+	}
+}
+
+private fun List<AurralDiscoverArtist>.updateAurralLibraryArtistMonitoring(
+	artistMbid: String,
+	artistName: String,
+	monitored: Boolean
+): List<AurralDiscoverArtist> {
+	var matched = false
+	val updated = map { artist ->
+		if (artist.matchesAurralLibraryArtist(artistMbid, artistName)) {
+			matched = true
+			artist.copy(monitored = monitored)
+		} else {
+			artist
+		}
+	}
+	return if (matched) {
+		updated
+	} else {
+		updated + AurralDiscoverArtist(
+			id = artistMbid,
+			name = artistName,
+			monitored = monitored
+		)
+	}
+}
+
+private fun AurralDiscoverArtist.matchesAurralLibraryArtist(
+	artistMbid: String,
+	artistName: String
+): Boolean {
+	val artistKey = artistMbid.normalizedAurralCacheKey()
+	val artistNameKey = artistName.normalizedAurralImageLookupName()
+	return (artistKey != null && id.normalizedAurralCacheKey() == artistKey) ||
+		(artistNameKey != null && name.normalizedAurralImageLookupName() == artistNameKey)
 }
 
 private fun String?.normalizedAurralCacheKey(): String? =
@@ -700,6 +1136,11 @@ interface AurralApiClient {
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): AurralDiscoverySummary = error("Aurral discovery is not supported by this client.")
+
+	suspend fun fetchLibraryArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralDiscoverArtist> = emptyList()
 
 	suspend fun searchArtists(
 		baseUrl: String,
@@ -865,16 +1306,10 @@ private class KtorAurralApiClient : AurralApiClient {
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral recent releases failed", error)
 		}.getOrDefault(emptyList())
-		val libraryArtists = runCatching {
-			fetchLibraryArtists(baseUrl, requestHeaders)
-		}.onFailure { error ->
-			Logger.w(TAG, "Aurral library artists failed", error)
-		}.getOrDefault(emptyList())
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
 			response = discovery,
 			recentlyAdded = recentlyAdded,
-			libraryArtists = libraryArtists,
 			recentReleases = recentReleases
 		)
 	}
@@ -898,7 +1333,7 @@ private class KtorAurralApiClient : AurralApiClient {
 		}
 	}
 
-	private suspend fun fetchLibraryArtists(
+	override suspend fun fetchLibraryArtists(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): List<AurralDiscoverArtist> {
@@ -1302,7 +1737,9 @@ private class KtorAurralApiClient : AurralApiClient {
 				header("Content-Type", ContentType.Application.Json.toString())
 				setBody(payload.toMonitoringUpdatePayload())
 			}
-			if (updateResponse.status.isSuccess()) return
+			if (updateResponse.status.isSuccess()) {
+				return
+			}
 			error(aurralHttpErrorMessage("Aurral artist monitoring", updateResponse.status))
 		}
 		if (existingResponse.status != HttpStatusCode.NotFound) {

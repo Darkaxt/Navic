@@ -9,9 +9,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_sort_frequent
@@ -40,6 +42,7 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
@@ -151,6 +154,8 @@ fun LibraryScreenContent(
 ) {
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val aurralRepository = koinInject<AurralRepository>()
+	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val aurralBaseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 	val aurralRequestHeaders = preferenceManager.aurralRequestHeadersMap()
 	val localOwnershipStatus = libraryLocalOwnershipStatus(
@@ -372,7 +377,8 @@ fun LibraryScreenContent(
 				starred = selectedArtistIsStarred,
 				aurralMonitorState = aurralMonitorStateForLocalArtist(
 					artist = artist,
-					libraryArtists = aurralLibraryArtists
+					libraryArtists = aurralLibraryArtists,
+					confirmationQueue = aurralConfirmationQueue
 				),
 				onSelect = { onSelectArtist(artist) },
 				onDeselect = { onClearArtistSelection() },
@@ -403,6 +409,7 @@ fun LibraryScreenContent(
 				AurralDiscoverArtistCard(
 					modifier = Modifier.animateItem().width(150.dp),
 					artist = artist,
+					confirmationQueue = aurralConfirmationQueue,
 					onOpenArtist = onOpenAurralDiscoverArtist
 				)
 			}
@@ -427,6 +434,7 @@ fun LibraryScreenContent(
 						AurralDiscoverArtistCard(
 							modifier = Modifier.animateItem().width(150.dp),
 							artist = artist,
+							confirmationQueue = aurralConfirmationQueue,
 							onOpenArtist = onOpenAurralDiscoverArtist
 						)
 					}

@@ -28,7 +28,7 @@ val repositoryModule = module {
 	single { LastFmRepository(get()) }
 	single { BinderyRepository(get()) }
 	single { LidaClipsRepository(get()) }
-	single { AurralRepository(get()) }
+	single { AurralRepository(preferenceManager = get(), confirmationWorkerEnabled = true) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
 	single { PlaybackOriginRepository(get()) }
