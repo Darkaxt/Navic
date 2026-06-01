@@ -305,6 +305,7 @@ class AurralHubDisplayPolicyTest {
 				AurralDiscoveryCollectionKind.BasedOnArtists,
 				AurralDiscoveryCollectionKind.GlobalTopArtists,
 				"GenreArtists",
+				"GenreArtists",
 				"TopTags"
 			).map { it.toString() },
 			rows.map { it.kind.toString() }
@@ -320,6 +321,12 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(
 			listOf("release-2026"),
 			(rows[1] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
+		)
+		assertEquals(
+			listOf("soundtrack", "electronic"),
+			rows.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+				.filter { it.kind == AurralDiscoveryCollectionKind.GenreArtists }
+				.map { it.tag }
 		)
 	}
 
@@ -351,6 +358,55 @@ class AurralHubDisplayPolicyTest {
 		assertEquals(
 			listOf("game-1", "game-2", "game-3", "game-4"),
 			genreRows.single().artists.map { it.id }
+		)
+	}
+
+	@Test
+	fun aurralDiscoveryCollectionRowsExposeEveryBackendFallbackGenreSection() {
+		val summary = AurralDiscoverySummary(
+			fallbackGenres = (1..6).map { index ->
+				AurralFallbackGenreSection(
+					genre = "Genre $index",
+					artists = listOf(
+						AurralDiscoverArtist(id = "genre-$index-artist", name = "Genre $index Artist")
+					)
+				)
+			}
+		)
+
+		val genreRows = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.filter { it.kind == AurralDiscoveryCollectionKind.GenreArtists }
+
+		assertEquals(
+			(1..6).map { "Genre $it" },
+			genreRows.map { it.tag }
+		)
+	}
+
+	@Test
+	fun aurralDiscoveryCollectionRowsExposeEveryTopGenreWithMatchingArtists() {
+		val topGenres = (1..6).map { "Genre $it" }
+		val summary = AurralDiscoverySummary(
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(id = "seed-$index", name = "Seed $index")
+			} + topGenres.mapIndexed { index, genre ->
+				AurralDiscoverArtist(
+					id = "genre-match-${index + 1}",
+					name = "$genre Artist",
+					matchedTags = listOf(genre)
+				)
+			},
+			topGenres = topGenres
+		)
+
+		val genreRows = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.filter { it.kind == AurralDiscoveryCollectionKind.GenreArtists }
+
+		assertEquals(
+			topGenres,
+			genreRows.map { it.tag }
 		)
 	}
 

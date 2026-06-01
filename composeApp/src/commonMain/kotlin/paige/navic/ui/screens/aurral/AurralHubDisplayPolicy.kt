@@ -185,7 +185,7 @@ fun aurralDiscoverTagArtists(
 	limit: Int = Int.MAX_VALUE
 ): List<AurralDiscoverArtist> {
 	val normalizedTag = tag.normalizedAurralName() ?: return emptyList()
-	return aurralDiscoverListArtists(discovery)
+	return aurralDiscoverTagCandidateArtists(discovery)
 		.filter { artist -> artist.matchesAurralTag(normalizedTag) }
 		.take(limit.coerceAtLeast(0))
 }
@@ -489,14 +489,9 @@ private fun aurralDiscoveryGenreRows(
 				)
 			}
 		}
-		.take(4)
 	if (fallbackRows.isNotEmpty()) return fallbackRows
 
-	val usedArtistIds = discovery.recommendations
-		.take(12)
-		.mapNotNull { it.id.normalizedAurralKey() }
-		.toMutableSet()
-	val candidatePool = discovery.recommendations.drop(8)
+	val candidatePool = aurralDiscoverTagCandidateArtists(discovery)
 	return discovery.topGenres
 		.cleanedAurralDisplayStrings()
 		.mapNotNull { genre ->
@@ -504,18 +499,15 @@ private fun aurralDiscoveryGenreRows(
 			val artists = candidatePool
 				.asSequence()
 				.filter { artist ->
-					val artistId = artist.id.normalizedAurralKey()
-					artistId != null &&
-						artistId !in usedArtistIds &&
+					artist.id.normalizedAurralKey() != null &&
 						artist.matchesAurralTag(normalizedGenre)
 				}
 				.sortedWith(compareBy<AurralDiscoverArtist> { it.name.trim().lowercase() })
 				.take(safeLimit)
 				.toList()
-			if (artists.size < 4) {
+			if (artists.isEmpty()) {
 				null
 			} else {
-				usedArtistIds += artists.mapNotNull { it.id.normalizedAurralKey() }
 				AurralDiscoveryCollectionRow.Artists(
 					kind = AurralDiscoveryCollectionKind.GenreArtists,
 					artists = artists,
@@ -523,8 +515,17 @@ private fun aurralDiscoveryGenreRows(
 				)
 			}
 		}
-		.take(4)
 }
+
+private fun aurralDiscoverTagCandidateArtists(
+	discovery: AurralDiscoverySummary
+): List<AurralDiscoverArtist> =
+	mergeAurralDiscoverArtists(
+		discovery.recommendations +
+			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
+			discovery.globalTop +
+			discovery.basedOn
+	)
 
 private fun aurralDiscoveryTopTags(
 	discovery: AurralDiscoverySummary,
