@@ -25,3 +25,4 @@ acknowledgements.json
 prepare/
 *.mobileprovision
 aurral-debug.env
+bindery-debug.env
