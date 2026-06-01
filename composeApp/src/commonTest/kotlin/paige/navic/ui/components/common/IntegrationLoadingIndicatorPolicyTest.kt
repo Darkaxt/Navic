@@ -38,4 +38,14 @@ class IntegrationLoadingIndicatorPolicyTest {
 	fun activeIndicatorsAreEmptyWhenPageHasNoIntegrationWork() {
 		assertTrue(integrationLoadingIndicators().isEmpty())
 	}
+
+	@Test
+	fun pulseIconsUseAndroidSafeVectorRendering() {
+		IntegrationLoadingIndicator.entries.forEach { indicator ->
+			assertEquals(
+				IntegrationLoadingIndicatorIconKind.Vector,
+				integrationLoadingIndicatorIconKind(indicator)
+			)
+		}
+	}
 }

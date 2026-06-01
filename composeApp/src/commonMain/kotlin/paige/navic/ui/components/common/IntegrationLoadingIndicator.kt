@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -19,21 +18,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousCapsule
-import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.aurral_logo
-import navic.composeapp.generated.resources.bindery_logo
-import navic.composeapp.generated.resources.lastfm_logo
-import navic.composeapp.generated.resources.lidaclips_logo
-import navic.composeapp.generated.resources.musicbrainz_logo_color
-import org.jetbrains.compose.resources.DrawableResource
-import org.jetbrains.compose.resources.painterResource
 import paige.navic.icons.Icons
+import paige.navic.icons.brand.Lastfm
+import paige.navic.icons.brand.Musicbrainz
+import paige.navic.icons.outlined.LibraryAdd
+import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.icons.outlined.Lyrics
+import paige.navic.icons.outlined.Movie
 
 enum class IntegrationLoadingIndicator {
 	LidaClips,
@@ -43,6 +39,22 @@ enum class IntegrationLoadingIndicator {
 	Bindery,
 	Lyrics
 }
+
+internal enum class IntegrationLoadingIndicatorIconKind {
+	Vector
+}
+
+internal fun integrationLoadingIndicatorIconKind(
+	indicator: IntegrationLoadingIndicator
+): IntegrationLoadingIndicatorIconKind =
+	when (indicator) {
+		IntegrationLoadingIndicator.LidaClips,
+		IntegrationLoadingIndicator.Aurral,
+		IntegrationLoadingIndicator.MusicBrainz,
+		IntegrationLoadingIndicator.LastFm,
+		IntegrationLoadingIndicator.Bindery,
+		IntegrationLoadingIndicator.Lyrics -> IntegrationLoadingIndicatorIconKind.Vector
+	}
 
 fun integrationLoadingIndicators(
 	lidaClipsLoading: Boolean = false,
@@ -116,33 +128,23 @@ private fun IntegrationLoadingIndicatorIcon(
 			.alpha(alpha),
 		contentAlignment = Alignment.Center
 	) {
-		val drawable = indicator.drawableResource
-		if (drawable != null) {
-			Image(
-				painter = painterResource(drawable),
-				contentDescription = null,
-				contentScale = ContentScale.Fit,
-				modifier = Modifier.size(22.dp)
-			)
-		} else {
-			Icon(
-				imageVector = Icons.Outlined.Lyrics,
-				contentDescription = null,
-				tint = MaterialTheme.colorScheme.primary,
-				modifier = Modifier.size(20.dp)
-			)
-		}
+		Icon(
+			imageVector = indicator.imageVector,
+			contentDescription = null,
+			tint = MaterialTheme.colorScheme.primary,
+			modifier = Modifier.size(20.dp)
+		)
 	}
 }
 
-private val IntegrationLoadingIndicator.drawableResource: DrawableResource?
+private val IntegrationLoadingIndicator.imageVector: ImageVector
 	get() = when (this) {
-		IntegrationLoadingIndicator.LidaClips -> Res.drawable.lidaclips_logo
-		IntegrationLoadingIndicator.Aurral -> Res.drawable.aurral_logo
-		IntegrationLoadingIndicator.MusicBrainz -> Res.drawable.musicbrainz_logo_color
-		IntegrationLoadingIndicator.LastFm -> Res.drawable.lastfm_logo
-		IntegrationLoadingIndicator.Bindery -> Res.drawable.bindery_logo
-		IntegrationLoadingIndicator.Lyrics -> null
+		IntegrationLoadingIndicator.LidaClips -> Icons.Outlined.Movie
+		IntegrationLoadingIndicator.Aurral -> Icons.Outlined.LibraryAdd
+		IntegrationLoadingIndicator.MusicBrainz -> Icons.Brand.Musicbrainz
+		IntegrationLoadingIndicator.LastFm -> Icons.Brand.Lastfm
+		IntegrationLoadingIndicator.Bindery -> Icons.Outlined.LibraryMusic
+		IntegrationLoadingIndicator.Lyrics -> Icons.Outlined.Lyrics
 	}
 
 private val IntegrationLoadingIndicator.label: String
