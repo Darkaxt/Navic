@@ -2,8 +2,11 @@ package paige.navic.ui.screens.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +44,7 @@ import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationLoadingIndicatorOverlayTopPadding
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
@@ -353,7 +357,10 @@ fun LibraryScreen() {
 					.align(Alignment.TopStart)
 					.padding(
 						start = 12.dp,
-						top = innerPadding.calculateTopPadding() + 8.dp
+						top = integrationLoadingIndicatorOverlayTopPadding(
+							statusBarTop = WindowInsets.statusBars.asPaddingValues()
+								.calculateTopPadding()
+						)
 					)
 			)
 		}

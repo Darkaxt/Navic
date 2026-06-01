@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,18 +19,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.capsule.ContinuousCapsule
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.aurral_logo_pulse
+import navic.composeapp.generated.resources.bindery_logo_pulse
+import navic.composeapp.generated.resources.lastfm_logo_pulse
+import navic.composeapp.generated.resources.lidaclips_logo_pulse
+import navic.composeapp.generated.resources.musicbrainz_logo_color_pulse
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 import paige.navic.icons.Icons
-import paige.navic.icons.brand.Lastfm
-import paige.navic.icons.brand.Musicbrainz
-import paige.navic.icons.outlined.LibraryAdd
-import paige.navic.icons.outlined.LibraryMusic
 import paige.navic.icons.outlined.Lyrics
-import paige.navic.icons.outlined.Movie
 
 enum class IntegrationLoadingIndicator {
 	LidaClips,
@@ -41,6 +47,7 @@ enum class IntegrationLoadingIndicator {
 }
 
 internal enum class IntegrationLoadingIndicatorIconKind {
+	Raster,
 	Vector
 }
 
@@ -52,9 +59,14 @@ internal fun integrationLoadingIndicatorIconKind(
 		IntegrationLoadingIndicator.Aurral,
 		IntegrationLoadingIndicator.MusicBrainz,
 		IntegrationLoadingIndicator.LastFm,
-		IntegrationLoadingIndicator.Bindery,
+		IntegrationLoadingIndicator.Bindery -> IntegrationLoadingIndicatorIconKind.Raster
 		IntegrationLoadingIndicator.Lyrics -> IntegrationLoadingIndicatorIconKind.Vector
 	}
+
+internal fun integrationLoadingIndicatorOverlayTopPadding(
+	statusBarTop: Dp,
+	extraTop: Dp = 8.dp
+): Dp = statusBarTop + extraTop
 
 fun integrationLoadingIndicators(
 	lidaClipsLoading: Boolean = false,
@@ -128,22 +140,42 @@ private fun IntegrationLoadingIndicatorIcon(
 			.alpha(alpha),
 		contentAlignment = Alignment.Center
 	) {
-		Icon(
-			imageVector = indicator.imageVector,
-			contentDescription = null,
-			tint = MaterialTheme.colorScheme.primary,
-			modifier = Modifier.size(20.dp)
-		)
+		val drawable = indicator.rasterResource
+		if (drawable != null) {
+			Image(
+				painter = painterResource(drawable),
+				contentDescription = null,
+				contentScale = ContentScale.Fit,
+				modifier = Modifier.size(22.dp)
+			)
+		} else {
+			Icon(
+				imageVector = indicator.imageVector,
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.primary,
+				modifier = Modifier.size(20.dp)
+			)
+		}
 	}
 }
 
+private val IntegrationLoadingIndicator.rasterResource: DrawableResource?
+	get() = when (this) {
+		IntegrationLoadingIndicator.LidaClips -> Res.drawable.lidaclips_logo_pulse
+		IntegrationLoadingIndicator.Aurral -> Res.drawable.aurral_logo_pulse
+		IntegrationLoadingIndicator.MusicBrainz -> Res.drawable.musicbrainz_logo_color_pulse
+		IntegrationLoadingIndicator.LastFm -> Res.drawable.lastfm_logo_pulse
+		IntegrationLoadingIndicator.Bindery -> Res.drawable.bindery_logo_pulse
+		IntegrationLoadingIndicator.Lyrics -> null
+	}
+
 private val IntegrationLoadingIndicator.imageVector: ImageVector
 	get() = when (this) {
-		IntegrationLoadingIndicator.LidaClips -> Icons.Outlined.Movie
-		IntegrationLoadingIndicator.Aurral -> Icons.Outlined.LibraryAdd
-		IntegrationLoadingIndicator.MusicBrainz -> Icons.Brand.Musicbrainz
-		IntegrationLoadingIndicator.LastFm -> Icons.Brand.Lastfm
-		IntegrationLoadingIndicator.Bindery -> Icons.Outlined.LibraryMusic
+		IntegrationLoadingIndicator.LidaClips,
+		IntegrationLoadingIndicator.Aurral,
+		IntegrationLoadingIndicator.MusicBrainz,
+		IntegrationLoadingIndicator.LastFm,
+		IntegrationLoadingIndicator.Bindery,
 		IntegrationLoadingIndicator.Lyrics -> Icons.Outlined.Lyrics
 	}
 
