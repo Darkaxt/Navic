@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -37,6 +40,9 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
@@ -47,6 +53,7 @@ fun SettingsIntegrationsScreen() {
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val integrationsIndicators = integrationLoadingIndicators()
 
 	Scaffold(
 		topBar = {
@@ -56,85 +63,97 @@ fun SettingsIntegrationsScreen() {
 			)
 		}
 	) { innerPadding ->
-		CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-			Column(
-				Modifier
-					.padding(innerPadding)
-					.verticalScroll(rememberScrollState())
-					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
-			) {
-				Form {
-					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
-						subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
-						value = preferenceManager.musicBrainzArtworkFallbackEnabled,
-						onSetValue = {
-							preferenceManager.musicBrainzArtworkFallbackEnabled = it
-							musicBrainzArtworkRepository.refreshCacheVisibility()
+		Box(Modifier.fillMaxSize()) {
+			CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+				Column(
+					Modifier
+						.padding(innerPadding)
+						.verticalScroll(rememberScrollState())
+						.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
+				) {
+					Form {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_musicbrainz_artwork_fallback)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_musicbrainz_artwork_fallback)) },
+							value = preferenceManager.musicBrainzArtworkFallbackEnabled,
+							onSetValue = {
+								preferenceManager.musicBrainzArtworkFallbackEnabled = it
+								musicBrainzArtworkRepository.refreshCacheVisibility()
+							}
+						)
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.add(Screen.Settings.LidaClips)
+							}
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.option_lida_clips))
+								Text(
+									stringResource(Res.string.subtitle_lida_clips),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.ChevronForward, null)
 						}
-					)
-					FormRow(
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.LidaClips)
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.add(Screen.Settings.Aurral)
+							}
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.option_aurral))
+								Text(
+									stringResource(Res.string.subtitle_aurral),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.ChevronForward, null)
 						}
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_lida_clips))
-							Text(
-								stringResource(Res.string.subtitle_lida_clips),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.add(Screen.Settings.LastFm)
+							}
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.title_lastfm))
+								Text(
+									stringResource(Res.string.subtitle_lastfm),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.ChevronForward, null)
 						}
-						Icon(Icons.Outlined.ChevronForward, null)
-					}
-					FormRow(
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.Aurral)
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.add(Screen.Settings.Bindery)
+							}
+						) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.option_bindery))
+								Text(
+									stringResource(Res.string.subtitle_bindery),
+									style = MaterialTheme.typography.bodyMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.ChevronForward, null)
 						}
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_aurral))
-							Text(
-								stringResource(Res.string.subtitle_aurral),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Icon(Icons.Outlined.ChevronForward, null)
-					}
-					FormRow(
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.LastFm)
-						}
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.title_lastfm))
-							Text(
-								stringResource(Res.string.subtitle_lastfm),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Icon(Icons.Outlined.ChevronForward, null)
-					}
-					FormRow(
-						onClick = dropUnlessResumed {
-							backStack.add(Screen.Settings.Bindery)
-						}
-					) {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_bindery))
-							Text(
-								stringResource(Res.string.subtitle_bindery),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Icon(Icons.Outlined.ChevronForward, null)
 					}
 				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = integrationsIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = integrationsIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 }

@@ -1,9 +1,11 @@
 package paige.navic.ui.screens.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
@@ -84,6 +87,9 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
@@ -100,6 +106,9 @@ fun SettingsAurralScreen() {
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val isAurralUrlConfigured =
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = isTestingConnection || serviceStatus is UiState.Loading
+	)
 
 	LaunchedEffect(
 		preferenceManager.aurralEnabled,
@@ -123,13 +132,14 @@ fun SettingsAurralScreen() {
 			)
 		}
 	) { innerPadding ->
-		CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-			Column(
-				Modifier
-					.padding(innerPadding)
-					.verticalScroll(rememberScrollState())
-					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
-			) {
+		Box(Modifier.fillMaxSize()) {
+			CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+				Column(
+					Modifier
+						.padding(innerPadding)
+						.verticalScroll(rememberScrollState())
+						.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
+				) {
 				FormTitle(stringResource(Res.string.title_aurral))
 				Form(Modifier.fillMaxWidth()) {
 					SettingSwitchRow(
@@ -225,6 +235,17 @@ fun SettingsAurralScreen() {
 					}
 				}
 			}
+			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = aurralIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = aurralIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 }

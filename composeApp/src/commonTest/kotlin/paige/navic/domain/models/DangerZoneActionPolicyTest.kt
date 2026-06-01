@@ -16,6 +16,7 @@ class DangerZoneActionPolicyTest {
 			listOf(
 				DangerZoneAction.ClearImageCache,
 				DangerZoneAction.ClearMusicBrainzCache,
+				DangerZoneAction.ClearLidaClipsVideoCache,
 				DangerZoneAction.ClearPendingSyncActions,
 				DangerZoneAction.ClearDownloads,
 				DangerZoneAction.RebuildDatabase

@@ -70,6 +70,7 @@ import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
@@ -110,6 +111,9 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	val primaryMusicBrainzUrl = resourceLinks.firstOrNull { link ->
 		link.url.startsWith("https://musicbrainz.org/", ignoreCase = true)
 	}?.url ?: resourceLinks.firstOrNull()?.url
+	val musicBrainzIntegrationIndicators = integrationLoadingIndicators(
+		musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true
+	)
 
 	LaunchedEffect(song?.id, preferenceManager.musicBrainzArtworkFallbackEnabled) {
 		if (song != null && preferenceManager.musicBrainzArtworkFallbackEnabled) {
@@ -164,8 +168,10 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 				modifier = Modifier.fillMaxSize()
 			)
 			IntegrationLoadingIndicatorStrip(
-				indicators = integrationLoadingIndicators(
-					musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true
+				indicators = musicBrainzIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = musicBrainzIntegrationIndicators
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

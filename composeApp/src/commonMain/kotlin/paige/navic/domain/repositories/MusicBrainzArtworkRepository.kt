@@ -26,6 +26,7 @@ import paige.navic.data.database.dao.AlbumDao
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
@@ -121,8 +122,9 @@ class MusicBrainzArtworkRepository(
 		}
 	}
 
-	suspend fun prefetchArtworkForPlayingSong(song: DomainSong): Result<MusicBrainzArtworkCacheEntry?> =
-		runCatching {
+	suspend fun prefetchArtworkForPlayingSong(song: DomainSong): Result<MusicBrainzArtworkCacheEntry?> {
+		var attemptedNetworkLookup = false
+		return runCatching {
 			if (song.id.startsWith("radio_")) return@runCatching null
 
 			val album = song.albumId?.let { albumDao.getAlbumById(it)?.album }
@@ -170,6 +172,7 @@ class MusicBrainzArtworkRepository(
 			}
 
 			withResolvingMusicBrainzSong(song.id) {
+				attemptedNetworkLookup = true
 				val recording = if (shouldResolveMetadata || shouldResolveArtwork) {
 					musicBrainzLookupMbidOrNull(song.musicBrainzId)
 						?.let { fetchRecording(it) }
@@ -237,9 +240,17 @@ class MusicBrainzArtworkRepository(
 				putCacheEntry(entry)
 				entry.takeIf { it.status == MusicBrainzArtworkCacheStatus.Found }
 			}
+		}.onSuccess {
+			if (attemptedNetworkLookup) {
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.MusicBrainz)
+			}
 		}.onFailure { error ->
+			if (attemptedNetworkLookup) {
+				preferenceManager.markIntegrationServiceDown(IntegrationService.MusicBrainz)
+			}
 			Logger.w(TAG, "MusicBrainz artwork lookup failed for ${song.id}", error)
 		}
+	}
 
 	private suspend fun resolveArtwork(
 		albumMusicBrainzId: String?,

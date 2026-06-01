@@ -35,6 +35,7 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
@@ -44,6 +45,8 @@ import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.TrackIntegrationServiceAttemptStatus
+import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicatorOverlayTopPadding
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
@@ -148,8 +151,20 @@ fun LibraryScreen() {
 		aurralConfigured = aurralConfigured,
 		discoveryState = aurralDiscovery
 	)
+	val libraryIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading
+	)
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+	TrackIntegrationServiceAttemptStatus(
+		preferenceManager = preferenceManager,
+		service = IntegrationService.Aurral,
+		enabled = aurralConfigured,
+		loading = aurralDiscovery is UiState.Loading,
+		failed = aurralDiscovery is UiState.Error,
+		available = aurralDiscovery is UiState.Success && aurralDiscovery.data != null
+	)
 
 	fun queueSongOrConfirmDuplicate(
 		song: DomainSong,
@@ -331,8 +346,10 @@ fun LibraryScreen() {
 				)
 			}
 			IntegrationLoadingIndicatorStrip(
-				indicators = integrationLoadingIndicators(
-					aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading
+				indicators = libraryIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = libraryIntegrationIndicators
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

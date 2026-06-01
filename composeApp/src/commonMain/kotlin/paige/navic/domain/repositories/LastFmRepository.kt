@@ -12,6 +12,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.LastFmTopTrack
 import paige.navic.util.core.Logger
 
@@ -31,9 +32,11 @@ class LastFmRepository(
 			apiClient.probeService(apiKey)
 		}.fold(
 			onSuccess = { probe ->
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.LastFm)
 				LastFmConnectionResult.Connected(sampleArtistCount = probe.sampleArtistCount)
 			},
 			onFailure = { error ->
+				preferenceManager.markIntegrationServiceDown(IntegrationService.LastFm)
 				if ((error as? LastFmApiException)?.code in invalidApiKeyErrorCodes) {
 					LastFmConnectionResult.InvalidApiKey
 				} else {
@@ -75,7 +78,7 @@ class LastFmRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Last.fm service status failed", error)
-		}
+		}.recordLastFmAvailability()
 	}
 
 	suspend fun getArtistTopTracks(
@@ -99,8 +102,15 @@ class LastFmRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Last.fm top tracks failed for $artistName", error)
-		}
+		}.recordLastFmAvailability()
 	}
+
+	private fun <T> Result<T>.recordLastFmAvailability(): Result<T> =
+		onSuccess {
+			preferenceManager.markIntegrationServiceAvailable(IntegrationService.LastFm)
+		}.onFailure {
+			preferenceManager.markIntegrationServiceDown(IntegrationService.LastFm)
+		}
 }
 
 interface LastFmApiClient {

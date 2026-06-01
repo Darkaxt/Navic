@@ -11,7 +11,11 @@ import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.QuickPicksDefaultSize
+import paige.navic.domain.models.integrationAttemptFailedServices
+import paige.navic.domain.models.markIntegrationServiceAvailable as markIntegrationServiceAvailableJson
+import paige.navic.domain.models.markIntegrationServiceDown as markIntegrationServiceDownJson
 import paige.navic.domain.models.settings.FontOption
 import paige.navic.domain.models.settings.GridSize
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
@@ -158,6 +162,7 @@ class PreferenceManager(
 	var aurralBaseUrl by preference("")
 	var aurralUsername by preference("")
 	var aurralPassword by preference("")
+	var integrationAttemptStatusJson by preference("")
 	var respectAudioFocus by preference(true)
 	var skipSilence by preference(false)
 	var skipMediaOnError by preference(false)
@@ -246,6 +251,23 @@ class PreferenceManager(
 			keys.filter { it.equals("Authorization", ignoreCase = true) }.forEach { remove(it) }
 			put("Authorization", "Basic ${Base64.encode(credentials.encodeToByteArray())}")
 		}
+	}
+
+	val failedIntegrationServices: Set<IntegrationService>
+		get() = integrationAttemptFailedServices(integrationAttemptStatusJson)
+
+	fun markIntegrationServiceDown(service: IntegrationService) {
+		integrationAttemptStatusJson = markIntegrationServiceDownJson(
+			json = integrationAttemptStatusJson,
+			service = service
+		)
+	}
+
+	fun markIntegrationServiceAvailable(service: IntegrationService) {
+		integrationAttemptStatusJson = markIntegrationServiceAvailableJson(
+			json = integrationAttemptStatusJson,
+			service = service
+		)
 	}
 
 	fun lidaClipsRequestHeadersMap(): Map<String, String> =

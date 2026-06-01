@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +48,9 @@ import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -98,6 +102,13 @@ fun ArtistListScreen(
 	val aurralActiveDiscoverArtistId by aurralViewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
 	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	var aurralSearchDialogShown by rememberSaveable { mutableStateOf(false) }
+	val artistListIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = aurralConfigured && (
+			aurralServiceStatus is UiState.Loading ||
+				aurralArtistSearch is UiState.Loading ||
+				aurralDiscoverActionState is UiState.Loading
+			)
+	)
 	val backStack = LocalNavStack.current
 	val player = koinInject<MediaPlayerViewModel>()
 	val actions: @Composable RowScope.() -> Unit = {
@@ -148,28 +159,40 @@ fun ArtistListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = artistsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshArtists(true) },
-			key = artistsState
-		) {
-			ArtistListScreenContent(
-				state = artistsState,
-				starred = starred,
-				selectedArtist = selectedArtist,
-				selectedArtistAlbums = selectedArtistAlbums,
-				gridState = viewModel.gridState,
-				scrollBehavior = scrollBehavior,
-				innerPadding = innerPadding,
-				nested = nested,
-				onUpdateSelection = { viewModel.selectArtist(it) },
-				onClearSelection = { viewModel.clearSelection() },
-				onSetStarred = { viewModel.starArtist(it) },
-				onPlayNext = { viewModel.playArtistAlbumsNext(player) },
-				onAddToQueue = { viewModel.addArtistAlbumsToQueue(player) }
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = artistsState !is UiState.Loading,
+				onRefresh = { viewModel.refreshArtists(true) },
+				key = artistsState
+			) {
+				ArtistListScreenContent(
+					state = artistsState,
+					starred = starred,
+					selectedArtist = selectedArtist,
+					selectedArtistAlbums = selectedArtistAlbums,
+					gridState = viewModel.gridState,
+					scrollBehavior = scrollBehavior,
+					innerPadding = innerPadding,
+					nested = nested,
+					onUpdateSelection = { viewModel.selectArtist(it) },
+					onClearSelection = { viewModel.clearSelection() },
+					onSetStarred = { viewModel.starArtist(it) },
+					onPlayNext = { viewModel.playArtistAlbumsNext(player) },
+					onAddToQueue = { viewModel.addArtistAlbumsToQueue(player) }
+				)
+			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = artistListIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = artistListIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
 			)
 		}
 	}

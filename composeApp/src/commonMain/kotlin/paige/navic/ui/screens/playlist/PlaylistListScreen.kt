@@ -11,6 +11,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -58,6 +61,9 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.ArtGrid
@@ -98,6 +104,12 @@ fun PlaylistListScreen(
 	val aurralServiceStatus by aurralViewModel.serviceStatus.collectAsStateWithLifecycle()
 	val aurralFlowActionState by aurralViewModel.flowActionState.collectAsStateWithLifecycle()
 	val aurralActiveFlowActionId by aurralViewModel.activeFlowActionId.collectAsStateWithLifecycle()
+	val playlistIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = stationsOnly && aurralConfigured && (
+			aurralServiceStatus is UiState.Loading ||
+				aurralFlowActionState is UiState.Loading
+			)
+	)
 
 	val platformContext = LocalPlatformContext.current
 	val scrollManager = LocalBottomBarScrollManager.current
@@ -208,46 +220,58 @@ fun PlaylistListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = playlistsState !is UiState.Loading,
-			onRefresh = {
-				viewModel.refreshPlaylists(true)
-				if (stationsOnly && aurralConfigured) {
-					aurralViewModel.refreshServiceStatus()
-				}
-			},
-			key = playlistsState
-		) {
-			ArtGrid(
-				modifier = if (!nested)
-					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier,
-				state = gridState,
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((displayedPlaylistsState as? UiState.Success)?.data?.isEmpty() == true)
-					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = playlistsState !is UiState.Loading,
+				onRefresh = {
+					viewModel.refreshPlaylists(true)
+					if (stationsOnly && aurralConfigured) {
+						aurralViewModel.refreshServiceStatus()
+					}
+				},
+				key = playlistsState
 			) {
-				playlistListScreenContent(
-					state = displayedPlaylistsState,
-					tab = tab,
-					stationsOnly = stationsOnly,
-					selectedPlaylist = selectedPlaylist,
-					onUpdateSelection = { viewModel.selectPlaylist(it) },
-					onClearSelection = { viewModel.clearSelection() },
-					onSetShareId = { newShareId ->
-						shareId = newShareId
-					},
-					onSetDeletionId = { newDeletionId ->
-						deletionId = newDeletionId
-					},
-					onPlayNext = { viewModel.playSelectedPlaylistNext(player) },
-					onAddToQueue = { viewModel.addSelectedPlaylistToQueue(player) }
-				)
+				ArtGrid(
+					modifier = if (!nested)
+						Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+					else Modifier,
+					state = gridState,
+					contentPadding = innerPadding.withoutTop(),
+					verticalArrangement = if ((displayedPlaylistsState as? UiState.Success)?.data?.isEmpty() == true)
+						Arrangement.Center
+					else Arrangement.spacedBy(12.dp)
+				) {
+					playlistListScreenContent(
+						state = displayedPlaylistsState,
+						tab = tab,
+						stationsOnly = stationsOnly,
+						selectedPlaylist = selectedPlaylist,
+						onUpdateSelection = { viewModel.selectPlaylist(it) },
+						onClearSelection = { viewModel.clearSelection() },
+						onSetShareId = { newShareId ->
+							shareId = newShareId
+						},
+						onSetDeletionId = { newDeletionId ->
+							deletionId = newDeletionId
+						},
+						onPlayNext = { viewModel.playSelectedPlaylistNext(player) },
+						onAddToQueue = { viewModel.addSelectedPlaylistToQueue(player) }
+					)
+				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = playlistIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = playlistIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+				)
 		}
 	}
 

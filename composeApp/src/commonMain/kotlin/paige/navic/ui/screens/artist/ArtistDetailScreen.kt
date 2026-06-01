@@ -112,6 +112,7 @@ import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.SongRow
+import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.dialogs.FormDialog
@@ -694,9 +695,13 @@ fun ArtistDetailScreen(
 					}
 				}
 			}
-		}
+			}
 			IntegrationLoadingIndicatorStrip(
 				indicators = artistIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = artistIntegrationIndicators
+				),
 				modifier = Modifier
 					.align(Alignment.TopStart)
 					.padding(

@@ -102,6 +102,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.models.DangerZoneAction
 import paige.navic.domain.models.dangerZoneActions
 import paige.navic.domain.models.settings.CoverArtQuality
@@ -133,6 +134,7 @@ fun SettingsDataStorageScreen() {
 
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val storageManager = koinInject<StorageManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val scope = rememberCoroutineScope()
 	val coilPlatformContext = LocalCoilPlatformContext.current
@@ -187,6 +189,9 @@ fun SettingsDataStorageScreen() {
 				}
 			}
 			DangerZoneAction.ClearMusicBrainzCache -> musicBrainzArtworkRepository.clearCache()
+			DangerZoneAction.ClearLidaClipsVideoCache -> scope.launch(Dispatchers.IO) {
+				storageManager.clearLidaClipVideoCache()
+			}
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
 			DangerZoneAction.ClearDownloads -> viewModel.clearAllDownloads()
 			DangerZoneAction.RebuildDatabase -> if (isOnline) viewModel.rebuildDatabase()

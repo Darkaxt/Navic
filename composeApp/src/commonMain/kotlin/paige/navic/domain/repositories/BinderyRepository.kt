@@ -21,6 +21,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.IntegrationService
 import paige.navic.util.core.Logger
 
 private const val TAG = "BinderyRepository"
@@ -54,6 +55,7 @@ class BinderyRepository(
 			apiClient.fetchRootCatalog(baseUrl, binderyApiKeyHeaders(apiKey))
 		}.fold(
 			onSuccess = { catalog ->
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
 				BinderyConnectionResult.Connected(
 					navigationCount = catalog.navigation.size,
 					audiobooksAvailable = catalog.hasNavigationPath("/opds/formats/audiobook")
@@ -61,10 +63,17 @@ class BinderyRepository(
 			},
 			onFailure = { error ->
 				when ((error as? BinderyApiException)?.status) {
-					HttpStatusCode.Unauthorized -> BinderyConnectionResult.Unauthorized
-					HttpStatusCode.Forbidden -> BinderyConnectionResult.Forbidden
+					HttpStatusCode.Unauthorized -> {
+						preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
+						BinderyConnectionResult.Unauthorized
+					}
+					HttpStatusCode.Forbidden -> {
+						preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
+						BinderyConnectionResult.Forbidden
+					}
 					else -> {
 						Logger.w(TAG, "Bindery connection test failed", error)
+						preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
 						BinderyConnectionResult.Failed(error.message ?: error::class.simpleName ?: "Unknown error")
 					}
 				}
@@ -112,7 +121,7 @@ class BinderyRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Bindery service status failed", error)
-		}
+		}.recordBinderyAvailability()
 	}
 
 	suspend fun getCatalog(path: String): Result<BinderyCatalog> =
@@ -141,8 +150,15 @@ class BinderyRepository(
 			action(baseUrl, binderyApiKeyHeaders(apiKey))
 		}.onFailure { error ->
 			Logger.w(TAG, "Bindery OPDS request failed", error)
-		}
+		}.recordBinderyAvailability()
 	}
+
+	private fun <T> Result<T>.recordBinderyAvailability(): Result<T> =
+		onSuccess {
+			preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
+		}.onFailure {
+			preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
+		}
 }
 
 interface BinderyApiClient {

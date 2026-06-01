@@ -64,6 +64,7 @@ import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
@@ -115,6 +116,11 @@ fun NowPlayingScreen() {
 	val lyricsAvailableState by viewModel.lyricsAvailableState.collectAsStateWithLifecycle()
 	val lidaClip = lidaClipState.data
 	val lyricsAvailable = lyricsAvailableState.data == true
+	val nowPlayingIntegrationIndicators = integrationLoadingIndicators(
+		lidaClipsLoading = lidaClipState is UiState.Loading,
+		musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true,
+		lyricsLoading = lyricsAvailableState is UiState.Loading
+	)
 	var foregroundClipSongId by rememberSaveable { mutableStateOf<String?>(null) }
 	val showClipInArtwork = lidaClip != null && foregroundClipSongId == song?.id
 	val showArtwork = preferenceManager.showNowPlayingArtwork
@@ -280,10 +286,10 @@ fun NowPlayingScreen() {
 			}
 			if (!isPlayerCurrent) return@Box
 			IntegrationLoadingIndicatorStrip(
-				indicators = integrationLoadingIndicators(
-					lidaClipsLoading = lidaClipState is UiState.Loading,
-					musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true,
-					lyricsLoading = lyricsAvailableState is UiState.Loading
+				indicators = nowPlayingIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = nowPlayingIntegrationIndicators
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

@@ -2,6 +2,8 @@ package paige.navic.ui.screens.aurral
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -44,6 +46,9 @@ import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -85,6 +90,9 @@ fun AurralDiscoverListScreen(
 	val gridState = rememberLazyGridState()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralDiscoverIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = configured && discoveryState is UiState.Loading
+	)
 
 	LaunchedEffect(
 		configured,
@@ -120,106 +128,121 @@ fun AurralDiscoverListScreen(
 		}
 	) { innerPadding ->
 		AurralConfirmationQueueSnackbar(aurralRepository)
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = discoveryState !is UiState.Loading && localArtistsState !is UiState.Loading,
-			onRefresh = {
-				if (configured) viewModel.refreshDiscovery(hydrateMissingImages = false)
-				localArtistsViewModel.refreshArtists(false)
-			},
-			key = discoveryState
-		) {
-			val artists = discoveryState.data
-				?.let { discovery ->
-					if (tagFilter != null) {
-						aurralDiscoverTagArtists(discovery, tagFilter)
-					} else if (selectedCollection != null) {
-						aurralDiscoverCollectionArtists(discovery, selectedCollection)
-					} else {
-						aurralDiscoverListArtists(discovery)
-					}
-				}
-				.orEmpty()
-			val tags = discoveryState.data
-				?.takeIf { selectedCollection == AurralDiscoveryCollectionKind.TopTags && tagFilter == null }
-				?.let { discovery -> aurralDiscoverTopTags(discovery) }
-				.orEmpty()
-			val localArtists = localArtistsState.data.orEmpty()
-			ArtGrid(
-				state = gridState,
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if (artists.isEmpty() && tags.isEmpty()) {
-					Arrangement.Center
-				} else {
-					Arrangement.spacedBy(12.dp)
-				}
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = discoveryState !is UiState.Loading && localArtistsState !is UiState.Loading,
+				onRefresh = {
+					if (configured) viewModel.refreshDiscovery(hydrateMissingImages = false)
+					localArtistsViewModel.refreshArtists(false)
+				},
+				key = discoveryState
 			) {
-				if (tags.isNotEmpty()) {
-					item(span = { GridItemSpan(maxLineSpan) }) {
-						Row(
-							Modifier
-								.background(MaterialTheme.colorScheme.surface)
-								.padding(bottom = 8.dp),
-							verticalAlignment = Alignment.CenterVertically
-						) {
-							Text(
-								"${tags.size} tags",
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
+				val artists = discoveryState.data
+					?.let { discovery ->
+						if (tagFilter != null) {
+							aurralDiscoverTagArtists(discovery, tagFilter)
+						} else if (selectedCollection != null) {
+							aurralDiscoverCollectionArtists(discovery, selectedCollection)
+						} else {
+							aurralDiscoverListArtists(discovery)
 						}
 					}
-					item(span = { GridItemSpan(maxLineSpan) }) {
-						AurralDiscoverTagWall(
-							tags = tags,
-							onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) }
-						)
+					.orEmpty()
+				val tags = discoveryState.data
+					?.takeIf { selectedCollection == AurralDiscoveryCollectionKind.TopTags && tagFilter == null }
+					?.let { discovery -> aurralDiscoverTopTags(discovery) }
+					.orEmpty()
+				val localArtists = localArtistsState.data.orEmpty()
+				ArtGrid(
+					state = gridState,
+					contentPadding = innerPadding.withoutTop(),
+					verticalArrangement = if (artists.isEmpty() && tags.isEmpty()) {
+						Arrangement.Center
+					} else {
+						Arrangement.spacedBy(12.dp)
 					}
-				} else if (artists.isNotEmpty()) {
-					item(span = { GridItemSpan(maxLineSpan) }) {
-						Row(
-							Modifier
-								.background(MaterialTheme.colorScheme.surface)
-								.padding(bottom = 8.dp),
-							verticalAlignment = Alignment.CenterVertically
-						) {
-							Text(
-								pluralStringResource(
-									Res.plurals.count_artists,
-									artists.size,
-									artists.size
-								),
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-					}
-					items(artists, key = { it.id.trim().ifEmpty { it.name } }) { artist ->
-						AurralDiscoverArtistCard(
-							modifier = Modifier.animateItem(),
-							artist = artist,
-							confirmationQueue = confirmationQueue,
-							onOpenArtist = {
-								aurralArtistRecommendationRoute(
-									artist = artist,
-									localArtists = localArtists
-								)?.let(backStack::add)
+				) {
+					if (tags.isNotEmpty()) {
+						item(span = { GridItemSpan(maxLineSpan) }) {
+							Row(
+								Modifier
+									.background(MaterialTheme.colorScheme.surface)
+									.padding(bottom = 8.dp),
+								verticalAlignment = Alignment.CenterVertically
+							) {
+								Text(
+									"${tags.size} tags",
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
 							}
-						)
-					}
-				} else {
-					when (val state = discoveryState) {
-						is UiState.Loading -> artGridPlaceholder()
-						is UiState.Error -> artGridError(state)
-						is UiState.Success -> item(span = { GridItemSpan(maxLineSpan) }) {
-							ContentUnavailable(
-								icon = Icons.Outlined.Artist,
-								label = stringResource(Res.string.info_aurral_discover_empty)
+						}
+						item(span = { GridItemSpan(maxLineSpan) }) {
+							AurralDiscoverTagWall(
+								tags = tags,
+								onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) }
 							)
+						}
+					} else if (artists.isNotEmpty()) {
+						item(span = { GridItemSpan(maxLineSpan) }) {
+							Row(
+								Modifier
+									.background(MaterialTheme.colorScheme.surface)
+									.padding(bottom = 8.dp),
+								verticalAlignment = Alignment.CenterVertically
+							) {
+								Text(
+									pluralStringResource(
+										Res.plurals.count_artists,
+										artists.size,
+										artists.size
+									),
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+						}
+						items(artists, key = { it.id.trim().ifEmpty { it.name } }) { artist ->
+							AurralDiscoverArtistCard(
+								modifier = Modifier.animateItem(),
+								artist = artist,
+								confirmationQueue = confirmationQueue,
+								onOpenArtist = {
+									aurralArtistRecommendationRoute(
+										artist = artist,
+										localArtists = localArtists
+									)?.let(backStack::add)
+								}
+							)
+						}
+					} else {
+						when (val state = discoveryState) {
+							is UiState.Loading -> artGridPlaceholder()
+							is UiState.Error -> artGridError(state)
+							is UiState.Success -> item(span = { GridItemSpan(maxLineSpan) }) {
+								ContentUnavailable(
+									icon = Icons.Outlined.Artist,
+									label = stringResource(Res.string.info_aurral_discover_empty)
+								)
+							}
 						}
 					}
 				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = aurralDiscoverIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = aurralDiscoverIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(
+						start = 12.dp,
+						top = innerPadding.calculateTopPadding() + 8.dp
+					)
+			)
 		}
 	}
 }

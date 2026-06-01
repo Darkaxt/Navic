@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.domain.models.lidaClipsKeyFingerprint
 import paige.navic.domain.models.normalizedLidaClipsBaseUrlOrNull
@@ -50,8 +51,10 @@ class LidaClipsRepository(
 
 		return try {
 			apiClient.testConnection(baseUrl, requestHeaders)
+				.recordLidaClipsAvailability()
 		} catch (e: Exception) {
 			Logger.w(TAG, "LidaClips connection test failed", e)
+			preferenceManager.markIntegrationServiceDown(IntegrationService.LidaClips)
 			LidaClipsConnectionResult.Failed(e.message ?: e::class.simpleName ?: "Unknown error")
 		}
 	}
@@ -75,7 +78,7 @@ class LidaClipsRepository(
 			apiClient.fetchServiceStatus(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips service status failed", error)
-		}
+		}.recordLidaClipsAvailability()
 	}
 
 	suspend fun getActivityStatus(): Result<LidaClipsServiceStatus> {
@@ -89,7 +92,7 @@ class LidaClipsRepository(
 			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips activity status failed", error)
-		}
+		}.recordLidaClipsAvailability()
 	}
 
 	suspend fun setSyncPaused(syncPaused: Boolean): Result<LidaClipsServiceStatus> {
@@ -103,7 +106,7 @@ class LidaClipsRepository(
 			apiClient.setSyncPaused(baseUrl, requestHeaders, syncPaused)
 		}.onFailure { error ->
 			Logger.w(TAG, "LidaClips sync control failed", error)
-		}
+		}.recordLidaClipsAvailability()
 	}
 
 	suspend fun findClipByNavidromeSongId(
@@ -158,11 +161,31 @@ class LidaClipsRepository(
 		}
 
 		return fetchClip(baseUrl, requestHeaders)
+			.recordLidaClipsAvailability()
 			.onSuccess { clip -> lookupCache.put(cacheKey, clip) }
 			.onFailure { error ->
 				Logger.w(TAG, "Clip lookup failed for Navidrome song $songId", error)
 			}
 	}
+
+	private fun LidaClipsConnectionResult.recordLidaClipsAvailability(): LidaClipsConnectionResult {
+		when (this) {
+			LidaClipsConnectionResult.Connected,
+			LidaClipsConnectionResult.Unauthorized ->
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.LidaClips)
+
+			is LidaClipsConnectionResult.Failed ->
+				preferenceManager.markIntegrationServiceDown(IntegrationService.LidaClips)
+		}
+		return this
+	}
+
+	private fun <T> Result<T>.recordLidaClipsAvailability(): Result<T> =
+		onSuccess {
+			preferenceManager.markIntegrationServiceAvailable(IntegrationService.LidaClips)
+		}.onFailure {
+			preferenceManager.markIntegrationServiceDown(IntegrationService.LidaClips)
+		}
 
 }
 

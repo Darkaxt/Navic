@@ -776,6 +776,7 @@
 	<string name="action_remove_from_history">Remove from history</string>
 	<string name="action_clear_image_cache">Clear image cache</string>
 	<string name="action_clear_musicbrainz_cache">Clear MusicBrainz cache</string>
+	<string name="action_clear_lidaclips_video_cache">Clear LidaClips video cache</string>
 	<string name="action_clear_pending_actions">Clear pending sync actions</string>
 	<string name="action_clear_downloads">Clear downloads</string>
 	<string name="action_rebuild_database">Rebuild database</string>
@@ -800,6 +801,7 @@
 	<string name="info_action_is_permanent">This action cannot be undone</string>
 	<string name="info_clear_image_cache_confirmation">Cached artwork images will be removed and downloaded again when needed.</string>
 	<string name="info_clear_musicbrainz_cache_confirmation">Cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries will be removed and resolved again during playback.</string>
+	<string name="info_clear_lidaclips_video_cache_confirmation">Cached LidaClips videos will be removed. Saved/offline clips kept with downloaded songs are not deleted by this action.</string>
 	<string name="info_clear_pending_actions_confirmation">Pending offline sync actions will be discarded. Changes that have not reached your server may be lost.</string>
 	<string name="info_clear_downloads_confirmation">Downloaded songs will be removed from this device. You can download them again later.</string>
 	<string name="info_rebuild_database_confirmation">Local library data will be cleared and rebuilt from the server. Offline-only cached state may be removed.</string>

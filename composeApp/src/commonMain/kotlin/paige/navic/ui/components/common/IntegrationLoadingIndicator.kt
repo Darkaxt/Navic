@@ -9,8 +9,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -35,7 +37,10 @@ import navic.composeapp.generated.resources.musicbrainz_logo_color_pulse
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Lyrics
+import paige.navic.domain.models.IntegrationService
+import paige.navic.domain.models.visibleFailedIntegrationServices
 
 enum class IntegrationLoadingIndicator {
 	LidaClips,
@@ -84,13 +89,30 @@ fun integrationLoadingIndicators(
 	if (lyricsLoading) add(IntegrationLoadingIndicator.Lyrics)
 }
 
+fun integrationFailedIndicators(
+	failedServices: Set<IntegrationService>,
+	enabledServices: Set<IntegrationService>,
+	loadingIndicators: List<IntegrationLoadingIndicator>
+): List<IntegrationLoadingIndicator> =
+	visibleFailedIntegrationServices(
+		failedServices = failedServices,
+		enabledServices = enabledServices,
+		loadingServices = loadingIndicators.mapNotNull { indicator ->
+			indicator.integrationServiceOrNull
+		}.toSet()
+	).map(IntegrationService::toLoadingIndicator)
+
 @Composable
 fun IntegrationLoadingIndicatorStrip(
 	indicators: List<IntegrationLoadingIndicator>,
+	failedIndicators: List<IntegrationLoadingIndicator> = emptyList(),
 	modifier: Modifier = Modifier
 ) {
 	val visibleIndicators = indicators.distinct()
-	if (visibleIndicators.isEmpty()) return
+	val visibleFailedIndicators = failedIndicators
+		.distinct()
+		.filterNot(visibleIndicators::contains)
+	if (visibleIndicators.isEmpty() && visibleFailedIndicators.isEmpty()) return
 
 	val transition = rememberInfiniteTransition(label = "integrationLoadingPulse")
 	val pulseAlpha by transition.animateFloat(
@@ -105,9 +127,10 @@ fun IntegrationLoadingIndicatorStrip(
 
 	Surface(
 		modifier = modifier.semantics {
-			contentDescription = visibleIndicators.joinToString(", ") { indicator ->
-				"${indicator.label} loading"
-			}
+			contentDescription = buildList {
+				visibleIndicators.forEach { indicator -> add("${indicator.label} loading") }
+				visibleFailedIndicators.forEach { indicator -> add("${indicator.label} unavailable") }
+			}.joinToString(", ")
 		},
 		shape = ContinuousCapsule,
 		color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = .74f),
@@ -125,6 +148,13 @@ fun IntegrationLoadingIndicatorStrip(
 					alpha = pulseAlpha
 				)
 			}
+			visibleFailedIndicators.forEach { indicator ->
+				IntegrationLoadingIndicatorIcon(
+					indicator = indicator,
+					alpha = .92f,
+					failed = true
+				)
+			}
 		}
 	}
 }
@@ -132,7 +162,8 @@ fun IntegrationLoadingIndicatorStrip(
 @Composable
 private fun IntegrationLoadingIndicatorIcon(
 	indicator: IntegrationLoadingIndicator,
-	alpha: Float
+	alpha: Float,
+	failed: Boolean = false
 ) {
 	Box(
 		modifier = Modifier
@@ -155,6 +186,24 @@ private fun IntegrationLoadingIndicatorIcon(
 				tint = MaterialTheme.colorScheme.primary,
 				modifier = Modifier.size(20.dp)
 			)
+		}
+		if (failed) {
+			Surface(
+				modifier = Modifier
+					.align(Alignment.BottomEnd)
+					.offset(x = 2.dp, y = 2.dp)
+					.size(12.dp),
+				shape = CircleShape,
+				color = MaterialTheme.colorScheme.error,
+				contentColor = MaterialTheme.colorScheme.onError
+			) {
+				Icon(
+					imageVector = Icons.Outlined.Close,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onError,
+					modifier = Modifier.padding(2.dp)
+				)
+			}
 		}
 	}
 }
@@ -187,4 +236,23 @@ private val IntegrationLoadingIndicator.label: String
 		IntegrationLoadingIndicator.LastFm -> "Last.fm"
 		IntegrationLoadingIndicator.Bindery -> "Bindery"
 		IntegrationLoadingIndicator.Lyrics -> "Lyrics"
+	}
+
+private val IntegrationLoadingIndicator.integrationServiceOrNull: IntegrationService?
+	get() = when (this) {
+		IntegrationLoadingIndicator.LidaClips -> IntegrationService.LidaClips
+		IntegrationLoadingIndicator.Aurral -> IntegrationService.Aurral
+		IntegrationLoadingIndicator.MusicBrainz -> IntegrationService.MusicBrainz
+		IntegrationLoadingIndicator.LastFm -> IntegrationService.LastFm
+		IntegrationLoadingIndicator.Bindery -> IntegrationService.Bindery
+		IntegrationLoadingIndicator.Lyrics -> null
+	}
+
+private fun IntegrationService.toLoadingIndicator(): IntegrationLoadingIndicator =
+	when (this) {
+		IntegrationService.LidaClips -> IntegrationLoadingIndicator.LidaClips
+		IntegrationService.Aurral -> IntegrationLoadingIndicator.Aurral
+		IntegrationService.MusicBrainz -> IntegrationLoadingIndicator.MusicBrainz
+		IntegrationService.LastFm -> IntegrationLoadingIndicator.LastFm
+		IntegrationService.Bindery -> IntegrationLoadingIndicator.Bindery
 	}

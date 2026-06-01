@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.song
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -11,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
@@ -66,6 +69,9 @@ import paige.navic.domain.repositories.musicBrainzMetadataDisplayFields
 import paige.navic.domain.repositories.musicBrainzMetadataUrlOrNull
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.song.viewmodels.SongDetailViewModel
 import paige.navic.util.core.effectiveGain
@@ -86,7 +92,11 @@ fun SongDetailScreen(songId: String) {
 	val uriHandler = LocalUriHandler.current
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzMetadataBySongId by musicBrainzArtworkRepository.metadataBySongId.collectAsStateWithLifecycle()
+	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 	val musicBrainzMetadata = musicBrainzMetadataBySongId[songId]
+	val songDetailIntegrationIndicators = integrationLoadingIndicators(
+		musicBrainzLoading = songId in resolvingMusicBrainzSongIds
+	)
 	val info = remember(song, musicBrainzMetadata) {
 		song?.let {
 			listOf(
@@ -129,45 +139,57 @@ fun SongDetailScreen(songId: String) {
 	Scaffold(
 		topBar = { NestedTopBar({ Text(song?.title.orEmpty()) }) }
 	) { contentPadding ->
-		Column(
-			Modifier
-				.verticalScroll(rememberScrollState())
-				.padding(
-					top = contentPadding.calculateTopPadding() + 12.dp,
-					start = 12.dp,
-					end = 12.dp
-				)
-		) {
-			Form {
-				info.forEach { row ->
-					val musicBrainzUrl = row.musicBrainzUrl
-						?: musicBrainzMetadataUrlOrNull(row.musicBrainzField, row.value)
-					FormRow(
-						onClick = musicBrainzUrl?.let { url ->
-							{ uriHandler.openUri(url) }
-						}
-					) {
-						Column(Modifier.padding(vertical = 4.dp)) {
-							Text(
-								text = stringResource(row.title),
-								style = MaterialTheme.typography.labelMedium,
-								color = MaterialTheme.colorScheme.primary
-							)
-							SelectionContainer {
+		Box(Modifier.fillMaxSize()) {
+			Column(
+				Modifier
+					.verticalScroll(rememberScrollState())
+					.padding(
+						top = contentPadding.calculateTopPadding() + 12.dp,
+						start = 12.dp,
+						end = 12.dp
+					)
+			) {
+				Form {
+					info.forEach { row ->
+						val musicBrainzUrl = row.musicBrainzUrl
+							?: musicBrainzMetadataUrlOrNull(row.musicBrainzField, row.value)
+						FormRow(
+							onClick = musicBrainzUrl?.let { url ->
+								{ uriHandler.openUri(url) }
+							}
+						) {
+							Column(Modifier.padding(vertical = 4.dp)) {
 								Text(
-									text = "${row.value ?: stringResource(Res.string.info_unknown)}",
-									style = MaterialTheme.typography.bodyLarge,
-									color = if (musicBrainzUrl != null) {
-										MaterialTheme.colorScheme.primary
-									} else {
-										MaterialTheme.colorScheme.onSurface
-									}
+									text = stringResource(row.title),
+									style = MaterialTheme.typography.labelMedium,
+									color = MaterialTheme.colorScheme.primary
 								)
+								SelectionContainer {
+									Text(
+										text = "${row.value ?: stringResource(Res.string.info_unknown)}",
+										style = MaterialTheme.typography.bodyLarge,
+										color = if (musicBrainzUrl != null) {
+											MaterialTheme.colorScheme.primary
+										} else {
+											MaterialTheme.colorScheme.onSurface
+										}
+									)
+								}
 							}
 						}
 					}
 				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = songDetailIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = songDetailIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = contentPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 }

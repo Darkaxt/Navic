@@ -56,6 +56,9 @@ import paige.navic.icons.outlined.Note
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -124,6 +127,7 @@ fun CollectionDetailScreen(
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
+	val collectionIntegrationIndicators = integrationLoadingIndicators()
 
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
 
@@ -173,217 +177,229 @@ fun CollectionDetailScreen(
 			}
 		}
 	) { contentPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = contentPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = collectionState !is UiState.Loading,
-			onRefresh = { viewModel.refreshCollection(true) },
-			key = collectionState
-		) {
-			LazyColumn(
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
 				modifier = Modifier
-					.background(MaterialTheme.colorScheme.surface)
-					.fillMaxSize(),
-				horizontalAlignment = Alignment.CenterHorizontally,
-				contentPadding = contentPadding.withoutTop(),
-				state = viewModel.listState
+					.padding(top = contentPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = collectionState !is UiState.Loading,
+				onRefresh = { viewModel.refreshCollection(true) },
+				key = collectionState
 			) {
-				val contentCollection = displayedCollection ?: return@LazyColumn
+				LazyColumn(
+					modifier = Modifier
+						.background(MaterialTheme.colorScheme.surface)
+						.fillMaxSize(),
+					horizontalAlignment = Alignment.CenterHorizontally,
+					contentPadding = contentPadding.withoutTop(),
+					state = viewModel.listState
+				) {
+					val contentCollection = displayedCollection ?: return@LazyColumn
 
-				item {
-					CollectionDetailScreenHeadingRow(
-						collection = contentCollection,
-						tab = tab,
-						titleAlpha = 1f - titleAlpha
-					)
-				}
-
-				item {
-					CollectionDetailScreenHeadingRowButtons(
-						collection = contentCollection
-					)
-				}
-
-				if (contentCollection is DomainAlbum) {
-					contentCollection.copy(
-						songs = contentCollection.songs.sortedWith(compareBy(
-							{ it.discNumber },
-							{ it.trackNumber }
-						))
-					).let { album ->
-						album.songs.groupBy {it.discNumber}.forEach { group ->
-							val multipleDiscs = album.songs.groupBy { it.discNumber }.size > 1
-							if (group.key != null && multipleDiscs) {
-								item {
-									Row(
-										modifier = Modifier
-											.fillMaxWidth()
-											.padding(horizontal = 16.dp)
-											.padding(top = if (group.key == 1) 0.dp else 12.dp, bottom = 4.dp)
-											.heightIn(min = 32.dp),
-										verticalAlignment = Alignment.CenterVertically
-									) {
-										Icon(
-											imageVector = Icons.Outlined.Album,
-											contentDescription = null,
-											tint = MaterialTheme.colorScheme.onSurfaceVariant,
-											modifier = Modifier.size(20.dp)
-										)
-
-										Spacer(modifier = Modifier.width(8.dp))
-
-										Text(
-											text = stringResource(
-												Res.string.title_disc_number,
-												group.key as Int
-											),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600),
-											color = MaterialTheme.colorScheme.onSurfaceVariant
-										)
-									}
-								}
-							}
-							itemsIndexed(group.value) { index, song ->
-								val download = allDownloads.find { it.songId == song.id }
-								Box {
-									CollectionDetailScreenSongRow(
-										song = song,
-										index = index,
-										count = group.value.count(),
-										isPlaylist = false,
-										onClick = {
-											if (playerState.currentSong?.id != song.id) {
-												player.clearQueue()
-												player.setPlaybackOrigin(album.toPlaybackOrigin())
-												player.addToQueue(album)
-												player.playAt(album.songs.indexOfFirst { it.id == song.id })
-											} else {
-												player.togglePlay()
-											}
-										},
-										onLongClick = {
-											viewModel.selectSong(song)
-										},
-										onPlayNext = { 
-											player.playNextSingle(song) 
-										},
-										onAddToQueue = {
-											player.addToQueueSingle(song)
-										},
-										download = download,
-										isOffline = !isOnline,
-										inPlaylist = song.id in playlistSongIds
-									)
-									CollectionDetailScreenSongRowDropdown(
-										expanded = selection == song,
-										onDismissRequest = { viewModel.clearSelection() },
-										onRemoveStar = { viewModel.unstarSelectedSong() },
-										onAddStar = { viewModel.starSelectedSong() },
-										onShare = { shareId = song.id },
-										collection = contentCollection,
-										song = song,
-										onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
-										starred = selectedSongIsStarred,
-										downloadStatus = download?.status,
-										onDownload = { viewModel.downloadSong(song) },
-										onCancelDownload = { viewModel.cancelDownload(song.id) },
-										onDeleteDownload = { viewModel.deleteDownload(song.id) },
-										onPlayNext = { player.playNextSingle(song) },
-										onAddToQueue = { player.addToQueueSingle(song) },
-										rating = selectedSongRating,
-										onSetRating = { viewModel.rateSelectedSong(it) }
-									)
-								}
-							}
-						}
-					}
-				} else {
-					itemsIndexed(contentCollection.songs) { index, song ->
-						val download = allDownloads.find { it.songId == song.id }
-						Box {
-							CollectionDetailScreenSongRow(
-								song = song,
-								index = index,
-								count = contentCollection.songs.count(),
-								isPlaylist = true,
-								onClick = {
-									if (playerState.currentSong?.id != song.id) {
-										player.clearQueue()
-										player.setPlaybackOrigin(contentCollection.toPlaybackOrigin())
-										player.addToQueue(contentCollection)
-										player.playAt(index)
-									} else {
-										player.togglePlay()
-									}
-								},
-								onLongClick = {
-									viewModel.selectSong(song)
-								},
-								onPlayNext = { 
-									player.playNextSingle(song) 
-								},
-								onAddToQueue = {
-									player.addToQueueSingle(song)
-								},
-								download = download,
-								isOffline = !isOnline,
-								inPlaylist = song.id in playlistSongIds
-							)
-							CollectionDetailScreenSongRowDropdown(
-								expanded = selection == song,
-								onDismissRequest = { viewModel.clearSelection() },
-								onRemoveStar = { viewModel.unstarSelectedSong() },
-								onAddStar = { viewModel.starSelectedSong() },
-								onShare = { shareId = song.id },
-								collection = contentCollection,
-								song = song,
-								onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
-								starred = selectedSongIsStarred,
-								downloadStatus = download?.status,
-								onDownload = { viewModel.downloadSong(song) },
-								onCancelDownload = { viewModel.cancelDownload(song.id) },
-								onDeleteDownload = { viewModel.deleteDownload(song.id) },
-								onPlayNext = { player.playNextSingle(song) },
-								onAddToQueue = { player.addToQueueSingle(song) },
-								rating = selectedSongRating,
-								onSetRating = { viewModel.rateSelectedSong(it) }
-							)
-						}
-					}
-				}
-
-				if (contentCollection.songs.isEmpty()) {
 					item {
-						ContentUnavailable(
-							icon = Icons.Outlined.Note,
-							label = stringResource(Res.string.info_no_songs)
+						CollectionDetailScreenHeadingRow(
+							collection = contentCollection,
+							tab = tab,
+							titleAlpha = 1f - titleAlpha
+						)
+					}
+
+					item {
+						CollectionDetailScreenHeadingRowButtons(
+							collection = contentCollection
+						)
+					}
+
+					if (contentCollection is DomainAlbum) {
+						contentCollection.copy(
+							songs = contentCollection.songs.sortedWith(compareBy(
+								{ it.discNumber },
+								{ it.trackNumber }
+							))
+						).let { album ->
+							album.songs.groupBy {it.discNumber}.forEach { group ->
+								val multipleDiscs = album.songs.groupBy { it.discNumber }.size > 1
+								if (group.key != null && multipleDiscs) {
+									item {
+										Row(
+											modifier = Modifier
+												.fillMaxWidth()
+												.padding(horizontal = 16.dp)
+												.padding(top = if (group.key == 1) 0.dp else 12.dp, bottom = 4.dp)
+												.heightIn(min = 32.dp),
+											verticalAlignment = Alignment.CenterVertically
+										) {
+											Icon(
+												imageVector = Icons.Outlined.Album,
+												contentDescription = null,
+												tint = MaterialTheme.colorScheme.onSurfaceVariant,
+												modifier = Modifier.size(20.dp)
+											)
+
+											Spacer(modifier = Modifier.width(8.dp))
+
+											Text(
+												text = stringResource(
+													Res.string.title_disc_number,
+													group.key as Int
+												),
+												style = MaterialTheme.typography.titleMediumEmphasized,
+												fontWeight = FontWeight(600),
+												color = MaterialTheme.colorScheme.onSurfaceVariant
+											)
+										}
+									}
+								}
+								itemsIndexed(group.value) { index, song ->
+									val download = allDownloads.find { it.songId == song.id }
+									Box {
+										CollectionDetailScreenSongRow(
+											song = song,
+											index = index,
+											count = group.value.count(),
+											isPlaylist = false,
+											onClick = {
+												if (playerState.currentSong?.id != song.id) {
+													player.clearQueue()
+													player.setPlaybackOrigin(album.toPlaybackOrigin())
+													player.addToQueue(album)
+													player.playAt(album.songs.indexOfFirst { it.id == song.id })
+												} else {
+													player.togglePlay()
+												}
+											},
+											onLongClick = {
+												viewModel.selectSong(song)
+											},
+											onPlayNext = {
+												player.playNextSingle(song)
+											},
+											onAddToQueue = {
+												player.addToQueueSingle(song)
+											},
+											download = download,
+											isOffline = !isOnline,
+											inPlaylist = song.id in playlistSongIds
+										)
+										CollectionDetailScreenSongRowDropdown(
+											expanded = selection == song,
+											onDismissRequest = { viewModel.clearSelection() },
+											onRemoveStar = { viewModel.unstarSelectedSong() },
+											onAddStar = { viewModel.starSelectedSong() },
+											onShare = { shareId = song.id },
+											collection = contentCollection,
+											song = song,
+											onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
+											starred = selectedSongIsStarred,
+											downloadStatus = download?.status,
+											onDownload = { viewModel.downloadSong(song) },
+											onCancelDownload = { viewModel.cancelDownload(song.id) },
+											onDeleteDownload = { viewModel.deleteDownload(song.id) },
+											onPlayNext = { player.playNextSingle(song) },
+											onAddToQueue = { player.addToQueueSingle(song) },
+											rating = selectedSongRating,
+											onSetRating = { viewModel.rateSelectedSong(it) }
+										)
+									}
+								}
+							}
+						}
+					} else {
+						itemsIndexed(contentCollection.songs) { index, song ->
+							val download = allDownloads.find { it.songId == song.id }
+							Box {
+								CollectionDetailScreenSongRow(
+									song = song,
+									index = index,
+									count = contentCollection.songs.count(),
+									isPlaylist = true,
+									onClick = {
+										if (playerState.currentSong?.id != song.id) {
+											player.clearQueue()
+											player.setPlaybackOrigin(contentCollection.toPlaybackOrigin())
+											player.addToQueue(contentCollection)
+											player.playAt(index)
+										} else {
+											player.togglePlay()
+										}
+									},
+									onLongClick = {
+										viewModel.selectSong(song)
+									},
+									onPlayNext = {
+										player.playNextSingle(song)
+									},
+									onAddToQueue = {
+										player.addToQueueSingle(song)
+									},
+									download = download,
+									isOffline = !isOnline,
+									inPlaylist = song.id in playlistSongIds
+								)
+								CollectionDetailScreenSongRowDropdown(
+									expanded = selection == song,
+									onDismissRequest = { viewModel.clearSelection() },
+									onRemoveStar = { viewModel.unstarSelectedSong() },
+									onAddStar = { viewModel.starSelectedSong() },
+									onShare = { shareId = song.id },
+									collection = contentCollection,
+									song = song,
+									onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
+									starred = selectedSongIsStarred,
+									downloadStatus = download?.status,
+									onDownload = { viewModel.downloadSong(song) },
+									onCancelDownload = { viewModel.cancelDownload(song.id) },
+									onDeleteDownload = { viewModel.deleteDownload(song.id) },
+									onPlayNext = { player.playNextSingle(song) },
+									onAddToQueue = { player.addToQueueSingle(song) },
+									rating = selectedSongRating,
+									onSetRating = { viewModel.rateSelectedSong(it) }
+								)
+							}
+						}
+					}
+
+					if (contentCollection.songs.isEmpty()) {
+						item {
+							ContentUnavailable(
+								icon = Icons.Outlined.Note,
+								label = stringResource(Res.string.info_no_songs)
+							)
+						}
+					}
+
+					item { CollectionDetailScreenFooterRow(contentCollection) }
+
+					(contentCollection as? DomainAlbum)?.artistName?.let { artistName ->
+						collectionDetailScreenMoreByArtistRow(
+							artistName = artistName,
+							artistAlbums = otherAlbums,
+							aurralAlbumRequests = aurralAlbumRequests,
+							selectedAlbum = selectedAlbum,
+							onSetShareId = { shareId = it },
+							onPlayNext = if (selectedAlbum != null) { { player.playNext(selectedAlbum as DomainSongCollection) } } else null,
+							onAddToQueue = if (selectedAlbum != null) { { player.addToQueue(selectedAlbum as DomainSongCollection) } } else null,
+							selectedAlbumRating = selectedAlbumRating,
+							selectedAlbumStarred = selectedAlbumIsStarred,
+							onSetAlbumRating = { viewModel.rateSelectedAlbum(it) },
+							onSetAlbumStarred = { viewModel.starSelectedAlbum(it) },
+							onSelect = { viewModel.selectAlbum(it) },
+							onDeselect = { viewModel.clearSelection() },
+							tab = tab
 						)
 					}
 				}
-
-				item { CollectionDetailScreenFooterRow(contentCollection) }
-
-				(contentCollection as? DomainAlbum)?.artistName?.let { artistName ->
-					collectionDetailScreenMoreByArtistRow(
-						artistName = artistName,
-						artistAlbums = otherAlbums,
-						aurralAlbumRequests = aurralAlbumRequests,
-						selectedAlbum = selectedAlbum,
-						onSetShareId = { shareId = it },
-						onPlayNext = if (selectedAlbum != null) { { player.playNext(selectedAlbum as DomainSongCollection) } } else null,
-						onAddToQueue = if (selectedAlbum != null) { { player.addToQueue(selectedAlbum as DomainSongCollection) } } else null,
-						selectedAlbumRating = selectedAlbumRating,
-						selectedAlbumStarred = selectedAlbumIsStarred,
-						onSetAlbumRating = { viewModel.rateSelectedAlbum(it) },
-						onSetAlbumStarred = { viewModel.starSelectedAlbum(it) },
-						onSelect = { viewModel.selectAlbum(it) },
-						onDeselect = { viewModel.clearSelection() },
-						tab = tab
-					)
-				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = collectionIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = collectionIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = contentPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 

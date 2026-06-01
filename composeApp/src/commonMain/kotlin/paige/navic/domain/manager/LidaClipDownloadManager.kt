@@ -18,6 +18,7 @@ import paige.navic.data.database.dao.LidaClipDownloadDao
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.lidaClipCacheFileExtension
 import paige.navic.domain.models.shouldFailHostedDownload
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
@@ -205,6 +206,7 @@ class LidaClipDownloadManager(
 						updatedAtMillis = nowMillis()
 					)
 				)
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.LidaClips)
 				return Result.success(playableClip)
 			} catch (error: CancellationException) {
 				lidaClipDownloadDao.deleteDownload(songId)
@@ -212,6 +214,7 @@ class LidaClipDownloadManager(
 			} catch (error: Throwable) {
 				if (shouldFailHostedDownload(error)) {
 					Logger.w(TAG, "LidaClips service appears unavailable while caching song $songId", error)
+					preferenceManager.markIntegrationServiceDown(IntegrationService.LidaClips)
 					lidaClipDownloadDao.insertDownload(
 						queued.copy(
 							status = DownloadStatus.FAILED,

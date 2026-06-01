@@ -2,6 +2,8 @@ package paige.navic.ui.screens.album
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -32,6 +35,9 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -68,6 +74,7 @@ fun AlbumListScreen(
 	var shareId by remember { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	val albumListIntegrationIndicators = integrationLoadingIndicators()
 
 	val actions: @Composable RowScope.() -> Unit = {
 		AlbumListScreenSortButton(
@@ -98,41 +105,53 @@ fun AlbumListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = albumsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshAlbums(true) },
-			key = albumsState
-		) {
-			ArtGrid(
-				modifier = if (!nested)
-					Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier,
-				state = viewModel.gridState,
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((albumsState as? UiState.Success)?.data?.isEmpty() == true)
-					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = albumsState !is UiState.Loading,
+				onRefresh = { viewModel.refreshAlbums(true) },
+				key = albumsState
 			) {
-				albumListScreenContent(
-					state = albumsState,
-					aurralAlbumRequests = aurralAlbumRequests,
-					starred = starred,
-					selectedAlbum = selectedAlbum,
-					selectedAlbumRating = rating,
-					onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
-					onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
-					onUpdateSelection = { viewModel.selectAlbum(it) },
-					onClearSelection = { viewModel.clearSelection() },
-					onSetShareId = { newShareId ->
-						shareId = newShareId
-					},
-					onSetStarred = { viewModel.starAlbum(it) },
-					onRateSelectedAlbum = { viewModel.setRating(it) }
-				)
+				ArtGrid(
+					modifier = if (!nested)
+						Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+					else Modifier,
+					state = viewModel.gridState,
+					contentPadding = innerPadding.withoutTop(),
+					verticalArrangement = if ((albumsState as? UiState.Success)?.data?.isEmpty() == true)
+						Arrangement.Center
+					else Arrangement.spacedBy(12.dp)
+				) {
+					albumListScreenContent(
+						state = albumsState,
+						aurralAlbumRequests = aurralAlbumRequests,
+						starred = starred,
+						selectedAlbum = selectedAlbum,
+						selectedAlbumRating = rating,
+						onPlayNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
+						onAddToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
+						onUpdateSelection = { viewModel.selectAlbum(it) },
+						onClearSelection = { viewModel.clearSelection() },
+						onSetShareId = { newShareId ->
+							shareId = newShareId
+						},
+						onSetStarred = { viewModel.starAlbum(it) },
+						onRateSelectedAlbum = { viewModel.setRating(it) }
+					)
+				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = albumListIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = albumListIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+				)
 		}
 	}
 

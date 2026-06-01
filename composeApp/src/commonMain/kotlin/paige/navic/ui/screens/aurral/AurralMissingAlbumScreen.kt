@@ -81,6 +81,9 @@ import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -176,6 +179,10 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 			}
 	}
 
+	val aurralMissingAlbumIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = state.loading || state.requesting
+	)
+
 	Scaffold(
 		topBar = {
 			NestedTopBar(
@@ -202,84 +209,96 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 			imageUrl = state.coverUrl,
 			requestHeaders = preferenceManager.aurralRequestHeadersMap()
 		)
-		Column(
-			modifier = Modifier
-				.fillMaxSize()
-				.padding(top = innerPadding.calculateTopPadding())
-				.verticalScroll(rememberScrollState())
-				.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
-			horizontalAlignment = Alignment.CenterHorizontally
-		) {
-			AurralMissingAlbumHero(
-				route = route,
-				coverUrl = state.coverUrl,
-				imageRequestHeaders = imageRequestHeaders,
-				progress = state.progress
-			)
-			AurralMissingAlbumActions(
-				progress = state.progress,
-				requesting = state.requesting,
-				onAcquire = {
-					platformContext.clickSound()
-					scope.launch {
-						state = state.copy(requesting = true, error = null)
-						aurralRepository.requestAlbum(state.artist, releaseGroup)
-							.onSuccess {
-								state = state.copy(
-									requesting = false,
-									progress = aurralAcquisitionProgress("requested")
-								)
-							}
-							.onFailure { error ->
-								state = state.copy(requesting = false, error = error)
-							}
-					}
-				}
-			)
-			if (state.loading) {
-				CircularProgressIndicator(
-					modifier = Modifier
-						.padding(top = 24.dp)
-						.size(32.dp)
+		Box(Modifier.fillMaxSize()) {
+			Column(
+				modifier = Modifier
+					.fillMaxSize()
+					.padding(top = innerPadding.calculateTopPadding())
+					.verticalScroll(rememberScrollState())
+					.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
+				horizontalAlignment = Alignment.CenterHorizontally
+			) {
+				AurralMissingAlbumHero(
+					route = route,
+					coverUrl = state.coverUrl,
+					imageRequestHeaders = imageRequestHeaders,
+					progress = state.progress
 				)
-			} else if (state.previewTracks.isNotEmpty()) {
-				val fallbackTrackStatus = aurralOwnershipStatusForProgress(state.progress)
-				AurralPreviewTracks(
-					title = stringResource(Res.string.title_aurral_preview_tracks),
-					tracks = state.previewTracks.toImmutableList(),
-					modifier = Modifier.fillMaxWidth(),
-					ownershipStatuses = state.previewTracks.associate { track ->
-						track.id to aurralPreviewTrackOwnershipStatus(
-							track = track,
-							fallbackAlbumStatus = fallbackTrackStatus
-						)
-					}.toImmutableMap()
-				)
-			} else {
-				ContentUnavailable(
-					icon = Icons.Outlined.Note,
-					label = stringResource(Res.string.info_aurral_no_album_previews),
-					modifier = Modifier.padding(top = 24.dp)
-				)
-			}
-			if (state.moreAlbums.isNotEmpty()) {
-				ArtCarousel(
-					title = stringResource(Res.string.title_more_by_artist, state.artist.name),
-					items = state.moreAlbums.toImmutableList()
-				) { album ->
-					ArtCarouselItem(
-						coverArtId = album.coverArtId,
-						title = album.name,
-						subtitle = album.year?.toString(),
-						ownershipStatus = AurralOwnershipStatus.Owned,
-						contentDescription = album.name,
-						onClick = {
-							backStack.add(Screen.CollectionDetail(album.id, "aurral"))
+				AurralMissingAlbumActions(
+					progress = state.progress,
+					requesting = state.requesting,
+					onAcquire = {
+						platformContext.clickSound()
+						scope.launch {
+							state = state.copy(requesting = true, error = null)
+							aurralRepository.requestAlbum(state.artist, releaseGroup)
+								.onSuccess {
+									state = state.copy(
+										requesting = false,
+										progress = aurralAcquisitionProgress("requested")
+									)
+								}
+								.onFailure { error ->
+									state = state.copy(requesting = false, error = error)
+								}
 						}
+					}
+				)
+				if (state.loading) {
+					CircularProgressIndicator(
+						modifier = Modifier
+							.padding(top = 24.dp)
+							.size(32.dp)
+					)
+				} else if (state.previewTracks.isNotEmpty()) {
+					val fallbackTrackStatus = aurralOwnershipStatusForProgress(state.progress)
+					AurralPreviewTracks(
+						title = stringResource(Res.string.title_aurral_preview_tracks),
+						tracks = state.previewTracks.toImmutableList(),
+						modifier = Modifier.fillMaxWidth(),
+						ownershipStatuses = state.previewTracks.associate { track ->
+							track.id to aurralPreviewTrackOwnershipStatus(
+								track = track,
+								fallbackAlbumStatus = fallbackTrackStatus
+							)
+						}.toImmutableMap()
+					)
+				} else {
+					ContentUnavailable(
+						icon = Icons.Outlined.Note,
+						label = stringResource(Res.string.info_aurral_no_album_previews),
+						modifier = Modifier.padding(top = 24.dp)
 					)
 				}
+				if (state.moreAlbums.isNotEmpty()) {
+					ArtCarousel(
+						title = stringResource(Res.string.title_more_by_artist, state.artist.name),
+						items = state.moreAlbums.toImmutableList()
+					) { album ->
+						ArtCarouselItem(
+							coverArtId = album.coverArtId,
+							title = album.name,
+							subtitle = album.year?.toString(),
+							ownershipStatus = AurralOwnershipStatus.Owned,
+							contentDescription = album.name,
+							onClick = {
+								backStack.add(Screen.CollectionDetail(album.id, "aurral"))
+							}
+						)
+					}
+				}
+				Spacer(Modifier.height(24.dp))
 			}
-			Spacer(Modifier.height(24.dp))
+			IntegrationLoadingIndicatorStrip(
+				indicators = aurralMissingAlbumIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = aurralMissingAlbumIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 

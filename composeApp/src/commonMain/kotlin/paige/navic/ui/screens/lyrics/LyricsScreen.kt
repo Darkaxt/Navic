@@ -83,7 +83,10 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -140,8 +143,13 @@ fun LyricsScreen(
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsStateWithLifecycle()
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
+	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
 	val serverCoverLoadFailed = song.id in serverCoverLoadFailedSongIds
+	val lyricsIntegrationIndicators = integrationLoadingIndicators(
+		musicBrainzLoading = song.id in resolvingMusicBrainzSongIds,
+		lyricsLoading = state is UiState.Loading
+	)
 	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
 		serverCoverArtId = song.coverArtId,
 		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
@@ -543,6 +551,16 @@ fun LyricsScreen(
 				}
 			}
 		}
+			IntegrationLoadingIndicatorStrip(
+				indicators = lyricsIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = lyricsIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = contentPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 
 		if (showShareSheet) {

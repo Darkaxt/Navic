@@ -1152,6 +1152,14 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keywords = listOf("lida", "music video clips", "offline", "cache", "download"),
 			value = lidaClipsOfflineStorageSizeText(lidaClipOfflineSize)
 		))
+		add(valueRow(
+			id = "data.lida-video-cache",
+			path = path(dataStorage, cacheManagement),
+			title = stringResource(Res.string.action_clear_lidaclips_video_cache),
+			subtitle = stringResource(Res.string.info_clear_lidaclips_video_cache_confirmation),
+			keywords = listOf("lida", "music video clips", "video cache", "clear cache"),
+			value = ""
+		))
 		add(switchRow(
 			id = "data.pause-search-history",
 			path = path(dataStorage, stringResource(Res.string.action_search_history)),

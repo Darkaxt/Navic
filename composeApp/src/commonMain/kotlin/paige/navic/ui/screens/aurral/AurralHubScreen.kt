@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -134,6 +135,9 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -170,6 +174,16 @@ fun AurralHubScreen() {
 	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
 	val configured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val aurralHubIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = configured && (
+			serviceStatus is UiState.Loading ||
+				discovery is UiState.Loading ||
+				artistSearch is UiState.Loading ||
+				albumSearch is UiState.Loading ||
+				flowActionState is UiState.Loading ||
+				discoverActionState is UiState.Loading
+			)
+	)
 
 	LaunchedEffect(
 		preferenceManager.aurralEnabled,
@@ -217,63 +231,75 @@ fun AurralHubScreen() {
 		}
 	) { innerPadding ->
 		AurralConfirmationQueueSnackbar(aurralRepository)
-		Column(
-			Modifier
-				.padding(innerPadding)
-				.verticalScroll(rememberScrollState())
-				.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
-		) {
-			when {
-				!preferenceManager.aurralEnabled -> AurralHubConfigurationMessage(
-					message = stringResource(Res.string.info_aurral_hub_disabled),
-					onOpenSettings = { backStack.add(Screen.Settings.Aurral) }
-				)
+		Box(Modifier.padding(innerPadding).fillMaxSize()) {
+			Column(
+				Modifier
+					.fillMaxSize()
+					.verticalScroll(rememberScrollState())
+					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
+			) {
+				when {
+					!preferenceManager.aurralEnabled -> AurralHubConfigurationMessage(
+						message = stringResource(Res.string.info_aurral_hub_disabled),
+						onOpenSettings = { backStack.add(Screen.Settings.Aurral) }
+					)
 
-				!configured -> AurralHubConfigurationMessage(
-					message = stringResource(Res.string.info_aurral_hub_missing_url),
-					onOpenSettings = { backStack.add(Screen.Settings.Aurral) }
-				)
+					!configured -> AurralHubConfigurationMessage(
+						message = stringResource(Res.string.info_aurral_hub_missing_url),
+						onOpenSettings = { backStack.add(Screen.Settings.Aurral) }
+					)
 
-				else -> AurralHubContent(
-					state = serviceStatus,
-					discoveryState = discovery,
-					artistSearchQuery = artistSearchQuery,
-					artistSearchState = artistSearch,
-					albumSearchState = albumSearch,
-					flowActionState = flowActionState,
-					discoverActionState = discoverActionState,
-					activeFlowActionId = activeFlowActionId,
-					activeDiscoverArtistId = activeDiscoverArtistId,
-					stationPlaylists = stationPlaylists,
-					confirmationQueue = confirmationQueue,
-					preferenceManager = preferenceManager,
-					onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
-					onOpenDiscoverArtist = { artist ->
-						aurralArtistRecommendationRoute(
-							artist = artist,
-							localArtists = localArtistsState.data.orEmpty()
-						)?.let(backStack::add)
-					},
-					onOpenDiscoverCollection = { row ->
-						aurralDiscoverCollectionRoute(row)?.let(backStack::add)
-					},
-					onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) },
-					onOpenSearchAlbum = { album ->
-						aurralAlbumSearchDestination(album)?.let(backStack::add)
-					},
-					onArtistSearchQueryChange = viewModel::updateArtistSearchQuery,
-					onSearchArtists = viewModel::searchArtists,
-					onSearchAlbums = viewModel::searchAlbums,
-					onCreateFlow = viewModel::createFlow,
-					onSetFlowEnabled = viewModel::setFlowEnabled,
-					onStartFlow = viewModel::startFlow,
-					onPlayFlow = { flow -> viewModel.playFlowDirect(flow, player) },
-					onPlayStation = { flowId, station -> viewModel.playStation(flowId, station, player) },
-					onOpenStation = { station ->
-						backStack.add(Screen.CollectionDetail(station.id, "stations"))
-					}
-				)
+					else -> AurralHubContent(
+						state = serviceStatus,
+						discoveryState = discovery,
+						artistSearchQuery = artistSearchQuery,
+						artistSearchState = artistSearch,
+						albumSearchState = albumSearch,
+						flowActionState = flowActionState,
+						discoverActionState = discoverActionState,
+						activeFlowActionId = activeFlowActionId,
+						activeDiscoverArtistId = activeDiscoverArtistId,
+						stationPlaylists = stationPlaylists,
+						confirmationQueue = confirmationQueue,
+						preferenceManager = preferenceManager,
+						onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
+						onOpenDiscoverArtist = { artist ->
+							aurralArtistRecommendationRoute(
+								artist = artist,
+								localArtists = localArtistsState.data.orEmpty()
+							)?.let(backStack::add)
+						},
+						onOpenDiscoverCollection = { row ->
+							aurralDiscoverCollectionRoute(row)?.let(backStack::add)
+						},
+						onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) },
+						onOpenSearchAlbum = { album ->
+							aurralAlbumSearchDestination(album)?.let(backStack::add)
+						},
+						onArtistSearchQueryChange = viewModel::updateArtistSearchQuery,
+						onSearchArtists = viewModel::searchArtists,
+						onSearchAlbums = viewModel::searchAlbums,
+						onCreateFlow = viewModel::createFlow,
+						onSetFlowEnabled = viewModel::setFlowEnabled,
+						onStartFlow = viewModel::startFlow,
+						onPlayFlow = { flow -> viewModel.playFlowDirect(flow, player) },
+						onPlayStation = { flowId, station -> viewModel.playStation(flowId, station, player) },
+						onOpenStation = { station ->
+							backStack.add(Screen.CollectionDetail(station.id, "stations"))
+						}
+					)
+				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = aurralHubIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = aurralHubIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = 8.dp)
+			)
 		}
 	}
 }

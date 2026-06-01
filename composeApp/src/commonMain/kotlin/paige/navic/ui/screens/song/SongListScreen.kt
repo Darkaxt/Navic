@@ -2,6 +2,7 @@ package paige.navic.ui.screens.song
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -35,6 +37,9 @@ import paige.navic.domain.models.QueueDuplicateAction
 import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -70,6 +75,7 @@ fun SongListScreen(
 	val selectedSongRating by viewModel.selectedSongRating.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
+	val songListIntegrationIndicators = integrationLoadingIndicators()
 
 	var shareId by remember { mutableStateOf<String?>(null) }
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
@@ -127,60 +133,72 @@ fun SongListScreen(
 			}
 		}
 	) { innerPadding ->
-		PullToRefreshBox(
-			modifier = Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surface),
-			finished = songsState !is UiState.Loading,
-			onRefresh = { viewModel.refreshSongs(true) },
-			key = songsState
-		) {
-			LazyColumn(
-				modifier = if (!nested)
-					Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
-				else Modifier.fillMaxSize(),
-				contentPadding = innerPadding.withoutTop(),
-				verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
-					Arrangement.Center
-				else Arrangement.spacedBy(12.dp)
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = songsState !is UiState.Loading,
+				onRefresh = { viewModel.refreshSongs(true) },
+				key = songsState
 			) {
-				songListScreenContent(
-					state = songsState,
-					selectedSongIsStarred = starred,
-					selectedSongRating = selectedSongRating,
-					selectedSong = selectedSong,
-					onUpdateSelection = { viewModel.selectSong(it) },
-					onClearSelection = { viewModel.clearSelection() },
-					onSetShareId = { newShareId ->
-						shareId = newShareId
-					},
-					onSetStarred = { viewModel.starSong(it) },
-					onStartSongRadio = { song ->
-						player.startSongRadio(song)
-					},
-					onPlayNext = { song ->
-						queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
-							player.playNextSingle(song)
-						}
-					},
-					onAddToQueue = { song ->
-						queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
+				LazyColumn(
+					modifier = if (!nested)
+						Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)
+					else Modifier.fillMaxSize(),
+					contentPadding = innerPadding.withoutTop(),
+					verticalArrangement = if ((songsState as? UiState.Success)?.data?.isEmpty() == true)
+						Arrangement.Center
+					else Arrangement.spacedBy(12.dp)
+				) {
+					songListScreenContent(
+						state = songsState,
+						selectedSongIsStarred = starred,
+						selectedSongRating = selectedSongRating,
+						selectedSong = selectedSong,
+						onUpdateSelection = { viewModel.selectSong(it) },
+						onClearSelection = { viewModel.clearSelection() },
+						onSetShareId = { newShareId ->
+							shareId = newShareId
+						},
+						onSetStarred = { viewModel.starSong(it) },
+						onStartSongRadio = { song ->
+							player.startSongRadio(song)
+						},
+						onPlayNext = { song ->
+							queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
+								player.playNextSingle(song)
+							}
+						},
+						onAddToQueue = { song ->
+							queueSongOrConfirmDuplicate(song, QueueDuplicateAction.AddToQueue) {
+								player.addToQueueSingle(song)
+							}
+						},
+						onPlaySong = { song ->
+							player.clearQueue()
 							player.addToQueueSingle(song)
-						}
-					},
-					onPlaySong = { song ->
-						player.clearQueue()
-						player.addToQueueSingle(song)
-						player.playAt(0)
-					},
-					onSetRating = { viewModel.rateSelectedSong(it) },
-					onDownload = { viewModel.downloadSong(it) },
-					allDownloads = allDownloads,
-					onCancelDownload = { viewModel.cancelDownload(it.id) },
-					onDeleteDownload = { viewModel.deleteDownload(it.id) },
-					playlistSongIds = playlistSongIds
-				)
+							player.playAt(0)
+						},
+						onSetRating = { viewModel.rateSelectedSong(it) },
+						onDownload = { viewModel.downloadSong(it) },
+						allDownloads = allDownloads,
+						onCancelDownload = { viewModel.cancelDownload(it.id) },
+						onDeleteDownload = { viewModel.deleteDownload(it.id) },
+						playlistSongIds = playlistSongIds
+					)
+				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = songListIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = songListIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 

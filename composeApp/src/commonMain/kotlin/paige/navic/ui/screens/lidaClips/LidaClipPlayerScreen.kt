@@ -55,6 +55,7 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
@@ -67,6 +68,9 @@ fun LidaClipPlayerScreen(songId: String) {
 		parameters = { parametersOf(songId) }
 	)
 	val state by viewModel.clipState.collectAsStateWithLifecycle()
+	val lidaClipsIntegrationIndicators = integrationLoadingIndicators(
+		lidaClipsLoading = state is UiState.Loading
+	)
 
 	Scaffold(
 		topBar = {
@@ -140,8 +144,10 @@ fun LidaClipPlayerScreen(songId: String) {
 				}
 			}
 			IntegrationLoadingIndicatorStrip(
-				indicators = integrationLoadingIndicators(
-					lidaClipsLoading = state is UiState.Loading
+				indicators = lidaClipsIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = lidaClipsIntegrationIndicators
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

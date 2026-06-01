@@ -96,6 +96,9 @@ import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -178,6 +181,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	}
 
 	val monitorWaitingMessage = stringResource(Res.string.info_aurral_monitor_waiting)
+	val aurralArtistIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = state.loading || state.monitoring
+	)
 	AurralConfirmationQueueSnackbar(aurralRepository)
 
 	Scaffold(
@@ -213,87 +219,87 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			).toImmutableList()
 		}
 
-		Column(
-			modifier = Modifier
-				.fillMaxSize()
-				.padding(top = innerPadding.calculateTopPadding())
-				.verticalScroll(rememberScrollState())
-				.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			AurralArtistHero(
-				artist = state.artist,
-				localArtist = state.localArtist,
-				imageUrl = state.heroImageUrl,
-				imageRequestHeaders = heroHeaders
-			)
-			AurralArtistActions(
-				localArtist = state.localArtist,
-				monitoring = state.monitoring,
-				monitorPending = aurralArtistMonitoringConfirmationItem(
-					queue = confirmationQueue,
-					artistMbid = state.artist.musicBrainzId
-				)?.status == AurralConfirmationStatus.Pending,
-				monitorConfirmed = state.monitorConfirmed,
-				onOpenLocalArtist = { localArtist ->
-					backStack.add(Screen.ArtistDetail(localArtist.id))
-				},
-				onMonitorArtist = {
-					platformContext.clickSound()
-					scope.launch {
-						state = state.copy(monitoring = true, error = null)
-						launch { snackbarState.showSnackbar(monitorWaitingMessage) }
-						aurralRepository.monitorArtist(state.artist)
-							.onSuccess {
-								state = state.copy(error = null)
-							}
-							.onFailure { error -> state = state.copy(error = error) }
-						state = state.copy(monitoring = false)
+		Box(Modifier.padding(innerPadding).fillMaxSize()) {
+			Column(
+				modifier = Modifier
+					.fillMaxSize()
+					.verticalScroll(rememberScrollState())
+					.padding(top = 20.dp, bottom = 32.dp),
+				horizontalAlignment = Alignment.CenterHorizontally,
+				verticalArrangement = Arrangement.spacedBy(12.dp)
+			) {
+				AurralArtistHero(
+					artist = state.artist,
+					localArtist = state.localArtist,
+					imageUrl = state.heroImageUrl,
+					imageRequestHeaders = heroHeaders
+				)
+				AurralArtistActions(
+					localArtist = state.localArtist,
+					monitoring = state.monitoring,
+					monitorPending = aurralArtistMonitoringConfirmationItem(
+						queue = confirmationQueue,
+						artistMbid = state.artist.musicBrainzId
+					)?.status == AurralConfirmationStatus.Pending,
+					monitorConfirmed = state.monitorConfirmed,
+					onOpenLocalArtist = { localArtist ->
+						backStack.add(Screen.ArtistDetail(localArtist.id))
+					},
+					onMonitorArtist = {
+						platformContext.clickSound()
+						scope.launch {
+							state = state.copy(monitoring = true, error = null)
+							launch { snackbarState.showSnackbar(monitorWaitingMessage) }
+							aurralRepository.monitorArtist(state.artist)
+								.onSuccess {
+									state = state.copy(error = null)
+								}
+								.onFailure { error -> state = state.copy(error = error) }
+							state = state.copy(monitoring = false)
+						}
 					}
+				)
+				if (state.loading) {
+					Text(
+						text = stringResource(Res.string.info_aurral_loading_catalog),
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 8.dp)
+					)
+					CircularProgressIndicator(
+						modifier = Modifier
+							.padding(top = 4.dp)
+							.size(32.dp)
+					)
 				}
-			)
-			if (state.loading) {
-				Text(
-					text = stringResource(Res.string.info_aurral_loading_catalog),
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(top = 8.dp)
-				)
-				CircularProgressIndicator(
-					modifier = Modifier
-						.padding(top = 4.dp)
-						.size(32.dp)
-				)
-			}
-			ArtCarousel(
-				title = stringResource(Res.string.title_aurral_recommendations),
-				items = state.recommendedAlbums.toImmutableList()
-			) { album ->
-				AurralRecommendedAlbumItem(
-					album = album,
-					imageRequestHeaders = aurralRequestHeadersForUrl(
-						baseUrl = baseUrl,
-						imageUrl = album.coverUrl,
-						requestHeaders = requestHeaders
-					),
-					onClick = {
-						backStack.add(
-							Screen.AurralMissingAlbum(
-								artistId = state.localArtist?.id ?: route.artistMbid,
-								artistName = state.artist.name,
-								artistMbid = route.artistMbid,
-								releaseGroupId = album.id,
-								title = album.title,
-								year = album.releaseDate?.trim()?.take(4),
-								primaryType = album.primaryType ?: album.secondaryTypes.firstOrNull(),
-								coverUrl = album.coverUrl,
-								requestStatus = album.status
+				ArtCarousel(
+					title = stringResource(Res.string.title_aurral_recommendations),
+					items = state.recommendedAlbums.toImmutableList()
+				) { album ->
+					AurralRecommendedAlbumItem(
+						album = album,
+						imageRequestHeaders = aurralRequestHeadersForUrl(
+							baseUrl = baseUrl,
+							imageUrl = album.coverUrl,
+							requestHeaders = requestHeaders
+						),
+						onClick = {
+							backStack.add(
+								Screen.AurralMissingAlbum(
+									artistId = state.localArtist?.id ?: route.artistMbid,
+									artistName = state.artist.name,
+									artistMbid = route.artistMbid,
+									releaseGroupId = album.id,
+									title = album.title,
+									year = album.releaseDate?.trim()?.take(4),
+									primaryType = album.primaryType ?: album.secondaryTypes.firstOrNull(),
+									coverUrl = album.coverUrl,
+									requestStatus = album.status
+								)
 							)
-						)
-					}
-				)
-			}
+						}
+					)
+				}
 			ArtCarousel(
 				title = stringResource(Res.string.title_albums),
 				items = albumRows
@@ -376,6 +382,17 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				}
 			}
 			Spacer(Modifier.height(12.dp))
+		}
+			IntegrationLoadingIndicatorStrip(
+				indicators = aurralArtistIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = aurralArtistIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = 8.dp)
+			)
 		}
 	}
 

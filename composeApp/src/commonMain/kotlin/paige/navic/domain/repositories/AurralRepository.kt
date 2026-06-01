@@ -42,6 +42,7 @@ import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.IntegrationService
 import paige.navic.util.core.Logger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -119,8 +120,10 @@ class AurralRepository(
 
 		return try {
 			apiClient.testConnection(baseUrl, requestHeaders)
+				.recordAurralAvailability()
 		} catch (e: Exception) {
 			Logger.w(TAG, "Aurral connection test failed", e)
+			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
 			AurralConnectionResult.Failed(e.message ?: e::class.simpleName ?: "Unknown error")
 		}
 	}
@@ -136,7 +139,7 @@ class AurralRepository(
 			apiClient.fetchServiceStatus(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral service status failed", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun getActivityStatus(): Result<AurralServiceStatus> {
@@ -150,7 +153,7 @@ class AurralRepository(
 			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral activity status failed", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun getDiscovery(
@@ -174,7 +177,7 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral discovery failed", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
@@ -202,7 +205,7 @@ class AurralRepository(
 			apiClient.searchArtists(baseUrl, requestHeaders, request)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist search failed for $trimmedQuery", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun searchAlbums(
@@ -227,7 +230,7 @@ class AurralRepository(
 			apiClient.searchAlbums(baseUrl, requestHeaders, request)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album search failed for $trimmedQuery", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
@@ -280,7 +283,7 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist enrichment failed for ${artist.name}", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun cancelAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
@@ -306,7 +309,7 @@ class AurralRepository(
 			Unit
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral acquisition cancel failed for ${item.albumName}", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun retryAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
@@ -340,7 +343,7 @@ class AurralRepository(
 			rememberOptimisticAlbumRequest(payload)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral acquisition retry failed for $albumName", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun requestAlbum(
@@ -375,7 +378,7 @@ class AurralRepository(
 			rememberOptimisticAlbumRequest(payload)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album request failed for $albumName", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun monitorArtist(artist: DomainArtist): Result<Unit> {
@@ -467,7 +470,7 @@ class AurralRepository(
 				)
 			)
 			Logger.w(TAG, "Aurral artist monitoring failed for $artistName", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun createFlow(
@@ -498,7 +501,7 @@ class AurralRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral Flow creation failed for ${payload.name}", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun setFlowEnabled(
@@ -522,7 +525,7 @@ class AurralRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral Flow enable update failed for $trimmedFlowId", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun startFlow(
@@ -547,7 +550,7 @@ class AurralRepository(
 			)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral Flow start failed for $trimmedFlowId", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	suspend fun getFlowPlayableSongs(
@@ -597,7 +600,7 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral Flow playable songs failed for $trimmedFlowId", error)
-		}
+		}.recordAurralAvailability()
 	}
 
 	private suspend fun aurralLoginSessionToken(
@@ -646,8 +649,28 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral release group cover failed for $albumTitle", error)
-		}
+		}.recordAurralAvailability()
 	}
+
+	private fun AurralConnectionResult.recordAurralAvailability(): AurralConnectionResult {
+		when (this) {
+			is AurralConnectionResult.Failed ->
+				preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
+
+			AurralConnectionResult.Forbidden,
+			AurralConnectionResult.Unauthorized,
+			AurralConnectionResult.Connected ->
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Aurral)
+		}
+		return this
+	}
+
+	private fun <T> Result<T>.recordAurralAvailability(): Result<T> =
+		onSuccess {
+			preferenceManager.markIntegrationServiceAvailable(IntegrationService.Aurral)
+		}.onFailure {
+			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
+		}
 
 	private fun rememberOptimisticAlbumRequest(payload: AurralAlbumRequestPayload) {
 		val albumKey = payload.albumMbid.normalizedAurralCacheKey() ?: return

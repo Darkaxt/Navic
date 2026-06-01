@@ -1,9 +1,11 @@
 package paige.navic.ui.screens.activity
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,10 +45,12 @@ import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_lida_clips
 import navic.composeapp.generated.resources.option_download_queue
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LidaClipDownloadEntity
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.LidaClipDownloadQueueControls
 import paige.navic.domain.models.lidaClipDownloadQueueControls
@@ -58,6 +62,9 @@ import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.TopBarButton
@@ -68,10 +75,17 @@ private const val ACTIVITY_ITEM_LIMIT = 6
 @Composable
 fun ActivityScreen() {
 	val viewModel = koinViewModel<ActivityViewModel>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val downloadItems by viewModel.downloadItems.collectAsStateWithLifecycle()
 	val lidaClipDownloadItems by viewModel.lidaClipDownloadItems.collectAsStateWithLifecycle()
 	val aurralStatus by viewModel.aurralStatus.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	val activityIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = aurralStatus is UiState.Loading,
+		lidaClipsLoading = lidaClipDownloadItems.any { item ->
+			item.status == DownloadStatus.QUEUED || item.status == DownloadStatus.DOWNLOADING
+		}
+	)
 
 	LaunchedEffect(Unit) {
 		viewModel.refresh()
@@ -97,78 +111,90 @@ fun ActivityScreen() {
 			RootBottomBar(scrolled = scrollManager.isTriggered)
 		}
 	) { innerPadding ->
-		Column(
-			Modifier
-				.padding(top = innerPadding.calculateTopPadding())
-				.verticalScroll(rememberScrollState())
-				.padding(
-					top = 16.dp,
-					end = 16.dp,
-					start = 16.dp,
-					bottom = innerPadding.calculateBottomPadding() + 32.dp
-				)
-		) {
-			ActivitySection(
-				title = stringResource(Res.string.option_download_queue),
-				summary = navicDownloadActivitySummary(downloadItems)
+		Box(Modifier.fillMaxSize()) {
+			Column(
+				Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.verticalScroll(rememberScrollState())
+					.padding(
+						top = 16.dp,
+						end = 16.dp,
+						start = 16.dp,
+						bottom = innerPadding.calculateBottomPadding() + 32.dp
+					)
 			) {
-				NavicDownloadControlsRow(
-					controls = navicDownloadQueueControls(downloadItems),
-					onRetryFailedDownloads = viewModel::retryFailedDownloads,
-					onDiscardFailedDownloads = viewModel::discardFailedDownloads,
-					onClearDownloadQueue = viewModel::clearDownloadQueue
-				)
-				downloadItems.take(ACTIVITY_ITEM_LIMIT).forEach { item ->
-					ActivityDownloadRow(
-						item = item,
-						onCancel = viewModel::cancelDownload,
-						onRetry = viewModel::retryDownload
-					)
-				}
-			}
-
-			if (shouldShowAurralActivitySection(aurralStatus.data)) {
 				ActivitySection(
-					title = stringResource(Res.string.title_aurral),
-					summary = aurralActivitySummary(aurralStatus.data),
-					loading = aurralStatus is UiState.Loading,
-					error = activityQueueSectionError(
-						ActivitySection.Aurral,
-						(aurralStatus as? UiState.Error)?.error
-					)
+					title = stringResource(Res.string.option_download_queue),
+					summary = navicDownloadActivitySummary(downloadItems)
 				) {
-					aurralStatus.data?.acquisitionQueue
-						.orEmpty()
-						.take(ACTIVITY_ITEM_LIMIT)
+					NavicDownloadControlsRow(
+						controls = navicDownloadQueueControls(downloadItems),
+						onRetryFailedDownloads = viewModel::retryFailedDownloads,
+						onDiscardFailedDownloads = viewModel::discardFailedDownloads,
+						onClearDownloadQueue = viewModel::clearDownloadQueue
+					)
+					downloadItems.take(ACTIVITY_ITEM_LIMIT).forEach { item ->
+						ActivityDownloadRow(
+							item = item,
+							onCancel = viewModel::cancelDownload,
+							onRetry = viewModel::retryDownload
+						)
+					}
+				}
+
+				ActivitySection(
+					title = stringResource(Res.string.title_lida_clips),
+					summary = lidaClipsActivitySummary(downloads = lidaClipDownloadItems)
+				) {
+					LidaClipDownloadControlsRow(
+						controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
+						onRetryFailedDownloads = viewModel::retryFailedLidaClipDownloads,
+						onDiscardFailedDownloads = viewModel::discardFailedLidaClipDownloads,
+						onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
+					)
+					lidaClipDownloadItems
 						.forEach { item ->
-							AurralQueueRow(
+							LidaClipDownloadRow(
 								item = item,
-								onCancel = viewModel::cancelAurralAcquisition,
-								onRetry = viewModel::retryAurralAcquisition
+								onCancel = viewModel::cancelLidaClipDownload,
+								onRetry = viewModel::retryLidaClipDownload
 							)
 						}
 				}
-			}
 
-			ActivitySection(
-				title = stringResource(Res.string.title_lida_clips),
-				summary = lidaClipsActivitySummary(downloads = lidaClipDownloadItems)
-			) {
-				LidaClipDownloadControlsRow(
-					controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
-					onRetryFailedDownloads = viewModel::retryFailedLidaClipDownloads,
-					onDiscardFailedDownloads = viewModel::discardFailedLidaClipDownloads,
-					onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
-				)
-				lidaClipDownloadItems
-					.forEach { item ->
-						LidaClipDownloadRow(
-							item = item,
-							onCancel = viewModel::cancelLidaClipDownload,
-							onRetry = viewModel::retryLidaClipDownload
+				if (shouldShowAurralActivitySection(aurralStatus.data)) {
+					ActivitySection(
+						title = stringResource(Res.string.title_aurral),
+						summary = aurralActivitySummary(aurralStatus.data),
+						loading = aurralStatus is UiState.Loading,
+						error = activityQueueSectionError(
+							ActivitySection.Aurral,
+							(aurralStatus as? UiState.Error)?.error
 						)
+					) {
+						aurralStatus.data?.acquisitionQueue
+							.orEmpty()
+							.take(ACTIVITY_ITEM_LIMIT)
+							.forEach { item ->
+								AurralQueueRow(
+									item = item,
+									onCancel = viewModel::cancelAurralAcquisition,
+									onRetry = viewModel::retryAurralAcquisition
+								)
+							}
 					}
+				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = activityIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = activityIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 }

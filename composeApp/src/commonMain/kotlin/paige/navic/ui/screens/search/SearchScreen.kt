@@ -87,7 +87,10 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -152,6 +155,11 @@ fun SearchScreen(
 
 	val query = viewModel.searchQuery
 	val state by viewModel.searchState.collectAsState()
+	val aurralSearchConfigured = preferenceManager.aurralEnabled &&
+		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val searchIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = query.text.isNotBlank() && aurralSearchConfigured && state is UiState.Loading
+	)
 	val rawSearchHistory by viewModel.searchHistory.collectAsState(initial = emptyList())
 	val searchHistory = visibleSearchHistory(
 		history = rawSearchHistory,
@@ -215,21 +223,22 @@ fun SearchScreen(
 			}
 		}
 	) { contentPadding ->
-		AnimatedContent(
-			state,
-			modifier = Modifier.fillMaxSize()
-		) { uiState ->
-			when (uiState) {
-				is UiState.Loading -> ArtGrid(contentPadding = contentPadding) { artGridPlaceholder() }
-				is UiState.Error -> ErrorBox(uiState, padding = contentPadding)
-				is UiState.Success -> {
-					val results = uiState.data
-					val buckets = searchResultBuckets(results, selectedCategory)
-					val albums = buckets.albums
-					val artists = buckets.artists
-					val songs = buckets.songs
-					val aurralArtists = buckets.aurralArtists
-					val aurralAlbums = buckets.aurralAlbums
+		Box(Modifier.fillMaxSize()) {
+			AnimatedContent(
+				state,
+				modifier = Modifier.fillMaxSize()
+			) { uiState ->
+				when (uiState) {
+					is UiState.Loading -> ArtGrid(contentPadding = contentPadding) { artGridPlaceholder() }
+					is UiState.Error -> ErrorBox(uiState, padding = contentPadding)
+					is UiState.Success -> {
+						val results = uiState.data
+						val buckets = searchResultBuckets(results, selectedCategory)
+						val albums = buckets.albums
+						val artists = buckets.artists
+						val songs = buckets.songs
+						val aurralArtists = buckets.aurralArtists
+						val aurralAlbums = buckets.aurralAlbums
 
 					if (query.text.isNotBlank() && buckets.isEmpty) {
 						ContentUnavailable(
@@ -550,8 +559,19 @@ fun SearchScreen(
 							}
 						}
 					}
+					}
 				}
 			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = searchIntegrationIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = searchIntegrationIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = contentPadding.calculateTopPadding() + 8.dp)
+			)
 		}
 	}
 
