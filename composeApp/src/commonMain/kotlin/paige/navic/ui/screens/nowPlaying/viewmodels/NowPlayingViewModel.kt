@@ -18,6 +18,7 @@ import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.repositories.LidaClipsRepository
+import paige.navic.domain.repositories.LyricsRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.shared.MediaPlayerViewModel
@@ -28,6 +29,7 @@ class NowPlayingViewModel(
 	private val player: MediaPlayerViewModel,
 	private val songRepository: SongRepository,
 	private val lidaClipsRepository: LidaClipsRepository,
+	private val lyricsRepository: LyricsRepository,
 	private val lidaClipCacheManager: LidaClipCacheManager,
 	private val downloadManager: DownloadManager,
 	private val preferenceManager: PreferenceManager
@@ -42,10 +44,15 @@ class NowPlayingViewModel(
 	private val _lidaClipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Success(null))
 	val lidaClipState = _lidaClipState.asStateFlow()
 
+	private val _lyricsAvailableState = MutableStateFlow<UiState<Boolean>>(UiState.Success(false))
+	val lyricsAvailableState = _lyricsAvailableState.asStateFlow()
+
 	private var lastLidaClipsPrefetchKey: String? = null
 	private var lastLidaClipsPrefetchTimeMillis: Long? = null
 	private var currentLidaClipSongId: String? = null
 	private var lidaClipLookupJob: Job? = null
+	private var currentLyricsSongId: String? = null
+	private var lyricsLookupJob: Job? = null
 
 	init {
 		viewModelScope.launch {
@@ -55,10 +62,12 @@ class NowPlayingViewModel(
 					_songIsStarred.value = false
 					_songRating.value = 0
 					clearLidaClip()
+					clearLyrics()
 				} else {
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
 					loadLidaClip(song)
+					loadLyrics(song)
 				}
 			}
 		}
@@ -161,11 +170,41 @@ class NowPlayingViewModel(
 		}
 	}
 
+	private fun loadLyrics(song: DomainSong) {
+		if (currentLyricsSongId == song.id) return
+
+		currentLyricsSongId = song.id
+		lyricsLookupJob?.cancel()
+		_lyricsAvailableState.value = UiState.Loading(false)
+		lyricsLookupJob = viewModelScope.launch(Dispatchers.IO) {
+			runCatching { lyricsRepository.fetchLyrics(song) }
+				.onSuccess { result ->
+					if (currentLyricsSongId == song.id) {
+						_lyricsAvailableState.value = UiState.Success(!result?.lines.isNullOrEmpty())
+					}
+				}
+				.onFailure { error ->
+					if (currentLyricsSongId == song.id) {
+						_lyricsAvailableState.value = UiState.Error(
+							error as? Exception ?: Exception(error.message, error),
+							false
+						)
+					}
+				}
+		}
+	}
+
 	private fun clearLidaClip() {
 		currentLidaClipSongId = null
 		lastLidaClipsPrefetchKey = null
 		lastLidaClipsPrefetchTimeMillis = null
 		lidaClipLookupJob?.cancel()
 		_lidaClipState.value = UiState.Success(null)
+	}
+
+	private fun clearLyrics() {
+		currentLyricsSongId = null
+		lyricsLookupJob?.cancel()
+		_lyricsAvailableState.value = UiState.Success(false)
 	}
 }

@@ -80,6 +80,10 @@ class ActivityViewModel(
 		downloadManager.discardFailedDownloads()
 	}
 
+	fun clearDownloadQueue() {
+		downloadManager.clearDownloadQueue()
+	}
+
 	fun cancelAurralAcquisition(item: AurralAcquisitionQueueItem) {
 		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.cancelAcquisitionRequest(item)

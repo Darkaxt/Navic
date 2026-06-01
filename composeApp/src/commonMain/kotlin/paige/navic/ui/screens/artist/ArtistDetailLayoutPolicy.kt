@@ -67,3 +67,18 @@ fun shouldShowArtistBiographyToggle(
 	limit: Int = ArtistBiographyPreviewLimit
 ): Boolean =
 	biography?.trim()?.let { it.length > limit } == true
+
+@Immutable
+data class ArtistBiographyScrollFades(
+	val showTop: Boolean,
+	val showBottom: Boolean
+)
+
+fun artistBiographyScrollFades(
+	scrollValue: Int,
+	maxScrollValue: Int
+): ArtistBiographyScrollFades =
+	ArtistBiographyScrollFades(
+		showTop = scrollValue > 0,
+		showBottom = maxScrollValue > 0 && scrollValue < maxScrollValue
+	)

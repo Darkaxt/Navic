@@ -67,18 +67,15 @@ fun lidaClipsNowPlayingMusicVideoAction(
 	songId: String?,
 	hasResolvedClip: Boolean
 ): LidaClipsNowPlayingMusicVideoAction? =
-	if (shouldShowLidaClipsMusicVideoAction(
+	if (hasResolvedClip &&
+		shouldShowLidaClipsMusicVideoAction(
 			lidaClipsEnabled = lidaClipsEnabled,
 			lidaClipsBaseUrl = lidaClipsBaseUrl,
 			userActionEnabled = userActionEnabled,
 			songId = songId
 		)
 	) {
-		if (hasResolvedClip) {
-			LidaClipsNowPlayingMusicVideoAction.ToggleArtworkClip
-		} else {
-			LidaClipsNowPlayingMusicVideoAction.OpenPlayer
-		}
+		LidaClipsNowPlayingMusicVideoAction.ToggleArtworkClip
 	} else {
 		null
 	}

@@ -228,6 +228,7 @@ fun SettingsDataStorageScreen() {
 		onDismissRequest = { showDownloadQueueDialog = false },
 		onCancelDownload = viewModel::cancelDownload,
 		onCancelPendingDownloads = viewModel::cancelPendingDownloads,
+		onClearDownloadQueue = viewModel::clearDownloadQueue,
 		onRetryFailedDownloads = viewModel::retryFailedDownloads
 	)
 

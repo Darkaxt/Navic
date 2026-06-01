@@ -343,9 +343,9 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
-	fun nowPlayingMusicVideoActionOpensClipScreenWhenConfiguredButNoClipResolved() {
+	fun nowPlayingMusicVideoActionRequiresResolvedClip() {
 		assertEquals(
-			LidaClipsNowPlayingMusicVideoAction.OpenPlayer,
+			null,
 			lidaClipsNowPlayingMusicVideoAction(
 				lidaClipsEnabled = true,
 				lidaClipsBaseUrl = "https://clips.remaxku.eu",

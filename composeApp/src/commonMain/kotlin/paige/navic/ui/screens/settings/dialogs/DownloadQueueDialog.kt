@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel_pending_downloads
 import navic.composeapp.generated.resources.action_cancel_download
+import navic.composeapp.generated.resources.action_clear_download_queue
 import navic.composeapp.generated.resources.action_delete_download
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.action_retry_failed_downloads
@@ -37,6 +38,7 @@ fun DownloadQueueDialog(
 	onDismissRequest: () -> Unit,
 	onCancelDownload: (String) -> Unit,
 	onCancelPendingDownloads: () -> Unit,
+	onClearDownloadQueue: () -> Unit,
 	onRetryFailedDownloads: () -> Unit
 ) {
 	if (!showDialog) return
@@ -62,6 +64,19 @@ fun DownloadQueueDialog(
 			if (items.any { it.canRetry }) {
 				FormRow(onClick = onRetryFailedDownloads) {
 					Text(stringResource(Res.string.action_retry_failed_downloads))
+				}
+			}
+			if (items.isNotEmpty()) {
+				FormRow(
+					onClick = {
+						onClearDownloadQueue()
+						onDismissRequest()
+					}
+				) {
+					Text(
+						text = stringResource(Res.string.action_clear_download_queue),
+						color = MaterialTheme.colorScheme.error
+					)
 				}
 			}
 			FormRow(onClick = onDismissRequest) {

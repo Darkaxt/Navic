@@ -112,4 +112,24 @@ class ArtistDetailLayoutPolicyTest {
 		assertFalse(shouldShowArtistBiographyToggle("Short biography", limit = 200))
 		assertNull(artistBiographyDisplayText(null, expanded = false, limit = 200))
 	}
+
+	@Test
+	fun artistBiographyScrollFadesOnlyShowWhenMoreTextExistsInThatDirection() {
+		assertEquals(
+			ArtistBiographyScrollFades(showTop = false, showBottom = false),
+			artistBiographyScrollFades(scrollValue = 0, maxScrollValue = 0)
+		)
+		assertEquals(
+			ArtistBiographyScrollFades(showTop = false, showBottom = true),
+			artistBiographyScrollFades(scrollValue = 0, maxScrollValue = 100)
+		)
+		assertEquals(
+			ArtistBiographyScrollFades(showTop = true, showBottom = true),
+			artistBiographyScrollFades(scrollValue = 50, maxScrollValue = 100)
+		)
+		assertEquals(
+			ArtistBiographyScrollFades(showTop = true, showBottom = false),
+			artistBiographyScrollFades(scrollValue = 100, maxScrollValue = 100)
+		)
+	}
 }

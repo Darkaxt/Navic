@@ -156,6 +156,10 @@ class SettingsDataStorageViewModel(
 		downloadManager.cancelAllActiveDownloads()
 	}
 
+	fun clearDownloadQueue() {
+		downloadManager.clearDownloadQueue()
+	}
+
 	fun retryFailedDownloads() {
 		downloadManager.retryFailedDownloads()
 	}

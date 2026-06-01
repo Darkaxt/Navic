@@ -31,6 +31,7 @@ import navic.composeapp.generated.resources.action_discard_failed_downloads
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.action_retry_failed_downloads
+import navic.composeapp.generated.resources.action_clear_download_queue
 import navic.composeapp.generated.resources.info_download_status_downloading
 import navic.composeapp.generated.resources.info_download_status_failed
 import navic.composeapp.generated.resources.info_download_status_queued
@@ -111,7 +112,8 @@ fun ActivityScreen() {
 				NavicDownloadControlsRow(
 					controls = navicDownloadQueueControls(downloadItems),
 					onRetryFailedDownloads = viewModel::retryFailedDownloads,
-					onDiscardFailedDownloads = viewModel::discardFailedDownloads
+					onDiscardFailedDownloads = viewModel::discardFailedDownloads,
+					onClearDownloadQueue = viewModel::clearDownloadQueue
 				)
 				downloadItems.take(ACTIVITY_ITEM_LIMIT).forEach { item ->
 					ActivityDownloadRow(item)
@@ -160,9 +162,14 @@ fun ActivityScreen() {
 private fun NavicDownloadControlsRow(
 	controls: NavicDownloadQueueControls,
 	onRetryFailedDownloads: () -> Unit,
-	onDiscardFailedDownloads: () -> Unit
+	onDiscardFailedDownloads: () -> Unit,
+	onClearDownloadQueue: () -> Unit
 ) {
-	if (!controls.canRetryFailedDownloads && !controls.canDiscardFailedDownloads) return
+	if (
+		!controls.canRetryFailedDownloads &&
+		!controls.canDiscardFailedDownloads &&
+		!controls.canClearDownloadQueue
+	) return
 	FormRow(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
 		Row(
 			modifier = Modifier.fillMaxWidth(),
@@ -178,6 +185,14 @@ private fun NavicDownloadControlsRow(
 				TextButton(onClick = onDiscardFailedDownloads) {
 					Text(
 						text = stringResource(Res.string.action_discard_failed_downloads),
+						color = MaterialTheme.colorScheme.error
+					)
+				}
+			}
+			if (controls.canClearDownloadQueue) {
+				TextButton(onClick = onClearDownloadQueue) {
+					Text(
+						text = stringResource(Res.string.action_clear_download_queue),
 						color = MaterialTheme.colorScheme.error
 					)
 				}

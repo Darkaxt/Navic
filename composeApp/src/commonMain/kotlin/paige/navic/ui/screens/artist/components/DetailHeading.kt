@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,8 +44,11 @@ import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.screens.artist.ArtistBiographyScrollFades
+import paige.navic.ui.screens.artist.artistBiographyScrollFades
 import paige.navic.ui.screens.artist.artistBiographyDisplayText
 import paige.navic.ui.screens.artist.shouldShowArtistBiographyToggle
+import paige.navic.util.ui.easedVerticalGradient
 
 @Composable
 fun ArtistDetailScreenHeading(
@@ -126,22 +131,19 @@ fun ArtistDetailScreenHeading(
 						.padding(top = 12.dp),
 					verticalArrangement = Arrangement.spacedBy(8.dp)
 				) {
-					Text(
-						text = biography,
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurface,
-						modifier = Modifier
-							.widthIn(max = 500.dp)
-							.then(
-								if (biographyExpanded) {
-									Modifier
-										.heightIn(max = 160.dp)
-										.verticalScroll(biographyScrollState)
-								} else {
-									Modifier
-								}
-							)
-					)
+					if (biographyExpanded) {
+						ScrollableArtistBiographyText(
+							text = biography,
+							scrollState = biographyScrollState
+						)
+					} else {
+						Text(
+							text = biography,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurface,
+							modifier = Modifier.widthIn(max = 500.dp)
+						)
+					}
 					if (shouldShowArtistBiographyToggle(subtitle)) {
 						Text(
 							text = stringResource(
@@ -157,5 +159,66 @@ fun ArtistDetailScreenHeading(
 				}
 			}
 		}
+	}
+}
+
+@Composable
+private fun ScrollableArtistBiographyText(
+	text: String,
+	scrollState: ScrollState
+) {
+	val fades = artistBiographyScrollFades(
+		scrollValue = scrollState.value,
+		maxScrollValue = scrollState.maxValue
+	)
+	Box(
+		modifier = Modifier
+			.widthIn(max = 500.dp)
+			.heightIn(max = 160.dp)
+	) {
+		Text(
+			text = text,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurface,
+			modifier = Modifier
+				.fillMaxWidth()
+				.verticalScroll(scrollState)
+		)
+		ArtistBiographyGradientFades(fades)
+	}
+}
+
+@Composable
+private fun BoxScope.ArtistBiographyGradientFades(
+	fades: ArtistBiographyScrollFades
+) {
+	val fadeColor = MaterialTheme.colorScheme.background.copy(alpha = .96f)
+	if (fades.showTop) {
+		Box(
+			modifier = Modifier
+				.align(Alignment.TopStart)
+				.fillMaxWidth()
+				.height(28.dp)
+				.background(
+					Brush.easedVerticalGradient(
+						startY = 0f,
+						endY = Float.POSITIVE_INFINITY,
+						color = fadeColor
+					)
+				)
+		)
+	}
+	if (fades.showBottom) {
+		Box(
+			modifier = Modifier
+				.align(Alignment.BottomStart)
+				.fillMaxWidth()
+				.height(28.dp)
+				.background(
+					Brush.easedVerticalGradient(
+						color = fadeColor
+					)
+				)
+		)
 	}
 }

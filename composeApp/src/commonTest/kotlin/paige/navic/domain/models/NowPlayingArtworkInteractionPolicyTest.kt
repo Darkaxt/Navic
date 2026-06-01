@@ -14,21 +14,32 @@ class NowPlayingArtworkInteractionPolicyTest {
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = true,
 				showNowPlayingArtwork = true,
-				hasCurrentSong = true
+				hasCurrentSong = true,
+				hasResolvedLyrics = true
 			)
 		)
 		assertFalse(
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = false,
 				showNowPlayingArtwork = true,
-				hasCurrentSong = true
+				hasCurrentSong = true,
+				hasResolvedLyrics = true
 			)
 		)
 		assertFalse(
 			shouldOpenLyricsFromNowPlayingArtworkTap(
 				tapArtworkForLyrics = true,
 				showNowPlayingArtwork = true,
-				hasCurrentSong = false
+				hasCurrentSong = false,
+				hasResolvedLyrics = true
+			)
+		)
+		assertFalse(
+			shouldOpenLyricsFromNowPlayingArtworkTap(
+				tapArtworkForLyrics = true,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = true,
+				hasResolvedLyrics = false
 			)
 		)
 	}
@@ -80,7 +91,17 @@ class NowPlayingArtworkInteractionPolicyTest {
 				configuredAction = NowPlayingArtworkTapAction.Lyrics,
 				legacyTapArtworkForLyrics = false,
 				showNowPlayingArtwork = true,
-				hasCurrentSong = true
+				hasCurrentSong = true,
+				hasResolvedLyrics = true
+			)
+		)
+		assertNull(
+			nowPlayingArtworkTapDestination(
+				configuredAction = NowPlayingArtworkTapAction.Lyrics,
+				legacyTapArtworkForLyrics = false,
+				showNowPlayingArtwork = true,
+				hasCurrentSong = true,
+				hasResolvedLyrics = false
 			)
 		)
 		assertEquals(
@@ -108,6 +129,38 @@ class NowPlayingArtworkInteractionPolicyTest {
 			effectiveNowPlayingArtworkTapAction(
 				configuredAction = NowPlayingArtworkTapAction.TrackInfo,
 				legacyTapArtworkForLyrics = true
+			)
+		)
+	}
+
+	@Test
+	fun nowPlayingLyricsActionRequiresResolvedLyrics() {
+		assertTrue(
+			shouldShowNowPlayingLyricsAction(
+				userActionEnabled = true,
+				hasCurrentSong = true,
+				hasResolvedLyrics = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingLyricsAction(
+				userActionEnabled = false,
+				hasCurrentSong = true,
+				hasResolvedLyrics = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingLyricsAction(
+				userActionEnabled = true,
+				hasCurrentSong = false,
+				hasResolvedLyrics = true
+			)
+		)
+		assertFalse(
+			shouldShowNowPlayingLyricsAction(
+				userActionEnabled = true,
+				hasCurrentSong = true,
+				hasResolvedLyrics = false
 			)
 		)
 	}

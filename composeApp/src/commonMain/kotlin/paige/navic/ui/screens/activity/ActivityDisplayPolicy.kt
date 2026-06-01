@@ -38,7 +38,8 @@ data class ActivityDownloadItem(
 data class NavicDownloadQueueControls(
 	val failedCount: Int,
 	val canRetryFailedDownloads: Boolean,
-	val canDiscardFailedDownloads: Boolean
+	val canDiscardFailedDownloads: Boolean,
+	val canClearDownloadQueue: Boolean
 )
 
 @Immutable
@@ -82,7 +83,8 @@ fun navicDownloadQueueControls(downloads: List<ActivityDownloadItem>): NavicDown
 	return NavicDownloadQueueControls(
 		failedCount = failedCount,
 		canRetryFailedDownloads = failedCount > 0,
-		canDiscardFailedDownloads = failedCount > 0
+		canDiscardFailedDownloads = failedCount > 0,
+		canClearDownloadQueue = downloads.isNotEmpty()
 	)
 }
 
@@ -186,10 +188,20 @@ fun lidaClipsActivitySummary(status: LidaClipsServiceStatus?): ActivitySummary {
 		)
 	}
 
-	val detail = activityCountDetail(
-		listOf(failedHealthChecks to "health check failed"),
-		emptyDetail = "Queue is clear"
-	) ?: "Queue is clear"
+	val detail = listOfNotNull(
+		"Clip download queue is empty",
+		activityCountDetail(
+			listOf(failedHealthChecks to "health check failed"),
+			emptyDetail = null
+		),
+		activityCountDetail(
+			listOf(
+				status.recentClips.size to "recent clip",
+				status.recentFailures.size to "recent issue"
+			),
+			emptyDetail = null
+		)
+	).joinToString("; ")
 
 	return ActivitySummary(
 		section = ActivitySection.LidaClips,

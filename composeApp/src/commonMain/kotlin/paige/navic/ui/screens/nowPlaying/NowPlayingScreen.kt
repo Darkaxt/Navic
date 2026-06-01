@@ -49,6 +49,7 @@ import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
+import paige.navic.domain.models.shouldShowNowPlayingLyricsAction
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
@@ -107,7 +108,9 @@ fun NowPlayingScreen() {
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
 	val lidaClipState by viewModel.lidaClipState.collectAsStateWithLifecycle()
+	val lyricsAvailableState by viewModel.lyricsAvailableState.collectAsStateWithLifecycle()
 	val lidaClip = lidaClipState.data
+	val lyricsAvailable = lyricsAvailableState.data == true
 	var foregroundClipSongId by rememberSaveable { mutableStateOf<String?>(null) }
 	val showClipInArtwork = lidaClip != null && foregroundClipSongId == song?.id
 	val showArtwork = preferenceManager.showNowPlayingArtwork
@@ -116,7 +119,8 @@ fun NowPlayingScreen() {
 		configuredAction = preferenceManager.nowPlayingArtworkTapAction,
 		legacyTapArtworkForLyrics = preferenceManager.tapArtworkForLyrics,
 		showNowPlayingArtwork = showArtwork,
-		hasCurrentSong = song != null
+		hasCurrentSong = song != null,
+		hasResolvedLyrics = lyricsAvailable
 	)
 	val onArtworkTap: (() -> Unit)? = when (artworkTapDestination) {
 		NowPlayingArtworkTapDestination.Lyrics -> {
@@ -153,7 +157,11 @@ fun NowPlayingScreen() {
 					)
 				},
 				actions = {
-					val showLyricsAction = preferenceManager.showNowPlayingLyricsAction
+					val showLyricsAction = shouldShowNowPlayingLyricsAction(
+						userActionEnabled = preferenceManager.showNowPlayingLyricsAction,
+						hasCurrentSong = song != null,
+						hasResolvedLyrics = lyricsAvailable
+					)
 					val musicVideoAction = lidaClipsNowPlayingMusicVideoAction(
 						lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
 						lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,

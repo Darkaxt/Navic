@@ -41,6 +41,8 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.canStartQueuedDownload
+import paige.navic.domain.models.cancelPendingDownloadSongIds
+import paige.navic.domain.models.clearDownloadQueueSongIds
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.failedDownloadRetryPlan
@@ -157,35 +159,16 @@ class DownloadManager(
 	}
 
 	fun cancelAllActiveDownloads() {
-		libraryDownloadJob?.cancel()
-		libraryDownloadJob = null
-		_isDownloadingLibrary.value = false
-		_libraryDownloadProgress.value = 0f
-
+		resetLibraryDownloadState()
 		scope.launch(Dispatchers.IO) {
-			queuedSongIdsMutex.withLock {
-				queuedSongIds.clear()
-			}
+			clearDownloadRows(::cancelPendingDownloadSongIds)
+		}
+	}
 
-			val jobsToCancel = activeDownloadsMutex.withLock {
-				val copy = activeDownloads.toMap()
-				activeDownloads.clear()
-				copy
-			}
-
-			jobsToCancel.forEach { (songId, job) ->
-				job.cancel()
-				val existing = downloadDao.getDownloadById(songId)
-				if (existing?.status == DownloadStatus.DOWNLOADING ||
-					existing?.status == DownloadStatus.QUEUED
-				) {
-					downloadDao.deleteDownload(songId)
-				}
-			}
-
-			downloadDao.getAllDownloadsList()
-				.filter { it.status == DownloadStatus.QUEUED }
-				.forEach { downloadDao.deleteDownload(it.songId) }
+	fun clearDownloadQueue() {
+		resetLibraryDownloadState()
+		scope.launch(Dispatchers.IO) {
+			clearDownloadRows(::clearDownloadQueueSongIds)
 		}
 	}
 
@@ -304,6 +287,30 @@ class DownloadManager(
 		}
 		if (songsToResume.isEmpty()) return
 		sendSongsToQueue(songsToResume)
+	}
+
+	private fun resetLibraryDownloadState() {
+		libraryDownloadJob?.cancel()
+		libraryDownloadJob = null
+		_isDownloadingLibrary.value = false
+		_libraryDownloadProgress.value = 0f
+	}
+
+	private suspend fun clearDownloadRows(songIdsToDelete: (List<DownloadEntity>) -> List<String>) {
+		queuedSongIdsMutex.withLock {
+			queuedSongIds.clear()
+		}
+
+		val jobsToCancel = activeDownloadsMutex.withLock {
+			val copy = activeDownloads.toMap()
+			activeDownloads.clear()
+			copy
+		}
+		jobsToCancel.values.forEach { job -> job.cancel() }
+
+		songIdsToDelete(downloadDao.getAllDownloadsList())
+			.distinct()
+			.forEach { songId -> downloadDao.deleteDownload(songId) }
 	}
 
 	private suspend fun processSongDownloadQueue() {

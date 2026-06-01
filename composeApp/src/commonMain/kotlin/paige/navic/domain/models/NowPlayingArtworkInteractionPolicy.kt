@@ -5,8 +5,9 @@ import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 fun shouldOpenLyricsFromNowPlayingArtworkTap(
 	tapArtworkForLyrics: Boolean,
 	showNowPlayingArtwork: Boolean,
-	hasCurrentSong: Boolean
-): Boolean = tapArtworkForLyrics && showNowPlayingArtwork && hasCurrentSong
+	hasCurrentSong: Boolean,
+	hasResolvedLyrics: Boolean = true
+): Boolean = tapArtworkForLyrics && showNowPlayingArtwork && hasCurrentSong && hasResolvedLyrics
 
 enum class NowPlayingArtworkTapDestination {
 	Lyrics,
@@ -27,16 +28,26 @@ fun nowPlayingArtworkTapDestination(
 	configuredAction: NowPlayingArtworkTapAction,
 	legacyTapArtworkForLyrics: Boolean,
 	showNowPlayingArtwork: Boolean,
-	hasCurrentSong: Boolean
+	hasCurrentSong: Boolean,
+	hasResolvedLyrics: Boolean = true
 ): NowPlayingArtworkTapDestination? {
 	if (!showNowPlayingArtwork || !hasCurrentSong) return null
 
 	return when (effectiveNowPlayingArtworkTapAction(configuredAction, legacyTapArtworkForLyrics)) {
 		NowPlayingArtworkTapAction.Disabled -> null
-		NowPlayingArtworkTapAction.Lyrics -> NowPlayingArtworkTapDestination.Lyrics
+		NowPlayingArtworkTapAction.Lyrics -> NowPlayingArtworkTapDestination.Lyrics.takeIf {
+			hasResolvedLyrics
+		}
 		NowPlayingArtworkTapAction.TrackInfo -> NowPlayingArtworkTapDestination.TrackInfo
 	}
 }
+
+fun shouldShowNowPlayingLyricsAction(
+	userActionEnabled: Boolean,
+	hasCurrentSong: Boolean,
+	hasResolvedLyrics: Boolean
+): Boolean =
+	userActionEnabled && hasCurrentSong && hasResolvedLyrics
 
 fun shouldShowNowPlayingMusicBrainzInfoAction(
 	fallbackEnabled: Boolean,

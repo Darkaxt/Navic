@@ -40,6 +40,17 @@ fun downloadQueueDownloads(downloads: List<DownloadEntity>): List<DownloadEntity
 			}
 		}
 
+fun cancelPendingDownloadSongIds(downloads: List<DownloadEntity>): List<String> =
+	downloadQueueDownloads(downloads)
+		.filter { download ->
+			download.status == DownloadStatus.DOWNLOADING ||
+				download.status == DownloadStatus.QUEUED
+		}
+		.map { it.songId }
+
+fun clearDownloadQueueSongIds(downloads: List<DownloadEntity>): List<String> =
+	downloadQueueDownloads(downloads).map { it.songId }
+
 data class FailedDownloadRetryPlan(
 	val songIdsToRetry: List<String>,
 	val staleSongIdsToDelete: List<String>

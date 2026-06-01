@@ -39,6 +39,38 @@ class DownloadSummaryPolicyTest {
 	}
 
 	@Test
+	fun clearDownloadQueueSongIdsIncludeOnlyQueueRows() {
+		assertEquals(
+			listOf("downloading", "queued", "failed"),
+			clearDownloadQueueSongIds(
+				listOf(
+					DownloadEntity("downloaded", DownloadStatus.DOWNLOADED),
+					DownloadEntity("failed", DownloadStatus.FAILED),
+					DownloadEntity("queued", DownloadStatus.QUEUED),
+					DownloadEntity("not-downloaded", DownloadStatus.NOT_DOWNLOADED),
+					DownloadEntity("downloading", DownloadStatus.DOWNLOADING)
+				)
+			)
+		)
+	}
+
+	@Test
+	fun cancelPendingDownloadSongIdsSkipFailedRows() {
+		assertEquals(
+			listOf("downloading", "queued"),
+			cancelPendingDownloadSongIds(
+				listOf(
+					DownloadEntity("downloaded", DownloadStatus.DOWNLOADED),
+					DownloadEntity("failed", DownloadStatus.FAILED),
+					DownloadEntity("queued", DownloadStatus.QUEUED),
+					DownloadEntity("not-downloaded", DownloadStatus.NOT_DOWNLOADED),
+					DownloadEntity("downloading", DownloadStatus.DOWNLOADING)
+				)
+			)
+		)
+	}
+
+	@Test
 	fun retryableFailedDownloadSongIdsIncludesOnlyFailedSongsThatStillExistLocally() {
 		assertEquals(
 			listOf("failed-local"),

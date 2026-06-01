@@ -55,6 +55,7 @@ class ActivityDisplayPolicyTest {
 		assertEquals(2, controls.failedCount)
 		assertTrue(controls.canRetryFailedDownloads)
 		assertTrue(controls.canDiscardFailedDownloads)
+		assertTrue(controls.canClearDownloadQueue)
 	}
 
 	@Test
@@ -69,6 +70,17 @@ class ActivityDisplayPolicyTest {
 		assertEquals(0, controls.failedCount)
 		assertFalse(controls.canRetryFailedDownloads)
 		assertFalse(controls.canDiscardFailedDownloads)
+		assertTrue(controls.canClearDownloadQueue)
+	}
+
+	@Test
+	fun downloadQueueControlsHideClearActionWhenQueueIsEmpty() {
+		val controls = navicDownloadQueueControls(emptyList())
+
+		assertEquals(0, controls.failedCount)
+		assertFalse(controls.canRetryFailedDownloads)
+		assertFalse(controls.canDiscardFailedDownloads)
+		assertFalse(controls.canClearDownloadQueue)
 	}
 
 	@Test
@@ -172,7 +184,7 @@ class ActivityDisplayPolicyTest {
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
 		assertEquals("Sync running", summary.value)
-		assertEquals("1 health check failed", summary.detail)
+		assertEquals("Clip download queue is empty; 1 health check failed; 2 recent issues", summary.detail)
 		assertTrue(summary.active)
 		assertTrue(summary.failed)
 	}
@@ -220,7 +232,7 @@ class ActivityDisplayPolicyTest {
 
 		assertEquals(ActivitySection.LidaClips, summary.section)
 		assertEquals("No active clip downloads", summary.value)
-		assertEquals("Queue is clear", summary.detail)
+		assertEquals("Clip download queue is empty; 1 recent issue", summary.detail)
 		assertFalse(summary.active)
 		assertFalse(summary.failed)
 	}

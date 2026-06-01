@@ -434,10 +434,24 @@ class AurralHubDisplayPolicyTest {
 			aurralDiscoverCollectionRoute(tagRow)
 		)
 		assertEquals(
-			Screen.AurralDiscoverCollection("TopTags"),
+			null,
 			aurralDiscoverCollectionRoute(
 				AurralDiscoveryCollectionRow.Tags(tags = listOf("soundtrack"))
 			)
+		)
+	}
+
+	@Test
+	fun discoveryCollectionRowsDoNotCapTopTagsToPreviewLimit() {
+		val summary = AurralDiscoverySummary(
+			topTags = (1..12).map { "tag-$it" }
+		)
+
+		val rows = aurralDiscoveryCollectionRows(summary, limit = 8)
+
+		assertEquals(
+			(1..12).map { "tag-$it" },
+			(rows.single() as AurralDiscoveryCollectionRow.Tags).tags
 		)
 	}
 

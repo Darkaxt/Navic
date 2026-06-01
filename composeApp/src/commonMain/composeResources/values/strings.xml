@@ -732,6 +732,7 @@
 	<string name="action_cancel_pending_downloads">Cancel pending downloads</string>
 	<string name="action_retry_failed_downloads">Retry failed downloads</string>
 	<string name="action_discard_failed_downloads">Discard failed downloads</string>
+	<string name="action_clear_download_queue">Clear download queue</string>
 	<string name="action_retry">Retry</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>

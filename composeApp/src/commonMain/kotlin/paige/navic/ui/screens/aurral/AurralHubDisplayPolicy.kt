@@ -253,7 +253,7 @@ fun aurralDiscoveryCollectionRows(
 
 		addAll(aurralDiscoveryGenreRows(discovery, safeLimit))
 
-		val topTags = aurralDiscoverTopTags(discovery, safeLimit)
+		val topTags = aurralDiscoverTopTags(discovery)
 		if (topTags.isNotEmpty()) {
 			add(AurralDiscoveryCollectionRow.Tags(tags = topTags))
 		}
@@ -321,8 +321,7 @@ fun aurralDiscoverCollectionRoute(row: AurralDiscoveryCollectionRow): Screen? =
 			}
 
 		is AurralDiscoveryCollectionRow.Albums -> null
-		is AurralDiscoveryCollectionRow.Tags ->
-			Screen.AurralDiscoverCollection(row.kind.name)
+		is AurralDiscoveryCollectionRow.Tags -> null
 	}
 
 fun aurralRecommendedAlbumsForArtist(
