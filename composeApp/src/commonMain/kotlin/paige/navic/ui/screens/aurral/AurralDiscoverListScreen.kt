@@ -74,7 +74,7 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 		preferenceManager.aurralPassword
 	) {
 		if (configured) {
-			viewModel.refreshServiceStatus()
+			viewModel.refreshDiscovery(hydrateMissingImages = false)
 		} else {
 			viewModel.clearServiceStatus()
 		}
@@ -99,7 +99,7 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 				.background(MaterialTheme.colorScheme.surface),
 			finished = discoveryState !is UiState.Loading && localArtistsState !is UiState.Loading,
 			onRefresh = {
-				if (configured) viewModel.refreshServiceStatus()
+				if (configured) viewModel.refreshDiscovery(hydrateMissingImages = false)
 				localArtistsViewModel.refreshArtists(false)
 			},
 			key = discoveryState

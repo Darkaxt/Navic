@@ -1324,6 +1324,15 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			value = preferenceManager.aurralEnabled,
 			onSetValue = { preferenceManager.aurralEnabled = it }
 		))
+		add(switchRow(
+			id = "lastfm.enabled",
+			path = path(integrations, lastFm),
+			title = stringResource(Res.string.option_lastfm_enabled),
+			subtitle = stringResource(Res.string.subtitle_lastfm_enabled),
+			keywords = listOf("Last.fm", "artist top tracks", "recommendations", "public metadata"),
+			value = preferenceManager.lastFmEnabled,
+			onSetValue = { preferenceManager.lastFmEnabled = it }
+		))
 		add(textFieldRow(
 			id = "lastfm.api-key",
 			path = path(integrations, lastFm),

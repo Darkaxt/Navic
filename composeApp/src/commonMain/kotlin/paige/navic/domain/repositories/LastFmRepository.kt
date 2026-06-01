@@ -23,6 +23,7 @@ class LastFmRepository(
 	private val apiClient: LastFmApiClient = KtorLastFmApiClient()
 ) {
 	suspend fun testConnection(): LastFmConnectionResult {
+		if (!preferenceManager.lastFmEnabled) return LastFmConnectionResult.Disabled
 		val apiKey = preferenceManager.lastFmApiKey.trim()
 		if (apiKey.isEmpty()) return LastFmConnectionResult.MissingApiKey
 
@@ -45,9 +46,19 @@ class LastFmRepository(
 
 	suspend fun getServiceStatus(): Result<LastFmServiceStatus> {
 		val apiKey = preferenceManager.lastFmApiKey.trim()
+		if (!preferenceManager.lastFmEnabled) {
+			return Result.success(
+				LastFmServiceStatus(
+					enabled = false,
+					apiKeyConfigured = apiKey.isNotEmpty(),
+					artistTopTracksEnabled = false
+				)
+			)
+		}
 		if (apiKey.isEmpty()) {
 			return Result.success(
 				LastFmServiceStatus(
+					enabled = true,
 					apiKeyConfigured = false,
 					artistTopTracksEnabled = false
 				)
@@ -57,6 +68,7 @@ class LastFmRepository(
 		return runCatching {
 			val probe = apiClient.probeService(apiKey)
 			LastFmServiceStatus(
+				enabled = true,
 				apiKeyConfigured = true,
 				artistTopTracksEnabled = true,
 				sampleArtistCount = probe.sampleArtistCount
@@ -71,6 +83,7 @@ class LastFmRepository(
 		artistMbid: String?,
 		limit: Int = 12
 	): Result<List<LastFmTopTrack>> {
+		if (!preferenceManager.lastFmEnabled) return Result.success(emptyList())
 		val apiKey = preferenceManager.lastFmApiKey.trim()
 		if (apiKey.isEmpty()) return Result.success(emptyList())
 		val safeArtistName = artistName.trim()
@@ -159,6 +172,7 @@ private class KtorLastFmApiClient : LastFmApiClient {
 private val invalidApiKeyErrorCodes = setOf(10, 26)
 
 sealed interface LastFmConnectionResult {
+	data object Disabled : LastFmConnectionResult
 	data object MissingApiKey : LastFmConnectionResult
 	data object InvalidApiKey : LastFmConnectionResult
 	data class Connected(val sampleArtistCount: Int) : LastFmConnectionResult
@@ -166,6 +180,7 @@ sealed interface LastFmConnectionResult {
 }
 
 data class LastFmServiceStatus(
+	val enabled: Boolean = true,
 	val apiKeyConfigured: Boolean,
 	val artistTopTracksEnabled: Boolean,
 	val sampleArtistCount: Int? = null

@@ -171,6 +171,7 @@ fun AurralHubScreen() {
 		preferenceManager.aurralPassword
 	) {
 		if (configured) {
+			viewModel.refreshDiscovery(hydrateMissingImages = false)
 			delay(500L)
 			viewModel.refreshServiceStatus()
 		} else {
@@ -190,7 +191,10 @@ fun AurralHubScreen() {
 						Icon(Icons.Filled.Settings, null)
 					}
 					TopBarButton(
-						onClick = { viewModel.refreshServiceStatus() },
+						onClick = {
+							viewModel.refreshDiscovery(hydrateMissingImages = false)
+							viewModel.refreshServiceStatus()
+						},
 						enabled = configured && serviceStatus !is UiState.Loading
 					) {
 						Icon(Icons.Outlined.Refresh, stringResource(Res.string.action_refresh))
@@ -307,6 +311,7 @@ private fun AurralHubContent(
 	onOpenStation: (DomainPlaylist) -> Unit
 ) {
 	val status = state.data
+	val canMonitorArtist = status?.addArtist == true
 	if (status == null) {
 		Form(Modifier.fillMaxWidth()) {
 			FormRow {
@@ -323,13 +328,14 @@ private fun AurralHubContent(
 				)
 			}
 		}
-		return
 	}
 	var showCreateFlowDialog by rememberSaveable { mutableStateOf(false) }
 
-	Form(Modifier.fillMaxWidth()) {
-		aurralHubSummaryCards(status).forEach { card ->
-			AurralHubSummaryRow(card)
+	if (status != null) {
+		Form(Modifier.fillMaxWidth()) {
+			aurralHubSummaryCards(status).forEach { card ->
+				AurralHubSummaryRow(card)
+			}
 		}
 	}
 
@@ -339,7 +345,7 @@ private fun AurralHubContent(
 		albumState = albumSearchState,
 		actionState = discoverActionState,
 		activeArtistId = activeDiscoverArtistId,
-		canMonitorArtist = status.addArtist,
+		canMonitorArtist = canMonitorArtist,
 		preferenceManager = preferenceManager,
 		onQueryChange = onArtistSearchQueryChange,
 		onSearchArtists = onSearchArtists,
@@ -353,7 +359,7 @@ private fun AurralHubContent(
 		state = discoveryState,
 		actionState = discoverActionState,
 		activeArtistId = activeDiscoverArtistId,
-		canMonitorArtist = status.addArtist,
+		canMonitorArtist = canMonitorArtist,
 		preferenceManager = preferenceManager,
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
@@ -362,42 +368,44 @@ private fun AurralHubContent(
 		onOpenTag = onOpenTag
 	)
 
-	AurralHubFlowsSection(
-		status = status,
-		flowActionState = flowActionState,
-		activeFlowActionId = activeFlowActionId,
-		stationPlaylists = stationPlaylists,
-		onCreateFlowClick = { showCreateFlowDialog = true },
-		onSetFlowEnabled = onSetFlowEnabled,
-		onStartFlow = onStartFlow,
-		onPlayFlow = onPlayFlow,
-		onPlayStation = onPlayStation,
-		onOpenStation = onOpenStation
-	)
+	if (status != null) {
+		AurralHubFlowsSection(
+			status = status,
+			flowActionState = flowActionState,
+			activeFlowActionId = activeFlowActionId,
+			stationPlaylists = stationPlaylists,
+			onCreateFlowClick = { showCreateFlowDialog = true },
+			onSetFlowEnabled = onSetFlowEnabled,
+			onStartFlow = onStartFlow,
+			onPlayFlow = onPlayFlow,
+			onPlayStation = onPlayStation,
+			onOpenStation = onOpenStation
+		)
 
-	AurralHubSectionTitle(stringResource(Res.string.title_aurral_acquisition_queue))
-	Form(Modifier.fillMaxWidth()) {
-		if (status.acquisitionQueue.isEmpty()) {
-			FormRow {
-				Text(stringResource(Res.string.info_aurral_acquisition_queue_empty))
-			}
-		} else {
-			status.acquisitionQueue.take(10).forEach { item ->
-				AurralHubQueueRow(item)
+		AurralHubSectionTitle(stringResource(Res.string.title_aurral_acquisition_queue))
+		Form(Modifier.fillMaxWidth()) {
+			if (status.acquisitionQueue.isEmpty()) {
+				FormRow {
+					Text(stringResource(Res.string.info_aurral_acquisition_queue_empty))
+				}
+			} else {
+				status.acquisitionQueue.take(10).forEach { item ->
+					AurralHubQueueRow(item)
+				}
 			}
 		}
-	}
 
-	if (showCreateFlowDialog) {
-		AurralCreateFlowDialog(
-			defaultName = nextAurralFlowName(status.flows),
-			creating = flowActionState is UiState.Loading && activeFlowActionId == "create",
-			onDismissRequest = { showCreateFlowDialog = false },
-			onCreate = { name, size ->
-				showCreateFlowDialog = false
-				onCreateFlow(name, size)
-			}
-		)
+		if (showCreateFlowDialog) {
+			AurralCreateFlowDialog(
+				defaultName = nextAurralFlowName(status.flows),
+				creating = flowActionState is UiState.Loading && activeFlowActionId == "create",
+				onDismissRequest = { showCreateFlowDialog = false },
+				onCreate = { name, size ->
+					showCreateFlowDialog = false
+					onCreateFlow(name, size)
+				}
+			)
+		}
 	}
 
 	AnimatedVisibility(state is UiState.Loading) {

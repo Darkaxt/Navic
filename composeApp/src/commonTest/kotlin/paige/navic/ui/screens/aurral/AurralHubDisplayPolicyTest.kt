@@ -30,6 +30,19 @@ import paige.navic.ui.navigation.Screen
 
 class AurralHubDisplayPolicyTest {
 	@Test
+	fun hubDiscoveryCanRenderBeforeServiceStatusIsAvailable() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(id = "artist-mbid", name = "Recommended Artist")
+			)
+		)
+
+		assertTrue(aurralHubCanRenderDiscoveryWithoutStatus(summary))
+		assertFalse(aurralHubCanRenderDiscoveryWithoutStatus(null))
+		assertFalse(aurralHubCanRenderDiscoveryWithoutStatus(AurralDiscoverySummary()))
+	}
+
+	@Test
 	fun discoverArtistsPreferRecommendationsThenGlobalTopAndCapRows() {
 		val summary = AurralDiscoverySummary(
 			recommendations = listOf(

@@ -21,6 +21,34 @@ class LastFmRepositoryTest {
 	}
 
 	@Test
+	fun disabledIntegrationDoesNotCallLastFmAndReportsDisabledStatus() = runBlocking {
+		val apiClient = FakeLastFmApiClient()
+		val preferences = PreferenceManager(MapSettings()).apply {
+			lastFmEnabled = false
+			lastFmApiKey = "configured-key"
+		}
+		val repository = LastFmRepository(
+			preferenceManager = preferences,
+			apiClient = apiClient
+		)
+
+		assertEquals(LastFmConnectionResult.Disabled, repository.testConnection())
+		assertEquals(
+			LastFmServiceStatus(
+				enabled = false,
+				apiKeyConfigured = true,
+				artistTopTracksEnabled = false
+			),
+			repository.getServiceStatus().getOrThrow()
+		)
+		assertEquals(
+			emptyList(),
+			repository.getArtistTopTracks("Artist", null).getOrThrow()
+		)
+		assertEquals(0, apiClient.validationCalls)
+	}
+
+	@Test
 	fun connectionTestReturnsSampleMetricWhenApiKeyIsValid() = runBlocking {
 		val apiClient = FakeLastFmApiClient(
 			probeResult = LastFmServiceProbe(sampleArtistCount = 1)
@@ -71,6 +99,7 @@ class LastFmRepositoryTest {
 
 		assertEquals(
 			LastFmServiceStatus(
+				enabled = true,
 				apiKeyConfigured = true,
 				artistTopTracksEnabled = true,
 				sampleArtistCount = 3

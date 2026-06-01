@@ -112,6 +112,9 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
+		getDiscovery(hydrateMissingImages = false)
+
 	suspend fun searchArtists(
 		query: String,
 		limit: Int = 12,

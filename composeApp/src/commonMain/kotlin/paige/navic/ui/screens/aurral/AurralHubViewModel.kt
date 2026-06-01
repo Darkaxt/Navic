@@ -82,6 +82,14 @@ class AurralHubViewModel(
 		}
 	}
 
+	fun refreshDiscovery(hydrateMissingImages: Boolean = true) {
+		if (_discovery.value is UiState.Loading) return
+
+		viewModelScope.launch(Dispatchers.IO) {
+			loadDiscovery(hydrateMissingImages)
+		}
+	}
+
 	fun updateArtistSearchQuery(query: String) {
 		_artistSearchQuery.value = query
 		if (query.isBlank()) {
@@ -271,9 +279,13 @@ class AurralHubViewModel(
 		loadStationPlaylists()
 	}
 
-	private suspend fun loadDiscovery() {
+	private suspend fun loadDiscovery(hydrateMissingImages: Boolean = true) {
 		_discovery.value = UiState.Loading(_discovery.value.data)
-		val result = repository.getDiscovery()
+		val result = if (hydrateMissingImages) {
+			repository.getDiscovery()
+		} else {
+			repository.getLibraryDiscovery()
+		}
 		_discovery.value = result.fold(
 			onSuccess = { UiState.Success(it) },
 			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }

@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_clear_lastfm_api_key
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
 import navic.composeapp.generated.resources.info_lastfm_configured
@@ -42,10 +44,15 @@ import navic.composeapp.generated.resources.info_lastfm_service_status_failed
 import navic.composeapp.generated.resources.info_lastfm_service_status_loading
 import navic.composeapp.generated.resources.info_lastfm_service_status_unavailable
 import navic.composeapp.generated.resources.info_lastfm_testing
+import navic.composeapp.generated.resources.info_lastfm_unsupported
 import navic.composeapp.generated.resources.option_lastfm_api_key
 import navic.composeapp.generated.resources.option_lastfm_artist_top_tracks
+import navic.composeapp.generated.resources.option_lastfm_account_features
+import navic.composeapp.generated.resources.option_lastfm_enabled
+import navic.composeapp.generated.resources.option_lastfm_integration
 import navic.composeapp.generated.resources.option_lastfm_validation_sample
 import navic.composeapp.generated.resources.subtitle_lastfm_api_key
+import navic.composeapp.generated.resources.subtitle_lastfm_enabled
 import navic.composeapp.generated.resources.title_lastfm
 import navic.composeapp.generated.resources.title_lastfm_service_status
 import org.jetbrains.compose.resources.stringResource
@@ -60,6 +67,7 @@ import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsLastFmViewModel
 
 @Composable
@@ -71,10 +79,11 @@ fun SettingsLastFmScreen() {
 	val isTestingConnection by viewModel.isTestingConnection.collectAsStateWithLifecycle()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val apiKeyConfigured = preferenceManager.lastFmApiKey.isNotBlank()
+	val lastFmEnabled = preferenceManager.lastFmEnabled
 
-	LaunchedEffect(preferenceManager.lastFmApiKey) {
+	LaunchedEffect(preferenceManager.lastFmEnabled, preferenceManager.lastFmApiKey) {
 		viewModel.clearConnectionResult()
-		if (apiKeyConfigured) {
+		if (lastFmEnabled) {
 			delay(500L)
 			viewModel.refreshServiceStatus()
 		} else {
@@ -99,49 +108,88 @@ fun SettingsLastFmScreen() {
 			) {
 				FormTitle(stringResource(Res.string.title_lastfm))
 				Form(Modifier.fillMaxWidth()) {
-					FormRow {
-						Column(Modifier.weight(1f)) {
-							Text(stringResource(Res.string.option_lastfm_api_key))
-							Text(
-								stringResource(Res.string.subtitle_lastfm_api_key),
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-							TextField(
-								value = preferenceManager.lastFmApiKey,
-								onValueChange = { preferenceManager.lastFmApiKey = it },
-								modifier = Modifier.padding(top = 8.dp),
-								singleLine = true,
-								visualTransformation = PasswordVisualTransformation(),
-								keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-								colors = TextFieldDefaults.colors(
-									focusedIndicatorColor = Color.Transparent,
-									unfocusedIndicatorColor = Color.Transparent
-								),
-								shape = MaterialTheme.shapes.medium
-							)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_lastfm_enabled)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_lastfm_enabled)) },
+						value = preferenceManager.lastFmEnabled,
+						onSetValue = {
+							preferenceManager.lastFmEnabled = it
+							viewModel.clearConnectionResult()
+							viewModel.clearServiceStatus()
+						}
+					)
+					AnimatedVisibility(
+						visible = preferenceManager.lastFmEnabled,
+						modifier = Modifier.fillMaxWidth()
+					) {
+						Column(Modifier.fillMaxWidth()) {
+							FormRow {
+								Column(Modifier.weight(1f)) {
+									Text(stringResource(Res.string.option_lastfm_api_key))
+									Text(
+										stringResource(Res.string.subtitle_lastfm_api_key),
+										style = MaterialTheme.typography.bodyMedium,
+										color = MaterialTheme.colorScheme.onSurfaceVariant
+									)
+									TextField(
+										value = preferenceManager.lastFmApiKey,
+										onValueChange = {
+											preferenceManager.lastFmApiKey = it
+											viewModel.clearConnectionResult()
+											viewModel.clearServiceStatus()
+										},
+										modifier = Modifier.padding(top = 8.dp),
+										singleLine = true,
+										visualTransformation = PasswordVisualTransformation(),
+										keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+										colors = TextFieldDefaults.colors(
+											focusedIndicatorColor = Color.Transparent,
+											unfocusedIndicatorColor = Color.Transparent
+										),
+										shape = MaterialTheme.shapes.medium
+									)
+								}
+							}
+							FormRow {
+								Text(
+									text = lastFmConnectionStateText(
+										lastFmConnectionState(
+											enabled = preferenceManager.lastFmEnabled,
+											apiKey = preferenceManager.lastFmApiKey,
+											connectionResult = connectionResult,
+											isTestingConnection = isTestingConnection
+										)
+									),
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
 						}
 					}
-					FormRow {
-						Text(
-							text = lastFmConnectionStateText(
-								lastFmConnectionState(
-									apiKey = preferenceManager.lastFmApiKey,
-									connectionResult = connectionResult,
-									isTestingConnection = isTestingConnection
-								)
-							),
-							color = MaterialTheme.colorScheme.onSurfaceVariant
-						)
+				}
+				AnimatedVisibility(
+					visible = preferenceManager.lastFmEnabled,
+					modifier = Modifier.fillMaxWidth()
+				) {
+					FormButton(
+						onClick = { viewModel.testConnection() },
+						enabled = !isTestingConnection && apiKeyConfigured
+					) {
+						Text(stringResource(Res.string.action_test_connection))
 					}
 				}
-				FormButton(
-					onClick = { viewModel.testConnection() },
-					enabled = !isTestingConnection && apiKeyConfigured
-				) {
-					Text(stringResource(Res.string.action_test_connection))
+				if (preferenceManager.lastFmEnabled && apiKeyConfigured) {
+					FormButton(
+						onClick = {
+							preferenceManager.lastFmApiKey = ""
+							viewModel.clearConnectionResult()
+							viewModel.clearServiceStatus()
+						},
+						color = MaterialTheme.colorScheme.errorContainer
+					) {
+						Text(stringResource(Res.string.action_clear_lastfm_api_key))
+					}
 				}
-				if (apiKeyConfigured) {
+				if (preferenceManager.lastFmEnabled) {
 					FormTitle(stringResource(Res.string.title_lastfm_service_status))
 					Form(Modifier.fillMaxWidth()) {
 						LastFmServiceStatusContent(serviceStatus)
@@ -218,6 +266,7 @@ private fun SettingValueRow(
 @Composable
 private fun lastFmConnectionStateText(state: LastFmConnectionState): String =
 	when (state) {
+		LastFmConnectionState.Disabled -> stringResource(Res.string.info_lastfm_disabled)
 		LastFmConnectionState.MissingApiKey -> stringResource(Res.string.info_lastfm_missing_api_key)
 		LastFmConnectionState.NotTested -> stringResource(Res.string.info_lastfm_not_tested)
 		LastFmConnectionState.Testing -> stringResource(Res.string.info_lastfm_testing)
@@ -230,7 +279,9 @@ private fun lastFmConnectionStateText(state: LastFmConnectionState): String =
 private fun lastFmStatusTitle(type: LastFmStatusType): String =
 	when (type) {
 		LastFmStatusType.ApiKey -> stringResource(Res.string.option_lastfm_api_key)
+		LastFmStatusType.Integration -> stringResource(Res.string.option_lastfm_integration)
 		LastFmStatusType.ArtistTopTracks -> stringResource(Res.string.option_lastfm_artist_top_tracks)
+		LastFmStatusType.AccountFeatures -> stringResource(Res.string.option_lastfm_account_features)
 		LastFmStatusType.ValidationSample -> stringResource(Res.string.option_lastfm_validation_sample)
 	}
 
@@ -241,5 +292,6 @@ private fun lastFmStatusValue(value: LastFmStatusValue): String =
 		LastFmStatusValue.NotConfigured -> stringResource(Res.string.info_lastfm_not_configured)
 		LastFmStatusValue.Enabled -> stringResource(Res.string.info_lastfm_enabled)
 		LastFmStatusValue.Disabled -> stringResource(Res.string.info_lastfm_disabled)
+		LastFmStatusValue.Unsupported -> stringResource(Res.string.info_lastfm_unsupported)
 		is LastFmStatusValue.Count -> stringResource(Res.string.info_lastfm_sample_artists, value.value)
 	}

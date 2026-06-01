@@ -149,6 +149,7 @@ class PreferenceManager(
 	var lidaClipsKeepScreenOn by preference(true)
 	var lidaClipsLastClipId by preference("")
 	var lidaClipsLastPositionMs by preference(0L)
+	var lastFmEnabled by preference(true)
 	var lastFmApiKey by preference("")
 	var aurralEnabled by preference(false)
 	var aurralBaseUrl by preference("")

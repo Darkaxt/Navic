@@ -6,6 +6,7 @@ import paige.navic.domain.repositories.LastFmServiceStatus
 
 @Immutable
 sealed interface LastFmConnectionState {
+	data object Disabled : LastFmConnectionState
 	data object MissingApiKey : LastFmConnectionState
 	data object NotTested : LastFmConnectionState
 	data object Testing : LastFmConnectionState
@@ -17,7 +18,9 @@ sealed interface LastFmConnectionState {
 @Immutable
 enum class LastFmStatusType {
 	ApiKey,
+	Integration,
 	ArtistTopTracks,
+	AccountFeatures,
 	ValidationSample
 }
 
@@ -27,6 +30,7 @@ sealed interface LastFmStatusValue {
 	data object NotConfigured : LastFmStatusValue
 	data object Enabled : LastFmStatusValue
 	data object Disabled : LastFmStatusValue
+	data object Unsupported : LastFmStatusValue
 	data class Count(val value: Int) : LastFmStatusValue
 }
 
@@ -37,11 +41,13 @@ data class LastFmStatusRow(
 )
 
 fun lastFmConnectionState(
+	enabled: Boolean,
 	apiKey: String,
 	connectionResult: LastFmConnectionResult?,
 	isTestingConnection: Boolean
 ): LastFmConnectionState =
 	when {
+		!enabled -> LastFmConnectionState.Disabled
 		isTestingConnection -> LastFmConnectionState.Testing
 		apiKey.isBlank() -> LastFmConnectionState.MissingApiKey
 		connectionResult == null -> LastFmConnectionState.NotTested
@@ -49,6 +55,7 @@ fun lastFmConnectionState(
 			LastFmConnectionState.Connected(connectionResult.sampleArtistCount)
 		connectionResult is LastFmConnectionResult.Failed ->
 			LastFmConnectionState.Failed(connectionResult.message)
+		connectionResult == LastFmConnectionResult.Disabled -> LastFmConnectionState.Disabled
 		connectionResult == LastFmConnectionResult.InvalidApiKey -> LastFmConnectionState.InvalidApiKey
 		connectionResult == LastFmConnectionResult.MissingApiKey -> LastFmConnectionState.MissingApiKey
 		else -> LastFmConnectionState.NotTested
@@ -68,6 +75,16 @@ fun lastFmStatusRows(status: LastFmServiceStatus): List<LastFmStatusRow> =
 		)
 		add(
 			LastFmStatusRow(
+				type = LastFmStatusType.Integration,
+				value = if (status.enabled) {
+					LastFmStatusValue.Enabled
+				} else {
+					LastFmStatusValue.Disabled
+				}
+			)
+		)
+		add(
+			LastFmStatusRow(
 				type = LastFmStatusType.ArtistTopTracks,
 				value = if (status.artistTopTracksEnabled) {
 					LastFmStatusValue.Enabled
@@ -76,6 +93,14 @@ fun lastFmStatusRows(status: LastFmServiceStatus): List<LastFmStatusRow> =
 				}
 			)
 		)
+		if (status.enabled && status.apiKeyConfigured) {
+			add(
+				LastFmStatusRow(
+					type = LastFmStatusType.AccountFeatures,
+					value = LastFmStatusValue.Unsupported
+				)
+			)
+		}
 		status.sampleArtistCount?.let { count ->
 			add(
 				LastFmStatusRow(

@@ -675,6 +675,40 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryLibraryDiscoverySkipsImageHydrationForFastRows(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(
+					AurralDiscoverArtist(id = "weak-bond-mbid", name = "Bond", imageUrl = null)
+				)
+			),
+			artistSearch = AurralArtistSearchResult(
+				query = "Bond",
+				count = 1,
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "correct-bond-mbid",
+						name = "BOND",
+						imageUrl = "https://assets.example.com/bond.jpg"
+					)
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val discovery = repository.getLibraryDiscovery().getOrThrow()
+
+		assertEquals("weak-bond-mbid", discovery.recommendations.single().id)
+		assertNull(discovery.recommendations.single().imageUrl)
+		assertEquals(emptyList(), apiClient.artistSearchRequests)
+	}
+
+	@Test
 	fun repositoryArtistSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "

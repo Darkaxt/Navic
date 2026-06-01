@@ -109,6 +109,11 @@ fun aurralHubDiscoverHasMore(
 ): Boolean =
 	aurralDiscoverListArtists(discovery).size > visibleLimit.coerceAtLeast(0)
 
+fun aurralHubCanRenderDiscoveryWithoutStatus(
+	discovery: AurralDiscoverySummary?
+): Boolean =
+	discovery?.let { aurralDiscoveryCollectionRows(it).isNotEmpty() } == true
+
 fun aurralDiscoveryCollectionRows(
 	discovery: AurralDiscoverySummary,
 	limit: Int = 8
