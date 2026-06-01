@@ -106,6 +106,11 @@ sealed interface Screen : NavKey {
 	data object AurralDiscoverList : Screen
 	@Immutable
 	@Serializable
+	data class AurralDiscoverCollection(
+		val kind: String
+	) : Screen
+	@Immutable
+	@Serializable
 	data class AurralDiscoverTag(
 		val tag: String
 	) : Screen

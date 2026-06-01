@@ -22,8 +22,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.count_artists
 import navic.composeapp.generated.resources.info_aurral_discover_empty
+import navic.composeapp.generated.resources.title_aurral_based_on_library
+import navic.composeapp.generated.resources.title_aurral_because_you_like
 import navic.composeapp.generated.resources.title_aurral_discover
+import navic.composeapp.generated.resources.title_aurral_explore_by_tag
+import navic.composeapp.generated.resources.title_aurral_global_top
+import navic.composeapp.generated.resources.title_aurral_recently_added
+import navic.composeapp.generated.resources.title_aurral_recent_releases
+import navic.composeapp.generated.resources.title_aurral_recommended_for_you
 import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -50,12 +58,18 @@ import paige.navic.util.ui.withoutTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun AurralDiscoverListScreen(tag: String? = null) {
+fun AurralDiscoverListScreen(
+	collectionKind: String? = null,
+	tag: String? = null
+) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
 	val tagFilter = tag?.trim()?.takeIf { it.isNotEmpty() }
+	val selectedCollection = aurralDiscoverCollectionKind(collectionKind)
 	val viewModel = koinViewModel<AurralHubViewModel>(
-		key = tagFilter?.let { "aurralDiscoverList:$it" } ?: "aurralDiscoverList"
+		key = tagFilter?.let { "aurralDiscoverList:tag:$it" }
+			?: selectedCollection?.let { "aurralDiscoverList:collection:${it.name}" }
+			?: "aurralDiscoverList"
 	)
 	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
 		key = "aurralDiscoverListLocalArtists",
@@ -69,6 +83,7 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 
 	LaunchedEffect(
 		configured,
+		selectedCollection,
 		preferenceManager.aurralBaseUrl,
 		preferenceManager.aurralUsername,
 		preferenceManager.aurralPassword
@@ -83,7 +98,13 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 	Scaffold(
 		topBar = {
 			NestedTopBar(
-				title = { Text(tagFilter?.let { "#$it" } ?: stringResource(Res.string.title_aurral_discover)) }
+				title = {
+					Text(
+						tagFilter?.let { "#$it" }
+							?: selectedCollection?.let { stringResource(it.titleResource()) }
+							?: stringResource(Res.string.title_aurral_discover)
+					)
+				}
 			)
 		},
 		bottomBar = {
@@ -106,10 +127,12 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 		) {
 			val artists = discoveryState.data
 				?.let { discovery ->
-					if (tagFilter == null) {
-						aurralDiscoverListArtists(discovery)
-					} else {
+					if (tagFilter != null) {
 						aurralDiscoverTagArtists(discovery, tagFilter)
+					} else if (selectedCollection != null) {
+						aurralDiscoverCollectionArtists(discovery, selectedCollection)
+					} else {
+						aurralDiscoverListArtists(discovery)
 					}
 				}
 				.orEmpty()
@@ -169,3 +192,14 @@ fun AurralDiscoverListScreen(tag: String? = null) {
 		}
 	}
 }
+
+private fun AurralDiscoveryCollectionKind.titleResource(): StringResource =
+	when (this) {
+		AurralDiscoveryCollectionKind.RecentlyAddedArtists -> Res.string.title_aurral_recently_added
+		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
+		AurralDiscoveryCollectionKind.RecommendedArtists -> Res.string.title_aurral_recommended_for_you
+		AurralDiscoveryCollectionKind.BasedOnArtists -> Res.string.title_aurral_based_on_library
+		AurralDiscoveryCollectionKind.GlobalTopArtists -> Res.string.title_aurral_global_top
+		AurralDiscoveryCollectionKind.GenreArtists -> Res.string.title_aurral_because_you_like
+		AurralDiscoveryCollectionKind.TopTags -> Res.string.title_aurral_explore_by_tag
+	}

@@ -23,6 +23,7 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_aurral_based_on_library
 import navic.composeapp.generated.resources.title_aurral_because_you_like
+import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_explore_by_tag
 import navic.composeapp.generated.resources.title_aurral_global_top
 import navic.composeapp.generated.resources.title_aurral_recently_added
@@ -62,10 +63,12 @@ import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
+import paige.navic.ui.screens.aurral.aurralDiscoverCollectionRoute
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
+import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
 import paige.navic.ui.screens.library.libraryDiscoveryAlbumRows
 import paige.navic.ui.screens.library.mostPlayedShortcutDestination
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
@@ -232,28 +235,44 @@ fun LibraryScreenContent(
 			)
 		}
 
+		if (libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) {
+			horizontalSection(
+				title = Res.string.title_aurral_discover,
+				destination = Screen.AurralHub,
+				state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
+				key = { it.id.trim().ifEmpty { it.name } },
+				seeAll = true
+			) { artist ->
+				AurralDiscoverArtistCard(
+					modifier = Modifier.animateItem().width(150.dp),
+					artist = artist,
+					onOpenArtist = onOpenAurralDiscoverArtist
+				)
+			}
+		}
+
 		aurralCollectionRowsState.data.orEmpty().forEach { row ->
 			when (row) {
-				is AurralDiscoveryCollectionRow.Artists -> horizontalSection(
-					title = row.kind.titleResource(),
-					titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
-						listOf(row.tag.orEmpty())
-					} else {
-						emptyList()
-					},
-					destination = row.tag
-						?.takeIf { row.kind == AurralDiscoveryCollectionKind.GenreArtists }
-						?.let(Screen::AurralDiscoverTag)
-						?: Screen.AurralDiscoverList,
-					state = UiState.Success(row.artists),
-					key = { it.id.trim().ifEmpty { it.name } },
-					seeAll = row.kind != AurralDiscoveryCollectionKind.RecentlyAddedArtists
-				) { artist ->
-					AurralDiscoverArtistCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						artist = artist,
-						onOpenArtist = onOpenAurralDiscoverArtist
-					)
+				is AurralDiscoveryCollectionRow.Artists -> {
+					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralDiscoverList
+					horizontalSection(
+						title = row.kind.titleResource(),
+						titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+							listOf(row.tag.orEmpty())
+						} else {
+							emptyList()
+						},
+						destination = destination,
+						state = UiState.Success(row.artists),
+						key = { it.id.trim().ifEmpty { it.name } },
+						seeAll = true
+					) { artist ->
+						AurralDiscoverArtistCard(
+							modifier = Modifier.animateItem().width(150.dp),
+							artist = artist,
+							onOpenArtist = onOpenAurralDiscoverArtist
+						)
+					}
 				}
 
 				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(

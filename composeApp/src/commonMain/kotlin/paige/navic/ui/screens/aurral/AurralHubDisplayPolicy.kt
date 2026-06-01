@@ -199,6 +199,50 @@ fun aurralDiscoverListArtists(
 			discovery.globalTop
 	)
 
+fun aurralDiscoverCollectionKind(routeValue: String?): AurralDiscoveryCollectionKind? =
+	routeValue?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
+		runCatching { AurralDiscoveryCollectionKind.valueOf(value) }.getOrNull()
+	}
+
+fun aurralDiscoverCollectionArtists(
+	discovery: AurralDiscoverySummary,
+	kind: AurralDiscoveryCollectionKind
+): List<AurralDiscoverArtist> =
+	when (kind) {
+		AurralDiscoveryCollectionKind.RecentlyAddedArtists ->
+			aurralHubSearchArtists(discovery.recentlyAdded, Int.MAX_VALUE)
+
+		AurralDiscoveryCollectionKind.RecommendedArtists ->
+			aurralHubSearchArtists(discovery.recommendations, Int.MAX_VALUE)
+
+		AurralDiscoveryCollectionKind.BasedOnArtists ->
+			aurralHubSearchArtists(discovery.basedOn, Int.MAX_VALUE)
+
+		AurralDiscoveryCollectionKind.GlobalTopArtists ->
+			aurralHubSearchArtists(discovery.globalTop, Int.MAX_VALUE)
+
+		AurralDiscoveryCollectionKind.RecentReleases ->
+			mergeAurralDiscoverArtists(
+				discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() }
+			)
+
+		AurralDiscoveryCollectionKind.GenreArtists,
+		AurralDiscoveryCollectionKind.TopTags -> emptyList()
+	}
+
+fun aurralDiscoverCollectionRoute(row: AurralDiscoveryCollectionRow): Screen? =
+	when (row) {
+		is AurralDiscoveryCollectionRow.Artists ->
+			if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+				row.tag?.trim()?.takeIf { it.isNotEmpty() }?.let(Screen::AurralDiscoverTag)
+			} else {
+				Screen.AurralDiscoverCollection(row.kind.name)
+			}
+
+		is AurralDiscoveryCollectionRow.Albums,
+		is AurralDiscoveryCollectionRow.Tags -> null
+	}
+
 fun aurralRecommendedAlbumsForArtist(
 	discovery: AurralDiscoverySummary,
 	artistMbid: String?,

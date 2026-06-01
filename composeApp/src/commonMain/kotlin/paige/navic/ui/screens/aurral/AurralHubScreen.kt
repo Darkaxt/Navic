@@ -245,7 +245,9 @@ fun AurralHubScreen() {
 							localArtists = localArtistsState.data.orEmpty()
 						)?.let(backStack::add)
 					},
-					onOpenDiscoverList = { backStack.add(Screen.AurralDiscoverList) },
+					onOpenDiscoverCollection = { row ->
+						aurralDiscoverCollectionRoute(row)?.let(backStack::add)
+					},
 					onOpenTag = { tag -> backStack.add(Screen.AurralDiscoverTag(tag)) },
 					onOpenSearchAlbum = { album ->
 						aurralAlbumSearchDestination(album)?.let(backStack::add)
@@ -297,7 +299,7 @@ private fun AurralHubContent(
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
-	onOpenDiscoverList: () -> Unit,
+	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow.Artists) -> Unit,
 	onOpenTag: (String) -> Unit,
 	onOpenSearchAlbum: (AurralAlbumSearchItem) -> Unit,
 	onArtistSearchQueryChange: (String) -> Unit,
@@ -364,7 +366,7 @@ private fun AurralHubContent(
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
 		onOpenAlbum = onOpenSearchAlbum,
-		onOpenDiscoverList = onOpenDiscoverList,
+		onOpenDiscoverCollection = onOpenDiscoverCollection,
 		onOpenTag = onOpenTag
 	)
 
@@ -614,7 +616,7 @@ private fun AurralHubDiscoverSection(
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenAlbum: (AurralAlbumSearchItem) -> Unit,
-	onOpenDiscoverList: () -> Unit,
+	onOpenDiscoverCollection: (AurralDiscoveryCollectionRow.Artists) -> Unit,
 	onOpenTag: (String) -> Unit
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
@@ -622,7 +624,6 @@ private fun AurralHubDiscoverSection(
 	val rows = discovery
 		?.let { aurralDiscoveryCollectionRows(it) }
 		.orEmpty()
-	val hasMoreArtists = discovery?.let { aurralHubDiscoverHasMore(it) } == true
 	val actionInProgress = actionState is UiState.Loading
 
 	when {
@@ -664,14 +665,14 @@ private fun AurralHubDiscoverSection(
 					}
 				}
 			}
-		}
-	}
-	if (hasMoreArtists) {
-		FormButton(
-			onClick = onOpenDiscoverList,
-			color = MaterialTheme.colorScheme.secondaryContainer
-		) {
-			Text(stringResource(Res.string.action_see_all))
+			if (row is AurralDiscoveryCollectionRow.Artists && aurralDiscoverCollectionRoute(row) != null) {
+				FormButton(
+					onClick = { onOpenDiscoverCollection(row) },
+					color = MaterialTheme.colorScheme.secondaryContainer
+				) {
+					Text(stringResource(Res.string.action_see_all))
+				}
+			}
 		}
 	}
 

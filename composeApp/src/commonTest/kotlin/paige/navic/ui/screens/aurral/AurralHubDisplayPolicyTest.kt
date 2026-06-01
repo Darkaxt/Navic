@@ -197,6 +197,77 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverCollectionArtistsExposeTheSelectedAurralBucket() {
+		val summary = AurralDiscoverySummary(
+			recentlyAdded = listOf(AurralDiscoverArtist(id = "recent", name = "Recent")),
+			recommendations = listOf(AurralDiscoverArtist(id = "recommended", name = "Recommended")),
+			basedOn = listOf(AurralDiscoverArtist(id = "based-on", name = "Based On")),
+			globalTop = listOf(AurralDiscoverArtist(id = "global", name = "Global")),
+			recentReleases = listOf(
+				albumSearchItem(
+					id = "release-1",
+					title = "Release Album",
+					artistName = "Release Artist",
+					artistMbid = "release-artist"
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("recent"),
+			aurralDiscoverCollectionArtists(summary, AurralDiscoveryCollectionKind.RecentlyAddedArtists)
+				.map { it.id }
+		)
+		assertEquals(
+			listOf("recommended"),
+			aurralDiscoverCollectionArtists(summary, AurralDiscoveryCollectionKind.RecommendedArtists)
+				.map { it.id }
+		)
+		assertEquals(
+			listOf("based-on"),
+			aurralDiscoverCollectionArtists(summary, AurralDiscoveryCollectionKind.BasedOnArtists)
+				.map { it.id }
+		)
+		assertEquals(
+			listOf("global"),
+			aurralDiscoverCollectionArtists(summary, AurralDiscoveryCollectionKind.GlobalTopArtists)
+				.map { it.id }
+		)
+		assertEquals(
+			listOf("release-artist"),
+			aurralDiscoverCollectionArtists(summary, AurralDiscoveryCollectionKind.RecentReleases)
+				.map { it.id }
+		)
+	}
+
+	@Test
+	fun discoverCollectionRouteUsesSpecificArtistCollectionScreens() {
+		val row = AurralDiscoveryCollectionRow.Artists(
+			kind = AurralDiscoveryCollectionKind.GlobalTopArtists,
+			artists = listOf(AurralDiscoverArtist(id = "global", name = "Global"))
+		)
+		val tagRow = AurralDiscoveryCollectionRow.Artists(
+			kind = AurralDiscoveryCollectionKind.GenreArtists,
+			artists = listOf(AurralDiscoverArtist(id = "genre", name = "Genre")),
+			tag = "soundtrack"
+		)
+
+		assertEquals(
+			Screen.AurralDiscoverCollection("GlobalTopArtists"),
+			aurralDiscoverCollectionRoute(row)
+		)
+		assertEquals(
+			Screen.AurralDiscoverTag("soundtrack"),
+			aurralDiscoverCollectionRoute(tagRow)
+		)
+		assertNull(
+			aurralDiscoverCollectionRoute(
+				AurralDiscoveryCollectionRow.Tags(tags = listOf("soundtrack"))
+			)
+		)
+	}
+
+	@Test
 	fun discoveryCollectionRowsKeepAurralBucketsSeparate() {
 		val summary = AurralDiscoverySummary(
 			recentlyAdded = listOf(

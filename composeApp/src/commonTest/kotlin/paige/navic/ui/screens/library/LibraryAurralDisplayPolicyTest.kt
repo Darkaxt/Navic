@@ -8,6 +8,7 @@ import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
+import paige.navic.ui.core.UiState
 
 class LibraryAurralDisplayPolicyTest {
 	@Test
@@ -123,6 +124,31 @@ class LibraryAurralDisplayPolicyTest {
 				discovery = discovery,
 				limit = 8
 			)
+		)
+	}
+
+	@Test
+	fun libraryShowsAurralLoadingPlaceholderOnlyWithoutCachedRows() {
+		assertEquals(
+			true,
+			libraryAurralLoadingPlaceholderVisible(UiState.Loading(emptyList()))
+		)
+		assertEquals(
+			false,
+			libraryAurralLoadingPlaceholderVisible(
+				UiState.Loading(
+					listOf(
+						AurralDiscoveryCollectionRow.Artists(
+							kind = AurralDiscoveryCollectionKind.RecommendedArtists,
+							artists = listOf(AurralDiscoverArtist(id = "artist", name = "Artist"))
+						)
+					)
+				)
+			)
+		)
+		assertEquals(
+			false,
+			libraryAurralLoadingPlaceholderVisible(UiState.Success(emptyList()))
 		)
 	}
 }

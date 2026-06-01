@@ -335,6 +335,9 @@ private fun entryProvider(
 		entry<Screen.AurralDiscoverList>(metadata = detailPane("root")) {
 			AurralDiscoverListScreen()
 		}
+		entry<Screen.AurralDiscoverCollection>(metadata = detailPane("root")) { key ->
+			AurralDiscoverListScreen(collectionKind = key.kind)
+		}
 		entry<Screen.AurralDiscoverTag>(metadata = detailPane("root")) { key ->
 			AurralDiscoverListScreen(tag = key.tag)
 		}

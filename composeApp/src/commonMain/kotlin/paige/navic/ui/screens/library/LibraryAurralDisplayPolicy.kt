@@ -6,6 +6,7 @@ import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 import paige.navic.ui.screens.aurral.aurralDiscoveryCollectionRows
 import paige.navic.ui.screens.aurral.aurralHubDiscoverArtists
+import paige.navic.ui.core.UiState
 
 fun libraryAlbumAurralRequests(
 	showAurralHub: Boolean,
@@ -34,3 +35,8 @@ fun libraryAurralCollectionRows(
 	} else {
 		emptyList()
 	}
+
+fun libraryAurralLoadingPlaceholderVisible(
+	state: UiState<List<AurralDiscoveryCollectionRow>>
+): Boolean =
+	state is UiState.Loading && state.data.orEmpty().isEmpty()
