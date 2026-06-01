@@ -1,12 +1,26 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import com.android.build.api.variant.impl.VariantOutputImpl
+import java.security.KeyStore
+import java.security.MessageDigest
 
 plugins {
 	alias(libs.plugins.android.application)
 	alias(libs.plugins.composeMultiplatform)
 	alias(libs.plugins.composeCompiler)
 }
+
+val releaseBuildRequested = gradle.startParameter.taskNames
+	.map { it.substringAfterLast(':') }
+	.any { task ->
+		task.contains("Release") ||
+			task == "assemble" ||
+			task == "build" ||
+			task == "package"
+	}
+
+val expectedReleaseCertificateSha256 =
+	"ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7"
 
 if (
 	gradle.startParameter.taskNames
@@ -32,8 +46,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 205
-		versionName = "v1.0.10-gamma17"
+		versionCode = 206
+		versionName = "v1.0.10-gamma18"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
@@ -66,11 +80,35 @@ extensions.configure<ApplicationExtension> {
 			releaseSigningEnv.all { System.getenv(it)?.isNotEmpty() == true } &&
 				signingStoreFile?.isFile == true &&
 				signingStoreFile.length() > 0
+		val releaseSigningCertificateSha256 = if (hasReleaseSigning) {
+			val storeType = System.getenv("SIGNING_STORE_TYPE")?.takeIf { it.isNotBlank() } ?: "PKCS12"
+			val keyStore = KeyStore.getInstance(storeType)
+			signingStoreFile.inputStream().use { input ->
+				keyStore.load(input, System.getenv("SIGNING_STORE_PASSWORD").toCharArray())
+			}
+			val certificate = keyStore.getCertificate(System.getenv("SIGNING_KEY_ALIAS"))
+				?: throw GradleException("Release signing keystore does not contain SIGNING_KEY_ALIAS.")
+			MessageDigest.getInstance("SHA-256")
+				.digest(certificate.encoded)
+				.joinToString("") { byte -> "%02x".format(byte) }
+		} else {
+			null
+		}
 
-		if (isRelease && !hasReleaseSigning) {
+		if ((isRelease || releaseBuildRequested) && !hasReleaseSigning) {
 			throw GradleException(
 				"Release builds require SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD, " +
 					"SIGNING_STORE_PASSWORD, and a non-empty SIGNING_STORE_FILE."
+			)
+		}
+		if (
+			(isRelease || releaseBuildRequested) &&
+			releaseSigningCertificateSha256 != null &&
+			releaseSigningCertificateSha256 != expectedReleaseCertificateSha256
+		) {
+			throw GradleException(
+				"Release signing certificate mismatch. Expected " +
+					"$expectedReleaseCertificateSha256 but found $releaseSigningCertificateSha256."
 			)
 		}
 
