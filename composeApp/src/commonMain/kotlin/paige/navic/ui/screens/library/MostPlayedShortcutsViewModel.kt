@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
@@ -19,7 +20,8 @@ import paige.navic.ui.core.UiState
 class MostPlayedShortcutsViewModel(
 	private val repository: PlaybackOriginRepository,
 	private val artistDao: ArtistDao,
-	private val albumDao: AlbumDao
+	private val albumDao: AlbumDao,
+	private val songDao: SongDao
 ) : ViewModel() {
 	private val _shortcutsState =
 		MutableStateFlow<UiState<ImmutableList<DomainMostPlayedShortcut>>>(UiState.Loading())
@@ -30,8 +32,9 @@ class MostPlayedShortcutsViewModel(
 			combine(
 				repository.observeMostPlayed(MOST_PLAYED_LIMIT),
 				artistDao.getAllArtists(),
-				albumDao.observeAlbumArtistArtwork()
-			) { shortcuts, artists, albums ->
+				albumDao.observeAlbumArtistArtwork(),
+				songDao.observeArtistSongArtwork()
+			) { shortcuts, artists, albums, songs ->
 				mostPlayedShortcutsWithResolvedArtwork(
 					shortcuts = shortcuts,
 					artists = artists.map { artist ->
@@ -49,6 +52,17 @@ class MostPlayedShortcutsViewModel(
 							coverArtId = album.coverArtId,
 							year = album.year,
 							name = album.name
+						)
+					},
+					songs = songs.map { song ->
+						MostPlayedShortcutSongArtwork(
+							artistId = song.artistId,
+							artistName = song.artistName,
+							coverArtId = song.coverArtId,
+							year = song.year,
+							albumTitle = song.albumTitle,
+							title = song.title,
+							playCount = song.playCount
 						)
 					}
 				).toImmutableList()

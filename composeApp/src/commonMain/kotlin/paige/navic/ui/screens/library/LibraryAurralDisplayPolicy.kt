@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.library
 
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
@@ -32,11 +33,32 @@ fun libraryAurralCollectionRows(
 ): List<AurralDiscoveryCollectionRow> =
 	if (aurralConfigured && discovery != null) {
 		aurralDiscoveryCollectionRows(discovery, limit)
+			.mapNotNull(::withoutFallbackArtworkCards)
 	} else {
 		emptyList()
 	}
+
+fun libraryLocalOwnershipStatus(
+	aurralConfigured: Boolean
+): AurralOwnershipStatus? =
+	if (aurralConfigured) AurralOwnershipStatus.Owned else null
 
 fun libraryAurralLoadingPlaceholderVisible(
 	state: UiState<List<AurralDiscoveryCollectionRow>>
 ): Boolean =
 	state is UiState.Loading && state.data.orEmpty().isEmpty()
+
+private fun withoutFallbackArtworkCards(
+	row: AurralDiscoveryCollectionRow
+): AurralDiscoveryCollectionRow? =
+	when (row) {
+		is AurralDiscoveryCollectionRow.Artists -> row.copy(
+			artists = row.artists.filter { artist -> !artist.imageUrl.isNullOrBlank() }
+		).takeIf { it.artists.isNotEmpty() }
+
+		is AurralDiscoveryCollectionRow.Albums -> row.copy(
+			albums = row.albums.filter { album -> !album.coverUrl.isNullOrBlank() }
+		).takeIf { it.albums.isNotEmpty() }
+
+		is AurralDiscoveryCollectionRow.Tags -> row
+	}

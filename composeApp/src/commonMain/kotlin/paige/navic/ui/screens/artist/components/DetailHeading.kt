@@ -58,71 +58,105 @@ fun ArtistDetailScreenHeading(
 	BoxWithConstraints(
 		modifier = Modifier.fillMaxWidth()
 	) {
-		Box(
-			modifier = Modifier
-				.fillMaxWidth()
-				.height((400.dp / (maxWidth / 300.dp)) + innerPadding.calculateTopPadding())
-				.background(MaterialTheme.colorScheme.surfaceContainer)
+		val headingHeight = (400.dp / (maxWidth / 300.dp)) + innerPadding.calculateTopPadding()
+		Column(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalAlignment = Alignment.Start
 		) {
-			CoverArt(
-				coverArtId = coverArtId,
-				imageUrl = imageUrl,
-				imageRequestHeaders = imageRequestHeaders,
-				modifier = Modifier.fillMaxSize(),
-				shape = RectangleShape,
-				square = false
-			)
 			Box(
 				modifier = Modifier
-					.fillMaxSize()
-					.background(
-						Brush.linearGradient(
-							0.025f to MaterialTheme.colorScheme.background,
-							1.0f to Color.Transparent,
-							start = Offset(0f, Float.POSITIVE_INFINITY),
-							end = Offset(0f, 0f)
-						)
-					)
-			)
-
-			Column(
-				modifier = Modifier
-					.align(Alignment.BottomStart)
-					.padding(horizontal = 20.dp)
-					.padding(start = innerPadding.calculateStartPadding(layoutDirection))
-					.padding(end = innerPadding.calculateEndPadding(layoutDirection)),
-				verticalArrangement = Arrangement.spacedBy(8.dp)
+					.fillMaxWidth()
+					.height(headingHeight)
+					.background(MaterialTheme.colorScheme.surfaceContainer)
 			) {
-				artistBiographyDisplayText(subtitle, expanded = biographyExpanded)?.let { biography ->
-					Text(
-						text = biography,
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurface,
-						modifier = Modifier.widthIn(max = 500.dp)
+				CoverArt(
+					coverArtId = coverArtId,
+					imageUrl = imageUrl,
+					imageRequestHeaders = imageRequestHeaders,
+					modifier = Modifier.fillMaxSize(),
+					shape = RectangleShape,
+					square = false
+				)
+				Box(
+					modifier = Modifier
+						.fillMaxSize()
+						.background(
+							Brush.linearGradient(
+								0.025f to MaterialTheme.colorScheme.background,
+								1.0f to Color.Transparent,
+								start = Offset(0f, Float.POSITIVE_INFINITY),
+								end = Offset(0f, 0f)
+							)
+						)
+				)
+
+				Column(
+					modifier = Modifier
+						.align(Alignment.BottomStart)
+						.padding(horizontal = 20.dp)
+						.padding(start = innerPadding.calculateStartPadding(layoutDirection))
+						.padding(end = innerPadding.calculateEndPadding(layoutDirection)),
+					verticalArrangement = Arrangement.spacedBy(8.dp)
+				) {
+					if (!biographyExpanded) {
+						artistBiographyDisplayText(subtitle, expanded = false)?.let { biography ->
+							Text(
+								text = biography,
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurface,
+								modifier = Modifier.widthIn(max = 500.dp)
+							)
+						}
+						if (shouldShowArtistBiographyToggle(subtitle)) {
+							Text(
+								text = stringResource(Res.string.action_more),
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.primary,
+								modifier = Modifier.clickable {
+									biographyExpanded = true
+								}
+							)
+						}
+					}
+					MarqueeText(
+						text = artistName,
+						style = MaterialTheme.typography.displaySmall.copy(
+							fontWeight = FontWeight.Bold,
+						),
+						modifier = Modifier
+							.fillMaxWidth()
+							.alpha(progress)
+							.scale(progress)
 					)
-					if (shouldShowArtistBiographyToggle(subtitle)) {
+				}
+			}
+			if (biographyExpanded) {
+				artistBiographyDisplayText(subtitle, expanded = true)?.let { biography ->
+					Column(
+						modifier = Modifier
+							.fillMaxWidth()
+							.padding(horizontal = 20.dp)
+							.padding(start = innerPadding.calculateStartPadding(layoutDirection))
+							.padding(end = innerPadding.calculateEndPadding(layoutDirection))
+							.padding(top = 12.dp),
+						verticalArrangement = Arrangement.spacedBy(8.dp)
+					) {
 						Text(
-							text = stringResource(
-								if (biographyExpanded) Res.string.action_less else Res.string.action_more
-							),
+							text = biography,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurface,
+							modifier = Modifier.widthIn(max = 500.dp)
+						)
+						Text(
+							text = stringResource(Res.string.action_less),
 							style = MaterialTheme.typography.labelLarge,
 							color = MaterialTheme.colorScheme.primary,
 							modifier = Modifier.clickable {
-								biographyExpanded = !biographyExpanded
+								biographyExpanded = false
 							}
 						)
 					}
 				}
-				MarqueeText(
-					text = artistName,
-					style = MaterialTheme.typography.displaySmall.copy(
-						fontWeight = FontWeight.Bold,
-					),
-					modifier = Modifier
-						.fillMaxWidth()
-						.alpha(progress)
-						.scale(progress)
-				)
 			}
 		}
 	}

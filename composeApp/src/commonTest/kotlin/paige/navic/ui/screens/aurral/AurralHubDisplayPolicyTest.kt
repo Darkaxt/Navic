@@ -27,6 +27,7 @@ import paige.navic.domain.repositories.AurralFlowStats
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.AurralMonitorActionState
 
 class AurralHubDisplayPolicyTest {
 	@Test
@@ -149,6 +150,48 @@ class AurralHubDisplayPolicyTest {
 				),
 				localArtists = listOf(localArtist)
 			)
+		)
+	}
+
+	@Test
+	fun discoverArtistMonitorStateUsesOnlyVerifiedAurralMonitoring() {
+		assertEquals(
+			AurralMonitorActionState.Monitored,
+			aurralDiscoverArtistMonitorActionState(
+				AurralDiscoverArtist(id = "artist", name = "Artist", monitored = true)
+			)
+		)
+		assertEquals(
+			AurralMonitorActionState.NotMonitored,
+			aurralDiscoverArtistMonitorActionState(
+				AurralDiscoverArtist(id = "artist", name = "Artist", monitored = false)
+			)
+		)
+		assertNull(
+			aurralDiscoverArtistMonitorActionState(
+				AurralDiscoverArtist(id = "artist", name = "Artist", monitored = null)
+			)
+		)
+	}
+
+	@Test
+	fun discoverArtistsMergeVerifiedMonitoringFromLibraryArtistRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(id = "artist-mbid", name = "Artist")
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "Artist",
+					monitored = true
+				)
+			)
+		)
+
+		assertEquals(
+			true,
+			aurralHubDiscoverArtists(summary).single().monitored
 		)
 	}
 

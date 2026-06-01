@@ -865,10 +865,16 @@ private class KtorAurralApiClient : AurralApiClient {
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral recent releases failed", error)
 		}.getOrDefault(emptyList())
+		val libraryArtists = runCatching {
+			fetchLibraryArtists(baseUrl, requestHeaders)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral library artists failed", error)
+		}.getOrDefault(emptyList())
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
 			response = discovery,
 			recentlyAdded = recentlyAdded,
+			libraryArtists = libraryArtists,
 			recentReleases = recentReleases
 		)
 	}
@@ -889,6 +895,25 @@ private class KtorAurralApiClient : AurralApiClient {
 			response.status == HttpStatusCode.Forbidden -> emptyList()
 			response.status == HttpStatusCode.NotFound -> emptyList()
 			else -> error(aurralHttpErrorMessage("Aurral recently added", response.status))
+		}
+	}
+
+	private suspend fun fetchLibraryArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralDiscoverArtist> {
+		val response = client.get(aurralEndpoint(baseUrl, "api/library/artists")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		return when {
+			response.status.isSuccess() -> aurralLibraryArtists(
+				baseUrl = baseUrl,
+				response = response.body()
+			)
+			response.status == HttpStatusCode.Unauthorized -> emptyList()
+			response.status == HttpStatusCode.Forbidden -> emptyList()
+			response.status == HttpStatusCode.NotFound -> emptyList()
+			else -> error(aurralHttpErrorMessage("Aurral library artists", response.status))
 		}
 	}
 
@@ -1381,6 +1406,7 @@ data class AurralDiscoverySummary(
 	val recommendations: List<AurralDiscoverArtist> = emptyList(),
 	val globalTop: List<AurralDiscoverArtist> = emptyList(),
 	val basedOn: List<AurralDiscoverArtist> = emptyList(),
+	val libraryArtists: List<AurralDiscoverArtist> = emptyList(),
 	val recentReleases: List<AurralAlbumSearchItem> = emptyList(),
 	val fallbackGenres: List<AurralFallbackGenreSection> = emptyList(),
 	val topTags: List<String> = emptyList(),
@@ -1400,6 +1426,7 @@ data class AurralDiscoverArtist(
 	val reason: String? = null,
 	val sourceType: String? = null,
 	val discoveryTier: String? = null,
+	val monitored: Boolean? = null,
 	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList()
 )
 
@@ -1690,7 +1717,9 @@ internal data class AurralDiscoverArtistDto(
 	@SerialName("sourceArtist") val sourceArtist: String? = null,
 	@SerialName("sourceArtists") val sourceArtists: List<String> = emptyList(),
 	@SerialName("sourceType") val sourceType: String? = null,
-	@SerialName("discoveryTier") val discoveryTier: String? = null
+	@SerialName("discoveryTier") val discoveryTier: String? = null,
+	val monitored: Boolean? = null,
+	@SerialName("monitorOption") val monitorOption: String? = null
 )
 
 @Serializable
@@ -1879,15 +1908,24 @@ internal fun aurralDiscoverySummary(
 	baseUrl: String,
 	response: AurralDiscoveryResponseDto,
 	recentlyAdded: List<AurralDiscoverArtist> = emptyList(),
+	libraryArtists: List<AurralDiscoverArtist> = emptyList(),
 	recentReleases: List<AurralAlbumSearchItem> = emptyList()
-): AurralDiscoverySummary =
-	AurralDiscoverySummary(
-		recentlyAdded = recentlyAdded,
-		recommendations = response.recommendations.mapNotNull { it.toDiscoverArtist(baseUrl) },
-		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) },
-		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) },
+): AurralDiscoverySummary {
+	val safeLibraryArtists = libraryArtists
+	return AurralDiscoverySummary(
+		recentlyAdded = recentlyAdded.withLibraryArtistMonitoring(safeLibraryArtists),
+		recommendations = response.recommendations.mapNotNull { it.toDiscoverArtist(baseUrl) }
+			.withLibraryArtistMonitoring(safeLibraryArtists),
+		globalTop = response.globalTop.mapNotNull { it.toDiscoverArtist(baseUrl) }
+			.withLibraryArtistMonitoring(safeLibraryArtists),
+		basedOn = response.basedOn.mapNotNull { it.toDiscoverArtist(baseUrl) }
+			.withLibraryArtistMonitoring(safeLibraryArtists),
+		libraryArtists = safeLibraryArtists,
 		recentReleases = recentReleases,
-		fallbackGenres = response.fallbackGenres.mapNotNull { it.toFallbackGenreSection(baseUrl) },
+		fallbackGenres = response.fallbackGenres.mapNotNull { it.toFallbackGenreSection(baseUrl) }
+			.map { section ->
+				section.copy(artists = section.artists.withLibraryArtistMonitoring(safeLibraryArtists))
+			},
 		topTags = response.topTags.cleanedAurralStrings(),
 		topGenres = response.topGenres.cleanedAurralStrings(),
 		isUpdating = response.isUpdating,
@@ -1895,6 +1933,7 @@ internal fun aurralDiscoverySummary(
 		provider = response.provider?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryMode = response.discoveryMode?.trim()?.takeIf { it.isNotEmpty() }
 	)
+}
 
 internal fun aurralArtistSearchResult(
 	baseUrl: String,
@@ -1933,6 +1972,12 @@ internal fun aurralRecentlyAddedArtists(
 ): List<AurralDiscoverArtist> =
 	response.mapNotNull { it.toRecentlyAddedArtist(baseUrl) }
 
+internal fun aurralLibraryArtists(
+	baseUrl: String,
+	response: List<AurralDiscoverArtistDto>
+): List<AurralDiscoverArtist> =
+	response.mapNotNull { it.toLibraryArtist(baseUrl) }
+
 private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {
 	val recommendedAlbum = toRecommendedAlbum(baseUrl)
 	if (recommendedAlbum != null) {
@@ -1950,6 +1995,7 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 			reason = "Recommended: ${recommendedAlbum.title}",
 			sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 			discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
+			monitored = monitored,
 			recommendedAlbums = listOf(recommendedAlbum)
 		)
 	}
@@ -1968,7 +2014,8 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		reason = aurralDiscoveryReason(this),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
-		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
+		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
+		monitored = monitored
 	)
 }
 
@@ -1986,7 +2033,27 @@ private fun AurralDiscoverArtistDto.toRecentlyAddedArtist(baseUrl: String): Aurr
 		tags = (tags + genres).cleanedAurralStrings(),
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
-		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() }
+		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
+		monitored = monitored
+	)
+}
+
+private fun AurralDiscoverArtistDto.toLibraryArtist(baseUrl: String): AurralDiscoverArtist? {
+	val artistId = listOf(foreignArtistId, mbid, artistMbid, id)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val artistName = listOf(artistName, name, id)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	return AurralDiscoverArtist(
+		id = artistId,
+		name = artistName,
+		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
+		tags = (tags + genres).cleanedAurralStrings(),
+		matchedTags = matchedTags.cleanedAurralStrings(),
+		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
+		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
+		monitored = monitored ?: monitorOption?.trim()?.equals("none", ignoreCase = true)?.not()
 	)
 }
 
@@ -2070,9 +2137,43 @@ private fun aurralDiscoveryReason(artist: AurralDiscoverArtistDto): String? {
 	}
 }
 
+private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
+	libraryArtists: List<AurralDiscoverArtist>
+): List<AurralDiscoverArtist> {
+	if (libraryArtists.isEmpty()) return this
+	val libraryById = libraryArtists
+		.mapNotNull { artist -> artist.id.normalizedAurralArtistKey()?.let { it to artist } }
+		.toMap()
+	val libraryByName = libraryArtists
+		.mapNotNull { artist -> artist.name.normalizedAurralArtistName()?.let { it to artist } }
+		.toMap()
+	return map { artist ->
+		if (artist.monitored != null) {
+			artist
+		} else {
+			val libraryArtist = artist.id.normalizedAurralArtistKey()?.let(libraryById::get)
+				?: artist.name.normalizedAurralArtistName()?.let(libraryByName::get)
+			libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) } ?: artist
+		}
+	}
+}
+
 private fun List<String>.cleanedAurralStrings(): List<String> =
 	mapNotNull { it.trim().takeIf(String::isNotEmpty) }
 		.distinctBy { it.lowercase() }
+
+private fun String?.normalizedAurralArtistKey(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedAurralArtistName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
 
 internal fun aurralServiceStatus(
 	health: AurralHealthDto,

@@ -83,6 +83,59 @@ class MostPlayedShortcutArtworkPolicyTest {
 		assertEquals("https://aurral.example.com/iu.webp", resolved.coverArtId)
 	}
 
+	@Test
+	fun artistShortcutsDoNotLetStaleServerArtistSnapshotsBlockAlbumFallback() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = "artist-cover-that-falls-back")
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = "artist-cover-that-falls-back",
+					artistImageUrl = null
+				)
+			),
+			albums = listOf(
+				MostPlayedShortcutAlbumArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-album-cover",
+					year = 2021,
+					name = "IU Album"
+				)
+			),
+			songs = emptyList()
+		).single()
+
+		assertEquals("iu-album-cover", resolved.coverArtId)
+	}
+
+	@Test
+	fun artistShortcutsUseSongCoverWhenArtistAndAlbumArtworkAreMissing() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = emptyList(),
+			albums = emptyList(),
+			songs = listOf(
+				MostPlayedShortcutSongArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-song-cover",
+					year = 2021,
+					albumTitle = "IU Single",
+					title = "Celebrity",
+					playCount = 12
+				)
+			)
+		).single()
+
+		assertEquals("iu-song-cover", resolved.coverArtId)
+	}
+
 	private fun mostPlayedArtistShortcut(coverArtId: String?) =
 		DomainMostPlayedShortcut(
 			type = PlaybackOriginType.Artist,

@@ -13,6 +13,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.ui.components.layouts.ArtGridItem
@@ -29,6 +30,7 @@ fun QuickPickSongCard(
 	starred: Boolean,
 	rating: Int,
 	download: DownloadEntity?,
+	ownershipStatus: AurralOwnershipStatus? = null,
 	onSelect: () -> Unit,
 	onDeselect: () -> Unit,
 	onSetStarred: (Boolean) -> Unit,
@@ -56,6 +58,7 @@ fun QuickPickSongCard(
 			coverArtId = song.coverArtId,
 			title = song.title,
 			subtitle = song.artistName,
+			ownershipStatus = ownershipStatus,
 			id = song.id,
 			tab = "quick-picks"
 		)

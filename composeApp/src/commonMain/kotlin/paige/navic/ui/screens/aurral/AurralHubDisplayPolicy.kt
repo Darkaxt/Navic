@@ -16,6 +16,8 @@ import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.aurralMonitorActionState
 
 @Immutable
 enum class AurralHubSection {
@@ -102,6 +104,11 @@ fun aurralHubDiscoverArtists(
 ): List<AurralDiscoverArtist> =
 	aurralDiscoverListArtists(discovery)
 		.take(limit.coerceAtLeast(0))
+
+fun aurralDiscoverArtistMonitorActionState(
+	artist: AurralDiscoverArtist
+): AurralMonitorActionState? =
+	artist.monitored?.let(::aurralMonitorActionState)
 
 fun aurralHubDiscoverHasMore(
 	discovery: AurralDiscoverySummary,
@@ -197,7 +204,7 @@ fun aurralDiscoverListArtists(
 		discovery.recommendations +
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop
-	)
+	).withLibraryArtistMonitoring(discovery.libraryArtists)
 
 fun aurralDiscoverCollectionKind(routeValue: String?): AurralDiscoveryCollectionKind? =
 	routeValue?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
@@ -389,7 +396,7 @@ private fun aurralDiscoverArtistsForLocalArtist(
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop +
 			discovery.basedOn
-	)
+	).withLibraryArtistMonitoring(discovery.libraryArtists)
 
 fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAlbum? {
 	val releaseGroupId = album.id.trim().takeIf { it.isNotEmpty() } ?: return null
@@ -461,12 +468,34 @@ private fun mergeAurralDiscoverArtists(
 				reason = existing.reason ?: safeArtist.reason,
 				sourceType = existing.sourceType ?: safeArtist.sourceType,
 				discoveryTier = existing.discoveryTier ?: safeArtist.discoveryTier,
+				monitored = existing.monitored ?: safeArtist.monitored,
 				recommendedAlbums = (existing.recommendedAlbums + safeArtist.recommendedAlbums)
 					.distinctBy { it.id.trim().lowercase() }
 			)
 		}
 	}
 	return merged.values.toList()
+}
+
+private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
+	libraryArtists: List<AurralDiscoverArtist>
+): List<AurralDiscoverArtist> {
+	if (libraryArtists.isEmpty()) return this
+	val libraryById = libraryArtists
+		.mapNotNull { artist -> artist.id.normalizedAurralKey()?.let { it to artist } }
+		.toMap()
+	val libraryByName = libraryArtists
+		.mapNotNull { artist -> artist.name.normalizedAurralName()?.let { it to artist } }
+		.toMap()
+	return map { artist ->
+		if (artist.monitored != null) {
+			artist
+		} else {
+			val libraryArtist = artist.id.normalizedAurralKey()?.let(libraryById::get)
+				?: artist.name.normalizedAurralName()?.let(libraryByName::get)
+			libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) } ?: artist
+		}
+	}
 }
 
 private fun aurralDiscoveryGenreRows(
@@ -525,7 +554,7 @@ private fun aurralDiscoverTagCandidateArtists(
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop +
 			discovery.basedOn
-	)
+	).withLibraryArtistMonitoring(discovery.libraryArtists)
 
 private fun aurralDiscoveryTopTags(
 	discovery: AurralDiscoverySummary,

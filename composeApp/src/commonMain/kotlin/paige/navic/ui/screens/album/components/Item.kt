@@ -18,6 +18,7 @@ import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.manager.DownloadManager
@@ -31,6 +32,7 @@ fun AlbumListScreenItem(
 	tab: String,
 	album: DomainAlbum,
 	aurralAlbumRequests: List<AurralAlbumRequest>,
+	ownershipStatus: AurralOwnershipStatus? = null,
 	selected: Boolean,
 	starred: Boolean,
 	rating: Int,
@@ -69,6 +71,7 @@ fun AlbumListScreenItem(
 				album = album,
 				requests = aurralAlbumRequests
 			),
+			ownershipStatus = ownershipStatus,
 			fallbackKind = "Album",
 			id = album.id,
 			tab = tab

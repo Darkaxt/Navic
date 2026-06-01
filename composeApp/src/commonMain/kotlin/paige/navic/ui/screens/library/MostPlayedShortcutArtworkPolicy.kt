@@ -21,32 +21,51 @@ data class MostPlayedShortcutAlbumArtwork(
 	val name: String
 )
 
+@Immutable
+data class MostPlayedShortcutSongArtwork(
+	val artistId: String?,
+	val artistName: String?,
+	val coverArtId: String?,
+	val year: Int?,
+	val albumTitle: String?,
+	val title: String,
+	val playCount: Int
+)
+
 fun mostPlayedShortcutsWithResolvedArtwork(
 	shortcuts: List<DomainMostPlayedShortcut>,
 	artists: List<MostPlayedShortcutArtistArtwork>,
-	albums: List<MostPlayedShortcutAlbumArtwork>
+	albums: List<MostPlayedShortcutAlbumArtwork>,
+	songs: List<MostPlayedShortcutSongArtwork> = emptyList()
 ): List<DomainMostPlayedShortcut> =
 	shortcuts.map { shortcut ->
 		if (shortcut.type != PlaybackOriginType.Artist) {
 			shortcut.copy(coverArtId = shortcut.coverArtId.cleanArtworkValue())
 		} else {
 			shortcut.copy(
-				coverArtId = shortcut.coverArtId.cleanArtworkValue()
-					?: artists.artistArtworkFor(shortcut)
+				coverArtId = shortcut.coverArtId.cleanArtworkValue()?.takeIf { it.isAbsoluteHttpUrl() }
+					?: artists.artistImageUrlFor(shortcut)
 					?: albums.albumArtworkFor(shortcut)
+					?: songs.songArtworkFor(shortcut)
+					?: artists.artistCoverArtIdFor(shortcut)
+					?: shortcut.coverArtId.cleanArtworkValue()
 			)
 		}
 	}
 
-private fun List<MostPlayedShortcutArtistArtwork>.artistArtworkFor(
+private fun List<MostPlayedShortcutArtistArtwork>.artistImageUrlFor(
 	shortcut: DomainMostPlayedShortcut
 ): String? =
 	firstOrNull { artist ->
 		artist.id == shortcut.id || artist.name.equals(shortcut.title, ignoreCase = true)
-	}?.let { artist ->
-		artist.artistImageUrl.cleanArtworkValue()
-			?: artist.coverArtId.cleanArtworkValue()
-	}
+	}?.artistImageUrl.cleanArtworkValue()
+
+private fun List<MostPlayedShortcutArtistArtwork>.artistCoverArtIdFor(
+	shortcut: DomainMostPlayedShortcut
+): String? =
+	firstOrNull { artist ->
+		artist.id == shortcut.id || artist.name.equals(shortcut.title, ignoreCase = true)
+	}?.coverArtId.cleanArtworkValue()
 
 private fun List<MostPlayedShortcutAlbumArtwork>.albumArtworkFor(
 	shortcut: DomainMostPlayedShortcut
@@ -62,5 +81,24 @@ private fun List<MostPlayedShortcutAlbumArtwork>.albumArtworkFor(
 		)
 		.firstNotNullOfOrNull { album -> album.coverArtId.cleanArtworkValue() }
 
+private fun List<MostPlayedShortcutSongArtwork>.songArtworkFor(
+	shortcut: DomainMostPlayedShortcut
+): String? =
+	asSequence()
+		.filter { song ->
+			song.artistId == shortcut.id ||
+				song.artistName.equals(shortcut.title, ignoreCase = true)
+		}
+		.sortedWith(
+			compareByDescending<MostPlayedShortcutSongArtwork> { it.playCount }
+				.thenByDescending { it.year ?: Int.MIN_VALUE }
+				.thenBy { it.albumTitle.orEmpty().lowercase() }
+				.thenBy { it.title.lowercase() }
+		)
+		.firstNotNullOfOrNull { song -> song.coverArtId.cleanArtworkValue() }
+
 private fun String?.cleanArtworkValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun String.isAbsoluteHttpUrl(): Boolean =
+	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)

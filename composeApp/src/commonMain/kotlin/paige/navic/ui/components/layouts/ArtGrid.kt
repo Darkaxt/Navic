@@ -39,7 +39,9 @@ import paige.navic.LocalPlatformContext
 import paige.navic.LocalSharedTransitionScope
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.core.UiState
@@ -86,6 +88,7 @@ fun ArtGridItem(
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
+	ownershipStatus: AurralOwnershipStatus? = null,
 	fallbackKind: String? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
@@ -130,6 +133,14 @@ fun ArtGridItem(
 					AurralAcquisitionProgressBar(
 						progress = progress,
 						modifier = Modifier.align(Alignment.BottomCenter)
+					)
+				}
+				ownershipStatus?.let { status ->
+					AurralOwnershipStatusDot(
+						status = status,
+						modifier = Modifier
+							.align(Alignment.TopStart)
+							.padding(8.dp)
 					)
 				}
 			}

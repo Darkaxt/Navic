@@ -200,7 +200,7 @@ fun LibraryScreen() {
 		preferenceManager.aurralPassword
 	) {
 		if (isLoggedIn && aurralConfigured) {
-			aurralViewModel.refreshDiscovery(hydrateMissingImages = false)
+			aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
 		} else {
 			aurralViewModel.clearServiceStatus()
 		}
@@ -237,7 +237,7 @@ fun LibraryScreen() {
 				artistsViewModel.refreshArtists(true)
 				genresViewModel.refreshGenres(true)
 				if (aurralConfigured) {
-					aurralViewModel.refreshDiscovery(hydrateMissingImages = false)
+					aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
 				}
 			},
 			key = listOf(

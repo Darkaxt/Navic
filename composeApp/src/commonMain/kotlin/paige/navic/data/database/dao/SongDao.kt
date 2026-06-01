@@ -5,8 +5,19 @@ import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
 import androidx.room3.Transaction
+import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.util.core.Logger
+
+data class SongArtistArtwork(
+	val artistId: String?,
+	val artistName: String?,
+	val coverArtId: String?,
+	val year: Int?,
+	val albumTitle: String?,
+	val title: String,
+	val playCount: Int
+)
 
 @Dao
 interface SongDao {
@@ -52,6 +63,16 @@ interface SongDao {
 
 	@Query("SELECT * FROM SongEntity WHERE title LIKE '%' || :query || '%' COLLATE NOCASE")
 	suspend fun searchSongsList(query: String): List<SongEntity>
+
+	@Query(
+		"""
+		SELECT artistId, artistName, coverArtId, year, albumTitle, title, playCount
+		FROM SongEntity
+		WHERE coverArtId IS NOT NULL AND coverArtId != ''
+		ORDER BY playCount DESC, year DESC, albumTitle COLLATE NOCASE ASC, title COLLATE NOCASE ASC
+		"""
+	)
+	fun observeArtistSongArtwork(): Flow<List<SongArtistArtwork>>
 
 	@Transaction
 	suspend fun updateSongsByAlbumId(albumId: String, remoteSongs: List<SongEntity>) {

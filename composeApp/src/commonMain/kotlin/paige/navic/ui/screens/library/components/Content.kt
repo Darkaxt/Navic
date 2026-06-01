@@ -70,6 +70,7 @@ import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
 import paige.navic.ui.screens.library.libraryDiscoveryAlbumRows
+import paige.navic.ui.screens.library.libraryLocalOwnershipStatus
 import paige.navic.ui.screens.library.mostPlayedShortcutDestination
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
 import paige.navic.ui.core.UiState
@@ -150,6 +151,9 @@ fun LibraryScreenContent(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val aurralBaseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 	val aurralRequestHeaders = preferenceManager.aurralRequestHeadersMap()
+	val localOwnershipStatus = libraryLocalOwnershipStatus(
+		aurralConfigured = preferenceManager.aurralEnabled && aurralBaseUrl != null
+	)
 	fun aurralImageRequestHeaders(imageUrl: String?): Map<String, String> =
 		if (aurralBaseUrl != null) {
 			aurralRequestHeadersForUrl(aurralBaseUrl, imageUrl, aurralRequestHeaders)
@@ -205,6 +209,7 @@ fun LibraryScreenContent(
 					starred = selectedQuickPickIsStarred,
 					rating = selectedQuickPickRating,
 					download = quickPickDownloads.find { it.songId == song.id },
+					ownershipStatus = localOwnershipStatus,
 					onSelect = { onSelectQuickPick(song) },
 					onDeselect = onClearQuickPickSelection,
 					onSetStarred = onStarSelectedQuickPick,
@@ -233,77 +238,6 @@ fun LibraryScreenContent(
 				shortcut = shortcut,
 				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
 			)
-		}
-
-		if (libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) {
-			horizontalSection(
-				title = Res.string.title_aurral_discover,
-				destination = Screen.AurralHub,
-				state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
-				key = { it.id.trim().ifEmpty { it.name } },
-				seeAll = true
-			) { artist ->
-				AurralDiscoverArtistCard(
-					modifier = Modifier.animateItem().width(150.dp),
-					artist = artist,
-					onOpenArtist = onOpenAurralDiscoverArtist
-				)
-			}
-		}
-
-		aurralCollectionRowsState.data.orEmpty().forEach { row ->
-			when (row) {
-				is AurralDiscoveryCollectionRow.Artists -> {
-					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralDiscoverList
-					horizontalSection(
-						title = row.kind.titleResource(),
-						titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
-							listOf(row.tag.orEmpty())
-						} else {
-							emptyList()
-						},
-						destination = destination,
-						state = UiState.Success(row.artists),
-						key = { it.id.trim().ifEmpty { it.name } },
-						seeAll = true
-					) { artist ->
-						AurralDiscoverArtistCard(
-							modifier = Modifier.animateItem().width(150.dp),
-							artist = artist,
-							onOpenArtist = onOpenAurralDiscoverArtist
-						)
-					}
-				}
-
-				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.albums),
-					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
-					seeAll = false
-				) { album ->
-					AurralAlbumSearchCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						album = album,
-						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
-						onClick = { onOpenAurralDiscoverAlbum(album) }
-					)
-				}
-
-				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.tags),
-					key = { it.lowercase() },
-					seeAll = false
-				) { tag ->
-					AurralDiscoverTagCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						tag = tag,
-						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
-					)
-				}
-			}
 		}
 
 		libraryDiscoveryAlbumRows(
@@ -335,6 +269,7 @@ fun LibraryScreenContent(
 					tab = "library",
 					album = album,
 					aurralAlbumRequests = aurralAlbumRequests,
+					ownershipStatus = localOwnershipStatus,
 					selected = album == selectedAlbum,
 					starred = selectedAlbumIsStarred,
 					onSelect = { onSelectAlbum(album) },
@@ -361,6 +296,7 @@ fun LibraryScreenContent(
 				tab = "library",
 				album = album,
 				aurralAlbumRequests = aurralAlbumRequests,
+				ownershipStatus = localOwnershipStatus,
 				selected = album == selectedAlbum,
 				starred = selectedAlbumIsStarred,
 				onSelect = { onSelectAlbum(album) },
@@ -448,6 +384,77 @@ fun LibraryScreenContent(
 			seeAll = true
 		) { genreWithAlbums ->
 			GenreListScreenCard(genre = genreWithAlbums)
+		}
+
+		if (libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) {
+			horizontalSection(
+				title = Res.string.title_aurral_discover,
+				destination = Screen.AurralHub,
+				state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
+				key = { it.id.trim().ifEmpty { it.name } },
+				seeAll = true
+			) { artist ->
+				AurralDiscoverArtistCard(
+					modifier = Modifier.animateItem().width(150.dp),
+					artist = artist,
+					onOpenArtist = onOpenAurralDiscoverArtist
+				)
+			}
+		}
+
+		aurralCollectionRowsState.data.orEmpty().forEach { row ->
+			when (row) {
+				is AurralDiscoveryCollectionRow.Artists -> {
+					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralDiscoverList
+					horizontalSection(
+						title = row.kind.titleResource(),
+						titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+							listOf(row.tag.orEmpty())
+						} else {
+							emptyList()
+						},
+						destination = destination,
+						state = UiState.Success(row.artists),
+						key = { it.id.trim().ifEmpty { it.name } },
+						seeAll = true
+					) { artist ->
+						AurralDiscoverArtistCard(
+							modifier = Modifier.animateItem().width(150.dp),
+							artist = artist,
+							onOpenArtist = onOpenAurralDiscoverArtist
+						)
+					}
+				}
+
+				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.albums),
+					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
+					seeAll = false
+				) { album ->
+					AurralAlbumSearchCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						album = album,
+						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
+						onClick = { onOpenAurralDiscoverAlbum(album) }
+					)
+				}
+
+				is AurralDiscoveryCollectionRow.Tags -> horizontalSection(
+					title = row.kind.titleResource(),
+					destination = Screen.AurralHub,
+					state = UiState.Success(row.tags),
+					key = { it.lowercase() },
+					seeAll = false
+				) { tag ->
+					AurralDiscoverTagCard(
+						modifier = Modifier.animateItem().width(150.dp),
+						tag = tag,
+						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
+					)
+				}
+			}
 		}
 	}
 }
