@@ -11,6 +11,7 @@ import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.bindery.BinderyCatalogViewModel
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
@@ -91,6 +92,12 @@ val viewModelModule = module {
 	viewModelOf(::SettingsBinderyViewModel)
 	viewModelOf(::AurralHubViewModel)
 	viewModelOf(::ActivityViewModel)
+	viewModel { params ->
+		BinderyCatalogViewModel(
+			path = params.get(),
+			repository = get()
+		)
+	}
 	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

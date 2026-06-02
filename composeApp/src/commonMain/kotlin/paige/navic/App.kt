@@ -74,6 +74,8 @@ import paige.navic.ui.screens.aurral.AurralArtistScreen
 import paige.navic.ui.screens.aurral.AurralDiscoverListScreen
 import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
+import paige.navic.ui.screens.bindery.BinderyCatalogScreen
+import paige.navic.ui.screens.bindery.BinderyCatalogTab
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
 import paige.navic.ui.screens.genre.GenreDetailScreen
@@ -296,6 +298,25 @@ private fun entryProvider(
 
 		entry<Screen.RadioList>(metadata = navtabMetadata) { key ->
 			RadioListScreen(key.nested)
+		}
+		entry<Screen.Audiobooks>(metadata = navtabMetadata) {
+			BinderyCatalogScreen(BinderyCatalogTab.Audiobooks)
+		}
+		entry<Screen.BinderyBooks>(metadata = navtabMetadata) {
+			BinderyCatalogScreen(BinderyCatalogTab.Books)
+		}
+		entry<Screen.BinderyCollections>(metadata = navtabMetadata) {
+			BinderyCatalogScreen(BinderyCatalogTab.Collections)
+		}
+		entry<Screen.BinderyAuthors>(metadata = navtabMetadata) {
+			BinderyCatalogScreen(BinderyCatalogTab.Authors)
+		}
+		entry<Screen.BinderyCatalog>(metadata = navtabMetadata) { key ->
+			BinderyCatalogScreen(
+				tab = null,
+				path = key.path,
+				title = key.title
+			)
 		}
 
 		// misc

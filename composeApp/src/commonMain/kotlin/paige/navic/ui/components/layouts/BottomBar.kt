@@ -25,6 +25,10 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_activity
 import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_artists
+import navic.composeapp.generated.resources.title_audiobook_authors
+import navic.composeapp.generated.resources.title_audiobook_books
+import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobooks
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_library
 import navic.composeapp.generated.resources.title_playlists
@@ -60,62 +64,101 @@ import paige.navic.icons.outlined.Search
 import paige.navic.ui.components.common.animatedTabIconPainter
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.bottomBarProfileForScreen
+import paige.navic.ui.navigation.bottomBarProfileForTabClick
+import paige.navic.ui.navigation.navbarTabIdsForProfile
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 
 private enum class NavItem(
+	val id: NavbarTab.Id,
 	val destination: Screen,
 	val icon: ImageVector,
 	val iconUnselected: ImageVector = icon,
 	val label: StringResource
 ) {
 	LIBRARY(
+		id = NavbarTab.Id.LIBRARY,
 		destination = Screen.Library(),
 		icon = Icons.Filled.LibraryMusic,
 		iconUnselected = Icons.Outlined.LibraryMusic,
 		label = Res.string.title_library
 	),
 	ALBUMS(
+		id = NavbarTab.Id.ALBUMS,
 		destination = Screen.AlbumList(),
 		icon = Icons.Filled.Album,
 		iconUnselected = Icons.Outlined.Album,
 		label = Res.string.title_albums
 	),
 	PLAYLISTS(
+		id = NavbarTab.Id.PLAYLISTS,
 		destination = Screen.PlaylistList(),
 		icon = Icons.Outlined.PlaylistPlay,
 		label = Res.string.title_playlists
 	),
 	ARTISTS(
+		id = NavbarTab.Id.ARTISTS,
 		destination = Screen.ArtistList(),
 		icon = Icons.Filled.Artist,
 		iconUnselected = Icons.Outlined.Artist,
 		label = Res.string.title_artists
 	),
+	AUDIOBOOKS(
+		id = NavbarTab.Id.AUDIOBOOKS,
+		destination = Screen.Audiobooks,
+		icon = Icons.Filled.LibraryMusic,
+		iconUnselected = Icons.Outlined.LibraryMusic,
+		label = Res.string.title_audiobooks
+	),
+	BOOKS(
+		id = NavbarTab.Id.BOOKS,
+		destination = Screen.BinderyBooks,
+		icon = Icons.Outlined.Note,
+		label = Res.string.title_audiobook_books
+	),
+	COLLECTIONS(
+		id = NavbarTab.Id.COLLECTIONS,
+		destination = Screen.BinderyCollections,
+		icon = Icons.Outlined.PlaylistPlay,
+		label = Res.string.title_audiobook_collections
+	),
+	AUTHORS(
+		id = NavbarTab.Id.AUTHORS,
+		destination = Screen.BinderyAuthors,
+		icon = Icons.Filled.Artist,
+		iconUnselected = Icons.Outlined.Artist,
+		label = Res.string.title_audiobook_authors
+	),
 	ACTIVITY(
+		id = NavbarTab.Id.ACTIVITY,
 		destination = Screen.Activity,
 		icon = Icons.Outlined.History,
 		iconUnselected = Icons.Outlined.History,
 		label = Res.string.title_activity
 	),
 	SEARCH(
+		id = NavbarTab.Id.SEARCH,
 		destination = Screen.Search(),
 		icon = Icons.Outlined.Search,
 		iconUnselected = Icons.Outlined.Search,
 		label = Res.string.title_search
 	),
 	GENRES(
+		id = NavbarTab.Id.GENRES,
 		destination = Screen.GenreList(),
 		icon = Icons.Filled.Genre,
 		iconUnselected = Icons.Outlined.Genre,
 		label = Res.string.title_genres
 	),
 	SONGS(
+		id = NavbarTab.Id.SONGS,
 		destination = Screen.SongList(),
 		icon = Icons.Outlined.Note,
 		iconUnselected = Icons.Outlined.Note,
 		label = Res.string.title_songs
 	),
 	RADIOS(
+		id = NavbarTab.Id.RADIOS,
 		destination = Screen.RadioList(),
 		icon = Icons.Filled.Radio,
 		iconUnselected = Icons.Outlined.Radio,
@@ -135,9 +178,11 @@ fun BottomBar(
 	val platformContext = LocalPlatformContext.current
 	val state by viewModel.state.collectAsState()
 	val containerColor by animateColorAsState(containerColor)
-	val tabs = ((state as? UiState.Success)?.data ?: NavbarConfig.default)
-		.tabs.filter { tab -> tab.visible }
 	val preferenceManager = koinInject<PreferenceManager>()
+	val config = (state as? UiState.Success)?.data ?: NavbarConfig.default
+	val currentScreen = backStack.lastOrNull() as? Screen
+	val activeProfile = bottomBarProfileForScreen(currentScreen, preferenceManager.bottomBarProfile)
+	val tabs = navbarTabIdsForProfile(config, activeProfile).mapNotNull(::navItemFromId)
 
 	AnimatedContent(
 		preferenceManager.navigationBarStyle != NavigationBarStyle.Short
@@ -152,18 +197,8 @@ fun BottomBar(
 				windowInsets = windowInsets
 			) {
 				tabs.forEach { tab ->
-					val item = when (tab.id) {
-						NavbarTab.Id.LIBRARY -> NavItem.LIBRARY
-						NavbarTab.Id.ALBUMS -> NavItem.ALBUMS
-						NavbarTab.Id.PLAYLISTS -> NavItem.PLAYLISTS
-						NavbarTab.Id.ARTISTS -> NavItem.ARTISTS
-						NavbarTab.Id.ACTIVITY -> NavItem.ACTIVITY
-						NavbarTab.Id.SEARCH -> NavItem.SEARCH
-						NavbarTab.Id.GENRES -> NavItem.GENRES
-						NavbarTab.Id.SONGS -> NavItem.SONGS
-						NavbarTab.Id.RADIOS -> NavItem.RADIOS
-					}
-					val selected = backStack.lastOrNull() == item.destination
+					val item = tab
+					val selected = item.isSelected(currentScreen)
 
 					NavigationBarItem(
 						selected = selected,
@@ -172,6 +207,8 @@ fun BottomBar(
 							== NavigationBarLabelVisibility.Always,
 						onClick = {
 							platformContext.clickSound()
+							preferenceManager.bottomBarProfile =
+								bottomBarProfileForTabClick(item.id, activeProfile)
 							backStack.apply {
 								clear()
 								add(item.destination)
@@ -208,27 +245,19 @@ fun BottomBar(
 				containerColor = containerColor
 			) {
 				tabs.forEach { tab ->
-					val item = when (tab.id) {
-						NavbarTab.Id.LIBRARY -> NavItem.LIBRARY
-						NavbarTab.Id.ALBUMS -> NavItem.ALBUMS
-						NavbarTab.Id.PLAYLISTS -> NavItem.PLAYLISTS
-						NavbarTab.Id.ARTISTS -> NavItem.ARTISTS
-						NavbarTab.Id.ACTIVITY -> NavItem.ACTIVITY
-						NavbarTab.Id.SEARCH -> NavItem.SEARCH
-						NavbarTab.Id.GENRES -> NavItem.GENRES
-						NavbarTab.Id.SONGS -> NavItem.SONGS
-						NavbarTab.Id.RADIOS -> NavItem.RADIOS
-					}
-					val selected = backStack.last() == item.destination
+					val item = tab
+					val selected = item.isSelected(currentScreen)
 
 					ShortNavigationBarItem(
 						iconPosition = if (platformContext.sizeClass.widthSizeClass > WindowWidthSizeClass.Compact)
 							NavigationItemIconPosition.Start
 						else NavigationItemIconPosition.Top,
-						selected = backStack.last() == item.destination,
+						selected = selected,
 						enabled = enabled,
 						onClick = {
 							platformContext.clickSound()
+							preferenceManager.bottomBarProfile =
+								bottomBarProfileForTabClick(item.id, activeProfile)
 							backStack.apply {
 								clear()
 								add(item.destination)
@@ -255,3 +284,23 @@ fun BottomBar(
 		}
 	}
 }
+
+private fun navItemFromId(id: NavbarTab.Id): NavItem? =
+	NavItem.entries.firstOrNull { it.id == id }
+
+private fun NavItem.isSelected(screen: Screen?): Boolean =
+	when (this) {
+		NavItem.LIBRARY -> screen is Screen.Library
+		NavItem.ALBUMS -> screen is Screen.AlbumList
+		NavItem.PLAYLISTS -> screen is Screen.PlaylistList
+		NavItem.ARTISTS -> screen is Screen.ArtistList
+		NavItem.AUDIOBOOKS -> screen == Screen.Audiobooks
+		NavItem.BOOKS -> screen == Screen.BinderyBooks
+		NavItem.COLLECTIONS -> screen == Screen.BinderyCollections
+		NavItem.AUTHORS -> screen == Screen.BinderyAuthors
+		NavItem.ACTIVITY -> screen == Screen.Activity
+		NavItem.SEARCH -> screen is Screen.Search
+		NavItem.GENRES -> screen is Screen.GenreList || screen is Screen.GenreDetail
+		NavItem.SONGS -> screen is Screen.SongList
+		NavItem.RADIOS -> screen is Screen.RadioList
+	}

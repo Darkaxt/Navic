@@ -1,0 +1,211 @@
+package paige.navic.ui.screens.bindery
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.title_audiobook_authors
+import navic.composeapp.generated.resources.title_audiobook_books
+import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobooks
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
+import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.binderyApiKeyHeaders
+import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.integrationFailedIndicators
+import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.layouts.ArtGrid
+import paige.navic.ui.components.layouts.ArtGridItem
+import paige.navic.ui.components.layouts.artGridError
+import paige.navic.ui.components.layouts.artGridPlaceholder
+import paige.navic.ui.components.layouts.PullToRefreshBox
+import paige.navic.ui.components.layouts.RootBottomBar
+import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
+import paige.navic.util.ui.withoutTop
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun BinderyCatalogScreen(
+	tab: BinderyCatalogTab? = BinderyCatalogTab.Audiobooks,
+	path: String = tab?.path ?: BinderyCatalogTab.Audiobooks.path,
+	title: String? = null
+) {
+	val viewModel = koinViewModel<BinderyCatalogViewModel>(
+		key = path,
+		parameters = { parametersOf(path) }
+	)
+	val catalogState by viewModel.catalogState.collectAsStateWithLifecycle()
+	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
+	val platformContext = LocalPlatformContext.current
+	val titleText = title ?: stringResource(tab?.titleResource() ?: Res.string.title_audiobooks)
+	val binderyIndicators = integrationLoadingIndicators(
+		binderyLoading = catalogState is UiState.Loading
+	)
+	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+
+	Scaffold(
+		topBar = {
+			RootTopBar(
+				title = { Text(titleText) },
+				scrollBehavior = scrollBehavior
+			)
+		},
+		bottomBar = {
+			val scrollManager = LocalBottomBarScrollManager.current
+			RootBottomBar(scrolled = scrollManager.isTriggered)
+		}
+	) { innerPadding ->
+		Box(Modifier.fillMaxSize()) {
+			PullToRefreshBox(
+				modifier = Modifier
+					.padding(top = innerPadding.calculateTopPadding())
+					.background(MaterialTheme.colorScheme.surface),
+				finished = catalogState !is UiState.Loading,
+				onRefresh = { viewModel.refreshCatalog(true) },
+				key = catalogState
+			) {
+				ArtGrid(
+					modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+					state = viewModel.gridState,
+					contentPadding = innerPadding.withoutTop(),
+					verticalArrangement = if ((catalogState as? UiState.Success)?.data?.let {
+							binderyCatalogCards(it, tab).isEmpty()
+						} == true) {
+						Arrangement.Center
+					} else {
+						Arrangement.spacedBy(12.dp)
+					}
+				) {
+					when (val state = catalogState) {
+						is UiState.Loading -> {
+							if (state.data == null) {
+								artGridPlaceholder()
+							} else {
+								binderyCatalogItems(
+									cards = binderyCatalogCards(state.data, tab),
+									baseUrl = preferenceManager.binderyOpdsBaseUrl,
+									imageRequestHeaders = imageRequestHeaders,
+									onOpenCatalog = { link ->
+										platformContext.clickSound()
+										backStack.add(Screen.BinderyCatalog(link.path, link.title))
+									}
+								)
+							}
+						}
+						is UiState.Error -> {
+							val data = state.data
+							if (data == null) {
+								artGridError(state)
+							} else {
+								binderyCatalogItems(
+									cards = binderyCatalogCards(data, tab),
+									baseUrl = preferenceManager.binderyOpdsBaseUrl,
+									imageRequestHeaders = imageRequestHeaders,
+									onOpenCatalog = { link ->
+										platformContext.clickSound()
+										backStack.add(Screen.BinderyCatalog(link.path, link.title))
+									}
+								)
+							}
+						}
+						is UiState.Success -> binderyCatalogItems(
+							cards = binderyCatalogCards(state.data, tab),
+							baseUrl = preferenceManager.binderyOpdsBaseUrl,
+							imageRequestHeaders = imageRequestHeaders,
+							onOpenCatalog = { link ->
+								platformContext.clickSound()
+								backStack.add(Screen.BinderyCatalog(link.path, link.title))
+							}
+						)
+					}
+				}
+			}
+			IntegrationLoadingIndicatorStrip(
+				indicators = binderyIndicators,
+				failedIndicators = integrationFailedIndicators(
+					preferenceManager = preferenceManager,
+					loadingIndicators = binderyIndicators
+				),
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
+			)
+		}
+	}
+
+	ErrorSnackbar(
+		error = (catalogState as? UiState.Error)?.error,
+		onClearError = { viewModel.clearError() }
+	)
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogItems(
+	cards: List<BinderyCatalogCard>,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
+) {
+	items(cards, key = { it.id }) { card ->
+		when (card) {
+			is BinderyCatalogCard.Book -> ArtGridItem(
+				modifier = Modifier.animateItem(),
+				onClick = {},
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				fallbackKind = "Book",
+				id = card.id,
+				tab = "bindery"
+			)
+			is BinderyCatalogCard.Link -> ArtGridItem(
+				modifier = Modifier.animateItem(),
+				onClick = { onOpenCatalog(card) },
+				coverArtId = null,
+				title = card.title,
+				subtitle = card.subtitle,
+				fallbackKind = card.subtitle,
+				id = card.id,
+				tab = "bindery"
+			)
+		}
+	}
+}
+
+private fun BinderyCatalogTab.titleResource(): StringResource =
+	when (this) {
+		BinderyCatalogTab.Audiobooks -> Res.string.title_audiobooks
+		BinderyCatalogTab.Books -> Res.string.title_audiobook_books
+		BinderyCatalogTab.Collections -> Res.string.title_audiobook_collections
+		BinderyCatalogTab.Authors -> Res.string.title_audiobook_authors
+	}

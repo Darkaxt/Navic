@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
+import paige.navic.domain.models.settings.BottomBarProfile
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
 import paige.navic.domain.models.settings.LyricsAlignment
@@ -721,6 +722,17 @@ class PreferenceManagerTest {
 		manager.showMiniPlayerQueueAction = true
 
 		assertTrue(manager.showMiniPlayerQueueAction)
+	}
+
+	@Test
+	fun bottomBarProfileDefaultsToCompactAndPersistsAudiobookMode() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(BottomBarProfile.Compact, manager.bottomBarProfile)
+
+		manager.bottomBarProfile = BottomBarProfile.Audiobooks
+
+		assertEquals(BottomBarProfile.Audiobooks, manager.bottomBarProfile)
 	}
 
 	@Test

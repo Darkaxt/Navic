@@ -88,6 +88,7 @@ fun ArtGridItem(
 	onLongClick: (() -> Unit)? = null,
 	coverArtId: String?,
 	imageUrl: String? = null,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
@@ -117,6 +118,7 @@ fun ArtGridItem(
 				CoverArt(
 					coverArtId = coverArtId,
 					imageUrl = imageUrl,
+					imageRequestHeaders = imageRequestHeaders,
 					contentDescription = title,
 					fallbackKind = fallbackKind,
 					modifier = Modifier

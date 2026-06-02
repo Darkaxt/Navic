@@ -7,14 +7,18 @@ import kotlin.test.assertTrue
 
 class NavbarConfigMigrationTest {
 	@Test
-	fun defaultConfigShowsActivityAsRootTab() {
+	fun defaultConfigIncludesMusicAndAudiobookTabs() {
 		assertEquals(
 			listOf(
 				NavbarTab.Id.LIBRARY,
 				NavbarTab.Id.ALBUMS,
 				NavbarTab.Id.PLAYLISTS,
 				NavbarTab.Id.ARTISTS,
-				NavbarTab.Id.ACTIVITY
+				NavbarTab.Id.AUDIOBOOKS,
+				NavbarTab.Id.ACTIVITY,
+				NavbarTab.Id.BOOKS,
+				NavbarTab.Id.COLLECTIONS,
+				NavbarTab.Id.AUTHORS
 			),
 			NavbarConfig.default.tabs.filter { it.visible }.map { it.id }
 		)
@@ -40,12 +44,16 @@ class NavbarConfigMigrationTest {
 				NavbarTab.Id.LIBRARY,
 				NavbarTab.Id.SEARCH,
 				NavbarTab.Id.ARTISTS,
+				NavbarTab.Id.AUDIOBOOKS,
 				NavbarTab.Id.ACTIVITY,
 				NavbarTab.Id.ALBUMS,
 				NavbarTab.Id.PLAYLISTS,
 				NavbarTab.Id.GENRES,
 				NavbarTab.Id.SONGS,
-				NavbarTab.Id.RADIOS
+				NavbarTab.Id.RADIOS,
+				NavbarTab.Id.BOOKS,
+				NavbarTab.Id.COLLECTIONS,
+				NavbarTab.Id.AUTHORS
 			),
 			migrated.tabs.map { it.id }
 		)

@@ -1,0 +1,50 @@
+package paige.navic.ui.screens.bindery
+
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyRepository
+import paige.navic.ui.core.UiState
+
+class BinderyCatalogViewModel(
+	private val path: String,
+	private val repository: BinderyRepository
+) : ViewModel() {
+	private val _catalogState = MutableStateFlow<UiState<BinderyCatalog>>(UiState.Loading())
+	val catalogState = _catalogState.asStateFlow()
+
+	val gridState = LazyGridState()
+
+	init {
+		refreshCatalog(false)
+	}
+
+	fun refreshCatalog(fullRefresh: Boolean) {
+		viewModelScope.launch {
+			val currentData = _catalogState.value.data
+			if (fullRefresh || currentData == null) {
+				_catalogState.value = UiState.Loading(currentData)
+			}
+			repository.getCatalog(path).fold(
+				onSuccess = { catalog ->
+					_catalogState.value = UiState.Success(catalog)
+				},
+				onFailure = { error ->
+					_catalogState.value = UiState.Error(
+						error = error as? Exception ?: Exception(error),
+						data = currentData
+					)
+				}
+			)
+		}
+	}
+
+	fun clearError() {
+		_catalogState.value = _catalogState.value.data?.let { UiState.Success(it) }
+			?: UiState.Loading()
+	}
+}

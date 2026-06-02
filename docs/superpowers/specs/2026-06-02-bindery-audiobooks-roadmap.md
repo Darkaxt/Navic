@@ -149,6 +149,16 @@ Artwork treatment direction:
 - Add Authors screen using OPDS authors.
 - Keep labels generic and first-party: avoid unnecessary "Bindery" branding in normal content rows.
 
+Implementation checkpoint, 2026-06-02:
+
+- First-pass surfaces are implemented for the Library Audiobooks row, Audiobooks hub, Books, Collections, Authors, and generic drilled-down OPDS catalogs.
+- Contextual bottom-bar profiles are implemented and persisted:
+  - Compact: `Library / Audiobooks / Activity`.
+  - Music: `Library / Albums / Playlists / Artists / Audiobooks / Activity`.
+  - Audiobooks: `Library / Audiobooks / Books / Collections / Authors / Activity`.
+- The row and screens use OPDS publications for books/audiobooks, OPDS navigation links for authors/series collections, and authenticated cover requests via the configured Bindery API key.
+- Book detail, playback, resume/progress conflict handling, and audiobook-specific Now Playing remain Phase 4 work.
+
 ### Phase 4: Playback And Resume
 
 - Treat a Bindery book as an album-like playback collection.

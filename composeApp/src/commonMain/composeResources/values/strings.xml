@@ -30,6 +30,10 @@
 	<string name="title_songs">Songs</string>
 	<string name="title_artists">Artists</string>
 	<string name="title_radios">Radios</string>
+	<string name="title_audiobooks">Audiobooks</string>
+	<string name="title_audiobook_books">Books</string>
+	<string name="title_audiobook_collections">Collections</string>
+	<string name="title_audiobook_authors">Authors</string>
 	<string name="title_all">All</string>
 	<string name="title_similar_artists">Similar artists</string>
 	<string name="title_source">Source code</string>

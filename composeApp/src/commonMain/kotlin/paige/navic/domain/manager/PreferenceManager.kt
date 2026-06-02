@@ -4,6 +4,7 @@ import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AnimationStyle
+import paige.navic.domain.models.settings.BottomBarProfile
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.settings.CoverArtQuality
@@ -200,6 +201,7 @@ class PreferenceManager(
 	// navigation bar settings
 	var bottomBarCollapseMode by preference(BottomBarCollapseMode.OnScroll)
 	var bottomBarVisibilityMode by preference(BottomBarVisibilityMode.AllScreens)
+	var bottomBarProfile by preference(BottomBarProfile.Compact)
 	var navigationBarStyle by preference(NavigationBarStyle.Normal)
 	var navigationBarLabelVisibility by preference(
         NavigationBarLabelVisibility.Always

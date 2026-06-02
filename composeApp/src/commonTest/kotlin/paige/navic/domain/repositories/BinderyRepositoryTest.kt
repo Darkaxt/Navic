@@ -16,6 +16,10 @@ class BinderyRepositoryTest {
 			binderyEndpoint(" https://bindery.example.com/opds/ ", "/books")
 		)
 		assertEquals(
+			"https://bindery.example.com/opds/books",
+			binderyEndpoint(" https://bindery.example.com/opds/ ", "/opds/books")
+		)
+		assertEquals(
 			"https://bindery.example.com/bindery/opds/books/1/manifest",
 			binderyEndpoint(" https://bindery.example.com/bindery/opds/ ", "books/1/manifest")
 		)

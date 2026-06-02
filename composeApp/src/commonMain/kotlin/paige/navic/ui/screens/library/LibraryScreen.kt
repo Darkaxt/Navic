@@ -41,6 +41,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QueueDuplicateAction
 import paige.navic.domain.models.duplicateQueueActionFor
+import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -60,6 +61,9 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
 import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
+import paige.navic.ui.screens.bindery.BinderyCatalogTab
+import paige.navic.ui.screens.bindery.BinderyCatalogViewModel
+import paige.navic.ui.screens.bindery.binderyCatalogCards
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -125,6 +129,12 @@ fun LibraryScreen() {
 	val mostPlayedShortcutsViewModel = koinViewModel<MostPlayedShortcutsViewModel>()
 	val mostPlayedShortcutsState by mostPlayedShortcutsViewModel.shortcutsState.collectAsStateWithLifecycle()
 
+	val binderyAudiobooksViewModel = koinViewModel<BinderyCatalogViewModel>(
+		key = "libraryBinderyAudiobooks",
+		parameters = { parametersOf(BinderyCatalogTab.Audiobooks.path) }
+	)
+	val binderyAudiobooksCatalogState by binderyAudiobooksViewModel.catalogState.collectAsStateWithLifecycle()
+
 	val loginViewModel = koinViewModel<LoginViewModel>()
 	val loginState by loginViewModel.loginState.collectAsStateWithLifecycle()
 	val isLoggedIn = loginState is LoginUiState.Success
@@ -147,12 +157,28 @@ fun LibraryScreen() {
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val binderyConfigured = preferenceManager.binderyEnabled &&
+		configuredBinderyOpdsBaseUrl(preferenceManager.binderyOpdsBaseUrl) != null &&
+		preferenceManager.binderyApiKey.isNotBlank()
+	val binderyAudiobooksState = when (val state = binderyAudiobooksCatalogState) {
+		is UiState.Error -> UiState.Error(
+			error = state.error,
+			data = state.data?.let { binderyCatalogCards(it, BinderyCatalogTab.Audiobooks).take(8) }
+		)
+		is UiState.Loading -> UiState.Loading(
+			data = state.data?.let { binderyCatalogCards(it, BinderyCatalogTab.Audiobooks).take(8) }
+		)
+		is UiState.Success -> UiState.Success(
+			state.data.let { binderyCatalogCards(it, BinderyCatalogTab.Audiobooks).take(8) }
+		)
+	}
 	val aurralCollectionRowsState = libraryAurralCollectionRowsState(
 		aurralConfigured = aurralConfigured,
 		discoveryState = aurralDiscovery
 	)
 	val libraryIntegrationIndicators = integrationLoadingIndicators(
-		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading
+		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading,
+		binderyLoading = binderyConfigured && binderyAudiobooksCatalogState is UiState.Loading
 	)
 
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -212,6 +238,17 @@ fun LibraryScreen() {
 		}
 	}
 
+	LaunchedEffect(
+		isLoggedIn,
+		binderyConfigured,
+		preferenceManager.binderyOpdsBaseUrl,
+		preferenceManager.binderyApiKey
+	) {
+		if (isLoggedIn && binderyConfigured) {
+			binderyAudiobooksViewModel.refreshCatalog(false)
+		}
+	}
+
 	Scaffold(
 		topBar = { RootTopBar({ Text(stringResource(Res.string.title_library)) }, scrollBehavior) },
 		bottomBar = {
@@ -232,7 +269,8 @@ fun LibraryScreen() {
 					artistsState !is UiState.Loading &&
 					genresState !is UiState.Loading &&
 					mostPlayedShortcutsState !is UiState.Loading &&
-					(!aurralConfigured || aurralDiscovery !is UiState.Loading),
+					(!aurralConfigured || aurralDiscovery !is UiState.Loading) &&
+					(!binderyConfigured || binderyAudiobooksCatalogState !is UiState.Loading),
 				onRefresh = {
 					if (quickPicksEnabled) {
 						quickPicksViewModel.refreshSongs(true)
@@ -246,6 +284,9 @@ fun LibraryScreen() {
 					if (aurralConfigured) {
 						aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
 					}
+					if (binderyConfigured) {
+						binderyAudiobooksViewModel.refreshCatalog(true)
+					}
 				},
 				key = listOf(
 					quickPicksState,
@@ -256,7 +297,8 @@ fun LibraryScreen() {
 					artistsState,
 					genresState,
 					mostPlayedShortcutsState,
-					aurralDiscovery
+					aurralDiscovery,
+					binderyAudiobooksCatalogState
 				)
 			) {
 				LibraryScreenContent(
@@ -295,6 +337,11 @@ fun LibraryScreen() {
 				onDeleteQuickPickDownload = { quickPicksViewModel.deleteDownload(it.id) },
 
 				mostPlayedShortcutsState = mostPlayedShortcutsState,
+				binderyAudiobooksState = if (binderyConfigured) {
+					binderyAudiobooksState
+				} else {
+					UiState.Success(emptyList())
+				},
 
 				albumsState = albumsState,
 				newestAlbumsState = newestAlbumsState,

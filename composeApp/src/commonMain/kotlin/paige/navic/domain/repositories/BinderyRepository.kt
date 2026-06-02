@@ -432,7 +432,33 @@ internal fun binderyApiKeyHeaders(apiKey: String): Map<String, String> {
 }
 
 internal fun binderyEndpoint(baseUrl: String, path: String): String =
-	"${normalizeBinderyOpdsBaseUrl(baseUrl)}/${path.trim().trimStart('/')}"
+	binderyEndpointFromNormalizedBase(
+		normalizeBinderyOpdsBaseUrl(baseUrl),
+		path
+	)
+
+private fun binderyEndpointFromNormalizedBase(baseUrl: String, path: String): String {
+	val trimmedPath = path.trim()
+	if (trimmedPath.startsWith("http://", ignoreCase = true) ||
+		trimmedPath.startsWith("https://", ignoreCase = true)
+	) {
+		return trimmedPath
+	}
+	val relativePath = trimmedPath.trimStart('/')
+	return if (relativePath.startsWith("opds/")) {
+		"${binderyOrigin(baseUrl)}/$relativePath"
+	} else {
+		"$baseUrl/$relativePath"
+	}
+}
+
+private fun binderyOrigin(baseUrl: String): String {
+	val schemeSeparator = baseUrl.indexOf("://")
+	val scheme = baseUrl.substring(0, schemeSeparator)
+	val afterScheme = baseUrl.drop(schemeSeparator + 3)
+	val authority = afterScheme.takeWhile { it != '/' }
+	return "$scheme://$authority"
+}
 
 internal fun configuredBinderyOpdsBaseUrl(baseUrl: String): String? =
 	normalizedBinderyOpdsBaseUrl(baseUrl)?.value

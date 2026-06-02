@@ -1,0 +1,95 @@
+package paige.navic.ui.navigation
+
+import paige.navic.domain.models.settings.BottomBarProfile
+import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.models.settings.NavbarTab
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class BottomBarProfilePolicyTest {
+	@Test
+	fun compactProfileKeepsOnlyRootShortcuts() {
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.AUDIOBOOKS,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(NavbarConfig.default, BottomBarProfile.Compact)
+		)
+	}
+
+	@Test
+	fun musicProfileIncludesAudiobooksAsCrossDomainShortcut() {
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.ALBUMS,
+				NavbarTab.Id.PLAYLISTS,
+				NavbarTab.Id.ARTISTS,
+				NavbarTab.Id.AUDIOBOOKS,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(NavbarConfig.default, BottomBarProfile.Music)
+		)
+	}
+
+	@Test
+	fun audiobookProfileShowsBooksCollectionsAndAuthors() {
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.AUDIOBOOKS,
+				NavbarTab.Id.BOOKS,
+				NavbarTab.Id.COLLECTIONS,
+				NavbarTab.Id.AUTHORS,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(NavbarConfig.default, BottomBarProfile.Audiobooks)
+		)
+	}
+
+	@Test
+	fun screenDomainOverridesRememberedProfileForSpecificScreens() {
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForScreen(Screen.AlbumList(), BottomBarProfile.Compact)
+		)
+		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyBooks, BottomBarProfile.Music)
+		)
+		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyAuthors, BottomBarProfile.Compact)
+		)
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Music)
+		)
+		assertEquals(
+			BottomBarProfile.Compact,
+			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Compact)
+		)
+	}
+
+	@Test
+	fun tabClickSelectsTheNextProfile() {
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForTabClick(NavbarTab.Id.LIBRARY, BottomBarProfile.Compact)
+		)
+		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForTabClick(NavbarTab.Id.AUDIOBOOKS, BottomBarProfile.Music)
+		)
+		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForTabClick(NavbarTab.Id.BOOKS, BottomBarProfile.Compact)
+		)
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForTabClick(NavbarTab.Id.ACTIVITY, BottomBarProfile.Music)
+		)
+	}
+}

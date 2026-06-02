@@ -76,6 +76,29 @@ sealed interface Screen : NavKey {
 		val nested: Boolean = false
 	) : Screen
 
+	@Immutable
+	@Serializable
+	data object Audiobooks : Screen
+
+	@Immutable
+	@Serializable
+	data object BinderyBooks : Screen
+
+	@Immutable
+	@Serializable
+	data object BinderyCollections : Screen
+
+	@Immutable
+	@Serializable
+	data object BinderyAuthors : Screen
+
+	@Immutable
+	@Serializable
+	data class BinderyCatalog(
+		val path: String,
+		val title: String
+	) : Screen
+
 	// misc
 	@Immutable
 	@Serializable
