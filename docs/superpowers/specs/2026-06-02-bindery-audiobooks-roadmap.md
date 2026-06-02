@@ -80,8 +80,38 @@ The next major decision is playback UX:
 Current recommendation:
 
 - Prefer a dedicated long-form player. Audiobook resume, chapter navigation, progress conflict handling, bookmarks, sleep timer, and long-duration ergonomics will diverge from music quickly.
+- Build it from the existing Now Playing architecture rather than from scratch, so artwork, media-session plumbing, theming, and playback state handling stay robust.
 
 This still needs explicit approval before implementation planning.
+
+## Audiobook Player Direction
+
+Confirmed player design decisions:
+
+- Use a Now Playing-derived audiobook mode, not a blank new player implementation.
+- Keep the visual language close to the current Now Playing screen, but make it long-form-first.
+- Make the cover artwork smaller than the music player artwork to leave room for chapter and resume context.
+- Remove music-only actions from the audiobook player:
+  - Shuffle.
+  - Repeat/loop.
+  - Lyrics.
+  - LidaClips/music-video actions.
+- Replace `Up next` with a chapter explorer backed by the OPDS `readingOrder`.
+- Use audiobook-oriented transport controls:
+  - Previous chapter.
+  - Play/pause.
+  - Next chapter.
+  - Configurable skip-back/skip-forward controls.
+- Seek controls should be configurable in Settings. The user can choose which skip ranges are shown at the same time, and Navic renders those ranges as ordered visible actions in the audiobook UI.
+- The first-pass Info action should render Bindery/OpenLibrary metadata first. Other sources such as Google Books, Audible public data, Goodreads-like data, Hardcover, or `pennydreadful/bookshelf` are Navic-side enrichment candidates and must not be required for playback.
+- The ebook-related action should be a bridge to ebook candidates or another client for the first pass, not a full ebook reader integration.
+
+Artwork treatment direction:
+
+- Replace the spinning vinyl metaphor with an audiobook/book treatment.
+- Do not rely on runtime SVG image loading for this player artwork, because Android SVG image-loader behavior has already caused crashes.
+- Prefer a Compose/vector frame that renders the real cover art into an audiobook/book shape.
+- Candidate visual metaphors include an open audiobook, audio-book icon, or monocolor audiobook glyph treatment.
 
 ## Integration Phases
 
