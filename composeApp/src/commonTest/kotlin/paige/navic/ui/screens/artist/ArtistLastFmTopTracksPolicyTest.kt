@@ -45,6 +45,46 @@ class ArtistLastFmTopTracksPolicyTest {
 		)
 	}
 
+	@Test
+	fun lateLastFmTopTrackResultsAreIgnoredWhenIntegrationIsNoLongerUsable() {
+		assertEquals(
+			true,
+			shouldApplyLastFmTopTrackResult(
+				lastFmEnabled = true,
+				lastFmApiKey = "token",
+				currentArtistId = "artist-1",
+				resultArtistId = "artist-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldApplyLastFmTopTrackResult(
+				lastFmEnabled = false,
+				lastFmApiKey = "token",
+				currentArtistId = "artist-1",
+				resultArtistId = "artist-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldApplyLastFmTopTrackResult(
+				lastFmEnabled = true,
+				lastFmApiKey = " ",
+				currentArtistId = "artist-1",
+				resultArtistId = "artist-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldApplyLastFmTopTrackResult(
+				lastFmEnabled = true,
+				lastFmApiKey = "token",
+				currentArtistId = "artist-2",
+				resultArtistId = "artist-1"
+			)
+		)
+	}
+
 	private fun song(
 		id: String,
 		title: String,

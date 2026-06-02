@@ -20,10 +20,12 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
@@ -44,6 +46,7 @@ class CollectionDetailViewModel(
 	playlistRepository: PlaylistRepository,
 	private val downloadManager: DownloadManager,
 	private val sessionManager: SessionManager,
+	private val preferenceManager: PreferenceManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
 	private val _collectionState = MutableStateFlow<UiState<DomainSongCollection>>(
@@ -116,10 +119,23 @@ class CollectionDetailViewModel(
 
 	val listState = LazyListState()
 
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
+
 	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
+			if (!enabled) {
+				_aurralAlbumRequests.value = emptyList()
+			}
+		}
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshCollection(false) }
 		}
+	}
+
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		super.onCleared()
 	}
 
 	fun refreshCollection(fullRefresh: Boolean) {

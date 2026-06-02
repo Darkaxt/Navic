@@ -101,6 +101,12 @@ class MusicBrainzArtworkRepository(
 	)
 	val cacheStats = _cacheStats.asStateFlow()
 
+	init {
+		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.MusicBrainz) {
+			refreshCacheVisibility()
+		}
+	}
+
 	fun clearCache() {
 		synchronized(cacheLock) {
 			preferenceManager.clearMusicBrainzArtworkCache()

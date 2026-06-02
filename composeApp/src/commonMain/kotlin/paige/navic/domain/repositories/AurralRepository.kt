@@ -112,6 +112,14 @@ class AurralRepository(
 	private val _artistStateRevision = MutableStateFlow(0)
 	val artistStateRevision = _artistStateRevision.asStateFlow()
 
+	init {
+		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
+			if (!enabled) {
+				cancelConfirmationWork(clearQueue = true)
+			}
+		}
+	}
+
 	suspend fun testConnection(): AurralConnectionResult {
 		if (!preferenceManager.aurralEnabled) return AurralConnectionResult.Failed(AURRAL_DISABLED_MESSAGE)
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
@@ -760,6 +768,15 @@ class AurralRepository(
 		_confirmationQueue.value = retained + item
 	}
 
+	private fun cancelConfirmationWork(clearQueue: Boolean) {
+		confirmationJobs.values.forEach { job -> job.cancel() }
+		confirmationJobs.clear()
+		if (clearQueue && _confirmationQueue.value.isNotEmpty()) {
+			_confirmationQueue.value = emptyList()
+			bumpArtistStateRevision()
+		}
+	}
+
 	private fun startArtistMonitoringConfirmationWorker(
 		confirmationId: String,
 		baseUrl: String,
@@ -773,6 +790,10 @@ class AurralRepository(
 		confirmationJobs[confirmationId] = confirmationScope.launch {
 			try {
 				while (true) {
+					if (!canRunAurralBackgroundWork()) {
+						removeConfirmationQueueItem(confirmationId)
+						return@launch
+					}
 					when (
 						pollArtistMonitoringConfirmation(
 							baseUrl = baseUrl,
@@ -817,6 +838,10 @@ class AurralRepository(
 					}
 
 					delay(AURRAL_CONFIRMATION_REEMIT_DELAY)
+					if (!canRunAurralBackgroundWork()) {
+						removeConfirmationQueueItem(confirmationId)
+						return@launch
+					}
 					runCatching {
 						apiClient.monitorArtist(
 							baseUrl = baseUrl,
@@ -842,6 +867,18 @@ class AurralRepository(
 		}
 	}
 
+	private fun canRunAurralBackgroundWork(): Boolean =
+		preferenceManager.aurralEnabled &&
+			configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+
+	private fun removeConfirmationQueueItem(confirmationId: String) {
+		val updated = _confirmationQueue.value.filterNot { item -> item.id == confirmationId }
+		if (updated.size != _confirmationQueue.value.size) {
+			_confirmationQueue.value = updated
+			bumpArtistStateRevision()
+		}
+	}
+
 	private suspend fun pollArtistMonitoringConfirmation(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -849,6 +886,9 @@ class AurralRepository(
 		expectedMonitored: Boolean
 	): AurralConfirmationPollResult {
 		repeat(AURRAL_MONITOR_CONFIRMATION_POLLS_PER_CYCLE) { attempt ->
+			if (!canRunAurralBackgroundWork()) {
+				return AurralConfirmationPollResult.Pending
+			}
 			val monitored = runCatching {
 				apiClient.fetchLibraryArtistMonitoring(
 					baseUrl = baseUrl,

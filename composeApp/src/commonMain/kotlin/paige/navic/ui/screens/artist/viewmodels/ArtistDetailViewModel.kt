@@ -35,6 +35,7 @@ import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AlbumRepository
@@ -52,6 +53,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.artist.artistDetailPlaybackOrigin
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
+import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
@@ -142,6 +144,8 @@ class ArtistDetailViewModel(
 	private val _monitoringInAurral = MutableStateFlow(false)
 	val monitoringInAurral = _monitoringInAurral.asStateFlow()
 
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
+
 	val isOnline = connectivityManager.isOnline
 
 	val allDownloads = downloadManager.allDownloads
@@ -154,12 +158,24 @@ class ArtistDetailViewModel(
 	val scrollState = ScrollState(initial = 0)
 
 	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
+			if (!enabled) clearAurralUiState()
+		}
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LastFm) { enabled ->
+			if (!enabled) clearLastFmUiState()
+		}
 		loadArtistData()
 		viewModelScope.launch {
 			aurralRepository.artistStateRevision.drop(1).collect {
 				refreshAurralEnrichment()
 			}
 		}
+	}
+
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		super.onCleared()
 	}
 
 	private fun loadArtistData() {
@@ -266,7 +282,24 @@ class ArtistDetailViewModel(
 				artistMbid = artist.musicBrainzId
 			).onSuccess { tracks ->
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onSuccess
-				if (latestState.artist.id != artist.id) return@onSuccess
+				if (
+					!shouldApplyLastFmTopTrackResult(
+						lastFmEnabled = preferenceManager.lastFmEnabled,
+						lastFmApiKey = preferenceManager.lastFmApiKey,
+						currentArtistId = latestState.artist.id,
+						resultArtistId = artist.id
+					)
+				) {
+					if (latestState.artist.id == artist.id) {
+						_artistState.value = UiState.Success(
+							latestState.copy(
+								lastFmTopSongs = emptyList(),
+								lastFmLoading = false
+							)
+						)
+					}
+					return@onSuccess
+				}
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						lastFmTopSongs = artistLastFmTopTrackSongs(
@@ -689,8 +722,19 @@ class ArtistDetailViewModel(
 			baseUrl = preferenceManager.aurralBaseUrl
 		)
 
+	private fun clearLastFmUiState() {
+		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		_artistState.value = UiState.Success(
+			currentState.copy(
+				lastFmTopSongs = emptyList(),
+				lastFmLoading = false
+			)
+		)
+	}
+
 	private fun clearAurralUiState() {
 		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		_monitoringInAurral.value = false
 		_artistState.value = UiState.Success(
 			currentState.copy(
 				aurralAlbumRequests = emptyList(),

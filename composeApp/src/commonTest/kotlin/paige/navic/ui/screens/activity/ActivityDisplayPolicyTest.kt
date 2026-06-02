@@ -113,14 +113,26 @@ class ActivityDisplayPolicyTest {
 
 	@Test
 	fun aurralActivitySectionIsShownOnlyWhenThereIsQueueWork() {
-		assertFalse(shouldShowAurralActivitySection(null))
-		assertFalse(shouldShowAurralActivitySection(AurralServiceStatus()))
+		assertFalse(shouldShowAurralActivitySection(aurralEnabled = true, status = null))
+		assertFalse(shouldShowAurralActivitySection(aurralEnabled = true, status = AurralServiceStatus()))
 		assertTrue(
 			shouldShowAurralActivitySection(
-				AurralServiceStatus(acquisitionQueue = listOf(aurralQueueItem("1", "processing")))
+				aurralEnabled = true,
+				status = AurralServiceStatus(acquisitionQueue = listOf(aurralQueueItem("1", "processing")))
 			)
 		)
-		assertTrue(shouldShowAurralActivitySection(AurralServiceStatus(flowTracksPending = 1)))
+		assertTrue(
+			shouldShowAurralActivitySection(
+				aurralEnabled = true,
+				status = AurralServiceStatus(flowTracksPending = 1)
+			)
+		)
+		assertFalse(
+			shouldShowAurralActivitySection(
+				aurralEnabled = false,
+				status = AurralServiceStatus(acquisitionQueue = listOf(aurralQueueItem("1", "processing")))
+			)
+		)
 	}
 
 	@Test

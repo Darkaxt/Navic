@@ -150,8 +150,12 @@ fun aurralActivitySummary(status: AurralServiceStatus?): ActivitySummary {
 	)
 }
 
-fun shouldShowAurralActivitySection(status: AurralServiceStatus?): Boolean =
-	status != null &&
+fun shouldShowAurralActivitySection(
+	aurralEnabled: Boolean,
+	status: AurralServiceStatus?
+): Boolean =
+	aurralEnabled &&
+		status != null &&
 		(status.acquisitionQueue.isNotEmpty() ||
 			status.flowTracksPending > 0 ||
 			status.flowTracksDownloading > 0 ||

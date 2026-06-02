@@ -14,6 +14,8 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
+import paige.navic.domain.models.IntegrationService
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
@@ -24,7 +26,8 @@ open class AlbumListViewModel(
 	initialListType: DomainAlbumListType = DomainAlbumListType.Year,
 	private val repository: AlbumRepository,
 	private val sessionManager: SessionManager,
-	private val aurralRepository: AurralRepository
+	private val aurralRepository: AurralRepository,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
 	private val _albumsState =
 		MutableStateFlow<UiState<ImmutableList<DomainAlbum>>>(UiState.Loading())
@@ -50,10 +53,23 @@ open class AlbumListViewModel(
 
 	val gridState = LazyGridState()
 
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
+
 	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
+			if (!enabled) {
+				_aurralAlbumRequests.value = emptyList()
+			}
+		}
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshAlbums(false) }
 		}
+	}
+
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		super.onCleared()
 	}
 
 	fun refreshAlbums(fullRefresh: Boolean) {

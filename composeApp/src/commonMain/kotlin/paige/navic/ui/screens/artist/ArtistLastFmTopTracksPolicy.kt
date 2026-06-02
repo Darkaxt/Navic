@@ -3,6 +3,16 @@ package paige.navic.ui.screens.artist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.LastFmTopTrack
 
+fun shouldApplyLastFmTopTrackResult(
+	lastFmEnabled: Boolean,
+	lastFmApiKey: String,
+	currentArtistId: String,
+	resultArtistId: String
+): Boolean =
+	lastFmEnabled &&
+		lastFmApiKey.isNotBlank() &&
+		currentArtistId == resultArtistId
+
 fun artistLastFmTopTrackSongs(
 	tracks: List<LastFmTopTrack>,
 	localSongs: List<DomainSong>,

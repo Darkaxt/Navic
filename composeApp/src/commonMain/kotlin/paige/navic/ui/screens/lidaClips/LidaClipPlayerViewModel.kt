@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -11,6 +12,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
@@ -28,24 +30,33 @@ class LidaClipPlayerViewModel(
 ) : ViewModel() {
 	private val _clipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Loading())
 	val clipState = _clipState.asStateFlow()
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
+	private var loadJob: Job? = null
 
 	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
+			if (!enabled) {
+				clearClip()
+			}
+		}
 		load()
 	}
 
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		loadJob?.cancel()
+		loadJob = null
+		super.onCleared()
+	}
+
 	fun load(forceRefresh: Boolean = false) {
-		if (
-			!shouldShowLidaClipsMusicVideoAction(
-				lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-				lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-				userActionEnabled = true,
-				songId = songId
-			)
-		) {
-			_clipState.value = UiState.Success(null)
+		if (!canLoadLidaClip()) {
+			clearClip()
 			return
 		}
-		viewModelScope.launch(Dispatchers.IO) {
+		loadJob?.cancel()
+		loadJob = viewModelScope.launch(Dispatchers.IO) {
 			_clipState.value = UiState.Loading(_clipState.value.data)
 			val song = runCatching { collectionRepository.getSongById(songId) }.getOrNull()
 			val result = if (song != null) {
@@ -76,6 +87,10 @@ class LidaClipPlayerViewModel(
 				},
 				onFailure = { Result.failure(it) }
 			)
+			if (!canLoadLidaClip()) {
+				clearClip()
+				return@launch
+			}
 			_clipState.value = playbackResult.fold(
 				onSuccess = { clip -> UiState.Success(clip) },
 				onFailure = { error ->
@@ -87,6 +102,20 @@ class LidaClipPlayerViewModel(
 			)
 		}
 	}
+
+	private fun clearClip() {
+		loadJob?.cancel()
+		loadJob = null
+		_clipState.value = UiState.Success(null)
+	}
+
+	private fun canLoadLidaClip(): Boolean =
+		shouldShowLidaClipsMusicVideoAction(
+			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+			lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+			userActionEnabled = true,
+			songId = songId
+		)
 
 	private suspend fun clipForPlayback(
 		clip: DomainLidaClip,

@@ -168,7 +168,12 @@ fun ActivityScreen() {
 					}
 				}
 
-				if (shouldShowAurralActivitySection(aurralStatus.data)) {
+				if (
+					shouldShowAurralActivitySection(
+						aurralEnabled = preferenceManager.aurralEnabled,
+						status = aurralStatus.data
+					)
+				) {
 					ActivitySection(
 						title = stringResource(Res.string.title_aurral),
 						summary = aurralActivitySummary(aurralStatus.data),

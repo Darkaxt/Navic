@@ -42,6 +42,14 @@ class LidaClipDownloadManager(
 		downloads.toImmutableList()
 	}
 
+	init {
+		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
+			if (!enabled) {
+				clearDownloadQueue()
+			}
+		}
+	}
+
 	suspend fun getOrQueueClipForPlayback(
 		songId: String,
 		clip: DomainLidaClip,

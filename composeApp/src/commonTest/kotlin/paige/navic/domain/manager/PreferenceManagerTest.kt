@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import com.russhwolf.settings.MapSettings
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
@@ -772,5 +773,22 @@ class PreferenceManagerTest {
 		manager.maxConcurrentDownloads = 5
 
 		assertEquals(5, manager.maxConcurrentDownloads)
+	}
+
+	@Test
+	fun integrationEnabledListenersFireOnlyWhenStateChanges() {
+		val manager = PreferenceManager(MapSettings())
+		val events = mutableListOf<Boolean>()
+
+		manager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
+			events += enabled
+		}
+
+		manager.lidaClipsEnabled = false
+		manager.lidaClipsEnabled = true
+		manager.lidaClipsEnabled = true
+		manager.lidaClipsEnabled = false
+
+		assertEquals(listOf(true, false), events)
 	}
 }

@@ -873,7 +873,9 @@ class AurralRepositoryTest {
 			aurralUsername = "user"
 			aurralPassword = "pass"
 		}
-		val apiClient = FakeAurralApiClient()
+		val apiClient = FakeAurralApiClient(
+			libraryArtistMonitoring = false
+		)
 		val repository = AurralRepository(preferenceManager, apiClient)
 
 		repository.monitorDiscoveredArtist(
@@ -912,7 +914,9 @@ class AurralRepositoryTest {
 			aurralUsername = "user"
 			aurralPassword = "pass"
 		}
-		val apiClient = FakeAurralApiClient()
+		val apiClient = FakeAurralApiClient(
+			libraryArtistMonitoring = false
+		)
 		val repository = AurralRepository(preferenceManager, apiClient)
 
 		repository.setArtistMonitoring(
@@ -1226,6 +1230,35 @@ class AurralRepositoryTest {
 		assertEquals(emptyList(), apiClient.artistSearchBaseUrls)
 		assertEquals(emptyList(), apiClient.requestAlbumPayloads)
 		assertEquals(emptyList(), apiClient.monitorArtistBaseUrls)
+	}
+
+	@Test
+	fun disablingAurralClearsPendingConfirmationWork(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			libraryArtistMonitoring = false
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient,
+			confirmationWorkerEnabled = true
+		)
+		val artist = DomainArtist(
+			id = "artist-1",
+			name = "Artist",
+			musicBrainzId = "artist-mbid"
+		)
+
+		repository.monitorArtist(artist).getOrThrow()
+		assertEquals(AurralConfirmationStatus.Pending, repository.confirmationQueue.value.single().status)
+
+		preferenceManager.aurralEnabled = false
+
+		assertEquals(emptyList(), repository.confirmationQueue.value)
+		assertEquals(1, apiClient.monitorArtistBaseUrls.size)
 	}
 
 	@Test

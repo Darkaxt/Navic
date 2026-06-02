@@ -17,6 +17,7 @@ import paige.navic.data.database.entities.LidaClipDownloadEntity
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.downloadQueueDownloads
 import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
@@ -74,6 +75,22 @@ class ActivityViewModel(
 
 	private val _aurralStatus = MutableStateFlow<UiState<AurralServiceStatus?>>(UiState.Success(null))
 	val aurralStatus = _aurralStatus.asStateFlow()
+
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
+
+	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
+			if (!enabled) {
+				_aurralStatus.value = UiState.Success(null)
+			}
+		}
+	}
+
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		super.onCleared()
+	}
 
 	fun refresh() {
 		refreshAurralStatus()

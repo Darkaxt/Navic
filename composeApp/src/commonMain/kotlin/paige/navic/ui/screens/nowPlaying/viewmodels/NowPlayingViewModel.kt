@@ -14,6 +14,7 @@ import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.LIDA_CLIPS_PREFETCH_REFRESH_AFTER_MILLIS
 import paige.navic.domain.models.isCachedLidaClipStreamUrl
 import paige.navic.domain.models.nextLidaClipsPrefetchKey
@@ -54,8 +55,12 @@ class NowPlayingViewModel(
 	private var lidaClipLookupJob: Job? = null
 	private var currentLyricsSongId: String? = null
 	private var lyricsLookupJob: Job? = null
+	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
 
 	init {
+		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
+			if (!enabled) clearLidaClip()
+		}
 		viewModelScope.launch {
 			player.uiState.collect { state ->
 				val song = state.currentSong
@@ -72,6 +77,12 @@ class NowPlayingViewModel(
 				}
 			}
 		}
+	}
+
+	override fun onCleared() {
+		integrationEnabledListenerRemovers.forEach { removeListener -> removeListener() }
+		integrationEnabledListenerRemovers.clear()
+		super.onCleared()
 	}
 
 	fun starSong(starred: Boolean) {
@@ -107,14 +118,7 @@ class NowPlayingViewModel(
 	}
 
 	private fun loadLidaClip(song: DomainSong, forceRefresh: Boolean = false) {
-		if (
-			!shouldShowLidaClipsMusicVideoAction(
-				lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
-				lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
-				userActionEnabled = true,
-				songId = song.id
-			)
-		) {
+		if (!canLoadLidaClip(song.id)) {
 			clearLidaClip()
 			return
 		}
@@ -154,8 +158,12 @@ class NowPlayingViewModel(
 								clip = it,
 								persistOffline = persistOffline
 							)
-						}
+					}
 					if (currentLidaClipSongId == song.id) {
+						if (!canLoadLidaClip(song.id)) {
+							clearLidaClip()
+							return@onSuccess
+						}
 						_lidaClipState.value = cachedClipResult?.fold(
 							onSuccess = { cachedClip ->
 								UiState.Success(
@@ -175,6 +183,10 @@ class NowPlayingViewModel(
 				}
 				.onFailure { error ->
 					if (currentLidaClipSongId == song.id) {
+						if (!canLoadLidaClip(song.id)) {
+							clearLidaClip()
+							return@onFailure
+						}
 						_lidaClipState.value = UiState.Error(
 							error as? Exception ?: Exception(error.message, error),
 							if (forceRefresh) null else _lidaClipState.value.data
@@ -183,6 +195,14 @@ class NowPlayingViewModel(
 				}
 		}
 	}
+
+	private fun canLoadLidaClip(songId: String): Boolean =
+		shouldShowLidaClipsMusicVideoAction(
+			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+			lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+			userActionEnabled = true,
+			songId = songId
+		)
 
 	private fun loadLyrics(song: DomainSong) {
 		if (currentLyricsSongId == song.id) return

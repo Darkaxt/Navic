@@ -64,7 +64,16 @@ class PreferenceManager(
 	var gridSize by preference(GridSize.TwoByTwo)
 	var coverArtShape by preference(CoverArtShape.Soft)
 	var coverArtQuality by preference(CoverArtQuality.High)
-	var musicBrainzArtworkFallbackEnabled by preference(false)
+	private val integrationEnabledListeners = mutableMapOf<IntegrationService, MutableSet<(Boolean) -> Unit>>()
+	private var musicBrainzArtworkFallbackEnabledPreference by preference("musicBrainzArtworkFallbackEnabled", false)
+	var musicBrainzArtworkFallbackEnabled: Boolean
+		get() = musicBrainzArtworkFallbackEnabledPreference
+		set(value) = setIntegrationEnabled(
+			service = IntegrationService.MusicBrainz,
+			currentValue = musicBrainzArtworkFallbackEnabledPreference,
+			newValue = value,
+			assign = { musicBrainzArtworkFallbackEnabledPreference = it }
+		)
 	var musicBrainzArtworkCacheJson by preference("")
 	var artGridItemSize by preference(150f)
 	var marqueeSpeed by preference(MarqueeSpeed.Slow)
@@ -138,7 +147,15 @@ class PreferenceManager(
 	var reverseProxyBasicAuthPassword by preference("")
 	var mediaNotificationFirstAction by preference(MediaNotificationAction.Disabled)
 	var mediaNotificationSecondAction by preference(MediaNotificationAction.Disabled)
-	var lidaClipsEnabled by preference(false)
+	private var lidaClipsEnabledPreference by preference("lidaClipsEnabled", false)
+	var lidaClipsEnabled: Boolean
+		get() = lidaClipsEnabledPreference
+		set(value) = setIntegrationEnabled(
+			service = IntegrationService.LidaClips,
+			currentValue = lidaClipsEnabledPreference,
+			newValue = value,
+			assign = { lidaClipsEnabledPreference = it }
+		)
 	var lidaClipsBaseUrl by preference("")
 	var lidaClipsApiKey by preference("")
 	var lidaClipsPictureInPicture by preference(false)
@@ -154,12 +171,36 @@ class PreferenceManager(
 	var lidaClipsKeepScreenOn by preference(true)
 	var lidaClipsLastClipId by preference("")
 	var lidaClipsLastPositionMs by preference(0L)
-	var lastFmEnabled by preference(true)
+	private var lastFmEnabledPreference by preference("lastFmEnabled", true)
+	var lastFmEnabled: Boolean
+		get() = lastFmEnabledPreference
+		set(value) = setIntegrationEnabled(
+			service = IntegrationService.LastFm,
+			currentValue = lastFmEnabledPreference,
+			newValue = value,
+			assign = { lastFmEnabledPreference = it }
+		)
 	var lastFmApiKey by preference("")
-	var binderyEnabled by preference(false)
+	private var binderyEnabledPreference by preference("binderyEnabled", false)
+	var binderyEnabled: Boolean
+		get() = binderyEnabledPreference
+		set(value) = setIntegrationEnabled(
+			service = IntegrationService.Bindery,
+			currentValue = binderyEnabledPreference,
+			newValue = value,
+			assign = { binderyEnabledPreference = it }
+		)
 	var binderyOpdsBaseUrl by preference("")
 	var binderyApiKey by preference("")
-	var aurralEnabled by preference(false)
+	private var aurralEnabledPreference by preference("aurralEnabled", false)
+	var aurralEnabled: Boolean
+		get() = aurralEnabledPreference
+		set(value) = setIntegrationEnabled(
+			service = IntegrationService.Aurral,
+			currentValue = aurralEnabledPreference,
+			newValue = value,
+			assign = { aurralEnabledPreference = it }
+		)
 	var aurralBaseUrl by preference("")
 	var aurralUsername by preference("")
 	var aurralPassword by preference("")
@@ -270,6 +311,34 @@ class PreferenceManager(
 			json = integrationAttemptStatusJson,
 			service = service
 		)
+	}
+
+	fun addIntegrationEnabledChangeListener(
+		service: IntegrationService,
+		listener: (Boolean) -> Unit
+	): () -> Unit {
+		val listeners = integrationEnabledListeners.getOrPut(service) { mutableSetOf() }
+		listeners += listener
+		return {
+			listeners -= listener
+			if (listeners.isEmpty()) {
+				integrationEnabledListeners.remove(service)
+			}
+		}
+	}
+
+	private fun setIntegrationEnabled(
+		service: IntegrationService,
+		currentValue: Boolean,
+		newValue: Boolean,
+		assign: (Boolean) -> Unit
+	) {
+		if (currentValue == newValue) return
+		assign(newValue)
+		integrationEnabledListeners[service]
+			.orEmpty()
+			.toList()
+			.forEach { listener -> listener(newValue) }
 	}
 
 	fun lidaClipsRequestHeadersMap(): Map<String, String> =
