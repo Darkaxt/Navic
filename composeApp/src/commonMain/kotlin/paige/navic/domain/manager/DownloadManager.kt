@@ -45,6 +45,7 @@ import paige.navic.domain.models.cancelPendingDownloadSongIds
 import paige.navic.domain.models.clearDownloadQueueSongIds
 import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
+import paige.navic.domain.models.downloadSchedulerWorkerCount
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
@@ -111,8 +112,10 @@ class DownloadManager(
 					.associate { it.songId to it.filePath!! }
 			}
 		}
-		scope.launch(Dispatchers.IO) {
-			processSongDownloadQueue()
+		repeat(downloadSchedulerWorkerCount()) {
+			scope.launch(Dispatchers.IO) {
+				processSongDownloadQueueWorker()
+			}
 		}
 	}
 
@@ -175,6 +178,10 @@ class DownloadManager(
 
 	fun cancelDownload(songId: String) {
 		scope.launch(Dispatchers.IO) {
+			queuedSongIdsMutex.withLock {
+				queuedSongIds.remove(songId)
+			}
+
 			activeDownloadsMutex.withLock {
 				activeDownloads[songId]?.cancel()
 				activeDownloads.remove(songId)
@@ -330,7 +337,7 @@ class DownloadManager(
 			.forEach { songId -> downloadDao.deleteDownload(songId) }
 	}
 
-	private suspend fun processSongDownloadQueue() {
+	private suspend fun processSongDownloadQueueWorker() {
 		startupQueueRecovery.join()
 		for (song in songDownloadQueue) {
 			if (!shouldStartQueuedSong(song.id)) {
@@ -338,19 +345,38 @@ class DownloadManager(
 				continue
 			}
 
-			acquireDownloadSlot(song.id)
-			scope.launch(Dispatchers.IO) {
-				try {
-					activeDownloadsMutex.withLock {
-						activeDownloads[song.id] = coroutineContext[Job]!!
-					}
-					if (shouldStartQueuedSong(song.id)) {
-						executeDownloadProcess(song)
-					}
-				} finally {
-					activeDownloadsMutex.withLock { activeDownloads.remove(song.id) }
-					releaseDownloadSlot(song.id)
-					queuedSongIdsMutex.withLock { queuedSongIds.remove(song.id) }
+			if (!acquireDownloadSlot(song.id)) {
+				queuedSongIdsMutex.withLock { queuedSongIds.remove(song.id) }
+				continue
+			}
+
+			try {
+				runDownloadJob(song)
+			} finally {
+				releaseDownloadSlot(song.id)
+				queuedSongIdsMutex.withLock { queuedSongIds.remove(song.id) }
+			}
+		}
+	}
+
+	private suspend fun runDownloadJob(song: DomainSong) {
+		val downloadJob = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+			if (shouldStartQueuedSong(song.id)) {
+				executeDownloadProcess(song)
+			}
+		}
+
+		activeDownloadsMutex.withLock {
+			activeDownloads[song.id] = downloadJob
+		}
+
+		try {
+			downloadJob.start()
+			downloadJob.join()
+		} finally {
+			activeDownloadsMutex.withLock {
+				if (activeDownloads[song.id] == downloadJob) {
+					activeDownloads.remove(song.id)
 				}
 			}
 		}
@@ -419,8 +445,8 @@ class DownloadManager(
 			null -> false
 		}
 
-	private suspend fun acquireDownloadSlot(songId: String) {
-		while (true) {
+	private suspend fun acquireDownloadSlot(songId: String): Boolean {
+		while (shouldStartQueuedSong(songId)) {
 			val acquired = runningDownloadSlotsMutex.withLock {
 				if (
 					canStartQueuedDownload(
@@ -435,9 +461,10 @@ class DownloadManager(
 					false
 				}
 			}
-			if (acquired) return
+			if (acquired) return true
 			delay(DOWNLOAD_SLOT_RETRY_DELAY_MS)
 		}
+		return false
 	}
 
 	private suspend fun releaseDownloadSlot(songId: String) {

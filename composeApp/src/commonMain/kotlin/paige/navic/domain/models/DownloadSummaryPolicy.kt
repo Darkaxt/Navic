@@ -9,6 +9,8 @@ const val MaxSupportedConcurrentDownloads = 10
 fun downloadConcurrencyLimit(configuredLimit: Int): Int =
 	configuredLimit.coerceIn(1, MaxSupportedConcurrentDownloads)
 
+fun downloadSchedulerWorkerCount(): Int = MaxSupportedConcurrentDownloads
+
 fun canStartQueuedDownload(
 	activeDownloadSongIds: Set<String>,
 	queuedSongId: String,

@@ -110,6 +110,11 @@ class DownloadSummaryPolicyTest {
 	}
 
 	@Test
+	fun downloadSchedulerWorkerPoolCanBackfillBeyondTheDefaultConcurrencyCap() {
+		assertEquals(MaxSupportedConcurrentDownloads, downloadSchedulerWorkerCount())
+	}
+
+	@Test
 	fun queuedDownloadStartPolicyRespectsTheConfiguredConcurrencyCap() {
 		assertEquals(
 			true,
