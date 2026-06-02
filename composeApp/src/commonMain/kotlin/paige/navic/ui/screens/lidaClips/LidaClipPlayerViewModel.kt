@@ -9,8 +9,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.LidaClipDownloadManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.isCachedLidaClipStreamUrl
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.LidaClipsRepository
@@ -21,7 +23,8 @@ class LidaClipPlayerViewModel(
 	private val collectionRepository: CollectionRepository,
 	private val repository: LidaClipsRepository,
 	private val lidaClipDownloadManager: LidaClipDownloadManager,
-	private val downloadManager: DownloadManager
+	private val downloadManager: DownloadManager,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _clipState = MutableStateFlow<UiState<DomainLidaClip?>>(UiState.Loading())
 	val clipState = _clipState.asStateFlow()
@@ -31,6 +34,17 @@ class LidaClipPlayerViewModel(
 	}
 
 	fun load(forceRefresh: Boolean = false) {
+		if (
+			!shouldShowLidaClipsMusicVideoAction(
+				lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+				lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+				userActionEnabled = true,
+				songId = songId
+			)
+		) {
+			_clipState.value = UiState.Success(null)
+			return
+		}
 		viewModelScope.launch(Dispatchers.IO) {
 			_clipState.value = UiState.Loading(_clipState.value.data)
 			val song = runCatching { collectionRepository.getSongById(songId) }.getOrNull()

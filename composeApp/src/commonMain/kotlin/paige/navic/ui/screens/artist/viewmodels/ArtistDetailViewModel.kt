@@ -46,6 +46,7 @@ import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
@@ -54,6 +55,7 @@ import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
+import paige.navic.ui.screens.aurral.shouldLoadAurralUi
 
 @Immutable
 data class ArtistState(
@@ -92,6 +94,7 @@ class ArtistDetailViewModel(
 	private val albumRepository: AlbumRepository,
 	private val aurralRepository: AurralRepository,
 	private val lastFmRepository: LastFmRepository,
+	private val preferenceManager: PreferenceManager,
 	playlistRepository: PlaylistRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
@@ -241,6 +244,18 @@ class ArtistDetailViewModel(
 		artist: DomainArtist,
 		localSongs: List<DomainSong>
 	) {
+		if (!preferenceManager.lastFmEnabled || preferenceManager.lastFmApiKey.isBlank()) {
+			val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+			if (currentState.artist.id == artist.id) {
+				_artistState.value = UiState.Success(
+					currentState.copy(
+						lastFmTopSongs = emptyList(),
+						lastFmLoading = false
+					)
+				)
+			}
+			return
+		}
 		viewModelScope.launch {
 			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 			if (currentState.artist.id == artist.id) {
@@ -275,6 +290,10 @@ class ArtistDetailViewModel(
 		artist: DomainArtist,
 		albums: List<DomainAlbum>
 	) {
+		if (!canLoadAurral()) {
+			clearAurralUiState()
+			return
+		}
 		viewModelScope.launch {
 			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 			_artistState.value = UiState.Success(
@@ -554,6 +573,10 @@ class ArtistDetailViewModel(
 	}
 
 	fun requestAurralAlbum(row: AurralMissingAlbumRow) {
+		if (!canLoadAurral()) {
+			clearAurralUiState()
+			return
+		}
 		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
 		viewModelScope.launch {
 			aurralRepository.requestAlbum(artist, row.releaseGroup)
@@ -611,6 +634,10 @@ class ArtistDetailViewModel(
 	}
 
 	fun setArtistMonitoringInAurral(monitored: Boolean) {
+		if (!canLoadAurral()) {
+			clearAurralUiState()
+			return
+		}
 		val state = (_artistState.value as? UiState.Success)?.data ?: return
 		val artist = state.aurralActionArtist() ?: return
 		viewModelScope.launch {
@@ -654,6 +681,32 @@ class ArtistDetailViewModel(
 	fun clearAurralFeedback() {
 		val state = (_artistState.value as? UiState.Success)?.data ?: return
 		_artistState.value = UiState.Success(state.copy(aurralFeedback = null))
+	}
+
+	private fun canLoadAurral(): Boolean =
+		shouldLoadAurralUi(
+			aurralEnabled = preferenceManager.aurralEnabled,
+			baseUrl = preferenceManager.aurralBaseUrl
+		)
+
+	private fun clearAurralUiState() {
+		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
+		_artistState.value = UiState.Success(
+			currentState.copy(
+				aurralAlbumRequests = emptyList(),
+				aurralMissingAlbums = emptyList(),
+				aurralRecommendedAlbums = emptyList(),
+				aurralSimilarArtists = emptyList(),
+				aurralPreviewTracks = emptyList(),
+				aurralMonitored = null,
+				aurralArtistMbid = null,
+				aurralArtistName = null,
+				aurralArtistImageUrl = null,
+				aurralLoading = false,
+				aurralError = null,
+				aurralFeedback = null
+			)
+		)
 	}
 
 	fun playArtistAlbums(player: MediaPlayerViewModel) {

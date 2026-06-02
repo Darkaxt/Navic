@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 
 enum class BinderyCatalogTab(
 	val path: String
@@ -10,6 +11,15 @@ enum class BinderyCatalogTab(
 	Collections("/opds/series"),
 	Authors("/opds/authors")
 }
+
+fun shouldLoadBinderyUi(
+	binderyEnabled: Boolean,
+	opdsBaseUrl: String,
+	apiKey: String
+): Boolean =
+	binderyEnabled &&
+		configuredBinderyOpdsBaseUrl(opdsBaseUrl) != null &&
+		apiKey.isNotBlank()
 
 enum class BinderyHubRowKind {
 	LastRead,

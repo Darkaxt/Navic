@@ -7,6 +7,7 @@ import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 
 @Immutable
 enum class ActivitySection {
@@ -156,6 +157,12 @@ fun shouldShowAurralActivitySection(status: AurralServiceStatus?): Boolean =
 			status.flowTracksDownloading > 0 ||
 			status.flowTracksDone > 0 ||
 			status.flowTracksFailed > 0)
+
+fun shouldShowLidaClipsActivitySection(
+	lidaClipsEnabled: Boolean,
+	baseUrl: String
+): Boolean =
+	lidaClipsEnabled && configuredLidaClipsBaseUrl(baseUrl) != null
 
 fun lidaClipsActivitySummary(downloads: List<LidaClipDownloadEntity>): ActivitySummary {
 	val queue = lidaClipDownloadQueueDownloads(downloads)

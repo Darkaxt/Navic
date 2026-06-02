@@ -28,9 +28,17 @@ private val audiobookProfileTabs = listOf(
 	NavbarTab.Id.ACTIVITY
 )
 
+private val binderyTabIds = setOf(
+	NavbarTab.Id.AUDIOBOOKS,
+	NavbarTab.Id.BOOKS,
+	NavbarTab.Id.COLLECTIONS,
+	NavbarTab.Id.AUTHORS
+)
+
 fun navbarTabIdsForProfile(
 	config: NavbarConfig,
-	profile: BottomBarProfile
+	profile: BottomBarProfile,
+	binderyEnabled: Boolean = true
 ): List<NavbarTab.Id> {
 	val profileTabs = when (profile) {
 		BottomBarProfile.Compact -> compactProfileTabs
@@ -42,13 +50,15 @@ fun navbarTabIdsForProfile(
 		.map { it.id }
 		.toSet()
 	return profileTabs.filter { tabId ->
-		tabId == NavbarTab.Id.LIBRARY || tabId in visible
+		(tabId == NavbarTab.Id.LIBRARY || tabId in visible) &&
+			(binderyEnabled || tabId !in binderyTabIds)
 	}
 }
 
 fun bottomBarProfileForScreen(
 	screen: Screen?,
-	rememberedProfile: BottomBarProfile
+	rememberedProfile: BottomBarProfile,
+	binderyEnabled: Boolean = true
 ): BottomBarProfile =
 	when (screen) {
 		is Screen.Library,
@@ -66,7 +76,7 @@ fun bottomBarProfileForScreen(
 		Screen.BinderyBooks,
 		Screen.BinderyCollections,
 		Screen.BinderyAuthors,
-		is Screen.BinderyCatalog -> BottomBarProfile.Audiobooks
+		is Screen.BinderyCatalog -> if (binderyEnabled) BottomBarProfile.Audiobooks else rememberedProfile
 
 		else -> rememberedProfile
 	}

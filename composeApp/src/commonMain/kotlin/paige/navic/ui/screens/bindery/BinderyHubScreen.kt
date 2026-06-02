@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,10 +74,27 @@ fun BinderyHubScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val binderyConfigured = shouldLoadBinderyUi(
+		binderyEnabled = preferenceManager.binderyEnabled,
+		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+		apiKey = preferenceManager.binderyApiKey
+	)
 	val binderyIndicators = integrationLoadingIndicators(
-		binderyLoading = hubState is UiState.Loading
+		binderyLoading = binderyConfigured && hubState is UiState.Loading
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+
+	LaunchedEffect(
+		binderyConfigured,
+		preferenceManager.binderyOpdsBaseUrl,
+		preferenceManager.binderyApiKey
+	) {
+		if (binderyConfigured) {
+			viewModel.refreshHub(false)
+		} else {
+			viewModel.clearHub()
+		}
+	}
 
 	Scaffold(
 		topBar = {
@@ -95,8 +113,14 @@ fun BinderyHubScreen() {
 				modifier = Modifier
 					.padding(top = innerPadding.calculateTopPadding())
 					.background(MaterialTheme.colorScheme.surface),
-				finished = hubState !is UiState.Loading,
-				onRefresh = { viewModel.refreshHub(true) },
+				finished = !binderyConfigured || hubState !is UiState.Loading,
+				onRefresh = {
+					if (binderyConfigured) {
+						viewModel.refreshHub(true)
+					} else {
+						viewModel.clearHub()
+					}
+				},
 				key = hubState
 			) {
 				LazyVerticalGrid(
@@ -109,73 +133,77 @@ fun BinderyHubScreen() {
 					verticalArrangement = Arrangement.spacedBy(5.dp),
 					horizontalArrangement = Arrangement.spacedBy(5.dp)
 				) {
-					libraryScreenOverviewButton(
-						icon = Icons.Outlined.Note,
-						label = Res.string.title_audiobook_books,
-						destination = Screen.BinderyBooks,
-						start = true
-					)
-					libraryScreenOverviewButton(
-						icon = Icons.Outlined.PlaylistPlay,
-						label = Res.string.title_audiobook_collections,
-						destination = Screen.BinderyCollections,
-						start = false
-					)
-					libraryScreenOverviewButton(
-						icon = Icons.Filled.Artist,
-						label = Res.string.title_audiobook_authors,
-						destination = Screen.BinderyAuthors,
-						start = true
-					)
-					libraryScreenOverviewButton(
-						icon = Icons.Outlined.History,
-						label = Res.string.title_audiobook_recently_added,
-						destination = Screen.BinderyCatalog("/opds/recent", "Recently Added"),
-						start = false
-					)
-
-					when (val state = hubState) {
-						is UiState.Loading -> {
-							val data = state.data
-							if (data == null) {
-								artGridPlaceholder()
-							} else {
-								binderyHubRows(
-									rows = data.rows,
-									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									onOpenCatalog = { link ->
-										platformContext.clickSound()
-										backStack.add(Screen.BinderyCatalog(link.path, link.title))
-									}
-								)
-							}
-						}
-						is UiState.Error -> {
-							val data = state.data
-							if (data == null) {
-								artGridError(state)
-							} else {
-								binderyHubRows(
-									rows = data.rows,
-									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									onOpenCatalog = { link ->
-										platformContext.clickSound()
-										backStack.add(Screen.BinderyCatalog(link.path, link.title))
-									}
-								)
-							}
-						}
-						is UiState.Success -> binderyHubRows(
-							rows = state.data.rows,
-							baseUrl = preferenceManager.binderyOpdsBaseUrl,
-							imageRequestHeaders = imageRequestHeaders,
-							onOpenCatalog = { link ->
-								platformContext.clickSound()
-								backStack.add(Screen.BinderyCatalog(link.path, link.title))
-							}
+					if (binderyConfigured) {
+						libraryScreenOverviewButton(
+							icon = Icons.Outlined.Note,
+							label = Res.string.title_audiobook_books,
+							destination = Screen.BinderyBooks,
+							start = true
 						)
+						libraryScreenOverviewButton(
+							icon = Icons.Outlined.PlaylistPlay,
+							label = Res.string.title_audiobook_collections,
+							destination = Screen.BinderyCollections,
+							start = false
+						)
+						libraryScreenOverviewButton(
+							icon = Icons.Filled.Artist,
+							label = Res.string.title_audiobook_authors,
+							destination = Screen.BinderyAuthors,
+							start = true
+						)
+						libraryScreenOverviewButton(
+							icon = Icons.Outlined.History,
+							label = Res.string.title_audiobook_recently_added,
+							destination = Screen.BinderyCatalog("/opds/recent", "Recently Added"),
+							start = false
+						)
+					}
+
+					if (binderyConfigured) {
+						when (val state = hubState) {
+							is UiState.Loading -> {
+								val data = state.data
+								if (data == null) {
+									artGridPlaceholder()
+								} else {
+									binderyHubRows(
+										rows = data.rows,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										onOpenCatalog = { link ->
+											platformContext.clickSound()
+											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+										}
+									)
+								}
+							}
+							is UiState.Error -> {
+								val data = state.data
+								if (data == null) {
+									artGridError(state)
+								} else {
+									binderyHubRows(
+										rows = data.rows,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										onOpenCatalog = { link ->
+											platformContext.clickSound()
+											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+										}
+									)
+								}
+							}
+							is UiState.Success -> binderyHubRows(
+								rows = state.data.rows,
+								baseUrl = preferenceManager.binderyOpdsBaseUrl,
+								imageRequestHeaders = imageRequestHeaders,
+								onOpenCatalog = { link ->
+									platformContext.clickSound()
+									backStack.add(Screen.BinderyCatalog(link.path, link.title))
+								}
+							)
+						}
 					}
 				}
 			}

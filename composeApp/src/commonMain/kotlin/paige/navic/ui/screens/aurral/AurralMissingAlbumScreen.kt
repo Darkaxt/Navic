@@ -124,8 +124,12 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 			)
 		)
 	}
+	val configured = shouldLoadAurralUi(
+		aurralEnabled = preferenceManager.aurralEnabled,
+		baseUrl = preferenceManager.aurralBaseUrl
+	)
 
-	LaunchedEffect(route) {
+	LaunchedEffect(route, configured) {
 		val localArtist = artistDao.getArtistById(route.artistId)?.toDomainModel()
 			?: state.artist
 		val localAlbums = albumDao.getAlbumsByArtist(localArtist.id).firstOrNull()
@@ -137,8 +141,19 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 			coverUrl = route.coverUrl,
 			moreAlbums = localAlbums
 				.map { it.toDomainModel() }
-				.sortedByAlbumYearDescending()
+				.sortedByAlbumYearDescending(),
+			loading = configured,
+			error = null
 		)
+
+		if (!configured) {
+			state = state.copy(
+				previewTracks = emptyList(),
+				loading = false,
+				error = null
+			)
+			return@LaunchedEffect
+		}
 
 		aurralRepository.getArtistEnrichment(localArtist)
 			.onSuccess { enrichment ->
@@ -180,7 +195,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	}
 
 	val aurralMissingAlbumIntegrationIndicators = integrationLoadingIndicators(
-		aurralLoading = state.loading || state.requesting
+		aurralLoading = configured && (state.loading || state.requesting)
 	)
 
 	Scaffold(
@@ -226,6 +241,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 				)
 				AurralMissingAlbumActions(
 					progress = state.progress,
+					aurralConfigured = configured,
 					requesting = state.requesting,
 					onAcquire = {
 						platformContext.clickSound()
@@ -374,9 +390,11 @@ private fun AurralMissingAlbumHero(
 @Composable
 private fun AurralMissingAlbumActions(
 	progress: AurralAcquisitionProgress?,
+	aurralConfigured: Boolean,
 	requesting: Boolean,
 	onAcquire: () -> Unit
 ) {
+	if (!aurralConfigured) return
 	val status = progress?.status?.trim()?.takeIf { it.isNotEmpty() }
 	Row(
 		modifier = Modifier

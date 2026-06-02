@@ -616,6 +616,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryDiscoveryUsesNormalizedBaseUrlAndBasicHeaders(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -642,6 +643,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryDiscoveryHydratesMissingRecommendationImageFromExactArtistSearch(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -679,6 +681,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryLibraryDiscoverySkipsImageHydrationForFastRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -714,6 +717,7 @@ class AurralRepositoryTest {
 	fun repositoryDiscoveryCachesLibraryArtistsWithinTtl(): Unit = runBlocking {
 		var nowMillis = 1_000L
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com"
 		}
 		val apiClient = FakeAurralApiClient(
@@ -775,6 +779,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com"
 		}
 		val apiClient = FakeAurralApiClient(
@@ -800,6 +805,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryArtistSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -827,6 +833,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryAlbumSearchUsesNormalizedBaseUrlHeadersAndTrimmedQuery(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -861,6 +868,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryMonitorDiscoveredArtistUsesAurralArtistPayload(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -899,6 +907,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryUnmonitorsArtistWithNonePayload(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -933,6 +942,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryCancelsAlbumAcquisitionByAlbumId(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/aurral/"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -969,6 +979,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryRetriesFailedAlbumAcquisitionWithAlbumRequestPayload(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com"
 		}
 		val apiClient = FakeAurralApiClient()
@@ -1164,7 +1175,9 @@ class AurralRepositoryTest {
 	fun repositoryTestConnectionRequiresConfiguredBaseUrl(): Unit = runBlocking {
 		val apiClient = FakeAurralApiClient()
 		val repository = AurralRepository(
-			preferenceManager = PreferenceManager(MapSettings()),
+			preferenceManager = PreferenceManager(MapSettings()).apply {
+				aurralEnabled = true
+			},
 			apiClient = apiClient
 		)
 
@@ -1176,8 +1189,49 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun disabledRepositoryDoesNotCallAurralApi(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = false
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Artist"))
+			)
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient
+		)
+		val artist = DomainArtist(
+			id = "artist-1",
+			name = "Artist",
+			musicBrainzId = "artist-mbid"
+		)
+
+		assertEquals(AurralConnectionResult.Failed(AURRAL_DISABLED_MESSAGE), repository.testConnection())
+		assertEquals(AurralDiscoverySummary(), repository.getDiscovery().getOrThrow())
+		assertEquals(AurralArtistSearchResult(), repository.searchArtists("Artist").getOrThrow())
+		assertNull(repository.getArtistEnrichment(artist).getOrThrow())
+		assertTrue(
+			repository.requestAlbum(
+				artist = artist,
+				releaseGroup = AurralReleaseGroup(id = "album-mbid", title = "Album")
+			).isFailure
+		)
+		assertTrue(repository.monitorArtist(artist).isFailure)
+
+		assertEquals(emptyList(), apiClient.connectionBaseUrls)
+		assertEquals(emptyList(), apiClient.discoveryBaseUrls)
+		assertEquals(emptyList(), apiClient.artistSearchBaseUrls)
+		assertEquals(emptyList(), apiClient.requestAlbumPayloads)
+		assertEquals(emptyList(), apiClient.monitorArtistBaseUrls)
+	}
+
+	@Test
 	fun repositoryTestConnectionUsesNormalizedBaseUrlAndBasicHeaders(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = " https://aurral.example.com/aurral/ "
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -1225,6 +1279,7 @@ class AurralRepositoryTest {
 			flowMessage = "Idle"
 		)
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -1246,6 +1301,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryCreateFlowUsesNormalizedBaseUrlHeadersAndDefaultPayload(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/aurral/"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -1285,6 +1341,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryFlowActionsUseNormalizedBaseUrlHeadersAndFlowIds(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/"
 			aurralUsername = "user"
 			aurralPassword = "pass"
@@ -1315,6 +1372,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryFlowPlayableSongsUseDoneJobsAndSessionToken(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/aurral/"
 			aurralUsername = " user "
 			aurralPassword = " pass "
@@ -1372,6 +1430,7 @@ class AurralRepositoryTest {
 	@Test
 	fun repositoryFlowPlayableSongsCanFallbackToShortStreamToken(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
 			aurralBaseUrl = "https://aurral.example.com/"
 			aurralUsername = "user"
 			aurralPassword = "pass"

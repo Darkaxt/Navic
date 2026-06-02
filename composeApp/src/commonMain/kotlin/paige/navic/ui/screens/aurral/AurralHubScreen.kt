@@ -172,8 +172,10 @@ fun AurralHubScreen() {
 		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) }
 	)
 	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
-	val configured = preferenceManager.aurralEnabled &&
-		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val configured = shouldLoadAurralUi(
+		aurralEnabled = preferenceManager.aurralEnabled,
+		baseUrl = preferenceManager.aurralBaseUrl
+	)
 	val aurralHubIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = configured && (
 			serviceStatus is UiState.Loading ||

@@ -34,6 +34,7 @@ internal const val LIDA_CLIPS_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"LidaClips URL must start with http:// or https://."
 internal const val LIDA_CLIPS_BASE_URL_INVALID_HOST_MESSAGE =
 	"LidaClips URL must include a host and cannot include a query or fragment."
+internal const val LIDA_CLIPS_DISABLED_MESSAGE = "LidaClips is disabled."
 private const val LIDA_CLIPS_LOOKUP_CACHE_MAX_AGE_MILLIS = 10 * 60 * 1000L
 
 class LidaClipsRepository(
@@ -43,6 +44,7 @@ class LidaClipsRepository(
 	private val lookupCache = LidaClipsLookupCache()
 
 	suspend fun testConnection(): LidaClipsConnectionResult {
+		if (!preferenceManager.lidaClipsEnabled) return LidaClipsConnectionResult.Failed(LIDA_CLIPS_DISABLED_MESSAGE)
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return LidaClipsConnectionResult.Failed(baseUrlError)
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
@@ -68,6 +70,9 @@ class LidaClipsRepository(
 	}
 
 	suspend fun getServiceStatus(): Result<LidaClipsServiceStatus> {
+		if (!preferenceManager.lidaClipsEnabled) {
+			return Result.failure(IllegalStateException(LIDA_CLIPS_DISABLED_MESSAGE))
+		}
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
@@ -82,6 +87,9 @@ class LidaClipsRepository(
 	}
 
 	suspend fun getActivityStatus(): Result<LidaClipsServiceStatus> {
+		if (!preferenceManager.lidaClipsEnabled) {
+			return Result.failure(IllegalStateException(LIDA_CLIPS_DISABLED_MESSAGE))
+		}
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
@@ -96,6 +104,9 @@ class LidaClipsRepository(
 	}
 
 	suspend fun setSyncPaused(syncPaused: Boolean): Result<LidaClipsServiceStatus> {
+		if (!preferenceManager.lidaClipsEnabled) {
+			return Result.failure(IllegalStateException(LIDA_CLIPS_DISABLED_MESSAGE))
+		}
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)
@@ -149,6 +160,7 @@ class LidaClipsRepository(
 			requestHeaders: Map<String, String>
 		) -> Result<DomainLidaClip?>
 	): Result<DomainLidaClip?> {
+		if (!preferenceManager.lidaClipsEnabled) return Result.success(null)
 		val baseUrlError = lidaClipsBaseUrlConfigurationError(preferenceManager.lidaClipsBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredLidaClipsBaseUrl(preferenceManager.lidaClipsBaseUrl)

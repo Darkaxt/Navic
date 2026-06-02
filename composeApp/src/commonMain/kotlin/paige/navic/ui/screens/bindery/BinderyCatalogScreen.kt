@@ -13,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,10 +68,28 @@ fun BinderyCatalogScreen(
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	val titleText = title ?: stringResource(tab?.titleResource() ?: Res.string.title_audiobooks)
+	val binderyConfigured = shouldLoadBinderyUi(
+		binderyEnabled = preferenceManager.binderyEnabled,
+		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+		apiKey = preferenceManager.binderyApiKey
+	)
 	val binderyIndicators = integrationLoadingIndicators(
-		binderyLoading = catalogState is UiState.Loading
+		binderyLoading = binderyConfigured && catalogState is UiState.Loading
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+
+	LaunchedEffect(
+		binderyConfigured,
+		preferenceManager.binderyOpdsBaseUrl,
+		preferenceManager.binderyApiKey,
+		path
+	) {
+		if (binderyConfigured) {
+			viewModel.refreshCatalog(false)
+		} else {
+			viewModel.clearCatalog()
+		}
+	}
 
 	Scaffold(
 		topBar = {
@@ -89,8 +108,14 @@ fun BinderyCatalogScreen(
 				modifier = Modifier
 					.padding(top = innerPadding.calculateTopPadding())
 					.background(MaterialTheme.colorScheme.surface),
-				finished = catalogState !is UiState.Loading,
-				onRefresh = { viewModel.refreshCatalog(true) },
+				finished = !binderyConfigured || catalogState !is UiState.Loading,
+				onRefresh = {
+					if (binderyConfigured) {
+						viewModel.refreshCatalog(true)
+					} else {
+						viewModel.clearCatalog()
+					}
+				},
 				key = catalogState
 			) {
 				ArtGrid(
@@ -105,47 +130,49 @@ fun BinderyCatalogScreen(
 						Arrangement.spacedBy(12.dp)
 					}
 				) {
-					when (val state = catalogState) {
-						is UiState.Loading -> {
-							if (state.data == null) {
-								artGridPlaceholder()
-							} else {
-								binderyCatalogItems(
-									cards = binderyCatalogCards(state.data, tab),
-									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									onOpenCatalog = { link ->
-										platformContext.clickSound()
-										backStack.add(Screen.BinderyCatalog(link.path, link.title))
-									}
-								)
+					if (binderyConfigured) {
+						when (val state = catalogState) {
+							is UiState.Loading -> {
+								if (state.data == null) {
+									artGridPlaceholder()
+								} else {
+									binderyCatalogItems(
+										cards = binderyCatalogCards(state.data, tab),
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										onOpenCatalog = { link ->
+											platformContext.clickSound()
+											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+										}
+									)
+								}
 							}
+							is UiState.Error -> {
+								val data = state.data
+								if (data == null) {
+									artGridError(state)
+								} else {
+									binderyCatalogItems(
+										cards = binderyCatalogCards(data, tab),
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										onOpenCatalog = { link ->
+											platformContext.clickSound()
+											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+										}
+									)
+								}
+							}
+							is UiState.Success -> binderyCatalogItems(
+								cards = binderyCatalogCards(state.data, tab),
+								baseUrl = preferenceManager.binderyOpdsBaseUrl,
+								imageRequestHeaders = imageRequestHeaders,
+								onOpenCatalog = { link ->
+									platformContext.clickSound()
+									backStack.add(Screen.BinderyCatalog(link.path, link.title))
+								}
+							)
 						}
-						is UiState.Error -> {
-							val data = state.data
-							if (data == null) {
-								artGridError(state)
-							} else {
-								binderyCatalogItems(
-									cards = binderyCatalogCards(data, tab),
-									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									onOpenCatalog = { link ->
-										platformContext.clickSound()
-										backStack.add(Screen.BinderyCatalog(link.path, link.title))
-									}
-								)
-							}
-						}
-						is UiState.Success -> binderyCatalogItems(
-							cards = binderyCatalogCards(state.data, tab),
-							baseUrl = preferenceManager.binderyOpdsBaseUrl,
-							imageRequestHeaders = imageRequestHeaders,
-							onOpenCatalog = { link ->
-								platformContext.clickSound()
-								backStack.add(Screen.BinderyCatalog(link.path, link.title))
-							}
-						)
 					}
 				}
 			}

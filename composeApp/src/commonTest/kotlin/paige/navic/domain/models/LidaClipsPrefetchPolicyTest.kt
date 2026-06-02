@@ -299,6 +299,42 @@ class LidaClipsPrefetchPolicyTest {
 	}
 
 	@Test
+	fun lidaClipDownloadStartRequiresEnabledConfiguredStableSong() {
+		assertEquals(
+			false,
+			shouldStartLidaClipDownload(
+				lidaClipsEnabled = false,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldStartLidaClipDownload(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "clips.remaxku.eu",
+				songId = "song-1"
+			)
+		)
+		assertEquals(
+			false,
+			shouldStartLidaClipDownload(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				songId = "radio_song-1"
+			)
+		)
+		assertEquals(
+			true,
+			shouldStartLidaClipDownload(
+				lidaClipsEnabled = true,
+				lidaClipsBaseUrl = "https://clips.remaxku.eu",
+				songId = "song-1"
+			)
+		)
+	}
+
+	@Test
 	fun verifiedMusicVideoActionRequiresAvailableClip() {
 		assertEquals(
 			false,

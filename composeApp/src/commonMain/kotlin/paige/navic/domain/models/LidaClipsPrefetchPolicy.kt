@@ -38,6 +38,15 @@ fun shouldShowLidaClipsMusicVideoAction(
 		userActionEnabled &&
 		(songId == null || hasStableNavidromeSongId(songId))
 
+fun shouldStartLidaClipDownload(
+	lidaClipsEnabled: Boolean,
+	lidaClipsBaseUrl: String,
+	songId: String?
+): Boolean =
+	lidaClipsEnabled &&
+		normalizedLidaClipsBaseUrlOrNull(lidaClipsBaseUrl) != null &&
+		hasStableNavidromeSongId(songId)
+
 fun shouldTreatLidaClipAsMusicVideo(clip: DomainLidaClip?): Boolean {
 	val qualityTier = clip?.qualityTier?.trim()?.lowercase() ?: return false
 	return qualityTier != "fallback" &&

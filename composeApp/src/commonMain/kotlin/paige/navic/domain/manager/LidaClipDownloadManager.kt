@@ -21,6 +21,7 @@ import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.lidaClipCacheFileExtension
 import paige.navic.domain.models.shouldFailHostedDownload
+import paige.navic.domain.models.shouldStartLidaClipDownload
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
@@ -46,6 +47,10 @@ class LidaClipDownloadManager(
 		clip: DomainLidaClip,
 		persistOffline: Boolean
 	): Result<DomainLidaClip?> {
+		if (!canStartDownload(songId)) {
+			return Result.success(null)
+		}
+
 		cachedDownloadOrNull(songId, clip, persistOffline)?.let { cachedClip ->
 			return Result.success(cachedClip)
 		}
@@ -158,6 +163,11 @@ class LidaClipDownloadManager(
 		lidaClipDownloadDao.insertDownload(queued)
 
 		while (true) {
+			if (!canStartDownload(songId)) {
+				lidaClipDownloadDao.deleteDownload(songId)
+				return Result.success(null)
+			}
+
 			try {
 				lidaClipDownloadDao.insertDownload(
 					queued.copy(
@@ -326,6 +336,13 @@ class LidaClipDownloadManager(
 
 	private fun nowMillis(): Long =
 		Clock.System.now().toEpochMilliseconds()
+
+	private fun canStartDownload(songId: String): Boolean =
+		shouldStartLidaClipDownload(
+			lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+			lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+			songId = songId
+		)
 
 	private data class ActiveLidaClipDownload(
 		val job: Job,

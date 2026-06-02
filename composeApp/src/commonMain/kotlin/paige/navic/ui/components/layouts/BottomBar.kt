@@ -181,8 +181,16 @@ fun BottomBar(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val config = (state as? UiState.Success)?.data ?: NavbarConfig.default
 	val currentScreen = backStack.lastOrNull() as? Screen
-	val activeProfile = bottomBarProfileForScreen(currentScreen, preferenceManager.bottomBarProfile)
-	val tabs = navbarTabIdsForProfile(config, activeProfile).mapNotNull(::navItemFromId)
+	val activeProfile = bottomBarProfileForScreen(
+		screen = currentScreen,
+		rememberedProfile = preferenceManager.bottomBarProfile,
+		binderyEnabled = preferenceManager.binderyEnabled
+	)
+	val tabs = navbarTabIdsForProfile(
+		config = config,
+		profile = activeProfile,
+		binderyEnabled = preferenceManager.binderyEnabled
+	).mapNotNull(::navItemFromId)
 
 	AnimatedContent(
 		preferenceManager.navigationBarStyle != NavigationBarStyle.Short

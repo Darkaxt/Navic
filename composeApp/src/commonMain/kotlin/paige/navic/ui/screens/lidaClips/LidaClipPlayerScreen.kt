@@ -43,6 +43,7 @@ import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipPlaybackState
 import paige.navic.domain.models.lidaClipStartPositionMs
 import paige.navic.domain.models.nextRememberedLidaClipPosition
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldPauseMusicForLidaClip
 import paige.navic.domain.models.shouldResumeMusicAfterLidaClip
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
@@ -68,8 +69,14 @@ fun LidaClipPlayerScreen(songId: String) {
 		parameters = { parametersOf(songId) }
 	)
 	val state by viewModel.clipState.collectAsStateWithLifecycle()
+	val lidaClipsConfigured = shouldShowLidaClipsMusicVideoAction(
+		lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+		lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+		userActionEnabled = true,
+		songId = songId
+	)
 	val lidaClipsIntegrationIndicators = integrationLoadingIndicators(
-		lidaClipsLoading = state is UiState.Loading
+		lidaClipsLoading = lidaClipsConfigured && state is UiState.Loading
 	)
 
 	Scaffold(
@@ -112,14 +119,16 @@ fun LidaClipPlayerScreen(songId: String) {
 								icon = Icons.Filled.Play,
 								label = stringResource(Res.string.info_no_lida_clip)
 							)
-							Button(onClick = { viewModel.load(forceRefresh = true) }) {
-								Row(verticalAlignment = Alignment.CenterVertically) {
-									Icon(
-										imageVector = Icons.Outlined.Refresh,
-										contentDescription = null
-									)
-									Spacer(Modifier.width(8.dp))
-									Text(stringResource(Res.string.action_refresh))
+							if (lidaClipsConfigured) {
+								Button(onClick = { viewModel.load(forceRefresh = true) }) {
+									Row(verticalAlignment = Alignment.CenterVertically) {
+										Icon(
+											imageVector = Icons.Outlined.Refresh,
+											contentDescription = null
+										)
+										Spacer(Modifier.width(8.dp))
+										Text(stringResource(Res.string.action_refresh))
+									}
 								}
 							}
 						}

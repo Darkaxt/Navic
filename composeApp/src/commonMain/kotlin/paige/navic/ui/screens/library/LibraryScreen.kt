@@ -41,7 +41,6 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QueueDuplicateAction
 import paige.navic.domain.models.duplicateQueueActionFor
-import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -64,6 +63,7 @@ import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
 import paige.navic.ui.screens.bindery.BinderyCatalogTab
 import paige.navic.ui.screens.bindery.BinderyCatalogViewModel
 import paige.navic.ui.screens.bindery.binderyCatalogCards
+import paige.navic.ui.screens.bindery.shouldLoadBinderyUi
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -157,9 +157,11 @@ fun LibraryScreen() {
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
-	val binderyConfigured = preferenceManager.binderyEnabled &&
-		configuredBinderyOpdsBaseUrl(preferenceManager.binderyOpdsBaseUrl) != null &&
-		preferenceManager.binderyApiKey.isNotBlank()
+	val binderyConfigured = shouldLoadBinderyUi(
+		binderyEnabled = preferenceManager.binderyEnabled,
+		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+		apiKey = preferenceManager.binderyApiKey
+	)
 	val binderyAudiobooksState = when (val state = binderyAudiobooksCatalogState) {
 		is UiState.Error -> UiState.Error(
 			error = state.error,
@@ -246,6 +248,8 @@ fun LibraryScreen() {
 	) {
 		if (isLoggedIn && binderyConfigured) {
 			binderyAudiobooksViewModel.refreshCatalog(false)
+		} else {
+			binderyAudiobooksViewModel.clearCatalog()
 		}
 	}
 

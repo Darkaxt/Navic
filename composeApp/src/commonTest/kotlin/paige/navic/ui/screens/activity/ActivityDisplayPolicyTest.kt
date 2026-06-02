@@ -188,6 +188,34 @@ class ActivityDisplayPolicyTest {
 	}
 
 	@Test
+	fun lidaClipsActivitySectionRequiresEnabledConfiguredIntegration() {
+		assertTrue(
+			shouldShowLidaClipsActivitySection(
+				lidaClipsEnabled = true,
+				baseUrl = "https://clips.example.com"
+			)
+		)
+		assertFalse(
+			shouldShowLidaClipsActivitySection(
+				lidaClipsEnabled = false,
+				baseUrl = "https://clips.example.com"
+			)
+		)
+		assertFalse(
+			shouldShowLidaClipsActivitySection(
+				lidaClipsEnabled = true,
+				baseUrl = ""
+			)
+		)
+		assertFalse(
+			shouldShowLidaClipsActivitySection(
+				lidaClipsEnabled = true,
+				baseUrl = "not a url"
+			)
+		)
+	}
+
+	@Test
 	fun lidaClipsSummaryReportsClientDownloadQueue() {
 		val summary = lidaClipsActivitySummary(
 			downloads = listOf(

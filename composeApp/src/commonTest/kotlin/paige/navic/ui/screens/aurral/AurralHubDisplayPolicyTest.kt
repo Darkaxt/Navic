@@ -34,6 +34,14 @@ import paige.navic.ui.screens.artist.AurralMonitorActionState
 
 class AurralHubDisplayPolicyTest {
 	@Test
+	fun aurralUiLoadsOnlyWhenEnabledAndConfigured() {
+		assertTrue(shouldLoadAurralUi(aurralEnabled = true, baseUrl = "https://aurral.example.com"))
+		assertFalse(shouldLoadAurralUi(aurralEnabled = false, baseUrl = "https://aurral.example.com"))
+		assertFalse(shouldLoadAurralUi(aurralEnabled = true, baseUrl = ""))
+		assertFalse(shouldLoadAurralUi(aurralEnabled = true, baseUrl = "not a url"))
+	}
+
+	@Test
 	fun hubDiscoveryCanRenderBeforeServiceStatusIsAvailable() {
 		val summary = AurralDiscoverySummary(
 			recommendations = listOf(

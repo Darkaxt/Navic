@@ -50,6 +50,46 @@ class BottomBarProfilePolicyTest {
 	}
 
 	@Test
+	fun disabledBinderyRemovesAudiobookTabsFromEveryProfile() {
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(
+				config = NavbarConfig.default,
+				profile = BottomBarProfile.Compact,
+				binderyEnabled = false
+			)
+		)
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.ALBUMS,
+				NavbarTab.Id.PLAYLISTS,
+				NavbarTab.Id.ARTISTS,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(
+				config = NavbarConfig.default,
+				profile = BottomBarProfile.Music,
+				binderyEnabled = false
+			)
+		)
+		assertEquals(
+			listOf(
+				NavbarTab.Id.LIBRARY,
+				NavbarTab.Id.ACTIVITY
+			),
+			navbarTabIdsForProfile(
+				config = NavbarConfig.default,
+				profile = BottomBarProfile.Audiobooks,
+				binderyEnabled = false
+			)
+		)
+	}
+
+	@Test
 	fun screenDomainOverridesRememberedProfileForSpecificScreens() {
 		assertEquals(
 			BottomBarProfile.Music,
@@ -70,6 +110,26 @@ class BottomBarProfilePolicyTest {
 		assertEquals(
 			BottomBarProfile.Music,
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Compact)
+		)
+	}
+
+	@Test
+	fun disabledBinderyDoesNotForceAudiobookProfileForStaleAudiobookScreens() {
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForScreen(
+				screen = Screen.Audiobooks,
+				rememberedProfile = BottomBarProfile.Music,
+				binderyEnabled = false
+			)
+		)
+		assertEquals(
+			BottomBarProfile.Compact,
+			bottomBarProfileForScreen(
+				screen = Screen.BinderyBooks,
+				rememberedProfile = BottomBarProfile.Compact,
+				binderyEnabled = false
+			)
 		)
 	}
 

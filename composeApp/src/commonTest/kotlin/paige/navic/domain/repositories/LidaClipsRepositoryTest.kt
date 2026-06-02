@@ -320,6 +320,7 @@ class LidaClipsRepositoryTest {
 	@Test
 	fun songMetadataFallbackCachesDirectMissForLaterDirectLookup(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			lidaClipsEnabled = true
 			lidaClipsBaseUrl = "https://clips.remaxku.eu"
 			lidaClipsApiKey = "secret"
 		}
@@ -345,6 +346,27 @@ class LidaClipsRepositoryTest {
 	}
 
 	@Test
+	fun disabledIntegrationDoesNotCallClipLookupApi(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			lidaClipsEnabled = false
+			lidaClipsBaseUrl = "https://clips.remaxku.eu"
+			lidaClipsApiKey = "secret"
+		}
+		val apiClient = FakeLidaClipsApiClient(
+			directResults = mutableListOf(Result.success(lidaClip())),
+			metadataResults = mutableListOf(Result.success(lidaClip()))
+		)
+		val repository = LidaClipsRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient
+		)
+
+		assertNull(repository.findClipForSong(lidaSong(id = "song-1")).getOrThrow())
+		assertEquals(emptyList(), apiClient.directSongIds)
+		assertEquals(emptyList(), apiClient.metadataSongIds)
+	}
+
+	@Test
 	fun songMetadataFallbackRequiresTitleAndRealArtist(): Unit = runBlocking {
 		val weakSongs = listOf(
 			lidaSong(id = "blank-title").copy(title = " ", artistName = "Artist"),
@@ -354,6 +376,7 @@ class LidaClipsRepositoryTest {
 
 		weakSongs.forEach { song ->
 			val preferenceManager = PreferenceManager(MapSettings()).apply {
+			lidaClipsEnabled = true
 				lidaClipsBaseUrl = "https://clips.remaxku.eu"
 				lidaClipsApiKey = "secret"
 			}

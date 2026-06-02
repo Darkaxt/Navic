@@ -40,6 +40,7 @@ import paige.navic.domain.models.shouldMuteNowPlayingBackgroundLidaClipVideo
 import paige.navic.domain.models.shouldMuteNowPlayingPromotedLidaClipVideo
 import paige.navic.domain.models.shouldPlayNowPlayingLidaClipVideo
 import paige.navic.domain.models.shouldRecoverLidaClipFromPlaybackError
+import paige.navic.domain.models.shouldShowLidaClipsMusicVideoAction
 import paige.navic.domain.models.shouldShowLidaClipExtraScreenBackground
 import paige.navic.domain.models.shouldShowNowPlayingLidaClipControls
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
@@ -63,18 +64,23 @@ fun ExtraScreenLidaClipBackground(
 	val lidaClipCacheManager = koinInject<LidaClipCacheManager>()
 	val playerState by player.uiState.collectAsState()
 	var cachedClip by remember(song?.id) { mutableStateOf<DomainLidaClip?>(null) }
+	val shouldLoadClip = shouldShowLidaClipsMusicVideoAction(
+		lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+		lidaClipsBaseUrl = preferenceManager.lidaClipsBaseUrl,
+		userActionEnabled = enabled,
+		songId = song?.id
+	)
 
 	LaunchedEffect(
 		song?.id,
-		enabled,
-		preferenceManager.lidaClipsEnabled,
+		shouldLoadClip,
 		preferenceManager.lidaClipsBaseUrl,
 		preferenceManager.lidaClipsApiKey,
 		preferenceManager.lidaClipsVideoCacheSizeMb
 	) {
 		cachedClip = null
 		val currentSong = song ?: return@LaunchedEffect
-		if (!enabled || !preferenceManager.lidaClipsEnabled) {
+		if (!shouldLoadClip) {
 			return@LaunchedEffect
 		}
 		lidaClipsRepository.findClipForSong(currentSong)

@@ -18,6 +18,7 @@ import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
+import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.aurralMonitorActionState
@@ -43,6 +44,12 @@ data class AurralArtistIdentity(
 	val name: String,
 	val imageUrl: String? = null
 )
+
+fun shouldLoadAurralUi(
+	aurralEnabled: Boolean,
+	baseUrl: String
+): Boolean =
+	aurralEnabled && configuredAurralBaseUrl(baseUrl) != null
 
 @Immutable
 enum class AurralDiscoveryCollectionKind {

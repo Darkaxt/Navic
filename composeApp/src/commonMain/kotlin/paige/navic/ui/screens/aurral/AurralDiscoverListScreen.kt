@@ -44,7 +44,6 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
-import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
@@ -88,8 +87,10 @@ fun AurralDiscoverListScreen(
 	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
 	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val gridState = rememberLazyGridState()
-	val configured = preferenceManager.aurralEnabled &&
-		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
+	val configured = shouldLoadAurralUi(
+		aurralEnabled = preferenceManager.aurralEnabled,
+		baseUrl = preferenceManager.aurralBaseUrl
+	)
 	val aurralDiscoverIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = configured && discoveryState is UiState.Loading
 	)

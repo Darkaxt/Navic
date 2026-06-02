@@ -119,7 +119,8 @@ val viewModelModule = module {
 			collectionRepository = get(),
 			repository = get(),
 			lidaClipDownloadManager = get(),
-			downloadManager = get()
+			downloadManager = get(),
+			preferenceManager = get()
 		)
 	}
 	viewModelOf(::NavtabsViewModel)

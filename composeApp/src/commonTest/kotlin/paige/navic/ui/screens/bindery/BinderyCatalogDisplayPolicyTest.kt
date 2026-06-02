@@ -5,6 +5,8 @@ import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class BinderyCatalogDisplayPolicyTest {
 	@Test
@@ -148,6 +150,38 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			),
 			binderyHubRows(root)
+		)
+	}
+
+	@Test
+	fun uiFeedsLoadOnlyWhenBinderyIsEnabledAndConfigured() {
+		assertTrue(
+			shouldLoadBinderyUi(
+				binderyEnabled = true,
+				opdsBaseUrl = "https://bindery.example.com/opds",
+				apiKey = "token"
+			)
+		)
+		assertFalse(
+			shouldLoadBinderyUi(
+				binderyEnabled = false,
+				opdsBaseUrl = "https://bindery.example.com/opds",
+				apiKey = "token"
+			)
+		)
+		assertFalse(
+			shouldLoadBinderyUi(
+				binderyEnabled = true,
+				opdsBaseUrl = "",
+				apiKey = "token"
+			)
+		)
+		assertFalse(
+			shouldLoadBinderyUi(
+				binderyEnabled = true,
+				opdsBaseUrl = "https://bindery.example.com/opds",
+				apiKey = ""
+			)
 		)
 	}
 }

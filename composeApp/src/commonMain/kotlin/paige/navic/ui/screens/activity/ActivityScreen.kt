@@ -80,9 +80,13 @@ fun ActivityScreen() {
 	val lidaClipDownloadItems by viewModel.lidaClipDownloadItems.collectAsStateWithLifecycle()
 	val aurralStatus by viewModel.aurralStatus.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+	val lidaClipsConfigured = shouldShowLidaClipsActivitySection(
+		lidaClipsEnabled = preferenceManager.lidaClipsEnabled,
+		baseUrl = preferenceManager.lidaClipsBaseUrl
+	)
 	val activityIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = aurralStatus is UiState.Loading,
-		lidaClipsLoading = lidaClipDownloadItems.any { item ->
+		lidaClipsLoading = lidaClipsConfigured && lidaClipDownloadItems.any { item ->
 			item.status == DownloadStatus.QUEUED || item.status == DownloadStatus.DOWNLOADING
 		}
 	)
@@ -142,24 +146,26 @@ fun ActivityScreen() {
 					}
 				}
 
-				ActivitySection(
-					title = stringResource(Res.string.title_lida_clips),
-					summary = lidaClipsActivitySummary(downloads = lidaClipDownloadItems)
-				) {
-					LidaClipDownloadControlsRow(
-						controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
-						onRetryFailedDownloads = viewModel::retryFailedLidaClipDownloads,
-						onDiscardFailedDownloads = viewModel::discardFailedLidaClipDownloads,
-						onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
-					)
-					lidaClipDownloadItems
-						.forEach { item ->
-							LidaClipDownloadRow(
-								item = item,
-								onCancel = viewModel::cancelLidaClipDownload,
-								onRetry = viewModel::retryLidaClipDownload
-							)
-						}
+				if (lidaClipsConfigured) {
+					ActivitySection(
+						title = stringResource(Res.string.title_lida_clips),
+						summary = lidaClipsActivitySummary(downloads = lidaClipDownloadItems)
+					) {
+						LidaClipDownloadControlsRow(
+							controls = lidaClipDownloadQueueControls(lidaClipDownloadItems),
+							onRetryFailedDownloads = viewModel::retryFailedLidaClipDownloads,
+							onDiscardFailedDownloads = viewModel::discardFailedLidaClipDownloads,
+							onClearDownloadQueue = viewModel::clearLidaClipDownloadQueue
+						)
+						lidaClipDownloadItems
+							.forEach { item ->
+								LidaClipDownloadRow(
+									item = item,
+									onCancel = viewModel::cancelLidaClipDownload,
+									onRetry = viewModel::retryLidaClipDownload
+								)
+							}
+					}
 				}
 
 				if (shouldShowAurralActivitySection(aurralStatus.data)) {

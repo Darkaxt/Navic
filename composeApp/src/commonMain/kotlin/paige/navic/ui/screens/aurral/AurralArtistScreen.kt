@@ -127,8 +127,12 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			)
 		)
 	}
+	val configured = shouldLoadAurralUi(
+		aurralEnabled = preferenceManager.aurralEnabled,
+		baseUrl = preferenceManager.aurralBaseUrl
+	)
 
-	LaunchedEffect(route) {
+	LaunchedEffect(route, configured) {
 		val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
 		val localArtist = localArtists.findAurralLocalArtist(route.artistMbid, route.artistName)
 		val artist = localArtist ?: route.toDomainArtist()
@@ -142,9 +146,23 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			localArtist = localArtist,
 			localAlbums = localAlbums,
 			heroImageUrl = route.imageUrl ?: localArtist?.artistImageUrl,
-			loading = true,
+			loading = configured,
 			error = null
 		)
+
+		if (!configured) {
+			state = state.copy(
+				enrichment = null,
+				missingAlbums = emptyList(),
+				recommendedAlbums = emptyList(),
+				similarArtists = emptyList(),
+				previewTracks = emptyList(),
+				monitorConfirmed = false,
+				loading = false,
+				error = null
+			)
+			return@LaunchedEffect
+		}
 
 		aurralRepository.getArtistEnrichment(artist)
 			.onSuccess { enrichment ->
@@ -182,7 +200,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 
 	val monitorWaitingMessage = stringResource(Res.string.info_aurral_monitor_waiting)
 	val aurralArtistIntegrationIndicators = integrationLoadingIndicators(
-		aurralLoading = state.loading || state.monitoring
+		aurralLoading = configured && (state.loading || state.monitoring)
 	)
 	AurralConfirmationQueueSnackbar(aurralRepository)
 
@@ -236,6 +254,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				)
 				AurralArtistActions(
 					localArtist = state.localArtist,
+					aurralConfigured = configured,
 					monitoring = state.monitoring,
 					monitorPending = aurralArtistMonitoringConfirmationItem(
 						queue = confirmationQueue,
@@ -455,6 +474,7 @@ private fun AurralArtistHero(
 @Composable
 private fun AurralArtistActions(
 	localArtist: DomainArtist?,
+	aurralConfigured: Boolean,
 	monitoring: Boolean,
 	monitorPending: Boolean,
 	monitorConfirmed: Boolean,
@@ -476,6 +496,7 @@ private fun AurralArtistActions(
 				Text(stringResource(Res.string.action_view_artist))
 			}
 		}
+		if (!aurralConfigured) return@Row
 		OutlinedButton(
 			modifier = Modifier.weight(1f),
 			onClick = onMonitorArtist,

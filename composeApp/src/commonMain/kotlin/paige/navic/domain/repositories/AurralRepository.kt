@@ -65,6 +65,7 @@ internal const val AURRAL_BASE_URL_INVALID_SCHEME_MESSAGE =
 	"Aurral URL must start with http:// or https://."
 internal const val AURRAL_BASE_URL_INVALID_HOST_MESSAGE =
 	"Aurral URL must include a host and cannot include credentials, a query, or a fragment."
+internal const val AURRAL_DISABLED_MESSAGE = "Aurral is disabled."
 
 enum class AurralConfirmationType {
 	ArtistMonitoring
@@ -112,6 +113,7 @@ class AurralRepository(
 	val artistStateRevision = _artistStateRevision.asStateFlow()
 
 	suspend fun testConnection(): AurralConnectionResult {
+		if (!preferenceManager.aurralEnabled) return AurralConnectionResult.Failed(AURRAL_DISABLED_MESSAGE)
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return AurralConnectionResult.Failed(baseUrlError)
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -129,6 +131,9 @@ class AurralRepository(
 	}
 
 	suspend fun getServiceStatus(): Result<AurralServiceStatus> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -143,6 +148,9 @@ class AurralRepository(
 	}
 
 	suspend fun getActivityStatus(): Result<AurralServiceStatus> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -159,6 +167,7 @@ class AurralRepository(
 	suspend fun getDiscovery(
 		hydrateMissingImages: Boolean = true
 	): Result<AurralDiscoverySummary> {
+		if (!preferenceManager.aurralEnabled) return Result.success(AurralDiscoverySummary())
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -190,6 +199,7 @@ class AurralRepository(
 	): Result<AurralArtistSearchResult> {
 		val trimmedQuery = query.trim()
 		if (trimmedQuery.isEmpty()) return Result.success(AurralArtistSearchResult())
+		if (!preferenceManager.aurralEnabled) return Result.success(AurralArtistSearchResult())
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -215,6 +225,7 @@ class AurralRepository(
 	): Result<AurralAlbumSearchResult> {
 		val trimmedQuery = query.trim()
 		if (trimmedQuery.isEmpty()) return Result.success(AurralAlbumSearchResult())
+		if (!preferenceManager.aurralEnabled) return Result.success(AurralAlbumSearchResult())
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -287,6 +298,9 @@ class AurralRepository(
 	}
 
 	suspend fun cancelAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val target = aurralAcquisitionDeleteTarget(item)
 			?: return Result.failure(IllegalStateException("Aurral request delete target is unavailable."))
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
@@ -313,6 +327,9 @@ class AurralRepository(
 	}
 
 	suspend fun retryAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val albumMbid = item.albumMbid?.trim()?.takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Album MusicBrainz ID is required."))
 		val artistMbid = item.artistMbid?.trim()?.takeIf { it.isNotEmpty() }
@@ -350,6 +367,9 @@ class AurralRepository(
 		artist: DomainArtist,
 		releaseGroup: AurralReleaseGroup
 	): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
 		val albumMbid = releaseGroup.id.trim().takeIf { it.isNotEmpty() }
@@ -389,6 +409,9 @@ class AurralRepository(
 		artist: DomainArtist,
 		monitored: Boolean
 	): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
 		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
@@ -409,6 +432,9 @@ class AurralRepository(
 		artistName: String,
 		monitored: Boolean
 	): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -478,6 +504,9 @@ class AurralRepository(
 		size: Int,
 		scheduleDay: Int = currentAurralScheduleDay()
 	): Result<AurralFlowActionResult> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -510,6 +539,9 @@ class AurralRepository(
 	): Result<AurralFlowActionResult> {
 		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -534,6 +566,9 @@ class AurralRepository(
 	): Result<AurralFlowActionResult> {
 		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
 		val safeLimit = limit.takeIf { it > 0 } ?: 30
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -559,6 +594,7 @@ class AurralRepository(
 	): Result<List<DomainSong>> {
 		val trimmedFlowId = flowId.trim().takeIf { it.isNotEmpty() }
 			?: return Result.failure(IllegalStateException("Flow ID is required."))
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
 		val safeLimit = limit.takeIf { it > 0 } ?: 200
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
@@ -625,6 +661,7 @@ class AurralRepository(
 		releaseGroup: AurralReleaseGroup,
 		artistName: String
 	): Result<String?> {
+		if (!preferenceManager.aurralEnabled) return Result.success(null)
 		val releaseGroupMbid = releaseGroup.id.trim().takeIf { it.isNotEmpty() }
 			?: return Result.success(null)
 		val albumTitle = releaseGroup.title.trim().takeIf { it.isNotEmpty() }

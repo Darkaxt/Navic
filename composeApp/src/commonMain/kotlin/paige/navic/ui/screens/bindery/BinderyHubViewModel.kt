@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -33,13 +34,11 @@ class BinderyHubViewModel(
 	val hubState = _hubState.asStateFlow()
 
 	val gridState = LazyGridState()
-
-	init {
-		refreshHub(false)
-	}
+	private var hubJob: Job? = null
 
 	fun refreshHub(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		hubJob?.cancel()
+		hubJob = viewModelScope.launch {
 			val currentData = _hubState.value.data
 			if (fullRefresh || currentData == null) {
 				_hubState.value = UiState.Loading(currentData)
@@ -56,6 +55,17 @@ class BinderyHubViewModel(
 				}
 			)
 		}
+	}
+
+	fun clearHub() {
+		hubJob?.cancel()
+		hubJob = null
+		_hubState.value = UiState.Success(
+			BinderyHubState(
+				root = BinderyCatalog(title = ""),
+				rows = emptyList()
+			)
+		)
 	}
 
 	fun clearError() {
