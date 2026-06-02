@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.view.KeyEvent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -27,6 +28,7 @@ import androidx.glance.layout.size
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import paige.navic.androidApp.R
 import paige.navic.androidApp.widgets.nowplaying.NowPlayingWidget
+import paige.navic.domain.models.shouldUseTurnTableWidgetVinylArtwork
 
 class TurnTableWidget : NowPlayingWidget() {
 
@@ -42,6 +44,13 @@ class TurnTableWidget : NowPlayingWidget() {
 		bitmap: Bitmap?
 	) {
 		val size = LocalSize.current
+		val artworkBitmap = remember(bitmap) {
+			if (shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = bitmap != null)) {
+				bitmap?.let(::createTurnTableVinylArtworkBitmap)
+			} else {
+				null
+			}
+		}
 		Box(
 			modifier = GlanceModifier
 				.size(kotlin.comparisons.minOf(size.width, size.height))
@@ -50,7 +59,7 @@ class TurnTableWidget : NowPlayingWidget() {
 			contentAlignment = Alignment.Center
 		) {
 			Image(
-				provider = bitmap?.let { ImageProvider(it) }
+				provider = artworkBitmap?.let { ImageProvider(it) }
 					?: ImageProvider(R.drawable.ic_note),
 				contentDescription = null,
 				contentScale = ContentScale.Crop,

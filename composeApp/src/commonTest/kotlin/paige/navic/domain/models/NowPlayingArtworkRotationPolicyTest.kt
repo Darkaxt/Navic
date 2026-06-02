@@ -100,6 +100,12 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun turnTableWidgetUsesStaticVinylArtworkOnlyWithCoverArt() {
+		assertTrue(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = true))
+		assertFalse(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = false))
+	}
+
+	@Test
 	fun rotatingFallbackArtworkUsesArcLabel() {
 		assertEquals(
 			NowPlayingFallbackLabelStyle.Arc,
