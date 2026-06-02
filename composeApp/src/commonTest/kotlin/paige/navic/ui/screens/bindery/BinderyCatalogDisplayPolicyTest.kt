@@ -71,4 +71,83 @@ class BinderyCatalogDisplayPolicyTest {
 			binderyCatalogCards(catalog, BinderyCatalogTab.Authors)
 		)
 	}
+
+	@Test
+	fun hubRowsUseOnlyAdvertisedRootCatalogRoutes() {
+		val root = BinderyCatalog(
+			title = "Bindery",
+			navigation = listOf(
+				BinderyLink(href = "/opds/books", title = "Books"),
+				BinderyLink(href = "/opds/recent", title = "Recently Added"),
+				BinderyLink(href = "/opds/wanted", title = "Wanted"),
+				BinderyLink(href = "/opds/authors", title = "Authors"),
+				BinderyLink(href = "/opds/series", title = "Series"),
+				BinderyLink(href = "/opds/formats/audiobook", title = "Audiobooks")
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyHubRow(
+					kind = BinderyHubRowKind.RecentlyAdded,
+					path = "/opds/recent",
+					title = "Recently Added"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Audiobooks,
+					path = "/opds/formats/audiobook",
+					title = "Audiobooks"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Authors,
+					path = "/opds/authors",
+					title = "Authors"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Collections,
+					path = "/opds/series",
+					title = "Series"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Wanted,
+					path = "/opds/wanted",
+					title = "Wanted"
+				)
+			),
+			binderyHubRows(root)
+		)
+	}
+
+	@Test
+	fun hubRowsCanAdoptFuturePopularGenresAndLastReadRoutes() {
+		val root = BinderyCatalog(
+			title = "Bindery",
+			navigation = listOf(
+				BinderyLink(href = "/opds/continue", title = "Last Read"),
+				BinderyLink(href = "/opds/popular", title = "Most Popular"),
+				BinderyLink(href = "/opds/genres", title = "Genres")
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyHubRow(
+					kind = BinderyHubRowKind.LastRead,
+					path = "/opds/continue",
+					title = "Last Read"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.MostPopular,
+					path = "/opds/popular",
+					title = "Most Popular"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Genres,
+					path = "/opds/genres",
+					title = "Genres"
+				)
+			),
+			binderyHubRows(root)
+		)
+	}
 }

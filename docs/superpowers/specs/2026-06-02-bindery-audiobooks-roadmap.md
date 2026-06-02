@@ -68,7 +68,7 @@ Confirmed behavior:
 - Tapping `Audiobooks` switches to the audiobook-oriented profile.
 - Navic should remember the last active mode/profile after restart.
 - The remembered mode should align with the app's existing last-played behavior.
-- With no prior mode, Navic can fall back to the compact/root profile.
+- With no prior mode, Navic opens Library in the music profile so the initially selected Library tab and expanded toolbar match.
 
 ## Open Design Questions
 
@@ -152,6 +152,9 @@ Artwork treatment direction:
 Implementation checkpoint, 2026-06-02:
 
 - First-pass surfaces are implemented for the Library Audiobooks row, Audiobooks hub, Books, Collections, Authors, and generic drilled-down OPDS catalogs.
+- The Audiobooks destination is a Library-style hub, not another Books catalog. It renders shortcut tiles plus OPDS-backed rows from the Bindery root navigation.
+- The hub currently uses advertised root routes such as `/opds/recent`, `/opds/formats/audiobook`, `/opds/authors`, `/opds/series`, and `/opds/wanted`.
+- `Last read`, `Most popular`, and `Genres` are future-ready hub row kinds, but they only appear when Bindery advertises compatible OPDS catalog links. Navic does not synthesize those feeds from unrelated local state.
 - Contextual bottom-bar profiles are implemented and persisted:
   - Compact: `Library / Audiobooks / Activity`.
   - Music: `Library / Albums / Playlists / Artists / Audiobooks / Activity`.

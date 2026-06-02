@@ -51,6 +51,7 @@ fun bottomBarProfileForScreen(
 	rememberedProfile: BottomBarProfile
 ): BottomBarProfile =
 	when (screen) {
+		is Screen.Library,
 		is Screen.AlbumList,
 		is Screen.ArtistList,
 		is Screen.GenreDetail,

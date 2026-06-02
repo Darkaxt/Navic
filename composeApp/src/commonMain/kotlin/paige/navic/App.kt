@@ -76,6 +76,7 @@ import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogTab
+import paige.navic.ui.screens.bindery.BinderyHubScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
 import paige.navic.ui.screens.genre.GenreDetailScreen
@@ -300,7 +301,7 @@ private fun entryProvider(
 			RadioListScreen(key.nested)
 		}
 		entry<Screen.Audiobooks>(metadata = navtabMetadata) {
-			BinderyCatalogScreen(BinderyCatalogTab.Audiobooks)
+			BinderyHubScreen()
 		}
 		entry<Screen.BinderyBooks>(metadata = navtabMetadata) {
 			BinderyCatalogScreen(BinderyCatalogTab.Books)

@@ -68,7 +68,7 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Music)
 		)
 		assertEquals(
-			BottomBarProfile.Compact,
+			BottomBarProfile.Music,
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Compact)
 		)
 	}
