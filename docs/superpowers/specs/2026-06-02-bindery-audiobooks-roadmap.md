@@ -14,6 +14,8 @@ Confirmed capabilities:
 - Catalog routes for root, books, search, recent, wanted, authors, collections, series, languages, and formats.
 - Audiobook format route: `/opds/formats/audiobook`.
 - Collection navigation route: `/opds/collections`, with collection-level `images` and `properties.image` / `properties.cover` metadata for card artwork.
+- Author detail catalogs can advertise `/opds/authors/{id}/collections`; that route returns the author's collection cards directly.
+- Collection catalogs expose collection metadata such as type/source, member count, confidence, year range, source links when available, and ordered publication properties including `collectionPosition` / `collectionPositionSort`.
 - Paginated catalog responses using `limit`, `offset`, and `next` links.
 - Publication detail and Readium audiobook manifest routes.
 - Addressable audio resources in `readingOrder`.
@@ -166,6 +168,15 @@ Implementation checkpoint, 2026-06-02:
 - Books and Audiobooks catalog screens start with five OPDS publications and append each advertised `next` page as the grid reaches the footer, avoiding the slow full `/opds/books` warm path while still filling the matrix gradually.
 - Bindery book publication cards use portrait cover proportions and fit scaling instead of the inherited square album-card crop. Author cards use OPDS author-list artwork when the API advertises it.
 - Book detail, playback, resume/progress conflict handling, and audiobook-specific Now Playing remain Phase 4 work.
+
+Implementation checkpoint, 2026-06-03:
+
+- Author and Collection navigation cards now open dedicated detail screens instead of plain filtered catalog grids.
+- Author details render OPDS author image, description, publications sorted by publication year, and an OPDS-backed Collections row when `/opds/authors/{id}` advertises a collections navigation link.
+- Collection details render portrait collection artwork, collection metadata from OPDS properties, and publications sorted by `collectionPositionSort` when available.
+- OPDS catalog, link, and publication properties are parsed defensively: primitive string/number/boolean-like values are preserved for UI metadata, while nested objects such as `yearRange` are ignored instead of crashing the client.
+- Collection cards use portrait proportions consistently in the Library Audiobooks row, Audiobooks hub rows, Collections screen, Author collection rows, and Collection detail pages.
+- Remaining collection enrichment depends on the provider data Bindery has available, especially meaningful collection descriptions when Hardcover or other sources expose them.
 
 ### Phase 4: Playback And Resume
 

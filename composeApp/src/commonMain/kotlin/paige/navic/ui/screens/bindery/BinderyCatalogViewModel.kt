@@ -21,11 +21,14 @@ class BinderyCatalogViewModel(
 	val gridState = LazyGridState()
 	private var catalogJob: Job? = null
 	private var nextPageJob: Job? = null
+	private var relatedCatalogJob: Job? = null
 	private var nextPagePath: String? = null
 	private val _isLoadingNextPage = MutableStateFlow(false)
 	val isLoadingNextPage = _isLoadingNextPage.asStateFlow()
 	private val _hasNextPage = MutableStateFlow(false)
 	val hasNextPage = _hasNextPage.asStateFlow()
+	private val _relatedCollectionsState = MutableStateFlow<UiState<BinderyCatalog>>(UiState.Success(BinderyCatalog(title = "")))
+	val relatedCollectionsState = _relatedCollectionsState.asStateFlow()
 	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
 	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
@@ -64,9 +67,12 @@ class BinderyCatalogViewModel(
 		catalogJob = null
 		nextPageJob?.cancel()
 		nextPageJob = null
+		relatedCatalogJob?.cancel()
+		relatedCatalogJob = null
 		nextPagePath = null
 		_isLoadingNextPage.value = false
 		_hasNextPage.value = false
+		_relatedCollectionsState.value = UiState.Success(BinderyCatalog(title = ""))
 		collectionArtworkResolver.clear()
 		_catalogState.value = UiState.Success(BinderyCatalog(title = ""))
 	}
@@ -103,8 +109,38 @@ class BinderyCatalogViewModel(
 		collectionArtworkResolver.resolve(card)
 	}
 
+	fun refreshRelatedCollections(path: String?, fullRefresh: Boolean) {
+		val requestedPath = path?.trim()?.takeIf { it.isNotEmpty() }
+		if (requestedPath == null) {
+			relatedCatalogJob?.cancel()
+			relatedCatalogJob = null
+			_relatedCollectionsState.value = UiState.Success(BinderyCatalog(title = ""))
+			return
+		}
+		relatedCatalogJob?.cancel()
+		relatedCatalogJob = viewModelScope.launch {
+			val currentData = _relatedCollectionsState.value.data
+			if (fullRefresh || currentData == null || currentData.navigation.isEmpty()) {
+				_relatedCollectionsState.value = UiState.Loading(currentData)
+			}
+			repository.getCatalog(requestedPath).fold(
+				onSuccess = { catalog ->
+					_relatedCollectionsState.value = UiState.Success(catalog)
+				},
+				onFailure = { error ->
+					_relatedCollectionsState.value = UiState.Error(
+						error = error as? Exception ?: Exception(error),
+						data = currentData
+					)
+				}
+			)
+		}
+	}
+
 	fun clearError() {
 		_catalogState.value = _catalogState.value.data?.let { UiState.Success(it) }
 			?: UiState.Loading()
+		_relatedCollectionsState.value = _relatedCollectionsState.value.data?.let { UiState.Success(it) }
+			?: UiState.Success(BinderyCatalog(title = ""))
 	}
 }

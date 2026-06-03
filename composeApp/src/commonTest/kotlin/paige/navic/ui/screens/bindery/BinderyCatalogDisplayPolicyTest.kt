@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.ui.navigation.Screen
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -89,6 +90,20 @@ class BinderyCatalogDisplayPolicyTest {
 			)
 		)
 		assertEquals(
+			BinderyCatalogCardVisualPolicy(
+				coverAspectRatio = 2f / 3f,
+				imageContentScaleFit = true
+			),
+			binderyCatalogCardVisualPolicy(
+				BinderyCatalogCard.Link(
+					id = "/opds/collections/mistborn",
+					title = "Mistborn",
+					subtitle = "Collection",
+					path = "/opds/collections/mistborn"
+				)
+			)
+		)
+		assertEquals(
 			BinderyCatalogCardVisualPolicy(),
 			binderyCatalogCardVisualPolicy(
 				BinderyCatalogCard.Link(
@@ -98,6 +113,104 @@ class BinderyCatalogDisplayPolicyTest {
 					path = "/opds/authors/frank-herbert"
 				)
 			)
+		)
+	}
+
+	@Test
+	fun detailPublicationsSortByPublishedYearWithUnknownDatesLast() {
+		val newest = BinderyPublication(id = "new", title = "New", published = "2023-01-01")
+		val unknown = BinderyPublication(id = "unknown", title = "Unknown")
+		val oldest = BinderyPublication(id = "old", title = "Old", published = "1999-04-10")
+
+		assertEquals(
+			listOf(oldest, newest, unknown),
+			listOf(newest, unknown, oldest).sortedForBinderyDetail()
+		)
+	}
+
+	@Test
+	fun collectionDetailPublicationsPreferCollectionOrderMetadata() {
+		val second = BinderyPublication(
+			id = "second",
+			title = "Second",
+			published = "1999-01-01",
+			properties = mapOf("collectionPositionSort" to "2")
+		)
+		val first = BinderyPublication(
+			id = "first",
+			title = "First",
+			published = "2023-01-01",
+			properties = mapOf("collectionPositionSort" to "1")
+		)
+		val unordered = BinderyPublication(
+			id = "unordered",
+			title = "Unordered",
+			published = "2001-01-01"
+		)
+
+		assertEquals(
+			listOf(first, second, unordered),
+			listOf(second, unordered, first).sortedForBinderyCollectionDetail()
+		)
+	}
+
+	@Test
+	fun binderyAuthorAndCollectionLinksOpenDedicatedDetailScreens() {
+		assertEquals(
+			Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"),
+			binderyDestinationForLink(
+				BinderyCatalogCard.Link(
+					id = "/opds/authors/28",
+					title = "Brandon Sanderson",
+					subtitle = "Author",
+					path = "/opds/authors/28"
+				)
+			)
+		)
+		assertEquals(
+			Screen.BinderyCollection("/opds/collections/9", "Mistborn"),
+			binderyDestinationForLink(
+				BinderyCatalogCard.Link(
+					id = "/opds/collections/9",
+					title = "Mistborn",
+					subtitle = "Collection",
+					path = "/opds/collections/9"
+				)
+			)
+		)
+		assertEquals(
+			Screen.BinderyCatalog("/opds/recent", "Recently Added"),
+			binderyDestinationForLink(
+				BinderyCatalogCard.Link(
+					id = "/opds/recent",
+					title = "Recently Added",
+					subtitle = "Catalog",
+					path = "/opds/recent"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun authorDetailCatalogExposesAdvertisedCollectionsLink() {
+		val catalog = BinderyCatalog(
+			title = "Brandon Sanderson",
+			navigation = listOf(
+				BinderyLink(
+					href = "/opds/authors/28/collections",
+					title = "Collections"
+				)
+			)
+		)
+
+		assertEquals(
+			BinderyCatalogCard.Link(
+				id = "/opds/authors/28/collections",
+				title = "Collections",
+				subtitle = "Collection",
+				path = "/opds/authors/28/collections"
+			),
+			catalog.authorCollectionsLink()
 		)
 	}
 
@@ -190,14 +303,16 @@ class BinderyCatalogDisplayPolicyTest {
 					title = "The Stormlight Archive",
 					subtitle = "Collection",
 					path = "/opds/collections/1",
-					imageUrl = "/opds/collections/1/cover"
+					imageUrl = "/opds/collections/1/cover",
+					properties = mapOf("image" to "/opds/collections/1/property-cover")
 				),
 				BinderyCatalogCard.Link(
 					id = "/opds/collections/2",
 					title = "Mistborn",
 					subtitle = "Collection",
 					path = "/opds/collections/2",
-					imageUrl = "/opds/collections/2/property-cover"
+					imageUrl = "/opds/collections/2/property-cover",
+					properties = mapOf("cover" to "/opds/collections/2/property-cover")
 				)
 			),
 			binderyCatalogCards(catalog, BinderyCatalogTab.Collections)

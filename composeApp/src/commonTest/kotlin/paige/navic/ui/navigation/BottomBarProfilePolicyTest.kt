@@ -104,6 +104,14 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForScreen(Screen.BinderyAuthors, BottomBarProfile.Compact)
 		)
 		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"), BottomBarProfile.Music)
+		)
+		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyCollection("/opds/collections/5", "Alcatraz"), BottomBarProfile.Music)
+		)
+		assertEquals(
 			BottomBarProfile.Music,
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Music)
 		)
@@ -128,6 +136,14 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForScreen(
 				screen = Screen.BinderyBooks,
 				rememberedProfile = BottomBarProfile.Compact,
+				binderyEnabled = false
+			)
+		)
+		assertEquals(
+			BottomBarProfile.Music,
+			bottomBarProfileForScreen(
+				screen = Screen.BinderyCollection("/opds/collections/5", "Alcatraz"),
+				rememberedProfile = BottomBarProfile.Music,
 				binderyEnabled = false
 			)
 		)

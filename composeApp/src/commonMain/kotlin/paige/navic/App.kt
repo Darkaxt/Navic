@@ -76,6 +76,8 @@ import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogTab
+import paige.navic.ui.screens.bindery.BinderyDetailKind
+import paige.navic.ui.screens.bindery.BinderyDetailScreen
 import paige.navic.ui.screens.bindery.BinderyHubScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
@@ -315,6 +317,20 @@ private fun entryProvider(
 		entry<Screen.BinderyCatalog>(metadata = navtabMetadata) { key ->
 			BinderyCatalogScreen(
 				tab = null,
+				path = key.path,
+				title = key.title
+			)
+		}
+		entry<Screen.BinderyAuthor>(metadata = navtabMetadata) { key ->
+			BinderyDetailScreen(
+				kind = BinderyDetailKind.Author,
+				path = key.path,
+				title = key.title
+			)
+		}
+		entry<Screen.BinderyCollection>(metadata = navtabMetadata) { key ->
+			BinderyDetailScreen(
+				kind = BinderyDetailKind.Collection,
 				path = key.path,
 				title = key.title
 			)

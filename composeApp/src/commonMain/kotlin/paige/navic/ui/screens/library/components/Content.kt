@@ -82,6 +82,7 @@ import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.bindery.BinderyCatalogCard
 import paige.navic.ui.screens.bindery.binderyCatalogCardVisualPolicy
+import paige.navic.ui.screens.bindery.binderyDestinationForLink
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
@@ -273,7 +274,7 @@ fun LibraryScreenContent(
 				baseUrl = preferenceManager.binderyOpdsBaseUrl,
 				imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey),
 				onOpenCatalog = { link ->
-					backStack.add(Screen.BinderyCatalog(link.path, link.title))
+					backStack.add(binderyDestinationForLink(link))
 				},
 				onOpenAudiobooks = {
 					backStack.add(Screen.Audiobooks)
@@ -531,18 +532,23 @@ private fun BinderyLibraryCard(
 				tab = "library-bindery"
 			)
 		}
-		is BinderyCatalogCard.Link -> ArtGridItem(
-			modifier = modifier,
-			onClick = { onOpenCatalog(card) },
-			coverArtId = null,
-			imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-			imageRequestHeaders = imageRequestHeaders,
-			title = card.title,
-			subtitle = card.subtitle,
-			fallbackKind = card.subtitle,
-			id = card.id,
-			tab = "library-bindery"
-		)
+		is BinderyCatalogCard.Link -> {
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			ArtGridItem(
+				modifier = modifier,
+				onClick = { onOpenCatalog(card) },
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				fallbackKind = card.subtitle,
+				id = card.id,
+				tab = "library-bindery"
+			)
+		}
 	}
 }
 

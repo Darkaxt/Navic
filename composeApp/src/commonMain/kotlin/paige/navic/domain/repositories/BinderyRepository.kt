@@ -32,6 +32,11 @@ internal const val BINDERY_OPDS_URL_INVALID_HOST_MESSAGE =
 	"Bindery OPDS URL must include a host and cannot include credentials, a query, or a fragment."
 internal const val BINDERY_API_KEY_REQUIRED_MESSAGE = "Enter the Bindery API key first."
 
+private val BinderyJson = Json {
+	ignoreUnknownKeys = true
+	isLenient = true
+}
+
 class BinderyRepository(
 	private val preferenceManager: PreferenceManager,
 	private val apiClient: BinderyApiClient = KtorBinderyApiClient()
@@ -189,12 +194,7 @@ private class KtorBinderyApiClient : BinderyApiClient {
 			socketTimeoutMillis = 45_000
 		}
 		install(ContentNegotiation) {
-			json(
-				Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-				}
-			)
+			json(BinderyJson)
 		}
 	}
 
@@ -267,6 +267,11 @@ data class BinderyServiceStatus(
 
 data class BinderyCatalog(
 	val title: String,
+	val identifier: String? = null,
+	val description: String? = null,
+	val subjects: List<String> = emptyList(),
+	val properties: Map<String, String> = emptyMap(),
+	val images: List<BinderyLink> = emptyList(),
 	val links: List<BinderyLink> = emptyList(),
 	val navigation: List<BinderyLink> = emptyList(),
 	val publications: List<BinderyPublication> = emptyList()
@@ -286,6 +291,11 @@ data class BinderyPublication(
 	val id: String?,
 	val title: String,
 	val author: String? = null,
+	val published: String? = null,
+	val description: String? = null,
+	val subjects: List<String> = emptyList(),
+	val durationSeconds: Double? = null,
+	val properties: Map<String, String> = emptyMap(),
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList()
 )
@@ -294,6 +304,7 @@ data class BinderyManifest(
 	val id: String?,
 	val title: String,
 	val author: String? = null,
+	val published: String? = null,
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
@@ -325,6 +336,8 @@ class BinderyApiException(
 @Serializable
 private data class BinderyCatalogDto(
 	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
+	val properties: Map<String, JsonElement> = emptyMap(),
+	val images: List<BinderyLinkDto> = emptyList(),
 	val links: List<BinderyLinkDto> = emptyList(),
 	val navigation: List<BinderyLinkDto> = emptyList(),
 	val publications: List<BinderyPublicationDto> = emptyList()
@@ -333,6 +346,7 @@ private data class BinderyCatalogDto(
 @Serializable
 private data class BinderyPublicationDto(
 	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
+	val properties: Map<String, JsonElement> = emptyMap(),
 	val links: List<BinderyLinkDto> = emptyList(),
 	val images: List<BinderyLinkDto> = emptyList(),
 	@SerialName("readingOrder") val readingOrder: List<BinderyLinkDto> = emptyList()
@@ -342,9 +356,13 @@ private data class BinderyPublicationDto(
 private data class BinderyMetadataDto(
 	val title: String? = null,
 	val identifier: String? = null,
+	val sortAs: String? = null,
 	val author: List<BinderyContributorDto> = emptyList(),
+	val published: String? = null,
+	val modified: String? = null,
 	val description: String? = null,
-	val subject: List<String> = emptyList()
+	val subject: List<String> = emptyList(),
+	val duration: Double? = null
 )
 
 @Serializable
@@ -366,6 +384,11 @@ private data class BinderyLinkDto(
 private fun BinderyCatalogDto.toCatalog(): BinderyCatalog =
 	BinderyCatalog(
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Bindery",
+		identifier = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
+		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
+		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		properties = properties.toStringProperties(),
+		images = images.mapNotNull { it.toLink() },
 		links = links.mapNotNull { it.toLink() },
 		navigation = navigation.mapNotNull { it.toLink() },
 		publications = publications.map { it.toPublication() }
@@ -376,6 +399,11 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication =
 		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
 		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
+		published = metadata.published?.trim()?.takeIf { it.isNotEmpty() },
+		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
+		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		properties = properties.toStringProperties(),
 		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() }
 	)
@@ -385,11 +413,15 @@ private fun BinderyPublicationDto.toManifest(): BinderyManifest =
 		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
 		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
+		published = metadata.published?.trim()?.takeIf { it.isNotEmpty() },
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		images = images.mapNotNull { it.toLink() },
 		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() }
 	)
+
+internal fun decodeBinderyCatalogJson(jsonText: String): BinderyCatalog =
+	BinderyJson.decodeFromString<BinderyCatalogDto>(jsonText).toCatalog()
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -409,12 +441,19 @@ private fun BinderyLinkDto.toLink(): BinderyLink? {
 		title = title?.trim()?.takeIf { it.isNotEmpty() },
 		type = type?.trim()?.takeIf { it.isNotEmpty() },
 		rel = rel.toRelList(),
-		properties = properties.mapNotNull { (key, value) ->
-			value.jsonPrimitive.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }?.let { key to it }
-		}.toMap(),
+		properties = properties.toStringProperties(),
 		images = images.mapNotNull { it.toLink() }
 	)
 }
+
+private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
+	mapNotNull { (key, value) ->
+		(value as? JsonPrimitive)
+			?.contentOrNull
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.let { key to it }
+	}.toMap()
 
 private fun JsonElement?.toRelList(): List<String> =
 	when (this) {

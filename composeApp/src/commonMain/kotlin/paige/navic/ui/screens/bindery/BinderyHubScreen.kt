@@ -177,7 +177,7 @@ fun BinderyHubScreen() {
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
-											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+											backStack.add(binderyDestinationForLink(link))
 										}
 									)
 								}
@@ -195,7 +195,7 @@ fun BinderyHubScreen() {
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
-											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+											backStack.add(binderyDestinationForLink(link))
 										}
 									)
 								}
@@ -208,7 +208,7 @@ fun BinderyHubScreen() {
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
-									backStack.add(Screen.BinderyCatalog(link.path, link.title))
+									backStack.add(binderyDestinationForLink(link))
 								}
 							)
 						}
@@ -298,6 +298,7 @@ private fun BinderyHubCard(
 				onResolveCollectionArtwork(card)
 			}
 			val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
 				modifier = modifier,
 				onClick = { onOpenCatalog(card) },
@@ -306,6 +307,8 @@ private fun BinderyHubCard(
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = card.subtitle,
 				id = card.id,
 				tab = "bindery-hub"

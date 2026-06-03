@@ -153,7 +153,7 @@ fun BinderyCatalogScreen(
 										onLoadNextPage = viewModel::loadNextPage,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
-											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+											backStack.add(binderyDestinationForLink(link))
 										}
 									)
 								}
@@ -174,7 +174,7 @@ fun BinderyCatalogScreen(
 										onLoadNextPage = viewModel::loadNextPage,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
-											backStack.add(Screen.BinderyCatalog(link.path, link.title))
+											backStack.add(binderyDestinationForLink(link))
 										}
 									)
 								}
@@ -190,7 +190,7 @@ fun BinderyCatalogScreen(
 								onLoadNextPage = viewModel::loadNextPage,
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
-									backStack.add(Screen.BinderyCatalog(link.path, link.title))
+									backStack.add(binderyDestinationForLink(link))
 								}
 							)
 						}
@@ -251,6 +251,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					onResolveCollectionArtwork(card)
 				}
 				val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
+				val visualPolicy = binderyCatalogCardVisualPolicy(card)
 				ArtGridItem(
 					modifier = Modifier.animateItem(),
 					onClick = { onOpenCatalog(card) },
@@ -259,7 +260,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
-					coverAspectRatio = binderyCatalogCardVisualPolicy(card).coverAspectRatio,
+					coverAspectRatio = visualPolicy.coverAspectRatio,
+					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					fallbackKind = card.subtitle,
 					id = card.id,
 					tab = "bindery"

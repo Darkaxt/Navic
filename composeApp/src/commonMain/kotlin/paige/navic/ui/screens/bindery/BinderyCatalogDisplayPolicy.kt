@@ -2,7 +2,9 @@ package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
+import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.ui.navigation.Screen
 
 private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
 
@@ -89,7 +91,8 @@ sealed interface BinderyCatalogCard {
 		override val title: String,
 		override val subtitle: String?,
 		val path: String,
-		val imageUrl: String? = null
+		val imageUrl: String? = null,
+		val properties: Map<String, String> = emptyMap()
 	) : BinderyCatalogCard
 }
 
@@ -110,7 +113,8 @@ fun binderyCatalogCards(
 					else -> "Catalog"
 				},
 				path = link.href,
-				imageUrl = link.preferredImageHref()
+				imageUrl = link.preferredImageHref(),
+				properties = link.properties
 			)
 		}
 	} else {
@@ -135,8 +139,60 @@ fun binderyCatalogCardVisualPolicy(card: BinderyCatalogCard): BinderyCatalogCard
 			coverAspectRatio = 2f / 3f,
 			imageContentScaleFit = true
 		)
-		is BinderyCatalogCard.Link -> BinderyCatalogCardVisualPolicy()
+		is BinderyCatalogCard.Link -> if (card.subtitle == "Collection") {
+			BinderyCatalogCardVisualPolicy(
+				coverAspectRatio = 2f / 3f,
+				imageContentScaleFit = true
+			)
+		} else {
+			BinderyCatalogCardVisualPolicy()
+		}
 	}
+
+fun binderyDestinationForLink(link: BinderyCatalogCard.Link): Screen =
+	when (link.subtitle) {
+		"Author" -> Screen.BinderyAuthor(link.path, link.title)
+		"Collection" -> Screen.BinderyCollection(link.path, link.title)
+		else -> Screen.BinderyCatalog(link.path, link.title)
+	}
+
+fun BinderyCatalog.authorCollectionsLink(): BinderyCatalogCard.Link? =
+	navigation.firstOrNull { link ->
+		val normalizedHref = link.href.trim().trimEnd('/').lowercase()
+		normalizedHref.endsWith("/collections") &&
+			(link.title?.equals("Collections", ignoreCase = true) == true ||
+				normalizedHref.contains("/authors/"))
+	}?.let { link ->
+		BinderyCatalogCard.Link(
+			id = link.href,
+			title = link.title ?: "Collections",
+			subtitle = "Collection",
+			path = link.href,
+			imageUrl = link.preferredImageHref(),
+			properties = link.properties
+		)
+	}
+
+fun List<BinderyPublication>.sortedForBinderyDetail(): List<BinderyPublication> =
+	sortedWith(
+		compareBy<BinderyPublication>(
+			{ publication -> publication.published?.take(4)?.toIntOrNull() ?: Int.MAX_VALUE },
+			{ publication -> publication.title.lowercase() }
+		)
+	)
+
+fun List<BinderyPublication>.sortedForBinderyCollectionDetail(): List<BinderyPublication> =
+	sortedWith(
+		compareBy<BinderyPublication>(
+			{ publication -> publication.collectionPositionSort() ?: Double.MAX_VALUE },
+			{ publication -> publication.published?.take(4)?.toIntOrNull() ?: Int.MAX_VALUE },
+			{ publication -> publication.title.lowercase() }
+		)
+	)
+
+private fun BinderyPublication.collectionPositionSort(): Double? =
+	properties["collectionPositionSort"]?.toDoubleOrNull()
+		?: properties["collectionPosition"]?.toDoubleOrNull()
 
 internal fun BinderyCatalog.nextPagePath(): String? =
 	links.firstOrNull { link ->

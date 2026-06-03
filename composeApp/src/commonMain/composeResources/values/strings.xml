@@ -34,6 +34,7 @@
 	<string name="title_audiobook_books">Books</string>
 	<string name="title_audiobook_collections">Collections</string>
 	<string name="title_audiobook_authors">Authors</string>
+	<string name="title_audiobook_publications">Publications</string>
 	<string name="title_audiobook_recently_added">Recently added</string>
 	<string name="title_audiobook_wanted">Wanted</string>
 	<string name="title_audiobook_last_read">Last read</string>

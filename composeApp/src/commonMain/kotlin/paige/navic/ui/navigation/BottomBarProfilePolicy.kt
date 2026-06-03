@@ -76,6 +76,8 @@ fun bottomBarProfileForScreen(
 		Screen.BinderyBooks,
 		Screen.BinderyCollections,
 		Screen.BinderyAuthors,
+		is Screen.BinderyAuthor,
+		is Screen.BinderyCollection,
 		is Screen.BinderyCatalog -> if (binderyEnabled) BottomBarProfile.Audiobooks else rememberedProfile
 
 		else -> rememberedProfile
