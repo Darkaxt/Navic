@@ -4,6 +4,8 @@ import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 
+private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
+
 enum class BinderyCatalogTab(
 	val path: String
 ) {
@@ -11,6 +13,27 @@ enum class BinderyCatalogTab(
 	Books("/opds/books"),
 	Collections("/opds/collections"),
 	Authors("/opds/authors")
+}
+
+fun BinderyCatalogTab.initialCatalogPath(): String =
+	binderyInitialCatalogPath(path)
+
+private fun String.withLimit(limit: Int): String =
+	if ('?' in this) "$this&limit=$limit" else "$this?limit=$limit"
+
+fun binderyInitialCatalogPath(path: String): String {
+	val trimmed = path.trim()
+	val normalizedPath = trimmed.substringBefore('?').trimEnd('/').lowercase()
+	return if ((normalizedPath == BinderyCatalogTab.Audiobooks.path.lowercase() ||
+			normalizedPath == BinderyCatalogTab.Books.path.lowercase()) &&
+		!trimmed.substringAfter('?', "").split('&').any { parameter ->
+			parameter.substringBefore('=').equals("limit", ignoreCase = true)
+		}
+	) {
+		trimmed.withLimit(BINDERY_BOOK_CATALOG_PAGE_SIZE)
+	} else {
+		trimmed
+	}
 }
 
 fun shouldLoadBinderyUi(
@@ -98,8 +121,34 @@ fun binderyCatalogCards(
 				subtitle = publication.author,
 				imageUrl = publication.images.firstOrNull()?.href
 			)
-		}
 	}
+}
+
+data class BinderyCatalogCardVisualPolicy(
+	val coverAspectRatio: Float = 1f,
+	val imageContentScaleFit: Boolean = false
+)
+
+fun binderyCatalogCardVisualPolicy(card: BinderyCatalogCard): BinderyCatalogCardVisualPolicy =
+	when (card) {
+		is BinderyCatalogCard.Book -> BinderyCatalogCardVisualPolicy(
+			coverAspectRatio = 2f / 3f,
+			imageContentScaleFit = true
+		)
+		is BinderyCatalogCard.Link -> BinderyCatalogCardVisualPolicy()
+	}
+
+internal fun BinderyCatalog.nextPagePath(): String? =
+	links.firstOrNull { link ->
+		link.rel.any { rel -> rel.equals("next", ignoreCase = true) }
+	}?.href?.trim()?.takeIf { it.isNotEmpty() }
+
+internal fun BinderyCatalog.appendCatalogPage(nextPage: BinderyCatalog): BinderyCatalog =
+	copy(
+		links = nextPage.links,
+		navigation = navigation + nextPage.navigation,
+		publications = publications + nextPage.publications
+	)
 
 fun binderyHubRows(rootCatalog: BinderyCatalog): List<BinderyHubRow> {
 	val candidates = rootCatalog.navigation.mapNotNull { link ->

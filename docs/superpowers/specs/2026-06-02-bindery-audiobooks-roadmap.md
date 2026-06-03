@@ -163,6 +163,8 @@ Implementation checkpoint, 2026-06-02:
   - Music: `Library / Albums / Playlists / Artists / Audiobooks / Activity`.
   - Audiobooks: `Library / Audiobooks / Books / Collections / Authors / Activity`.
 - The row and screens use OPDS publications for books/audiobooks, OPDS navigation links for authors and collections, collection-level OPDS image metadata for collection cards, lazy detail-cover fallback when collection links omit images, and authenticated cover requests via the configured Bindery API key.
+- Books and Audiobooks catalog screens start with five OPDS publications and append each advertised `next` page as the grid reaches the footer, avoiding the slow full `/opds/books` warm path while still filling the matrix gradually.
+- Bindery book publication cards use portrait cover proportions and fit scaling instead of the inherited square album-card crop. Author cards use OPDS author-list artwork when the API advertises it.
 - Book detail, playback, resume/progress conflict handling, and audiobook-specific Now Playing remain Phase 4 work.
 
 ### Phase 4: Playback And Resume

@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
@@ -94,6 +95,8 @@ fun ArtGridItem(
 	acquisitionProgress: AurralAcquisitionProgress? = null,
 	ownershipStatus: AurralOwnershipStatus? = null,
 	coverOverlay: (@Composable BoxScope.() -> Unit)? = null,
+	coverAspectRatio: Float = 1f,
+	coverContentScale: ContentScale = ContentScale.Crop,
 	fallbackKind: String? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
@@ -123,6 +126,7 @@ fun ArtGridItem(
 					fallbackKind = fallbackKind,
 					modifier = Modifier
 						.fillMaxWidth()
+						.aspectRatio(coverAspectRatio)
 						.sharedElement(
 							sharedContentState = this@with.rememberSharedContentState("${tab}-${id}-cover"),
 							boundsTransform = BoundsTransform { _, _ ->
@@ -133,6 +137,8 @@ fun ArtGridItem(
 							},
 							animatedVisibilityScope = LocalNavAnimatedContentScope.current
 						),
+					square = false,
+					contentScale = coverContentScale,
 					interactionSource = interactionSource
 				)
 				acquisitionProgress?.let { progress ->
@@ -174,13 +180,14 @@ fun ArtGridItem(
 
 @Composable
 fun ArtGridPlaceholder(
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	coverAspectRatio: Float = 1f
 ) {
 	Column(modifier = modifier) {
 		Box(
 			modifier = Modifier
 				.fillMaxWidth()
-				.aspectRatio(1f)
+				.aspectRatio(coverAspectRatio)
 				// placeholders shouldn't use continuous corners
 				// because it's less performant
 				.clip(RoundedCornerShape(16.0.dp))
@@ -213,10 +220,14 @@ fun ArtGridPlaceholder(
 }
 
 fun LazyGridScope.artGridPlaceholder(
-	itemCount: Int = 8
+	itemCount: Int = 8,
+	coverAspectRatio: Float = 1f
 ) {
 	items(itemCount) {
-		ArtGridPlaceholder(Modifier.fillMaxWidth())
+		ArtGridPlaceholder(
+			modifier = Modifier.fillMaxWidth(),
+			coverAspectRatio = coverAspectRatio
+		)
 	}
 }
 

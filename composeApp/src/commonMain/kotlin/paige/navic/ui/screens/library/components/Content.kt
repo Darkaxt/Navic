@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
@@ -80,6 +81,7 @@ import paige.navic.ui.screens.aurral.aurralMonitorStateForLocalArtist
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.bindery.BinderyCatalogCard
+import paige.navic.ui.screens.bindery.binderyCatalogCardVisualPolicy
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
@@ -512,18 +514,23 @@ private fun BinderyLibraryCard(
 	onOpenAudiobooks: () -> Unit
 ) {
 	when (card) {
-		is BinderyCatalogCard.Book -> ArtGridItem(
-			modifier = modifier,
-			onClick = onOpenAudiobooks,
-			coverArtId = null,
-			imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-			imageRequestHeaders = imageRequestHeaders,
-			title = card.title,
-			subtitle = card.subtitle,
-			fallbackKind = "Book",
-			id = card.id,
-			tab = "library-bindery"
-		)
+		is BinderyCatalogCard.Book -> {
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			ArtGridItem(
+				modifier = modifier,
+				onClick = onOpenAudiobooks,
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				fallbackKind = "Book",
+				id = card.id,
+				tab = "library-bindery"
+			)
+		}
 		is BinderyCatalogCard.Link -> ArtGridItem(
 			modifier = modifier,
 			onClick = { onOpenCatalog(card) },

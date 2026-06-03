@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -18,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
@@ -41,6 +43,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGrid
+import paige.navic.ui.components.layouts.ArtGridPlaceholder
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
@@ -63,6 +66,8 @@ fun BinderyCatalogScreen(
 		parameters = { parametersOf(path) }
 	)
 	val catalogState by viewModel.catalogState.collectAsStateWithLifecycle()
+	val hasNextPage by viewModel.hasNextPage.collectAsStateWithLifecycle()
+	val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsStateWithLifecycle()
 	val collectionArtworkByPath by viewModel.collectionArtworkByPath.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -135,14 +140,17 @@ fun BinderyCatalogScreen(
 						when (val state = catalogState) {
 							is UiState.Loading -> {
 								if (state.data == null) {
-									artGridPlaceholder()
+									artGridPlaceholder(coverAspectRatio = binderyPlaceholderCoverAspectRatio(tab, path))
 								} else {
 									binderyCatalogItems(
 										cards = binderyCatalogCards(state.data, tab),
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										hasNextPage = hasNextPage,
+										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+										onLoadNextPage = viewModel::loadNextPage,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -160,7 +168,10 @@ fun BinderyCatalogScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										hasNextPage = hasNextPage,
+										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+										onLoadNextPage = viewModel::loadNextPage,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -173,7 +184,10 @@ fun BinderyCatalogScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								collectionArtworkByPath = collectionArtworkByPath,
+								hasNextPage = hasNextPage,
+								isLoadingNextPage = isLoadingNextPage,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+								onLoadNextPage = viewModel::loadNextPage,
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -207,23 +221,31 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	collectionArtworkByPath: Map<String, String>,
+	hasNextPage: Boolean,
+	isLoadingNextPage: Boolean,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
+	onLoadNextPage: () -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	items(cards, key = { it.id }) { card ->
 		when (card) {
-			is BinderyCatalogCard.Book -> ArtGridItem(
-				modifier = Modifier.animateItem(),
-				onClick = {},
-				coverArtId = null,
-				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-				imageRequestHeaders = imageRequestHeaders,
-				title = card.title,
-				subtitle = card.subtitle,
-				fallbackKind = "Book",
-				id = card.id,
-				tab = "bindery"
-			)
+			is BinderyCatalogCard.Book -> {
+				val visualPolicy = binderyCatalogCardVisualPolicy(card)
+				ArtGridItem(
+					modifier = Modifier.animateItem(),
+					onClick = {},
+					coverArtId = null,
+					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+					imageRequestHeaders = imageRequestHeaders,
+					title = card.title,
+					subtitle = card.subtitle,
+					coverAspectRatio = visualPolicy.coverAspectRatio,
+					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+					fallbackKind = "Book",
+					id = card.id,
+					tab = "bindery"
+				)
+			}
 			is BinderyCatalogCard.Link -> {
 				LaunchedEffect(card.path, card.imageUrl) {
 					onResolveCollectionArtwork(card)
@@ -237,11 +259,28 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
+					coverAspectRatio = binderyCatalogCardVisualPolicy(card).coverAspectRatio,
 					fallbackKind = card.subtitle,
 					id = card.id,
 					tab = "bindery"
 				)
 			}
+		}
+	}
+	if (hasNextPage) {
+		item(
+			key = "bindery-load-next-page",
+			span = { GridItemSpan(1) }
+		) {
+			LaunchedEffect(cards.size, hasNextPage) {
+				if (!isLoadingNextPage) {
+					onLoadNextPage()
+				}
+			}
+			ArtGridPlaceholder(
+				modifier = Modifier.animateItem(),
+				coverAspectRatio = 2f / 3f
+			)
 		}
 	}
 }
@@ -253,3 +292,19 @@ private fun BinderyCatalogTab.titleResource(): StringResource =
 		BinderyCatalogTab.Collections -> Res.string.title_audiobook_collections
 		BinderyCatalogTab.Authors -> Res.string.title_audiobook_authors
 	}
+
+private fun binderyPlaceholderCoverAspectRatio(
+	tab: BinderyCatalogTab?,
+	path: String
+): Float {
+	val normalizedPath = path.trim().trimEnd('/').substringBefore('?').lowercase()
+	return if (tab == BinderyCatalogTab.Audiobooks ||
+		tab == BinderyCatalogTab.Books ||
+		normalizedPath == "/opds/books" ||
+		normalizedPath == "/opds/formats/audiobook"
+	) {
+		2f / 3f
+	} else {
+		1f
+	}
+}

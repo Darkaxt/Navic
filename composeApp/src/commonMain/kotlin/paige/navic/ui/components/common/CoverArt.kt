@@ -188,7 +188,8 @@ fun CoverArt(
 	interactionSource: MutableInteractionSource? = null,
 	shape: Shape? = null,
 	colorFilter: ColorFilter? = null,
-	artworkResolving: Boolean = false
+	artworkResolving: Boolean = false,
+	contentScale: ContentScale = ContentScale.Crop
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
@@ -252,7 +253,7 @@ fun CoverArt(
 		model = model,
 		contentDescription = contentDescription,
 		modifier = commonModifier,
-		contentScale = ContentScale.Crop,
+		contentScale = contentScale,
 		colorFilter = colorFilter,
 		loading = {
 			CoverArtFallback(

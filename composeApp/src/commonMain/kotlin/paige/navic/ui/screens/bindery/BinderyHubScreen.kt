@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
@@ -275,18 +276,23 @@ private fun BinderyHubCard(
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	when (card) {
-		is BinderyCatalogCard.Book -> ArtGridItem(
-			modifier = modifier,
-			onClick = {},
-			coverArtId = null,
-			imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-			imageRequestHeaders = imageRequestHeaders,
-			title = card.title,
-			subtitle = card.subtitle,
-			fallbackKind = "Book",
-			id = card.id,
-			tab = "bindery-hub"
-		)
+		is BinderyCatalogCard.Book -> {
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			ArtGridItem(
+				modifier = modifier,
+				onClick = {},
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				fallbackKind = "Book",
+				id = card.id,
+				tab = "bindery-hub"
+			)
+		}
 		is BinderyCatalogCard.Link -> {
 			LaunchedEffect(card.path, card.imageUrl) {
 				onResolveCollectionArtwork(card)

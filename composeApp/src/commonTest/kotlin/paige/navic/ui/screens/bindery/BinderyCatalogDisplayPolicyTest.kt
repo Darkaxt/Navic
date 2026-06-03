@@ -18,6 +18,90 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun bookLikeCatalogTabsUseFiveItemInitialPages() {
+		assertEquals("/opds/formats/audiobook?limit=5", BinderyCatalogTab.Audiobooks.initialCatalogPath())
+		assertEquals("/opds/books?limit=5", BinderyCatalogTab.Books.initialCatalogPath())
+		assertEquals("/opds/collections", BinderyCatalogTab.Collections.initialCatalogPath())
+		assertEquals("/opds/authors", BinderyCatalogTab.Authors.initialCatalogPath())
+	}
+
+	@Test
+	fun rawBookLikeCatalogPathsUseFiveItemInitialPagesUnlessAlreadyLimited() {
+		assertEquals("/opds/books?limit=5", binderyInitialCatalogPath("/opds/books"))
+		assertEquals("/opds/books?sort=title&limit=5", binderyInitialCatalogPath("/opds/books?sort=title"))
+		assertEquals("/opds/books?limit=20", binderyInitialCatalogPath("/opds/books?limit=20"))
+		assertEquals("/opds/recent", binderyInitialCatalogPath("/opds/recent"))
+	}
+
+	@Test
+	fun catalogNextPagePathUsesOpdsNextRelation() {
+		val catalog = BinderyCatalog(
+			title = "Books",
+			links = listOf(
+				BinderyLink(href = "/opds/books?limit=5", rel = listOf("self")),
+				BinderyLink(href = "/opds/books?after=book-5&limit=5", rel = listOf("next"))
+			)
+		)
+
+		assertEquals("/opds/books?after=book-5&limit=5", catalog.nextPagePath())
+	}
+
+	@Test
+	fun catalogAppendPageKeepsCurrentTitleAndUsesNextPageLinks() {
+		val firstPage = BinderyCatalog(
+			title = "Books",
+			links = listOf(BinderyLink(href = "/opds/books?after=book-5&limit=5", rel = listOf("next"))),
+			publications = listOf(BinderyPublication(id = "book-1", title = "Book 1"))
+		)
+		val secondPage = BinderyCatalog(
+			title = "Books Page 2",
+			links = listOf(BinderyLink(href = "/opds/books?after=book-10&limit=5", rel = listOf("next"))),
+			publications = listOf(BinderyPublication(id = "book-6", title = "Book 6"))
+		)
+
+		assertEquals(
+			BinderyCatalog(
+				title = "Books",
+				links = secondPage.links,
+				publications = listOf(
+					BinderyPublication(id = "book-1", title = "Book 1"),
+					BinderyPublication(id = "book-6", title = "Book 6")
+				)
+			),
+			firstPage.appendCatalogPage(secondPage)
+		)
+	}
+
+	@Test
+	fun bookCardsUsePortraitCoverPolicy() {
+		assertEquals(
+			BinderyCatalogCardVisualPolicy(
+				coverAspectRatio = 2f / 3f,
+				imageContentScaleFit = true
+			),
+			binderyCatalogCardVisualPolicy(
+				BinderyCatalogCard.Book(
+					id = "book-1",
+					title = "Dune",
+					subtitle = "Frank Herbert",
+					imageUrl = "/opds/books/book-1/cover.jpg"
+				)
+			)
+		)
+		assertEquals(
+			BinderyCatalogCardVisualPolicy(),
+			binderyCatalogCardVisualPolicy(
+				BinderyCatalogCard.Link(
+					id = "/opds/authors/frank-herbert",
+					title = "Frank Herbert",
+					subtitle = "Author",
+					path = "/opds/authors/frank-herbert"
+				)
+			)
+		)
+	}
+
+	@Test
 	fun booksUsePublicationsAsCards() {
 		val catalog = BinderyCatalog(
 			title = "Audiobooks",
