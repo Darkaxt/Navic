@@ -70,6 +70,7 @@ import paige.navic.util.ui.withoutTop
 fun BinderyHubScreen() {
 	val viewModel = koinViewModel<BinderyHubViewModel>()
 	val hubState by viewModel.hubState.collectAsStateWithLifecycle()
+	val collectionArtworkByPath by viewModel.collectionArtworkByPath.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
@@ -171,6 +172,8 @@ fun BinderyHubScreen() {
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										collectionArtworkByPath = collectionArtworkByPath,
+										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -187,6 +190,8 @@ fun BinderyHubScreen() {
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										collectionArtworkByPath = collectionArtworkByPath,
+										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -198,6 +203,8 @@ fun BinderyHubScreen() {
 								rows = state.data.rows,
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
+								collectionArtworkByPath = collectionArtworkByPath,
+								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(Screen.BinderyCatalog(link.path, link.title))
@@ -230,6 +237,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	rows: List<BinderyHubCatalogRow>,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	collectionArtworkByPath: Map<String, String>,
+	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	rows.forEach { row ->
@@ -247,6 +256,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 				card = card,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,
+				collectionArtworkByPath = collectionArtworkByPath,
+				onResolveCollectionArtwork = onResolveCollectionArtwork,
 				onOpenCatalog = onOpenCatalog
 			)
 		}
@@ -259,6 +270,8 @@ private fun BinderyHubCard(
 	card: BinderyCatalogCard,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	collectionArtworkByPath: Map<String, String>,
+	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	when (card) {
@@ -274,16 +287,24 @@ private fun BinderyHubCard(
 			id = card.id,
 			tab = "bindery-hub"
 		)
-		is BinderyCatalogCard.Link -> ArtGridItem(
-			modifier = modifier,
-			onClick = { onOpenCatalog(card) },
-			coverArtId = null,
-			title = card.title,
-			subtitle = card.subtitle,
-			fallbackKind = card.subtitle,
-			id = card.id,
-			tab = "bindery-hub"
-		)
+		is BinderyCatalogCard.Link -> {
+			LaunchedEffect(card.path, card.imageUrl) {
+				onResolveCollectionArtwork(card)
+			}
+			val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
+			ArtGridItem(
+				modifier = modifier,
+				onClick = { onOpenCatalog(card) },
+				coverArtId = null,
+				imageUrl = imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				fallbackKind = card.subtitle,
+				id = card.id,
+				tab = "bindery-hub"
+			)
+		}
 	}
 }
 

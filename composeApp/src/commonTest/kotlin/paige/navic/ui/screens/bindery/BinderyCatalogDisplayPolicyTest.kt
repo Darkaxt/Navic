@@ -13,7 +13,7 @@ class BinderyCatalogDisplayPolicyTest {
 	fun tabPathsUseCanonicalOpdsCatalogRoutes() {
 		assertEquals("/opds/formats/audiobook", BinderyCatalogTab.Audiobooks.path)
 		assertEquals("/opds/books", BinderyCatalogTab.Books.path)
-		assertEquals("/opds/series", BinderyCatalogTab.Collections.path)
+		assertEquals("/opds/collections", BinderyCatalogTab.Collections.path)
 		assertEquals("/opds/authors", BinderyCatalogTab.Authors.path)
 	}
 
@@ -50,7 +50,11 @@ class BinderyCatalogDisplayPolicyTest {
 		val catalog = BinderyCatalog(
 			title = "Authors",
 			navigation = listOf(
-				BinderyLink(href = "/opds/authors/frank-herbert", title = "Frank Herbert"),
+				BinderyLink(
+					href = "/opds/authors/frank-herbert",
+					title = "Frank Herbert",
+					images = listOf(BinderyLink(href = "/opds/authors/frank-herbert/cover"))
+				),
 				BinderyLink(href = "/opds/authors/ursula-le-guin", title = "Ursula K. Le Guin")
 			)
 		)
@@ -61,17 +65,105 @@ class BinderyCatalogDisplayPolicyTest {
 					id = "/opds/authors/frank-herbert",
 					title = "Frank Herbert",
 					subtitle = "Author",
-					path = "/opds/authors/frank-herbert"
+					path = "/opds/authors/frank-herbert",
+					imageUrl = "/opds/authors/frank-herbert/cover"
 				),
 				BinderyCatalogCard.Link(
 					id = "/opds/authors/ursula-le-guin",
 					title = "Ursula K. Le Guin",
 					subtitle = "Author",
-					path = "/opds/authors/ursula-le-guin"
+					path = "/opds/authors/ursula-le-guin",
+					imageUrl = null
 				)
 			),
 			binderyCatalogCards(catalog, BinderyCatalogTab.Authors)
 		)
+	}
+
+	@Test
+	fun collectionCardsUseOpdsImagesBeforePropertyFallbacks() {
+		val catalog = BinderyCatalog(
+			title = "Collections",
+			navigation = listOf(
+				BinderyLink(
+					href = "/opds/collections/1",
+					title = "The Stormlight Archive",
+					images = listOf(BinderyLink(href = "/opds/collections/1/cover")),
+					properties = mapOf("image" to "/opds/collections/1/property-cover")
+				),
+				BinderyLink(
+					href = "/opds/collections/2",
+					title = "Mistborn",
+					properties = mapOf("cover" to "/opds/collections/2/property-cover")
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyCatalogCard.Link(
+					id = "/opds/collections/1",
+					title = "The Stormlight Archive",
+					subtitle = "Collection",
+					path = "/opds/collections/1",
+					imageUrl = "/opds/collections/1/cover"
+				),
+				BinderyCatalogCard.Link(
+					id = "/opds/collections/2",
+					title = "Mistborn",
+					subtitle = "Collection",
+					path = "/opds/collections/2",
+					imageUrl = "/opds/collections/2/property-cover"
+				)
+			),
+			binderyCatalogCards(catalog, BinderyCatalogTab.Collections)
+		)
+	}
+
+	@Test
+	fun collectionLinksWithoutOpdsArtworkNeedDetailArtworkResolution() {
+		assertTrue(
+			BinderyCatalogCard.Link(
+				id = "/opds/collections/1",
+				title = "The Stormlight Archive",
+				subtitle = "Collection",
+				path = "/opds/collections/1"
+			).needsDetailArtworkResolution()
+		)
+		assertFalse(
+			BinderyCatalogCard.Link(
+				id = "/opds/collections/1",
+				title = "The Stormlight Archive",
+				subtitle = "Collection",
+				path = "/opds/collections/1",
+				imageUrl = "/opds/collections/1/cover"
+			).needsDetailArtworkResolution()
+		)
+		assertFalse(
+			BinderyCatalogCard.Link(
+				id = "/opds/authors/frank-herbert",
+				title = "Frank Herbert",
+				subtitle = "Author",
+				path = "/opds/authors/frank-herbert"
+			).needsDetailArtworkResolution()
+		)
+	}
+
+	@Test
+	fun collectionDetailArtworkUsesFirstPublicationCoverAsFallback() {
+		val catalog = BinderyCatalog(
+			title = "The Stormlight Archive",
+			publications = listOf(
+				BinderyPublication(id = "way-of-kings", title = "The Way of Kings"),
+				BinderyPublication(
+					id = "words-of-radiance",
+					title = "Words of Radiance",
+					images = listOf(BinderyLink(href = "/opds/books/words-of-radiance/cover"))
+				)
+			)
+		)
+
+		assertEquals("/opds/books/words-of-radiance/cover", catalog.firstPublicationImageHref())
 	}
 
 	@Test
@@ -84,6 +176,7 @@ class BinderyCatalogDisplayPolicyTest {
 				BinderyLink(href = "/opds/wanted", title = "Wanted"),
 				BinderyLink(href = "/opds/authors", title = "Authors"),
 				BinderyLink(href = "/opds/series", title = "Series"),
+				BinderyLink(href = "/opds/collections", title = "Collections"),
 				BinderyLink(href = "/opds/formats/audiobook", title = "Audiobooks")
 			)
 		)
@@ -107,8 +200,8 @@ class BinderyCatalogDisplayPolicyTest {
 				),
 				BinderyHubRow(
 					kind = BinderyHubRowKind.Collections,
-					path = "/opds/series",
-					title = "Series"
+					path = "/opds/collections",
+					title = "Collections"
 				),
 				BinderyHubRow(
 					kind = BinderyHubRowKind.Wanted,

@@ -11,8 +11,9 @@ Bindery exposes the fork-only OPDS 2 API at `/opds`.
 Confirmed capabilities:
 
 - API-key authentication for every OPDS request via `X-Api-Key`, `Authorization: Bearer`, or `?apikey=`.
-- Catalog routes for root, books, search, recent, wanted, authors, series, languages, and formats.
+- Catalog routes for root, books, search, recent, wanted, authors, collections, series, languages, and formats.
 - Audiobook format route: `/opds/formats/audiobook`.
+- Collection navigation route: `/opds/collections`, with collection-level `images` and `properties.image` / `properties.cover` metadata for card artwork.
 - Paginated catalog responses using `limit`, `offset`, and `next` links.
 - Publication detail and Readium audiobook manifest routes.
 - Addressable audio resources in `readingOrder`.
@@ -122,6 +123,7 @@ Artwork treatment direction:
   - Audiobooks available.
   - Search available.
   - Authors available.
+  - Collections available.
   - Series available.
   - Pagination supported.
   - Alias-based progress sync supported.
@@ -145,21 +147,22 @@ Artwork treatment direction:
 - Add Library Audiobooks row from `/opds/formats/audiobook`.
 - Add Audiobooks hub screen.
 - Add Books screen.
-- Add Collections screen using OPDS series first.
+- Add Collections screen using `/opds/collections`.
 - Add Authors screen using OPDS authors.
+- Keep OPDS series separate for future series shelves instead of using it as the user-facing Collections substitute.
 - Keep labels generic and first-party: avoid unnecessary "Bindery" branding in normal content rows.
 
 Implementation checkpoint, 2026-06-02:
 
 - First-pass surfaces are implemented for the Library Audiobooks row, Audiobooks hub, Books, Collections, Authors, and generic drilled-down OPDS catalogs.
 - The Audiobooks destination is a Library-style hub, not another Books catalog. It renders shortcut tiles plus OPDS-backed rows from the Bindery root navigation.
-- The hub currently uses advertised root routes such as `/opds/recent`, `/opds/formats/audiobook`, `/opds/authors`, `/opds/series`, and `/opds/wanted`.
+- The hub currently uses advertised root routes such as `/opds/recent`, `/opds/formats/audiobook`, `/opds/authors`, `/opds/collections`, and `/opds/wanted`. `/opds/series` remains parsed as a separate future route, not as the Collections source.
 - `Last read`, `Most popular`, and `Genres` are future-ready hub row kinds, but they only appear when Bindery advertises compatible OPDS catalog links. Navic does not synthesize those feeds from unrelated local state.
 - Contextual bottom-bar profiles are implemented and persisted:
   - Compact: `Library / Audiobooks / Activity`.
   - Music: `Library / Albums / Playlists / Artists / Audiobooks / Activity`.
   - Audiobooks: `Library / Audiobooks / Books / Collections / Authors / Activity`.
-- The row and screens use OPDS publications for books/audiobooks, OPDS navigation links for authors/series collections, and authenticated cover requests via the configured Bindery API key.
+- The row and screens use OPDS publications for books/audiobooks, OPDS navigation links for authors and collections, collection-level OPDS image metadata for collection cards, lazy detail-cover fallback when collection links omit images, and authenticated cover requests via the configured Bindery API key.
 - Book detail, playback, resume/progress conflict handling, and audiobook-specific Now Playing remain Phase 4 work.
 
 ### Phase 4: Playback And Resume

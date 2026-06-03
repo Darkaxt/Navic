@@ -528,6 +528,8 @@ private fun BinderyLibraryCard(
 			modifier = modifier,
 			onClick = { onOpenCatalog(card) },
 			coverArtId = null,
+			imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+			imageRequestHeaders = imageRequestHeaders,
 			title = card.title,
 			subtitle = card.subtitle,
 			fallbackKind = card.subtitle,

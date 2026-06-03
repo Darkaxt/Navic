@@ -81,7 +81,7 @@ class BinderyRepositoryTest {
 
 		assertEquals(
 			BinderyConnectionResult.Connected(
-				navigationCount = 4,
+				navigationCount = 5,
 				audiobooksAvailable = true
 			),
 			repository.testConnection()
@@ -107,11 +107,12 @@ class BinderyRepositoryTest {
 				enabled = true,
 				opdsUrlConfigured = true,
 				apiKeyConfigured = true,
-				navigationCount = 4,
+				navigationCount = 5,
 				hasSearch = true,
 				hasAudiobooks = true,
 				hasAuthors = true,
 				hasSeries = true,
+				hasCollections = true,
 				progressSyncSupported = false,
 				paginationSupported = false
 			),
@@ -168,7 +169,8 @@ class BinderyRepositoryTest {
 				BinderyLink(href = "/opds/books", title = "Books"),
 				BinderyLink(href = "/opds/formats/audiobook", title = "Audiobooks"),
 				BinderyLink(href = "/opds/authors", title = "Authors"),
-				BinderyLink(href = "/opds/series", title = "Series")
+				BinderyLink(href = "/opds/series", title = "Series"),
+				BinderyLink(href = "/opds/collections", title = "Collections")
 			)
 		)
 }

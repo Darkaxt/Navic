@@ -114,6 +114,7 @@ class BinderyRepository(
 				hasAudiobooks = catalog.hasNavigationPath("/opds/formats/audiobook"),
 				hasAuthors = catalog.hasNavigationPath("/opds/authors"),
 				hasSeries = catalog.hasNavigationPath("/opds/series"),
+				hasCollections = catalog.hasNavigationPath("/opds/collections"),
 				progressSyncSupported = false,
 				paginationSupported = catalog.links.any { link ->
 					link.rel.any { it.equals("next", ignoreCase = true) }
@@ -259,6 +260,7 @@ data class BinderyServiceStatus(
 	val hasAudiobooks: Boolean = false,
 	val hasAuthors: Boolean = false,
 	val hasSeries: Boolean = false,
+	val hasCollections: Boolean = false,
 	val progressSyncSupported: Boolean = false,
 	val paginationSupported: Boolean = false
 )
@@ -311,7 +313,8 @@ data class BinderyLink(
 	val title: String? = null,
 	val type: String? = null,
 	val rel: List<String> = emptyList(),
-	val properties: Map<String, String> = emptyMap()
+	val properties: Map<String, String> = emptyMap(),
+	val images: List<BinderyLink> = emptyList()
 )
 
 class BinderyApiException(
@@ -356,6 +359,7 @@ private data class BinderyLinkDto(
 	val type: String? = null,
 	val rel: JsonElement? = null,
 	val properties: Map<String, JsonElement> = emptyMap(),
+	val images: List<BinderyLinkDto> = emptyList(),
 	val duration: Double? = null
 )
 
@@ -407,7 +411,8 @@ private fun BinderyLinkDto.toLink(): BinderyLink? {
 		rel = rel.toRelList(),
 		properties = properties.mapNotNull { (key, value) ->
 			value.jsonPrimitive.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }?.let { key to it }
-		}.toMap()
+		}.toMap(),
+		images = images.mapNotNull { it.toLink() }
 	)
 }
 

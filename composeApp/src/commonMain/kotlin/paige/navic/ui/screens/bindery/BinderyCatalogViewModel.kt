@@ -20,9 +20,14 @@ class BinderyCatalogViewModel(
 
 	val gridState = LazyGridState()
 	private var catalogJob: Job? = null
+	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
+	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
 	fun refreshCatalog(fullRefresh: Boolean) {
 		catalogJob?.cancel()
+		if (fullRefresh) {
+			collectionArtworkResolver.clear()
+		}
 		catalogJob = viewModelScope.launch {
 			val currentData = _catalogState.value.data
 			if (fullRefresh || currentData == null) {
@@ -45,7 +50,12 @@ class BinderyCatalogViewModel(
 	fun clearCatalog() {
 		catalogJob?.cancel()
 		catalogJob = null
+		collectionArtworkResolver.clear()
 		_catalogState.value = UiState.Success(BinderyCatalog(title = ""))
+	}
+
+	fun resolveCollectionArtwork(card: BinderyCatalogCard.Link) {
+		collectionArtworkResolver.resolve(card)
 	}
 
 	fun clearError() {

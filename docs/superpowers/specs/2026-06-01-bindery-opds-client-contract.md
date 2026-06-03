@@ -13,17 +13,19 @@ Implemented in Navic:
 * `X-Api-Key` authentication for OPDS catalogs and manifests.
 * Root catalog validation and capability status rows.
 * OPDS catalog parsing for `metadata`, `links`, `navigation`, and `publications`.
+* Collections browsing from `/opds/collections`, with collection card artwork from OPDS `images`, `properties.image`, or `properties.cover`.
 * Audiobook manifest parsing for metadata, images, subjects, and `readingOrder`.
 * Reading-order resource parsing for `href`, `title`, media type, duration, and size.
 
 ## Live Endpoint Evidence
 
-Using the local `bindery-debug.env` configuration on 2026-06-01:
+Using the local `bindery-debug.env` configuration:
 
 | Endpoint | Result | Client Impact |
 | --- | --- | --- |
 | `GET /opds/` | `200`, about 350 ms, 7 navigation links | Good root validation target. |
 | `GET /opds/authors` | Previously returned quickly with author navigation | Useful for future author shelves. |
+| `GET /opds/collections` | `200` on 2026-06-03, collection navigation entries include `images` and `properties.image` / `properties.cover` | Current Collections browsing source and artwork source. |
 | `GET /opds/series` | Previously returned quickly | Useful for future series shelves. |
 | `GET /opds/recent?limit=5` | `200`, about 58 seconds, returned 50 publications | `limit` is ignored and the feed is too slow for app startup or library rows. |
 | `GET /opds/books?limit=5` | Timed out at 60 seconds | Cannot be used for native browsing. |
@@ -84,4 +86,4 @@ Once the server supports the required routes:
 3. Add playback queue construction from `readingOrder` resources.
 4. Stream Range-capable resources through Media3 with the Bindery API key attached only to the configured Bindery origin.
 5. Persist local progress during playback and sync it with Bindery through progress `GET`/`PUT`.
-6. Add Resume, Continue Listening, Authors, Series, Recent, and Search surfaces once pagination is reliable.
+6. Add Resume, Continue Listening, Authors, Collections, Series, Recent, and Search surfaces once pagination is reliable.

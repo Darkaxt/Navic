@@ -28,6 +28,7 @@ enum class BinderyStatusType {
 	ApiKey,
 	Audiobooks,
 	Authors,
+	Collections,
 	Series,
 	Search,
 	Navigation,
@@ -108,6 +109,10 @@ fun binderyStatusRows(status: BinderyServiceStatus): List<BinderyStatusRow> =
 		BinderyStatusRow(
 			type = BinderyStatusType.Authors,
 			value = if (status.hasAuthors) BinderyStatusValue.Enabled else BinderyStatusValue.Disabled
+		),
+		BinderyStatusRow(
+			type = BinderyStatusType.Collections,
+			value = if (status.hasCollections) BinderyStatusValue.Enabled else BinderyStatusValue.Disabled
 		),
 		BinderyStatusRow(
 			type = BinderyStatusType.Series,

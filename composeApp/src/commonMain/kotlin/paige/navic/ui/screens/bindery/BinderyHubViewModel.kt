@@ -35,9 +35,14 @@ class BinderyHubViewModel(
 
 	val gridState = LazyGridState()
 	private var hubJob: Job? = null
+	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
+	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
 	fun refreshHub(fullRefresh: Boolean) {
 		hubJob?.cancel()
+		if (fullRefresh) {
+			collectionArtworkResolver.clear()
+		}
 		hubJob = viewModelScope.launch {
 			val currentData = _hubState.value.data
 			if (fullRefresh || currentData == null) {
@@ -60,6 +65,7 @@ class BinderyHubViewModel(
 	fun clearHub() {
 		hubJob?.cancel()
 		hubJob = null
+		collectionArtworkResolver.clear()
 		_hubState.value = UiState.Success(
 			BinderyHubState(
 				root = BinderyCatalog(title = ""),
@@ -71,6 +77,10 @@ class BinderyHubViewModel(
 	fun clearError() {
 		_hubState.value = _hubState.value.data?.let { UiState.Success(it) }
 			?: UiState.Loading()
+	}
+
+	fun resolveCollectionArtwork(card: BinderyCatalogCard.Link) {
+		collectionArtworkResolver.resolve(card)
 	}
 
 	private suspend fun loadHub(): Result<BinderyHubState> {

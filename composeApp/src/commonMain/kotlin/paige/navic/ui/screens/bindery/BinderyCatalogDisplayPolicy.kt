@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 
 enum class BinderyCatalogTab(
@@ -8,7 +9,7 @@ enum class BinderyCatalogTab(
 ) {
 	Audiobooks("/opds/formats/audiobook"),
 	Books("/opds/books"),
-	Collections("/opds/series"),
+	Collections("/opds/collections"),
 	Authors("/opds/authors")
 }
 
@@ -64,7 +65,8 @@ sealed interface BinderyCatalogCard {
 		override val id: String,
 		override val title: String,
 		override val subtitle: String?,
-		val path: String
+		val path: String,
+		val imageUrl: String? = null
 	) : BinderyCatalogCard
 }
 
@@ -84,7 +86,8 @@ fun binderyCatalogCards(
 					BinderyCatalogTab.Collections -> "Collection"
 					else -> "Catalog"
 				},
-				path = link.href
+				path = link.href,
+				imageUrl = link.preferredImageHref()
 			)
 		}
 	} else {
@@ -141,8 +144,7 @@ private fun binderyHubRowKind(
 		normalizedPath.endsWith("/authors") ||
 			normalizedTitle == "authors" -> BinderyHubRowKind.Authors
 
-		normalizedPath.endsWith("/series") ||
-			normalizedTitle == "series" ||
+		normalizedPath.endsWith("/collections") ||
 			normalizedTitle == "collections" -> BinderyHubRowKind.Collections
 
 		normalizedPath.endsWith("/wanted") ||
@@ -165,3 +167,27 @@ private fun binderyHubRowKind(
 		else -> null
 	}
 }
+
+private fun BinderyLink.preferredImageHref(): String? =
+	images.firstNotNullOfOrNull { image ->
+		image.href.trim().takeIf { it.isNotEmpty() }
+	} ?: properties.firstNonBlankValue("image", "cover")
+
+internal fun BinderyCatalogCard.Link.needsDetailArtworkResolution(): Boolean =
+	imageUrl.isNullOrBlank() &&
+		subtitle == "Collection" &&
+		path.isNotBlank()
+
+internal fun BinderyCatalog.firstPublicationImageHref(): String? =
+	publications.firstNotNullOfOrNull { publication ->
+		publication.images.firstNotNullOfOrNull { image ->
+			image.href.trim().takeIf { it.isNotEmpty() }
+		}
+	}
+
+private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
+	keys.firstNotNullOfOrNull { desiredKey ->
+		entries.firstOrNull { (key, value) ->
+			key.equals(desiredKey, ignoreCase = true) && value.isNotBlank()
+		}?.value?.trim()
+	}

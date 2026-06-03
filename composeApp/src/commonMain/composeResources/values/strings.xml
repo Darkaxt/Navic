@@ -475,6 +475,7 @@
 	<string name="option_bindery_api_key">API key</string>
 	<string name="option_bindery_audiobooks">Audiobooks</string>
 	<string name="option_bindery_authors">Authors</string>
+	<string name="option_bindery_collections">Collections</string>
 	<string name="option_bindery_series">Series</string>
 	<string name="option_bindery_search">Search</string>
 	<string name="option_bindery_navigation">Navigation entries</string>
