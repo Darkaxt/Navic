@@ -372,9 +372,9 @@ private fun NavItem.isSelected(screen: Screen?): Boolean =
 		NavItem.PLAYLISTS -> screen is Screen.PlaylistList
 		NavItem.ARTISTS -> screen is Screen.ArtistList
 		NavItem.AUDIOBOOKS -> screen == Screen.Audiobooks
-		NavItem.BOOKS -> screen == Screen.BinderyBooks
-		NavItem.COLLECTIONS -> screen == Screen.BinderyCollections
-		NavItem.AUTHORS -> screen == Screen.BinderyAuthors
+		NavItem.BOOKS -> screen == Screen.BinderyBooks || screen is Screen.BinderyBook
+		NavItem.COLLECTIONS -> screen == Screen.BinderyCollections || screen is Screen.BinderyCollection
+		NavItem.AUTHORS -> screen == Screen.BinderyAuthors || screen is Screen.BinderyAuthor
 		NavItem.ACTIVITY -> screen == Screen.Activity
 		NavItem.SEARCH -> screen is Screen.Search
 		NavItem.GENRES -> screen is Screen.GenreList || screen is Screen.GenreDetail

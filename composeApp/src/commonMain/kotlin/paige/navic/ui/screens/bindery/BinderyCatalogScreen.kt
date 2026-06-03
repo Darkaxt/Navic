@@ -154,6 +154,10 @@ fun BinderyCatalogScreen(
 										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onLoadNextPage = viewModel::loadNextPage,
+										onOpenBook = { book ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForBook(book))
+										},
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -175,6 +179,10 @@ fun BinderyCatalogScreen(
 										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onLoadNextPage = viewModel::loadNextPage,
+										onOpenBook = { book ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForBook(book))
+										},
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -191,6 +199,10 @@ fun BinderyCatalogScreen(
 								isLoadingNextPage = isLoadingNextPage,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 								onLoadNextPage = viewModel::loadNextPage,
+								onOpenBook = { book ->
+									platformContext.clickSound()
+									backStack.add(binderyDestinationForBook(book))
+								},
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
@@ -228,6 +240,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	isLoadingNextPage: Boolean,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onLoadNextPage: () -> Unit,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	items(cards, key = { it.id }) { card ->
@@ -236,7 +249,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)
 				ArtGridItem(
 					modifier = Modifier.animateItem(),
-					onClick = {},
+					onClick = { onOpenBook(card) },
 					coverArtId = null,
 					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,

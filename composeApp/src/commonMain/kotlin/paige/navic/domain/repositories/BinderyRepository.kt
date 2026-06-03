@@ -140,6 +140,11 @@ class BinderyRepository(
 			apiClient.fetchManifest(baseUrl, headers, bookId)
 		}
 
+	suspend fun getBookResources(bookId: String): Result<BinderyResourceCatalog> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchBookResources(baseUrl, headers, bookId)
+		}
+
 	private suspend fun <T> withConfiguredClient(
 		action: suspend (baseUrl: String, headers: Map<String, String>) -> T
 	): Result<T> {
@@ -184,6 +189,12 @@ interface BinderyApiClient {
 		requestHeaders: Map<String, String>,
 		bookId: String
 	): BinderyManifest
+
+	suspend fun fetchBookResources(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyResourceCatalog
 }
 
 private class KtorBinderyApiClient : BinderyApiClient {
@@ -234,6 +245,23 @@ private class KtorBinderyApiClient : BinderyApiClient {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS manifest", response.status))
 		}
 		return response.body<BinderyPublicationDto>().toManifest()
+	}
+
+	override suspend fun fetchBookResources(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyResourceCatalog {
+		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery book id is required.")
+		val response = client.get(binderyEndpoint(baseUrl, "books/${encodeUrlPathSegment(safeBookId)}/resources")) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType("application", "opds+json"))
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS resources", response.status))
+		}
+		return response.body<BinderyResourceCatalogDto>().toResourceCatalog()
 	}
 }
 
@@ -307,6 +335,9 @@ data class BinderyManifest(
 	val published: String? = null,
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
+	val durationSeconds: Double? = null,
+	val properties: Map<String, String> = emptyMap(),
+	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
 	val readingOrder: List<BinderyReadingOrderItem> = emptyList()
 )
@@ -328,6 +359,21 @@ data class BinderyLink(
 	val images: List<BinderyLink> = emptyList()
 )
 
+data class BinderyResourceCatalog(
+	val title: String,
+	val resources: List<BinderyBookResource> = emptyList()
+)
+
+data class BinderyBookResource(
+	val href: String,
+	val title: String,
+	val type: String? = null,
+	val kind: String? = null,
+	val durationSeconds: Double? = null,
+	val sizeBytes: Long? = null,
+	val properties: Map<String, String> = emptyMap()
+)
+
 class BinderyApiException(
 	val status: HttpStatusCode,
 	message: String
@@ -341,6 +387,12 @@ private data class BinderyCatalogDto(
 	val links: List<BinderyLinkDto> = emptyList(),
 	val navigation: List<BinderyLinkDto> = emptyList(),
 	val publications: List<BinderyPublicationDto> = emptyList()
+)
+
+@Serializable
+private data class BinderyResourceCatalogDto(
+	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
+	val resources: List<BinderyLinkDto> = emptyList()
 )
 
 @Serializable
@@ -416,12 +468,27 @@ private fun BinderyPublicationDto.toManifest(): BinderyManifest =
 		published = metadata.published?.trim()?.takeIf { it.isNotEmpty() },
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		properties = properties.toStringProperties(),
+		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() },
 		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() }
 	)
 
+private fun BinderyResourceCatalogDto.toResourceCatalog(): BinderyResourceCatalog =
+	BinderyResourceCatalog(
+		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Resources",
+		resources = resources.mapNotNull { it.toBookResource() }
+	)
+
 internal fun decodeBinderyCatalogJson(jsonText: String): BinderyCatalog =
 	BinderyJson.decodeFromString<BinderyCatalogDto>(jsonText).toCatalog()
+
+internal fun decodeBinderyManifestJson(jsonText: String): BinderyManifest =
+	BinderyJson.decodeFromString<BinderyPublicationDto>(jsonText).toManifest()
+
+internal fun decodeBinderyResourceCatalogJson(jsonText: String): BinderyResourceCatalog =
+	BinderyJson.decodeFromString<BinderyResourceCatalogDto>(jsonText).toResourceCatalog()
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -446,6 +513,20 @@ private fun BinderyLinkDto.toLink(): BinderyLink? {
 	)
 }
 
+private fun BinderyLinkDto.toBookResource(): BinderyBookResource? {
+	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val stringProperties = properties.toStringProperties()
+	return BinderyBookResource(
+		href = safeHref,
+		title = title?.trim()?.takeIf { it.isNotEmpty() } ?: safeHref.substringAfterLast('/'),
+		type = type?.trim()?.takeIf { it.isNotEmpty() },
+		kind = stringProperties.firstNonBlankValue("kind"),
+		durationSeconds = duration?.takeIf { it > 0.0 },
+		sizeBytes = stringProperties.firstNonBlankValue("size")?.toLongOrNull(),
+		properties = stringProperties
+	)
+}
+
 private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
 	mapNotNull { (key, value) ->
 		(value as? JsonPrimitive)
@@ -454,6 +535,13 @@ private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
 			?.takeIf { it.isNotEmpty() }
 			?.let { key to it }
 	}.toMap()
+
+private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
+	keys.firstNotNullOfOrNull { desiredKey ->
+		entries.firstOrNull { (key, value) ->
+			key.equals(desiredKey, ignoreCase = true) && value.isNotBlank()
+		}?.value?.trim()
+	}
 
 private fun JsonElement?.toRelList(): List<String> =
 	when (this) {

@@ -77,13 +77,23 @@ fun <T> LazyGridScope.horizontalSectionWithAvailableWidth(
 	destination: NavKey,
 	state: UiState<List<T>>,
 	key: (T) -> Any,
+	headerStartPadding: Dp = 16.dp,
+	headerEndPadding: Dp = 16.dp,
+	rowContentPadding: PaddingValues = PaddingValues(horizontal = 16.dp),
 	itemContent: @Composable LazyItemScope.(T, Dp) -> Unit,
 ) {
 	val data = state.data.orEmpty()
 
 	if (data.isEmpty() && state !is UiState.Loading) return
 
-	header(title, *titleFormatArgs.toTypedArray(), destination = destination, active = seeAll)
+	header(
+		title,
+		*titleFormatArgs.toTypedArray(),
+		destination = destination,
+		active = seeAll,
+		startPadding = headerStartPadding,
+		endPadding = headerEndPadding
+	)
 
 	item(span = { GridItemSpan(maxLineSpan) }) {
 		BoxWithConstraints {
@@ -92,7 +102,7 @@ fun <T> LazyGridScope.horizontalSectionWithAvailableWidth(
 				modifier = Modifier
 					.animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
 				horizontalArrangement = Arrangement.spacedBy(12.dp),
-				contentPadding = PaddingValues(horizontal = 16.dp)
+				contentPadding = rowContentPadding
 			) {
 				if (state is UiState.Loading && data.isEmpty()) {
 					items(8) {
@@ -113,14 +123,16 @@ fun LazyGridScope.header(
 	title: StringResource,
 	vararg formatArgs: Any,
 	destination: NavKey,
-	active: Boolean
+	active: Boolean,
+	startPadding: Dp = 16.dp,
+	endPadding: Dp = 16.dp
 ) {
 	item(span = { GridItemSpan(1) }) {
 		Text(
 			stringResource(title, *formatArgs),
 			style = MaterialTheme.typography.titleMediumEmphasized,
 			fontWeight = FontWeight(600),
-			modifier = Modifier.heightIn(min = 32.dp).padding(top = 12.dp, start = 16.dp)
+			modifier = Modifier.heightIn(min = 32.dp).padding(top = 12.dp, start = startPadding)
 		)
 	}
 	if (active) {
@@ -134,7 +146,7 @@ fun LazyGridScope.header(
 				textAlign = TextAlign.Right,
 				modifier = Modifier
 					.heightIn(min = 32.dp)
-					.padding(top = 12.dp, end = 16.dp)
+					.padding(top = 12.dp, end = endPadding)
 					.clickable(
 						interactionSource = null,
 						indication = null,

@@ -1,8 +1,12 @@
 package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyLink
+import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.domain.repositories.BinderyReadingOrderItem
+import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.ui.navigation.Screen
@@ -294,6 +298,124 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			),
 			binderyCatalogCards(catalog, BinderyCatalogTab.Books)
+		)
+	}
+
+	@Test
+	fun bookCardsOpenNativeBookDetailScreens() {
+		assertEquals(
+			Screen.BinderyBook(bookId = "3693", title = "Alcatraz versus the Evil Librarians"),
+			binderyDestinationForBook(
+				BinderyCatalogCard.Book(
+					id = "urn:bindery:book:3693",
+					title = "Alcatraz versus the Evil Librarians",
+					subtitle = "Brandon Sanderson",
+					imageUrl = "/opds/books/3693/cover"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun bookVersionRowsAggregateAudioAndListEbooks() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3693",
+			title = "Alcatraz versus the Evil Librarians",
+			links = listOf(
+				BinderyLink(
+					href = "/opds/books/3693/resources/ebook-1",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					rel = listOf("http://opds-spec.org/acquisition"),
+					properties = mapOf(
+						"kind" to "ebook",
+						"size" to "431666"
+					)
+				)
+			),
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3693/resources/audio-1",
+					title = "Part 01",
+					type = "audio/mpeg",
+					durationSeconds = 1800.0,
+					sizeBytes = 1048576
+				),
+				BinderyReadingOrderItem(
+					href = "/opds/books/3693/resources/audio-2",
+					title = "Part 02",
+					type = "audio/mpeg",
+					durationSeconds = 1861.0,
+					sizeBytes = 524288
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Alcatraz Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-1",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 431666
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/audio-1",
+					title = "Part 01",
+					type = "audio/mpeg",
+					kind = "audio",
+					durationSeconds = 1800.0,
+					sizeBytes = 1048576
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "audiobook",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Audiobook",
+					subtitle = "2 parts / 1h 1m 1s / 1.5 MB"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-1",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "Alcatraz EPUB",
+					subtitle = "EPUB / 421.54 KB"
+				)
+			),
+			binderyBookVersionRows(manifest, resources)
+		)
+	}
+
+	@Test
+	fun bookVersionRowsFallBackToAudioResourcesWhenManifestHasNoReadingOrder() {
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/1/resources/audio-1",
+					title = "Track 01",
+					type = "audio/mpeg",
+					kind = "audio",
+					durationSeconds = 30.0,
+					sizeBytes = 1024
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "audiobook",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Audiobook",
+					subtitle = "1 part / 30s / 1.0 KB"
+				)
+			),
+			binderyBookVersionRows(BinderyManifest(id = "urn:bindery:book:1", title = "Book"), resources)
 		)
 	}
 

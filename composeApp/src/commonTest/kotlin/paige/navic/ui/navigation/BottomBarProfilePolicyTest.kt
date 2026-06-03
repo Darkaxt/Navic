@@ -112,6 +112,10 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForScreen(Screen.BinderyCollection("/opds/collections/5", "Alcatraz"), BottomBarProfile.Music)
 		)
 		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyBook("3693", "Alcatraz"), BottomBarProfile.Music)
+		)
+		assertEquals(
 			BottomBarProfile.Music,
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Music)
 		)
@@ -158,6 +162,10 @@ class BottomBarProfilePolicyTest {
 		assertEquals(
 			SearchScope.Audiobooks,
 			searchScopeForScreen(Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"))
+		)
+		assertEquals(
+			SearchScope.Audiobooks,
+			searchScopeForScreen(Screen.BinderyBook("3693", "Alcatraz"))
 		)
 		assertEquals(
 			SearchScope.Music,

@@ -11,6 +11,7 @@ import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
+import paige.navic.ui.screens.bindery.BinderyBookViewModel
 import paige.navic.ui.screens.bindery.BinderyCatalogViewModel
 import paige.navic.ui.screens.bindery.BinderyHubViewModel
 import paige.navic.ui.screens.bindery.BinderySearchViewModel
@@ -97,6 +98,12 @@ val viewModelModule = module {
 	viewModel { params ->
 		BinderyCatalogViewModel(
 			path = params.get(),
+			repository = get()
+		)
+	}
+	viewModel { params ->
+		BinderyBookViewModel(
+			bookId = params.get(),
 			repository = get()
 		)
 	}

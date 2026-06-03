@@ -193,6 +193,135 @@ class BinderyRepositoryTest {
 		assertEquals("Mistborn", catalog.publications.single().properties["collectionTitle"])
 	}
 
+	@Test
+	fun manifestJsonPreservesBookLinksPropertiesDurationAndReadingOrder() {
+		val manifest = decodeBinderyManifestJson(
+			"""
+			{
+			  "metadata": {
+			    "title": "Alcatraz versus the Evil Librarians",
+			    "identifier": "urn:bindery:book:3693",
+			    "published": "2010-09-18",
+			    "description": "Book description",
+			    "subject": ["Fantasy", "Juvenile fiction"],
+			    "duration": 20054.152,
+			    "author": [{"name": "Brandon Sanderson"}]
+			  },
+			  "links": [
+			    {"href": "/opds/books/3693", "type": "application/opds-publication+json", "rel": "self"},
+			    {
+			      "href": "/opds/books/3693/resources/ebook-1",
+			      "type": "application/epub+zip",
+			      "rel": "http://opds-spec.org/acquisition",
+			      "title": "Alcatraz EPUB",
+			      "properties": {
+			        "kind": "ebook",
+			        "size": 431666,
+			        "deliveryPolicy": "local"
+			      }
+			    }
+			  ],
+			  "images": [{"href": "/opds/books/3693/cover", "type": "image/jpeg", "rel": "cover"}],
+			  "readingOrder": [
+			    {
+			      "href": "/opds/books/3693/resources/audio-1",
+			      "type": "audio/mpeg",
+			      "title": "Part 01",
+			      "duration": 3763.592,
+			      "properties": {
+			        "kind": "audio",
+			        "size": 120973860,
+			        "trackNumber": 1
+			      }
+			    }
+			  ],
+			  "properties": {
+			    "sourceProvider": "hardcover",
+			    "sourceUrl": "https://hardcover.app/books/alcatraz"
+			  }
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("urn:bindery:book:3693", manifest.id)
+		assertEquals("Alcatraz versus the Evil Librarians", manifest.title)
+		assertEquals("Brandon Sanderson", manifest.author)
+		assertEquals("2010-09-18", manifest.published)
+		assertEquals("Book description", manifest.description)
+		assertEquals(listOf("Fantasy", "Juvenile fiction"), manifest.subjects)
+		assertEquals(20054.152, manifest.durationSeconds)
+		assertEquals("/opds/books/3693/cover", manifest.images.single().href)
+		assertEquals("hardcover", manifest.properties["sourceProvider"])
+		assertEquals("/opds/books/3693", manifest.links.first().href)
+		assertEquals("ebook", manifest.links[1].properties["kind"])
+		assertEquals("431666", manifest.links[1].properties["size"])
+		assertEquals(
+			BinderyReadingOrderItem(
+				href = "/opds/books/3693/resources/audio-1",
+				title = "Part 01",
+				type = "audio/mpeg",
+				durationSeconds = 3763.592,
+				sizeBytes = 120973860
+			),
+			manifest.readingOrder.single()
+		)
+	}
+
+	@Test
+	fun resourceCatalogJsonPreservesAudiobookAndEbookResources() {
+		val catalog = decodeBinderyResourceCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Alcatraz Resources"},
+			  "resources": [
+			    {
+			      "href": "/opds/books/3693/resources/ebook-1",
+			      "type": "application/epub+zip",
+			      "title": "Alcatraz EPUB",
+			      "properties": {
+			        "kind": "ebook",
+			        "size": 431666,
+			        "trackNumber": 1
+			      }
+			    },
+			    {
+			      "href": "/opds/books/3693/resources/audio-1",
+			      "type": "audio/mpeg",
+			      "title": "Part 01",
+			      "duration": 3763.592,
+			      "properties": {
+			        "kind": "audio",
+			        "size": 120973860,
+			        "trackNumber": 1
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("Alcatraz Resources", catalog.title)
+		assertEquals(
+			BinderyBookResource(
+				href = "/opds/books/3693/resources/ebook-1",
+				title = "Alcatraz EPUB",
+				type = "application/epub+zip",
+				kind = "ebook",
+				durationSeconds = null,
+				sizeBytes = 431666,
+				properties = mapOf(
+					"kind" to "ebook",
+					"size" to "431666",
+					"trackNumber" to "1"
+				)
+			),
+			catalog.resources.first()
+		)
+		assertEquals("audio", catalog.resources[1].kind)
+		assertEquals(3763.592, catalog.resources[1].durationSeconds)
+		assertEquals(120973860, catalog.resources[1].sizeBytes)
+	}
+
 	private class FakeBinderyApiClient(
 		private val rootCatalog: BinderyCatalog = BinderyCatalog(title = "Bindery"),
 		private val rootFailure: Throwable? = null
@@ -226,6 +355,12 @@ class BinderyRepositoryTest {
 			id = "urn:bindery:book:$bookId",
 			title = "Book $bookId"
 		)
+
+		override suspend fun fetchBookResources(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			bookId: String
+		): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
 	}
 
 	private fun binderyRootCatalog(): BinderyCatalog =

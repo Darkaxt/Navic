@@ -113,6 +113,13 @@ sealed interface Screen : NavKey {
 		val title: String
 	) : Screen
 
+	@Immutable
+	@Serializable
+	data class BinderyBook(
+		val bookId: String,
+		val title: String
+	) : Screen
+
 	// misc
 	@Immutable
 	@Serializable

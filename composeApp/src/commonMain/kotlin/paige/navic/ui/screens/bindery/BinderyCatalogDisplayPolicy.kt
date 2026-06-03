@@ -1,10 +1,17 @@
 package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyLink
+import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.domain.repositories.BinderyReadingOrderItem
+import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.toFileSize
+import kotlin.math.roundToLong
 
 private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
 
@@ -155,6 +162,138 @@ fun binderyDestinationForLink(link: BinderyCatalogCard.Link): Screen =
 		"Collection" -> Screen.BinderyCollection(link.path, link.title)
 		else -> Screen.BinderyCatalog(link.path, link.title)
 	}
+
+fun binderyDestinationForBook(book: BinderyCatalogCard.Book): Screen =
+	Screen.BinderyBook(
+		bookId = binderyBookRouteId(book.id),
+		title = book.title
+	)
+
+internal fun binderyBookRouteId(id: String): String {
+	val trimmed = id.trim()
+	val withoutUrn = trimmed.removePrefix("urn:bindery:book:")
+	return withoutUrn.substringAfterLast("/opds/books/", withoutUrn)
+		.substringBefore('/')
+		.takeIf { it.isNotBlank() }
+		?: trimmed
+}
+
+enum class BinderyBookVersionKind {
+	Audiobook,
+	Ebook
+}
+
+data class BinderyBookVersionRow(
+	val id: String,
+	val kind: BinderyBookVersionKind,
+	val title: String,
+	val subtitle: String?
+)
+
+fun binderyBookVersionRows(
+	manifest: BinderyManifest?,
+	resourceCatalog: BinderyResourceCatalog?
+): List<BinderyBookVersionRow> {
+	val audioItems = manifest?.readingOrder.orEmpty().ifEmpty {
+		resourceCatalog?.resources.orEmpty()
+			.filter(BinderyBookResource::isAudioResource)
+			.map(BinderyBookResource::toReadingOrderItem)
+	}
+	val ebookResources = (
+		resourceCatalog?.resources.orEmpty().filter(BinderyBookResource::isEbookResource) +
+			manifest?.links.orEmpty()
+				.filter(BinderyLink::isEbookAcquisition)
+				.map(BinderyLink::toBookResource)
+		).distinctBy { resource -> resource.href }
+
+	return buildList {
+		if (audioItems.isNotEmpty()) {
+			add(audioItems.toAudiobookVersionRow())
+		}
+		ebookResources.forEach { resource ->
+			add(resource.toEbookVersionRow())
+		}
+	}
+}
+
+private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(): BinderyBookVersionRow {
+	val totalDuration = sumOf { it.durationSeconds ?: 0.0 }.takeIf { it > 0.0 }
+	val totalSize = sumOf { it.sizeBytes ?: 0L }.takeIf { it > 0L }
+	val partsText = if (size == 1) "1 part" else "$size parts"
+	val subtitle = listOfNotNull(
+		partsText,
+		totalDuration?.roundToLong()?.let(::queueTotalDurationLabel),
+		totalSize?.toFileSize()
+	).joinToString(separator = " / ")
+	return BinderyBookVersionRow(
+		id = "audiobook",
+		kind = BinderyBookVersionKind.Audiobook,
+		title = "Audiobook",
+		subtitle = subtitle
+	)
+}
+
+private fun BinderyBookResource.toEbookVersionRow(): BinderyBookVersionRow =
+	BinderyBookVersionRow(
+		id = href,
+		kind = BinderyBookVersionKind.Ebook,
+		title = title,
+		subtitle = listOfNotNull(
+			type.toReadableBookFormat(),
+			sizeBytes?.toFileSize()
+		).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+	)
+
+private fun BinderyBookResource.isAudioResource(): Boolean =
+	kind.equals("audio", ignoreCase = true) ||
+		kind.equals("audiobook", ignoreCase = true) ||
+		type?.startsWith("audio/", ignoreCase = true) == true
+
+private fun BinderyBookResource.isEbookResource(): Boolean =
+	kind.equals("ebook", ignoreCase = true) ||
+		type.isEbookMediaType()
+
+private fun BinderyLink.isEbookAcquisition(): Boolean =
+	rel.any { it.equals("http://opds-spec.org/acquisition", ignoreCase = true) } &&
+		(properties["kind"]?.equals("ebook", ignoreCase = true) == true || type.isEbookMediaType())
+
+private fun BinderyLink.toBookResource(): BinderyBookResource =
+	BinderyBookResource(
+		href = href,
+		title = title ?: href.substringAfterLast('/'),
+		type = type,
+		kind = properties["kind"],
+		sizeBytes = properties["size"]?.toLongOrNull(),
+		properties = properties
+	)
+
+private fun BinderyBookResource.toReadingOrderItem(): BinderyReadingOrderItem =
+	BinderyReadingOrderItem(
+		href = href,
+		title = title,
+		type = type,
+		durationSeconds = durationSeconds,
+		sizeBytes = sizeBytes
+	)
+
+private fun String?.isEbookMediaType(): Boolean =
+	this?.let { mediaType ->
+		"epub" in mediaType.lowercase() ||
+			"pdf" in mediaType.lowercase() ||
+			"mobi" in mediaType.lowercase() ||
+			"ebook" in mediaType.lowercase()
+	} == true
+
+private fun String?.toReadableBookFormat(): String? {
+	val normalized = this?.lowercase() ?: return null
+	return when {
+		"epub" in normalized -> "EPUB"
+		"pdf" in normalized -> "PDF"
+		"mobi" in normalized -> "MOBI"
+		"audiobook" in normalized -> "Audiobook"
+		else -> substringAfter('/').substringBefore(';').uppercase().takeIf { it.isNotBlank() }
+	}
+}
 
 fun BinderyCatalog.authorCollectionsLink(): BinderyCatalogCard.Link? =
 	navigation.firstOrNull { link ->

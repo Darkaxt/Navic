@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -181,6 +182,15 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										onOpenBook = { publication ->
+											platformContext.clickSound()
+											backStack.add(
+												Screen.BinderyBook(
+													bookId = binderyBookRouteId(publication.id ?: publication.title),
+													title = publication.title
+												)
+											)
+										},
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -200,6 +210,15 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										onOpenBook = { publication ->
+											platformContext.clickSound()
+											backStack.add(
+												Screen.BinderyBook(
+													bookId = binderyBookRouteId(publication.id ?: publication.title),
+													title = publication.title
+												)
+											)
+										},
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -214,6 +233,15 @@ fun BinderyDetailScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								bookGridColumns = bookGridColumns,
+								onOpenBook = { publication ->
+									platformContext.clickSound()
+									backStack.add(
+										Screen.BinderyBook(
+											bookId = binderyBookRouteId(publication.id ?: publication.title),
+											title = publication.title
+										)
+									)
+								},
 								onOpenCollection = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
@@ -249,6 +277,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	bookGridColumns: Int,
+	onOpenBook: (BinderyPublication) -> Unit,
 	onOpenCollection: (BinderyCatalogCard.Link) -> Unit
 ) {
 	val publications = when (kind) {
@@ -276,7 +305,10 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 			),
 			state = relatedCollectionsState.toCollectionCardsState(),
 			key = { it.id },
-			seeAll = false
+			seeAll = false,
+			headerStartPadding = 0.dp,
+			headerEndPadding = 0.dp,
+			rowContentPadding = PaddingValues(horizontal = 0.dp)
 		) { card, availableWidth ->
 			val collectionCardWidth = binderyCarouselCardWidthDp(
 				columns = bookGridColumns,
@@ -304,7 +336,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 					.animateItem()
 					.fillMaxWidth()
 					.heightIn(min = 32.dp)
-					.padding(top = 12.dp, start = 16.dp)
+					.padding(top = 12.dp)
 			)
 		}
 		items(
@@ -316,7 +348,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 				publication = publication,
 				kind = kind,
 				baseUrl = baseUrl,
-				imageRequestHeaders = imageRequestHeaders
+				imageRequestHeaders = imageRequestHeaders,
+				onOpenBook = onOpenBook
 			)
 		}
 	}
@@ -442,11 +475,12 @@ private fun BinderyPublicationGridItem(
 	publication: BinderyPublication,
 	kind: BinderyDetailKind,
 	baseUrl: String,
-	imageRequestHeaders: Map<String, String>
+	imageRequestHeaders: Map<String, String>,
+	onOpenBook: (BinderyPublication) -> Unit
 ) {
 	ArtGridItem(
 		modifier = modifier,
-		onClick = {},
+		onClick = { onOpenBook(publication) },
 		coverArtId = null,
 		imageUrl = publication.images.firstOrNull()?.href?.let { binderyEndpoint(baseUrl, it) },
 		imageRequestHeaders = imageRequestHeaders,

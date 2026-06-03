@@ -35,6 +35,8 @@
 	<string name="title_audiobook_collections">Collections</string>
 	<string name="title_audiobook_authors">Authors</string>
 	<string name="title_audiobook_publications">Publications</string>
+	<string name="title_audiobook_available_versions">Available versions</string>
+	<string name="title_audiobook_subjects">Subjects</string>
 	<string name="title_audiobook_recently_added">Recently added</string>
 	<string name="title_audiobook_wanted">Wanted</string>
 	<string name="title_audiobook_last_read">Last read</string>
@@ -577,6 +579,8 @@
 	<string name="info_bindery_failed">Bindery test failed: %1$s</string>
 	<string name="info_bindery_service_status_loading">Loading Bindery status...</string>
 	<string name="info_bindery_service_status_unavailable">Bindery status not loaded</string>
+	<string name="info_bindery_no_versions">No audiobook or ebook versions listed</string>
+	<string name="info_bindery_version_available">Available</string>
 	<string name="info_bindery_service_status_failed">Bindery status failed: %1$s</string>
 	<string name="info_bindery_configured">Configured</string>
 	<string name="info_bindery_not_configured">Not configured</string>

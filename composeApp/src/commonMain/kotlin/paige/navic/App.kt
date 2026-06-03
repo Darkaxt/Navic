@@ -77,6 +77,7 @@ import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogTab
+import paige.navic.ui.screens.bindery.BinderyBookScreen
 import paige.navic.ui.screens.bindery.BinderyDetailKind
 import paige.navic.ui.screens.bindery.BinderyDetailScreen
 import paige.navic.ui.screens.bindery.BinderyHubScreen
@@ -334,6 +335,12 @@ private fun entryProvider(
 			BinderyDetailScreen(
 				kind = BinderyDetailKind.Collection,
 				path = key.path,
+				title = key.title
+			)
+		}
+		entry<Screen.BinderyBook>(metadata = navtabMetadata) { key ->
+			BinderyBookScreen(
+				bookId = key.bookId,
 				title = key.title
 			)
 		}
