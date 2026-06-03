@@ -48,10 +48,10 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.Artist
+import paige.navic.icons.filled.Author
+import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.CollectionBooks
 import paige.navic.icons.outlined.History
-import paige.navic.icons.outlined.Note
-import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
@@ -62,11 +62,12 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
-import paige.navic.ui.components.layouts.horizontalSection
+import paige.navic.ui.components.layouts.horizontalSectionWithAvailableWidth
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.library.components.libraryScreenOverviewButton
 import paige.navic.util.ui.withoutTop
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -140,19 +141,19 @@ fun BinderyHubScreen() {
 				) {
 					if (binderyConfigured) {
 						libraryScreenOverviewButton(
-							icon = Icons.Outlined.Note,
+							icon = Icons.Outlined.Book,
 							label = Res.string.title_audiobook_books,
 							destination = Screen.BinderyBooks,
 							start = true
 						)
 						libraryScreenOverviewButton(
-							icon = Icons.Outlined.PlaylistPlay,
+							icon = Icons.Outlined.CollectionBooks,
 							label = Res.string.title_audiobook_collections,
 							destination = Screen.BinderyCollections,
 							start = false
 						)
 						libraryScreenOverviewButton(
-							icon = Icons.Filled.Artist,
+							icon = Icons.Filled.Author,
 							label = Res.string.title_audiobook_authors,
 							destination = Screen.BinderyAuthors,
 							start = true
@@ -249,17 +250,20 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
-	val cardWidth = binderyCarouselCardWidthDp(bookGridColumns).dp
 	rows.forEach { row ->
 		val cards = row.cards
 		if (cards.isEmpty()) return@forEach
-		horizontalSection(
+		horizontalSectionWithAvailableWidth(
 			title = row.row.kind.titleResource(),
 			destination = Screen.BinderyCatalog(row.row.path, row.row.title),
 			state = UiState.Success(cards),
 			key = { it.id },
 			seeAll = true
-		) { card ->
+		) { card, availableWidth ->
+			val cardWidth = binderyCarouselCardWidthDp(
+				columns = bookGridColumns,
+				availableWidthDp = availableWidth.value.roundToInt()
+			).dp
 			BinderyHubCard(
 				modifier = Modifier.animateItem().width(cardWidth),
 				card = card,

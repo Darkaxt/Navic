@@ -68,9 +68,12 @@ fun bottomBarProfileForScreen(
 		is Screen.GenreList,
 		is Screen.PlaylistList,
 		is Screen.RadioList,
-		is Screen.Search,
 		is Screen.SongList,
 		is Screen.Starred -> BottomBarProfile.Music
+		is Screen.Search -> when (screen.scope) {
+			SearchScope.Music -> BottomBarProfile.Music
+			SearchScope.Audiobooks -> if (binderyEnabled) BottomBarProfile.Audiobooks else BottomBarProfile.Music
+		}
 
 		Screen.Audiobooks,
 		Screen.BinderyBooks,
@@ -81,6 +84,26 @@ fun bottomBarProfileForScreen(
 		is Screen.BinderyCatalog -> if (binderyEnabled) BottomBarProfile.Audiobooks else rememberedProfile
 
 		else -> rememberedProfile
+	}
+
+fun searchScopeForScreen(
+	screen: Screen?,
+	binderyEnabled: Boolean = true
+): SearchScope =
+	if (binderyEnabled) {
+		when (screen) {
+			Screen.Audiobooks,
+			Screen.BinderyBooks,
+			Screen.BinderyCollections,
+			Screen.BinderyAuthors,
+			is Screen.BinderyAuthor,
+			is Screen.BinderyCollection,
+			is Screen.BinderyCatalog -> SearchScope.Audiobooks
+			is Screen.Search -> screen.scope
+			else -> SearchScope.Music
+		}
+	} else {
+		SearchScope.Music
 	}
 
 fun bottomBarProfileForTabClick(

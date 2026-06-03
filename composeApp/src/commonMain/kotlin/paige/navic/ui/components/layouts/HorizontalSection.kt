@@ -3,6 +3,7 @@ package paige.navic.ui.components.layouts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.dropUnlessResumed
@@ -61,6 +63,45 @@ fun <T> LazyGridScope.horizontalSection(
 			} else {
 				items(data, key = key) { item ->
 					itemContent(item)
+				}
+			}
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+fun <T> LazyGridScope.horizontalSectionWithAvailableWidth(
+	seeAll: Boolean,
+	title: StringResource,
+	titleFormatArgs: List<Any> = emptyList(),
+	destination: NavKey,
+	state: UiState<List<T>>,
+	key: (T) -> Any,
+	itemContent: @Composable LazyItemScope.(T, Dp) -> Unit,
+) {
+	val data = state.data.orEmpty()
+
+	if (data.isEmpty() && state !is UiState.Loading) return
+
+	header(title, *titleFormatArgs.toTypedArray(), destination = destination, active = seeAll)
+
+	item(span = { GridItemSpan(maxLineSpan) }) {
+		BoxWithConstraints {
+			val availableWidth = maxWidth
+			LazyRow(
+				modifier = Modifier
+					.animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+				horizontalArrangement = Arrangement.spacedBy(12.dp),
+				contentPadding = PaddingValues(horizontal = 16.dp)
+			) {
+				if (state is UiState.Loading && data.isEmpty()) {
+					items(8) {
+						ArtGridPlaceholder(Modifier.width(150.dp))
+					}
+				} else {
+					items(data, key = key) { item ->
+						itemContent(item, availableWidth)
+					}
 				}
 			}
 		}

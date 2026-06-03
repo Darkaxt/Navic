@@ -13,6 +13,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.bindery.BinderyCatalogViewModel
 import paige.navic.ui.screens.bindery.BinderyHubViewModel
+import paige.navic.ui.screens.bindery.BinderySearchViewModel
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailViewModel
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
@@ -100,6 +101,7 @@ val viewModelModule = module {
 		)
 	}
 	viewModelOf(::BinderyHubViewModel)
+	viewModelOf(::BinderySearchViewModel)
 	viewModelOf(::SettingsLidaClipsViewModel)
 	viewModelOf(::ChangelogViewModel)
 	viewModel { params ->

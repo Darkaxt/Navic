@@ -62,13 +62,14 @@ import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
-import paige.navic.ui.components.layouts.horizontalSection
+import paige.navic.ui.components.layouts.horizontalSectionWithAvailableWidth
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.ui.withoutTop
+import kotlin.math.roundToInt
 
 enum class BinderyDetailKind {
 	Author,
@@ -267,8 +268,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 		)
 	}
 	if (kind == BinderyDetailKind.Author && catalog.authorCollectionsLink() != null) {
-		val collectionCardWidth = binderyCarouselCardWidthDp(bookGridColumns).dp
-		horizontalSection(
+		horizontalSectionWithAvailableWidth(
 			title = Res.string.title_audiobook_collections,
 			destination = Screen.BinderyCatalog(
 				path = catalog.authorCollectionsLink()?.path.orEmpty(),
@@ -277,7 +277,11 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 			state = relatedCollectionsState.toCollectionCardsState(),
 			key = { it.id },
 			seeAll = false
-		) { card ->
+		) { card, availableWidth ->
+			val collectionCardWidth = binderyCarouselCardWidthDp(
+				columns = bookGridColumns,
+				availableWidthDp = availableWidth.value.roundToInt()
+			).dp
 			BinderyRelatedCollectionCard(
 				modifier = Modifier.animateItem().width(collectionCardWidth),
 				card = card,

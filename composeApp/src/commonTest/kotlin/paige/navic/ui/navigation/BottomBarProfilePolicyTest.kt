@@ -150,6 +150,22 @@ class BottomBarProfilePolicyTest {
 	}
 
 	@Test
+	fun searchScopeFollowsCurrentDomain() {
+		assertEquals(SearchScope.Music, searchScopeForScreen(Screen.Library()))
+		assertEquals(SearchScope.Music, searchScopeForScreen(Screen.ArtistList()))
+		assertEquals(SearchScope.Audiobooks, searchScopeForScreen(Screen.Audiobooks))
+		assertEquals(SearchScope.Audiobooks, searchScopeForScreen(Screen.BinderyBooks))
+		assertEquals(
+			SearchScope.Audiobooks,
+			searchScopeForScreen(Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"))
+		)
+		assertEquals(
+			SearchScope.Music,
+			searchScopeForScreen(Screen.BinderyBooks, binderyEnabled = false)
+		)
+	}
+
+	@Test
 	fun tabClickSelectsTheNextProfile() {
 		assertEquals(
 			BottomBarProfile.Music,

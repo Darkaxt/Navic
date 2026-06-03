@@ -184,7 +184,8 @@ sealed interface Screen : NavKey {
 	@Immutable
 	@Serializable
 	data class Search(
-		val nested: Boolean = false
+		val nested: Boolean = false,
+		val scope: SearchScope = SearchScope.Music
 	) : Screen
 
 	@Immutable
@@ -250,4 +251,10 @@ sealed interface Screen : NavKey {
 		@Serializable
 		data object StreamingQuality : Settings
 	}
+}
+
+@Serializable
+enum class SearchScope {
+	Music,
+	Audiobooks
 }

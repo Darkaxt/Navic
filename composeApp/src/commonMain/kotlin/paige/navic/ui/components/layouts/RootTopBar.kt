@@ -30,9 +30,11 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.searchScopeForScreen
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.AccountCircle
@@ -103,6 +105,7 @@ private fun Actions(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val preferenceManager = koinInject<PreferenceManager>()
 
 	val isSearchEnabled = config?.tabs?.any {
 		it.id == NavbarTab.Id.SEARCH && it.visible
@@ -112,7 +115,15 @@ private fun Actions(
 		IconButton(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
-				backStack.add(Screen.Search(nested = true))
+				backStack.add(
+					Screen.Search(
+						nested = true,
+						scope = searchScopeForScreen(
+							screen = backStack.lastOrNull() as? Screen,
+							binderyEnabled = preferenceManager.binderyEnabled
+						)
+					)
+				)
 			}
 		) {
 			Icon(

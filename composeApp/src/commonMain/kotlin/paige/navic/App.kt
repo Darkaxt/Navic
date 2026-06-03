@@ -66,6 +66,7 @@ import paige.navic.ui.components.sheets.shouldRunUpdateCheck
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.SearchScope
 import paige.navic.ui.screens.activity.ActivityScreen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
@@ -79,6 +80,7 @@ import paige.navic.ui.screens.bindery.BinderyCatalogTab
 import paige.navic.ui.screens.bindery.BinderyDetailKind
 import paige.navic.ui.screens.bindery.BinderyDetailScreen
 import paige.navic.ui.screens.bindery.BinderyHubScreen
+import paige.navic.ui.screens.bindery.BinderySearchScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
 import paige.navic.ui.screens.genre.GenreListScreen
 import paige.navic.ui.screens.genre.GenreDetailScreen
@@ -393,7 +395,10 @@ private fun entryProvider(
 			SongDetailScreen(key.songId)
 		}
 		entry<Screen.Search>(metadata = navtabMetadata) { key ->
-			SearchScreen(key.nested)
+			when (key.scope) {
+				SearchScope.Music -> SearchScreen(key.nested)
+				SearchScope.Audiobooks -> BinderySearchScreen(key.nested)
+			}
 		}
 		entry<Screen.ShareList> {
 			ShareListScreen()

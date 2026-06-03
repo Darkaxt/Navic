@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.ui.navigation.Screen
 import kotlin.test.Test
@@ -34,6 +35,14 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals(5, normalizedBinderyBookGridColumns(5))
 		assertEquals(7, normalizedBinderyBookGridColumns(7))
 		assertEquals(8, normalizedBinderyBookGridColumns(12))
+	}
+
+	@Test
+	fun carouselCardWidthFitsConfiguredVisibleCountInsideAvailableWidth() {
+		assertEquals(138, binderyCarouselCardWidthDp(columns = 5, availableWidthDp = 768))
+		assertEquals(113, binderyCarouselCardWidthDp(columns = 6, availableWidthDp = 768))
+		assertEquals(96, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 820))
+		assertEquals(96, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 320))
 	}
 
 	@Test
@@ -127,13 +136,13 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun detailPublicationsSortByPublishedYearWithUnknownDatesLast() {
+	fun authorDetailPublicationsSortByPublishedYearAndOmitUnknownDates() {
 		val newest = BinderyPublication(id = "new", title = "New", published = "2023-01-01")
 		val unknown = BinderyPublication(id = "unknown", title = "Unknown")
 		val oldest = BinderyPublication(id = "old", title = "Old", published = "1999-04-10")
 
 		assertEquals(
-			listOf(oldest, newest, unknown),
+			listOf(oldest, newest),
 			listOf(newest, unknown, oldest).sortedForBinderyDetail()
 		)
 	}

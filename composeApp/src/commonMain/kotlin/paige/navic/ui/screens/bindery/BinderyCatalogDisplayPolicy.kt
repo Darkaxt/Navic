@@ -174,18 +174,19 @@ fun BinderyCatalog.authorCollectionsLink(): BinderyCatalogCard.Link? =
 	}
 
 fun List<BinderyPublication>.sortedForBinderyDetail(): List<BinderyPublication> =
-	sortedWith(
-		compareBy<BinderyPublication>(
-			{ publication -> publication.published?.take(4)?.toIntOrNull() ?: Int.MAX_VALUE },
-			{ publication -> publication.title.lowercase() }
+	filter { publication -> publication.publicationYearSortValue() != null }
+		.sortedWith(
+			compareBy<BinderyPublication>(
+				{ publication -> publication.publicationYearSortValue() },
+				{ publication -> publication.title.lowercase() }
+			)
 		)
-	)
 
 fun List<BinderyPublication>.sortedForBinderyCollectionDetail(): List<BinderyPublication> =
 	sortedWith(
 		compareBy<BinderyPublication>(
 			{ publication -> publication.collectionPositionSort() ?: Double.MAX_VALUE },
-			{ publication -> publication.published?.take(4)?.toIntOrNull() ?: Int.MAX_VALUE },
+			{ publication -> publication.publicationYearSortValue() ?: Int.MAX_VALUE },
 			{ publication -> publication.title.lowercase() }
 		)
 	)
@@ -193,6 +194,12 @@ fun List<BinderyPublication>.sortedForBinderyCollectionDetail(): List<BinderyPub
 private fun BinderyPublication.collectionPositionSort(): Double? =
 	properties["collectionPositionSort"]?.toDoubleOrNull()
 		?: properties["collectionPosition"]?.toDoubleOrNull()
+
+private fun BinderyPublication.publicationYearSortValue(): Int? =
+	published?.trim()?.take(4)?.toIntOrNull()
+		?: properties.firstNonBlankValue("published", "publicationYear", "originalPublicationYear")
+			?.take(4)
+			?.toIntOrNull()
 
 internal fun BinderyCatalog.nextPagePath(): String? =
 	links.firstOrNull { link ->

@@ -2,6 +2,12 @@ package paige.navic.ui.components.layouts
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Icon
@@ -15,6 +21,7 @@ import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -42,6 +49,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.settings.BottomBarProfile
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
 import paige.navic.domain.models.settings.NavigationBarLabelVisibility
@@ -49,11 +57,16 @@ import paige.navic.domain.models.settings.NavigationBarStyle
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Album
 import paige.navic.icons.filled.Artist
+import paige.navic.icons.filled.Author
 import paige.navic.icons.filled.Genre
 import paige.navic.icons.filled.LibraryMusic
 import paige.navic.icons.filled.Radio
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
+import paige.navic.icons.outlined.Audiobooks
+import paige.navic.icons.outlined.Author
+import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.CollectionBooks
 import paige.navic.icons.outlined.Genre
 import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryMusic
@@ -106,27 +119,27 @@ private enum class NavItem(
 	AUDIOBOOKS(
 		id = NavbarTab.Id.AUDIOBOOKS,
 		destination = Screen.Audiobooks,
-		icon = Icons.Filled.LibraryMusic,
-		iconUnselected = Icons.Outlined.LibraryMusic,
+		icon = Icons.Outlined.Audiobooks,
+		iconUnselected = Icons.Outlined.Audiobooks,
 		label = Res.string.title_audiobooks
 	),
 	BOOKS(
 		id = NavbarTab.Id.BOOKS,
 		destination = Screen.BinderyBooks,
-		icon = Icons.Outlined.Note,
+		icon = Icons.Outlined.Book,
 		label = Res.string.title_audiobook_books
 	),
 	COLLECTIONS(
 		id = NavbarTab.Id.COLLECTIONS,
 		destination = Screen.BinderyCollections,
-		icon = Icons.Outlined.PlaylistPlay,
+		icon = Icons.Outlined.CollectionBooks,
 		label = Res.string.title_audiobook_collections
 	),
 	AUTHORS(
 		id = NavbarTab.Id.AUTHORS,
 		destination = Screen.BinderyAuthors,
-		icon = Icons.Filled.Artist,
-		iconUnselected = Icons.Outlined.Artist,
+		icon = Icons.Filled.Author,
+		iconUnselected = Icons.Outlined.Author,
 		label = Res.string.title_audiobook_authors
 	),
 	ACTIVITY(
@@ -166,6 +179,13 @@ private enum class NavItem(
 	)
 }
 
+@Immutable
+private data class BottomBarRenderState(
+	val regular: Boolean,
+	val profile: BottomBarProfile,
+	val tabIds: List<NavbarTab.Id>
+)
+
 @Composable
 fun BottomBar(
 	modifier: Modifier = Modifier,
@@ -191,20 +211,35 @@ fun BottomBar(
 		profile = activeProfile,
 		binderyEnabled = preferenceManager.binderyEnabled
 	).mapNotNull(::navItemFromId)
+	val renderState = BottomBarRenderState(
+		regular = preferenceManager.navigationBarStyle != NavigationBarStyle.Short
+			&& platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
+			&& tabs.size > 1,
+		profile = activeProfile,
+		tabIds = tabs.map { it.id }
+	)
 
 	AnimatedContent(
-		preferenceManager.navigationBarStyle != NavigationBarStyle.Short
-			&& platformContext.sizeClass.widthSizeClass <= WindowWidthSizeClass.Compact
-			&& tabs.size > 1
-	) {
-		if (tabs.size < 2) return@AnimatedContent
-		if (it) {
+		targetState = renderState,
+		transitionSpec = {
+			val direction = bottomBarProfileTransitionDirection(initialState, targetState)
+			(fadeIn(animationSpec = tween(160)) +
+				slideInHorizontally(animationSpec = tween(160)) { width -> width / 8 * direction })
+				.togetherWith(
+					fadeOut(animationSpec = tween(120)) +
+						slideOutHorizontally(animationSpec = tween(120)) { width -> -width / 8 * direction }
+				)
+		}
+	) { state ->
+		val renderedTabs = state.tabIds.mapNotNull(::navItemFromId)
+		if (renderedTabs.size < 2) return@AnimatedContent
+		if (state.regular) {
 			NavigationBar(
 				modifier = modifier,
 				containerColor = containerColor,
 				windowInsets = windowInsets
 			) {
-				tabs.forEach { tab ->
+				renderedTabs.forEach { tab ->
 					val item = tab
 					val selected = item.isSelected(currentScreen)
 
@@ -252,7 +287,7 @@ fun BottomBar(
 				modifier = modifier,
 				containerColor = containerColor
 			) {
-				tabs.forEach { tab ->
+				renderedTabs.forEach { tab ->
 					val item = tab
 					val selected = item.isSelected(currentScreen)
 
@@ -292,6 +327,17 @@ fun BottomBar(
 		}
 	}
 }
+
+private fun bottomBarProfileTransitionDirection(
+	initial: BottomBarRenderState,
+	target: BottomBarRenderState
+): Int =
+	when {
+		initial.profile == target.profile -> 0
+		target.profile == BottomBarProfile.Audiobooks -> 1
+		initial.profile == BottomBarProfile.Audiobooks -> -1
+		else -> 0
+	}
 
 private fun navItemFromId(id: NavbarTab.Id): NavItem? =
 	NavItem.entries.firstOrNull { it.id == id }
