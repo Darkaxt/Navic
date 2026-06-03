@@ -43,8 +43,11 @@ import paige.navic.domain.models.MaxNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
+import paige.navic.domain.models.BinderyMaxBookGridColumns
+import paige.navic.domain.models.BinderyMinBookGridColumns
 import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
 import paige.navic.domain.models.lidaClipsVideoCacheSizeLabel
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
@@ -1380,6 +1383,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			isPassword = true,
 			onValueChange = { preferenceManager.binderyApiKey = it }
 		))
+		add(selectionRow(
+			id = "bindery.book-grid-columns",
+			path = path(integrations, bindery),
+			title = stringResource(Res.string.option_bindery_book_grid_columns),
+			subtitle = stringResource(Res.string.subtitle_bindery_book_grid_columns),
+			keywords = listOf("Bindery", "audiobooks", "books", "collections", "grid", "columns"),
+			items = binderyBookGridColumnSearchOptions,
+			label = { columns -> columns.toString() },
+			selection = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns),
+			onSelect = { columns -> preferenceManager.binderyBookGridColumns = columns }
+		))
 		add(textFieldRow(
 			id = "aurral.base-url",
 			path = path(integrations, aurral),
@@ -1652,6 +1666,7 @@ private val smartRewindSearchOptions = listOf(1, 2, 3, 5, 10, 15, 30)
 private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
+private val binderyBookGridColumnSearchOptions = (BinderyMinBookGridColumns..BinderyMaxBookGridColumns).toList()
 private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)
 private val quickPicksMinDurationSearchOptions = listOf(0, 30, 60, 120, 180)
 

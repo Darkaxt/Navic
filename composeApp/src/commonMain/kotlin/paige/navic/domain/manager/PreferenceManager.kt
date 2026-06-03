@@ -12,6 +12,7 @@ import paige.navic.domain.models.settings.CoverArtShape
 import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
+import paige.navic.domain.models.BinderyDefaultBookGridColumns
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.integrationAttemptFailedServices
@@ -189,9 +190,10 @@ class PreferenceManager(
 			currentValue = binderyEnabledPreference,
 			newValue = value,
 			assign = { binderyEnabledPreference = it }
-		)
+	)
 	var binderyOpdsBaseUrl by preference("")
 	var binderyApiKey by preference("")
+	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	private var aurralEnabledPreference by preference("aurralEnabled", false)
 	var aurralEnabled: Boolean
 		get() = aurralEnabledPreference

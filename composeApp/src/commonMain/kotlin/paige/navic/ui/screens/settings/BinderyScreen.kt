@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_clear_bindery_api_key
@@ -55,6 +56,7 @@ import navic.composeapp.generated.resources.info_bindery_unsupported
 import navic.composeapp.generated.resources.option_bindery_api_key
 import navic.composeapp.generated.resources.option_bindery_audiobooks
 import navic.composeapp.generated.resources.option_bindery_authors
+import navic.composeapp.generated.resources.option_bindery_book_grid_columns
 import navic.composeapp.generated.resources.option_bindery_collections
 import navic.composeapp.generated.resources.option_bindery_enabled
 import navic.composeapp.generated.resources.option_bindery_navigation
@@ -64,6 +66,7 @@ import navic.composeapp.generated.resources.option_bindery_progress_sync
 import navic.composeapp.generated.resources.option_bindery_search
 import navic.composeapp.generated.resources.option_bindery_series
 import navic.composeapp.generated.resources.subtitle_bindery_api_key
+import navic.composeapp.generated.resources.subtitle_bindery_book_grid_columns
 import navic.composeapp.generated.resources.subtitle_bindery_enabled
 import navic.composeapp.generated.resources.subtitle_bindery_opds_url
 import navic.composeapp.generated.resources.title_bindery
@@ -73,6 +76,9 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.BinderyMaxBookGridColumns
+import paige.navic.domain.models.BinderyMinBookGridColumns
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyServiceStatus
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.ui.components.common.Form
@@ -84,6 +90,7 @@ import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsBinderyViewModel
@@ -172,6 +179,14 @@ fun SettingsBinderyScreen() {
 								},
 								keyboardType = KeyboardType.Password,
 								isPassword = true
+							)
+							SettingSelectionRow(
+								title = { Text(stringResource(Res.string.option_bindery_book_grid_columns)) },
+								items = (BinderyMinBookGridColumns..BinderyMaxBookGridColumns).toList().toImmutableList(),
+								label = { columns -> columns.toString() },
+								description = stringResource(Res.string.subtitle_bindery_book_grid_columns),
+								selection = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns),
+								onSelect = { columns -> preferenceManager.binderyBookGridColumns = columns }
 							)
 							FormRow {
 								Column(Modifier.weight(1f)) {

@@ -43,6 +43,8 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.binderyCarouselCardWidthDp
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.icons.Icons
@@ -85,6 +87,7 @@ fun BinderyHubScreen() {
 		binderyLoading = binderyConfigured && hubState is UiState.Loading
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -173,6 +176,7 @@ fun BinderyHubScreen() {
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
@@ -191,6 +195,7 @@ fun BinderyHubScreen() {
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenCatalog = { link ->
@@ -204,6 +209,7 @@ fun BinderyHubScreen() {
 								rows = state.data.rows,
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
+								bookGridColumns = bookGridColumns,
 								collectionArtworkByPath = collectionArtworkByPath,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 								onOpenCatalog = { link ->
@@ -238,10 +244,12 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	rows: List<BinderyHubCatalogRow>,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
+	val cardWidth = binderyCarouselCardWidthDp(bookGridColumns).dp
 	rows.forEach { row ->
 		val cards = row.cards
 		if (cards.isEmpty()) return@forEach
@@ -253,7 +261,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 			seeAll = true
 		) { card ->
 			BinderyHubCard(
-				modifier = Modifier.animateItem().width(150.dp),
+				modifier = Modifier.animateItem().width(cardWidth),
 				card = card,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,

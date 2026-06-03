@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.ui.navigation.Screen
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,6 +25,15 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals("/opds/books?limit=5", BinderyCatalogTab.Books.initialCatalogPath())
 		assertEquals("/opds/collections", BinderyCatalogTab.Collections.initialCatalogPath())
 		assertEquals("/opds/authors", BinderyCatalogTab.Authors.initialCatalogPath())
+	}
+
+	@Test
+	fun binderyBookGridColumnsClampToAudiobookDensityRange() {
+		assertEquals(5, normalizedBinderyBookGridColumns(1))
+		assertEquals(5, normalizedBinderyBookGridColumns(4))
+		assertEquals(5, normalizedBinderyBookGridColumns(5))
+		assertEquals(7, normalizedBinderyBookGridColumns(7))
+		assertEquals(8, normalizedBinderyBookGridColumns(12))
 	}
 
 	@Test

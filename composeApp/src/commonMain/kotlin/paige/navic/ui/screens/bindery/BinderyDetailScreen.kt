@@ -47,6 +47,8 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.binderyCarouselCardWidthDp
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.binderyApiKeyHeaders
@@ -102,6 +104,7 @@ fun BinderyDetailScreen(
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val resolvedTitle = catalogState.data?.title?.takeIf { it.isNotBlank() } ?: title
 	val authorCollectionsLink = catalogState.data?.authorCollectionsLink()
+	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -158,6 +161,7 @@ fun BinderyDetailScreen(
 					modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
 					state = viewModel.gridState,
 					contentPadding = innerPadding.withoutTop(),
+					fixedColumns = bookGridColumns,
 					verticalArrangement = Arrangement.spacedBy(12.dp)
 				) {
 					if (binderyConfigured) {
@@ -175,6 +179,7 @@ fun BinderyDetailScreen(
 										relatedCollectionsState = relatedCollectionsState,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -193,6 +198,7 @@ fun BinderyDetailScreen(
 										relatedCollectionsState = relatedCollectionsState,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -206,6 +212,7 @@ fun BinderyDetailScreen(
 								relatedCollectionsState = relatedCollectionsState,
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
+								bookGridColumns = bookGridColumns,
 								onOpenCollection = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
@@ -240,6 +247,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 	relatedCollectionsState: UiState<BinderyCatalog>,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
 	onOpenCollection: (BinderyCatalogCard.Link) -> Unit
 ) {
 	val publications = when (kind) {
@@ -259,6 +267,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 		)
 	}
 	if (kind == BinderyDetailKind.Author && catalog.authorCollectionsLink() != null) {
+		val collectionCardWidth = binderyCarouselCardWidthDp(bookGridColumns).dp
 		horizontalSection(
 			title = Res.string.title_audiobook_collections,
 			destination = Screen.BinderyCatalog(
@@ -270,7 +279,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 			seeAll = false
 		) { card ->
 			BinderyRelatedCollectionCard(
-				modifier = Modifier.animateItem().width(150.dp),
+				modifier = Modifier.animateItem().width(collectionCardWidth),
 				card = card,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,

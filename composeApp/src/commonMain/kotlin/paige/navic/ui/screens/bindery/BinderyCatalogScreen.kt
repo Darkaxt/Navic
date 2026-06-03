@@ -36,6 +36,7 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -83,6 +84,7 @@ fun BinderyCatalogScreen(
 		binderyLoading = binderyConfigured && catalogState is UiState.Loading
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -128,6 +130,7 @@ fun BinderyCatalogScreen(
 					modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
 					state = viewModel.gridState,
 					contentPadding = innerPadding.withoutTop(),
+					fixedColumns = bookGridColumns,
 					verticalArrangement = if ((catalogState as? UiState.Success)?.data?.let {
 							binderyCatalogCards(it, tab).isEmpty()
 						} == true) {
