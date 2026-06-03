@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.ConnectivityManager
@@ -26,7 +27,9 @@ import paige.navic.domain.models.nowPlayingTechnicalInfo
 import paige.navic.shared.MediaPlayerViewModel
 
 @Composable
-fun NowPlayingTechnicalInfoRow() {
+fun NowPlayingTechnicalInfoRow(
+	modifier: Modifier = Modifier
+) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val connectivityManager = koinInject<ConnectivityManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -37,9 +40,9 @@ fun NowPlayingTechnicalInfoRow() {
 	val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f)
 
 	Row(
-		modifier = Modifier
+		modifier = modifier
 			.fillMaxWidth()
-			.padding(horizontal = 16.dp),
+			.padding(horizontal = 4.dp),
 		horizontalArrangement = Arrangement.Center
 	) {
 		Box(contentAlignment = Alignment.Center) {
@@ -83,13 +86,17 @@ fun NowPlayingTechnicalInfoRow() {
 					Text(
 						text = info.primary,
 						style = style,
-						color = color
+						color = color,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
 					)
 					info.secondary?.let { secondary ->
 						Text(
 							text = secondary,
 							style = style,
-							color = color
+							color = color,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis
 						)
 					}
 				}

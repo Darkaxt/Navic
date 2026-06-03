@@ -16,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
@@ -36,7 +35,6 @@ import navic.composeapp.generated.resources.title_aurral_global_top
 import navic.composeapp.generated.resources.title_aurral_recently_added
 import navic.composeapp.generated.resources.title_aurral_recent_releases
 import navic.composeapp.generated.resources.title_aurral_recommended_for_you
-import navic.composeapp.generated.resources.title_audiobooks
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_most_played
 import navic.composeapp.generated.resources.title_playlists
@@ -50,8 +48,6 @@ import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
@@ -70,7 +66,6 @@ import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
-import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.components.layouts.header
 import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
@@ -80,9 +75,6 @@ import paige.navic.ui.screens.aurral.aurralDiscoverCollectionRoute
 import paige.navic.ui.screens.aurral.aurralMonitorStateForLocalArtist
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.ArtistsScreenItem
-import paige.navic.ui.screens.bindery.BinderyCatalogCard
-import paige.navic.ui.screens.bindery.binderyCatalogCardVisualPolicy
-import paige.navic.ui.screens.bindery.binderyDestinationForLink
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
@@ -121,7 +113,6 @@ fun LibraryScreenContent(
 
 	// most played
 	mostPlayedShortcutsState: UiState<ImmutableList<DomainMostPlayedShortcut>>,
-	binderyAudiobooksState: UiState<List<BinderyCatalogCard>>,
 
 	// albums
 	albumsState: UiState<ImmutableList<DomainAlbum>>,
@@ -258,27 +249,6 @@ fun LibraryScreenContent(
 				modifier = Modifier.animateItem().width(150.dp),
 				shortcut = shortcut,
 				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
-			)
-		}
-
-		horizontalSection(
-			title = Res.string.title_audiobooks,
-			destination = Screen.Audiobooks,
-			state = binderyAudiobooksState,
-			key = { it.id },
-			seeAll = true
-		) { card ->
-			BinderyLibraryCard(
-				modifier = Modifier.animateItem().width(150.dp),
-				card = card,
-				baseUrl = preferenceManager.binderyOpdsBaseUrl,
-				imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey),
-				onOpenCatalog = { link ->
-					backStack.add(binderyDestinationForLink(link))
-				},
-				onOpenAudiobooks = {
-					backStack.add(Screen.Audiobooks)
-				}
 			)
 		}
 
@@ -501,53 +471,6 @@ fun LibraryScreenContent(
 					)
 				}
 			}
-		}
-	}
-}
-
-@Composable
-private fun BinderyLibraryCard(
-	modifier: Modifier = Modifier,
-	card: BinderyCatalogCard,
-	baseUrl: String,
-	imageRequestHeaders: Map<String, String>,
-	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
-	onOpenAudiobooks: () -> Unit
-) {
-	when (card) {
-		is BinderyCatalogCard.Book -> {
-			val visualPolicy = binderyCatalogCardVisualPolicy(card)
-			ArtGridItem(
-				modifier = modifier,
-				onClick = onOpenAudiobooks,
-				coverArtId = null,
-				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-				imageRequestHeaders = imageRequestHeaders,
-				title = card.title,
-				subtitle = card.subtitle,
-				coverAspectRatio = visualPolicy.coverAspectRatio,
-				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
-				fallbackKind = "Book",
-				id = card.id,
-				tab = "library-bindery"
-			)
-		}
-		is BinderyCatalogCard.Link -> {
-			val visualPolicy = binderyCatalogCardVisualPolicy(card)
-			ArtGridItem(
-				modifier = modifier,
-				onClick = { onOpenCatalog(card) },
-				coverArtId = null,
-				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
-				imageRequestHeaders = imageRequestHeaders,
-				title = card.title,
-				subtitle = card.subtitle,
-				coverAspectRatio = visualPolicy.coverAspectRatio,
-				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
-				fallbackKind = card.subtitle,
-				id = card.id,
-				tab = "library-bindery"
-			)
 		}
 	}
 }

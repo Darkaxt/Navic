@@ -128,9 +128,7 @@ fun NowPlayingControlsRow(
 					Spacer(modifier = Modifier.height(if (isLandscape) 24.dp else 30.dp))
 				}
 				when (block) {
-					NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock(
-						showTechnicalInfo = preferenceManager.nowPlayingSongInfo
-					)
+					NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock()
 
 					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow(
 						modifier = if (openQueueOnTap) {
@@ -147,15 +145,10 @@ fun NowPlayingControlsRow(
 }
 
 @Composable
-private fun NowPlayingTimelineBlock(
-	showTechnicalInfo: Boolean
-) {
+private fun NowPlayingTimelineBlock() {
 	Column {
 		NowPlayingProgressBar()
 		NowPlayingDurationsRow()
-		NowPlayingUpNextRow(showTechnicalInfoBelow = showTechnicalInfo)
-		if (showTechnicalInfo) {
-			NowPlayingTechnicalInfoRow()
-		}
+		NowPlayingUpNextRow()
 	}
 }

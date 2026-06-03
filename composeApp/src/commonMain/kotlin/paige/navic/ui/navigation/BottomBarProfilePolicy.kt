@@ -106,6 +106,16 @@ fun searchScopeForScreen(
 		SearchScope.Music
 	}
 
+fun shouldUseSelectedTabIconFallbackMotion(destination: Screen): Boolean =
+	when (destination) {
+		Screen.Audiobooks,
+		Screen.BinderyBooks,
+		Screen.BinderyCollections,
+		Screen.BinderyAuthors -> true
+
+		else -> false
+	}
+
 fun bottomBarProfileForTabClick(
 	tabId: NavbarTab.Id,
 	currentProfile: BottomBarProfile

@@ -154,6 +154,11 @@ fun NowPlayingInfoRow(
 					text = subtitle
 				)
 			}
+			if (preferenceManager.nowPlayingSongInfo) {
+				NowPlayingTechnicalInfoRow(
+					modifier = Modifier.padding(top = 5.dp)
+				)
+			}
 		}
 		Row(
 			horizontalArrangement = Arrangement.spacedBy(10.dp)

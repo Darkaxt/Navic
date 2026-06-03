@@ -184,4 +184,25 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForTabClick(NavbarTab.Id.ACTIVITY, BottomBarProfile.Music)
 		)
 	}
+
+	@Test
+	fun audiobookTabsUseFallbackSelectedIconMotion() {
+		listOf(
+			Screen.Audiobooks,
+			Screen.BinderyBooks,
+			Screen.BinderyCollections,
+			Screen.BinderyAuthors
+		).forEach { screen ->
+			assertEquals(true, shouldUseSelectedTabIconFallbackMotion(screen), message = screen.toString())
+		}
+
+		listOf(
+			Screen.Library(),
+			Screen.PlaylistList(),
+			Screen.ArtistList(),
+			Screen.Activity
+		).forEach { screen ->
+			assertEquals(false, shouldUseSelectedTabIconFallbackMotion(screen), message = screen.toString())
+		}
+	}
 }

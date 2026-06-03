@@ -2,6 +2,8 @@ package paige.navic.ui.components.layouts
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,9 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.sp
@@ -80,6 +85,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.bottomBarProfileForScreen
 import paige.navic.ui.navigation.bottomBarProfileForTabClick
 import paige.navic.ui.navigation.navbarTabIdsForProfile
+import paige.navic.ui.navigation.shouldUseSelectedTabIconFallbackMotion
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 
 private enum class NavItem(
@@ -259,12 +265,7 @@ fun BottomBar(
 						},
 						icon = {
 							if (selected) {
-								val painter = animatedTabIconPainter(item.destination)
-								if (painter != null) {
-									Icon(painter = painter, null)
-								} else {
-									Icon(item.icon, null)
-								}
+								SelectedNavItemIcon(item)
 							} else {
 								Icon(item.iconUnselected, null)
 							}
@@ -308,12 +309,7 @@ fun BottomBar(
 						},
 						icon = {
 							if (selected) {
-								val painter = animatedTabIconPainter(item.destination)
-								if (painter != null) {
-									Icon(painter = painter, null)
-								} else {
-									Icon(item.icon, null)
-								}
+								SelectedNavItemIcon(item)
 							} else {
 								Icon(item.iconUnselected, null)
 							}
@@ -326,6 +322,33 @@ fun BottomBar(
 			}
 		}
 	}
+}
+
+@Composable
+private fun SelectedNavItemIcon(item: NavItem) {
+	val painter = animatedTabIconPainter(item.destination)
+	if (painter != null) {
+		Icon(painter = painter, contentDescription = null)
+		return
+	}
+
+	if (!shouldUseSelectedTabIconFallbackMotion(item.destination)) {
+		Icon(item.icon, contentDescription = null)
+		return
+	}
+
+	val rotation = remember(item.destination) { Animatable(-5f) }
+	LaunchedEffect(item.destination) {
+		rotation.snapTo(-5f)
+		rotation.animateTo(4f, tween(durationMillis = 95, easing = FastOutSlowInEasing))
+		rotation.animateTo(-2.5f, tween(durationMillis = 80, easing = FastOutSlowInEasing))
+		rotation.animateTo(0f, tween(durationMillis = 80, easing = FastOutSlowInEasing))
+	}
+	Icon(
+		imageVector = item.icon,
+		contentDescription = null,
+		modifier = Modifier.rotate(rotation.value)
+	)
 }
 
 private fun bottomBarProfileTransitionDirection(
