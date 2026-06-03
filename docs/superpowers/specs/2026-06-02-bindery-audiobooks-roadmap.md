@@ -173,10 +173,10 @@ Implementation checkpoint, 2026-06-03:
 
 - Author and Collection navigation cards now open dedicated detail screens instead of plain filtered catalog grids.
 - Author details render OPDS author image, description, publications sorted by publication year, and an OPDS-backed Collections row when `/opds/authors/{id}` advertises a collections navigation link.
-- Collection details render portrait collection artwork, collection metadata from OPDS properties, and publications sorted by `collectionPositionSort` when available.
+- Collection details render dominant portrait collection artwork, local member count/year-range metadata from OPDS properties, and publications sorted by `collectionPositionSort` when available. Provider/source names such as Hardcover are treated as backend provenance and hidden from normal content rows.
 - OPDS catalog, link, and publication properties are parsed defensively: primitive string/number/boolean-like values are preserved for UI metadata, while nested objects such as `yearRange` are ignored instead of crashing the client.
 - Collection cards use portrait proportions consistently in the Library Audiobooks row, Audiobooks hub rows, Collections screen, Author collection rows, and Collection detail pages.
-- Remaining collection enrichment depends on the provider data Bindery has available, especially meaningful collection descriptions when Hardcover or other sources expose them.
+- Remaining collection enrichment depends on the provider data Bindery exposes through OPDS. Navic currently treats OPDS local/confirmed collection publications as the source of truth; richer pages need explicit provider-total member counts, series descriptions, and contributor metadata when those differ from local confirmed books.
 
 ### Phase 4: Playback And Resume
 

@@ -155,6 +155,42 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun collectionSummaryHidesProviderAndDefaultSeriesNoise() {
+		assertEquals(
+			"4 books / 2009-2022",
+			binderyCollectionSummaryText(
+				mapOf(
+					"collectionType" to "series",
+					"memberCount" to "4",
+					"startYear" to "2009",
+					"endYear" to "2022",
+					"sourceProvider" to "hardcover"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun collectionSummaryKeepsNonSeriesCollectionTypes() {
+		assertEquals(
+			"Anthology / 2 books",
+			binderyCollectionSummaryText(
+				mapOf(
+					"collectionType" to "anthology",
+					"memberCount" to "2",
+					"sourceProvider" to "hardcover"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun collectionDetailHeroUsesDominantPortraitCoverSize() {
+		assertEquals(180, binderyDetailCoverWidthDp(BinderyDetailKind.Collection))
+		assertEquals(120, binderyDetailCoverWidthDp(BinderyDetailKind.Author))
+	}
+
+	@Test
 	fun binderyAuthorAndCollectionLinksOpenDedicatedDetailScreens() {
 		assertEquals(
 			Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"),

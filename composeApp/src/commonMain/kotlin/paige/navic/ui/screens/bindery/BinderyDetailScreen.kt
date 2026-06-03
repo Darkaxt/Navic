@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -289,7 +290,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 				modifier = Modifier
 					.animateItem()
 					.fillMaxWidth()
-					.padding(top = 4.dp)
+					.heightIn(min = 32.dp)
+					.padding(top = 12.dp, start = 16.dp)
 			)
 		}
 		items(
@@ -364,7 +366,7 @@ private fun BinderyDetailHero(
 	val detailText = catalog.detailMetadataText(kind)
 	val description = catalog.description?.trim()?.takeIf { it.isNotEmpty() }
 	val coverAspectRatio = binderyDetailPlaceholderAspectRatio(kind)
-	val coverWidth = if (kind == BinderyDetailKind.Collection) 112.dp else 120.dp
+	val coverWidth = binderyDetailCoverWidthDp(kind).dp
 
 	Row(
 		modifier = modifier.fillMaxWidth(),
@@ -460,13 +462,7 @@ private fun BinderyPublication.collectionPositionLabel(): String? =
 		?.let { "#$it" }
 
 private fun BinderyCatalogCard.Link.collectionSummarySubtitle(): String? =
-	listOfNotNull(
-		properties["memberCount"]?.toIntOrNull()?.let { count ->
-			if (count == 1) "1 book" else "$count books"
-		},
-		collectionYearRangeText(properties),
-		properties["sourceProvider"]?.displayToken()
-	).joinToString(separator = " / ").takeIf { it.isNotBlank() } ?: subtitle
+	binderyCollectionSummaryText(properties) ?: subtitle
 
 private fun BinderyPublication.publishedYear(): String? =
 	published?.trim()?.take(4)?.takeIf { year ->
@@ -480,14 +476,20 @@ private fun BinderyCatalog.detailMetadataText(kind: BinderyDetailKind): String? 
 			.joinToString(separator = " / ")
 			.takeIf { it.isNotBlank() }
 		BinderyDetailKind.Collection -> listOfNotNull(
-			properties["collectionType"]?.displayToken(),
-			properties["memberCount"]?.toIntOrNull()?.let { count ->
-				if (count == 1) "1 book" else "$count books"
-			},
-			collectionYearRangeText(properties),
-			properties["sourceProvider"]?.displayToken()
+			binderyCollectionSummaryText(properties)
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() }
 	}
+
+internal fun binderyCollectionSummaryText(properties: Map<String, String>): String? =
+	listOfNotNull(
+		properties["collectionType"]
+			?.takeUnless { type -> type.equals("series", ignoreCase = true) }
+			?.displayToken(),
+		properties["memberCount"]?.toIntOrNull()?.let { count ->
+			if (count == 1) "1 book" else "$count books"
+		},
+		collectionYearRangeText(properties)
+	).joinToString(separator = " / ").takeIf { it.isNotBlank() }
 
 private fun collectionYearRangeText(properties: Map<String, String>): String? {
 	val start = properties["startYear"]?.toIntOrNull()
@@ -516,6 +518,12 @@ private fun binderyDetailPlaceholderAspectRatio(kind: BinderyDetailKind): Float 
 	when (kind) {
 		BinderyDetailKind.Author -> 1f
 		BinderyDetailKind.Collection -> 2f / 3f
+	}
+
+internal fun binderyDetailCoverWidthDp(kind: BinderyDetailKind): Int =
+	when (kind) {
+		BinderyDetailKind.Author -> 120
+		BinderyDetailKind.Collection -> 180
 	}
 
 private fun binderyDetailFallbackKind(kind: BinderyDetailKind): String =
