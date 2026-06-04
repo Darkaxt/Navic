@@ -50,7 +50,7 @@ internal fun nowPlayingUpNextContainerTone(): NowPlayingUpNextContainerTone =
 internal fun nowPlayingUpNextItemContainerAlpha(): Float = 0.86f
 
 internal fun nowPlayingUpNextBottomPadding(showTechnicalInfo: Boolean): Dp =
-	if (showTechnicalInfo) 16.dp else 0.dp
+	0.dp
 
 @Composable
 fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {

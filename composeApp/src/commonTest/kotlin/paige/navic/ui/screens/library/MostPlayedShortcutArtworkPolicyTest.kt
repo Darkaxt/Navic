@@ -86,6 +86,33 @@ class MostPlayedShortcutArtworkPolicyTest {
 	}
 
 	@Test
+	fun artistShortcutsSkipNonAbsoluteArtistImageUrlsForVerifiedArtistPhoto() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "/rest/getArtistImage?id=iu"
+				),
+				MostPlayedShortcutArtistArtwork(
+					id = "aurral-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "https://aurral.example.com/iu.webp"
+				)
+			),
+			albums = emptyList(),
+			songs = emptyList()
+		).single()
+
+		assertEquals("https://aurral.example.com/iu.webp", resolved.coverArtId)
+	}
+
+	@Test
 	fun artistShortcutsCanResolveAlbumArtworkByNormalizedArtistName() {
 		val shortcut = mostPlayedArtistShortcut(id = "aurral-artist-id", title = "  Iu  ", coverArtId = null)
 

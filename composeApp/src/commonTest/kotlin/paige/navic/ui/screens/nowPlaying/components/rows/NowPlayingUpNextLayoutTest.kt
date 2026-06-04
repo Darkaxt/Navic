@@ -16,8 +16,8 @@ class NowPlayingUpNextLayoutTest {
 	}
 
 	@Test
-	fun reservesSpaceBelowUpNextWhenTechnicalInfoIsShown() {
-		assertEquals(16.dp, nowPlayingUpNextBottomPadding(showTechnicalInfo = true))
+	fun doesNotReserveSpaceBelowUpNextWhenTechnicalInfoIsShownAsOverlay() {
+		assertEquals(0.dp, nowPlayingUpNextBottomPadding(showTechnicalInfo = true))
 	}
 
 	@Test

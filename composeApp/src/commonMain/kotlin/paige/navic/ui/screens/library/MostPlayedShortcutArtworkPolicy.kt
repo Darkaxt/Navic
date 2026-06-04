@@ -59,9 +59,19 @@ private fun DomainMostPlayedShortcut.normalizedArtistId(): String? =
 private fun List<MostPlayedShortcutArtistArtwork>.artistImageUrlFor(
 	shortcut: DomainMostPlayedShortcut
 ): String? =
-	firstOrNull { artist ->
-		artist.matches(shortcut)
-	}?.artistImageUrl.cleanArtworkValue()
+	firstNotNullOfOrNull { artist ->
+		artist.artistImageUrl.cleanArtworkValue()
+			?.takeIf { it.isAbsoluteHttpUrl() && artist.matches(shortcut) }
+	}
+
+fun mostPlayedArtistArtworkForShortcut(
+	shortcut: DomainMostPlayedShortcut,
+	candidates: List<MostPlayedShortcutArtistArtwork>
+): MostPlayedShortcutArtistArtwork? =
+	candidates.firstOrNull { artist ->
+		artist.artistImageUrl.cleanArtworkValue()?.isAbsoluteHttpUrl() == true &&
+			artist.matches(shortcut)
+	}
 
 private fun List<MostPlayedShortcutArtistArtwork>.artistCoverArtIdFor(
 	shortcut: DomainMostPlayedShortcut

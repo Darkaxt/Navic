@@ -254,6 +254,7 @@ fun LibraryScreenContent(
 			MostPlayedShortcutCard(
 				modifier = Modifier.animateItem().width(150.dp),
 				shortcut = shortcut,
+				imageRequestHeaders = aurralImageRequestHeaders(shortcut.coverArtId),
 				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
 			)
 		}

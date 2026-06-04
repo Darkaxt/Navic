@@ -14,18 +14,25 @@ import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.models.DomainMostPlayedShortcut
+import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
+import paige.navic.util.core.Logger
 
 class MostPlayedShortcutsViewModel(
 	private val repository: PlaybackOriginRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
-	private val songDao: SongDao
+	private val songDao: SongDao,
+	private val aurralRepository: AurralRepository
 ) : ViewModel() {
 	private val _shortcutsState =
 		MutableStateFlow<UiState<ImmutableList<DomainMostPlayedShortcut>>>(UiState.Loading())
 	val shortcutsState = _shortcutsState.asStateFlow()
+	private val aurralArtistArtwork =
+		MutableStateFlow<List<MostPlayedShortcutArtistArtwork>>(emptyList())
+	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
 
 	init {
 		viewModelScope.launch {
@@ -33,8 +40,9 @@ class MostPlayedShortcutsViewModel(
 				repository.observeMostPlayed(MOST_PLAYED_LIMIT),
 				artistDao.getAllArtists(),
 				albumDao.observeAlbumArtistArtwork(),
-				songDao.observeArtistSongArtwork()
-			) { shortcuts, artists, albums, songs ->
+				songDao.observeArtistSongArtwork(),
+				aurralArtistArtwork
+			) { shortcuts, artists, albums, songs, aurralArtists ->
 				mostPlayedShortcutsWithResolvedArtwork(
 					shortcuts = shortcuts,
 					artists = artists.map { artist ->
@@ -44,7 +52,7 @@ class MostPlayedShortcutsViewModel(
 							coverArtId = artist.coverArtId,
 							artistImageUrl = artist.artistImageUrl
 						)
-					},
+					} + aurralArtists,
 					albums = albums.map { album ->
 						MostPlayedShortcutAlbumArtwork(
 							artistId = album.artistId,
@@ -75,6 +83,7 @@ class MostPlayedShortcutsViewModel(
 				}
 				.collect { shortcuts ->
 					_shortcutsState.value = UiState.Success(shortcuts)
+					hydrateAurralArtistPhotos(shortcuts)
 				}
 		}
 	}
@@ -86,7 +95,66 @@ class MostPlayedShortcutsViewModel(
 	private fun Throwable.asException(): Exception =
 		this as? Exception ?: Exception(this)
 
+	private fun hydrateAurralArtistPhotos(shortcuts: List<DomainMostPlayedShortcut>) {
+		val targets = shortcuts
+			.asSequence()
+			.filter { shortcut -> shortcut.type == PlaybackOriginType.Artist }
+			.filterNot { shortcut -> shortcut.coverArtId.isAbsoluteHttpUrl() }
+			.filterNot { shortcut ->
+				aurralArtistArtwork.value.any { artist -> artist.matchesShortcut(shortcut) }
+			}
+			.filter { shortcut -> attemptedAurralArtistPhotoKeys.add(shortcut.artistPhotoLookupKey()) }
+			.take(AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT)
+			.toList()
+		if (targets.isEmpty()) return
+
+		viewModelScope.launch {
+			val resolved = targets.mapNotNull { shortcut ->
+				aurralRepository.searchArtists(
+					query = shortcut.title,
+					limit = AURRAL_ARTIST_PHOTO_SEARCH_LIMIT
+				).getOrNull()
+					?.artists
+					.orEmpty()
+					.map { artist ->
+						MostPlayedShortcutArtistArtwork(
+							id = artist.id,
+							name = artist.name,
+							coverArtId = null,
+							artistImageUrl = artist.imageUrl
+						)
+					}
+					.let { candidates ->
+						mostPlayedArtistArtworkForShortcut(shortcut, candidates)
+					}
+			}
+			if (resolved.isEmpty()) return@launch
+			aurralArtistArtwork.value = (aurralArtistArtwork.value + resolved)
+				.distinctBy { artist ->
+					listOf(artist.id, artist.name).joinToString("|") { it.trim().lowercase() }
+				}
+		}.invokeOnCompletion { error ->
+			if (error != null) {
+				Logger.w("MostPlayedShortcutsViewModel", "Failed to hydrate Aurral artist photos", error)
+			}
+		}
+	}
+
+	private fun DomainMostPlayedShortcut.artistPhotoLookupKey(): String =
+		"${id.trim().lowercase()}|${title.trim().lowercase()}"
+
+	private fun MostPlayedShortcutArtistArtwork.matchesShortcut(shortcut: DomainMostPlayedShortcut): Boolean =
+		mostPlayedArtistArtworkForShortcut(shortcut, listOf(this)) != null
+
+	private fun String?.isAbsoluteHttpUrl(): Boolean =
+		this?.trim()?.let { value ->
+			value.startsWith("http://", ignoreCase = true) ||
+				value.startsWith("https://", ignoreCase = true)
+		} == true
+
 	private companion object {
 		const val MOST_PLAYED_LIMIT = 20
+		const val AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT = 8
+		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5
 	}
 }

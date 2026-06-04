@@ -77,6 +77,7 @@ import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipArtwork
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipBackground
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
+import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingTechnicalInfoRow
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -340,6 +341,7 @@ fun NowPlayingScreen() {
 								isLandscape = true,
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
+								showTechnicalInfo = preferenceManager.nowPlayingSongInfo && song != null,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -371,6 +373,7 @@ fun NowPlayingScreen() {
 								isLandscape = false,
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
+								showTechnicalInfo = preferenceManager.nowPlayingSongInfo && song != null,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -400,6 +403,7 @@ fun NowPlayingScreen() {
 private fun NowPlayingMediaSlot(
 	clip: DomainLidaClip?,
 	showClipInArtwork: Boolean,
+	showTechnicalInfo: Boolean,
 	playerProgress: Float,
 	musicIsPaused: Boolean,
 	isLandscape: Boolean,
@@ -413,13 +417,22 @@ private fun NowPlayingMediaSlot(
 			isLandscape = isLandscape,
 			onArtworkTap = onArtworkTap
 		)
-		if (!showClipInArtwork || clip == null) return@Box
-		NowPlayingLidaClipArtwork(
-			clip = clip,
-			playerProgress = playerProgress,
-			musicIsPaused = musicIsPaused,
-			onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
-			modifier = Modifier.matchParentSize()
-		)
+		if (showClipInArtwork && clip != null) {
+			NowPlayingLidaClipArtwork(
+				clip = clip,
+				playerProgress = playerProgress,
+				musicIsPaused = musicIsPaused,
+				onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
+				modifier = Modifier.matchParentSize()
+			)
+		}
+		if (showTechnicalInfo) {
+			NowPlayingTechnicalInfoRow(
+				modifier = Modifier
+					.align(Alignment.BottomCenter)
+					.padding(horizontal = 24.dp)
+					.padding(bottom = if (isLandscape) 16.dp else 8.dp)
+			)
+		}
 	}
 }

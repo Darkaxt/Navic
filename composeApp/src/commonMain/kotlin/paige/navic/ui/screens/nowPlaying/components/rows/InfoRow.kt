@@ -154,14 +154,6 @@ fun NowPlayingInfoRow(
 					text = subtitle
 				)
 			}
-			if (preferenceManager.nowPlayingSongInfo) {
-				NowPlayingTechnicalInfoRow(
-					modifier = Modifier.padding(
-						start = if (showAlbumIcon || showArtistIcon) 24.dp else 0.dp,
-						top = 3.dp
-					)
-				)
-			}
 		}
 		Row(
 			horizontalArrangement = Arrangement.spacedBy(10.dp)

@@ -13,6 +13,7 @@ import paige.navic.ui.components.layouts.ArtGridItem
 fun MostPlayedShortcutCard(
 	modifier: Modifier = Modifier,
 	shortcut: DomainMostPlayedShortcut,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	onOpen: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
@@ -25,6 +26,7 @@ fun MostPlayedShortcutCard(
 		},
 		coverArtId = artwork.coverArtId,
 		imageUrl = artwork.imageUrl,
+		imageRequestHeaders = if (artwork.imageUrl != null) imageRequestHeaders else emptyMap(),
 		title = shortcut.title,
 		subtitle = mostPlayedShortcutSubtitle(shortcut),
 		fallbackKind = shortcut.type.fallbackKind(),
