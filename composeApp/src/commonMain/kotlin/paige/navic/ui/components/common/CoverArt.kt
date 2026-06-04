@@ -176,6 +176,7 @@ fun CoverArt(
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
+	imageDiagnosticLabel: String? = null,
 	contentDescription: String? = null,
 	fallbackKind: String? = null,
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
@@ -200,6 +201,25 @@ fun CoverArt(
 	val usesServerCoverArt = resolvedImageUrl == null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
+	LaunchedEffect(
+		imageDiagnosticLabel,
+		coverArtId,
+		resolvedImageUrl,
+		resolvedImageCacheKey,
+		resolvedRequestHeaders
+	) {
+		if (imageDiagnosticLabel != null) {
+			Logger.i(
+				"CoverArt",
+				"request [$imageDiagnosticLabel] " +
+					"usesServer=$usesServerCoverArt " +
+					"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
+					"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
+					"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
+					"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}"
+			)
+		}
+	}
 	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, resolvedRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
@@ -268,7 +288,14 @@ fun CoverArt(
 			LaunchedEffect(it.result.throwable) {
 				Logger.w(
 					"CoverArt",
-					"Failed to load cover art, falling back to placeholder",
+					"Failed to load cover art, falling back to placeholder" +
+						(imageDiagnosticLabel?.let { label ->
+							" [$label] usesServer=$usesServerCoverArt " +
+								"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
+								"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
+								"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
+								"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}"
+						} ?: ""),
 					it.result.throwable
 				)
 				if (usesServerCoverArt) {
@@ -284,6 +311,23 @@ fun CoverArt(
 		}
 	)
 }
+
+private fun coverArtDiagnosticValue(value: String?): String {
+	val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return "none"
+	val withoutFragment = trimmed.substringBefore('#')
+	val hasQuery = '?' in withoutFragment
+	val withoutQuery = withoutFragment.substringBefore('?')
+	val shortened = if (withoutQuery.length <= 140) withoutQuery else "...${withoutQuery.takeLast(137)}"
+	return shortened + if (hasQuery) "?query" else ""
+}
+
+private fun coverArtDiagnosticHeaderKeys(headers: Map<String, String>): String =
+	headers.keys
+		.map { it.trim() }
+		.filter { it.isNotEmpty() }
+		.sorted()
+		.joinToString(",")
+		.ifEmpty { "none" }
 
 @Composable
 private fun CoverArtFallback(

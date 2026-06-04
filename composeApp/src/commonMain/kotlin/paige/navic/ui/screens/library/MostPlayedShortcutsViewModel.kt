@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
@@ -19,10 +20,12 @@ import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
 import paige.navic.util.core.Logger
+import kotlin.time.Clock
 
 class MostPlayedShortcutsViewModel(
 	private val repository: PlaybackOriginRepository,
 	private val artistDao: ArtistDao,
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val albumDao: AlbumDao,
 	private val songDao: SongDao,
 	private val aurralRepository: AurralRepository
@@ -33,26 +36,52 @@ class MostPlayedShortcutsViewModel(
 	private val aurralArtistArtwork =
 		MutableStateFlow<List<MostPlayedShortcutArtistArtwork>>(emptyList())
 	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
+	private var lastDiagnosticInputSignature: String? = null
+	private var lastDiagnosticStateSignature: String? = null
 
 	init {
 		viewModelScope.launch {
+			val artistArtworkInputs = combine(
+				artistDao.getAllArtists(),
+				artistPhotoCacheDao.observeArtistPhotoCache()
+			) { artists, cachedArtistPhotos ->
+				artists to cachedArtistPhotos
+			}
 			combine(
 				repository.observeMostPlayed(MOST_PLAYED_LIMIT),
-				artistDao.getAllArtists(),
+				artistArtworkInputs,
 				albumDao.observeAlbumArtistArtwork(),
 				songDao.observeArtistSongArtwork(),
 				aurralArtistArtwork
-			) { shortcuts, artists, albums, songs, aurralArtists ->
+			) { shortcuts, artistInputs, albums, songs, aurralArtists ->
+				val (artists, cachedArtistPhotos) = artistInputs
+				val localArtistArtwork = artists.map { artist ->
+					MostPlayedShortcutArtistArtwork(
+						id = artist.artistId,
+						name = artist.name,
+						coverArtId = artist.coverArtId,
+						artistImageUrl = artist.artistImageUrl
+					)
+				}
+				val cachedArtistArtwork = cachedArtistPhotos
+					.map { it.toMostPlayedArtistPhotoCacheEntry() }
+					.mapNotNull { entry ->
+						shortcuts.firstNotNullOfOrNull { shortcut ->
+							mostPlayedArtistPhotoCacheArtworkForShortcut(
+								shortcut = shortcut,
+								entries = listOf(entry)
+							)
+						}
+					}
+				logMostPlayedArtistInputs(
+					shortcuts = shortcuts,
+					localArtists = localArtistArtwork,
+					cachedArtists = cachedArtistArtwork,
+					aurralArtists = aurralArtists
+				)
 				mostPlayedShortcutsWithResolvedArtwork(
 					shortcuts = shortcuts,
-					artists = artists.map { artist ->
-						MostPlayedShortcutArtistArtwork(
-							id = artist.artistId,
-							name = artist.name,
-							coverArtId = artist.coverArtId,
-							artistImageUrl = artist.artistImageUrl
-						)
-					} + aurralArtists,
+					artists = localArtistArtwork + cachedArtistArtwork + aurralArtists,
 					albums = albums.map { album ->
 						MostPlayedShortcutAlbumArtwork(
 							artistId = album.artistId,
@@ -83,6 +112,7 @@ class MostPlayedShortcutsViewModel(
 				}
 				.collect { shortcuts ->
 					_shortcutsState.value = UiState.Success(shortcuts)
+					logMostPlayedArtistState(shortcuts)
 					hydrateAurralArtistPhotos(shortcuts)
 				}
 		}
@@ -96,24 +126,68 @@ class MostPlayedShortcutsViewModel(
 		this as? Exception ?: Exception(this)
 
 	private fun hydrateAurralArtistPhotos(shortcuts: List<DomainMostPlayedShortcut>) {
-		val targets = shortcuts
-			.asSequence()
+		val targets = mutableListOf<DomainMostPlayedShortcut>()
+		shortcuts
 			.filter { shortcut -> shortcut.type == PlaybackOriginType.Artist }
-			.filterNot { shortcut -> shortcut.coverArtId.isAbsoluteHttpUrl() }
-			.filterNot { shortcut ->
-				aurralArtistArtwork.value.any { artist -> artist.matchesShortcut(shortcut) }
+			.forEach { shortcut ->
+				val key = shortcut.artistPhotoLookupKey()
+				when {
+					shortcut.coverArtId.isAbsoluteHttpUrl() -> {
+						Logger.i(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate skip reason=already-absolute id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+								"cover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)}"
+						)
+					}
+
+					aurralArtistArtwork.value.any { artist -> artist.matchesShortcut(shortcut) } -> {
+						Logger.i(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate skip reason=cached-aurral id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)}"
+						)
+					}
+
+					targets.size >= AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT -> Unit
+
+					!attemptedAurralArtistPhotoKeys.add(key) -> {
+						Logger.i(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate skip reason=already-attempted id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+								"cover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)}"
+						)
+					}
+
+					else -> {
+						targets += shortcut
+						Logger.i(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate queued id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+								"existingCover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)}"
+						)
+					}
+				}
 			}
-			.filter { shortcut -> attemptedAurralArtistPhotoKeys.add(shortcut.artistPhotoLookupKey()) }
-			.take(AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT)
-			.toList()
 		if (targets.isEmpty()) return
 
 		viewModelScope.launch {
 			val resolved = targets.mapNotNull { shortcut ->
-				aurralRepository.searchArtists(
+				val result = aurralRepository.searchArtists(
 					query = shortcut.title,
 					limit = AURRAL_ARTIST_PHOTO_SEARCH_LIMIT
-				).getOrNull()
+				)
+				result.onFailure { error ->
+					Logger.w(
+						MOST_PLAYED_ARTWORK_TAG,
+						"hydrate search failed id=${mostPlayedDiagnosticText(shortcut.id)} " +
+							"title=${mostPlayedDiagnosticText(shortcut.title)}",
+						error
+					)
+				}
+				val candidates = result.getOrNull()
 					?.artists
 					.orEmpty()
 					.map { artist ->
@@ -124,12 +198,56 @@ class MostPlayedShortcutsViewModel(
 							artistImageUrl = artist.imageUrl
 						)
 					}
-					.let { candidates ->
-						mostPlayedArtistArtworkForShortcut(shortcut, candidates)
+				Logger.i(
+					MOST_PLAYED_ARTWORK_TAG,
+					"hydrate search result id=${mostPlayedDiagnosticText(shortcut.id)} " +
+						"title=${mostPlayedDiagnosticText(shortcut.title)} candidates=${candidates.size}"
+				)
+				candidates.take(5).forEachIndexed { index, candidate ->
+					Logger.i(
+						MOST_PLAYED_ARTWORK_TAG,
+						"hydrate candidate[$index] shortcut=${mostPlayedDiagnosticText(shortcut.title)} " +
+							"id=${mostPlayedDiagnosticText(candidate.id)} " +
+							"name=${mostPlayedDiagnosticText(candidate.name)} " +
+							"image=${mostPlayedDiagnosticUrlSummary(candidate.artistImageUrl)}"
+					)
+				}
+				mostPlayedArtistArtworkForShortcut(shortcut, candidates).also { selected ->
+					if (selected == null) {
+						Logger.w(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate no-selected-artist-photo id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)}"
+						)
+					} else {
+						Logger.i(
+							MOST_PLAYED_ARTWORK_TAG,
+							"hydrate selected id=${mostPlayedDiagnosticText(shortcut.id)} " +
+								"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+								"selectedId=${mostPlayedDiagnosticText(selected.id)} " +
+								"selectedName=${mostPlayedDiagnosticText(selected.name)} " +
+								"image=${mostPlayedDiagnosticUrlSummary(selected.artistImageUrl)}"
+						)
 					}
+				}?.let { selected -> shortcut to selected }
 			}
 			if (resolved.isEmpty()) return@launch
-			aurralArtistArtwork.value = (aurralArtistArtwork.value + resolved)
+			val nowMillis = Clock.System.now().toEpochMilliseconds()
+			val cacheEntries = resolved.mapNotNull { (shortcut, selected) ->
+				mostPlayedArtistPhotoCacheEntity(
+					shortcut = shortcut,
+					artist = selected,
+					nowMillis = nowMillis
+				)
+			}
+			if (cacheEntries.isNotEmpty()) {
+				artistPhotoCacheDao.upsertArtistPhotoCacheEntries(cacheEntries)
+				Logger.i(
+					MOST_PLAYED_ARTWORK_TAG,
+					"hydrate persisted artistPhotoCacheEntries=${cacheEntries.size}"
+				)
+			}
+			aurralArtistArtwork.value = (aurralArtistArtwork.value + resolved.map { it.second })
 				.distinctBy { artist ->
 					listOf(artist.id, artist.name).joinToString("|") { it.trim().lowercase() }
 				}
@@ -140,11 +258,158 @@ class MostPlayedShortcutsViewModel(
 		}
 	}
 
+	private fun logMostPlayedArtistState(shortcuts: List<DomainMostPlayedShortcut>) {
+		val artists = shortcuts.filter { shortcut -> shortcut.type == PlaybackOriginType.Artist }
+		val signature = buildString {
+			artists.forEach { shortcut ->
+				append(shortcut.id)
+				append('|')
+				append(shortcut.title)
+				append('|')
+				append(shortcut.coverArtId)
+				append(';')
+			}
+			append("cache=")
+			aurralArtistArtwork.value.forEach { artist ->
+				append(artist.id)
+				append('|')
+				append(artist.name)
+				append('|')
+				append(artist.artistImageUrl)
+				append(';')
+			}
+		}
+		if (signature == lastDiagnosticStateSignature) return
+		lastDiagnosticStateSignature = signature
+
+		Logger.i(
+			MOST_PLAYED_ARTWORK_TAG,
+			"state artistShortcuts=${artists.size} aurralPhotoCache=${aurralArtistArtwork.value.size}"
+		)
+		artists.forEach { shortcut ->
+			Logger.i(
+				MOST_PLAYED_ARTWORK_TAG,
+				"state item id=${mostPlayedDiagnosticText(shortcut.id)} " +
+					"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+					"cover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)} " +
+					"coverAbsolute=${shortcut.coverArtId.isAbsoluteHttpUrl()} " +
+					"cachedAurral=${aurralArtistArtwork.value.any { artist -> artist.matchesShortcut(shortcut) }} " +
+					"attempted=${attemptedAurralArtistPhotoKeys.contains(shortcut.artistPhotoLookupKey())}"
+			)
+		}
+	}
+
+	private fun logMostPlayedArtistInputs(
+		shortcuts: List<DomainMostPlayedShortcut>,
+		localArtists: List<MostPlayedShortcutArtistArtwork>,
+		cachedArtists: List<MostPlayedShortcutArtistArtwork>,
+		aurralArtists: List<MostPlayedShortcutArtistArtwork>
+	) {
+		val artistShortcuts = shortcuts.filter { shortcut -> shortcut.type == PlaybackOriginType.Artist }
+		val signature = buildString {
+			artistShortcuts.forEach { shortcut ->
+				append(shortcut.id)
+				append('|')
+				append(shortcut.title)
+				append('|')
+				append(shortcut.coverArtId)
+				append(';')
+			}
+			append("local=")
+			localArtists.forEach { artist ->
+				append(artist.id)
+				append('|')
+				append(artist.name)
+				append('|')
+				append(artist.coverArtId)
+				append('|')
+				append(artist.artistImageUrl)
+				append(';')
+			}
+			append("cached=")
+			cachedArtists.forEach { artist ->
+				append(artist.id)
+				append('|')
+				append(artist.name)
+				append('|')
+				append(artist.artistImageUrl)
+				append(';')
+			}
+			append("aurral=")
+			aurralArtists.forEach { artist ->
+				append(artist.id)
+				append('|')
+				append(artist.name)
+				append('|')
+				append(artist.artistImageUrl)
+				append(';')
+			}
+		}
+		if (signature == lastDiagnosticInputSignature) return
+		lastDiagnosticInputSignature = signature
+
+		Logger.i(
+			MOST_PLAYED_ARTWORK_TAG,
+			"inputs artistShortcuts=${artistShortcuts.size} " +
+				"localArtists=${localArtists.size} cachedArtists=${cachedArtists.size} " +
+				"aurralArtists=${aurralArtists.size}"
+		)
+		artistShortcuts.forEach { shortcut ->
+			val localMatches = localArtists.filter { artist -> artist.looseInputMatches(shortcut) }
+			val cachedMatches = cachedArtists.filter { artist -> artist.looseInputMatches(shortcut) }
+			val aurralMatches = aurralArtists.filter { artist -> artist.looseInputMatches(shortcut) }
+			Logger.i(
+				MOST_PLAYED_ARTWORK_TAG,
+				"inputs item id=${mostPlayedDiagnosticText(shortcut.id)} " +
+					"title=${mostPlayedDiagnosticText(shortcut.title)} " +
+					"snapshot=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)} " +
+					"localMatches=${localMatches.size} cachedMatches=${cachedMatches.size} " +
+					"aurralMatches=${aurralMatches.size}"
+			)
+			localMatches.take(3).forEachIndexed { index, artist ->
+				Logger.i(
+					MOST_PLAYED_ARTWORK_TAG,
+					"inputs local[$index] shortcut=${mostPlayedDiagnosticText(shortcut.title)} " +
+						"id=${mostPlayedDiagnosticText(artist.id)} " +
+						"name=${mostPlayedDiagnosticText(artist.name)} " +
+						"coverArtId=${mostPlayedDiagnosticUrlSummary(artist.coverArtId)} " +
+						"artistImage=${mostPlayedDiagnosticUrlSummary(artist.artistImageUrl)}"
+				)
+			}
+			cachedMatches.take(3).forEachIndexed { index, artist ->
+				Logger.i(
+					MOST_PLAYED_ARTWORK_TAG,
+					"inputs cached[$index] shortcut=${mostPlayedDiagnosticText(shortcut.title)} " +
+						"id=${mostPlayedDiagnosticText(artist.id)} " +
+						"name=${mostPlayedDiagnosticText(artist.name)} " +
+						"artistImage=${mostPlayedDiagnosticUrlSummary(artist.artistImageUrl)}"
+				)
+			}
+			aurralMatches.take(3).forEachIndexed { index, artist ->
+				Logger.i(
+					MOST_PLAYED_ARTWORK_TAG,
+					"inputs aurral[$index] shortcut=${mostPlayedDiagnosticText(shortcut.title)} " +
+						"id=${mostPlayedDiagnosticText(artist.id)} " +
+						"name=${mostPlayedDiagnosticText(artist.name)} " +
+						"artistImage=${mostPlayedDiagnosticUrlSummary(artist.artistImageUrl)}"
+				)
+			}
+		}
+	}
+
 	private fun DomainMostPlayedShortcut.artistPhotoLookupKey(): String =
 		"${id.trim().lowercase()}|${title.trim().lowercase()}"
 
 	private fun MostPlayedShortcutArtistArtwork.matchesShortcut(shortcut: DomainMostPlayedShortcut): Boolean =
 		mostPlayedArtistArtworkForShortcut(shortcut, listOf(this)) != null
+
+	private fun MostPlayedShortcutArtistArtwork.looseInputMatches(shortcut: DomainMostPlayedShortcut): Boolean {
+		val shortcutId = shortcut.id.trim().lowercase()
+		val shortcutTitle = shortcut.title.trim().lowercase().replace(Regex("""\s+"""), " ")
+		val artistId = id.trim().lowercase()
+		val artistName = name.trim().lowercase().replace(Regex("""\s+"""), " ")
+		return artistId == shortcutId || artistName == shortcutTitle
+	}
 
 	private fun String?.isAbsoluteHttpUrl(): Boolean =
 		this?.trim()?.let { value ->

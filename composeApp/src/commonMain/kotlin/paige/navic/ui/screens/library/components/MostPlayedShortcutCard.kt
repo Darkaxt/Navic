@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.library.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.dropUnlessResumed
 import paige.navic.LocalPlatformContext
@@ -8,6 +9,11 @@ import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.ui.components.layouts.ArtGridItem
+import paige.navic.ui.screens.library.MOST_PLAYED_ARTWORK_TAG
+import paige.navic.ui.screens.library.mostPlayedDiagnosticHeaderSummary
+import paige.navic.ui.screens.library.mostPlayedDiagnosticText
+import paige.navic.ui.screens.library.mostPlayedDiagnosticUrlSummary
+import paige.navic.util.core.Logger
 
 @Composable
 fun MostPlayedShortcutCard(
@@ -18,6 +24,29 @@ fun MostPlayedShortcutCard(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val artwork = mostPlayedShortcutArtwork(shortcut.coverArtId)
+	val diagnosticLabel = if (shortcut.type == PlaybackOriginType.Artist) {
+		"most-played artist id=${mostPlayedDiagnosticText(shortcut.id)} " +
+			"title=${mostPlayedDiagnosticText(shortcut.title)}"
+	} else {
+		null
+	}
+	LaunchedEffect(
+		diagnosticLabel,
+		artwork.coverArtId,
+		artwork.imageUrl,
+		imageRequestHeaders
+	) {
+		if (diagnosticLabel != null) {
+			Logger.i(
+				MOST_PLAYED_ARTWORK_TAG,
+				"card handoff $diagnosticLabel " +
+					"sourceCover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)} " +
+					"coverArtId=${mostPlayedDiagnosticUrlSummary(artwork.coverArtId)} " +
+					"imageUrl=${mostPlayedDiagnosticUrlSummary(artwork.imageUrl)} " +
+					"headers=${mostPlayedDiagnosticHeaderSummary(imageRequestHeaders)}"
+			)
+		}
+	}
 	ArtGridItem(
 		modifier = modifier,
 		onClick = dropUnlessResumed {
@@ -27,6 +56,7 @@ fun MostPlayedShortcutCard(
 		coverArtId = artwork.coverArtId,
 		imageUrl = artwork.imageUrl,
 		imageRequestHeaders = if (artwork.imageUrl != null) imageRequestHeaders else emptyMap(),
+		imageDiagnosticLabel = diagnosticLabel,
 		title = shortcut.title,
 		subtitle = mostPlayedShortcutSubtitle(shortcut),
 		fallbackKind = shortcut.type.fallbackKind(),

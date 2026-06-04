@@ -97,6 +97,7 @@ fun ArtGridItem(
 	coverArtId: String?,
 	imageUrl: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
+	imageDiagnosticLabel: String? = null,
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
@@ -129,6 +130,7 @@ fun ArtGridItem(
 					coverArtId = coverArtId,
 					imageUrl = imageUrl,
 					imageRequestHeaders = imageRequestHeaders,
+					imageDiagnosticLabel = imageDiagnosticLabel,
 					contentDescription = title,
 					fallbackKind = fallbackKind,
 					modifier = Modifier
