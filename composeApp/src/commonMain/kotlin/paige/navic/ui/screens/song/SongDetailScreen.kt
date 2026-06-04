@@ -67,6 +67,7 @@ import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.MusicBrainzMetadataField
 import paige.navic.domain.repositories.musicBrainzMetadataDisplayFields
 import paige.navic.domain.repositories.musicBrainzMetadataUrlOrNull
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
@@ -135,6 +136,8 @@ fun SongDetailScreen(songId: String) {
 			}
 		}.orEmpty()
 	}
+	val scrollState = rememberScrollState()
+	BackToTopScrollHandler(scrollState)
 
 	Scaffold(
 		topBar = { NestedTopBar({ Text(song?.title.orEmpty()) }) }
@@ -142,7 +145,7 @@ fun SongDetailScreen(songId: String) {
 		Box(Modifier.fillMaxSize()) {
 			Column(
 				Modifier
-					.verticalScroll(rememberScrollState())
+					.verticalScroll(scrollState)
 					.padding(
 						top = contentPadding.calculateTopPadding() + 12.dp,
 						start = 12.dp,

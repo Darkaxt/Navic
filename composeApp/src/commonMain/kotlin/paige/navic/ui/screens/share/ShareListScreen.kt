@@ -34,6 +34,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.ShareOff
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
@@ -55,6 +56,7 @@ fun ShareListScreen() {
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	var deletionId by remember { mutableStateOf<String?>(null) }
 	val preferenceManager = koinInject<PreferenceManager>()
+	BackToTopScrollHandler(viewModel.gridState)
 
 	Scaffold(
 		topBar = { NestedTopBar({ Text(stringResource(Res.string.title_shares)) }) },

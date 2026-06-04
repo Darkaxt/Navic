@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
@@ -66,6 +68,7 @@ import paige.navic.icons.outlined.History
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Star
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.layouts.horizontalSection
 import paige.navic.ui.components.layouts.header
 import paige.navic.ui.screens.aurral.AurralAlbumSearchCard
@@ -91,6 +94,7 @@ fun LibraryScreenContent(
 	scrollBehavior: TopAppBarScrollBehavior,
 	innerPadding: PaddingValues,
 	onSetShareId: (String) -> Unit,
+	gridState: LazyGridState = rememberLazyGridState(),
 
 	// quick picks
 	quickPicksEnabled: Boolean,
@@ -174,9 +178,11 @@ fun LibraryScreenContent(
 		}
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
+	BackToTopScrollHandler(gridState)
 
 	LazyVerticalGrid(
 		modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+		state = gridState,
 		columns = GridCells.Fixed(2),
 		contentPadding = innerPadding.withoutTop() + PaddingValues(top = 8.dp),
 		verticalArrangement = Arrangement.spacedBy(5.dp),

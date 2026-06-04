@@ -168,7 +168,7 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun authorDetailPublicationsSortByPublishedYearAndOmitUnknownDates() {
+	fun authorDetailPublicationsSortByPublishedYearAndHideUnknownDates() {
 		val newest = BinderyPublication(id = "new", title = "New", published = "2023-01-01")
 		val unknown = BinderyPublication(id = "unknown", title = "Unknown")
 		val oldest = BinderyPublication(id = "old", title = "Old", published = "1999-04-10")

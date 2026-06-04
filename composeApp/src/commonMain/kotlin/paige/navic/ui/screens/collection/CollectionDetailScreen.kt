@@ -54,6 +54,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Note
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
@@ -130,6 +131,7 @@ fun CollectionDetailScreen(
 	val collectionIntegrationIndicators = integrationLoadingIndicators()
 
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
+	BackToTopScrollHandler(viewModel.listState)
 
 	val titleAlpha by remember {
 		derivedStateOf {

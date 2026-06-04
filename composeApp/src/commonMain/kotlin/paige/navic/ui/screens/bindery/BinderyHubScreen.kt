@@ -54,6 +54,7 @@ import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.CollectionBooks
 import paige.navic.icons.outlined.History
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -91,6 +92,7 @@ fun BinderyHubScreen() {
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
+	BackToTopScrollHandler(viewModel.gridState)
 
 	LaunchedEffect(
 		binderyConfigured,

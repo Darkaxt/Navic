@@ -6,16 +6,18 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +35,6 @@ import navic.composeapp.generated.resources.action_musicbrainz_info
 import navic.composeapp.generated.resources.action_navigate_back
 import navic.composeapp.generated.resources.action_play_music_video
 import navic.composeapp.generated.resources.action_queue
-import navic.composeapp.generated.resources.title_now_playing
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -150,22 +151,7 @@ fun NowPlayingScreen() {
 				modifier = Modifier.alpha(if (isPlayerCurrent) 1f else 0f),
 				windowInsets = windowInsets,
 				isBottomToolbar = preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Bottom,
-				title = {
-					Text(stringResource(Res.string.title_now_playing))
-				},
-				navigationIcon = {
-					TopBarButton(
-						onClick = { backStack.remove(Screen.NowPlaying) },
-						containerColor = toolbarButtonContainerColor,
-						contentColor = toolbarButtonContentColor,
-						content = {
-							Icon(
-								imageVector = Icons.Outlined.KeyboardArrowDown,
-								contentDescription = stringResource(Res.string.action_navigate_back)
-							)
-						}
-					)
-				},
+				navigationIcon = {},
 				actions = {
 					val showLyricsAction = shouldShowNowPlayingLyricsAction(
 						userActionEnabled = preferenceManager.showNowPlayingLyricsAction,
@@ -285,6 +271,26 @@ fun NowPlayingScreen() {
 				)
 			}
 			if (!isPlayerCurrent) return@Box
+			val collapseTopPadding = if (preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Top) {
+				contentPadding.calculateTopPadding() + 8.dp
+			} else {
+				WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 8.dp
+			}
+			TopBarButton(
+				onClick = { backStack.remove(Screen.NowPlaying) },
+				containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f),
+				contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+				shadowElevation = 4.dp,
+				modifier = Modifier
+					.align(Alignment.TopEnd)
+					.padding(top = collapseTopPadding, end = 14.dp),
+				content = {
+					Icon(
+						imageVector = Icons.Outlined.KeyboardArrowDown,
+						contentDescription = stringResource(Res.string.action_navigate_back)
+					)
+				}
+			)
 			IntegrationLoadingIndicatorStrip(
 				indicators = nowPlayingIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(

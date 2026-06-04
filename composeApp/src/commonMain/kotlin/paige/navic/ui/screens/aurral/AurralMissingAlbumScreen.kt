@@ -78,6 +78,7 @@ import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Note
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -197,6 +198,8 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	val aurralMissingAlbumIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = configured && (state.loading || state.requesting)
 	)
+	val scrollState = rememberScrollState()
+	BackToTopScrollHandler(scrollState)
 
 	Scaffold(
 		topBar = {
@@ -229,7 +232,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 				modifier = Modifier
 					.fillMaxSize()
 					.padding(top = innerPadding.calculateTopPadding())
-					.verticalScroll(rememberScrollState())
+					.verticalScroll(scrollState)
 					.padding(top = 20.dp, bottom = innerPadding.calculateBottomPadding() + 32.dp),
 				horizontalAlignment = Alignment.CenterHorizontally
 			) {

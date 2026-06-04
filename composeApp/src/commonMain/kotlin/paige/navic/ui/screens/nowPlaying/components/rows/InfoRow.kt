@@ -156,7 +156,10 @@ fun NowPlayingInfoRow(
 			}
 			if (preferenceManager.nowPlayingSongInfo) {
 				NowPlayingTechnicalInfoRow(
-					modifier = Modifier.padding(top = 5.dp)
+					modifier = Modifier.padding(
+						start = if (showAlbumIcon || showArtistIcon) 24.dp else 0.dp,
+						top = 3.dp
+					)
 				)
 			}
 		}

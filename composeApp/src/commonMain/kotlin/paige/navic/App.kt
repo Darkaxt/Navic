@@ -211,7 +211,7 @@ fun App() {
 							rememberListDetailSceneStrategy()
 						),
 						onBack = {
-							if (backStack.isNotEmpty()) {
+							if (!scrollManager.tryHandleBackToTop() && backStack.isNotEmpty()) {
 								backStack.removeLastOrNull()
 							}
 						},

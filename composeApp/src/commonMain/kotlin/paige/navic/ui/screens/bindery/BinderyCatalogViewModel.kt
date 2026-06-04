@@ -140,7 +140,7 @@ class BinderyCatalogViewModel(
 				binderyAvailabilityFilteredCatalogPath(
 					path = requestedPath,
 					languageFilter = languageFilter,
-					mode = BinderyAvailabilityQueryMode.List
+					mode = BinderyAvailabilityQueryMode.Detail
 				)
 			).fold(
 				onSuccess = { catalog ->

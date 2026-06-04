@@ -541,7 +541,7 @@ fun List<BinderyPublication>.sortedForBinderyDetail(): List<BinderyPublication> 
 	filter { publication -> publication.publicationYearSortValue() != null }
 		.sortedWith(
 			compareBy<BinderyPublication>(
-				{ publication -> publication.publicationYearSortValue() },
+				{ publication -> publication.publicationYearSortValue() ?: Int.MAX_VALUE },
 				{ publication -> publication.title.lowercase() }
 			)
 		)

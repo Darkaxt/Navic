@@ -1,13 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.components.rows
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,10 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
@@ -36,71 +26,48 @@ fun NowPlayingTechnicalInfoRow(
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
 
-	val style = MaterialTheme.typography.bodySmall
-	val color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f)
+	val isCellular = connectivityManager.isCellular.value
+	val requestedBitrate = if (preferenceManager.isAdvancedTranscodingActive) {
+		if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
+	} else {
+		if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
+	}
+	val info = nowPlayingTechnicalInfo(
+		style = preferenceManager.nowPlayingTechnicalInfoStyle,
+		input = NowPlayingTechnicalInfoInput(
+			playbackMimeType = playerState.playbackMimeType,
+			fileExtension = song?.fileExtension,
+			playbackSampleRateHz = playerState.playbackSampleRate,
+			sourceSampleRateHz = song?.sampleRate,
+			playbackBitrateBps = playerState.playbackBitrate,
+			sourceBitrateKbps = song?.bitRate,
+			requestedTranscodeBitrateKbps = requestedBitrate,
+			bitDepth = song?.bitDepth,
+			channelCount = song?.audioChannelCount,
+			fileSizeBytes = song?.fileSize ?: 0L,
+			replayGain = song?.replayGain
+		)
+	)
 
-	Row(
-		modifier = modifier
-			.fillMaxWidth()
-			.padding(horizontal = 4.dp),
-		horizontalArrangement = Arrangement.Center
+	Column(
+		modifier = modifier,
+		horizontalAlignment = Alignment.Start
 	) {
-		Box(contentAlignment = Alignment.Center) {
-
-			Box(
-				modifier = Modifier
-					.matchParentSize()
-					.clip(CircleShape)
-					.blur(8.dp)
-					.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+		Text(
+			text = info.primary,
+			style = MaterialTheme.typography.labelMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis
+		)
+		info.secondary?.let { secondary ->
+			Text(
+				text = secondary,
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.66f),
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
 			)
-
-			Row(
-				modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically
-			) {
-				val isCellular = connectivityManager.isCellular.value
-				val requestedBitrate = if (preferenceManager.isAdvancedTranscodingActive) {
-					if (isCellular) preferenceManager.customMaxBitrateCellular else preferenceManager.customMaxBitrateWifi
-				} else {
-					if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
-				}
-				val info = nowPlayingTechnicalInfo(
-					style = preferenceManager.nowPlayingTechnicalInfoStyle,
-					input = NowPlayingTechnicalInfoInput(
-						playbackMimeType = playerState.playbackMimeType,
-						fileExtension = song?.fileExtension,
-						playbackSampleRateHz = playerState.playbackSampleRate,
-						sourceSampleRateHz = song?.sampleRate,
-						playbackBitrateBps = playerState.playbackBitrate,
-						sourceBitrateKbps = song?.bitRate,
-						requestedTranscodeBitrateKbps = requestedBitrate,
-						bitDepth = song?.bitDepth,
-						channelCount = song?.audioChannelCount,
-						fileSizeBytes = song?.fileSize ?: 0L,
-						replayGain = song?.replayGain
-					)
-				)
-
-				Column(horizontalAlignment = Alignment.CenterHorizontally) {
-					Text(
-						text = info.primary,
-						style = style,
-						color = color,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-					info.secondary?.let { secondary ->
-						Text(
-							text = secondary,
-							style = style,
-							color = color,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis
-						)
-					}
-				}
-			}
 		}
 	}
 }

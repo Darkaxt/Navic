@@ -93,6 +93,7 @@ import paige.navic.icons.outlined.Note
 import paige.navic.icons.outlined.Visibility
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -202,6 +203,8 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	val aurralArtistIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = configured && (state.loading || state.monitoring)
 	)
+	val scrollState = rememberScrollState()
+	BackToTopScrollHandler(scrollState)
 	AurralConfirmationQueueSnackbar(aurralRepository)
 
 	Scaffold(
@@ -241,7 +244,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			Column(
 				modifier = Modifier
 					.fillMaxSize()
-					.verticalScroll(rememberScrollState())
+					.verticalScroll(scrollState)
 					.padding(top = 20.dp, bottom = 32.dp),
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(12.dp)

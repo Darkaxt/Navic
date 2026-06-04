@@ -87,6 +87,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.integrationFailedIndicators
@@ -175,6 +176,7 @@ fun SearchScreen(
 	var selectedCategory by remember { mutableStateOf(SearchCategory.ALL) }
 	var songToQueue by remember { mutableStateOf<DomainSong?>(null) }
 	var queueDuplicateAction by remember { mutableStateOf<QueueDuplicateAction?>(null) }
+	BackToTopScrollHandler(viewModel.gridState)
 
 	fun queueSongOrConfirmDuplicate(
 		song: DomainSong,

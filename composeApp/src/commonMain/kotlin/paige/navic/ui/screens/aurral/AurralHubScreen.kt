@@ -135,6 +135,7 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -186,6 +187,8 @@ fun AurralHubScreen() {
 				discoverActionState is UiState.Loading
 			)
 	)
+	val scrollState = rememberScrollState()
+	BackToTopScrollHandler(scrollState)
 
 	LaunchedEffect(
 		preferenceManager.aurralEnabled,
@@ -237,7 +240,7 @@ fun AurralHubScreen() {
 			Column(
 				Modifier
 					.fillMaxSize()
-					.verticalScroll(rememberScrollState())
+					.verticalScroll(scrollState)
 					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
 			) {
 				when {

@@ -106,6 +106,7 @@ import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -188,6 +189,7 @@ fun ArtistDetailScreen(
 
 	val frequentGridState = rememberLazyGridState()
 	val lastFmGridState = rememberLazyGridState()
+	BackToTopScrollHandler(viewModel.scrollState)
 
 	var showDownloadDialog by remember { mutableStateOf(false) }
 

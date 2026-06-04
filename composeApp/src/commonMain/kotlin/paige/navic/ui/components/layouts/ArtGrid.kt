@@ -46,6 +46,7 @@ import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.core.UiState
@@ -65,6 +66,7 @@ fun ArtGrid(
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val artGridItemSize = preferenceManager.artGridItemSize
+	BackToTopScrollHandler(state)
 	LazyVerticalGrid(
 		modifier = modifier.fillMaxSize(),
 		state = state,

@@ -62,6 +62,7 @@ import paige.navic.icons.outlined.Refresh
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -90,6 +91,8 @@ fun ActivityScreen() {
 			item.status == DownloadStatus.QUEUED || item.status == DownloadStatus.DOWNLOADING
 		}
 	)
+	val scrollState = rememberScrollState()
+	BackToTopScrollHandler(scrollState)
 
 	LaunchedEffect(Unit) {
 		viewModel.refresh()
@@ -119,7 +122,7 @@ fun ActivityScreen() {
 			Column(
 				Modifier
 					.padding(top = innerPadding.calculateTopPadding())
-					.verticalScroll(rememberScrollState())
+					.verticalScroll(scrollState)
 					.padding(
 						top = 16.dp,
 						end = 16.dp,
