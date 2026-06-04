@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -107,23 +108,29 @@ fun BinderyDetailScreen(
 	val resolvedTitle = catalogState.data?.title?.takeIf { it.isNotBlank() } ?: title
 	val authorCollectionsLink = catalogState.data?.authorCollectionsLink()
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
+	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 
 	LaunchedEffect(
 		binderyConfigured,
 		preferenceManager.binderyOpdsBaseUrl,
 		preferenceManager.binderyApiKey,
+		preferenceManager.binderyLanguageFilter,
 		path
 	) {
 		if (binderyConfigured) {
-			viewModel.refreshCatalog(false)
+			viewModel.refreshCatalog(
+				fullRefresh = false,
+				languageFilter = languageFilter,
+				queryMode = BinderyAvailabilityQueryMode.Detail
+			)
 		} else {
 			viewModel.clearCatalog()
 		}
 	}
 
-	LaunchedEffect(kind, authorCollectionsLink?.path) {
+	LaunchedEffect(kind, authorCollectionsLink?.path, preferenceManager.binderyLanguageFilter) {
 		if (kind == BinderyDetailKind.Author) {
-			viewModel.refreshRelatedCollections(authorCollectionsLink?.path, false)
+			viewModel.refreshRelatedCollections(authorCollectionsLink?.path, false, languageFilter)
 		} else {
 			viewModel.refreshRelatedCollections(null, false)
 		}
@@ -149,9 +156,13 @@ fun BinderyDetailScreen(
 				finished = !binderyConfigured || catalogState !is UiState.Loading,
 				onRefresh = {
 					if (binderyConfigured) {
-						viewModel.refreshCatalog(true)
+						viewModel.refreshCatalog(
+							fullRefresh = true,
+							languageFilter = languageFilter,
+							queryMode = BinderyAvailabilityQueryMode.Detail
+						)
 						if (kind == BinderyDetailKind.Author) {
-							viewModel.refreshRelatedCollections(authorCollectionsLink?.path, true)
+							viewModel.refreshRelatedCollections(authorCollectionsLink?.path, true, languageFilter)
 						}
 					} else {
 						viewModel.clearCatalog()
@@ -383,13 +394,14 @@ private fun BinderyRelatedCollectionCard(
 ) {
 	val visualPolicy = binderyCatalogCardVisualPolicy(card)
 	ArtGridItem(
-		modifier = modifier,
+		modifier = modifier.alpha(card.availabilityAlpha()),
 		onClick = { onOpenCollection(card) },
 		coverArtId = null,
 		imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 		imageRequestHeaders = imageRequestHeaders,
 		title = card.title,
 		subtitle = card.collectionSummarySubtitle(),
+		ownershipStatus = card.availabilityStatus(),
 		coverAspectRatio = visualPolicy.coverAspectRatio,
 		coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 		fallbackKind = card.subtitle,
@@ -413,6 +425,9 @@ private fun BinderyDetailHero(
 	val description = catalog.description?.trim()?.takeIf { it.isNotEmpty() }
 	val coverAspectRatio = binderyDetailPlaceholderAspectRatio(kind)
 	val coverWidth = binderyDetailCoverWidthDp(kind).dp
+	var descriptionHasOverflow by rememberSaveable(catalog.identifier, catalog.title, description) {
+		mutableStateOf(false)
+	}
 
 	Row(
 		modifier = modifier.fillMaxWidth(),
@@ -456,13 +471,20 @@ private fun BinderyDetailHero(
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = if (expanded) Int.MAX_VALUE else 8,
-					overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis
+					overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+					onTextLayout = { result ->
+						if (!expanded) {
+							descriptionHasOverflow = result.hasVisualOverflow
+						}
+					}
 				)
-				TextButton(
-					onClick = { expanded = !expanded },
-					modifier = Modifier.padding(top = 0.dp)
-				) {
-					Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+				if (descriptionHasOverflow || expanded) {
+					TextButton(
+						onClick = { expanded = !expanded },
+						modifier = Modifier.padding(top = 0.dp)
+					) {
+						Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+					}
 				}
 			}
 		}
@@ -479,13 +501,14 @@ private fun BinderyPublicationGridItem(
 	onOpenBook: (BinderyPublication) -> Unit
 ) {
 	ArtGridItem(
-		modifier = modifier,
+		modifier = modifier.alpha(publication.availability.availabilityAlpha()),
 		onClick = { onOpenBook(publication) },
 		coverArtId = null,
 		imageUrl = publication.images.firstOrNull()?.href?.let { binderyEndpoint(baseUrl, it) },
 		imageRequestHeaders = imageRequestHeaders,
 		title = publication.title,
 		subtitle = publication.detailSubtitle(kind),
+		ownershipStatus = publication.availability.toOwnershipStatus(),
 		coverAspectRatio = 2f / 3f,
 		coverContentScale = ContentScale.Fit,
 		fallbackKind = "Book",

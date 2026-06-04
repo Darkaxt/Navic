@@ -102,6 +102,7 @@ fun BinderyBookScreen(
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val data = bookState.data
 	val titleText = data?.manifest?.title?.takeIf { it.isNotBlank() } ?: title
+	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -181,7 +182,7 @@ fun BinderyBookScreen(
 							item("bindery-book-versions-title") {
 								BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_available_versions))
 							}
-							val versionRows = binderyBookVersionRows(data.manifest, data.resources)
+							val versionRows = binderyBookVersionRows(data.manifest, data.resources, languageFilter)
 							if (versionRows.isEmpty()) {
 								item("bindery-book-no-versions") {
 									ContentUnavailable(
@@ -257,6 +258,9 @@ private fun BinderyBookHero(
 	val imageHref = manifest.images.firstOrNull()?.href
 	val metadataText = manifest.metadataText()
 	val description = manifest.description?.trim()?.takeIf { it.isNotEmpty() }
+	var descriptionHasOverflow by rememberSaveable(manifest.id, manifest.title, description) {
+		mutableStateOf(false)
+	}
 
 	Row(
 		modifier = Modifier.fillMaxWidth(),
@@ -298,13 +302,20 @@ private fun BinderyBookHero(
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = if (expanded) Int.MAX_VALUE else 8,
-					overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis
+					overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+					onTextLayout = { result ->
+						if (!expanded) {
+							descriptionHasOverflow = result.hasVisualOverflow
+						}
+					}
 				)
-				TextButton(
-					onClick = { expanded = !expanded },
-					modifier = Modifier.padding(top = 0.dp)
-				) {
-					Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+				if (descriptionHasOverflow || expanded) {
+					TextButton(
+						onClick = { expanded = !expanded },
+						modifier = Modifier.padding(top = 0.dp)
+					) {
+						Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+					}
 				}
 			}
 		}

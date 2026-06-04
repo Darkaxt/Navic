@@ -32,7 +32,11 @@ class BinderyCatalogViewModel(
 	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
 	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
-	fun refreshCatalog(fullRefresh: Boolean) {
+	fun refreshCatalog(
+		fullRefresh: Boolean,
+		languageFilter: String? = null,
+		queryMode: BinderyAvailabilityQueryMode = BinderyAvailabilityQueryMode.List
+	) {
 		catalogJob?.cancel()
 		nextPageJob?.cancel()
 		_isLoadingNextPage.value = false
@@ -44,7 +48,12 @@ class BinderyCatalogViewModel(
 			if (fullRefresh || currentData == null) {
 				_catalogState.value = UiState.Loading(currentData)
 			}
-			repository.getCatalog(binderyInitialCatalogPath(path)).fold(
+			val requestedPath = binderyAvailabilityFilteredCatalogPath(
+				path = binderyInitialCatalogPath(path),
+				languageFilter = languageFilter,
+				mode = queryMode
+			)
+			repository.getCatalog(requestedPath).fold(
 				onSuccess = { catalog ->
 					nextPagePath = catalog.nextPagePath()
 					_hasNextPage.value = nextPagePath != null
@@ -109,7 +118,11 @@ class BinderyCatalogViewModel(
 		collectionArtworkResolver.resolve(card)
 	}
 
-	fun refreshRelatedCollections(path: String?, fullRefresh: Boolean) {
+	fun refreshRelatedCollections(
+		path: String?,
+		fullRefresh: Boolean,
+		languageFilter: String? = null
+	) {
 		val requestedPath = path?.trim()?.takeIf { it.isNotEmpty() }
 		if (requestedPath == null) {
 			relatedCatalogJob?.cancel()
@@ -123,7 +136,13 @@ class BinderyCatalogViewModel(
 			if (fullRefresh || currentData == null || currentData.navigation.isEmpty()) {
 				_relatedCollectionsState.value = UiState.Loading(currentData)
 			}
-			repository.getCatalog(requestedPath).fold(
+			repository.getCatalog(
+				binderyAvailabilityFilteredCatalogPath(
+					path = requestedPath,
+					languageFilter = languageFilter,
+					mode = BinderyAvailabilityQueryMode.List
+				)
+			).fold(
 				onSuccess = { catalog ->
 					_relatedCollectionsState.value = UiState.Success(catalog)
 				},

@@ -193,6 +193,7 @@ class PreferenceManager(
 	)
 	var binderyOpdsBaseUrl by preference("")
 	var binderyApiKey by preference("")
+	var binderyLanguageFilter by preference("eng")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	private var aurralEnabledPreference by preference("aurralEnabled", false)
 	var aurralEnabled: Boolean

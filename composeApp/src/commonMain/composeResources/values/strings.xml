@@ -200,6 +200,7 @@
 	<string name="subtitle_bindery_enabled">Use Bindery's API-key authenticated OPDS 2 catalog for audiobooks.</string>
 	<string name="subtitle_bindery_opds_url">The canonical OPDS 2 root, for example https://bindery.example.com/opds</string>
 	<string name="subtitle_bindery_api_key">Sent as X-Api-Key to OPDS catalogs, manifests, covers, and audio resources.</string>
+	<string name="subtitle_bindery_language_filter">ISO language code used to filter owned Bindery catalog entries. Leave blank for all languages.</string>
 	<string name="subtitle_bindery_book_grid_columns">Minimum columns used by Bindery book and collection grids.</string>
 	<string name="subtitle_aurral">Connect artist discovery, acquisition requests, and dynamic Flows from Aurral</string>
 	<string name="subtitle_aurral_hub">Open the native Aurral hub for discovery, requests, and Flows</string>
@@ -477,6 +478,7 @@
 	<string name="option_bindery_enabled">Enable Bindery</string>
 	<string name="option_bindery_opds_url">OPDS 2 URL</string>
 	<string name="option_bindery_api_key">API key</string>
+	<string name="option_bindery_language_filter">Language filter</string>
 	<string name="option_bindery_book_grid_columns">Book grid columns</string>
 	<string name="option_bindery_audiobooks">Audiobooks</string>
 	<string name="option_bindery_authors">Authors</string>

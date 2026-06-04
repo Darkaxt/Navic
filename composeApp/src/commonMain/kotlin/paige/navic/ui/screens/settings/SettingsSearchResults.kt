@@ -1383,6 +1383,14 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			isPassword = true,
 			onValueChange = { preferenceManager.binderyApiKey = it }
 		))
+		add(textFieldRow(
+			id = "bindery.language-filter",
+			path = path(integrations, bindery),
+			title = stringResource(Res.string.option_bindery_language_filter),
+			value = preferenceManager.binderyLanguageFilter,
+			keywords = listOf("Bindery", "OPDS", "language", "audiobooks", "books"),
+			onValueChange = { preferenceManager.binderyLanguageFilter = it }
+		))
 		add(selectionRow(
 			id = "bindery.book-grid-columns",
 			path = path(integrations, bindery),

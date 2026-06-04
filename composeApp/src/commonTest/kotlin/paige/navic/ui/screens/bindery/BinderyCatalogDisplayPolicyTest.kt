@@ -7,6 +7,7 @@ import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.ui.navigation.Screen
@@ -55,6 +56,33 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals("/opds/books?sort=title&limit=5", binderyInitialCatalogPath("/opds/books?sort=title"))
 		assertEquals("/opds/books?limit=20", binderyInitialCatalogPath("/opds/books?limit=20"))
 		assertEquals("/opds/recent", binderyInitialCatalogPath("/opds/recent"))
+	}
+
+	@Test
+	fun languageAvailabilityFilteringAddsOwnedConstraintOnlyForCatalogLists() {
+		assertEquals(
+			"/opds/books?limit=5&owned=1&languages=eng&coverage=any",
+			binderyAvailabilityFilteredCatalogPath("/opds/books?limit=5", "eng")
+		)
+		assertEquals(
+			"/opds/books?limit=5&owned=1&languages=eng&coverage=any",
+			binderyAvailabilityFilteredCatalogPath(
+				"/opds/books?limit=5&owned=1&languages=spa&coverage=all",
+				"eng"
+			)
+		)
+		assertEquals(
+			"/opds/authors/28?languages=eng&coverage=any",
+			binderyAvailabilityFilteredCatalogPath(
+				path = "/opds/authors/28",
+				languageFilter = "eng",
+				mode = BinderyAvailabilityQueryMode.Detail
+			)
+		)
+		assertEquals(
+			"/opds/books?limit=5",
+			binderyAvailabilityFilteredCatalogPath("/opds/books?limit=5", "all")
+		)
 	}
 
 	@Test
@@ -208,6 +236,49 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun availabilityStatusUsesMusicOwnershipDotSemantics() {
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			BinderyCatalogCard.Link(
+				id = "/opds/collections/1",
+				title = "Complete",
+				subtitle = "Collection",
+				path = "/opds/collections/1",
+				availability = paige.navic.domain.repositories.BinderyAvailability(
+					owned = true,
+					complete = true,
+					missingBooks = 0
+				)
+			).availabilityStatus()
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			BinderyCatalogCard.Link(
+				id = "/opds/collections/2",
+				title = "Partial",
+				subtitle = "Collection",
+				path = "/opds/collections/2",
+				availability = paige.navic.domain.repositories.BinderyAvailability(
+					owned = true,
+					complete = false,
+					ownedBooks = 2,
+					missingBooks = 1
+				)
+			).availabilityStatus()
+		)
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			BinderyCatalogCard.Book(
+				id = "book-1",
+				title = "Missing",
+				subtitle = "Author",
+				imageUrl = null,
+				availability = paige.navic.domain.repositories.BinderyAvailability(owned = false)
+			).availabilityStatus()
+		)
+	}
+
+	@Test
 	fun collectionDetailHeroUsesDominantPortraitCoverSize() {
 		assertEquals(180, binderyDetailCoverWidthDp(BinderyDetailKind.Collection))
 		assertEquals(120, binderyDetailCoverWidthDp(BinderyDetailKind.Author))
@@ -317,6 +388,32 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun genericBinderyCardsResolveNativeDestinationsForHubAndSearchRows() {
+		assertEquals(
+			Screen.BinderyBook(bookId = "3693", title = "Alcatraz versus the Evil Librarians"),
+			binderyDestinationForCard(
+				BinderyCatalogCard.Book(
+					id = "/opds/books/3693",
+					title = "Alcatraz versus the Evil Librarians",
+					subtitle = "Brandon Sanderson",
+					imageUrl = "/opds/books/3693/cover"
+				)
+			)
+		)
+		assertEquals(
+			Screen.BinderyAuthor("/opds/authors/28", "Brandon Sanderson"),
+			binderyDestinationForCard(
+				BinderyCatalogCard.Link(
+					id = "/opds/authors/28",
+					title = "Brandon Sanderson",
+					subtitle = "Author",
+					path = "/opds/authors/28"
+				)
+			)
+		)
+	}
+
+	@Test
 	fun bookVersionRowsAggregateAudioAndListEbooks() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3693",
@@ -339,14 +436,16 @@ class BinderyCatalogDisplayPolicyTest {
 					title = "Part 01",
 					type = "audio/mpeg",
 					durationSeconds = 1800.0,
-					sizeBytes = 1048576
+					sizeBytes = 1048576,
+					properties = mapOf("relativePath" to "Part 01.mp3")
 				),
 				BinderyReadingOrderItem(
 					href = "/opds/books/3693/resources/audio-2",
 					title = "Part 02",
 					type = "audio/mpeg",
 					durationSeconds = 1861.0,
-					sizeBytes = 524288
+					sizeBytes = 524288,
+					properties = mapOf("relativePath" to "Part 02.mp3")
 				)
 			)
 		)
@@ -366,7 +465,8 @@ class BinderyCatalogDisplayPolicyTest {
 					type = "audio/mpeg",
 					kind = "audio",
 					durationSeconds = 1800.0,
-					sizeBytes = 1048576
+					sizeBytes = 1048576,
+					properties = mapOf("relativePath" to "Part 01.mp3")
 				)
 			)
 		)
@@ -377,13 +477,13 @@ class BinderyCatalogDisplayPolicyTest {
 					id = "audiobook",
 					kind = BinderyBookVersionKind.Audiobook,
 					title = "Audiobook",
-					subtitle = "2 parts / 1h 1m 1s / 1.5 MB"
+					subtitle = "MP3 / 2 parts / 1h 1m 1s / 1.5 MB"
 				),
 				BinderyBookVersionRow(
 					id = "/opds/books/3693/resources/ebook-1",
 					kind = BinderyBookVersionKind.Ebook,
-					title = "Alcatraz EPUB",
-					subtitle = "EPUB / 421.54 KB"
+					title = "EPUB",
+					subtitle = "421.54 KB"
 				)
 			),
 			binderyBookVersionRows(manifest, resources)
@@ -401,7 +501,8 @@ class BinderyCatalogDisplayPolicyTest {
 					type = "audio/mpeg",
 					kind = "audio",
 					durationSeconds = 30.0,
-					sizeBytes = 1024
+					sizeBytes = 1024,
+					properties = mapOf("relativePath" to "Track 01.mp3")
 				)
 			)
 		)
@@ -412,10 +513,157 @@ class BinderyCatalogDisplayPolicyTest {
 					id = "audiobook",
 					kind = BinderyBookVersionKind.Audiobook,
 					title = "Audiobook",
-					subtitle = "1 part / 30s / 1.0 KB"
+					subtitle = "MP3 / 1 part / 30s / 1.0 KB"
 				)
 			),
 			binderyBookVersionRows(BinderyManifest(id = "urn:bindery:book:1", title = "Book"), resources)
+		)
+	}
+
+	@Test
+	fun ebookVersionRowsUsePublisherFormatSizeAndSortByQuality() {
+		val resources = BinderyResourceCatalog(
+			title = "Alcatraz Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-small-publisher",
+					title = "[ePubLibre] Alcatraz versus the Evil Librarians - Brandon Sanderson",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 431666,
+					properties = mapOf(
+						"relativePath" to "[ePubLibre] Alcatraz versus the Evil Librarians - Brandon Sanderson.EPUB"
+					)
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-unbracketed",
+					title = "Alcatraz versus the Evil Librarians - Brandon Sanderson",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 261589,
+					properties = mapOf(
+						"relativePath" to "Alcatraz versus the Evil Librarians - Brandon Sanderson.EPUB"
+					)
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-large-publisher",
+					title = "[ePubLibre] Alcatraz versus the Evil Librarians - Brandon Sanderson",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 5296480,
+					properties = mapOf(
+						"relativePath" to "[ePubLibre] Alcatraz versus the Evil Librarians - Brandon Sanderson.EPUB"
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-large-publisher",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "ePubLibre",
+					subtitle = "EPUB / 5.05 MB"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-small-publisher",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "ePubLibre",
+					subtitle = "EPUB / 421.54 KB"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-unbracketed",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "EPUB",
+					subtitle = "255.45 KB"
+				)
+			),
+			binderyBookVersionRows(BinderyManifest(id = "urn:bindery:book:3693", title = "Alcatraz"), resources)
+		)
+	}
+
+	@Test
+	fun versionRowsFilterByLanguageAndShowProviderPublisherFields() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3693",
+			title = "Alcatraz",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3693/resources/audio-eng",
+					title = "Part 01",
+					type = "audio/mpeg",
+					sizeBytes = 3072,
+					properties = mapOf(
+						"kind" to "audio",
+						"language" to "eng",
+						"format" to "mp3",
+						"publisher" to "Macmillan Audio",
+						"provider" to "Audible",
+						"narrator" to "Michael Kramer"
+					)
+				),
+				BinderyReadingOrderItem(
+					href = "/opds/books/3693/resources/audio-spa",
+					title = "Parte 01",
+					type = "audio/mpeg",
+					sizeBytes = 4096,
+					properties = mapOf(
+						"kind" to "audio",
+						"language" to "spa",
+						"format" to "mp3",
+						"publisher" to "Spanish Audio"
+					)
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-eng",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 1024,
+					properties = mapOf(
+						"language" to "eng",
+						"format" to "epub",
+						"publisher" to "Tor",
+						"provider" to "Hardcover"
+					)
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-spa",
+					title = "Alcatraz EPUB ES",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 2048,
+					properties = mapOf(
+						"language" to "spa",
+						"format" to "epub",
+						"publisher" to "Spanish Books"
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "audiobook",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Audiobook",
+					subtitle = "Audible / Macmillan Audio / Michael Kramer / MP3 / 1 part / 3.0 KB"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-eng",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "Tor",
+					subtitle = "Hardcover / EPUB / 1.0 KB"
+				)
+			),
+			binderyBookVersionRows(manifest, resources, "eng")
 		)
 	}
 

@@ -38,7 +38,10 @@ class BinderyHubViewModel(
 	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
 	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
-	fun refreshHub(fullRefresh: Boolean) {
+	fun refreshHub(
+		fullRefresh: Boolean,
+		languageFilter: String? = null
+	) {
 		hubJob?.cancel()
 		if (fullRefresh) {
 			collectionArtworkResolver.clear()
@@ -48,7 +51,7 @@ class BinderyHubViewModel(
 			if (fullRefresh || currentData == null) {
 				_hubState.value = UiState.Loading(currentData)
 			}
-			loadHub().fold(
+			loadHub(languageFilter).fold(
 				onSuccess = { state ->
 					_hubState.value = UiState.Success(state)
 				},
@@ -83,7 +86,7 @@ class BinderyHubViewModel(
 		collectionArtworkResolver.resolve(card)
 	}
 
-	private suspend fun loadHub(): Result<BinderyHubState> {
+	private suspend fun loadHub(languageFilter: String?): Result<BinderyHubState> {
 		val rootResult = repository.getCatalog("/")
 		return rootResult.fold(
 			onSuccess = { rootCatalog ->
@@ -92,7 +95,13 @@ class BinderyHubViewModel(
 					val catalogs = coroutineScope {
 						rows.map { row ->
 							async {
-								repository.getCatalog(row.catalogPath).getOrNull()?.let { catalog ->
+								repository.getCatalog(
+									binderyAvailabilityFilteredCatalogPath(
+										path = row.catalogPath,
+										languageFilter = languageFilter,
+										mode = BinderyAvailabilityQueryMode.List
+									)
+								).getOrNull()?.let { catalog ->
 									BinderyHubCatalogRow(row, catalog)
 								}
 							}

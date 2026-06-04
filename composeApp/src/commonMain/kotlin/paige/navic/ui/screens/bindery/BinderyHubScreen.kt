@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -89,14 +90,16 @@ fun BinderyHubScreen() {
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
+	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 
 	LaunchedEffect(
 		binderyConfigured,
 		preferenceManager.binderyOpdsBaseUrl,
-		preferenceManager.binderyApiKey
+		preferenceManager.binderyApiKey,
+		preferenceManager.binderyLanguageFilter
 	) {
 		if (binderyConfigured) {
-			viewModel.refreshHub(false)
+			viewModel.refreshHub(false, languageFilter)
 		} else {
 			viewModel.clearHub()
 		}
@@ -122,7 +125,7 @@ fun BinderyHubScreen() {
 				finished = !binderyConfigured || hubState !is UiState.Loading,
 				onRefresh = {
 					if (binderyConfigured) {
-						viewModel.refreshHub(true)
+						viewModel.refreshHub(true, languageFilter)
 					} else {
 						viewModel.clearHub()
 					}
@@ -180,6 +183,10 @@ fun BinderyHubScreen() {
 										bookGridColumns = bookGridColumns,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+										onOpenBook = { book ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForBook(book))
+										},
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -199,6 +206,10 @@ fun BinderyHubScreen() {
 										bookGridColumns = bookGridColumns,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+										onOpenBook = { book ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForBook(book))
+										},
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
@@ -213,6 +224,10 @@ fun BinderyHubScreen() {
 								bookGridColumns = bookGridColumns,
 								collectionArtworkByPath = collectionArtworkByPath,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+								onOpenBook = { book ->
+									platformContext.clickSound()
+									backStack.add(binderyDestinationForBook(book))
+								},
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
@@ -248,6 +263,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	bookGridColumns: Int,
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	rows.forEach { row ->
@@ -271,6 +287,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 				imageRequestHeaders = imageRequestHeaders,
 				collectionArtworkByPath = collectionArtworkByPath,
 				onResolveCollectionArtwork = onResolveCollectionArtwork,
+				onOpenBook = onOpenBook,
 				onOpenCatalog = onOpenCatalog
 			)
 		}
@@ -285,19 +302,21 @@ private fun BinderyHubCard(
 	imageRequestHeaders: Map<String, String>,
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	when (card) {
 		is BinderyCatalogCard.Book -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier,
-				onClick = {},
+				modifier = modifier.alpha(card.availabilityAlpha()),
+				onClick = { onOpenBook(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = "Book",
@@ -312,13 +331,14 @@ private fun BinderyHubCard(
 			val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier,
+				modifier = modifier.alpha(card.availabilityAlpha()),
 				onClick = { onOpenCatalog(card) },
 				coverArtId = null,
 				imageUrl = imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = card.subtitle,

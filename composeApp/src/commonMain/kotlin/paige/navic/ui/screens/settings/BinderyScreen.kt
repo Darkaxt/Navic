@@ -59,6 +59,7 @@ import navic.composeapp.generated.resources.option_bindery_authors
 import navic.composeapp.generated.resources.option_bindery_book_grid_columns
 import navic.composeapp.generated.resources.option_bindery_collections
 import navic.composeapp.generated.resources.option_bindery_enabled
+import navic.composeapp.generated.resources.option_bindery_language_filter
 import navic.composeapp.generated.resources.option_bindery_navigation
 import navic.composeapp.generated.resources.option_bindery_opds_url
 import navic.composeapp.generated.resources.option_bindery_pagination
@@ -68,6 +69,7 @@ import navic.composeapp.generated.resources.option_bindery_series
 import navic.composeapp.generated.resources.subtitle_bindery_api_key
 import navic.composeapp.generated.resources.subtitle_bindery_book_grid_columns
 import navic.composeapp.generated.resources.subtitle_bindery_enabled
+import navic.composeapp.generated.resources.subtitle_bindery_language_filter
 import navic.composeapp.generated.resources.subtitle_bindery_opds_url
 import navic.composeapp.generated.resources.title_bindery
 import navic.composeapp.generated.resources.title_bindery_service_status
@@ -179,6 +181,13 @@ fun SettingsBinderyScreen() {
 								},
 								keyboardType = KeyboardType.Password,
 								isPassword = true
+							)
+							BinderyField(
+								title = stringResource(Res.string.option_bindery_language_filter),
+								subtitle = stringResource(Res.string.subtitle_bindery_language_filter),
+								value = preferenceManager.binderyLanguageFilter,
+								onValueChange = { preferenceManager.binderyLanguageFilter = it },
+								keyboardType = KeyboardType.Text
 							)
 							SettingSelectionRow(
 								title = { Text(stringResource(Res.string.option_bindery_book_grid_columns)) },

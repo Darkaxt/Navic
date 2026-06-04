@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -134,6 +135,10 @@ fun BinderySearchScreen(
 									result = result,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
+									onOpenBook = { book ->
+										platformContext.clickSound()
+										backStack.add(binderyDestinationForBook(book))
+									},
 									onOpenCatalog = { link ->
 										platformContext.clickSound()
 										backStack.add(binderyDestinationForLink(link))
@@ -205,19 +210,21 @@ private fun BinderySearchResultItem(
 	result: BinderySearchResult,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
 ) {
 	when (val card = result.card) {
 		is BinderyCatalogCard.Book -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier,
-				onClick = {},
+				modifier = modifier.alpha(card.availabilityAlpha()),
+				onClick = { onOpenBook(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = "Book",
@@ -228,13 +235,14 @@ private fun BinderySearchResultItem(
 		is BinderyCatalogCard.Link -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier,
+				modifier = modifier.alpha(card.availabilityAlpha()),
 				onClick = { onOpenCatalog(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = card.subtitle,

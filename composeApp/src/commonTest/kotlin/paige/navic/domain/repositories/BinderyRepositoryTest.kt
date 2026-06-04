@@ -138,7 +138,18 @@ class BinderyRepositoryTest {
 			    "collectionType": "series",
 			    "memberCount": 4,
 			    "startYear": 2009,
-			    "yearRange": {"start": 2009, "end": 2022}
+			    "yearRange": {"start": 2009, "end": 2022},
+			    "availability": {
+			      "owned": true,
+			      "complete": false,
+			      "ownedBooks": 3,
+			      "missingBooks": 1,
+			      "totalBooks": 4,
+			      "ownedFormats": ["audiobook", "ebook"],
+			      "ownedLanguages": ["eng"],
+			      "languages": ["eng"],
+			      "mode": "any"
+			    }
 			  },
 			  "navigation": [
 			    {
@@ -146,7 +157,14 @@ class BinderyRepositoryTest {
 			      "title": "Collections",
 			      "properties": {
 			        "memberCount": 9,
-			        "yearRange": {"start": 2005, "end": 2023}
+			        "yearRange": {"start": 2005, "end": 2023},
+			        "availability": {
+			          "owned": true,
+			          "complete": true,
+			          "ownedBooks": 9,
+			          "missingBooks": 0,
+			          "totalBooks": 9
+			        }
 			      }
 			    }
 			  ],
@@ -164,7 +182,14 @@ class BinderyRepositoryTest {
 			      "properties": {
 			        "collectionPosition": "1",
 			        "collectionPositionSort": 1,
-			        "collectionTitle": "Mistborn"
+			        "collectionTitle": "Mistborn",
+			        "availability": {
+			          "owned": false,
+			          "complete": false,
+			          "ownedBooks": 0,
+			          "missingBooks": 1,
+			          "totalBooks": 1
+			        }
 			      },
 			      "images": [{"href": "/opds/books/3686/cover", "type": "image/jpeg", "rel": "cover"}]
 			    }
@@ -182,8 +207,33 @@ class BinderyRepositoryTest {
 		assertEquals("4", catalog.properties["memberCount"])
 		assertEquals("2009", catalog.properties["startYear"])
 		assertNull(catalog.properties["yearRange"])
+		assertNull(catalog.properties["availability"])
+		assertEquals(
+			BinderyAvailability(
+				owned = true,
+				complete = false,
+				ownedBooks = 3,
+				missingBooks = 1,
+				totalBooks = 4,
+				ownedFormats = listOf("audiobook", "ebook"),
+				ownedLanguages = listOf("eng"),
+				languages = listOf("eng"),
+				mode = "any"
+			),
+			catalog.availability
+		)
 		assertEquals("9", catalog.navigation.single().properties["memberCount"])
 		assertNull(catalog.navigation.single().properties["yearRange"])
+		assertEquals(
+			BinderyAvailability(
+				owned = true,
+				complete = true,
+				ownedBooks = 9,
+				missingBooks = 0,
+				totalBooks = 9
+			),
+			catalog.navigation.single().availability
+		)
 		assertEquals("2001-01-01", catalog.publications.single().published)
 		assertEquals("Book description", catalog.publications.single().description)
 		assertEquals(listOf("series:Mistborn", "Fantasy"), catalog.publications.single().subjects)
@@ -191,6 +241,10 @@ class BinderyRepositoryTest {
 		assertEquals("1", catalog.publications.single().properties["collectionPosition"])
 		assertEquals("1", catalog.publications.single().properties["collectionPositionSort"])
 		assertEquals("Mistborn", catalog.publications.single().properties["collectionTitle"])
+		assertEquals(
+			BinderyAvailability(ownedBooks = 0, missingBooks = 1, totalBooks = 1),
+			catalog.publications.single().availability
+		)
 	}
 
 	@Test
@@ -261,7 +315,12 @@ class BinderyRepositoryTest {
 				title = "Part 01",
 				type = "audio/mpeg",
 				durationSeconds = 3763.592,
-				sizeBytes = 120973860
+				sizeBytes = 120973860,
+				properties = mapOf(
+					"kind" to "audio",
+					"size" to "120973860",
+					"trackNumber" to "1"
+				)
 			),
 			manifest.readingOrder.single()
 		)

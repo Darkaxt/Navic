@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -298,6 +299,7 @@ data class BinderyCatalog(
 	val identifier: String? = null,
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
+	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val images: List<BinderyLink> = emptyList(),
 	val links: List<BinderyLink> = emptyList(),
@@ -323,6 +325,7 @@ data class BinderyPublication(
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
 	val durationSeconds: Double? = null,
+	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList()
@@ -336,6 +339,7 @@ data class BinderyManifest(
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
 	val durationSeconds: Double? = null,
+	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
@@ -347,7 +351,8 @@ data class BinderyReadingOrderItem(
 	val title: String,
 	val type: String?,
 	val durationSeconds: Double? = null,
-	val sizeBytes: Long? = null
+	val sizeBytes: Long? = null,
+	val properties: Map<String, String> = emptyMap()
 )
 
 data class BinderyLink(
@@ -355,8 +360,21 @@ data class BinderyLink(
 	val title: String? = null,
 	val type: String? = null,
 	val rel: List<String> = emptyList(),
+	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val images: List<BinderyLink> = emptyList()
+)
+
+data class BinderyAvailability(
+	val owned: Boolean = false,
+	val complete: Boolean = false,
+	val ownedBooks: Int? = null,
+	val missingBooks: Int? = null,
+	val totalBooks: Int? = null,
+	val ownedFormats: List<String> = emptyList(),
+	val ownedLanguages: List<String> = emptyList(),
+	val languages: List<String> = emptyList(),
+	val mode: String? = null
 )
 
 data class BinderyResourceCatalog(
@@ -439,6 +457,7 @@ private fun BinderyCatalogDto.toCatalog(): BinderyCatalog =
 		identifier = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
 		images = images.mapNotNull { it.toLink() },
 		links = links.mapNotNull { it.toLink() },
@@ -455,6 +474,7 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication =
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
 		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() }
@@ -469,6 +489,7 @@ private fun BinderyPublicationDto.toManifest(): BinderyManifest =
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
 		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() },
@@ -492,12 +513,14 @@ internal fun decodeBinderyResourceCatalogJson(jsonText: String): BinderyResource
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val stringProperties = properties.toStringProperties()
 	return BinderyReadingOrderItem(
 		href = safeHref,
 		title = title?.trim()?.takeIf { it.isNotEmpty() } ?: safeHref.substringAfterLast('/'),
 		type = type?.trim()?.takeIf { it.isNotEmpty() },
 		durationSeconds = duration?.takeIf { it > 0.0 },
-		sizeBytes = properties["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+		sizeBytes = stringProperties.firstNonBlankValue("size")?.toLongOrNull(),
+		properties = stringProperties
 	)
 }
 
@@ -508,6 +531,7 @@ private fun BinderyLinkDto.toLink(): BinderyLink? {
 		title = title?.trim()?.takeIf { it.isNotEmpty() },
 		type = type?.trim()?.takeIf { it.isNotEmpty() },
 		rel = rel.toRelList(),
+		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
 		images = images.mapNotNull { it.toLink() }
 	)
@@ -535,6 +559,50 @@ private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
 			?.takeIf { it.isNotEmpty() }
 			?.let { key to it }
 	}.toMap()
+
+private fun Map<String, JsonElement>.toAvailability(): BinderyAvailability? {
+	val value = this["availability"] as? JsonObject ?: return null
+	return BinderyAvailability(
+		owned = value.booleanValue("owned") ?: false,
+		complete = value.booleanValue("complete") ?: false,
+		ownedBooks = value.intValue("ownedBooks"),
+		missingBooks = value.intValue("missingBooks"),
+		totalBooks = value.intValue("totalBooks"),
+		ownedFormats = value.stringList("ownedFormats"),
+		ownedLanguages = value.stringList("ownedLanguages"),
+		languages = value.stringList("languages"),
+		mode = value.stringValue("mode")
+	)
+}
+
+private fun JsonObject.stringValue(key: String): String? =
+	(get(key) as? JsonPrimitive)
+		?.contentOrNull
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+
+private fun JsonObject.booleanValue(key: String): Boolean? =
+	stringValue(key)?.toBooleanStrictOrNull()
+
+private fun JsonObject.intValue(key: String): Int? =
+	stringValue(key)?.toIntOrNull()
+
+private fun JsonObject.stringList(key: String): List<String> =
+	when (val value = get(key)) {
+		is JsonArray -> value.mapNotNull { element ->
+			(element as? JsonPrimitive)
+				?.contentOrNull
+				?.trim()
+				?.takeIf { it.isNotEmpty() }
+		}
+		is JsonPrimitive -> value.contentOrNull
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.split(',')
+			?.mapNotNull { item -> item.trim().takeIf(String::isNotEmpty) }
+			.orEmpty()
+		else -> emptyList()
+	}
 
 private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
 	keys.firstNotNullOfOrNull { desiredKey ->

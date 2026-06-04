@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -85,15 +86,17 @@ fun BinderyCatalogScreen(
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
+	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 
 	LaunchedEffect(
 		binderyConfigured,
 		preferenceManager.binderyOpdsBaseUrl,
 		preferenceManager.binderyApiKey,
+		preferenceManager.binderyLanguageFilter,
 		path
 	) {
 		if (binderyConfigured) {
-			viewModel.refreshCatalog(false)
+			viewModel.refreshCatalog(false, languageFilter)
 		} else {
 			viewModel.clearCatalog()
 		}
@@ -119,7 +122,7 @@ fun BinderyCatalogScreen(
 				finished = !binderyConfigured || catalogState !is UiState.Loading,
 				onRefresh = {
 					if (binderyConfigured) {
-						viewModel.refreshCatalog(true)
+						viewModel.refreshCatalog(true, languageFilter)
 					} else {
 						viewModel.clearCatalog()
 					}
@@ -248,13 +251,16 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 			is BinderyCatalogCard.Book -> {
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)
 				ArtGridItem(
-					modifier = Modifier.animateItem(),
+					modifier = Modifier
+						.animateItem()
+						.alpha(card.availabilityAlpha()),
 					onClick = { onOpenBook(card) },
 					coverArtId = null,
 					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
+					ownershipStatus = card.availabilityStatus(),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					fallbackKind = "Book",
@@ -269,13 +275,16 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)
 				ArtGridItem(
-					modifier = Modifier.animateItem(),
+					modifier = Modifier
+						.animateItem()
+						.alpha(card.availabilityAlpha()),
 					onClick = { onOpenCatalog(card) },
 					coverArtId = null,
 					imageUrl = imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
+					ownershipStatus = card.availabilityStatus(),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					fallbackKind = card.subtitle,

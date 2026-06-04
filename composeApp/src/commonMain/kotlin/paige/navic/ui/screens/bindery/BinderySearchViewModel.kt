@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.ui.core.UiState
@@ -24,7 +25,8 @@ private const val BINDERY_SEARCH_BOOK_LIMIT = 200
 
 @OptIn(FlowPreview::class)
 class BinderySearchViewModel(
-	private val repository: BinderyRepository
+	private val repository: BinderyRepository,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _searchState = MutableStateFlow<UiState<List<BinderySearchResult>>>(UiState.Success(emptyList()))
 	val searchState = _searchState.asStateFlow()
@@ -57,9 +59,34 @@ class BinderySearchViewModel(
 	private suspend fun searchBindery(query: String): List<BinderySearchResult> = coroutineScope {
 		val terms = query.searchTerms()
 		val encodedQuery = query.trim().encodeURLParameter()
-		val books = async { repository.getCatalog("/opds/search?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT") }
-		val collections = async { repository.getCatalog(BinderyCatalogTab.Collections.path) }
-		val authors = async { repository.getCatalog(BinderyCatalogTab.Authors.path) }
+		val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
+		val books = async {
+			repository.getCatalog(
+				binderyAvailabilityFilteredCatalogPath(
+					path = "/opds/search?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
+					languageFilter = languageFilter,
+					mode = BinderyAvailabilityQueryMode.List
+				)
+			)
+		}
+		val collections = async {
+			repository.getCatalog(
+				binderyAvailabilityFilteredCatalogPath(
+					path = BinderyCatalogTab.Collections.path,
+					languageFilter = languageFilter,
+					mode = BinderyAvailabilityQueryMode.List
+				)
+			)
+		}
+		val authors = async {
+			repository.getCatalog(
+				binderyAvailabilityFilteredCatalogPath(
+					path = BinderyCatalogTab.Authors.path,
+					languageFilter = languageFilter,
+					mode = BinderyAvailabilityQueryMode.List
+				)
+			)
+		}
 		val results = listOf(
 			books.await().toSearchResults(BinderyCatalogTab.Books, terms),
 			collections.await().toSearchResults(BinderyCatalogTab.Collections, terms),
