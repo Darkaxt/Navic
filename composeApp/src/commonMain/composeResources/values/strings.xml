@@ -740,6 +740,8 @@
 	<string name="action_view_playlist">View playlist</string>
 	<string name="action_view_artist">View artist</string>
 	<string name="action_request_album">Request</string>
+	<string name="action_bindery_monitor">Monitor</string>
+	<string name="action_bindery_request_download">Request download</string>
 	<string name="action_acquire_album">Acquire</string>
 	<string name="action_monitor_artist">Monitor artist in Aurral</string>
 	<string name="action_stop_monitoring_artist">Stop monitoring</string>

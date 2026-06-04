@@ -121,6 +121,39 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun performActionPostsAdvertisedActionHrefWithConfiguredOpdsUrlAndApiKeyHeader() = runBlocking {
+		val apiClient = FakeBinderyApiClient()
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+
+		repository.performAction("/opds/discover/authors/hc%3Apeter-sanderson/monitor").getOrThrow()
+
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.actionBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.actionHeaders)
+		assertEquals(listOf("/opds/discover/authors/hc%3Apeter-sanderson/monitor"), apiClient.actionPaths)
+	}
+
+	@Test
+	fun performActionRequiresEnabledConfiguredBinderyWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient()
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = false
+			binderyOpdsBaseUrl = "https://bindery.example.com/opds"
+			binderyApiKey = "secret"
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+
+		assertFailsWith<IllegalStateException> {
+			repository.performAction("/opds/books/1/download").getOrThrow()
+		}
+		assertEquals(0, apiClient.actionPaths.size)
+	}
+
+	@Test
 	fun catalogJsonPreservesDetailMetadataAndPublicationFields() {
 		val catalog = decodeBinderyCatalogJson(
 			"""
@@ -388,6 +421,9 @@ class BinderyRepositoryTest {
 		var rootCalls = 0
 		val rootBaseUrls = mutableListOf<String>()
 		val rootHeaders = mutableListOf<Map<String, String>>()
+		val actionBaseUrls = mutableListOf<String>()
+		val actionHeaders = mutableListOf<Map<String, String>>()
+		val actionPaths = mutableListOf<String>()
 
 		override suspend fun fetchRootCatalog(
 			baseUrl: String,
@@ -420,6 +456,16 @@ class BinderyRepositoryTest {
 			requestHeaders: Map<String, String>,
 			bookId: String
 		): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
+
+		override suspend fun performAction(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			path: String
+		) {
+			actionBaseUrls += baseUrl
+			actionHeaders += requestHeaders
+			actionPaths += path
+		}
 	}
 
 	private fun binderyRootCatalog(): BinderyCatalog =

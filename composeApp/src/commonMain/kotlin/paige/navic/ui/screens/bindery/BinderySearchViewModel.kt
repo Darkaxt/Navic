@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.ui.core.UiState
 import kotlin.time.Duration.Companion.milliseconds
@@ -30,6 +31,10 @@ class BinderySearchViewModel(
 ) : ViewModel() {
 	private val _searchState = MutableStateFlow<UiState<List<BinderySearchResult>>>(UiState.Success(emptyList()))
 	val searchState = _searchState.asStateFlow()
+	private val _actionError = MutableStateFlow<Throwable?>(null)
+	val actionError = _actionError.asStateFlow()
+	private val _actionInFlight = MutableStateFlow<Set<String>>(emptySet())
+	val actionInFlight = _actionInFlight.asStateFlow()
 
 	val searchQuery = TextFieldState()
 	val gridState = LazyGridState()
@@ -62,29 +67,23 @@ class BinderySearchViewModel(
 		val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 		val books = async {
 			repository.getCatalog(
-				binderyAvailabilityFilteredCatalogPath(
+				binderySearchCatalogPath(
 					path = "/opds/search?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
-					languageFilter = languageFilter,
-					mode = BinderyAvailabilityQueryMode.List
+					languageFilter = languageFilter
 				)
 			)
 		}
 		val collections = async {
 			repository.getCatalog(
-				binderyAvailabilityFilteredCatalogPath(
+				binderySearchCatalogPath(
 					path = BinderyCatalogTab.Collections.path,
-					languageFilter = languageFilter,
-					mode = BinderyAvailabilityQueryMode.List
+					languageFilter = languageFilter
 				)
 			)
 		}
 		val authors = async {
 			repository.getCatalog(
-				binderyAvailabilityFilteredCatalogPath(
-					path = BinderyCatalogTab.Authors.path,
-					languageFilter = languageFilter,
-					mode = BinderyAvailabilityQueryMode.List
-				)
+				binderyDiscoverAuthorsPath(query)
 			)
 		}
 		val results = listOf(
@@ -98,6 +97,40 @@ class BinderySearchViewModel(
 			throw failures.first() as? Exception ?: Exception(failures.first())
 		}
 		successes
+	}
+
+	fun performAction(link: BinderyLink) {
+		val actionPath = link.href.trim().takeIf { it.isNotEmpty() } ?: return
+		if (actionPath in _actionInFlight.value) return
+		viewModelScope.launch {
+			_actionInFlight.value = _actionInFlight.value + actionPath
+			repository.performAction(actionPath).fold(
+				onSuccess = {
+					_actionInFlight.value = _actionInFlight.value - actionPath
+					val query = searchQuery.text.toString()
+					if (query.isNotBlank()) {
+						_searchState.value = UiState.Loading(_searchState.value.data)
+						runCatching { searchBindery(query) }.fold(
+							onSuccess = { results -> _searchState.value = UiState.Success(results) },
+							onFailure = { error ->
+								_searchState.value = UiState.Error(
+									error = error as? Exception ?: Exception(error),
+									data = _searchState.value.data
+								)
+							}
+						)
+					}
+				},
+				onFailure = { error ->
+					_actionInFlight.value = _actionInFlight.value - actionPath
+					_actionError.value = error
+				}
+			)
+		}
+	}
+
+	fun clearActionError() {
+		_actionError.value = null
 	}
 }
 

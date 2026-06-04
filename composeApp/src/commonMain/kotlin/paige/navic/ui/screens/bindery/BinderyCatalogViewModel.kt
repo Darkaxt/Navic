@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.ui.core.UiState
 
@@ -29,6 +30,10 @@ class BinderyCatalogViewModel(
 	val hasNextPage = _hasNextPage.asStateFlow()
 	private val _relatedCollectionsState = MutableStateFlow<UiState<BinderyCatalog>>(UiState.Success(BinderyCatalog(title = "")))
 	val relatedCollectionsState = _relatedCollectionsState.asStateFlow()
+	private val _actionError = MutableStateFlow<Throwable?>(null)
+	val actionError = _actionError.asStateFlow()
+	private val _actionInFlight = MutableStateFlow<Set<String>>(emptySet())
+	val actionInFlight = _actionInFlight.asStateFlow()
 	private val collectionArtworkResolver = BinderyCollectionArtworkResolver(repository, viewModelScope)
 	val collectionArtworkByPath = collectionArtworkResolver.artworkByPath
 
@@ -161,5 +166,41 @@ class BinderyCatalogViewModel(
 			?: UiState.Loading()
 		_relatedCollectionsState.value = _relatedCollectionsState.value.data?.let { UiState.Success(it) }
 			?: UiState.Success(BinderyCatalog(title = ""))
+	}
+
+	fun performAction(
+		link: BinderyLink,
+		languageFilter: String? = null,
+		queryMode: BinderyAvailabilityQueryMode = BinderyAvailabilityQueryMode.List,
+		relatedCollectionsPath: String? = null
+	) {
+		val actionPath = link.href.trim().takeIf { it.isNotEmpty() } ?: return
+		if (actionPath in _actionInFlight.value) return
+		viewModelScope.launch {
+			_actionInFlight.value = _actionInFlight.value + actionPath
+			repository.performAction(actionPath).fold(
+				onSuccess = {
+					_actionInFlight.value = _actionInFlight.value - actionPath
+					refreshCatalog(
+						fullRefresh = true,
+						languageFilter = languageFilter,
+						queryMode = queryMode
+					)
+					refreshRelatedCollections(
+						path = relatedCollectionsPath,
+						fullRefresh = true,
+						languageFilter = languageFilter
+					)
+				},
+				onFailure = { error ->
+					_actionInFlight.value = _actionInFlight.value - actionPath
+					_actionError.value = error
+				}
+			)
+		}
+	}
+
+	fun clearActionError() {
+		_actionError.value = null
 	}
 }

@@ -86,6 +86,69 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun binderySearchPathsDoNotRestrictResultsToOwnedEntries() {
+		assertEquals(
+			"/opds/search?q=Sanderson&limit=200&languages=eng&coverage=any",
+			binderySearchCatalogPath(
+				path = "/opds/search?q=Sanderson&limit=200",
+				languageFilter = "eng"
+			)
+		)
+		assertEquals(
+			"/opds/discover/authors?q=Sanderson",
+			binderyDiscoverAuthorsPath("Sanderson")
+		)
+	}
+
+	@Test
+	fun catalogCardsPreserveOpdsMonitorAndDownloadActionLinks() {
+		val monitor = BinderyLink(
+			href = "/opds/discover/authors/hc%3Apeter-sanderson/monitor",
+			title = "Monitor author",
+			rel = listOf(BINDERY_MONITOR_REL),
+			type = "application/json"
+		)
+		val download = BinderyLink(
+			href = "/opds/books/3693/download",
+			title = "Request download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+		val bookCard = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Search",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:3693",
+						title = "Alcatraz versus the Evil Librarians",
+						author = "Brandon Sanderson",
+						links = listOf(download)
+					)
+				)
+			),
+			BinderyCatalogTab.Books
+		).single() as BinderyCatalogCard.Book
+		val authorCard = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Author Search",
+				navigation = listOf(
+					BinderyLink(
+						href = "/opds/discover/authors/hc%3Apeter-sanderson",
+						title = "Peter Sanderson",
+						images = emptyList(),
+						properties = emptyMap()
+					)
+				),
+				links = listOf(monitor)
+			),
+			BinderyCatalogTab.Authors
+		).single() as BinderyCatalogCard.Link
+
+		assertEquals(download, bookCard.downloadRequestAction)
+		assertEquals(monitor, authorCard.monitorAction)
+	}
+
+	@Test
 	fun catalogNextPagePathUsesOpdsNextRelation() {
 		val catalog = BinderyCatalog(
 			title = "Books",

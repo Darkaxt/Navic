@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.bindery
 
+import io.ktor.http.encodeURLParameter
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
@@ -16,6 +17,8 @@ import paige.navic.util.core.toFileSize
 import kotlin.math.roundToLong
 
 private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
+internal const val BINDERY_MONITOR_REL = "https://bindery.app/opds/rel/monitor"
+internal const val BINDERY_DOWNLOAD_REQUEST_REL = "https://bindery.app/opds/rel/download-request"
 private val BinderyAvailabilityQueryKeys = setOf("owned", "languages", "coverage")
 
 enum class BinderyCatalogTab(
@@ -84,6 +87,19 @@ fun binderyAvailabilityFilteredCatalogPath(
 	return if (parameters.isEmpty()) pathPart else "$pathPart?${parameters.joinToString("&")}"
 }
 
+fun binderySearchCatalogPath(
+	path: String,
+	languageFilter: String?
+): String =
+	binderyAvailabilityFilteredCatalogPath(
+		path = path,
+		languageFilter = languageFilter,
+		mode = BinderyAvailabilityQueryMode.Detail
+	)
+
+fun binderyDiscoverAuthorsPath(query: String): String =
+	"/opds/discover/authors?q=${query.trim().encodeURLParameter()}"
+
 fun shouldLoadBinderyUi(
 	binderyEnabled: Boolean,
 	opdsBaseUrl: String,
@@ -130,7 +146,8 @@ sealed interface BinderyCatalogCard {
 		override val title: String,
 		override val subtitle: String?,
 		val imageUrl: String?,
-		val availability: BinderyAvailability? = null
+		val availability: BinderyAvailability? = null,
+		val links: List<BinderyLink> = emptyList()
 	) : BinderyCatalogCard
 
 	data class Link(
@@ -140,7 +157,8 @@ sealed interface BinderyCatalogCard {
 		val path: String,
 		val imageUrl: String? = null,
 		val availability: BinderyAvailability? = null,
-		val properties: Map<String, String> = emptyMap()
+		val properties: Map<String, String> = emptyMap(),
+		val links: List<BinderyLink> = emptyList()
 	) : BinderyCatalogCard
 }
 
@@ -151,6 +169,7 @@ fun binderyCatalogCards(
 	if (tab == BinderyCatalogTab.Collections || tab == BinderyCatalogTab.Authors ||
 		(catalog.publications.isEmpty() && catalog.navigation.isNotEmpty())
 	) {
+		val catalogActionLinks = catalog.links.filter(BinderyLink::isBinderyActionLink)
 		catalog.navigation.map { link ->
 			BinderyCatalogCard.Link(
 				id = link.href,
@@ -163,7 +182,10 @@ fun binderyCatalogCards(
 				path = link.href,
 				imageUrl = link.preferredImageHref(),
 				availability = link.availability,
-				properties = link.properties
+				properties = link.properties,
+				links = link.actionLinks().ifEmpty {
+					if (catalog.navigation.size == 1) catalogActionLinks else emptyList()
+				}
 			)
 		}
 	} else {
@@ -173,10 +195,77 @@ fun binderyCatalogCards(
 				title = publication.title,
 				subtitle = publication.author,
 				imageUrl = publication.images.firstOrNull()?.href,
-				availability = publication.availability
+				availability = publication.availability,
+				links = publication.links
 			)
 	}
 }
+
+enum class BinderyOpdsActionType {
+	Monitor,
+	DownloadRequest
+}
+
+data class BinderyOpdsAction(
+	val type: BinderyOpdsActionType,
+	val link: BinderyLink
+)
+
+val BinderyCatalog.monitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalog.downloadRequestAction: BinderyLink?
+	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+
+val BinderyCatalogCard.Book.monitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalogCard.Book.downloadRequestAction: BinderyLink?
+	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+
+val BinderyCatalogCard.Link.monitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalogCard.Link.downloadRequestAction: BinderyLink?
+	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+
+fun BinderyCatalog.primaryAction(): BinderyOpdsAction? =
+	monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+		?: downloadRequestAction?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+
+fun BinderyCatalogCard.primaryAction(): BinderyOpdsAction? =
+	when (this) {
+		is BinderyCatalogCard.Book -> downloadRequestAction
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+			?: monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+		is BinderyCatalogCard.Link -> monitorAction
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+			?: downloadRequestAction?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+	}
+
+fun BinderyPublication.primaryAction(): BinderyOpdsAction? =
+	links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+		?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+		?: links.actionLink(BINDERY_MONITOR_REL)
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+
+fun BinderyManifest.primaryAction(): BinderyOpdsAction? =
+	links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+		?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+		?: links.actionLink(BINDERY_MONITOR_REL)
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+
+private fun BinderyLink.actionLinks(): List<BinderyLink> =
+	listOf(this).filter(BinderyLink::isBinderyActionLink)
+
+private fun BinderyLink.isBinderyActionLink(): Boolean =
+	rel.any { item ->
+		item.equals(BINDERY_MONITOR_REL, ignoreCase = true) ||
+			item.equals(BINDERY_DOWNLOAD_REQUEST_REL, ignoreCase = true)
+	}
+
+private fun List<BinderyLink>.actionLink(rel: String): BinderyLink? =
+	firstOrNull { link -> link.rel.any { item -> item.equals(rel, ignoreCase = true) } }
 
 fun BinderyCatalogCard.availabilityStatus(): AurralOwnershipStatus? =
 	when (this) {

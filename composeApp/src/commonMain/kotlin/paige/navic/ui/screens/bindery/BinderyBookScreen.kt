@@ -56,6 +56,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
@@ -89,6 +90,8 @@ fun BinderyBookScreen(
 		parameters = { parametersOf(bookId) }
 	)
 	val bookState by viewModel.bookState.collectAsStateWithLifecycle()
+	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyConfigured = shouldLoadBinderyUi(
@@ -171,7 +174,9 @@ fun BinderyBookScreen(
 								BinderyBookHero(
 									manifest = data.manifest,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders
+									imageRequestHeaders = imageRequestHeaders,
+									actionInFlight = actionInFlight,
+									onAction = viewModel::performAction
 								)
 							}
 							if (data.manifest.subjects.isNotEmpty()) {
@@ -216,6 +221,10 @@ fun BinderyBookScreen(
 		error = (bookState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+	ErrorSnackbar(
+		error = actionError,
+		onClearError = viewModel::clearActionError
+	)
 }
 
 @Composable
@@ -252,12 +261,15 @@ private fun BinderyBookLoadingPlaceholder(title: String) {
 private fun BinderyBookHero(
 	manifest: BinderyManifest,
 	baseUrl: String,
-	imageRequestHeaders: Map<String, String>
+	imageRequestHeaders: Map<String, String>,
+	actionInFlight: Set<String>,
+	onAction: (BinderyLink) -> Unit
 ) {
 	var expanded by rememberSaveable(manifest.id, manifest.title) { mutableStateOf(false) }
 	val imageHref = manifest.images.firstOrNull()?.href
 	val metadataText = manifest.metadataText()
 	val description = manifest.description?.trim()?.takeIf { it.isNotEmpty() }
+	val action = manifest.primaryAction()
 	var descriptionHasOverflow by rememberSaveable(manifest.id, manifest.title, description) {
 		mutableStateOf(false)
 	}
@@ -317,6 +329,13 @@ private fun BinderyBookHero(
 						Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
 					}
 				}
+			}
+			if (action != null) {
+				BinderyActionButton(
+					action = action,
+					loading = action.link.href in actionInFlight,
+					onAction = onAction
+				)
 			}
 		}
 	}

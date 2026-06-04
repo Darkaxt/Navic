@@ -38,6 +38,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -68,6 +69,8 @@ fun BinderyCatalogScreen(
 		parameters = { parametersOf(path) }
 	)
 	val catalogState by viewModel.catalogState.collectAsStateWithLifecycle()
+	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val hasNextPage by viewModel.hasNextPage.collectAsStateWithLifecycle()
 	val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsStateWithLifecycle()
 	val collectionArtworkByPath by viewModel.collectionArtworkByPath.collectAsStateWithLifecycle()
@@ -153,6 +156,7 @@ fun BinderyCatalogScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										actionInFlight = actionInFlight,
 										hasNextPage = hasNextPage,
 										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
@@ -164,7 +168,8 @@ fun BinderyCatalogScreen(
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
-										}
+										},
+										onAction = viewModel::performAction
 									)
 								}
 							}
@@ -178,6 +183,7 @@ fun BinderyCatalogScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										actionInFlight = actionInFlight,
 										hasNextPage = hasNextPage,
 										isLoadingNextPage = isLoadingNextPage,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
@@ -189,7 +195,8 @@ fun BinderyCatalogScreen(
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
-										}
+										},
+										onAction = viewModel::performAction
 									)
 								}
 							}
@@ -198,6 +205,7 @@ fun BinderyCatalogScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								collectionArtworkByPath = collectionArtworkByPath,
+								actionInFlight = actionInFlight,
 								hasNextPage = hasNextPage,
 								isLoadingNextPage = isLoadingNextPage,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
@@ -209,7 +217,8 @@ fun BinderyCatalogScreen(
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
-								}
+								},
+								onAction = viewModel::performAction
 							)
 						}
 					}
@@ -232,6 +241,10 @@ fun BinderyCatalogScreen(
 		error = (catalogState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+	ErrorSnackbar(
+		error = actionError,
+		onClearError = viewModel::clearActionError
+	)
 }
 
 private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogItems(
@@ -239,17 +252,20 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	collectionArtworkByPath: Map<String, String>,
+	actionInFlight: Set<String>,
 	hasNextPage: Boolean,
 	isLoadingNextPage: Boolean,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onLoadNextPage: () -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
-	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onAction: (BinderyLink) -> Unit
 ) {
 	items(cards, key = { it.id }) { card ->
 		when (card) {
 			is BinderyCatalogCard.Book -> {
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)
+				val action = card.primaryAction()
 				ArtGridItem(
 					modifier = Modifier
 						.animateItem()
@@ -263,6 +279,20 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					ownershipStatus = card.availabilityStatus(),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+					coverOverlay = if (action != null) {
+						{
+							BinderyCardActionButton(
+								action = action,
+								loading = action.link.href in actionInFlight,
+								onAction = onAction,
+								modifier = Modifier
+									.align(Alignment.BottomEnd)
+									.padding(8.dp)
+							)
+						}
+					} else {
+						null
+					},
 					fallbackKind = "Book",
 					id = card.id,
 					tab = "bindery"
@@ -274,6 +304,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				}
 				val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)
+				val action = card.primaryAction()
 				ArtGridItem(
 					modifier = Modifier
 						.animateItem()
@@ -287,6 +318,20 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					ownershipStatus = card.availabilityStatus(),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+					coverOverlay = if (action != null) {
+						{
+							BinderyCardActionButton(
+								action = action,
+								loading = action.link.href in actionInFlight,
+								onAction = onAction,
+								modifier = Modifier
+									.align(Alignment.BottomEnd)
+									.padding(8.dp)
+							)
+						}
+					} else {
+						null
+					},
 					fallbackKind = card.subtitle,
 					id = card.id,
 					tab = "bindery"

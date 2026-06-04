@@ -50,6 +50,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.icons.Icons
@@ -57,6 +58,7 @@ import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.NoSearchResults
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.layouts.ArtGrid
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -73,6 +75,8 @@ fun BinderySearchScreen(
 	val viewModel = koinViewModel<BinderySearchViewModel>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val state by viewModel.searchState.collectAsStateWithLifecycle()
+	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val query = viewModel.searchQuery
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
@@ -135,6 +139,7 @@ fun BinderySearchScreen(
 									result = result,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
+									actionInFlight = actionInFlight,
 									onOpenBook = { book ->
 										platformContext.clickSound()
 										backStack.add(binderyDestinationForBook(book))
@@ -142,7 +147,8 @@ fun BinderySearchScreen(
 									onOpenCatalog = { link ->
 										platformContext.clickSound()
 										backStack.add(binderyDestinationForLink(link))
-									}
+									},
+									onAction = viewModel::performAction
 								)
 							}
 						}
@@ -151,6 +157,11 @@ fun BinderySearchScreen(
 			}
 		}
 	}
+
+	ErrorSnackbar(
+		error = actionError,
+		onClearError = viewModel::clearActionError
+	)
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -210,12 +221,15 @@ private fun BinderySearchResultItem(
 	result: BinderySearchResult,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	actionInFlight: Set<String>,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
-	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onAction: (BinderyLink) -> Unit
 ) {
 	when (val card = result.card) {
 		is BinderyCatalogCard.Book -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			val action = card.primaryAction()
 			ArtGridItem(
 				modifier = modifier.alpha(card.availabilityAlpha()),
 				onClick = { onOpenBook(card) },
@@ -227,6 +241,20 @@ private fun BinderySearchResultItem(
 				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				coverOverlay = if (action != null) {
+					{
+						BinderyCardActionButton(
+							action = action,
+							loading = action.link.href in actionInFlight,
+							onAction = onAction,
+							modifier = Modifier
+								.align(Alignment.BottomEnd)
+								.padding(8.dp)
+						)
+					}
+				} else {
+					null
+				},
 				fallbackKind = "Book",
 				id = card.id,
 				tab = "bindery-search"
@@ -234,6 +262,7 @@ private fun BinderySearchResultItem(
 		}
 		is BinderyCatalogCard.Link -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			val action = card.primaryAction()
 			ArtGridItem(
 				modifier = modifier.alpha(card.availabilityAlpha()),
 				onClick = { onOpenCatalog(card) },
@@ -245,6 +274,20 @@ private fun BinderySearchResultItem(
 				ownershipStatus = card.availabilityStatus(),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				coverOverlay = if (action != null) {
+					{
+						BinderyCardActionButton(
+							action = action,
+							loading = action.link.href in actionInFlight,
+							onAction = onAction,
+							modifier = Modifier
+								.align(Alignment.BottomEnd)
+								.padding(8.dp)
+						)
+					}
+				} else {
+					null
+				},
 				fallbackKind = card.subtitle,
 				id = card.id,
 				tab = "bindery-search"

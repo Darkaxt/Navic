@@ -52,6 +52,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
@@ -91,6 +92,8 @@ fun BinderyDetailScreen(
 	)
 	val catalogState by viewModel.catalogState.collectAsStateWithLifecycle()
 	val relatedCollectionsState by viewModel.relatedCollectionsState.collectAsStateWithLifecycle()
+	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
@@ -193,6 +196,7 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										actionInFlight = actionInFlight,
 										onOpenBook = { publication ->
 											platformContext.clickSound()
 											backStack.add(
@@ -205,6 +209,14 @@ fun BinderyDetailScreen(
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
+										},
+										onAction = { link ->
+											viewModel.performAction(
+												link = link,
+												languageFilter = languageFilter,
+												queryMode = BinderyAvailabilityQueryMode.Detail,
+												relatedCollectionsPath = authorCollectionsLink?.path
+											)
 										}
 									)
 								}
@@ -221,6 +233,7 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										actionInFlight = actionInFlight,
 										onOpenBook = { publication ->
 											platformContext.clickSound()
 											backStack.add(
@@ -233,6 +246,14 @@ fun BinderyDetailScreen(
 										onOpenCollection = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
+										},
+										onAction = { link ->
+											viewModel.performAction(
+												link = link,
+												languageFilter = languageFilter,
+												queryMode = BinderyAvailabilityQueryMode.Detail,
+												relatedCollectionsPath = authorCollectionsLink?.path
+											)
 										}
 									)
 								}
@@ -244,6 +265,7 @@ fun BinderyDetailScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								bookGridColumns = bookGridColumns,
+								actionInFlight = actionInFlight,
 								onOpenBook = { publication ->
 									platformContext.clickSound()
 									backStack.add(
@@ -256,6 +278,14 @@ fun BinderyDetailScreen(
 								onOpenCollection = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
+								},
+								onAction = { link ->
+									viewModel.performAction(
+										link = link,
+										languageFilter = languageFilter,
+										queryMode = BinderyAvailabilityQueryMode.Detail,
+										relatedCollectionsPath = authorCollectionsLink?.path
+									)
 								}
 							)
 						}
@@ -279,6 +309,10 @@ fun BinderyDetailScreen(
 		error = (catalogState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+	ErrorSnackbar(
+		error = actionError,
+		onClearError = viewModel::clearActionError
+	)
 }
 
 private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailItems(
@@ -288,8 +322,10 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	bookGridColumns: Int,
+	actionInFlight: Set<String>,
 	onOpenBook: (BinderyPublication) -> Unit,
-	onOpenCollection: (BinderyCatalogCard.Link) -> Unit
+	onOpenCollection: (BinderyCatalogCard.Link) -> Unit,
+	onAction: (BinderyLink) -> Unit
 ) {
 	val publications = when (kind) {
 		BinderyDetailKind.Author -> catalog.publications.sortedForBinderyDetail()
@@ -304,6 +340,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 			catalog = catalog,
 			baseUrl = baseUrl,
 			imageRequestHeaders = imageRequestHeaders,
+			actionInFlight = actionInFlight,
+			onAction = onAction,
 			modifier = Modifier.animateItem()
 		)
 	}
@@ -360,7 +398,9 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 				kind = kind,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,
-				onOpenBook = onOpenBook
+				actionInFlight = actionInFlight,
+				onOpenBook = onOpenBook,
+				onAction = onAction
 			)
 		}
 	}
@@ -416,6 +456,8 @@ private fun BinderyDetailHero(
 	catalog: BinderyCatalog,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	actionInFlight: Set<String>,
+	onAction: (BinderyLink) -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	var expanded by rememberSaveable(catalog.identifier, catalog.title) { mutableStateOf(false) }
@@ -425,6 +467,7 @@ private fun BinderyDetailHero(
 	val description = catalog.description?.trim()?.takeIf { it.isNotEmpty() }
 	val coverAspectRatio = binderyDetailPlaceholderAspectRatio(kind)
 	val coverWidth = binderyDetailCoverWidthDp(kind).dp
+	val action = catalog.primaryAction()
 	var descriptionHasOverflow by rememberSaveable(catalog.identifier, catalog.title, description) {
 		mutableStateOf(false)
 	}
@@ -487,6 +530,13 @@ private fun BinderyDetailHero(
 					}
 				}
 			}
+			if (action != null) {
+				BinderyActionButton(
+					action = action,
+					loading = action.link.href in actionInFlight,
+					onAction = onAction
+				)
+			}
 		}
 	}
 }
@@ -498,8 +548,11 @@ private fun BinderyPublicationGridItem(
 	kind: BinderyDetailKind,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
-	onOpenBook: (BinderyPublication) -> Unit
+	actionInFlight: Set<String>,
+	onOpenBook: (BinderyPublication) -> Unit,
+	onAction: (BinderyLink) -> Unit
 ) {
+	val action = publication.primaryAction()
 	ArtGridItem(
 		modifier = modifier.alpha(publication.availability.availabilityAlpha()),
 		onClick = { onOpenBook(publication) },
@@ -511,6 +564,20 @@ private fun BinderyPublicationGridItem(
 		ownershipStatus = publication.availability.toOwnershipStatus(),
 		coverAspectRatio = 2f / 3f,
 		coverContentScale = ContentScale.Fit,
+		coverOverlay = if (action != null) {
+			{
+				BinderyCardActionButton(
+					action = action,
+					loading = action.link.href in actionInFlight,
+					onAction = onAction,
+					modifier = Modifier
+						.align(Alignment.BottomEnd)
+						.padding(8.dp)
+				)
+			}
+		} else {
+			null
+		},
 		fallbackKind = "Book",
 		id = publication.id ?: publication.title,
 		tab = "bindery-detail"

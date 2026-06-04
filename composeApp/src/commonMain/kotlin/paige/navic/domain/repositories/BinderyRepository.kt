@@ -7,6 +7,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -146,6 +147,11 @@ class BinderyRepository(
 			apiClient.fetchBookResources(baseUrl, headers, bookId)
 		}
 
+	suspend fun performAction(path: String): Result<Unit> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.performAction(baseUrl, headers, path)
+		}
+
 	private suspend fun <T> withConfiguredClient(
 		action: suspend (baseUrl: String, headers: Map<String, String>) -> T
 	): Result<T> {
@@ -196,6 +202,12 @@ interface BinderyApiClient {
 		requestHeaders: Map<String, String>,
 		bookId: String
 	): BinderyResourceCatalog
+
+	suspend fun performAction(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	)
 }
 
 private class KtorBinderyApiClient : BinderyApiClient {
@@ -263,6 +275,22 @@ private class KtorBinderyApiClient : BinderyApiClient {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS resources", response.status))
 		}
 		return response.body<BinderyResourceCatalogDto>().toResourceCatalog()
+	}
+
+	override suspend fun performAction(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	) {
+		val safePath = path.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery action path is required.")
+		val response = client.post(binderyEndpoint(baseUrl, safePath)) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS action", response.status))
+		}
 	}
 }
 
