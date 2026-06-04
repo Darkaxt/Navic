@@ -255,6 +255,8 @@ fun ArtistsScreenItem(
 			},
 			onLongClick = onSelect,
 			coverArtId = artist.coverArtId,
+			imageUrl = artist.artistImageUrl,
+			imageDiagnosticLabel = "artist-list-${artist.id}",
 			title = artist.name,
 			subtitle = pluralStringResource(
 				Res.plurals.count_albums,

@@ -3,6 +3,7 @@ package paige.navic.ui.screens.library
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 
 @Immutable
 data class MostPlayedShortcutArtistArtwork(
@@ -37,18 +38,46 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 	shortcuts: List<DomainMostPlayedShortcut>,
 	artists: List<MostPlayedShortcutArtistArtwork>,
 	albums: List<MostPlayedShortcutAlbumArtwork>,
-	songs: List<MostPlayedShortcutSongArtwork> = emptyList()
+	songs: List<MostPlayedShortcutSongArtwork> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	aurralArtworkEnabled: Boolean = true
 ): List<DomainMostPlayedShortcut> =
 	shortcuts.map { shortcut ->
 		if (shortcut.type != PlaybackOriginType.Artist) {
 			shortcut.copy(coverArtId = shortcut.coverArtId.cleanArtworkValue())
 		} else {
+			val nativeArtistCover = artists.artistCoverArtIdFor(shortcut)
+			val trustedExternalPhoto = if (aurralArtworkEnabled) {
+				artists.trustedArtistImageUrlFor(shortcut)
+			} else {
+				null
+			}
+			val localSongCover = songs.songArtworkFor(shortcut)
+			val localAlbumCover = albums.albumArtworkFor(shortcut)
+			val localSnapshotCover = shortcut.coverArtId.cleanArtworkValue()
+				?.takeUnless { it.isAbsoluteHttpUrl() }
 			shortcut.copy(
-				coverArtId = artists.trustedArtistImageUrlFor(shortcut)
-					?: songs.songArtworkFor(shortcut)
-					?: albums.albumArtworkFor(shortcut)
-					?: artists.artistCoverArtIdFor(shortcut)
-					?: shortcut.coverArtId.cleanArtworkValue()?.takeUnless { it.isAbsoluteHttpUrl() }
+				coverArtId = when (artistArtworkPriority) {
+					ArtworkSourcePriority.AurralFirst ->
+						trustedExternalPhoto
+							?: nativeArtistCover
+							?: localSongCover
+							?: localAlbumCover
+							?: localSnapshotCover
+
+					ArtworkSourcePriority.NativeFirst ->
+						nativeArtistCover
+							?: trustedExternalPhoto
+							?: localSongCover
+							?: localAlbumCover
+							?: localSnapshotCover
+
+					ArtworkSourcePriority.NativeOnly ->
+						nativeArtistCover
+							?: localSongCover
+							?: localAlbumCover
+							?: localSnapshotCover
+				}
 			)
 		}
 	}
@@ -81,9 +110,11 @@ fun mostPlayedArtistArtworkForShortcut(
 private fun List<MostPlayedShortcutArtistArtwork>.artistCoverArtIdFor(
 	shortcut: DomainMostPlayedShortcut
 ): String? =
-	firstOrNull { artist ->
-		artist.matches(shortcut)
-	}?.coverArtId.cleanArtworkValue()
+	firstNotNullOfOrNull { artist ->
+		artist.coverArtId.cleanArtworkValue()
+			?.takeUnless { it.isAbsoluteHttpUrl() }
+			?.takeIf { artist.matches(shortcut) }
+	}
 
 private fun List<MostPlayedShortcutAlbumArtwork>.albumArtworkFor(
 	shortcut: DomainMostPlayedShortcut

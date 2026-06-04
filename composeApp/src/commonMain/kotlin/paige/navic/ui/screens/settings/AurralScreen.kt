@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_refresh
 import navic.composeapp.generated.resources.action_test_connection
@@ -69,7 +70,11 @@ import navic.composeapp.generated.resources.option_aurral_shared_playlists
 import navic.composeapp.generated.resources.option_aurral_user
 import navic.composeapp.generated.resources.option_aurral_username
 import navic.composeapp.generated.resources.option_aurral_version
+import navic.composeapp.generated.resources.option_artist_artwork_priority
+import navic.composeapp.generated.resources.option_cover_artwork_priority
 import navic.composeapp.generated.resources.subtitle_aurral_enabled
+import navic.composeapp.generated.resources.subtitle_artist_artwork_priority
+import navic.composeapp.generated.resources.subtitle_cover_artwork_priority
 import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_aurral_acquisition_queue
 import navic.composeapp.generated.resources.title_aurral_service_status
@@ -79,6 +84,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralConnectionResult
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
@@ -93,6 +99,7 @@ import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.ui.screens.settings.viewmodels.SettingsAurralViewModel
 
@@ -151,6 +158,22 @@ fun SettingsAurralScreen() {
 							viewModel.clearConnectionResult()
 							viewModel.clearServiceStatus()
 						}
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_artist_artwork_priority)) },
+						items = ArtworkSourcePriority.entries.toImmutableList(),
+						label = { priority -> stringResource(priority.displayName) },
+						description = stringResource(Res.string.subtitle_artist_artwork_priority),
+						selection = preferenceManager.artistArtworkPriority,
+						onSelect = { priority -> preferenceManager.artistArtworkPriority = priority }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_cover_artwork_priority)) },
+						items = ArtworkSourcePriority.entries.toImmutableList(),
+						label = { priority -> stringResource(priority.displayName) },
+						description = stringResource(Res.string.subtitle_cover_artwork_priority),
+						selection = preferenceManager.coverArtworkPriority,
+						onSelect = { priority -> preferenceManager.coverArtworkPriority = priority }
 					)
 					AnimatedVisibility(
 						visible = preferenceManager.aurralEnabled,

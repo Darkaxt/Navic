@@ -1336,6 +1336,28 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			value = preferenceManager.aurralEnabled,
 			onSetValue = { preferenceManager.aurralEnabled = it }
 		))
+		add(selectionRow(
+			id = "aurral.artist-artwork-priority",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_artist_artwork_priority),
+			subtitle = stringResource(Res.string.subtitle_artist_artwork_priority),
+			keywords = listOf("Aurral", "artist", "photo", "cover", "artwork"),
+			items = ArtworkSourcePriority.entries,
+			label = { stringResource(it.displayName) },
+			selection = preferenceManager.artistArtworkPriority,
+			onSelect = { preferenceManager.artistArtworkPriority = it }
+		))
+		add(selectionRow(
+			id = "aurral.cover-artwork-priority",
+			path = path(integrations, aurral),
+			title = stringResource(Res.string.option_cover_artwork_priority),
+			subtitle = stringResource(Res.string.subtitle_cover_artwork_priority),
+			keywords = listOf("Aurral", "album", "track", "cover", "artwork"),
+			items = ArtworkSourcePriority.entries,
+			label = { stringResource(it.displayName) },
+			selection = preferenceManager.coverArtworkPriority,
+			onSelect = { preferenceManager.coverArtworkPriority = it }
+		))
 		add(switchRow(
 			id = "lastfm.enabled",
 			path = path(integrations, lastFm),

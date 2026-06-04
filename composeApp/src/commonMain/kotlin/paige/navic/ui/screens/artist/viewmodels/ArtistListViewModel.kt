@@ -8,23 +8,30 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.core.UiState
 
 class ArtistListViewModel(
 	initialListType: DomainArtistListType = DomainArtistListType.AlphabeticalByName,
 	private val repository: ArtistRepository,
 	private val albumDao: AlbumDao,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _artistsState =
 		MutableStateFlow<UiState<ImmutableList<DomainArtist>>>(UiState.Loading())
@@ -55,9 +62,27 @@ class ArtistListViewModel(
 
 	fun refreshArtists(fullRefresh: Boolean) {
 		viewModelScope.launch {
-			repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value).collect {
-				_artistsState.value = it
-			}
+			repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value)
+				.combine(artistPhotoCacheDao.observeArtistPhotoCache()) { state, cachedPhotos ->
+					val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+					when (state) {
+						is UiState.Loading -> UiState.Loading(
+							state.data?.withCachedArtistPhotos(entries)?.toImmutableList()
+						)
+
+						is UiState.Success -> UiState.Success(
+							state.data.withCachedArtistPhotos(entries).toImmutableList()
+						)
+
+						is UiState.Error -> UiState.Error(
+							error = state.error,
+							data = state.data?.withCachedArtistPhotos(entries)?.toImmutableList()
+						)
+					}
+				}
+				.collect {
+					_artistsState.value = it
+				}
 		}
 	}
 
@@ -124,4 +149,18 @@ class ArtistListViewModel(
 	fun clearError() {
 		_artistsState.value = UiState.Success(_artistsState.value.data ?: persistentListOf())
 	}
+
+	private fun List<DomainArtist>.withCachedArtistPhotos(
+		entries: List<paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry>
+	): List<DomainArtist> =
+		map { artist ->
+			artist.copy(
+				artistImageUrl = artistDetailCachedImageUrl(
+					artist = artist,
+					entries = entries,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			)
+		}
 }

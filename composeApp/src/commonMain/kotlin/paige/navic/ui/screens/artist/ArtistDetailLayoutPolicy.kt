@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 
@@ -19,11 +20,19 @@ fun artistTopSongsGridHeightDp(songCount: Int): Int =
 
 fun artistDetailHeadingImageUrl(
 	artist: DomainArtist,
-	verifiedExternalImageUrl: String? = null
+	verifiedExternalImageUrl: String? = null,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): String? {
 	val verifiedImageUrl = verifiedExternalImageUrl?.trim()?.takeIf { it.isNotEmpty() }
-	if (verifiedImageUrl != null) return verifiedImageUrl
-	return artist.artistImageUrl?.trim()?.takeIf { it.isNotEmpty() }
+	if (!externalArtworkEnabled || verifiedImageUrl == null) return null
+	return when (artistArtworkPriority) {
+		ArtworkSourcePriority.AurralFirst -> verifiedImageUrl
+		ArtworkSourcePriority.NativeFirst ->
+			verifiedImageUrl.takeIf { artist.coverArtId.isNullOrBlank() }
+
+		ArtworkSourcePriority.NativeOnly -> null
+	}
 }
 
 @Immutable
@@ -37,11 +46,16 @@ data class ArtistHeaderImageCacheEntry(
 
 fun artistDetailCachedImageUrl(
 	artist: DomainArtist,
-	entries: List<ArtistHeaderImageCacheEntry>
-): String? =
-	entries.firstOrNull { entry ->
+	entries: List<ArtistHeaderImageCacheEntry>,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): String? {
+	if (!externalArtworkEnabled || artistArtworkPriority == ArtworkSourcePriority.NativeOnly) return null
+	if (artistArtworkPriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
+	return entries.firstOrNull { entry ->
 		entry.imageUrl.isAbsoluteHttpUrl() && entry.matches(artist)
 	}?.imageUrl?.trim()
+}
 
 fun ArtistPhotoCacheEntity.toArtistHeaderImageCacheEntry(): ArtistHeaderImageCacheEntry =
 	ArtistHeaderImageCacheEntry(
@@ -85,10 +99,16 @@ fun artistDetailPhotoCacheEntity(
 	)
 }
 
-fun artistDetailPlaybackOrigin(state: ArtistState): PlaybackOrigin {
+fun artistDetailPlaybackOrigin(
+	state: ArtistState,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): PlaybackOrigin {
 	val resolvedArtwork = artistDetailHeadingImageUrl(
 		artist = state.artist,
-		verifiedExternalImageUrl = state.aurralArtistImageUrl
+		verifiedExternalImageUrl = state.aurralArtistImageUrl,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
 	)
 	return state.artist.toPlaybackOrigin().copy(
 		coverArtId = resolvedArtwork ?: state.artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }

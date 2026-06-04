@@ -216,7 +216,9 @@ class ArtistDetailViewModel(
 					.map { entry -> entry.toArtistHeaderImageCacheEntry() }
 				val cachedArtistImageUrl = artistDetailCachedImageUrl(
 					artist = domainArtist,
-					entries = artistPhotoCacheEntries
+					entries = artistPhotoCacheEntries,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)
 
 				_starred.value = artistRepository.isArtistStarred(domainArtist)
@@ -247,7 +249,9 @@ class ArtistDetailViewModel(
 							val cachedUpdatedArtistImageUrl =
 								currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
 									artist = updatedArtist,
-									entries = artistPhotoCacheEntries
+									entries = artistPhotoCacheEntries,
+									artistArtworkPriority = preferenceManager.artistArtworkPriority,
+									externalArtworkEnabled = preferenceManager.aurralEnabled
 								)
 
 							_artistState.value = UiState.Success(
@@ -795,7 +799,13 @@ class ArtistDetailViewModel(
 	fun playArtistAlbums(player: MediaPlayerViewModel) {
 		(_artistState.value as? UiState.Success)?.data?.let { state ->
 			player.clearQueue()
-			player.setPlaybackOrigin(artistDetailPlaybackOrigin(state))
+			player.setPlaybackOrigin(
+				artistDetailPlaybackOrigin(
+					state = state,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			)
 			state.albums.forEach { album ->
 				player.addToQueue(album)
 			}
@@ -808,7 +818,13 @@ class ArtistDetailViewModel(
 			val songs = state.albums.flatMap { it.songs }.shuffled()
 			if (songs.isEmpty()) return
 			player.clearQueue()
-			player.setPlaybackOrigin(artistDetailPlaybackOrigin(state))
+			player.setPlaybackOrigin(
+				artistDetailPlaybackOrigin(
+					state = state,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			)
 			songs.forEach { song ->
 				player.addToQueueSingle(song)
 			}

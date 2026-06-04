@@ -6,6 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 
 class ArtistDetailLayoutPolicyTest {
 	@Test
@@ -18,15 +19,14 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
-	fun headingUsesVerifiedExternalImageBeforePotentiallyStaleServerCover() {
-		assertEquals(
-			"https://assets.example.com/bond.jpg",
+	fun headingOnlyUsesVerifiedExternalImageUrl() {
+		assertNull(
 			artistDetailHeadingImageUrl(
 				DomainArtist(
 					id = "bond",
 					name = "BOND",
 					coverArtId = null,
-					artistImageUrl = " https://assets.example.com/bond.jpg "
+					artistImageUrl = " https://navidrome.example.com/protected/bond.jpg?token=expired "
 				)
 			)
 		)
@@ -51,7 +51,20 @@ class ArtistDetailLayoutPolicyTest {
 					coverArtId = "server-cover",
 					artistImageUrl = "https://assets.example.com/bond.jpg"
 				),
-				verifiedExternalImageUrl = "https://aurral.example.com/bond.webp"
+				verifiedExternalImageUrl = "https://aurral.example.com/bond.webp",
+				artistArtworkPriority = ArtworkSourcePriority.AurralFirst
+			)
+		)
+		assertNull(
+			artistDetailHeadingImageUrl(
+				artist = DomainArtist(
+					id = "bond",
+					name = "BOND",
+					coverArtId = "server-cover",
+					artistImageUrl = "https://assets.example.com/bond.jpg"
+				),
+				verifiedExternalImageUrl = "https://aurral.example.com/bond.webp",
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst
 			)
 		)
 	}
@@ -64,7 +77,7 @@ class ArtistDetailLayoutPolicyTest {
 				artist = DomainArtist(
 					id = "local-iu",
 					name = "IU",
-					coverArtId = "server-fallback",
+					coverArtId = null,
 					artistImageUrl = null
 				),
 				entries = listOf(
@@ -88,7 +101,7 @@ class ArtistDetailLayoutPolicyTest {
 				artist = DomainArtist(
 					id = "new-local-id",
 					name = "Lindsey   Stirling",
-					coverArtId = "server-fallback",
+					coverArtId = null,
 					artistImageUrl = null
 				),
 				entries = listOf(
@@ -100,6 +113,80 @@ class ArtistDetailLayoutPolicyTest {
 						imageUrl = "https://aurral.example.com/lindsey.webp"
 					)
 				)
+			)
+		)
+	}
+
+	@Test
+	fun headingCanUsePersistentArtistPhotoCacheBeforeNativeCoverWhenAurralIsFirst() {
+		assertEquals(
+			"https://aurral.example.com/iu.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = "ar-local-iu",
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/iu.webp"
+					)
+				),
+				artistArtworkPriority = ArtworkSourcePriority.AurralFirst
+			)
+		)
+	}
+
+	@Test
+	fun headingSkipsPersistentArtistPhotoCacheWhenNativeCoverArtExistsAndNativeIsFirst() {
+		assertNull(
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = "ar-local-iu",
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/iu.webp"
+					)
+				),
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst
+			)
+		)
+	}
+
+	@Test
+	fun headingSkipsPersistentArtistPhotoCacheWhenExternalArtworkIsDisabled() {
+		assertNull(
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/iu.webp"
+					)
+				),
+				artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+				externalArtworkEnabled = false
 			)
 		)
 	}

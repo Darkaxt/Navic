@@ -4,6 +4,7 @@ import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.AnimationStyle
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.settings.BottomBarProfile
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -65,6 +66,8 @@ class PreferenceManager(
 	var gridSize by preference(GridSize.TwoByTwo)
 	var coverArtShape by preference(CoverArtShape.Soft)
 	var coverArtQuality by preference(CoverArtQuality.High)
+	var artistArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
+	var coverArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
 	private val integrationEnabledListeners = mutableMapOf<IntegrationService, MutableSet<(Boolean) -> Unit>>()
 	private var musicBrainzArtworkFallbackEnabledPreference by preference("musicBrainzArtworkFallbackEnabled", false)
 	var musicBrainzArtworkFallbackEnabled: Boolean

@@ -223,6 +223,8 @@
 	<string name="subtitle_lida_clips_keep_screen_on">Keep the display awake while a music video clip is open</string>
 	<string name="subtitle_lida_clips_sync_paused">Tell the LidaClips backend to pause scheduled clip syncs</string>
 	<string name="subtitle_aurral_enabled">Show native Aurral diagnostics now. Artist discovery, acquisition, and Flow playback will use this connection.</string>
+	<string name="subtitle_artist_artwork_priority">Choose whether verified Aurral artist photos or Navidrome artist covers win when both are cached.</string>
+	<string name="subtitle_cover_artwork_priority">Choose the preferred cover source for enriched album and track surfaces when multiple cached sources exist.</string>
 	<string name="info_aurral_monitor_status_pending">Checking Aurral monitor status</string>
 	<string name="info_aurral_monitor_confirmation_pending">Waiting for Aurral confirmation</string>
 
@@ -296,6 +298,11 @@
 	<string name="option_tap_artwork_for_lyrics">Tap artwork for lyrics</string>
 	<string name="option_artwork_shape">Artwork shape</string>
 	<string name="option_cover_art_size">Cover artwork size</string>
+	<string name="option_artist_artwork_priority">Artist artwork source</string>
+	<string name="option_cover_artwork_priority">Cover artwork source</string>
+	<string name="option_artwork_source_aurral_first">Aurral first</string>
+	<string name="option_artwork_source_native_first">Native first</string>
+	<string name="option_artwork_source_native_only">Native only</string>
 	<string name="option_use_marquee_text">Text auto-scroll speed</string>
 	<string name="option_alphabetical_scroll">Alphabetical scrolling</string>
 	<string name="option_grid_items_per_row">Grid size</string>

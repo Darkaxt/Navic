@@ -292,7 +292,9 @@ fun ArtistDetailScreen(
 					}
 					val headingImageUrl = artistDetailHeadingImageUrl(
 						artist = state.artist,
-						verifiedExternalImageUrl = state.aurralArtistImageUrl
+						verifiedExternalImageUrl = state.aurralArtistImageUrl,
+						artistArtworkPriority = preferenceManager.artistArtworkPriority,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
 					)
 					val headingImageRequestHeaders = if (
 						headingImageUrl != null &&

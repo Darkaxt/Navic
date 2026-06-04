@@ -14,8 +14,10 @@ import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.dao.SongDao
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
@@ -28,7 +30,8 @@ class MostPlayedShortcutsViewModel(
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val albumDao: AlbumDao,
 	private val songDao: SongDao,
-	private val aurralRepository: AurralRepository
+	private val aurralRepository: AurralRepository,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _shortcutsState =
 		MutableStateFlow<UiState<ImmutableList<DomainMostPlayedShortcut>>>(UiState.Loading())
@@ -106,7 +109,9 @@ class MostPlayedShortcutsViewModel(
 							title = song.title,
 							playCount = song.playCount
 						)
-					}
+					},
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					aurralArtworkEnabled = preferenceManager.aurralEnabled
 				).toImmutableList()
 			}
 				.catch { error ->
@@ -131,6 +136,17 @@ class MostPlayedShortcutsViewModel(
 		this as? Exception ?: Exception(this)
 
 	private fun hydrateAurralArtistPhotos(shortcuts: List<DomainMostPlayedShortcut>) {
+		if (
+			!preferenceManager.aurralEnabled ||
+			preferenceManager.artistArtworkPriority == ArtworkSourcePriority.NativeOnly
+		) {
+			Logger.i(
+				MOST_PLAYED_ARTWORK_TAG,
+				"hydrate disabled aurralEnabled=${preferenceManager.aurralEnabled} " +
+					"artistArtworkPriority=${preferenceManager.artistArtworkPriority}"
+			)
+			return
+		}
 		val targets = mutableListOf<DomainMostPlayedShortcut>()
 		shortcuts
 			.filter { shortcut -> shortcut.type == PlaybackOriginType.Artist }

@@ -6,6 +6,7 @@ import kotlin.test.assertNull
 import kotlin.time.Instant
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.ui.screens.library.components.mostPlayedShortcutArtwork
 
 class MostPlayedShortcutArtworkPolicyTest {
@@ -23,6 +24,101 @@ class MostPlayedShortcutArtworkPolicyTest {
 
 		assertEquals("cover-123", artwork.coverArtId)
 		assertNull(artwork.imageUrl)
+	}
+
+	@Test
+	fun artistShortcutsPreferCachedExternalPhotoWhenAurralIsFirst() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "aurral-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "https://tadb.example.com/iu.webp",
+					trustedExternalPhoto = true
+				),
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = "ar-iu-native",
+					artistImageUrl = "https://navidrome.example.com/protected/iu.jpg?token=expired"
+				)
+			),
+			albums = listOf(
+				MostPlayedShortcutAlbumArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-album-cover",
+					year = 2021,
+					name = "IU Album"
+				)
+			),
+			artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+			aurralArtworkEnabled = true
+		).single()
+
+		assertEquals("https://tadb.example.com/iu.webp", resolved.coverArtId)
+	}
+
+	@Test
+	fun artistShortcutsPreferNativeArtistCoverWhenNativeIsFirst() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "aurral-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "https://tadb.example.com/iu.webp",
+					trustedExternalPhoto = true
+				),
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = "ar-iu-native",
+					artistImageUrl = "https://navidrome.example.com/protected/iu.jpg?token=expired"
+				)
+			),
+			albums = emptyList(),
+			artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
+			aurralArtworkEnabled = true
+		).single()
+
+		assertEquals("ar-iu-native", resolved.coverArtId)
+	}
+
+	@Test
+	fun artistShortcutsIgnoreCachedExternalPhotoWhenAurralArtworkIsDisabled() {
+		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "aurral-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "https://tadb.example.com/iu.webp",
+					trustedExternalPhoto = true
+				),
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = "ar-iu-native",
+					artistImageUrl = null
+				)
+			),
+			albums = emptyList(),
+			artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+			aurralArtworkEnabled = false
+		).single()
+
+		assertEquals("ar-iu-native", resolved.coverArtId)
 	}
 
 	@Test
@@ -197,7 +293,7 @@ class MostPlayedShortcutArtworkPolicyTest {
 	}
 
 	@Test
-	fun artistShortcutsDoNotLetStaleServerArtistSnapshotsBlockAlbumFallback() {
+	fun artistShortcutsPreferNativeArtistCoverOverAlbumFallback() {
 		val shortcut = mostPlayedArtistShortcut(coverArtId = "artist-cover-that-falls-back")
 
 		val resolved = mostPlayedShortcutsWithResolvedArtwork(
@@ -222,7 +318,7 @@ class MostPlayedShortcutArtworkPolicyTest {
 			songs = emptyList()
 		).single()
 
-		assertEquals("iu-album-cover", resolved.coverArtId)
+		assertEquals("artist-cover-that-falls-back", resolved.coverArtId)
 	}
 
 	@Test
