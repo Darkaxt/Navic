@@ -1,0 +1,41 @@
+package paige.navic.ui.screens.library
+
+import paige.navic.domain.models.DomainMostPlayedShortcut
+import paige.navic.domain.models.PlaybackOriginType
+
+fun mostPlayedShortcutsWithResolvedLocalArtists(
+	shortcuts: List<DomainMostPlayedShortcut>,
+	artists: List<MostPlayedShortcutArtistArtwork>
+): List<DomainMostPlayedShortcut> =
+	shortcuts.mapNotNull { shortcut ->
+		if (shortcut.type != PlaybackOriginType.Artist) {
+			shortcut
+		} else {
+			artists.firstOrNull { artist -> artist.matchesShortcutEntity(shortcut) }
+				?.let { artist ->
+					shortcut.copy(
+						id = artist.id,
+						title = artist.name
+					)
+				}
+		}
+	}
+
+private fun MostPlayedShortcutArtistArtwork.matchesShortcutEntity(
+	shortcut: DomainMostPlayedShortcut
+): Boolean =
+	id.normalizedShortcutEntityKey()?.let { it == shortcut.id.normalizedShortcutEntityKey() } == true ||
+		name.normalizedShortcutEntityName()?.let { it == shortcut.title.normalizedShortcutEntityName() } == true
+
+private fun String?.normalizedShortcutEntityKey(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedShortcutEntityName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
