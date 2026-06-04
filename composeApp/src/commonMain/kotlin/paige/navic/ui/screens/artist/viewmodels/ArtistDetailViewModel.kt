@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainAlbum
@@ -52,12 +53,16 @@ import paige.navic.util.core.Logger
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.artist.artistDetailPlaybackOrigin
+import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
+import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 import paige.navic.ui.screens.aurral.shouldLoadAurralUi
+import kotlin.time.Clock
 
 @Immutable
 data class ArtistState(
@@ -100,6 +105,7 @@ class ArtistDetailViewModel(
 	playlistRepository: PlaylistRepository,
 	private val artistDao: ArtistDao,
 	private val albumDao: AlbumDao,
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
@@ -206,6 +212,12 @@ class ArtistDetailViewModel(
 				val initialSimilarArtists = domainArtist.similarArtistIds.mapNotNull { id ->
 					artistDao.getArtistById(id)?.toDomainModel()
 				}
+				val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
+					.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+				val cachedArtistImageUrl = artistDetailCachedImageUrl(
+					artist = domainArtist,
+					entries = artistPhotoCacheEntries
+				)
 
 				_starred.value = artistRepository.isArtistStarred(domainArtist)
 
@@ -214,7 +226,8 @@ class ArtistDetailViewModel(
 						artist = domainArtist,
 						albums = domainAlbums,
 						topSongs = domainSongs,
-						similarArtists = initialSimilarArtists
+						similarArtists = initialSimilarArtists,
+						aurralArtistImageUrl = cachedArtistImageUrl
 					)
 				)
 				loadLastFmTopTracks(domainArtist, allArtistSongs)
@@ -230,12 +243,18 @@ class ArtistDetailViewModel(
 							val updatedSimilarArtists =
 								updatedArtist.similarArtistIds.mapNotNull { id ->
 									artistDao.getArtistById(id)?.toDomainModel()
-								}
+							}
+							val cachedUpdatedArtistImageUrl =
+								currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
+									artist = updatedArtist,
+									entries = artistPhotoCacheEntries
+								)
 
 							_artistState.value = UiState.Success(
 								currentState.copy(
 									artist = updatedArtist,
-									similarArtists = updatedSimilarArtists
+									similarArtists = updatedSimilarArtists,
+									aurralArtistImageUrl = cachedUpdatedArtistImageUrl
 								)
 							)
 							loadLastFmTopTracks(
@@ -452,6 +471,11 @@ class ArtistDetailViewModel(
 					}
 					.orEmpty()
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+				persistArtistPhotoCache(
+					localArtist = latestState.artist,
+					sourceArtist = aurralArtist,
+					imageUrl = verifiedAurralArtistImageUrl
+				)
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralMissingAlbums = missingAlbumRows,
@@ -483,11 +507,26 @@ class ArtistDetailViewModel(
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralLoading = false,
-						aurralError = error.message ?: error::class.simpleName
+						aurralError = null
 					)
 				)
 			}
 		}
+	}
+
+	private suspend fun persistArtistPhotoCache(
+		localArtist: DomainArtist,
+		sourceArtist: DomainArtist,
+		imageUrl: String?
+	) {
+		val resolvedImageUrl = imageUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return
+		val cacheEntry = artistDetailPhotoCacheEntity(
+			localArtist = localArtist,
+			sourceArtist = sourceArtist,
+			imageUrl = resolvedImageUrl,
+			nowMillis = Clock.System.now().toEpochMilliseconds()
+		) ?: return
+		artistPhotoCacheDao.upsertArtistPhotoCacheEntries(listOf(cacheEntry))
 	}
 
 	fun refreshAurralEnrichment() {

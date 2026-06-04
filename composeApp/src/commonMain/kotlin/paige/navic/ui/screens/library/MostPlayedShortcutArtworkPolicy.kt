@@ -9,7 +9,8 @@ data class MostPlayedShortcutArtistArtwork(
 	val id: String,
 	val name: String,
 	val coverArtId: String?,
-	val artistImageUrl: String?
+	val artistImageUrl: String?,
+	val trustedExternalPhoto: Boolean = false
 )
 
 @Immutable
@@ -43,12 +44,11 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 			shortcut.copy(coverArtId = shortcut.coverArtId.cleanArtworkValue())
 		} else {
 			shortcut.copy(
-				coverArtId = shortcut.coverArtId.cleanArtworkValue()?.takeIf { it.isAbsoluteHttpUrl() }
-					?: artists.artistImageUrlFor(shortcut)
+				coverArtId = artists.trustedArtistImageUrlFor(shortcut)
 					?: songs.songArtworkFor(shortcut)
 					?: albums.albumArtworkFor(shortcut)
 					?: artists.artistCoverArtIdFor(shortcut)
-					?: shortcut.coverArtId.cleanArtworkValue()
+					?: shortcut.coverArtId.cleanArtworkValue()?.takeUnless { it.isAbsoluteHttpUrl() }
 			)
 		}
 	}
@@ -56,12 +56,16 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 private fun DomainMostPlayedShortcut.normalizedArtistId(): String? =
 	id.normalizedArtworkMatchKey()
 
-private fun List<MostPlayedShortcutArtistArtwork>.artistImageUrlFor(
+private fun List<MostPlayedShortcutArtistArtwork>.trustedArtistImageUrlFor(
 	shortcut: DomainMostPlayedShortcut
 ): String? =
 	firstNotNullOfOrNull { artist ->
 		artist.artistImageUrl.cleanArtworkValue()
-			?.takeIf { it.isAbsoluteHttpUrl() && artist.matches(shortcut) }
+			?.takeIf {
+				artist.trustedExternalPhoto &&
+					it.isAbsoluteHttpUrl() &&
+					artist.matches(shortcut)
+			}
 	}
 
 fun mostPlayedArtistArtworkForShortcut(
@@ -69,6 +73,7 @@ fun mostPlayedArtistArtworkForShortcut(
 	candidates: List<MostPlayedShortcutArtistArtwork>
 ): MostPlayedShortcutArtistArtwork? =
 	candidates.firstOrNull { artist ->
+		artist.trustedExternalPhoto &&
 		artist.artistImageUrl.cleanArtworkValue()?.isAbsoluteHttpUrl() == true &&
 			artist.matches(shortcut)
 	}

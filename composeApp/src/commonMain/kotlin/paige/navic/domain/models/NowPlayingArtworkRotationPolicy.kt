@@ -15,6 +15,11 @@ enum class NowPlayingFallbackLabelStyle {
 	Arc
 }
 
+data class NowPlayingTechnicalInfoPlacement(
+	val bottomPaddingDp: Int,
+	val verticalOffsetDp: Int
+)
+
 fun shouldRotateNowPlayingArtwork(
 	enabled: Boolean,
 	isPaused: Boolean,
@@ -36,3 +41,16 @@ fun shouldUseTurnTableWidgetVinylArtwork(hasCoverArt: Boolean): Boolean = hasCov
 
 fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =
 	if (isRotatingArtwork) NowPlayingFallbackLabelStyle.Arc else NowPlayingFallbackLabelStyle.Center
+
+fun nowPlayingTechnicalInfoPlacement(
+	isLandscape: Boolean,
+	isVinylArtwork: Boolean
+): NowPlayingTechnicalInfoPlacement =
+	NowPlayingTechnicalInfoPlacement(
+		bottomPaddingDp = if (isLandscape) 16 else 8,
+		verticalOffsetDp = when {
+			!isVinylArtwork -> 0
+			isLandscape -> 14
+			else -> 28
+		}
+	)

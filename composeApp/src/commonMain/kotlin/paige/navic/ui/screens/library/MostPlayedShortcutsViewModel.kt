@@ -60,7 +60,8 @@ class MostPlayedShortcutsViewModel(
 						id = artist.artistId,
 						name = artist.name,
 						coverArtId = artist.coverArtId,
-						artistImageUrl = artist.artistImageUrl
+						artistImageUrl = artist.artistImageUrl,
+						trustedExternalPhoto = false
 					)
 				}
 				val resolvedShortcuts = mostPlayedShortcutsWithResolvedLocalArtists(
@@ -85,7 +86,7 @@ class MostPlayedShortcutsViewModel(
 				)
 				mostPlayedShortcutsWithResolvedArtwork(
 					shortcuts = resolvedShortcuts,
-					artists = localArtistArtwork + cachedArtistArtwork + aurralArtists,
+					artists = cachedArtistArtwork + aurralArtists + localArtistArtwork,
 					albums = albums.map { album ->
 						MostPlayedShortcutAlbumArtwork(
 							artistId = album.artistId,
@@ -136,15 +137,6 @@ class MostPlayedShortcutsViewModel(
 			.forEach { shortcut ->
 				val key = shortcut.artistPhotoLookupKey()
 				when {
-					shortcut.coverArtId.isAbsoluteHttpUrl() -> {
-						Logger.i(
-							MOST_PLAYED_ARTWORK_TAG,
-							"hydrate skip reason=already-absolute id=${mostPlayedDiagnosticText(shortcut.id)} " +
-								"title=${mostPlayedDiagnosticText(shortcut.title)} " +
-								"cover=${mostPlayedDiagnosticUrlSummary(shortcut.coverArtId)}"
-						)
-					}
-
 					aurralArtistArtwork.value.any { artist -> artist.matchesShortcut(shortcut) } -> {
 						Logger.i(
 							MOST_PLAYED_ARTWORK_TAG,
@@ -199,7 +191,8 @@ class MostPlayedShortcutsViewModel(
 							id = artist.id,
 							name = artist.name,
 							coverArtId = null,
-							artistImageUrl = artist.imageUrl
+							artistImageUrl = artist.imageUrl,
+							trustedExternalPhoto = true
 						)
 					}
 				Logger.i(

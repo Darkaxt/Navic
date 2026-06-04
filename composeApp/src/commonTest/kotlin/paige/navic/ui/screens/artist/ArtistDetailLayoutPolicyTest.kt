@@ -57,6 +57,96 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
+	fun headingCanUsePersistentArtistPhotoCacheByLocalArtistId() {
+		assertEquals(
+			"https://aurral.example.com/iu.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = "server-fallback",
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "아이유",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/iu.webp"
+					)
+				)
+			)
+		)
+	}
+
+	@Test
+	fun headingCanUsePersistentArtistPhotoCacheByNormalizedNameAfterIdChange() {
+		assertEquals(
+			"https://aurral.example.com/lindsey.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "new-local-id",
+					name = "Lindsey   Stirling",
+					coverArtId = "server-fallback",
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "old-local-id",
+						sourceArtistId = "source-lindsey",
+						name = "Lindsey Stirling",
+						normalizedName = "lindsey stirling",
+						imageUrl = "https://aurral.example.com/lindsey.webp"
+					)
+				)
+			)
+		)
+	}
+
+	@Test
+	fun headingIgnoresNonHttpArtistPhotoCacheUrls() {
+		assertNull(
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(id = "local-iu", name = "IU"),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = null,
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "/artist/iu.webp"
+					)
+				)
+			)
+		)
+	}
+
+	@Test
+	fun headingCreatesPersistentArtistPhotoCacheFromVerifiedExternalImage() {
+		val entity = artistDetailPhotoCacheEntity(
+			localArtist = DomainArtist(
+				id = "local-iu",
+				name = "IU",
+				musicBrainzId = "mbid-iu"
+			),
+			sourceArtist = DomainArtist(
+				id = "local-iu",
+				name = "아이유",
+				musicBrainzId = "mbid-iu"
+			),
+			imageUrl = " https://aurral.example.com/iu.webp ",
+			nowMillis = 1_000L
+		)
+
+		assertEquals("artist:local-iu", entity?.cacheKey)
+		assertEquals("local-iu", entity?.artistId)
+		assertEquals("mbid-iu", entity?.sourceArtistId)
+		assertEquals("iu", entity?.normalizedName)
+		assertEquals("https://aurral.example.com/iu.webp", entity?.imageUrl)
+	}
+
+	@Test
 	fun playbackOriginUsesVerifiedArtistImageShownInHeading() {
 		val origin = artistDetailPlaybackOrigin(
 			artistStateForTransition("iu").copy(

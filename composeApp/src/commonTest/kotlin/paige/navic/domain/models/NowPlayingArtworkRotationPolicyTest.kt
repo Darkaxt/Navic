@@ -118,6 +118,36 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun technicalInfoKeepsSquareArtworkPlacement() {
+		assertEquals(
+			NowPlayingTechnicalInfoPlacement(bottomPaddingDp = 8, verticalOffsetDp = 0),
+			nowPlayingTechnicalInfoPlacement(isLandscape = false, isVinylArtwork = false)
+		)
+		assertEquals(
+			NowPlayingTechnicalInfoPlacement(bottomPaddingDp = 16, verticalOffsetDp = 0),
+			nowPlayingTechnicalInfoPlacement(isLandscape = true, isVinylArtwork = false)
+		)
+	}
+
+	@Test
+	fun technicalInfoMovesBelowVinylArtwork() {
+		val portraitPlacement = nowPlayingTechnicalInfoPlacement(
+			isLandscape = false,
+			isVinylArtwork = true
+		)
+		val landscapePlacement = nowPlayingTechnicalInfoPlacement(
+			isLandscape = true,
+			isVinylArtwork = true
+		)
+
+		assertEquals(8, portraitPlacement.bottomPaddingDp)
+		assertTrue(portraitPlacement.verticalOffsetDp > 0)
+		assertEquals(16, landscapePlacement.bottomPaddingDp)
+		assertTrue(landscapePlacement.verticalOffsetDp > 0)
+		assertTrue(portraitPlacement.verticalOffsetDp > landscapePlacement.verticalOffsetDp)
+	}
+
+	@Test
 	fun vinylOverlayGeometryKeepsCenterReadable() {
 		assertTrue(NowPlayingVinylSpindleRadiusFraction > 0f)
 		assertTrue(NowPlayingVinylLabelRadiusFraction > NowPlayingVinylSpindleRadiusFraction)

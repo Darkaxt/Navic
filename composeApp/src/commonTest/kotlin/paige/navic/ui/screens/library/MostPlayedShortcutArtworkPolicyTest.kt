@@ -102,7 +102,8 @@ class MostPlayedShortcutArtworkPolicyTest {
 					id = "aurral-iu",
 					name = "IU",
 					coverArtId = null,
-					artistImageUrl = "https://aurral.example.com/iu.webp"
+					artistImageUrl = "https://aurral.example.com/iu.webp",
+					trustedExternalPhoto = true
 				)
 			),
 			albums = emptyList(),
@@ -134,9 +135,9 @@ class MostPlayedShortcutArtworkPolicyTest {
 	}
 
 	@Test
-	fun artistShortcutsKeepVerifiedExternalSnapshotBeforeAlbumFallback() {
+	fun artistShortcutsKeepVerifiedExternalArtistPhotoBeforeAlbumFallback() {
 		val shortcut = mostPlayedArtistShortcut(
-			coverArtId = " https://aurral.example.com/iu.webp "
+			coverArtId = " https://navidrome.example.com/protected/iu.jpg?token=expired "
 		)
 
 		val resolved = mostPlayedShortcutsWithResolvedArtwork(
@@ -146,7 +147,8 @@ class MostPlayedShortcutArtworkPolicyTest {
 					id = "iu",
 					name = "IU",
 					coverArtId = null,
-					artistImageUrl = null
+					artistImageUrl = "https://aurral.example.com/iu.webp",
+					trustedExternalPhoto = true
 				)
 			),
 			albums = listOf(
@@ -161,6 +163,37 @@ class MostPlayedShortcutArtworkPolicyTest {
 		).single()
 
 		assertEquals("https://aurral.example.com/iu.webp", resolved.coverArtId)
+	}
+
+	@Test
+	fun artistShortcutsDoNotLetAbsoluteServerArtistSnapshotsBlockAlbumFallback() {
+		val shortcut = mostPlayedArtistShortcut(
+			coverArtId = " https://navidrome.example.com/protected/iu.jpg?token=expired "
+		)
+
+		val resolved = mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = listOf(shortcut),
+			artists = listOf(
+				MostPlayedShortcutArtistArtwork(
+					id = "iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = "https://navidrome.example.com/protected/iu.jpg?token=expired"
+				)
+			),
+			albums = listOf(
+				MostPlayedShortcutAlbumArtwork(
+					artistId = "iu",
+					artistName = "IU",
+					coverArtId = "iu-album-cover",
+					year = 2021,
+					name = "IU Album"
+				)
+			),
+			songs = emptyList()
+		).single()
+
+		assertEquals("iu-album-cover", resolved.coverArtId)
 	}
 
 	@Test

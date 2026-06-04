@@ -28,7 +28,8 @@ fun mostPlayedArtistPhotoCacheArtworkForShortcut(
 				?: entry.normalizedName,
 			name = entry.name,
 			coverArtId = null,
-			artistImageUrl = entry.imageUrl
+			artistImageUrl = entry.imageUrl,
+			trustedExternalPhoto = true
 		)
 	}
 }

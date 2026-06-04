@@ -12,6 +12,9 @@ interface ArtistPhotoCacheDao {
 	@Query("SELECT * FROM ArtistPhotoCacheEntity ORDER BY updatedAtMillis DESC")
 	fun observeArtistPhotoCache(): Flow<List<ArtistPhotoCacheEntity>>
 
+	@Query("SELECT * FROM ArtistPhotoCacheEntity ORDER BY updatedAtMillis DESC")
+	suspend fun getArtistPhotoCache(): List<ArtistPhotoCacheEntity>
+
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun upsertArtistPhotoCacheEntries(entries: List<ArtistPhotoCacheEntity>)
 
