@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +71,8 @@ import paige.navic.ui.screens.search.components.SearchScreenTopBar
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BinderySearchScreen(
-	nested: Boolean
+	nested: Boolean,
+	initialQuery: String = ""
 ) {
 	val viewModel = koinViewModel<BinderySearchViewModel>()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -83,6 +85,10 @@ fun BinderySearchScreen(
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	var selectedCategory by remember { mutableStateOf(BinderySearchCategory.All) }
+
+	LaunchedEffect(initialQuery) {
+		viewModel.setInitialQuery(initialQuery)
+	}
 
 	Scaffold(
 		topBar = {

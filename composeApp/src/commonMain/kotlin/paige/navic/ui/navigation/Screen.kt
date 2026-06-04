@@ -192,7 +192,8 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class Search(
 		val nested: Boolean = false,
-		val scope: SearchScope = SearchScope.Music
+		val scope: SearchScope = SearchScope.Music,
+		val initialQuery: String = ""
 	) : Screen
 
 	@Immutable

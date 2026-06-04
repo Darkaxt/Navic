@@ -13,6 +13,7 @@ import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.SearchScope
 import paige.navic.util.core.toFileSize
 import kotlin.math.roundToLong
 
@@ -99,6 +100,17 @@ fun binderySearchCatalogPath(
 
 fun binderyDiscoverAuthorsPath(query: String): String =
 	"/opds/discover/authors?q=${query.trim().encodeURLParameter()}"
+
+fun binderySubjectSearchDestination(subject: String): Screen.Search? =
+	subject.trim()
+		.takeIf { it.isNotEmpty() }
+		?.let { query ->
+			Screen.Search(
+				nested = true,
+				scope = SearchScope.Audiobooks,
+				initialQuery = query
+			)
+		}
 
 fun shouldLoadBinderyUi(
 	binderyEnabled: Boolean,

@@ -54,6 +54,8 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.repositories.BinderyLink
@@ -106,6 +108,8 @@ fun BinderyBookScreen(
 	val data = bookState.data
 	val titleText = data?.manifest?.title?.takeIf { it.isNotBlank() } ?: title
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
+	val backStack = LocalNavStack.current
+	val platformContext = LocalPlatformContext.current
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -181,7 +185,15 @@ fun BinderyBookScreen(
 							}
 							if (data.manifest.subjects.isNotEmpty()) {
 								item("bindery-book-subjects") {
-									BinderyBookSubjectSection(data.manifest.subjects)
+									BinderyBookSubjectSection(
+										subjects = data.manifest.subjects,
+										onSubjectClick = { subject ->
+											binderySubjectSearchDestination(subject)?.let { destination ->
+												platformContext.clickSound()
+												backStack.add(destination)
+											}
+										}
+									)
 								}
 							}
 							item("bindery-book-versions-title") {
@@ -274,75 +286,85 @@ private fun BinderyBookHero(
 		mutableStateOf(false)
 	}
 
-	Row(
+	Box(
 		modifier = Modifier.fillMaxWidth(),
-		horizontalArrangement = Arrangement.spacedBy(16.dp),
-		verticalAlignment = Alignment.Top
 	) {
-		CoverArt(
-			coverArtId = null,
-			imageUrl = imageHref?.let { binderyEndpoint(baseUrl, it) },
-			imageRequestHeaders = imageRequestHeaders,
-			contentDescription = manifest.title,
-			fallbackKind = "Book",
-			modifier = Modifier.width(132.dp).aspectRatio(2f / 3f),
-			square = false,
-			contentScale = ContentScale.Fit
-		)
-		Column(
-			modifier = Modifier.weight(1f),
-			verticalArrangement = Arrangement.spacedBy(8.dp)
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(16.dp),
+			verticalAlignment = Alignment.Top
 		) {
-			Text(
-				text = manifest.title,
-				style = MaterialTheme.typography.headlineSmall,
-				maxLines = 4,
-				overflow = TextOverflow.Ellipsis
+			CoverArt(
+				coverArtId = null,
+				imageUrl = imageHref?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				contentDescription = manifest.title,
+				fallbackKind = "Book",
+				modifier = Modifier.width(132.dp).aspectRatio(2f / 3f),
+				square = false,
+				contentScale = ContentScale.Fit
 			)
-			metadataText?.let {
+			Column(
+				modifier = Modifier
+					.weight(1f)
+					.padding(end = if (action != null) 48.dp else 0.dp),
+				verticalArrangement = Arrangement.spacedBy(8.dp)
+			) {
 				Text(
-					text = it,
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.primary,
-					maxLines = 3,
+					text = manifest.title,
+					style = MaterialTheme.typography.headlineSmall,
+					maxLines = 4,
 					overflow = TextOverflow.Ellipsis
 				)
-			}
-			description?.let {
-				Text(
-					text = it,
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = if (expanded) Int.MAX_VALUE else 8,
-					overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-					onTextLayout = { result ->
-						if (!expanded) {
-							descriptionHasOverflow = result.hasVisualOverflow
+				metadataText?.let {
+					Text(
+						text = it,
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.primary,
+						maxLines = 3,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+				description?.let {
+					Text(
+						text = it,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = if (expanded) Int.MAX_VALUE else 8,
+						overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+						onTextLayout = { result ->
+							if (!expanded) {
+								descriptionHasOverflow = result.hasVisualOverflow
+							}
 						}
-					}
-				)
-				if (descriptionHasOverflow || expanded) {
-					TextButton(
-						onClick = { expanded = !expanded },
-						modifier = Modifier.padding(top = 0.dp)
-					) {
-						Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+					)
+					if (descriptionHasOverflow || expanded) {
+						TextButton(
+							onClick = { expanded = !expanded },
+							modifier = Modifier.padding(top = 0.dp)
+						) {
+							Text(stringResource(if (expanded) Res.string.action_less else Res.string.action_more))
+						}
 					}
 				}
 			}
-			if (action != null) {
-				BinderyActionButton(
-					action = action,
-					loading = action.link.href in actionInFlight,
-					onAction = onAction
-				)
-			}
+		}
+		if (action != null) {
+			BinderyCardActionButton(
+				action = action,
+				loading = action.link.href in actionInFlight,
+				onAction = onAction,
+				modifier = Modifier.align(Alignment.TopEnd)
+			)
 		}
 	}
 }
 
 @Composable
-private fun BinderyBookSubjectSection(subjects: List<String>) {
+private fun BinderyBookSubjectSection(
+	subjects: List<String>,
+	onSubjectClick: (String) -> Unit
+) {
 	Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_subjects))
 		FlowRow(
@@ -351,6 +373,7 @@ private fun BinderyBookSubjectSection(subjects: List<String>) {
 		) {
 			subjects.take(12).forEach { subject ->
 				Surface(
+					onClick = { onSubjectClick(subject) },
 					shape = RoundedCornerShape(percent = 50),
 					color = MaterialTheme.colorScheme.surfaceContainerHighest
 				) {

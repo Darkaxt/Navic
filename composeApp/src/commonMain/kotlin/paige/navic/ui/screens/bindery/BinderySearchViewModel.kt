@@ -2,6 +2,8 @@ package paige.navic.ui.screens.bindery
 
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.insert
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -131,6 +133,15 @@ class BinderySearchViewModel(
 
 	fun clearActionError() {
 		_actionError.value = null
+	}
+
+	fun setInitialQuery(query: String) {
+		val normalized = query.trim()
+		if (normalized.isEmpty() || searchQuery.text.toString() == normalized) return
+		searchQuery.clearText()
+		searchQuery.edit {
+			insert(0, normalized)
+		}
 	}
 }
 

@@ -11,6 +11,7 @@ import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.SearchScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -98,6 +99,19 @@ class BinderyCatalogDisplayPolicyTest {
 			"/opds/discover/authors?q=Sanderson",
 			binderyDiscoverAuthorsPath("Sanderson")
 		)
+	}
+
+	@Test
+	fun subjectLabelsOpenAudiobookSearchWithTrimmedSubjectQuery() {
+		assertEquals(
+			Screen.Search(
+				nested = true,
+				scope = SearchScope.Audiobooks,
+				initialQuery = "Epic Fantasy"
+			),
+			binderySubjectSearchDestination(" Epic Fantasy ")
+		)
+		assertEquals(null, binderySubjectSearchDestination(" "))
 	}
 
 	@Test

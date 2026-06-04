@@ -404,7 +404,10 @@ private fun entryProvider(
 		entry<Screen.Search>(metadata = navtabMetadata) { key ->
 			when (key.scope) {
 				SearchScope.Music -> SearchScreen(key.nested)
-				SearchScope.Audiobooks -> BinderySearchScreen(key.nested)
+				SearchScope.Audiobooks -> BinderySearchScreen(
+					nested = key.nested,
+					initialQuery = key.initialQuery
+				)
 			}
 		}
 		entry<Screen.ShareList> {
