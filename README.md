@@ -184,7 +184,7 @@ This fork keeps upstream Navic as the base client and adds features for reverse-
 * `v1.0.10-beta1` intentionally jumps the patch number as an updater bridge for alpha builds whose older updater mis-sorted beta tags.
 * The `v1.0.10-gamma1` line starts the gamma prerelease lane above beta builds; the updater treats gamma releases as newer than same-version beta tags.
 * Android release builds require the fork's stable release signing secrets and pin the expected release certificate fingerprint, so public APK updates keep the same package signature.
-* GitHub tag releases publish the signed Android APK as soon as the Android job finishes; the optional iOS IPA is attached later only if its packaging job succeeds.
+* GitHub tag releases verify the embedded Android `versionName` matches the release tag, then publish the signed Android APK as soon as the Android job finishes; the optional iOS IPA is attached later only if its packaging job succeeds.
 * Android now-playing widgets refresh on song transitions as well as play/pause changes, artwork-only MusicBrainz fallback updates force a widget refresh after the external artwork is resolved, and the turntable widget renders cover art with the same static vinyl-style groove/label treatment used by the Now Playing record artwork.
 * The Kreate transplant tracking notes live in [docs/kreate-feature-audit.md](docs/kreate-feature-audit.md).
 

@@ -59,6 +59,9 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           SIGNING_STORE_FILE: ${{ github.workspace }}/release.keystore
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/verify-android-release-version.ps1 -ExpectedVersionName "$GITHUB_REF_NAME"
+          fi
           echo "${{ secrets.KEYSTORE }}" | base64 -d > release.keystore
           ./gradlew :androidApp:packageRelease --stacktrace
           rm release.keystore
