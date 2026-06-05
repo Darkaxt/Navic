@@ -40,6 +40,7 @@ import paige.navic.icons.outlined.MoreHoriz
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -57,6 +58,7 @@ fun NowPlayingMoreButton(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val downloadManager = koinInject<DownloadManager>()
 	val player = koinInject<MediaPlayerViewModel>()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	val playerState by player.uiState.collectAsState()
 	val allDownloads by downloadManager.allDownloads.collectAsState(persistentListOf())
 	val song = playerState.currentSong
@@ -100,8 +102,16 @@ fun NowPlayingMoreButton(
 					}
 				},
 				onViewArtist = dropUnlessResumed {
-					backStack.remove(Screen.NowPlaying)
-					backStack.add(Screen.ArtistDetail(song.artistId))
+					scope.launch {
+						resolveArtistCreditDestination(
+							song.artistId,
+							song.artistName,
+							false
+						)?.let { destination ->
+							backStack.remove(Screen.NowPlaying)
+							backStack.add(destination)
+						}
+					}
 				},
 				onShare = {
 					shareId = song.id

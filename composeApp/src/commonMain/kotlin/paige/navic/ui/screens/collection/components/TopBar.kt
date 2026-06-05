@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -15,12 +16,12 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
-import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.DomainPlaylist
@@ -31,6 +32,7 @@ import paige.navic.icons.outlined.MoreVert
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.core.UiState
 
@@ -59,6 +61,8 @@ fun CollectionDetailScreenTopBar(
 	val uriHandler = LocalUriHandler.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	val backStack = LocalNavStack.current
+	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 
 	NestedTopBar(
 		title = {
@@ -107,7 +111,15 @@ fun CollectionDetailScreenTopBar(
 						},
 						onViewArtist =
 							if (collection is DomainAlbum)
-								dropUnlessResumed { backStack.add(Screen.ArtistDetail(collection.artistId)) }
+								dropUnlessResumed {
+									scope.launch {
+										resolveArtistCreditDestination(
+											collection.artistId,
+											collection.artistName,
+											true
+										)?.let(backStack::add)
+									}
+								}
 							else null,
 						rating = rating,
 						onSetRating = onSetRating,

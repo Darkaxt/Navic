@@ -27,6 +27,7 @@ import com.kyant.capsule.ContinuousCapsule
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_delete_download
+import navic.composeapp.generated.resources.action_find_missing_tracks
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.info_download_failed
@@ -42,6 +43,7 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
+import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.shared.MediaPlayerViewModel
@@ -49,7 +51,8 @@ import paige.navic.ui.theme.defaultFont
 
 @Composable
 fun CollectionDetailScreenHeadingRowButtons(
-	collection: DomainSongCollection
+	collection: DomainSongCollection,
+	onOpenAurralRecovery: (() -> Unit)? = null
 ) {
 	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -114,6 +117,23 @@ fun CollectionDetailScreenHeadingRowButtons(
 				fontWeight = FontWeight.SemiBold,
 				fontFamily = defaultFont(round = 100f)
 			)
+		}
+		if (onOpenAurralRecovery != null) {
+			OutlinedButton(
+				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
+				onClick = {
+					platformContext.clickSound()
+					onOpenAurralRecovery()
+				},
+				shape = buttonShape,
+				contentPadding = PaddingValues(0.dp)
+			) {
+				Icon(
+					imageVector = Icons.Outlined.LibraryAdd,
+					contentDescription = stringResource(Res.string.action_find_missing_tracks),
+					modifier = Modifier.size(24.dp)
+				)
+			}
 		}
 		OutlinedButton(
 			modifier = Modifier.size(width = 52.dp, height = buttonHeight),

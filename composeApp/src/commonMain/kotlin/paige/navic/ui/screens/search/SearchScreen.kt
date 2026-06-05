@@ -127,7 +127,8 @@ enum class SearchCategory(val res: StringResource) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
-	nested: Boolean
+	nested: Boolean,
+	initialQuery: String = ""
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val aurralRepository = koinInject<AurralRepository>()
@@ -156,6 +157,9 @@ fun SearchScreen(
 
 	val query = viewModel.searchQuery
 	val state by viewModel.searchState.collectAsState()
+	LaunchedEffect(initialQuery) {
+		viewModel.setInitialQuery(initialQuery)
+	}
 	val aurralSearchConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val searchIntegrationIndicators = integrationLoadingIndicators(

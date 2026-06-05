@@ -2,6 +2,8 @@ package paige.navic.ui.screens.search.viewmodels
 
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.insert
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -170,5 +172,14 @@ class SearchViewModel(
 
 	fun clearSelectedSong() {
 		_selectedSong.value = null
+	}
+
+	fun setInitialQuery(query: String) {
+		val normalized = query.trim()
+		if (normalized.isEmpty() || searchQuery.text.toString() == normalized) return
+		searchQuery.clearText()
+		searchQuery.edit {
+			insert(0, normalized)
+		}
 	}
 }

@@ -12,11 +12,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
@@ -30,6 +32,7 @@ import paige.navic.domain.models.shouldShowNowPlayingMoreAction
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingMoreButton
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingStarButton
 import paige.navic.util.core.InlineExplicitIconLarge
@@ -47,6 +50,8 @@ fun NowPlayingInfoRow(
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
+	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
 	val showAlbumIcon = shouldShowNowPlayingInfoIcon(
@@ -129,9 +134,17 @@ fun NowPlayingInfoRow(
 				modifier = Modifier.clickable(
 					song != null,
 					onClick = dropUnlessResumed {
-						song?.artistId?.let { id ->
-							backStack.remove(Screen.NowPlaying)
-							backStack.add(Screen.ArtistDetail(id))
+						song?.let { currentSong ->
+							scope.launch {
+								resolveArtistCreditDestination(
+									currentSong.artistId,
+									currentSong.artistName,
+									false
+								)?.let { destination ->
+									backStack.remove(Screen.NowPlaying)
+									backStack.add(destination)
+								}
+							}
 						}
 					}
 				),

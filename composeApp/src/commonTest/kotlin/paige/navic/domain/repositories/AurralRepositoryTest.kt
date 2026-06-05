@@ -777,6 +777,36 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistEnrichmentResolvesMissingMbidByNameSearch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistSearch = AurralArtistSearchResult(
+				query = "Naoshi Mizuta",
+				artists = listOf(
+					AurralDiscoverArtist(id = "other-mbid", name = "Different Artist"),
+					AurralDiscoverArtist(id = "naoshi-mbid", name = "Naoshi Mizuta")
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val enrichment = repository.getArtistEnrichment(
+			DomainArtist(id = "aurral-name-naoshi-mizuta", name = "Naoshi Mizuta")
+		).getOrThrow()
+
+		assertEquals("naoshi-mbid", enrichment?.artistMbid)
+		assertEquals("Naoshi Mizuta", enrichment?.artistName)
+		assertEquals(
+			listOf(AurralArtistSearchRequest(query = "Naoshi Mizuta", limit = 5, offset = 0)),
+			apiClient.artistSearchRequests
+		)
+		assertEquals(listOf("naoshi-mbid"), apiClient.libraryArtistMonitoringRequests)
+	}
+
+	@Test
 	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true

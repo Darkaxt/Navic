@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -17,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_unknown_genre
 import navic.composeapp.generated.resources.info_unknown_year
@@ -26,13 +28,13 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.LocalSharedTransitionScope
-import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.theme.defaultFont
 import paige.navic.util.ui.EmphasizedDecelerateEasing
 
@@ -44,6 +46,8 @@ fun CollectionDetailScreenHeadingRow(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	val displayName = collection.displayName()
 	with(LocalSharedTransitionScope.current) {
 		CoverArt(
@@ -95,8 +99,14 @@ fun CollectionDetailScreenHeadingRow(
 					color = MaterialTheme.colorScheme.primary,
 					modifier = Modifier.clickable(collection is DomainAlbum, onClick = dropUnlessResumed {
 						platformContext.clickSound()
-						(collection as? DomainAlbum)?.artistId?.let { id ->
-							backStack.add(Screen.ArtistDetail(id))
+						(collection as? DomainAlbum)?.let { album ->
+							scope.launch {
+								resolveArtistCreditDestination(
+									album.artistId,
+									album.artistName,
+									true
+								)?.let(backStack::add)
+							}
 						}
 					}),
 					style = MaterialTheme.typography.bodyMedium,

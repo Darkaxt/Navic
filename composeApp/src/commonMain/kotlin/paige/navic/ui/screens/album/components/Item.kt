@@ -24,6 +24,7 @@ import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
 @Composable
@@ -47,6 +48,7 @@ fun AlbumListScreenItem(
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
@@ -103,7 +105,13 @@ fun AlbumListScreenItem(
 				onSetStarred = onSetStarred,
 				onAddAllToPlaylist = { playlistDialogShown = true },
 				onViewArtist = dropUnlessResumed {
-					backStack.add(Screen.ArtistDetail(album.artistId))
+					scope.launch {
+						resolveArtistCreditDestination(
+							album.artistId,
+							album.artistName,
+							true
+						)?.let(backStack::add)
+					}
 				},
 				rating = rating,
 				onSetRating = onSetRating

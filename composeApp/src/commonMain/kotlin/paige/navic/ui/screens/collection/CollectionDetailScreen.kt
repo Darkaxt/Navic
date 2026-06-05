@@ -73,6 +73,7 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
+import paige.navic.ui.screens.aurral.aurralAlbumSearchRoute
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.util.ui.withoutTop
 import kotlin.time.Duration
@@ -124,6 +125,7 @@ fun CollectionDetailScreen(
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
 	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsState()
+	val aurralAlbumRecoveryMatch by viewModel.aurralAlbumRecoveryMatch.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsState()
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
@@ -208,7 +210,14 @@ fun CollectionDetailScreen(
 
 					item {
 						CollectionDetailScreenHeadingRowButtons(
-							collection = contentCollection
+							collection = contentCollection,
+							onOpenAurralRecovery = (contentCollection as? DomainAlbum)
+								?.let { aurralAlbumRecoveryMatch }
+								?.let { recovery ->
+									{
+										aurralAlbumSearchRoute(recovery)?.let(backStack::add)
+									}
+								}
 						)
 					}
 

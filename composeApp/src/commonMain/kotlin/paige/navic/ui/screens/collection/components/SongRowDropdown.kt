@@ -3,10 +3,12 @@ package paige.navic.ui.screens.collection.components
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadStatus
@@ -22,6 +24,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
 @Composable
@@ -46,6 +49,8 @@ fun CollectionDetailScreenSongRowDropdown(
 ) {
 	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
+	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 	var queueDuplicateAction by rememberSaveable { mutableStateOf<QueueDuplicateAction?>(null) }
 
@@ -101,7 +106,13 @@ fun CollectionDetailScreenSongRowDropdown(
 				}
 			} else null,
 			onViewArtist = dropUnlessResumed {
-				backStack.add(Screen.ArtistDetail(song.artistId))
+				scope.launch {
+					resolveArtistCreditDestination(
+						song.artistId,
+						song.artistName,
+						false
+					)?.let(backStack::add)
+				}
 			},
 			onAddToPlaylist = {
 				playlistDialogShown = true

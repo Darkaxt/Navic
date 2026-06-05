@@ -16,11 +16,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.option_sort_newest
@@ -61,6 +63,7 @@ import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.domain.models.PlaybackOriginType
 import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
@@ -77,6 +80,7 @@ import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 import paige.navic.ui.screens.aurral.aurralDiscoverCollectionRoute
 import paige.navic.ui.screens.aurral.aurralMonitorStateForLocalArtist
 import paige.navic.ui.screens.album.components.AlbumListScreenItem
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
 import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
@@ -162,6 +166,8 @@ fun LibraryScreenContent(
 
 ) {
 	val backStack = LocalNavStack.current
+	val scope = rememberCoroutineScope()
+	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val aurralRepository = koinInject<AurralRepository>()
 	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
@@ -255,7 +261,19 @@ fun LibraryScreenContent(
 				modifier = Modifier.animateItem().width(150.dp),
 				shortcut = shortcut,
 				imageRequestHeaders = aurralImageRequestHeaders(shortcut.coverArtId),
-				onOpen = { backStack.add(mostPlayedShortcutDestination(shortcut)) }
+				onOpen = {
+					if (shortcut.type == PlaybackOriginType.Artist) {
+						scope.launch {
+							resolveArtistCreditDestination(
+								shortcut.id,
+								shortcut.title,
+								false
+							)?.let(backStack::add)
+						}
+					} else {
+						backStack.add(mostPlayedShortcutDestination(shortcut))
+					}
+				}
 			)
 		}
 

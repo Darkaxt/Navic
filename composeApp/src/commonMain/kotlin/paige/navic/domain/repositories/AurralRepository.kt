@@ -254,8 +254,9 @@ class AurralRepository(
 
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
 		if (!preferenceManager.aurralEnabled) return Result.success(null)
-		val artistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
 			?: return Result.success(null)
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
@@ -263,46 +264,84 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching null
 			coroutineScope {
 				val enrichment = async {
 					apiClient.fetchArtistEnrichment(
 						baseUrl = baseUrl,
 						requestHeaders = requestHeaders,
-						artistMbid = artistMbid,
-						artistName = artist.name
+						artistMbid = resolvedArtist.artistMbid,
+						artistName = resolvedArtist.artistName
 					)
 				}
 				val libraryArtistMonitoring = async {
 					getCachedLibraryArtistMonitoring(
 						baseUrl = baseUrl,
 						requestHeaders = requestHeaders,
-						artistMbid = artistMbid,
-						artistName = artist.name
+						artistMbid = resolvedArtist.artistMbid,
+						artistName = resolvedArtist.artistName
 					) ?: runCatching {
 						apiClient.fetchLibraryArtistMonitoring(
 							baseUrl = baseUrl,
 							requestHeaders = requestHeaders,
-							artistMbid = artistMbid
+							artistMbid = resolvedArtist.artistMbid
 						)
 					}.onSuccess { monitored ->
 						monitored?.let {
 							rememberLibraryArtistMonitoring(
 								baseUrl = baseUrl,
 								requestHeaders = requestHeaders,
-								artistMbid = artistMbid,
-								artistName = artist.name,
+								artistMbid = resolvedArtist.artistMbid,
+								artistName = resolvedArtist.artistName,
 								monitored = it
 							)
 						}
 					}.onFailure { error ->
-						Logger.w(TAG, "Aurral library artist monitoring lookup failed for ${artist.name}", error)
+						Logger.w(TAG, "Aurral library artist monitoring lookup failed for $artistName", error)
 					}.getOrNull()
 				}
 				enrichment.await().withLocalArtistState(libraryArtistMonitoring.await())
 			}
 		}.onFailure { error ->
-			Logger.w(TAG, "Aurral artist enrichment failed for ${artist.name}", error)
+			Logger.w(TAG, "Aurral artist enrichment failed for $artistName", error)
 		}.recordAurralAvailability()
+	}
+
+	private suspend fun resolveArtistForEnrichment(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String?,
+		artistName: String
+	): ResolvedAurralArtist? {
+		artistMbid?.let { return ResolvedAurralArtist(artistMbid = it, artistName = artistName) }
+		val search = runCatching {
+			apiClient.searchArtists(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				request = AurralArtistSearchRequest(
+					query = artistName,
+					limit = 5,
+					offset = 0
+				)
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist name lookup failed for $artistName", error)
+		}.getOrNull() ?: return null
+		val normalizedName = artistName.normalizedAurralSearchName()
+		val artist = search.artists.firstOrNull {
+			it.name.normalizedAurralSearchName() == normalizedName
+		} ?: search.artists.firstOrNull()
+		val resolvedMbid = artist?.id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+		val resolvedName = artist.name.trim().takeIf { it.isNotEmpty() } ?: artistName
+		return ResolvedAurralArtist(
+			artistMbid = resolvedMbid,
+			artistName = resolvedName
+		)
 	}
 
 	suspend fun cancelAcquisitionRequest(item: AurralAcquisitionQueueItem): Result<Unit> {
@@ -1149,6 +1188,11 @@ private data class AurralLibraryArtistsCacheEntry(
 	}
 }
 
+private data class ResolvedAurralArtist(
+	val artistMbid: String,
+	val artistName: String
+)
+
 private fun aurralLibraryArtistsCacheKey(
 	baseUrl: String,
 	requestHeaders: Map<String, String>
@@ -1189,6 +1233,13 @@ private fun List<AurralDiscoverArtist>.findAurralLibraryArtist(
 			(artistNameKey != null && artist.name.normalizedAurralImageLookupName() == artistNameKey)
 	}
 }
+
+private fun String?.normalizedAurralSearchName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
 
 private fun List<AurralDiscoverArtist>.updateAurralLibraryArtistMonitoring(
 	artistMbid: String,

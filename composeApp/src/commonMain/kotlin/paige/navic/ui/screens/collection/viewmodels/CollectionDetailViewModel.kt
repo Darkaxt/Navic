@@ -30,12 +30,14 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.util.core.Logger
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.collection.aurralAlbumRecoveryCandidate
 
 class CollectionDetailViewModel(
 	private val collectionId: String,
@@ -114,6 +116,10 @@ class CollectionDetailViewModel(
 	private val _aurralAlbumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
 	val aurralAlbumRequests = _aurralAlbumRequests.asStateFlow()
 
+	private val _aurralAlbumRecoveryMatch = MutableStateFlow<AurralAlbumSearchItem?>(null)
+	val aurralAlbumRecoveryMatch = _aurralAlbumRecoveryMatch.asStateFlow()
+	private var aurralAlbumRecoveryKey: String? = null
+
 	private val _rating = MutableStateFlow(0)
 	val rating = _rating.asStateFlow()
 
@@ -125,6 +131,8 @@ class CollectionDetailViewModel(
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
 			if (!enabled) {
 				_aurralAlbumRequests.value = emptyList()
+				_aurralAlbumRecoveryMatch.value = null
+				aurralAlbumRecoveryKey = null
 			}
 		}
 		viewModelScope.launch {
@@ -144,17 +152,40 @@ class CollectionDetailViewModel(
 			repository.getCollectionFlow(fullRefresh, collectionId).collect {
 				_collectionState.value = it
 				if (it.data is DomainAlbum) {
-					_starred.value = albumRepository.isAlbumStarred(it.data as DomainAlbum)
-					_rating.value = albumRepository.getAlbumRating(it.data as DomainAlbum)
+					val album = it.data as DomainAlbum
+					_starred.value = albumRepository.isAlbumStarred(album)
+					_rating.value = albumRepository.getAlbumRating(album)
 					try {
 						val albumInfo = repository.getAlbumInfo(collectionId)
 						_albumInfoState.value = UiState.Success(albumInfo.toDomainModel())
 					} catch (e: Exception) {
 						_albumInfoState.value = UiState.Error(e)
 					}
+					refreshAurralAlbumRecovery(album)
+				} else {
+					_aurralAlbumRecoveryMatch.value = null
+					aurralAlbumRecoveryKey = null
 				}
 			}
 		}
+	}
+
+	private suspend fun refreshAurralAlbumRecovery(album: DomainAlbum) {
+		val recoveryKey = "${album.id}|${album.name}|${album.artistName}"
+		if (aurralAlbumRecoveryKey == recoveryKey) return
+		aurralAlbumRecoveryKey = recoveryKey
+		_aurralAlbumRecoveryMatch.value = null
+		if (!preferenceManager.aurralEnabled) return
+		aurralRepository.searchAlbums(album.name, limit = 8)
+			.onSuccess { result ->
+				_aurralAlbumRecoveryMatch.value = aurralAlbumRecoveryCandidate(
+					album = album,
+					candidates = result.albums
+				)
+			}
+			.onFailure { error ->
+				Logger.w("CollectionDetailViewModel", "Failed to resolve Aurral recovery album for ${album.name}", error)
+			}
 	}
 
 	private fun refreshAurralAcquisitionRequests() {

@@ -26,6 +26,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
 fun LazyListScope.collectionDetailScreenMoreByArtistRow(
@@ -47,6 +48,7 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 	item {
 		val backStack = LocalNavStack.current
 		val scope = rememberCoroutineScope()
+		val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 
 		var albumToAddToPlaylist by remember { mutableStateOf<DomainAlbum?>(null) }
 
@@ -96,7 +98,15 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 					onPlayNext = onPlayNext,
 					onAddToQueue = onAddToQueue,
 					onAddAllToPlaylist = { albumToAddToPlaylist = album },
-					onViewArtist = dropUnlessResumed { backStack.add(Screen.ArtistDetail(album.artistId)) },
+					onViewArtist = dropUnlessResumed {
+						scope.launch {
+							resolveArtistCreditDestination(
+								album.artistId,
+								album.artistName,
+								true
+							)?.let(backStack::add)
+						}
+					},
 					rating = selectedAlbumRating,
 					onSetRating = onSetAlbumRating,
 					starred = selectedAlbumStarred,

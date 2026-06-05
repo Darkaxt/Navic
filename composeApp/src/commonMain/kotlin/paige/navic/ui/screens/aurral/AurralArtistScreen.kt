@@ -109,6 +109,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.screens.artist.components.AurralPreviewTracks
+import paige.navic.ui.screens.artist.isAurralNameLookupArtistId
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -191,6 +192,16 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 					}
 					.orEmpty()
 				state = state.copy(
+					artist = if (localArtist == null && enrichment != null) {
+						DomainArtist(
+							id = "aurral-${enrichment.artistMbid}",
+							name = enrichment.artistName.ifBlank { route.artistName },
+							musicBrainzId = enrichment.artistMbid.ifBlank { null },
+							artistImageUrl = state.heroImageUrl
+						)
+					} else {
+						state.artist
+					},
 					enrichment = enrichment,
 					missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localAlbums) }.orEmpty(),
 					recommendedAlbums = recommendedAlbums,
@@ -693,17 +704,22 @@ private fun CarouselItemScope.AurralArtistSimilarArtistItem(
 }
 
 private fun Screen.AurralArtist.toDomainArtist(): DomainArtist =
-	DomainArtist(
-		id = "aurral-$artistMbid",
-		name = artistName.trim().takeIf { it.isNotEmpty() } ?: artistMbid,
-		musicBrainzId = artistMbid.trim().takeIf { it.isNotEmpty() }
-	)
+	artistMbid.trim()
+		.takeIf { it.isNotEmpty() && !isAurralNameLookupArtistId(it) }
+		.let { resolvedMbid ->
+			DomainArtist(
+				id = resolvedMbid?.let { "aurral-$it" } ?: "aurral-${artistName.normalizedAurralArtistName()}",
+				name = artistName.trim().takeIf { it.isNotEmpty() } ?: artistMbid,
+				musicBrainzId = resolvedMbid
+			)
+		}
 
 private fun List<DomainArtist>.findAurralLocalArtist(
 	artistMbid: String,
 	artistName: String
 ): DomainArtist? {
-	val normalizedMbid = artistMbid.trim().lowercase().takeIf { it.isNotEmpty() }
+	val normalizedMbid = artistMbid.trim().lowercase()
+		.takeIf { it.isNotEmpty() && !isAurralNameLookupArtistId(it) }
 	val normalizedName = artistName.normalizedAurralArtistName()
 	return firstOrNull { artist ->
 		normalizedMbid != null && artist.musicBrainzId?.trim()?.lowercase() == normalizedMbid
