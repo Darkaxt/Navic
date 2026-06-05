@@ -58,6 +58,7 @@ import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
+import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
@@ -220,6 +221,13 @@ class ArtistDetailViewModel(
 					artistArtworkPriority = preferenceManager.artistArtworkPriority,
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)
+				val cachedSimilarArtists = initialSimilarArtists.map { similarArtist ->
+					similarArtist.withCachedArtistPhoto(
+						entries = artistPhotoCacheEntries,
+						artistArtworkPriority = preferenceManager.artistArtworkPriority,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
+					)
+				}
 
 				_starred.value = artistRepository.isArtistStarred(domainArtist)
 
@@ -228,7 +236,7 @@ class ArtistDetailViewModel(
 						artist = domainArtist,
 						albums = domainAlbums,
 						topSongs = domainSongs,
-						similarArtists = initialSimilarArtists,
+						similarArtists = cachedSimilarArtists,
 						aurralArtistImageUrl = cachedArtistImageUrl
 					)
 				)
@@ -245,7 +253,13 @@ class ArtistDetailViewModel(
 							val updatedSimilarArtists =
 								updatedArtist.similarArtistIds.mapNotNull { id ->
 									artistDao.getArtistById(id)?.toDomainModel()
-							}
+								}.map { similarArtist ->
+									similarArtist.withCachedArtistPhoto(
+										entries = artistPhotoCacheEntries,
+										artistArtworkPriority = preferenceManager.artistArtworkPriority,
+										externalArtworkEnabled = preferenceManager.aurralEnabled
+									)
+								}
 							val cachedUpdatedArtistImageUrl =
 								currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
 									artist = updatedArtist,
@@ -460,7 +474,15 @@ class ArtistDetailViewModel(
 					?: aurralIdentities.firstNotNullOfOrNull { identity ->
 						identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
 					}
-				val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
+				val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
+					.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+				val localArtists = artistDao.getAllArtistsList().map { artist ->
+					artist.toDomainModel().withCachedArtistPhoto(
+						entries = artistPhotoCacheEntries,
+						artistArtworkPriority = preferenceManager.artistArtworkPriority,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
+					)
+				}
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
@@ -475,6 +497,8 @@ class ArtistDetailViewModel(
 					}
 					.orEmpty()
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
+				val resolvedArtistImageUrl = verifiedAurralArtistImageUrl
+					?: latestState.aurralArtistImageUrl
 				persistArtistPhotoCache(
 					localArtist = latestState.artist,
 					sourceArtist = aurralArtist,
@@ -498,7 +522,7 @@ class ArtistDetailViewModel(
 						aurralMonitored = enrichment?.monitored,
 						aurralArtistMbid = aurralArtist.musicBrainzId,
 						aurralArtistName = aurralArtist.name,
-						aurralArtistImageUrl = verifiedAurralArtistImageUrl,
+						aurralArtistImageUrl = resolvedArtistImageUrl,
 						aurralLoading = false,
 						aurralError = null
 					)

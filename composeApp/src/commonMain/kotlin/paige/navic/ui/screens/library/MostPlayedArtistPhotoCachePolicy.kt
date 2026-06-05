@@ -11,7 +11,9 @@ data class MostPlayedArtistPhotoCacheEntry(
 	val sourceArtistId: String?,
 	val name: String,
 	val normalizedName: String,
-	val imageUrl: String
+	val imageUrl: String,
+	val source: String = "Aurral",
+	val updatedAtMillis: Long = 0L
 )
 
 fun mostPlayedArtistPhotoCacheArtworkForShortcut(
@@ -19,19 +21,28 @@ fun mostPlayedArtistPhotoCacheArtworkForShortcut(
 	entries: List<MostPlayedArtistPhotoCacheEntry>
 ): MostPlayedShortcutArtistArtwork? {
 	if (shortcut.type != PlaybackOriginType.Artist) return null
-	return entries.firstOrNull { entry ->
-		entry.imageUrl.isAbsoluteHttpUrl() && entry.matches(shortcut)
-	}?.let { entry ->
-		MostPlayedShortcutArtistArtwork(
-			id = entry.artistId?.takeIf { it.isNotBlank() }
-				?: entry.sourceArtistId?.takeIf { it.isNotBlank() }
-				?: entry.normalizedName,
-			name = entry.name,
-			coverArtId = null,
-			artistImageUrl = entry.imageUrl,
-			trustedExternalPhoto = true
+	return entries
+		.asSequence()
+		.filter { entry -> entry.imageUrl.isAbsoluteHttpUrl() }
+		.mapNotNull { entry -> entry.matchScore(shortcut)?.let { score -> score to entry } }
+		.sortedWith(
+			compareBy<Pair<MostPlayedArtistPhotoCacheMatchScore, MostPlayedArtistPhotoCacheEntry>> { it.first.matchRank }
+				.thenBy { it.first.sourceRank }
+				.thenByDescending { it.second.updatedAtMillis }
 		)
-	}
+		.firstOrNull()
+		?.second
+		?.let { entry ->
+			MostPlayedShortcutArtistArtwork(
+				id = entry.artistId?.takeIf { it.isNotBlank() }
+					?: entry.sourceArtistId?.takeIf { it.isNotBlank() }
+					?: entry.normalizedName,
+				name = entry.name,
+				coverArtId = null,
+				artistImageUrl = entry.imageUrl,
+				trustedExternalPhoto = true
+			)
+		}
 }
 
 fun ArtistPhotoCacheEntity.toMostPlayedArtistPhotoCacheEntry(): MostPlayedArtistPhotoCacheEntry =
@@ -40,7 +51,9 @@ fun ArtistPhotoCacheEntity.toMostPlayedArtistPhotoCacheEntry(): MostPlayedArtist
 		sourceArtistId = sourceArtistId,
 		name = name,
 		normalizedName = normalizedName,
-		imageUrl = imageUrl
+		imageUrl = imageUrl,
+		source = source,
+		updatedAtMillis = updatedAtMillis
 	)
 
 fun mostPlayedArtistPhotoCacheEntity(
@@ -71,13 +84,25 @@ fun mostPlayedArtistPhotoCacheEntity(
 	)
 }
 
-private fun MostPlayedArtistPhotoCacheEntry.matches(shortcut: DomainMostPlayedShortcut): Boolean {
+private data class MostPlayedArtistPhotoCacheMatchScore(
+	val matchRank: Int,
+	val sourceRank: Int
+)
+
+private fun MostPlayedArtistPhotoCacheEntry.matchScore(shortcut: DomainMostPlayedShortcut): MostPlayedArtistPhotoCacheMatchScore? {
 	val shortcutId = shortcut.id.normalizedArtistPhotoCacheId()
 	val shortcutName = shortcut.title.normalizedArtistPhotoCacheName()
-	return artistId.normalizedArtistPhotoCacheId()?.let { it == shortcutId } == true ||
-		sourceArtistId.normalizedArtistPhotoCacheId()?.let { it == shortcutId } == true ||
-		normalizedName.normalizedArtistPhotoCacheName()?.let { it == shortcutName } == true ||
-		name.normalizedArtistPhotoCacheName()?.let { it == shortcutName } == true
+	val matchRank = when {
+		artistId.normalizedArtistPhotoCacheId()?.let { it == shortcutId } == true -> 0
+		sourceArtistId.normalizedArtistPhotoCacheId()?.let { it == shortcutId } == true -> 1
+		normalizedName.normalizedArtistPhotoCacheName()?.let { it == shortcutName } == true -> 2
+		name.normalizedArtistPhotoCacheName()?.let { it == shortcutName } == true -> 3
+		else -> null
+	} ?: return null
+	return MostPlayedArtistPhotoCacheMatchScore(
+		matchRank = matchRank,
+		sourceRank = source.artistPhotoCacheSourceRank()
+	)
 }
 
 private fun String?.normalizedArtistPhotoCacheId(): String? =
@@ -92,3 +117,10 @@ private fun String?.normalizedArtistPhotoCacheName(): String? =
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.artistPhotoCacheSourceRank(): Int =
+	when (trim().lowercase()) {
+		"aurral" -> 0
+		"lastfm", "last.fm" -> 1
+		else -> 2
+	}

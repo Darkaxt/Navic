@@ -329,11 +329,12 @@ fun aurralSimilarArtistRows(
 	val aurralRows = enrichment.similarArtists.map { artist ->
 		val localArtist = artist.id.normalizedAurralIdOrNull()?.let(localByMusicBrainzId::get)
 			?: artist.name.normalizedAurralNameOrNull()?.let(localByName::get)
+		val rowArtist = artist.copy(imageUrl = artist.imageUrl ?: localArtist?.artistImageUrl)
 		localArtist?.id?.let { seenKeys += "local:$it" }
 		artist.id.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
 		artist.name.normalizedAurralNameOrNull()?.let { seenKeys += "name:$it" }
 		AurralSimilarArtistRow(
-			artist = artist,
+			artist = rowArtist,
 			localArtistId = localArtist?.id,
 			localCoverArtId = localArtist?.coverArtId,
 			inLibrary = localArtist != null,

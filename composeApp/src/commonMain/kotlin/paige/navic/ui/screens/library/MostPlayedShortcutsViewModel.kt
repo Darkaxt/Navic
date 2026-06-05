@@ -71,16 +71,16 @@ class MostPlayedShortcutsViewModel(
 					shortcuts = shortcuts,
 					artists = localArtistArtwork
 				)
-				val cachedArtistArtwork = cachedArtistPhotos
-					.map { it.toMostPlayedArtistPhotoCacheEntry() }
-					.mapNotNull { entry ->
-						resolvedShortcuts.firstNotNullOfOrNull { shortcut ->
-							mostPlayedArtistPhotoCacheArtworkForShortcut(
-								shortcut = shortcut,
-								entries = listOf(entry)
-							)
-						}
+				val cachedArtistPhotoEntries = cachedArtistPhotos
+					.map { entry -> entry.toMostPlayedArtistPhotoCacheEntry() }
+				val cachedArtistArtwork = resolvedShortcuts
+					.mapNotNull { shortcut ->
+						mostPlayedArtistPhotoCacheArtworkForShortcut(
+							shortcut = shortcut,
+							entries = cachedArtistPhotoEntries
+						)
 					}
+					.distinctBy { artist -> artist.id.trim().lowercase() }
 				logMostPlayedArtistInputs(
 					shortcuts = resolvedShortcuts,
 					localArtists = localArtistArtwork,

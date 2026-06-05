@@ -143,6 +143,76 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
+	fun headingPrefersExactLocalArtistCacheOverNewerNameOnlyMatch() {
+		assertEquals(
+			"https://aurral.example.com/exact-iu.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = null,
+						sourceArtistId = null,
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://other.example.com/newer-name-only.webp",
+						source = "Other",
+						updatedAtMillis = 2_000L
+					),
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/exact-iu.webp",
+						source = "Aurral",
+						updatedAtMillis = 1_000L
+					)
+				)
+			)
+		)
+	}
+
+	@Test
+	fun headingPrefersAurralSourceWithinSameCacheMatchStrength() {
+		assertEquals(
+			"https://aurral.example.com/iu.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-iu",
+					name = "IU",
+					coverArtId = null,
+					artistImageUrl = null
+				),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://other.example.com/newer-iu.webp",
+						source = "Other",
+						updatedAtMillis = 2_000L
+					),
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-iu",
+						sourceArtistId = "source-iu",
+						name = "IU",
+						normalizedName = "iu",
+						imageUrl = "https://aurral.example.com/iu.webp",
+						source = "Aurral",
+						updatedAtMillis = 1_000L
+					)
+				)
+			)
+		)
+	}
+
+	@Test
 	fun headingSkipsPersistentArtistPhotoCacheWhenNativeCoverArtExistsAndNativeIsFirst() {
 		assertNull(
 			artistDetailCachedImageUrl(

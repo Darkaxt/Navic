@@ -41,7 +41,9 @@ data class ArtistHeaderImageCacheEntry(
 	val sourceArtistId: String?,
 	val name: String,
 	val normalizedName: String,
-	val imageUrl: String
+	val imageUrl: String,
+	val source: String = "Aurral",
+	val updatedAtMillis: Long = 0L
 )
 
 fun artistDetailCachedImageUrl(
@@ -52,9 +54,7 @@ fun artistDetailCachedImageUrl(
 ): String? {
 	if (!externalArtworkEnabled || artistArtworkPriority == ArtworkSourcePriority.NativeOnly) return null
 	if (artistArtworkPriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
-	return entries.firstOrNull { entry ->
-		entry.imageUrl.isAbsoluteHttpUrl() && entry.matches(artist)
-	}?.imageUrl?.trim()
+	return artistDetailCachedImageEntry(artist, entries)?.imageUrl?.trim()
 }
 
 fun ArtistPhotoCacheEntity.toArtistHeaderImageCacheEntry(): ArtistHeaderImageCacheEntry =
@@ -63,7 +63,23 @@ fun ArtistPhotoCacheEntity.toArtistHeaderImageCacheEntry(): ArtistHeaderImageCac
 		sourceArtistId = sourceArtistId,
 		name = name,
 		normalizedName = normalizedName,
-		imageUrl = imageUrl
+		imageUrl = imageUrl,
+		source = source,
+		updatedAtMillis = updatedAtMillis
+	)
+
+fun DomainArtist.withCachedArtistPhoto(
+	entries: List<ArtistHeaderImageCacheEntry>,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): DomainArtist =
+	copy(
+		artistImageUrl = artistDetailCachedImageUrl(
+			artist = this,
+			entries = entries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
 	)
 
 fun artistDetailPhotoCacheEntity(
@@ -163,18 +179,45 @@ fun artistBiographyScrollFades(
 		showBottom = maxScrollValue > 0 && scrollValue < maxScrollValue
 	)
 
-private fun ArtistHeaderImageCacheEntry.matches(artist: DomainArtist): Boolean {
+private fun artistDetailCachedImageEntry(
+	artist: DomainArtist,
+	entries: List<ArtistHeaderImageCacheEntry>
+): ArtistHeaderImageCacheEntry? =
+	entries
+		.asSequence()
+		.filter { entry -> entry.imageUrl.isAbsoluteHttpUrl() }
+		.mapNotNull { entry -> entry.matchScore(artist)?.let { score -> score to entry } }
+		.sortedWith(
+			compareBy<Pair<ArtistHeaderImageCacheMatchScore, ArtistHeaderImageCacheEntry>> { it.first.matchRank }
+				.thenBy { it.first.sourceRank }
+				.thenByDescending { it.second.updatedAtMillis }
+		)
+		.firstOrNull()
+		?.second
+
+private data class ArtistHeaderImageCacheMatchScore(
+	val matchRank: Int,
+	val sourceRank: Int
+)
+
+private fun ArtistHeaderImageCacheEntry.matchScore(artist: DomainArtist): ArtistHeaderImageCacheMatchScore? {
 	val localArtistId = artist.id.normalizedArtistHeaderImageId()
 	val musicBrainzId = artist.musicBrainzId.normalizedArtistHeaderImageId()
 	val artistName = artist.name.normalizedArtistHeaderImageName()
-	return artistId.normalizedArtistHeaderImageId()?.let { id ->
-		id == localArtistId || id == musicBrainzId
-	} == true ||
+	val matchRank = when {
+		artistId.normalizedArtistHeaderImageId()?.let { it == localArtistId } == true -> 0
+		artistId.normalizedArtistHeaderImageId()?.let { it == musicBrainzId } == true -> 1
 		sourceArtistId.normalizedArtistHeaderImageId()?.let { id ->
 			id == localArtistId || id == musicBrainzId
-		} == true ||
-		normalizedName.normalizedArtistHeaderImageName()?.let { it == artistName } == true ||
-		name.normalizedArtistHeaderImageName()?.let { it == artistName } == true
+		} == true -> 2
+		normalizedName.normalizedArtistHeaderImageName()?.let { it == artistName } == true -> 3
+		name.normalizedArtistHeaderImageName()?.let { it == artistName } == true -> 4
+		else -> null
+	} ?: return null
+	return ArtistHeaderImageCacheMatchScore(
+		matchRank = matchRank,
+		sourceRank = source.artistHeaderImageSourceRank()
+	)
 }
 
 private fun String?.normalizedArtistHeaderImageId(): String? =
@@ -192,3 +235,10 @@ private fun String?.normalizedArtistHeaderImageName(): String? =
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.artistHeaderImageSourceRank(): Int =
+	when (trim().lowercase()) {
+		"aurral" -> 0
+		"lastfm", "last.fm" -> 1
+		else -> 2
+	}

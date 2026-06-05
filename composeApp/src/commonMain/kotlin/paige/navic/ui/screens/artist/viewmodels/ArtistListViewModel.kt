@@ -21,8 +21,8 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
+import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
 
 class ArtistListViewModel(
@@ -154,13 +154,10 @@ class ArtistListViewModel(
 		entries: List<paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry>
 	): List<DomainArtist> =
 		map { artist ->
-			artist.copy(
-				artistImageUrl = artistDetailCachedImageUrl(
-					artist = artist,
-					entries = entries,
-					artistArtworkPriority = preferenceManager.artistArtworkPriority,
-					externalArtworkEnabled = preferenceManager.aurralEnabled
-				)
+			artist.withCachedArtistPhoto(
+				entries = entries,
+				artistArtworkPriority = preferenceManager.artistArtworkPriority,
+				externalArtworkEnabled = preferenceManager.aurralEnabled
 			)
 		}
 }

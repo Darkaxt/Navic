@@ -68,6 +68,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralArtistAlbumRow
@@ -105,6 +106,8 @@ import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
+import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.screens.artist.components.AurralPreviewTracks
 import paige.navic.ui.theme.defaultFont
 
@@ -113,6 +116,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val artistDao = koinInject<ArtistDao>()
 	val albumDao = koinInject<AlbumDao>()
+	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
 	val aurralRepository = koinInject<AurralRepository>()
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
@@ -134,7 +138,15 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	)
 
 	LaunchedEffect(route, configured) {
-		val localArtists = artistDao.getAllArtistsList().map { it.toDomainModel() }
+		val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
+			.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+		val localArtists = artistDao.getAllArtistsList().map { artist ->
+			artist.toDomainModel().withCachedArtistPhoto(
+				entries = artistPhotoCacheEntries,
+				artistArtworkPriority = preferenceManager.artistArtworkPriority,
+				externalArtworkEnabled = preferenceManager.aurralEnabled
+			)
+		}
 		val localArtist = localArtists.findAurralLocalArtist(route.artistMbid, route.artistName)
 		val artist = localArtist ?: route.toDomainArtist()
 		val localAlbums = when {

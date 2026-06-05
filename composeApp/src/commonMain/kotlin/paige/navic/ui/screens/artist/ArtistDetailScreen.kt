@@ -333,6 +333,7 @@ fun ArtistDetailScreen(
 							coverArtId = state.artist.coverArtId,
 							imageUrl = headingImageUrl,
 							imageRequestHeaders = headingImageRequestHeaders,
+							imageDiagnosticLabel = "artist-detail-${state.artist.id}",
 							subtitle = state.artist.biography,
 							innerPadding = contentPadding,
 							scrolled = scrolled,

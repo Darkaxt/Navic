@@ -50,6 +50,68 @@ class MostPlayedArtistPhotoCachePolicyTest {
 	}
 
 	@Test
+	fun cachedArtistPhotoPrefersExactLocalArtistMatchOverNewerNameOnlyMatch() {
+		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
+
+		val resolved = mostPlayedArtistPhotoCacheArtworkForShortcut(
+			shortcut = shortcut,
+			entries = listOf(
+				MostPlayedArtistPhotoCacheEntry(
+					artistId = null,
+					sourceArtistId = null,
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://other.example.com/newer-name-only.webp",
+					source = "Other",
+					updatedAtMillis = 2_000L
+				),
+				MostPlayedArtistPhotoCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = "musicbrainz-iu",
+					name = "아이유",
+					normalizedName = "iu",
+					imageUrl = "https://aurral.example.com/artist/iu.webp",
+					source = "Aurral",
+					updatedAtMillis = 1_000L
+				)
+			)
+		)
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", resolved?.artistImageUrl)
+	}
+
+	@Test
+	fun cachedArtistPhotoPrefersAurralSourceWithinSameMatchStrength() {
+		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
+
+		val resolved = mostPlayedArtistPhotoCacheArtworkForShortcut(
+			shortcut = shortcut,
+			entries = listOf(
+				MostPlayedArtistPhotoCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = null,
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://other.example.com/newer-iu.webp",
+					source = "Other",
+					updatedAtMillis = 2_000L
+				),
+				MostPlayedArtistPhotoCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = "musicbrainz-iu",
+					name = "아이유",
+					normalizedName = "iu",
+					imageUrl = "https://aurral.example.com/artist/iu.webp",
+					source = "Aurral",
+					updatedAtMillis = 1_000L
+				)
+			)
+		)
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", resolved?.artistImageUrl)
+	}
+
+	@Test
 	fun cachedArtistPhotoIgnoresNonAbsoluteImageUrls() {
 		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
 
