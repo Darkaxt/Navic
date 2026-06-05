@@ -102,6 +102,7 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainArtistListType
@@ -146,6 +147,8 @@ import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.library.components.AurralDiscoverTagWall
 
@@ -155,6 +158,7 @@ fun AurralHubScreen() {
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val aurralRepository = koinInject<AurralRepository>()
+	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
@@ -168,6 +172,11 @@ fun AurralHubScreen() {
 	val activeDiscoverArtistId by viewModel.activeDiscoverArtistId.collectAsStateWithLifecycle()
 	val stationPlaylists by viewModel.stationPlaylists.collectAsStateWithLifecycle()
 	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
+	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
+		.collectAsStateWithLifecycle(emptyList())
+	val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
+		entry.toArtistHeaderImageCacheEntry()
+	}
 	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
 		key = "aurralHubLocalArtists",
 		parameters = { parametersOf(DomainArtistListType.AlphabeticalByName) }
@@ -236,12 +245,18 @@ fun AurralHubScreen() {
 		}
 	) { innerPadding ->
 		AurralConfirmationQueueSnackbar(aurralRepository)
-		Box(Modifier.padding(innerPadding).fillMaxSize()) {
+		Box(Modifier.fillMaxSize()) {
 			Column(
 				Modifier
 					.fillMaxSize()
+					.padding(top = innerPadding.calculateTopPadding())
 					.verticalScroll(scrollState)
-					.padding(top = 16.dp, end = 16.dp, start = 16.dp, bottom = 32.dp)
+					.padding(
+						top = 16.dp,
+						end = 16.dp,
+						start = 16.dp,
+						bottom = innerPadding.calculateBottomPadding() + 32.dp
+					)
 			) {
 				when {
 					!preferenceManager.aurralEnabled -> AurralHubConfigurationMessage(
@@ -266,6 +281,7 @@ fun AurralHubScreen() {
 						activeDiscoverArtistId = activeDiscoverArtistId,
 						stationPlaylists = stationPlaylists,
 						confirmationQueue = confirmationQueue,
+						artistPhotoCacheEntries = artistPhotoCacheEntries,
 						preferenceManager = preferenceManager,
 						onMonitorDiscoverArtist = viewModel::monitorDiscoveredArtist,
 						onOpenDiscoverArtist = { artist ->
@@ -303,7 +319,7 @@ fun AurralHubScreen() {
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)
-					.padding(start = 12.dp, top = 8.dp)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
 			)
 		}
 	}
@@ -337,6 +353,7 @@ private fun AurralHubContent(
 	activeDiscoverArtistId: String?,
 	stationPlaylists: List<DomainPlaylist>,
 	confirmationQueue: List<AurralConfirmationQueueItem>,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry>,
 	preferenceManager: PreferenceManager,
 	onMonitorDiscoverArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenDiscoverArtist: (AurralDiscoverArtist) -> Unit,
@@ -423,6 +440,7 @@ private fun AurralHubContent(
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = canMonitorArtist,
 		confirmationQueue = confirmationQueue,
+		artistPhotoCacheEntries = artistPhotoCacheEntries,
 		preferenceManager = preferenceManager,
 		onQueryChange = onArtistSearchQueryChange,
 		onSearchArtists = onSearchArtists,
@@ -438,6 +456,7 @@ private fun AurralHubContent(
 		activeArtistId = activeDiscoverArtistId,
 		canMonitorArtist = canMonitorArtist,
 		confirmationQueue = confirmationQueue,
+		artistPhotoCacheEntries = artistPhotoCacheEntries,
 		preferenceManager = preferenceManager,
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
@@ -538,6 +557,7 @@ private fun AurralHubArtistSearchSection(
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
 	confirmationQueue: List<AurralConfirmationQueueItem>,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry>,
 	preferenceManager: PreferenceManager,
 	onQueryChange: (String) -> Unit,
 	onSearchArtists: () -> Unit,
@@ -548,7 +568,18 @@ private fun AurralHubArtistSearchSection(
 ) {
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_search))
 	val trimmedQuery = query.trim()
-	val artists = artistState.data?.artists?.let { aurralHubSearchArtists(it) }.orEmpty()
+	val artists = artistState.data?.artists
+		?.let {
+			aurralHubSearchArtists(
+				aurralDiscoverArtistsWithCachedPhotos(
+					artists = it,
+					entries = artistPhotoCacheEntries,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			)
+		}
+		.orEmpty()
 	val albums = albumState.data?.albums?.let { aurralHubSearchAlbums(it) }.orEmpty()
 	val searchingArtists = artistState is UiState.Loading
 	val searchingAlbums = albumState is UiState.Loading
@@ -691,6 +722,7 @@ private fun AurralHubDiscoverSection(
 	activeArtistId: String?,
 	canMonitorArtist: Boolean,
 	confirmationQueue: List<AurralConfirmationQueueItem>,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry>,
 	preferenceManager: PreferenceManager,
 	onMonitorArtist: (AurralDiscoverArtist) -> Unit,
 	onOpenArtist: (AurralDiscoverArtist) -> Unit,
@@ -701,7 +733,14 @@ private fun AurralHubDiscoverSection(
 	AurralHubSectionTitle(stringResource(Res.string.title_aurral_discover))
 	val discovery = state.data
 	val rows = discovery
-		?.let { aurralDiscoveryCollectionRows(it) }
+		?.let {
+			aurralDiscoveryCollectionRows(
+				discovery = it,
+				artistPhotoCacheEntries = artistPhotoCacheEntries,
+				artistArtworkPriority = preferenceManager.artistArtworkPriority,
+				externalArtworkEnabled = preferenceManager.aurralEnabled
+			)
+		}
 		.orEmpty()
 	val actionInProgress = actionState is UiState.Loading
 

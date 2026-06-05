@@ -199,7 +199,14 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 							enrichment = it,
 							allLocalArtists = localArtists,
 							localSimilarArtists = emptyList(),
-							externalArtists = discovery?.let(::aurralSimilarArtistImageCandidates).orEmpty()
+							externalArtists = discovery?.let { discoverySummary ->
+								aurralSimilarArtistImageCandidates(
+									discovery = discoverySummary,
+									artistPhotoCacheEntries = artistPhotoCacheEntries,
+									artistArtworkPriority = preferenceManager.artistArtworkPriority,
+									externalArtworkEnabled = preferenceManager.aurralEnabled
+								)
+							}.orEmpty()
 						)
 					}.orEmpty(),
 					previewTracks = enrichment?.previewTracks.orEmpty(),
@@ -254,12 +261,16 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			).toImmutableList()
 		}
 
-		Box(Modifier.padding(innerPadding).fillMaxSize()) {
+		Box(Modifier.fillMaxSize()) {
 			Column(
 				modifier = Modifier
 					.fillMaxSize()
+					.padding(top = innerPadding.calculateTopPadding())
 					.verticalScroll(scrollState)
-					.padding(top = 20.dp, bottom = 32.dp),
+					.padding(
+						top = 20.dp,
+						bottom = innerPadding.calculateBottomPadding() + 32.dp
+					),
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(12.dp)
 			) {
@@ -427,7 +438,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)
-					.padding(start = 12.dp, top = 8.dp)
+					.padding(start = 12.dp, top = innerPadding.calculateTopPadding() + 8.dp)
 			)
 		}
 	}

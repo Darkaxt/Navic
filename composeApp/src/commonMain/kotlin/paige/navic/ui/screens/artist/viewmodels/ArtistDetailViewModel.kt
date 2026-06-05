@@ -498,7 +498,14 @@ class ArtistDetailViewModel(
 					}
 					.orEmpty()
 				val externalArtistImageCandidates = discovery
-					?.let(::aurralSimilarArtistImageCandidates)
+					?.let { summary ->
+						aurralSimilarArtistImageCandidates(
+							discovery = summary,
+							artistPhotoCacheEntries = artistPhotoCacheEntries,
+							artistArtworkPriority = preferenceManager.artistArtworkPriority,
+							externalArtworkEnabled = preferenceManager.aurralEnabled
+						)
+					}
 					.orEmpty()
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 				val resolvedArtistImageUrl = verifiedAurralArtistImageUrl

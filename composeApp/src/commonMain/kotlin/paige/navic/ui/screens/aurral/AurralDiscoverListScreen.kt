@@ -40,6 +40,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -56,6 +57,7 @@ import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.library.components.AurralDiscoverArtistCard
 import paige.navic.ui.screens.library.components.AurralDiscoverTagWall
@@ -71,6 +73,7 @@ fun AurralDiscoverListScreen(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val aurralRepository = koinInject<AurralRepository>()
+	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
 	val backStack = LocalNavStack.current
 	val tagFilter = tag?.trim()?.takeIf { it.isNotEmpty() }
 	val selectedCollection = aurralDiscoverCollectionKind(collectionKind)
@@ -86,6 +89,11 @@ fun AurralDiscoverListScreen(
 	val discoveryState by viewModel.discovery.collectAsStateWithLifecycle()
 	val localArtistsState by localArtistsViewModel.artistsState.collectAsStateWithLifecycle()
 	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
+	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
+		.collectAsStateWithLifecycle(emptyList())
+	val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
+		entry.toArtistHeaderImageCacheEntry()
+	}
 	val gridState = rememberLazyGridState()
 	val configured = shouldLoadAurralUi(
 		aurralEnabled = preferenceManager.aurralEnabled,
@@ -144,11 +152,28 @@ fun AurralDiscoverListScreen(
 				val artists = discoveryState.data
 					?.let { discovery ->
 						if (tagFilter != null) {
-							aurralDiscoverTagArtists(discovery, tagFilter)
+							aurralDiscoverTagArtists(
+								discovery = discovery,
+								tag = tagFilter,
+								artistPhotoCacheEntries = artistPhotoCacheEntries,
+								artistArtworkPriority = preferenceManager.artistArtworkPriority,
+								externalArtworkEnabled = preferenceManager.aurralEnabled
+							)
 						} else if (selectedCollection != null) {
-							aurralDiscoverCollectionArtists(discovery, selectedCollection)
+							aurralDiscoverCollectionArtists(
+								discovery = discovery,
+								kind = selectedCollection,
+								artistPhotoCacheEntries = artistPhotoCacheEntries,
+								artistArtworkPriority = preferenceManager.artistArtworkPriority,
+								externalArtworkEnabled = preferenceManager.aurralEnabled
+							)
 						} else {
-							aurralDiscoverListArtists(discovery)
+							aurralDiscoverListArtists(
+								discovery = discovery,
+								artistPhotoCacheEntries = artistPhotoCacheEntries,
+								artistArtworkPriority = preferenceManager.artistArtworkPriority,
+								externalArtworkEnabled = preferenceManager.aurralEnabled
+							)
 						}
 					}
 					.orEmpty()

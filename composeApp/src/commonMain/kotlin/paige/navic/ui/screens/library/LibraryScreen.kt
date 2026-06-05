@@ -32,6 +32,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
@@ -60,6 +61,7 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
 import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
+import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.genre.viewmodels.GenreListViewModel
 import paige.navic.ui.screens.library.components.LibraryScreenContent
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
@@ -142,6 +144,12 @@ fun LibraryScreen() {
 	val player = koinInject<MediaPlayerViewModel>()
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
+	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
+	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
+		.collectAsStateWithLifecycle(emptyList())
+	val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
+		entry.toArtistHeaderImageCacheEntry()
+	}
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
@@ -149,7 +157,10 @@ fun LibraryScreen() {
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val aurralCollectionRowsState = libraryAurralCollectionRowsState(
 		aurralConfigured = aurralConfigured,
-		discoveryState = aurralDiscovery
+		discoveryState = aurralDiscovery,
+		artistPhotoCacheEntries = artistPhotoCacheEntries,
+		artistArtworkPriority = preferenceManager.artistArtworkPriority,
+		externalArtworkEnabled = preferenceManager.aurralEnabled
 	)
 	val libraryIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading,

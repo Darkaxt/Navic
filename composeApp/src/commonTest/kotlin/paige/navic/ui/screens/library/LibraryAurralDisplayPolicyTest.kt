@@ -4,11 +4,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionKind
 import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
+import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 import paige.navic.ui.core.UiState
 
 class LibraryAurralDisplayPolicyTest {
@@ -283,6 +285,90 @@ class LibraryAurralDisplayPolicyTest {
 			listOf("image-album"),
 			(rows[1] as AurralDiscoveryCollectionRow.Albums).albums.map { it.id }
 		)
+	}
+
+	@Test
+	fun libraryAurralCollectionRowsPreferPersistentArtistPhotoCacheForBasedOnLibrary() {
+		val discovery = AurralDiscoverySummary(
+			basedOn = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/artist/iu.jpg"
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/stale-iu.jpg",
+					monitored = true
+				)
+			)
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			artistPhotoCacheEntries = listOf(
+				ArtistHeaderImageCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = "artist-mbid",
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://aurral.example.com/cache/iu.webp",
+					source = "Aurral",
+					updatedAtMillis = 2000L
+				)
+			),
+			artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+			externalArtworkEnabled = true
+		)
+
+		val basedOn = rows
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.single { it.kind == AurralDiscoveryCollectionKind.BasedOnArtists }
+			.artists
+			.single()
+
+		assertEquals("https://aurral.example.com/cache/iu.webp", basedOn.imageUrl)
+		assertEquals(true, basedOn.monitored)
+	}
+
+	@Test
+	fun libraryAurralCollectionRowsKeepCachedArtistPhotosWhenDiscoveryArtworkIsMissing() {
+		val discovery = AurralDiscoverySummary(
+			basedOn = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU"
+				)
+			)
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			artistPhotoCacheEntries = listOf(
+				ArtistHeaderImageCacheEntry(
+					artistId = null,
+					sourceArtistId = "artist-mbid",
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://aurral.example.com/cache/iu.webp"
+				)
+			),
+			artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+			externalArtworkEnabled = true
+		)
+
+		val basedOn = rows
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.single { it.kind == AurralDiscoveryCollectionKind.BasedOnArtists }
+			.artists
+			.single()
+
+		assertEquals("https://aurral.example.com/cache/iu.webp", basedOn.imageUrl)
 	}
 
 	@Test

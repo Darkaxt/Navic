@@ -10,6 +10,7 @@ import paige.navic.domain.models.aurralOwnershipStatusForStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.isStationPlaylist
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralConfirmationQueueItem
@@ -22,7 +23,9 @@ import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.aurralMonitorActionState
+import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
 
 @Immutable
 enum class AurralHubSection {
@@ -111,9 +114,17 @@ fun aurralHubSummaryCards(status: AurralServiceStatus): List<AurralHubSummaryCar
 
 fun aurralHubDiscoverArtists(
 	discovery: AurralDiscoverySummary,
-	limit: Int = 8
+	limit: Int = 8,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoverArtist> =
 	aurralDiscoverListArtists(discovery)
+		.withCachedArtistPhotos(
+			entries = artistPhotoCacheEntries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
 		.take(limit.coerceAtLeast(0))
 
 fun aurralDiscoverArtistMonitorActionState(
@@ -192,13 +203,27 @@ fun aurralHubCanRenderDiscoveryWithoutStatus(
 
 fun aurralDiscoveryCollectionRows(
 	discovery: AurralDiscoverySummary,
-	limit: Int = 8
+	limit: Int = 8,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoveryCollectionRow> {
 	val safeLimit = limit.coerceAtLeast(0)
-	val libraryArtists = discovery.libraryArtists
+	val libraryArtists = discovery.libraryArtists.withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+	fun List<AurralDiscoverArtist>.displayArtists(): List<AurralDiscoverArtist> =
+		withLibraryArtistMonitoring(libraryArtists)
+			.withCachedArtistPhotos(
+				entries = artistPhotoCacheEntries,
+				artistArtworkPriority = artistArtworkPriority,
+				externalArtworkEnabled = externalArtworkEnabled
+			)
 	return buildList {
 		val recentlyAdded = aurralHubSearchArtists(
-			discovery.recentlyAdded.withLibraryArtistMonitoring(libraryArtists),
+			discovery.recentlyAdded.displayArtists(),
 			safeLimit
 		)
 		if (recentlyAdded.isNotEmpty()) {
@@ -221,7 +246,7 @@ fun aurralDiscoveryCollectionRows(
 		}
 
 		val recommendations = aurralHubSearchArtists(
-			discovery.recommendations.withLibraryArtistMonitoring(libraryArtists),
+			discovery.recommendations.displayArtists(),
 			safeLimit
 		)
 		if (recommendations.isNotEmpty()) {
@@ -234,7 +259,7 @@ fun aurralDiscoveryCollectionRows(
 		}
 
 		val basedOn = aurralHubSearchArtists(
-			discovery.basedOn.withLibraryArtistMonitoring(libraryArtists),
+			discovery.basedOn.displayArtists(),
 			safeLimit
 		)
 		if (basedOn.isNotEmpty()) {
@@ -247,7 +272,7 @@ fun aurralDiscoveryCollectionRows(
 		}
 
 		val globalTop = aurralHubSearchArtists(
-			discovery.globalTop.withLibraryArtistMonitoring(libraryArtists),
+			discovery.globalTop.displayArtists(),
 			safeLimit
 		)
 		if (globalTop.isNotEmpty()) {
@@ -259,7 +284,15 @@ fun aurralDiscoveryCollectionRows(
 			)
 		}
 
-		addAll(aurralDiscoveryGenreRows(discovery, safeLimit))
+		addAll(
+			aurralDiscoveryGenreRows(
+				discovery = discovery,
+				limit = safeLimit,
+				artistPhotoCacheEntries = artistPhotoCacheEntries,
+				artistArtworkPriority = artistArtworkPriority,
+				externalArtworkEnabled = externalArtworkEnabled
+			)
+		)
 
 		val topTags = aurralDiscoverTopTags(discovery)
 		if (topTags.isNotEmpty()) {
@@ -271,25 +304,49 @@ fun aurralDiscoveryCollectionRows(
 fun aurralDiscoverTagArtists(
 	discovery: AurralDiscoverySummary,
 	tag: String,
-	limit: Int = Int.MAX_VALUE
+	limit: Int = Int.MAX_VALUE,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoverArtist> {
 	val normalizedTag = tag.normalizedAurralName() ?: return emptyList()
-	return aurralDiscoverTagCandidateArtists(discovery)
+	return aurralDiscoverTagCandidateArtists(
+		discovery = discovery,
+		artistPhotoCacheEntries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
 		.filter { artist -> artist.matchesAurralTag(normalizedTag) }
 		.take(limit.coerceAtLeast(0))
 }
 
 fun aurralDiscoverListArtists(
-	discovery: AurralDiscoverySummary
+	discovery: AurralDiscoverySummary,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoverArtist> =
 	mergeAurralDiscoverArtists(
 		discovery.recommendations +
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop
-	).withLibraryArtistMonitoring(discovery.libraryArtists)
+	).withLibraryArtistMonitoring(
+		discovery.libraryArtists.withCachedArtistPhotos(
+			entries = artistPhotoCacheEntries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
+	).withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
 
 fun aurralSimilarArtistImageCandidates(
-	discovery: AurralDiscoverySummary
+	discovery: AurralDiscoverySummary,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralSimilarArtist> =
 	mergeAurralDiscoverArtists(
 		discovery.libraryArtists +
@@ -298,6 +355,10 @@ fun aurralSimilarArtistImageCandidates(
 			discovery.globalTop +
 			discovery.basedOn +
 			discovery.fallbackGenres.flatMap { it.artists }
+	).withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
 	).mapNotNull { artist ->
 		val imageUrl = artist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
 			?: return@mapNotNull null
@@ -317,7 +378,10 @@ fun aurralDiscoverCollectionKind(routeValue: String?): AurralDiscoveryCollection
 
 fun aurralDiscoverCollectionArtists(
 	discovery: AurralDiscoverySummary,
-	kind: AurralDiscoveryCollectionKind
+	kind: AurralDiscoveryCollectionKind,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoverArtist> =
 	when (kind) {
 		AurralDiscoveryCollectionKind.RecentlyAddedArtists ->
@@ -339,7 +403,17 @@ fun aurralDiscoverCollectionArtists(
 
 		AurralDiscoveryCollectionKind.GenreArtists,
 		AurralDiscoveryCollectionKind.TopTags -> emptyList()
-	}.withLibraryArtistMonitoring(discovery.libraryArtists)
+	}.withLibraryArtistMonitoring(
+		discovery.libraryArtists.withCachedArtistPhotos(
+			entries = artistPhotoCacheEntries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
+	).withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
 
 fun aurralDiscoverCollectionRoute(row: AurralDiscoveryCollectionRow): Screen? =
 	when (row) {
@@ -502,6 +576,18 @@ private fun aurralDiscoverArtistsForLocalArtist(
 			discovery.basedOn
 	).withLibraryArtistMonitoring(discovery.libraryArtists)
 
+fun aurralDiscoverArtistsWithCachedPhotos(
+	artists: List<AurralDiscoverArtist>,
+	entries: List<ArtistHeaderImageCacheEntry>,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): List<AurralDiscoverArtist> =
+	artists.withCachedArtistPhotos(
+		entries = entries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+
 fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAlbum? {
 	val releaseGroupId = album.id.trim().takeIf { it.isNotEmpty() } ?: return null
 	val title = album.title.trim().takeIf { it.isNotEmpty() } ?: return null
@@ -604,15 +690,30 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 
 private fun aurralDiscoveryGenreRows(
 	discovery: AurralDiscoverySummary,
-	limit: Int
+	limit: Int,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoveryCollectionRow.Artists> {
 	val safeLimit = limit.coerceAtLeast(0)
 	if (safeLimit == 0) return emptyList()
+	val libraryArtists = discovery.libraryArtists.withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+	fun List<AurralDiscoverArtist>.displayArtists(): List<AurralDiscoverArtist> =
+		withLibraryArtistMonitoring(libraryArtists)
+			.withCachedArtistPhotos(
+				entries = artistPhotoCacheEntries,
+				artistArtworkPriority = artistArtworkPriority,
+				externalArtworkEnabled = externalArtworkEnabled
+			)
 	val fallbackRows = discovery.fallbackGenres
 		.mapNotNull { section ->
 			val genre = section.genre.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
 			val artists = aurralHubSearchArtists(
-				section.artists.withLibraryArtistMonitoring(discovery.libraryArtists),
+				section.artists.displayArtists(),
 				safeLimit
 			)
 			if (artists.isEmpty()) {
@@ -627,7 +728,12 @@ private fun aurralDiscoveryGenreRows(
 		}
 	if (fallbackRows.isNotEmpty()) return fallbackRows
 
-	val candidatePool = aurralDiscoverTagCandidateArtists(discovery)
+	val candidatePool = aurralDiscoverTagCandidateArtists(
+		discovery = discovery,
+		artistPhotoCacheEntries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
 	return discovery.topGenres
 		.cleanedAurralDisplayStrings()
 		.mapNotNull { genre ->
@@ -654,14 +760,55 @@ private fun aurralDiscoveryGenreRows(
 }
 
 private fun aurralDiscoverTagCandidateArtists(
-	discovery: AurralDiscoverySummary
+	discovery: AurralDiscoverySummary,
+	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoverArtist> =
 	mergeAurralDiscoverArtists(
 		discovery.recommendations +
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop +
 			discovery.basedOn
-	).withLibraryArtistMonitoring(discovery.libraryArtists)
+	).withLibraryArtistMonitoring(
+		discovery.libraryArtists.withCachedArtistPhotos(
+			entries = artistPhotoCacheEntries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
+	).withCachedArtistPhotos(
+		entries = artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+
+private fun List<AurralDiscoverArtist>.withCachedArtistPhotos(
+	entries: List<ArtistHeaderImageCacheEntry>,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): List<AurralDiscoverArtist> =
+	if (entries.isEmpty()) {
+		this
+	} else {
+		map { artist ->
+			val cachedImageUrl = artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = artist.id,
+					name = artist.name,
+					musicBrainzId = artist.id,
+					coverArtId = null
+				),
+				entries = entries,
+				artistArtworkPriority = artistArtworkPriority,
+				externalArtworkEnabled = externalArtworkEnabled
+			)
+			if (cachedImageUrl.isNullOrBlank()) {
+				artist
+			} else {
+				artist.copy(imageUrl = cachedImageUrl)
+			}
+		}
+	}
 
 fun aurralDiscoverTopTags(
 	discovery: AurralDiscoverySummary,

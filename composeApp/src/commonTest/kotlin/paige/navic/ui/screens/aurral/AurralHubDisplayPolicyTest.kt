@@ -17,6 +17,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralConfirmationQueueItem
@@ -31,6 +32,7 @@ import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 
 class AurralHubDisplayPolicyTest {
 	@Test
@@ -281,6 +283,38 @@ class AurralHubDisplayPolicyTest {
 
 		assertEquals("https://aurral.example.com/artist/iu.webp", row.artists.single().imageUrl)
 		assertEquals(true, row.artists.single().monitored)
+	}
+
+	@Test
+	fun similarArtistImageCandidatesPreferPersistentArtistPhotoCache() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/artist/iu.jpg"
+				)
+			)
+		)
+
+		val candidates = aurralSimilarArtistImageCandidates(
+			discovery = summary,
+			artistPhotoCacheEntries = listOf(
+				ArtistHeaderImageCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = "artist-mbid",
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://aurral.example.com/cache/iu.webp",
+					source = "Aurral",
+					updatedAtMillis = 2000L
+				)
+			),
+			artistArtworkPriority = ArtworkSourcePriority.AurralFirst,
+			externalArtworkEnabled = true
+		)
+
+		assertEquals("https://aurral.example.com/cache/iu.webp", candidates.single().imageUrl)
 	}
 
 	@Test
