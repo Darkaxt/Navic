@@ -312,7 +312,8 @@ fun aurralSimilarArtistRows(
 fun aurralSimilarArtistRows(
 	enrichment: AurralArtistEnrichment,
 	allLocalArtists: List<DomainArtist>,
-	localSimilarArtists: List<DomainArtist>
+	localSimilarArtists: List<DomainArtist>,
+	externalArtists: List<AurralSimilarArtist> = emptyList()
 ): List<AurralSimilarArtistRow> {
 	val localByMusicBrainzId = allLocalArtists
 		.mapNotNull { artist ->
@@ -324,12 +325,28 @@ fun aurralSimilarArtistRows(
 			artist.name.normalizedAurralNameOrNull()?.let { it to artist }
 		}
 		.toMap()
+	val externalByMusicBrainzId = externalArtists
+		.mapNotNull { artist ->
+			artist.id.normalizedAurralIdOrNull()?.let { it to artist }
+		}
+		.toMap()
+	val externalByName = externalArtists
+		.mapNotNull { artist ->
+			artist.name.normalizedAurralNameOrNull()?.let { it to artist }
+		}
+		.toMap()
 	val seenKeys = mutableSetOf<String>()
 
 	val aurralRows = enrichment.similarArtists.map { artist ->
 		val localArtist = artist.id.normalizedAurralIdOrNull()?.let(localByMusicBrainzId::get)
 			?: artist.name.normalizedAurralNameOrNull()?.let(localByName::get)
-		val rowArtist = artist.copy(imageUrl = artist.imageUrl ?: localArtist?.artistImageUrl)
+		val externalArtist = artist.id.normalizedAurralIdOrNull()?.let(externalByMusicBrainzId::get)
+			?: artist.name.normalizedAurralNameOrNull()?.let(externalByName::get)
+		val rowArtist = artist.copy(
+			imageUrl = artist.imageUrl
+				?: localArtist?.artistImageUrl
+				?: externalArtist?.imageUrl
+		)
 		localArtist?.id?.let { seenKeys += "local:$it" }
 		artist.id.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
 		artist.name.normalizedAurralNameOrNull()?.let { seenKeys += "name:$it" }
@@ -349,6 +366,9 @@ fun aurralSimilarArtistRows(
 			artist.name.normalizedAurralNameOrNull()?.let { "name:$it" }
 		).any { it in seenKeys }
 		if (alreadySeen) return@mapNotNull null
+		val externalArtist = artist.musicBrainzId.normalizedAurralIdOrNull()
+			?.let(externalByMusicBrainzId::get)
+			?: artist.name.normalizedAurralNameOrNull()?.let(externalByName::get)
 		artist.musicBrainzId.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
 		artist.name.normalizedAurralNameOrNull()?.let { seenKeys += "name:$it" }
 		seenKeys += "local:${artist.id}"
@@ -356,7 +376,7 @@ fun aurralSimilarArtistRows(
 			artist = AurralSimilarArtist(
 				id = artist.musicBrainzId ?: artist.id,
 				name = artist.name,
-				imageUrl = artist.artistImageUrl,
+				imageUrl = artist.artistImageUrl ?: externalArtist?.imageUrl,
 				matchPercent = null
 			),
 			localArtistId = artist.id,

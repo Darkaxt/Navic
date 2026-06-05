@@ -1037,6 +1037,34 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistEnrichmentNormalizesSimilarArtistImageUrls() {
+		val enrichment = aurralArtistEnrichment(
+			baseUrl = "https://aurral.example.com",
+			details = AurralArtistDetailsDto(
+				id = "artist-mbid",
+				name = "IU"
+			),
+			preview = AurralArtistPreviewDto(),
+			similar = AurralSimilarArtistsDto(
+				artists = listOf(
+					AurralSimilarArtistDto(
+						id = "heize-mbid",
+						name = "Heize",
+						image = "/api/artists/heize/image",
+						match = 82
+					)
+				)
+			),
+			requests = emptyList()
+		)
+
+		val artist = enrichment.similarArtists.single()
+
+		assertEquals("https://aurral.example.com/api/artists/heize/image", artist.imageUrl)
+		assertEquals(82, artist.matchPercent)
+	}
+
+	@Test
 	fun repositoryArtistEnrichmentUsesLibraryMonitoringWhenDetailsDoNotIncludeLidarrState(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true

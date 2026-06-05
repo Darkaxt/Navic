@@ -8,6 +8,7 @@ import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.aurralOwnershipStatusForProgress
 import paige.navic.domain.models.aurralOwnershipStatusForStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.repositories.AurralAlbumSearchItem
@@ -286,6 +287,28 @@ fun aurralDiscoverListArtists(
 			discovery.recentReleases.mapNotNull { it.toDiscoverArtistRecommendation() } +
 			discovery.globalTop
 	).withLibraryArtistMonitoring(discovery.libraryArtists)
+
+fun aurralSimilarArtistImageCandidates(
+	discovery: AurralDiscoverySummary
+): List<AurralSimilarArtist> =
+	mergeAurralDiscoverArtists(
+		discovery.libraryArtists +
+			discovery.recentlyAdded +
+			discovery.recommendations +
+			discovery.globalTop +
+			discovery.basedOn +
+			discovery.fallbackGenres.flatMap { it.artists }
+	).mapNotNull { artist ->
+		val imageUrl = artist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+			?: return@mapNotNull null
+		val id = artist.id.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		val name = artist.name.trim().takeIf { it.isNotEmpty() } ?: id
+		AurralSimilarArtist(
+			id = id,
+			name = name,
+			imageUrl = imageUrl
+		)
+	}
 
 fun aurralDiscoverCollectionKind(routeValue: String?): AurralDiscoveryCollectionKind? =
 	routeValue?.trim()?.takeIf { it.isNotEmpty() }?.let { value ->
@@ -571,9 +594,11 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 	return map { artist ->
 		val libraryArtist = artist.id.normalizedAurralKey()?.let(libraryById::get)
 			?: artist.name.normalizedAurralName()?.let(libraryByName::get)
-		libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) }
-			?: artist.takeIf { it.monitored != null }
-			?: artist.copy(monitored = false)
+		artist.copy(
+			imageUrl = libraryArtist?.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+				?: artist.imageUrl,
+			monitored = libraryArtist?.monitored ?: artist.monitored ?: false
+		)
 	}
 }
 

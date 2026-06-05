@@ -62,6 +62,7 @@ import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
+import paige.navic.ui.screens.aurral.aurralSimilarArtistImageCandidates
 import paige.navic.ui.screens.aurral.shouldLoadAurralUi
 import kotlin.time.Clock
 
@@ -496,6 +497,9 @@ class ArtistDetailViewModel(
 						)
 					}
 					.orEmpty()
+				val externalArtistImageCandidates = discovery
+					?.let(::aurralSimilarArtistImageCandidates)
+					.orEmpty()
 				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 				val resolvedArtistImageUrl = verifiedAurralArtistImageUrl
 					?: latestState.aurralArtistImageUrl
@@ -514,7 +518,8 @@ class ArtistDetailViewModel(
 								aurralSimilarArtistRows(
 									enrichment = it,
 									allLocalArtists = localArtists,
-									localSimilarArtists = latestState.similarArtists
+									localSimilarArtists = latestState.similarArtists,
+									externalArtists = externalArtistImageCandidates
 								)
 							}
 							.orEmpty(),

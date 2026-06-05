@@ -2721,12 +2721,18 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 		.mapNotNull { artist -> artist.name.normalizedAurralArtistName()?.let { it to artist } }
 		.toMap()
 	return map { artist ->
-		if (artist.monitored != null) {
-			artist
+		val libraryArtist = artist.id.normalizedAurralArtistKey()?.let(libraryById::get)
+			?: artist.name.normalizedAurralArtistName()?.let(libraryByName::get)
+		val preferredImageUrl = libraryArtist?.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+			?: artist.imageUrl
+		val monitored = artist.monitored ?: libraryArtist?.monitored
+		if (preferredImageUrl != artist.imageUrl || monitored != artist.monitored) {
+			artist.copy(
+				imageUrl = preferredImageUrl,
+				monitored = monitored
+			)
 		} else {
-			val libraryArtist = artist.id.normalizedAurralArtistKey()?.let(libraryById::get)
-				?: artist.name.normalizedAurralArtistName()?.let(libraryByName::get)
-			libraryArtist?.monitored?.let { monitored -> artist.copy(monitored = monitored) } ?: artist
+			artist
 		}
 	}
 }
@@ -3032,7 +3038,7 @@ internal fun aurralArtistEnrichment(
 			AurralSimilarArtist(
 				id = id,
 				name = name,
-				imageUrl = artist.imageUrl ?: artist.image,
+				imageUrl = aurralAbsoluteImageUrl(baseUrl, artist.imageUrl ?: artist.image),
 				matchPercent = artist.match
 			)
 		},

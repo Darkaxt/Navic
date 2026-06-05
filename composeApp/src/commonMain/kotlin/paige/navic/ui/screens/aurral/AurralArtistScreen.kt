@@ -179,11 +179,12 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 
 		aurralRepository.getArtistEnrichment(artist)
 			.onSuccess { enrichment ->
-				val recommendedAlbums = aurralRepository.getDiscovery(hydrateMissingImages = false)
+				val discovery = aurralRepository.getDiscovery(hydrateMissingImages = false)
 					.getOrNull()
-					?.let { discovery ->
+				val recommendedAlbums = discovery
+					?.let {
 						aurralRecommendedAlbumsForArtist(
-							discovery = discovery,
+							discovery = it,
 							artistMbid = route.artistMbid,
 							artistName = route.artistName
 						)
@@ -197,7 +198,8 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 						aurralSimilarArtistRows(
 							enrichment = it,
 							allLocalArtists = localArtists,
-							localSimilarArtists = emptyList()
+							localSimilarArtists = emptyList(),
+							externalArtists = discovery?.let(::aurralSimilarArtistImageCandidates).orEmpty()
 						)
 					}.orEmpty(),
 					previewTracks = enrichment?.previewTracks.orEmpty(),

@@ -230,6 +230,60 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverArtistsMergePreferredArtworkFromLibraryArtistRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/artist/iu.jpg"
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/artist/iu.webp",
+					monitored = true
+				)
+			)
+		)
+
+		val artist = aurralHubDiscoverArtists(summary).single()
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", artist.imageUrl)
+		assertEquals(true, artist.monitored)
+	}
+
+	@Test
+	fun discoveryCollectionRowsMergePreferredArtworkFromLibraryArtistRows() {
+		val summary = AurralDiscoverySummary(
+			basedOn = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/artist/iu.jpg"
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/artist/iu.webp",
+					monitored = true
+				)
+			)
+		)
+
+		val row = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.single { it.kind == AurralDiscoveryCollectionKind.BasedOnArtists }
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", row.artists.single().imageUrl)
+		assertEquals(true, row.artists.single().monitored)
+	}
+
+	@Test
 	fun discoverArtistsTreatMissingLibraryMatchAsVerifiedNotMonitoredWhenLibraryRowsLoaded() {
 		val summary = AurralDiscoverySummary(
 			recommendations = listOf(AurralDiscoverArtist(id = "missing-mbid", name = "Missing")),
