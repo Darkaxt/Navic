@@ -69,6 +69,7 @@ import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
@@ -311,7 +312,8 @@ fun NowPlayingScreen() {
 				indicators = nowPlayingIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = nowPlayingIntegrationIndicators
+					loadingIndicators = nowPlayingIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

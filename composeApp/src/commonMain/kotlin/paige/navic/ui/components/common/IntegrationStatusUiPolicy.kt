@@ -8,6 +8,28 @@ import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 
+val MusicIntegrationServices = setOf(
+	IntegrationService.LidaClips,
+	IntegrationService.Aurral,
+	IntegrationService.MusicBrainz,
+	IntegrationService.LastFm
+)
+
+val AurralIntegrationServices = setOf(IntegrationService.Aurral)
+
+val LidaClipsIntegrationServices = setOf(IntegrationService.LidaClips)
+
+val LastFmIntegrationServices = setOf(IntegrationService.LastFm)
+
+val MusicBrainzIntegrationServices = setOf(IntegrationService.MusicBrainz)
+
+val BinderyIntegrationServices = setOf(IntegrationService.Bindery)
+
+val ActivityIntegrationServices = setOf(
+	IntegrationService.Aurral,
+	IntegrationService.LidaClips
+)
+
 fun enabledIntegrationServices(preferenceManager: PreferenceManager): Set<IntegrationService> =
 	buildSet {
 		if (
@@ -39,12 +61,14 @@ fun enabledIntegrationServices(preferenceManager: PreferenceManager): Set<Integr
 
 fun integrationFailedIndicators(
 	preferenceManager: PreferenceManager,
-	loadingIndicators: List<IntegrationLoadingIndicator>
+	loadingIndicators: List<IntegrationLoadingIndicator>,
+	relevantServices: Set<IntegrationService> = enabledIntegrationServices(preferenceManager)
 ): List<IntegrationLoadingIndicator> =
 	integrationFailedIndicators(
 		failedServices = preferenceManager.failedIntegrationServices,
 		enabledServices = enabledIntegrationServices(preferenceManager),
-		loadingIndicators = loadingIndicators
+		loadingIndicators = loadingIndicators,
+		relevantServices = relevantServices
 	)
 
 @Composable

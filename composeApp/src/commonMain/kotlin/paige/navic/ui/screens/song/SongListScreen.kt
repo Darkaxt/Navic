@@ -38,6 +38,7 @@ import paige.navic.domain.models.duplicateQueueActionFor
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -193,7 +194,8 @@ fun SongListScreen(
 				indicators = songListIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = songListIntegrationIndicators
+					loadingIndicators = songListIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

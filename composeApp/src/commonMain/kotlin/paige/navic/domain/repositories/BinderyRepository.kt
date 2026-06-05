@@ -390,7 +390,8 @@ data class BinderyLink(
 	val rel: List<String> = emptyList(),
 	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
-	val images: List<BinderyLink> = emptyList()
+	val images: List<BinderyLink> = emptyList(),
+	val links: List<BinderyLink> = emptyList()
 )
 
 data class BinderyAvailability(
@@ -476,6 +477,7 @@ private data class BinderyLinkDto(
 	val rel: JsonElement? = null,
 	val properties: Map<String, JsonElement> = emptyMap(),
 	val images: List<BinderyLinkDto> = emptyList(),
+	val links: List<BinderyLinkDto> = emptyList(),
 	val duration: Double? = null
 )
 
@@ -561,7 +563,8 @@ private fun BinderyLinkDto.toLink(): BinderyLink? {
 		rel = rel.toRelList(),
 		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
-		images = images.mapNotNull { it.toLink() }
+		images = images.mapNotNull { it.toLink() },
+		links = links.mapNotNull { it.toLink() }
 	)
 }
 

@@ -46,6 +46,7 @@ import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.TrackIntegrationServiceAttemptStatus
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicatorOverlayTopPadding
@@ -361,7 +362,8 @@ fun LibraryScreen() {
 				indicators = libraryIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = libraryIntegrationIndicators
+					loadingIndicators = libraryIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

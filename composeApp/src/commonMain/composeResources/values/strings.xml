@@ -749,6 +749,7 @@
 	<string name="action_request_album">Request</string>
 	<string name="action_find_missing_tracks">Find missing tracks</string>
 	<string name="action_bindery_monitor">Monitor</string>
+	<string name="action_bindery_unmonitor">Unmonitor</string>
 	<string name="action_bindery_request_download">Request download</string>
 	<string name="action_acquire_album">Acquire</string>
 	<string name="action_monitor_artist">Monitor artist in Aurral</string>

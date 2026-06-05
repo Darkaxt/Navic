@@ -62,6 +62,7 @@ import paige.navic.icons.outlined.Add
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.DeletionDialog
@@ -266,7 +267,8 @@ fun PlaylistListScreen(
 				indicators = playlistIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = playlistIntegrationIndicators
+					loadingIndicators = playlistIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

@@ -53,11 +53,13 @@ fun markIntegrationServiceAvailable(
 fun visibleFailedIntegrationServices(
 	failedServices: Set<IntegrationService>,
 	enabledServices: Set<IntegrationService>,
-	loadingServices: Set<IntegrationService>
+	loadingServices: Set<IntegrationService>,
+	relevantServices: Set<IntegrationService> = enabledServices
 ): List<IntegrationService> =
 	IntegrationService.entries.filter { service ->
 		service in failedServices &&
 			service in enabledServices &&
+			service in relevantServices &&
 			service !in loadingServices
 	}
 

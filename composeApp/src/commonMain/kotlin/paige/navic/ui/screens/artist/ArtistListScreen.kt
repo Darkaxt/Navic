@@ -49,6 +49,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGridItem
@@ -188,7 +189,8 @@ fun ArtistListScreen(
 				indicators = artistListIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = artistListIntegrationIndicators
+					loadingIndicators = artistListIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

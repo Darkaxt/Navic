@@ -163,6 +163,52 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun authorCardsPreserveNestedOpdsUnmonitorActionLinks() {
+		val unmonitor = BinderyLink(
+			href = "/opds/authors/28/unmonitor",
+			title = "Unmonitor author",
+			rel = listOf(BINDERY_UNMONITOR_REL),
+			type = "application/json"
+		)
+		val authorCard = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Authors",
+				navigation = listOf(
+					BinderyLink(
+						href = "/opds/authors/28",
+						title = "Brandon Sanderson",
+						links = listOf(unmonitor)
+					)
+				)
+			),
+			BinderyCatalogTab.Authors
+		).single() as BinderyCatalogCard.Link
+
+		assertEquals(unmonitor, authorCard.unmonitorAction)
+		assertEquals(BinderyOpdsActionType.Unmonitor, authorCard.primaryAction()?.type)
+	}
+
+	@Test
+	fun authorDetailCatalogUsesNavigationUnmonitorAction() {
+		val unmonitor = BinderyLink(
+			href = "/opds/authors/28/unmonitor",
+			title = "Unmonitor author",
+			rel = listOf(BINDERY_UNMONITOR_REL),
+			type = "application/json"
+		)
+		val catalog = BinderyCatalog(
+			title = "Brandon Sanderson",
+			navigation = listOf(
+				unmonitor,
+				BinderyLink(href = "/opds/authors/28/collections", title = "Collections")
+			)
+		)
+
+		assertEquals(unmonitor, catalog.unmonitorAction)
+		assertEquals(BinderyOpdsActionType.Unmonitor, catalog.primaryAction()?.type)
+	}
+
+	@Test
 	fun catalogNextPagePathUsesOpdsNextRelation() {
 		val catalog = BinderyCatalog(
 			title = "Books",

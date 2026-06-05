@@ -46,6 +46,7 @@ import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -260,7 +261,8 @@ fun AurralDiscoverListScreen(
 				indicators = aurralDiscoverIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = aurralDiscoverIntegrationIndicators
+					loadingIndicators = aurralDiscoverIntegrationIndicators,
+					relevantServices = AurralIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

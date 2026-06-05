@@ -190,8 +190,8 @@ class ArtistDetailViewModel(
 		viewModelScope.launch {
 			try {
 				val artistEntity = artistDao.getArtistById(artistId)
-					?: throw Exception("Artist not found in database")
-				val domainArtist = artistEntity.toDomainModel()
+				val domainArtist = artistEntity?.toDomainModel()
+					?: fallbackArtistFromRouteId(artistId)
 
 				var albumsWithSongs =
 					albumDao.getAlbumsByArtist(artistId).firstOrNull() ?: emptyList()
@@ -230,7 +230,7 @@ class ArtistDetailViewModel(
 					)
 				}
 
-				_starred.value = artistRepository.isArtistStarred(domainArtist)
+				_starred.value = artistEntity != null && artistRepository.isArtistStarred(domainArtist)
 
 				_artistState.value = UiState.Success(
 					ArtistState(
@@ -244,50 +244,52 @@ class ArtistDetailViewModel(
 				loadLastFmTopTracks(domainArtist, allArtistSongs)
 				loadAurralEnrichment(domainArtist, domainAlbums)
 
-				repository.fetchArtistMetadata(artistId)
-					.onSuccess { updatedArtist ->
-						val currentState = (_artistState.value as? UiState.Success)?.data
-						if (currentState != null) {
-							val shouldRefreshAurral =
-								updatedArtist.musicBrainzId != currentState.artist.musicBrainzId
+				if (artistEntity != null) {
+					repository.fetchArtistMetadata(artistId)
+						.onSuccess { updatedArtist ->
+							val currentState = (_artistState.value as? UiState.Success)?.data
+							if (currentState != null) {
+								val shouldRefreshAurral =
+									updatedArtist.musicBrainzId != currentState.artist.musicBrainzId
 
-							val updatedSimilarArtists =
-								updatedArtist.similarArtistIds.mapNotNull { id ->
-									artistDao.getArtistById(id)?.toDomainModel()
-								}.map { similarArtist ->
-									similarArtist.withCachedArtistPhoto(
+								val updatedSimilarArtists =
+									updatedArtist.similarArtistIds.mapNotNull { id ->
+										artistDao.getArtistById(id)?.toDomainModel()
+									}.map { similarArtist ->
+										similarArtist.withCachedArtistPhoto(
+											entries = artistPhotoCacheEntries,
+											artistArtworkPriority = preferenceManager.artistArtworkPriority,
+											externalArtworkEnabled = preferenceManager.aurralEnabled
+										)
+									}
+								val cachedUpdatedArtistImageUrl =
+									currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
+										artist = updatedArtist,
 										entries = artistPhotoCacheEntries,
 										artistArtworkPriority = preferenceManager.artistArtworkPriority,
 										externalArtworkEnabled = preferenceManager.aurralEnabled
 									)
-								}
-							val cachedUpdatedArtistImageUrl =
-								currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
-									artist = updatedArtist,
-									entries = artistPhotoCacheEntries,
-									artistArtworkPriority = preferenceManager.artistArtworkPriority,
-									externalArtworkEnabled = preferenceManager.aurralEnabled
-								)
 
-							_artistState.value = UiState.Success(
-								currentState.copy(
-									artist = updatedArtist,
-									similarArtists = updatedSimilarArtists,
-									aurralArtistImageUrl = cachedUpdatedArtistImageUrl
+								_artistState.value = UiState.Success(
+									currentState.copy(
+										artist = updatedArtist,
+										similarArtists = updatedSimilarArtists,
+										aurralArtistImageUrl = cachedUpdatedArtistImageUrl
+									)
 								)
-							)
-							loadLastFmTopTracks(
-								artist = updatedArtist,
-								localSongs = currentState.albums.flatMap { it.songs }
-							)
-							if (shouldRefreshAurral) {
-								loadAurralEnrichment(updatedArtist, currentState.albums)
+								loadLastFmTopTracks(
+									artist = updatedArtist,
+									localSongs = currentState.albums.flatMap { it.songs }
+								)
+								if (shouldRefreshAurral) {
+									loadAurralEnrichment(updatedArtist, currentState.albums)
+								}
 							}
 						}
-					}
-					.onFailure { error ->
-						Logger.e("ArtistDetailViewModel", "Failed to fetch artist metadata", error)
-					}
+						.onFailure { error ->
+							Logger.e("ArtistDetailViewModel", "Failed to fetch artist metadata", error)
+						}
+				}
 			} catch (e: Exception) {
 				_artistState.value = UiState.Error(e)
 			}
@@ -898,6 +900,22 @@ class ArtistDetailViewModel(
 			}
 		}
 	}
+}
+
+private fun fallbackArtistFromRouteId(artistId: String): DomainArtist {
+	val fallbackName = artistId
+		.trim()
+		.removePrefix("name:")
+		.replace(Regex("""%20""", RegexOption.IGNORE_CASE), " ")
+		.replace(Regex("""[-_]+"""), " ")
+		.replace(Regex("""\s+"""), " ")
+		.trim()
+		.takeIf { it.isNotEmpty() }
+		?: artistId
+	return DomainArtist(
+		id = artistId,
+		name = fallbackName
+	)
 }
 
 private fun ArtistState.aurralActionArtist(): DomainArtist? {

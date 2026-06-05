@@ -112,6 +112,7 @@ import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -705,7 +706,8 @@ fun ArtistDetailScreen(
 				indicators = artistIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = artistIntegrationIndicators
+					loadingIndicators = artistIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

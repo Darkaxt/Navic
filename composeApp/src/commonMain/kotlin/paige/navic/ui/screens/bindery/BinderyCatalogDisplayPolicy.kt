@@ -19,6 +19,7 @@ import kotlin.math.roundToLong
 
 private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
 internal const val BINDERY_MONITOR_REL = "https://bindery.app/opds/rel/monitor"
+internal const val BINDERY_UNMONITOR_REL = "https://bindery.app/opds/rel/unmonitor"
 internal const val BINDERY_DOWNLOAD_REQUEST_REL = "https://bindery.app/opds/rel/download-request"
 private val BinderyAvailabilityQueryKeys = setOf("owned", "languages", "coverage")
 
@@ -215,6 +216,7 @@ fun binderyCatalogCards(
 
 enum class BinderyOpdsActionType {
 	Monitor,
+	Unmonitor,
 	DownloadRequest
 }
 
@@ -224,13 +226,19 @@ data class BinderyOpdsAction(
 )
 
 val BinderyCatalog.monitorAction: BinderyLink?
-	get() = links.actionLink(BINDERY_MONITOR_REL)
+	get() = actionLinks().actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalog.unmonitorAction: BinderyLink?
+	get() = actionLinks().actionLink(BINDERY_UNMONITOR_REL)
 
 val BinderyCatalog.downloadRequestAction: BinderyLink?
-	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+	get() = actionLinks().actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
 
 val BinderyCatalogCard.Book.monitorAction: BinderyLink?
 	get() = links.actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalogCard.Book.unmonitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_UNMONITOR_REL)
 
 val BinderyCatalogCard.Book.downloadRequestAction: BinderyLink?
 	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
@@ -238,19 +246,26 @@ val BinderyCatalogCard.Book.downloadRequestAction: BinderyLink?
 val BinderyCatalogCard.Link.monitorAction: BinderyLink?
 	get() = links.actionLink(BINDERY_MONITOR_REL)
 
+val BinderyCatalogCard.Link.unmonitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_UNMONITOR_REL)
+
 val BinderyCatalogCard.Link.downloadRequestAction: BinderyLink?
 	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
 
 fun BinderyCatalog.primaryAction(): BinderyOpdsAction? =
-	monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
+	unmonitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
+		?: monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 		?: downloadRequestAction?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
 
 fun BinderyCatalogCard.primaryAction(): BinderyOpdsAction? =
 	when (this) {
 		is BinderyCatalogCard.Book -> downloadRequestAction
 			?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+			?: unmonitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
 			?: monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
-		is BinderyCatalogCard.Link -> monitorAction
+		is BinderyCatalogCard.Link -> unmonitorAction
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
+			?: monitorAction
 			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 			?: downloadRequestAction?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
 	}
@@ -258,21 +273,31 @@ fun BinderyCatalogCard.primaryAction(): BinderyOpdsAction? =
 fun BinderyPublication.primaryAction(): BinderyOpdsAction? =
 	links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
 		?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+		?: links.actionLink(BINDERY_UNMONITOR_REL)
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
 		?: links.actionLink(BINDERY_MONITOR_REL)
 			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 
 fun BinderyManifest.primaryAction(): BinderyOpdsAction? =
 	links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
 		?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+		?: links.actionLink(BINDERY_UNMONITOR_REL)
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
 		?: links.actionLink(BINDERY_MONITOR_REL)
 			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 
 private fun BinderyLink.actionLinks(): List<BinderyLink> =
-	listOf(this).filter(BinderyLink::isBinderyActionLink)
+	listOf(this).filter(BinderyLink::isBinderyActionLink) +
+		links.filter(BinderyLink::isBinderyActionLink)
+
+private fun BinderyCatalog.actionLinks(): List<BinderyLink> =
+	links.filter(BinderyLink::isBinderyActionLink) +
+		navigation.flatMap(BinderyLink::actionLinks)
 
 private fun BinderyLink.isBinderyActionLink(): Boolean =
 	rel.any { item ->
 		item.equals(BINDERY_MONITOR_REL, ignoreCase = true) ||
+			item.equals(BINDERY_UNMONITOR_REL, ignoreCase = true) ||
 			item.equals(BINDERY_DOWNLOAD_REQUEST_REL, ignoreCase = true)
 	}
 

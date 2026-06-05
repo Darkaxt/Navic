@@ -56,6 +56,7 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.LidaClipsIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -156,7 +157,8 @@ fun LidaClipPlayerScreen(songId: String) {
 				indicators = lidaClipsIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = lidaClipsIntegrationIndicators
+					loadingIndicators = lidaClipsIntegrationIndicators,
+					relevantServices = LidaClipsIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

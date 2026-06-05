@@ -68,6 +68,7 @@ import paige.navic.icons.outlined.Book
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.BinderyIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -220,7 +221,8 @@ fun BinderyBookScreen(
 				indicators = binderyIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = binderyIndicators
+					loadingIndicators = binderyIndicators,
+					relevantServices = BinderyIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

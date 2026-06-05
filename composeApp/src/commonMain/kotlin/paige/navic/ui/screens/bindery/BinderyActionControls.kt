@@ -20,12 +20,14 @@ import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_bindery_monitor
 import navic.composeapp.generated.resources.action_bindery_request_download
+import navic.composeapp.generated.resources.action_bindery_unmonitor
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Add
 import paige.navic.icons.outlined.Download
+import paige.navic.icons.outlined.VisibilityOff
 
 @Composable
 fun BinderyCardActionButton(
@@ -97,11 +99,13 @@ fun BinderyActionButton(
 private fun BinderyOpdsAction.icon(): ImageVector =
 	when (type) {
 		BinderyOpdsActionType.Monitor -> Icons.Outlined.Add
+		BinderyOpdsActionType.Unmonitor -> Icons.Outlined.VisibilityOff
 		BinderyOpdsActionType.DownloadRequest -> Icons.Outlined.Download
 	}
 
 private fun BinderyOpdsAction.labelResource(): StringResource =
 	when (type) {
 		BinderyOpdsActionType.Monitor -> Res.string.action_bindery_monitor
+		BinderyOpdsActionType.Unmonitor -> Res.string.action_bindery_unmonitor
 		BinderyOpdsActionType.DownloadRequest -> Res.string.action_bindery_request_download
 	}

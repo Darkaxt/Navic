@@ -92,14 +92,16 @@ fun integrationLoadingIndicators(
 fun integrationFailedIndicators(
 	failedServices: Set<IntegrationService>,
 	enabledServices: Set<IntegrationService>,
-	loadingIndicators: List<IntegrationLoadingIndicator>
+	loadingIndicators: List<IntegrationLoadingIndicator>,
+	relevantServices: Set<IntegrationService> = enabledServices
 ): List<IntegrationLoadingIndicator> =
 	visibleFailedIntegrationServices(
 		failedServices = failedServices,
 		enabledServices = enabledServices,
 		loadingServices = loadingIndicators.mapNotNull { indicator ->
 			indicator.integrationServiceOrNull
-		}.toSet()
+		}.toSet(),
+		relevantServices = relevantServices
 	).map(IntegrationService::toLoadingIndicator)
 
 @Composable

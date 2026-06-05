@@ -496,10 +496,30 @@ class AurralRepositoryTest {
 				id = "global-mbid",
 				name = "IU",
 				imageUrl = "https://img.example.com/iu.jpg",
-				sourceType = "global"
+				sourceType = "global",
+				detailsIdVerified = true
 			),
 			summary.globalTop.single()
 		)
+	}
+
+	@Test
+	fun aurralDiscoverySummaryPrefersVerifiedArtistIdOverGenericId() {
+		val summary = aurralDiscoverySummary(
+			baseUrl = "https://aurral.example.com",
+			response = AurralDiscoveryResponseDto(
+				recommendations = listOf(
+					AurralDiscoverArtistDto(
+						id = "internal-artist-row-id",
+						mbid = "musicbrainz-artist-mbid",
+						name = "Naoshi Mizuta"
+					)
+				)
+			)
+		)
+
+		assertEquals("musicbrainz-artist-mbid", summary.recommendations.single().id)
+		assertTrue(summary.recommendations.single().detailsIdVerified)
 	}
 
 	@Test
@@ -714,6 +734,39 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun artistEnrichmentSkipsSearchResultWithoutMusicBrainzArtistId(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = " https://aurral.example.com/aurral/ "
+		}
+		val apiClient = FakeAurralApiClient(
+			artistSearch = AurralArtistSearchResult(
+				query = "Naoshi Mizuta",
+				count = 1,
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "internal-naoshi-id",
+						name = "Naoshi Mizuta"
+					)
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val artist = DomainArtist(
+			id = "name:Naoshi%20Mizuta",
+			name = "Naoshi Mizuta",
+			musicBrainzId = null
+		)
+
+		assertNull(repository.getArtistEnrichment(artist).getOrThrow())
+		assertEquals(
+			listOf(AurralArtistSearchRequest(query = "Naoshi Mizuta", limit = 5, offset = 0)),
+			apiClient.artistSearchRequests
+		)
+		assertEquals(emptyList(), apiClient.artistEnrichmentRequests)
+	}
+
+	@Test
 	fun repositoryDiscoveryCachesLibraryArtistsWithinTtl(): Unit = runBlocking {
 		var nowMillis = 1_000L
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
@@ -786,8 +839,8 @@ class AurralRepositoryTest {
 			artistSearch = AurralArtistSearchResult(
 				query = "Naoshi Mizuta",
 				artists = listOf(
-					AurralDiscoverArtist(id = "other-mbid", name = "Different Artist"),
-					AurralDiscoverArtist(id = "naoshi-mbid", name = "Naoshi Mizuta")
+					AurralDiscoverArtist(id = "other-mbid", name = "Different Artist", detailsIdVerified = true),
+					AurralDiscoverArtist(id = "naoshi-mbid", name = "Naoshi Mizuta", detailsIdVerified = true)
 				)
 			)
 		)
@@ -1606,6 +1659,7 @@ class AurralRepositoryTest {
 		val cancelAcquisitionRequestHeaders = mutableListOf<Map<String, String>>()
 		val cancelAcquisitionTargets = mutableListOf<AurralAcquisitionDeleteTarget>()
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
+		val artistEnrichmentRequests = mutableListOf<Pair<String, String>>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -1670,10 +1724,13 @@ class AurralRepositoryTest {
 			requestHeaders: Map<String, String>,
 			artistMbid: String,
 			artistName: String
-		): AurralArtistEnrichment = artistEnrichment.copy(
-			artistMbid = artistMbid,
-			artistName = artistName
-		)
+		): AurralArtistEnrichment {
+			artistEnrichmentRequests += artistMbid to artistName
+			return artistEnrichment.copy(
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		}
 
 		override suspend fun fetchLibraryArtistMonitoring(
 			baseUrl: String,

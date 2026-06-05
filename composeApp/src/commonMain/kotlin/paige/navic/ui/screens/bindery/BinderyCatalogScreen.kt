@@ -42,6 +42,7 @@ import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.BinderyIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -228,7 +229,8 @@ fun BinderyCatalogScreen(
 				indicators = binderyIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = binderyIndicators
+					loadingIndicators = binderyIndicators,
+					relevantServices = BinderyIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

@@ -63,6 +63,7 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.common.BackToTopScrollHandler
+import paige.navic.ui.components.common.ActivityIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -203,7 +204,8 @@ fun ActivityScreen() {
 				indicators = activityIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = activityIntegrationIndicators
+					loadingIndicators = activityIntegrationIndicators,
+					relevantServices = ActivityIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

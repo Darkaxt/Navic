@@ -59,6 +59,31 @@ class IntegrationAttemptStatusPolicyTest {
 	}
 
 	@Test
+	fun visibleFailuresAreScopedToRelevantPageServices() {
+		val failedJson = markIntegrationServiceDown("", IntegrationService.Bindery)
+		val failedServices = integrationAttemptFailedServices(failedJson)
+
+		assertEquals(
+			emptyList(),
+			visibleFailedIntegrationServices(
+				failedServices = failedServices,
+				enabledServices = setOf(IntegrationService.Bindery),
+				loadingServices = emptySet(),
+				relevantServices = setOf(IntegrationService.Aurral, IntegrationService.MusicBrainz)
+			)
+		)
+		assertEquals(
+			listOf(IntegrationService.Bindery),
+			visibleFailedIntegrationServices(
+				failedServices = failedServices,
+				enabledServices = setOf(IntegrationService.Bindery),
+				loadingServices = emptySet(),
+				relevantServices = setOf(IntegrationService.Bindery)
+			)
+		)
+	}
+
+	@Test
 	fun corruptPersistedStatusDecodesAsEmpty() {
 		assertEquals(emptySet(), integrationAttemptFailedServices("not json"))
 	}

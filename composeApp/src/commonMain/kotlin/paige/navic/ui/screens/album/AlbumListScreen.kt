@@ -36,6 +36,7 @@ import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGrid
@@ -146,7 +147,8 @@ fun AlbumListScreen(
 				indicators = albumListIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = albumListIntegrationIndicators
+					loadingIndicators = albumListIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

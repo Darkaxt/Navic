@@ -85,6 +85,7 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.KeepScreenOn
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
@@ -555,7 +556,8 @@ fun LyricsScreen(
 				indicators = lyricsIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = lyricsIntegrationIndicators
+					loadingIndicators = lyricsIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

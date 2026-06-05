@@ -89,6 +89,7 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -572,7 +573,8 @@ fun SearchScreen(
 				indicators = searchIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = searchIntegrationIndicators
+					loadingIndicators = searchIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

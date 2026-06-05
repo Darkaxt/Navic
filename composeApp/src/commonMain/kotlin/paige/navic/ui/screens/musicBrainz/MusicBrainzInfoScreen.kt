@@ -70,6 +70,7 @@ import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicBrainzIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.SheetScaffold
@@ -171,7 +172,8 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 				indicators = musicBrainzIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = musicBrainzIntegrationIndicators
+					loadingIndicators = musicBrainzIntegrationIndicators,
+					relevantServices = MusicBrainzIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

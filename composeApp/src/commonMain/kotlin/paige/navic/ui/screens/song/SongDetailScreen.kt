@@ -71,6 +71,7 @@ import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -187,7 +188,8 @@ fun SongDetailScreen(songId: String) {
 				indicators = songDetailIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = songDetailIntegrationIndicators
+					loadingIndicators = songDetailIntegrationIndicators,
+					relevantServices = MusicIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

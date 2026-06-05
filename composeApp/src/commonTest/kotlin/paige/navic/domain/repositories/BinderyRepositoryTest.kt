@@ -198,7 +198,15 @@ class BinderyRepositoryTest {
 			          "missingBooks": 0,
 			          "totalBooks": 9
 			        }
-			      }
+			      },
+			      "links": [
+			        {
+			          "href": "/opds/authors/28/unmonitor",
+			          "title": "Unmonitor author",
+			          "type": "application/json",
+			          "rel": "https://bindery.app/opds/rel/unmonitor"
+			        }
+			      ]
 			    }
 			  ],
 			  "publications": [
@@ -257,6 +265,14 @@ class BinderyRepositoryTest {
 		)
 		assertEquals("9", catalog.navigation.single().properties["memberCount"])
 		assertNull(catalog.navigation.single().properties["yearRange"])
+		assertEquals(
+			"/opds/authors/28/unmonitor",
+			catalog.navigation.single().links.single().href
+		)
+		assertEquals(
+			listOf("https://bindery.app/opds/rel/unmonitor"),
+			catalog.navigation.single().links.single().rel
+		)
 		assertEquals(
 			BinderyAvailability(
 				owned = true,

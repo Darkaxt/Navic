@@ -68,6 +68,7 @@ import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.FormTitle
+import paige.navic.ui.components.common.LastFmIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
@@ -217,7 +218,8 @@ fun SettingsLastFmScreen() {
 				indicators = lastFmIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
 					preferenceManager = preferenceManager,
-					loadingIndicators = lastFmIntegrationIndicators
+					loadingIndicators = lastFmIntegrationIndicators,
+					relevantServices = LastFmIntegrationServices
 				),
 				modifier = Modifier
 					.align(Alignment.TopStart)

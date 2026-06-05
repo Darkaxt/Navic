@@ -336,7 +336,9 @@ class AurralRepository(
 		val artist = search.artists.firstOrNull {
 			it.name.normalizedAurralSearchName() == normalizedName
 		} ?: search.artists.firstOrNull()
-		val resolvedMbid = artist?.id?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+		val resolvedMbid = artist?.id?.trim()
+			?.takeIf { it.isNotEmpty() && artist.detailsIdVerified }
+			?: return null
 		val resolvedName = artist.name.trim().takeIf { it.isNotEmpty() } ?: artistName
 		return ResolvedAurralArtist(
 			artistMbid = resolvedMbid,
@@ -2051,7 +2053,8 @@ data class AurralDiscoverArtist(
 	val sourceType: String? = null,
 	val discoveryTier: String? = null,
 	val monitored: Boolean? = null,
-	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList()
+	val recommendedAlbums: List<AurralAlbumSearchItem> = emptyList(),
+	val detailsIdVerified: Boolean = false
 )
 
 data class AurralFallbackGenreSection(
@@ -2620,18 +2623,18 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 			sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 			discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
 			monitored = monitored,
-			recommendedAlbums = listOf(recommendedAlbum)
+			recommendedAlbums = listOf(recommendedAlbum),
+			detailsIdVerified = true
 		)
 	}
 
-	val artistId = listOf(id, mbid, foreignArtistId, artistMbid)
-		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+	val artistId = verifiedAurralArtistIdCandidate()
 		?: return null
 	val artistName = listOf(name, artistName)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
 		?: return null
 	return AurralDiscoverArtist(
-		id = artistId,
+		id = artistId.id,
 		name = artistName,
 		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
 		tags = (tags + genres).cleanedAurralStrings(),
@@ -2639,47 +2642,63 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 		reason = aurralDiscoveryReason(this),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
-		monitored = monitored
+		monitored = monitored,
+		detailsIdVerified = artistId.verified
 	)
 }
 
 private fun AurralDiscoverArtistDto.toRecentlyAddedArtist(baseUrl: String): AurralDiscoverArtist? {
-	val artistId = listOf(foreignArtistId, mbid, artistMbid, id)
-		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+	val artistId = verifiedAurralArtistIdCandidate()
 		?: return null
 	val artistName = listOf(artistName, name, id)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
 		?: return null
 	return AurralDiscoverArtist(
-		id = artistId,
+		id = artistId.id,
 		name = artistName,
 		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
 		tags = (tags + genres).cleanedAurralStrings(),
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
-		monitored = monitored
+		monitored = monitored,
+		detailsIdVerified = artistId.verified
 	)
 }
 
 private fun AurralDiscoverArtistDto.toLibraryArtist(baseUrl: String): AurralDiscoverArtist? {
-	val artistId = listOf(foreignArtistId, mbid, artistMbid, id)
-		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+	val artistId = verifiedAurralArtistIdCandidate()
 		?: return null
 	val artistName = listOf(artistName, name, id)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
 		?: return null
 	return AurralDiscoverArtist(
-		id = artistId,
+		id = artistId.id,
 		name = artistName,
 		imageUrl = aurralAbsoluteImageUrl(baseUrl, imageUrl ?: image),
 		tags = (tags + genres).cleanedAurralStrings(),
 		matchedTags = matchedTags.cleanedAurralStrings(),
 		sourceType = sourceType?.trim()?.takeIf { it.isNotEmpty() },
 		discoveryTier = discoveryTier?.trim()?.takeIf { it.isNotEmpty() },
-		monitored = monitored ?: monitorOption?.trim()?.equals("none", ignoreCase = true)?.not()
+		monitored = monitored ?: monitorOption?.trim()?.equals("none", ignoreCase = true)?.not(),
+		detailsIdVerified = artistId.verified
 	)
 }
+
+private data class AurralArtistIdCandidate(
+	val id: String,
+	val verified: Boolean
+)
+
+private fun AurralDiscoverArtistDto.verifiedAurralArtistIdCandidate(): AurralArtistIdCandidate? =
+	listOf(
+		foreignArtistId to true,
+		mbid to true,
+		artistMbid to true,
+		id to false
+	).firstNotNullOfOrNull { (candidate, verified) ->
+		candidate?.trim()?.takeIf(String::isNotEmpty)?.let { AurralArtistIdCandidate(it, verified) }
+	}
 
 private fun AurralFallbackGenreSectionDto.toFallbackGenreSection(baseUrl: String): AurralFallbackGenreSection? {
 	val safeGenre = listOf(genre, name, title)
