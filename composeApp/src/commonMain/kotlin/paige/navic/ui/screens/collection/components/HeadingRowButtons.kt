@@ -4,11 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,10 +45,11 @@ import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
-import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralActionIcon
+import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -127,23 +126,22 @@ fun CollectionDetailScreenHeadingRowButtons(
 			val acquireButtonIsActionable = aurralAlbumActionStatus == AurralOwnershipStatus.Missing &&
 				onAcquireAurralAlbum != null
 			OutlinedButton(
-				modifier = Modifier
-					.width(if (acquireButtonIsActionable) 104.dp else 52.dp)
-					.height(buttonHeight),
+				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
 				onClick = {
 					platformContext.clickSound()
 					onAcquireAurralAlbum?.invoke()
 				},
 				shape = buttonShape,
-				contentPadding = PaddingValues(horizontal = if (acquireButtonIsActionable) 12.dp else 0.dp),
+				contentPadding = PaddingValues(0.dp),
 				enabled = acquireButtonIsActionable
 			) {
 				when (aurralAlbumActionStatus) {
 					AurralOwnershipStatus.Partial -> {
-						CircularProgressIndicator(
-							modifier = Modifier.size(22.dp),
-							strokeWidth = 2.dp,
-							color = MaterialTheme.colorScheme.primary
+						AurralActionIcon(
+							overlay = AurralActionIconOverlay.Progress,
+							contentDescription = stringResource(Res.string.action_acquire_album),
+							tint = MaterialTheme.colorScheme.primary,
+							progressColor = MaterialTheme.colorScheme.primary
 						)
 					}
 					AurralOwnershipStatus.Owned -> {
@@ -155,21 +153,10 @@ fun CollectionDetailScreenHeadingRowButtons(
 						)
 					}
 					AurralOwnershipStatus.Missing -> {
-						Icon(
-							imageVector = Icons.Outlined.LibraryAdd,
-							contentDescription = null,
-							modifier = Modifier.size(22.dp)
-						)
-						Spacer(modifier = Modifier.width(6.dp))
-						Text(
-							stringResource(Res.string.action_acquire_album),
-							maxLines = 1,
-							autoSize = TextAutoSize.StepBased(
-								minFontSize = 1.sp,
-								maxFontSize = 13.sp
-							),
-							fontWeight = FontWeight.SemiBold,
-							fontFamily = defaultFont(round = 100f)
+						AurralActionIcon(
+							overlay = AurralActionIconOverlay.None,
+							contentDescription = stringResource(Res.string.action_acquire_album),
+							tint = MaterialTheme.colorScheme.primary
 						)
 					}
 				}

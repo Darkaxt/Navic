@@ -105,6 +105,8 @@ import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralActionIcon
+import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
@@ -136,7 +138,6 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.icons.Icons
-import paige.navic.icons.outlined.VisibilityOff
 import kotlin.time.Duration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -711,7 +712,14 @@ fun ArtistDetailScreen(
 		val artistName = (artistState as? UiState.Success)?.data?.artist?.name.orEmpty()
 		FormDialog(
 			onDismissRequest = { stopMonitoringDialogShown = false },
-			icon = { Icon(Icons.Outlined.VisibilityOff, contentDescription = null) },
+			icon = {
+				AurralActionIcon(
+					overlay = AurralActionIconOverlay.Crossed,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onSurface,
+					overlayColor = MaterialTheme.colorScheme.error
+				)
+			},
 			title = { Text(stringResource(Res.string.title_confirm)) },
 			content = {
 				Text(

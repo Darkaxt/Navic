@@ -91,8 +91,9 @@ import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Note
-import paige.navic.icons.outlined.Visibility
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralActionIcon
+import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
@@ -531,22 +532,23 @@ private fun AurralArtistActions(
 			onClick = onMonitorArtist,
 			enabled = !monitoring && !monitorPending && !monitorConfirmed
 		) {
-			if (monitoring || monitorPending) {
-				CircularProgressIndicator(
-					modifier = Modifier
-						.size(20.dp)
-						.padding(end = 4.dp),
-					strokeWidth = 2.dp
-				)
-			} else {
-				Icon(
-					imageVector = Icons.Outlined.Visibility,
-					contentDescription = null,
-					modifier = Modifier
-						.size(22.dp)
-						.padding(end = 4.dp)
-				)
-			}
+			AurralActionIcon(
+				overlay = when {
+					monitoring || monitorPending -> AurralActionIconOverlay.Progress
+					monitorConfirmed -> AurralActionIconOverlay.None
+					else -> AurralActionIconOverlay.Crossed
+				},
+				contentDescription = null,
+				size = 22.dp,
+				tint = if (monitoring || monitorPending || monitorConfirmed) {
+					MaterialTheme.colorScheme.primary
+				} else {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				},
+				overlayColor = MaterialTheme.colorScheme.primary,
+				progressColor = MaterialTheme.colorScheme.primary,
+				modifier = Modifier.padding(end = 4.dp)
+			)
 			Text(
 				text = stringResource(Res.string.action_monitor_artist),
 				maxLines = 1,

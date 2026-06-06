@@ -263,10 +263,10 @@ fun CollectionDetailScreen(
 							album = album,
 							recoveryRows = aurralAlbumRecoveryRows
 						)
-						val rowGroups = displayRows.groupBy { it.discNumber }
+						val rowGroups = displayRows.groupBy(::aurralAlbumDisplayDiscKey)
 						rowGroups.forEach { group ->
 							val multipleDiscs = rowGroups.size > 1
-							if (group.key != null && multipleDiscs) {
+							if (multipleDiscs) {
 								item {
 									Row(
 										modifier = Modifier
@@ -288,7 +288,7 @@ fun CollectionDetailScreen(
 										Text(
 											text = stringResource(
 												Res.string.title_disc_number,
-												group.key as Int
+												group.key
 											),
 											style = MaterialTheme.typography.titleMediumEmphasized,
 											fontWeight = FontWeight(600),

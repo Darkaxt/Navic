@@ -404,6 +404,45 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun displayRowsShareDiscKeyWhenAurralRowsOmitDiscNumber() {
+		val localSong = song(
+			title = "Ori, Lost In the Storm (feat. Aeralie Brighton)",
+			trackNumber = 1,
+			discNumber = 1
+		)
+
+		val rows = aurralAlbumDisplayRows(
+			album = album(
+				name = "Ori and the Blind Forest (Original Soundtrack)",
+				songs = listOf(localSong)
+			),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Main Theme - Definitive Edition",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				),
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-3",
+						title = "Naru, Embracing the Light",
+						trackNumber = 3
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				)
+			)
+		)
+
+		assertEquals(listOf(1, 1, 1), rows.map { aurralAlbumDisplayDiscKey(it) })
+		assertEquals(1, rows.groupBy(::aurralAlbumDisplayDiscKey).size)
+	}
+
+	@Test
 	fun displayRowsKeepAurralTrackArtistForMissingRows() {
 		val rows = aurralAlbumDisplayRows(
 			album = album(

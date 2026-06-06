@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,7 +22,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.capsule.ContinuousCapsule
@@ -47,9 +45,10 @@ import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Shuffle
-import paige.navic.icons.outlined.Visibility
-import paige.navic.icons.outlined.VisibilityOff
+import paige.navic.ui.components.common.AurralActionIcon
+import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.aurralMonitorActionIconOverlay
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -151,55 +150,31 @@ fun ArtistActionButtons(
 					monitoredInAurral != null,
 				contentPadding = PaddingValues(0.dp)
 			) {
-				if (monitoringInAurral) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(24.dp),
-						strokeWidth = 2.5.dp,
-						color = MaterialTheme.colorScheme.primary
-					)
-				} else {
-					Box(contentAlignment = Alignment.Center) {
-						Icon(
-							imageVector = when (monitorState) {
-								AurralMonitorActionState.NotMonitored -> Icons.Outlined.VisibilityOff
-								else -> Icons.Outlined.Visibility
-							},
-							contentDescription = stringResource(
-								when (monitorState) {
-									AurralMonitorActionState.Monitored -> Res.string.action_stop_monitoring_artist
-									AurralMonitorActionState.NotMonitored -> Res.string.action_monitor_artist
-									AurralMonitorActionState.PendingConfirmation ->
-										Res.string.info_aurral_monitor_confirmation_pending
-									AurralMonitorActionState.PendingVerification ->
-										Res.string.info_aurral_monitor_status_pending
-								}
-							),
-							modifier = Modifier.size(24.dp)
-						)
-						if (monitorState == AurralMonitorActionState.PendingVerification) {
-							Text(
-								text = "?",
-								color = MaterialTheme.colorScheme.onPrimary,
-								fontSize = 9.sp,
-								fontWeight = FontWeight.Bold,
-								textAlign = TextAlign.Center,
-								modifier = Modifier
-									.align(Alignment.TopEnd)
-									.size(14.dp)
-									.clip(ContinuousCapsule)
-									.background(MaterialTheme.colorScheme.primary)
-							)
-						} else if (monitorState == AurralMonitorActionState.PendingConfirmation) {
-							CircularProgressIndicator(
-								modifier = Modifier
-									.align(Alignment.TopEnd)
-									.size(14.dp),
-								strokeWidth = 2.dp,
-								color = MaterialTheme.colorScheme.primary
-							)
+				AurralActionIcon(
+					overlay = if (monitoringInAurral) {
+						AurralActionIconOverlay.Progress
+					} else {
+						aurralMonitorActionIconOverlay(monitorState)
+					},
+					contentDescription = stringResource(
+						when (monitorState) {
+							AurralMonitorActionState.Monitored -> Res.string.action_stop_monitoring_artist
+							AurralMonitorActionState.NotMonitored -> Res.string.action_monitor_artist
+							AurralMonitorActionState.PendingConfirmation ->
+								Res.string.info_aurral_monitor_confirmation_pending
+							AurralMonitorActionState.PendingVerification ->
+								Res.string.info_aurral_monitor_status_pending
 						}
-					}
-				}
+					),
+					tint = when (monitorState) {
+						AurralMonitorActionState.Monitored,
+						AurralMonitorActionState.PendingConfirmation -> MaterialTheme.colorScheme.primary
+						AurralMonitorActionState.NotMonitored,
+						AurralMonitorActionState.PendingVerification -> MaterialTheme.colorScheme.onSurfaceVariant
+					},
+					overlayColor = MaterialTheme.colorScheme.primary,
+					progressColor = MaterialTheme.colorScheme.primary
+				)
 			}
 		}
 
@@ -227,7 +202,7 @@ fun ArtistActionButtons(
 				DownloadStatus.DOWNLOADING,
 				DownloadStatus.QUEUED -> {
 					Box(contentAlignment = Alignment.Center) {
-						CircularProgressIndicator(
+						androidx.compose.material3.CircularProgressIndicator(
 							modifier = Modifier.size(24.dp),
 							strokeWidth = 2.5.dp,
 							color = MaterialTheme.colorScheme.primary

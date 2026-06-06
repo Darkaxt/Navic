@@ -44,6 +44,8 @@ data class AurralAlbumRecoveryCandidateChoice(
 	val confidence: Int
 )
 
+fun aurralAlbumDisplayDiscKey(row: AurralAlbumDisplayRow): Int = row.discNumber ?: 1
+
 fun aurralAlbumRecoveryCandidate(
 	album: DomainAlbum,
 	candidates: List<AurralAlbumSearchItem>
@@ -207,7 +209,7 @@ fun aurralAlbumDisplayRows(
 
 	return (rows + localOnlyRows).sortedWith(
 		compareBy<AurralAlbumDisplayRow>(
-			{ it.discNumber ?: 1 },
+			{ aurralAlbumDisplayDiscKey(it) },
 			{ it.trackNumber ?: Int.MAX_VALUE },
 			{ it.title }
 		)
