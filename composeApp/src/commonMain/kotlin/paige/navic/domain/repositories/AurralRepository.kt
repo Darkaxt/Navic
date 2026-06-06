@@ -2226,6 +2226,7 @@ data class AurralAlbumSearchItem(
 data class AurralAlbumTrackItem(
 	val id: String,
 	val title: String,
+	val artistName: String? = null,
 	val recordingMbid: String? = null,
 	val discNumber: Int? = null,
 	val trackNumber: Int? = null,
@@ -2461,6 +2462,9 @@ internal data class AurralAlbumTrackDto(
 	val mbid: String? = null,
 	@SerialName("recordingMbid") val recordingMbid: String? = null,
 	val title: String? = null,
+	val artist: String? = null,
+	@SerialName("artistName") val artistName: String? = null,
+	@SerialName("artistCredit") val artistCredit: String? = null,
 	@SerialName("trackName") val trackName: String? = null,
 	@SerialName("recordingTitle") val recordingTitle: String? = null,
 	@SerialName("discNumber") val discNumber: Int? = null,
@@ -2947,6 +2951,8 @@ private fun AurralAlbumTrackDto.toAlbumTrackItem(): AurralAlbumTrackItem? {
 	return AurralAlbumTrackItem(
 		id = safeId,
 		title = safeTitle,
+		artistName = listOf(artistName, artistCredit, artist)
+			.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) },
 		recordingMbid = listOf(recordingMbid, mbid)
 			.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) },
 		discNumber = discNumber ?: mediumNumber,

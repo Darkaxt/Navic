@@ -234,17 +234,10 @@ fun CollectionDetailScreen(
 						val aurralAlbumActionStatus = if (contentCollection is DomainAlbum &&
 							match != null
 						) {
-							val matchStatus = aurralSearchAlbumOwnershipStatus(match)
-							when {
-								matchStatus == AurralOwnershipStatus.Partial -> AurralOwnershipStatus.Partial
-								matchStatus == AurralOwnershipStatus.Owned -> AurralOwnershipStatus.Owned
-								aurralAlbumRecoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Missing } ->
-									AurralOwnershipStatus.Missing
-								aurralAlbumRecoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Partial } ->
-									AurralOwnershipStatus.Partial
-								aurralAlbumRecoveryRows.isNotEmpty() -> AurralOwnershipStatus.Owned
-								else -> null
-							}
+							aurralAlbumHeaderActionStatus(
+								matchStatus = aurralSearchAlbumOwnershipStatus(match),
+								recoveryRows = aurralAlbumRecoveryRows
+							)
 						} else {
 							null
 						}
@@ -538,19 +531,22 @@ private fun CollectionDetailScreenAurralTrackRow(
 			}
 		},
 		content = {
+			val subtitle = row.displaySubtitleText()
 			Column {
 				Text(
 					text = row.title,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
-				Text(
-					text = row.displayStatusText(),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
+				if (subtitle != null) {
+					Text(
+						text = subtitle,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
 			}
 		},
 		trailingContent = {
@@ -568,10 +564,11 @@ private fun CollectionDetailScreenAurralTrackRow(
 	)
 }
 
-private fun AurralAlbumDisplayRow.displayStatusText(): String =
-	when (ownershipStatus) {
-		AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally" } ?: "Owned"
-		AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
-		AurralOwnershipStatus.Missing -> "Missing"
-		null -> artistName?.takeIf { it.isNotBlank() } ?: ""
-	}
+private fun AurralAlbumDisplayRow.displaySubtitleText(): String? =
+	artistName?.takeIf { it.isNotBlank() }
+		?: when (ownershipStatus) {
+			AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally" } ?: "Owned"
+			AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
+			AurralOwnershipStatus.Missing,
+			null -> null
+		}

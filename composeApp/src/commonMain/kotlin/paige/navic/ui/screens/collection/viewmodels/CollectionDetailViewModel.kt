@@ -470,6 +470,7 @@ private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
 private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
 	id = id,
 	title = title,
+	artistName = artistName,
 	recordingMbid = recordingMbid,
 	discNumber = discNumber,
 	trackNumber = trackNumber,

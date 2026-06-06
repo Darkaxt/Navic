@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -122,16 +124,19 @@ fun CollectionDetailScreenHeadingRowButtons(
 			)
 		}
 		if (aurralAlbumActionStatus != null) {
+			val acquireButtonIsActionable = aurralAlbumActionStatus == AurralOwnershipStatus.Missing &&
+				onAcquireAurralAlbum != null
 			OutlinedButton(
-				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
+				modifier = Modifier
+					.width(if (acquireButtonIsActionable) 104.dp else 52.dp)
+					.height(buttonHeight),
 				onClick = {
 					platformContext.clickSound()
 					onAcquireAurralAlbum?.invoke()
 				},
 				shape = buttonShape,
-				contentPadding = PaddingValues(0.dp),
-				enabled = aurralAlbumActionStatus == AurralOwnershipStatus.Missing &&
-					onAcquireAurralAlbum != null
+				contentPadding = PaddingValues(horizontal = if (acquireButtonIsActionable) 12.dp else 0.dp),
+				enabled = acquireButtonIsActionable
 			) {
 				when (aurralAlbumActionStatus) {
 					AurralOwnershipStatus.Partial -> {
@@ -152,8 +157,19 @@ fun CollectionDetailScreenHeadingRowButtons(
 					AurralOwnershipStatus.Missing -> {
 						Icon(
 							imageVector = Icons.Outlined.LibraryAdd,
-							contentDescription = stringResource(Res.string.action_acquire_album),
-							modifier = Modifier.size(24.dp)
+							contentDescription = null,
+							modifier = Modifier.size(22.dp)
+						)
+						Spacer(modifier = Modifier.width(6.dp))
+						Text(
+							stringResource(Res.string.action_acquire_album),
+							maxLines = 1,
+							autoSize = TextAutoSize.StepBased(
+								minFontSize = 1.sp,
+								maxFontSize = 13.sp
+							),
+							fontWeight = FontWeight.SemiBold,
+							fontFamily = defaultFont(round = 100f)
 						)
 					}
 				}

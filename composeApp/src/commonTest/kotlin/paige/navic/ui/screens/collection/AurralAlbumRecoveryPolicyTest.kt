@@ -345,6 +345,139 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun displayRowsPlaceLocalOnlySongsIntoAurralTrackNumberGaps() {
+		val localOnlySong = song(
+			title = "Ori, Lost In the Storm (feat. Aeralie Brighton)",
+			trackNumber = 1
+		)
+
+		val rows = aurralAlbumDisplayRows(
+			album = album(
+				name = "Ori and the Blind Forest (Original Soundtrack)",
+				songs = listOf(localOnlySong)
+			),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Main Theme - Definitive Edition",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				),
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-3",
+						title = "Naru, Embracing the Light",
+						trackNumber = 3
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				),
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-4",
+						title = "The Blinded Forest",
+						trackNumber = 4
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				"Main Theme - Definitive Edition",
+				"Ori, Lost In the Storm (feat. Aeralie Brighton)",
+				"Naru, Embracing the Light",
+				"The Blinded Forest"
+			),
+			rows.map { it.title }
+		)
+		assertEquals(listOf(1, 2, 3, 4), rows.map { it.trackNumber })
+		assertNull(rows[0].localSong)
+		assertEquals(localOnlySong, rows[1].localSong)
+		assertEquals(AurralOwnershipStatus.Owned, rows[1].ownershipStatus)
+		assertEquals(AurralOwnershipStatus.Missing, rows[2].ownershipStatus)
+	}
+
+	@Test
+	fun displayRowsKeepAurralTrackArtistForMissingRows() {
+		val rows = aurralAlbumDisplayRows(
+			album = album(
+				name = "Ori and the Blind Forest (Original Soundtrack)",
+				songs = emptyList()
+			),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Main Theme - Definitive Edition",
+						artistName = "Gareth Coker",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				)
+			)
+		)
+
+		assertEquals("Gareth Coker", rows.single().artistName)
+		assertEquals(AurralOwnershipStatus.Missing, rows.single().ownershipStatus)
+	}
+
+	@Test
+	fun headerActionAllowsAcquisitionWhenPartialAlbumStillHasMissingTracks() {
+		val status = aurralAlbumHeaderActionStatus(
+			matchStatus = AurralOwnershipStatus.Partial,
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Missing",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				),
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-2",
+						title = "Owned",
+						trackNumber = 2
+					),
+					localSong = song(title = "Owned", trackNumber = 1),
+					ownershipStatus = AurralOwnershipStatus.Owned
+				)
+			)
+		)
+
+		assertEquals(AurralOwnershipStatus.Missing, status)
+	}
+
+	@Test
+	fun headerActionKeepsPendingStateWhenRowsAreRequestedButNoneAreMissing() {
+		val status = aurralAlbumHeaderActionStatus(
+			matchStatus = AurralOwnershipStatus.Partial,
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Requested",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Partial
+				)
+			)
+		)
+
+		assertEquals(AurralOwnershipStatus.Partial, status)
+	}
+
+	@Test
 	fun displayRowsFallbackToPlainLocalRowsWithoutAurralRecovery() {
 		val localSong = song(title = "Only Local", trackNumber = 1)
 		val rows = aurralAlbumDisplayRows(

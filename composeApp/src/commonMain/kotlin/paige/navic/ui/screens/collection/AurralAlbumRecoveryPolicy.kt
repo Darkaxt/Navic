@@ -11,6 +11,7 @@ import kotlin.time.Duration.Companion.milliseconds
 data class AurralAlbumRecoveryTrack(
 	val id: String,
 	val title: String,
+	val artistName: String? = null,
 	val recordingMbid: String? = null,
 	val discNumber: Int? = null,
 	val trackNumber: Int? = null,
@@ -187,7 +188,7 @@ fun aurralAlbumDisplayRows(
 			localSong = row.localSong,
 			ownershipStatus = row.ownershipStatus,
 			title = row.localSong?.title ?: row.track.title,
-			artistName = row.localSong?.artistName,
+			artistName = row.localSong?.artistName ?: row.track.artistName,
 			discNumber = row.track.discNumber ?: row.localSong?.discNumber,
 			trackNumber = row.track.trackNumber ?: row.localSong?.trackNumber,
 			durationMs = row.track.durationMs ?: row.localSong?.duration?.inWholeMilliseconds,
@@ -196,29 +197,81 @@ fun aurralAlbumDisplayRows(
 	}
 	val localOnlyRows = album.songs
 		.filterNot { it.id in matchedLocalSongIds }
-		.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }, { it.title }))
-		.map { song ->
-			AurralAlbumDisplayRow(
-				track = null,
-				localSong = song,
-				ownershipStatus = AurralOwnershipStatus.Owned,
-				title = song.title,
-				artistName = song.artistName,
-				discNumber = song.discNumber,
-				trackNumber = song.trackNumber,
-				durationMs = song.duration.inWholeMilliseconds,
-				previewUrl = null
+		.sortedWith(compareBy({ it.discNumber ?: 1 }, { it.trackNumber ?: Int.MAX_VALUE }, { it.title }))
+		.let { localSongs ->
+			aurralAlbumLocalOnlyDisplayRows(
+				localSongs = localSongs,
+				recoveryRows = rows
 			)
 		}
 
 	return (rows + localOnlyRows).sortedWith(
 		compareBy<AurralAlbumDisplayRow>(
-			{ it.discNumber ?: Int.MAX_VALUE },
+			{ it.discNumber ?: 1 },
 			{ it.trackNumber ?: Int.MAX_VALUE },
 			{ it.title }
 		)
 	)
 }
+
+fun aurralAlbumHeaderActionStatus(
+	matchStatus: AurralOwnershipStatus?,
+	recoveryRows: List<AurralAlbumRecoveryTrackRow>
+): AurralOwnershipStatus? =
+	when {
+		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Missing } ->
+			AurralOwnershipStatus.Missing
+		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Partial } ->
+			AurralOwnershipStatus.Partial
+		recoveryRows.isNotEmpty() -> AurralOwnershipStatus.Owned
+		else -> matchStatus
+	}
+
+private fun aurralAlbumLocalOnlyDisplayRows(
+	localSongs: List<DomainSong>,
+	recoveryRows: List<AurralAlbumDisplayRow>
+): List<AurralAlbumDisplayRow> {
+	if (localSongs.isEmpty()) return emptyList()
+	val preferredDisc = recoveryRows
+		.mapNotNull { it.discNumber }
+		.groupingBy { it }
+		.eachCount()
+		.maxByOrNull { it.value }
+		?.key
+		?: 1
+	val usedTrackNumbersByDisc = recoveryRows
+		.groupBy { it.discNumber ?: preferredDisc }
+		.mapValues { (_, rows) -> rows.mapNotNull { it.trackNumber }.toMutableSet() }
+		.toMutableMap()
+
+	return localSongs.map { song ->
+		val discNumber = song.discNumber ?: preferredDisc
+		val usedTrackNumbers = usedTrackNumbersByDisc.getOrPut(discNumber) { mutableSetOf() }
+		val maxTrackNumber = usedTrackNumbers.maxOrNull() ?: 0
+		val trackNumber = firstMissingPositiveTrackNumber(usedTrackNumbers, maxTrackNumber)
+			?: song.trackNumber?.takeIf { it > 0 && it !in usedTrackNumbers }
+			?: (maxTrackNumber + 1)
+		usedTrackNumbers += trackNumber
+
+		AurralAlbumDisplayRow(
+			track = null,
+			localSong = song,
+			ownershipStatus = AurralOwnershipStatus.Owned,
+			title = song.title,
+			artistName = song.artistName,
+			discNumber = discNumber,
+			trackNumber = trackNumber,
+			durationMs = song.duration.inWholeMilliseconds,
+			previewUrl = null
+		)
+	}
+}
+
+private fun firstMissingPositiveTrackNumber(
+	usedTrackNumbers: Set<Int>,
+	maxTrackNumber: Int
+): Int? =
+	(1..maxTrackNumber).firstOrNull { it !in usedTrackNumbers }
 
 private fun bestLocalSongMatch(
 	track: AurralAlbumRecoveryTrack,
