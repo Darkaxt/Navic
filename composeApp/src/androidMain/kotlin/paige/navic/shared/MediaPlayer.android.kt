@@ -76,6 +76,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AurralFlowSongIdPrefix
+import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
@@ -83,6 +84,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.activeArtworkUrl
+import paige.navic.domain.models.collectionShufflePlaybackPlan
 import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
@@ -92,6 +94,7 @@ import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
+import paige.navic.domain.models.playbackPrefetchIndexes
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.queueAutoFillAppendCount
@@ -729,6 +732,7 @@ class AndroidMediaPlayerViewModel(
 	private var playbackFadeRestoreVolume: Float? = null
 	private var autoFillQueueJob: Job? = null
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
+	private var lastPlaybackPrefetchSignature: String? = null
 	private var lastNowPlayingWidgetSongId: String? = null
 	private var lastNowPlayingWidgetIsPlaying: Boolean? = null
 	private var nowPlayingVideoClipAudioActive = false
@@ -795,6 +799,7 @@ class AndroidMediaPlayerViewModel(
 							startProgressLoop()
 							maybeAutoFillQueue()
 							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
+							prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = true)
 						}
 						sendNowPlayingBroadcast(isPlaying)
 					}
@@ -991,6 +996,7 @@ class AndroidMediaPlayerViewModel(
 		}
 		applyReplayGain()
 		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
+		prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
 		updateProgress()
 		sendNowPlayingBroadcast(isPlaying = controller.isPlaying)
 	}
@@ -1040,6 +1046,35 @@ class AndroidMediaPlayerViewModel(
 				val state = _uiState.value
 				if (state.currentSong?.id == currentSong.id) {
 					sendNowPlayingBroadcast(isPlaying = !state.isPaused, force = true)
+				}
+			}
+		}
+	}
+
+	private fun prefetchUpcomingPlaybackAssets(
+		state: PlayerUiState,
+		isPlaying: Boolean
+	) {
+		if (!isPlaying) return
+		val indexes = playbackPrefetchIndexes(
+			upcomingIndexes = state.upcomingIndexes,
+			upNextCount = preferenceManager.nowPlayingUpNextCount
+		)
+		val songs = indexes.mapNotNull { index -> state.queue.getOrNull(index) }
+			.distinctBy { it.id }
+		if (songs.isEmpty()) return
+
+		val signature = songs.joinToString("|") { song -> song.id }
+		if (signature == lastPlaybackPrefetchSignature) return
+		lastPlaybackPrefetchSignature = signature
+
+		downloadManager.prefetchPlaybackSongs(songs)
+		viewModelScope.launch(Dispatchers.IO) {
+			songs.forEach { song ->
+				runCatching {
+					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
+				}.onFailure { error ->
+					Logger.w("MediaPlayer", "Failed to prefetch artwork for upcoming song ${song.id}", error)
 				}
 			}
 		}
@@ -1646,13 +1681,17 @@ class AndroidMediaPlayerViewModel(
 
 	override fun shufflePlay(collection: DomainSongCollection) {
 		viewModelScope.launch {
-			val (shuffledSongs, mediaItems) = withContext(Dispatchers.Default) {
-				val songs = collection.songs.shuffled()
-				songs to songs.map { it.toMediaItem() }
+			val plan = collectionShufflePlaybackPlan()
+			val songs = when (plan.queueOrder) {
+				CollectionShuffleQueueOrder.Canonical -> collection.songs
+				CollectionShuffleQueueOrder.Shuffled -> collection.songs.shuffled()
+			}
+			val mediaItems = withContext(Dispatchers.Default) {
+				songs.map { it.toMediaItem() }
 			}
 
 			controller?.let { player ->
-				player.shuffleModeEnabled = false
+				player.shuffleModeEnabled = plan.enablePlayerShuffle
 				player.setMediaItems(mediaItems, 0, 0L)
 				player.prepare()
 				player.play()
@@ -1660,9 +1699,10 @@ class AndroidMediaPlayerViewModel(
 
 			_uiState.update { state ->
 				state.copy(
-					queue = shuffledSongs,
+					queue = songs,
 					currentIndex = 0,
-					currentSong = shuffledSongs.firstOrNull()
+					currentSong = songs.firstOrNull(),
+					isShuffleEnabled = plan.enablePlayerShuffle
 				)
 			}
 		}

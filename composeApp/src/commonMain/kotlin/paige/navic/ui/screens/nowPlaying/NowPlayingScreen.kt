@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.systemBars
@@ -49,14 +48,11 @@ import paige.navic.domain.models.externalFallbackArtworkCacheKey
 import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
-import paige.navic.domain.models.nowPlayingTechnicalInfoPlacement
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
 import paige.navic.domain.models.shouldShowNowPlayingLyricsAction
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
-import paige.navic.domain.models.shouldRotateNowPlayingArtwork
-import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -82,7 +78,6 @@ import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipArtwork
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipBackground
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
-import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingTechnicalInfoRow
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -115,18 +110,6 @@ fun NowPlayingScreen() {
 		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val hasNowPlayingArtwork = song != null &&
-		(!song.coverArtId.isNullOrEmpty() || !currentMusicBrainzFallbackArtworkUrl.isNullOrBlank())
-	val vinylArtworkActive = shouldShowNowPlayingVinylOverlay(
-		isRotatingArtwork = shouldRotateNowPlayingArtwork(
-			enabled = preferenceManager.nowPlayingRotatingArtwork,
-			isPaused = playerState.isPaused,
-			isActiveArtwork = song != null,
-			hasCoverArt = hasNowPlayingArtwork
-		),
-		hasCoverArt = hasNowPlayingArtwork
-	)
-
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
@@ -134,6 +117,7 @@ fun NowPlayingScreen() {
 	val lyricsAvailableState by viewModel.lyricsAvailableState.collectAsStateWithLifecycle()
 	val lidaClip = lidaClipState.data
 	val lyricsAvailable = lyricsAvailableState.data == true
+	val showTechnicalInfo = preferenceManager.nowPlayingSongInfo && song != null
 	val nowPlayingIntegrationIndicators = integrationLoadingIndicators(
 		lidaClipsLoading = lidaClipState is UiState.Loading,
 		musicBrainzLoading = song?.id?.let { it in resolvingMusicBrainzSongIds } == true,
@@ -288,26 +272,6 @@ fun NowPlayingScreen() {
 				)
 			}
 			if (!isPlayerCurrent) return@Box
-			val collapseTopPadding = if (preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Top) {
-				contentPadding.calculateTopPadding() + 8.dp
-			} else {
-				WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 8.dp
-			}
-			TopBarButton(
-				onClick = { backStack.remove(Screen.NowPlaying) },
-				containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f),
-				contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-				shadowElevation = 4.dp,
-				modifier = Modifier
-					.align(Alignment.TopEnd)
-					.padding(top = collapseTopPadding, end = 14.dp),
-				content = {
-					Icon(
-						imageVector = Icons.Outlined.KeyboardArrowDown,
-						contentDescription = stringResource(Res.string.action_navigate_back)
-					)
-				}
-			)
 			IntegrationLoadingIndicatorStrip(
 				indicators = nowPlayingIntegrationIndicators,
 				failedIndicators = integrationFailedIndicators(
@@ -328,6 +292,28 @@ fun NowPlayingScreen() {
 					.fillMaxSize()
 			) {
 				val isLandscape = maxWidth > maxHeight
+				val collapseTopPadding = if (preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Top) {
+					contentPadding.calculateTopPadding() + 8.dp
+				} else {
+					WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 8.dp
+				}
+				if (!isLandscape) {
+					TopBarButton(
+						onClick = { backStack.remove(Screen.NowPlaying) },
+						containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f),
+						contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+						shadowElevation = 4.dp,
+						modifier = Modifier
+							.align(Alignment.TopEnd)
+							.padding(top = collapseTopPadding, end = 14.dp),
+						content = {
+							Icon(
+								imageVector = Icons.Outlined.KeyboardArrowDown,
+								contentDescription = stringResource(Res.string.action_navigate_back)
+							)
+						}
+					)
+				}
 				val toolbarPosition = preferenceManager.nowPlayingToolbarPosition
 				val padding = when {
 					isLandscape -> contentPadding
@@ -358,8 +344,6 @@ fun NowPlayingScreen() {
 								isLandscape = true,
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
-								showTechnicalInfo = preferenceManager.nowPlayingSongInfo && song != null,
-								vinylArtworkActive = vinylArtworkActive,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -373,6 +357,8 @@ fun NowPlayingScreen() {
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							isLandscape = true,
 							hasCurrentSong = song != null,
+							showTechnicalInfo = showTechnicalInfo,
+							onCollapse = { backStack.remove(Screen.NowPlaying) },
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
@@ -391,8 +377,6 @@ fun NowPlayingScreen() {
 								isLandscape = false,
 								clip = lidaClip,
 								showClipInArtwork = showClipInArtwork,
-								showTechnicalInfo = preferenceManager.nowPlayingSongInfo && song != null,
-								vinylArtworkActive = vinylArtworkActive,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -406,6 +390,8 @@ fun NowPlayingScreen() {
 							modifier = Modifier.weight(1f),
 							isLandscape = false,
 							hasCurrentSong = song != null,
+							showTechnicalInfo = showTechnicalInfo,
+							onCollapse = null,
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
@@ -422,8 +408,6 @@ fun NowPlayingScreen() {
 private fun NowPlayingMediaSlot(
 	clip: DomainLidaClip?,
 	showClipInArtwork: Boolean,
-	showTechnicalInfo: Boolean,
-	vinylArtworkActive: Boolean,
 	playerProgress: Float,
 	musicIsPaused: Boolean,
 	isLandscape: Boolean,
@@ -444,19 +428,6 @@ private fun NowPlayingMediaSlot(
 				musicIsPaused = musicIsPaused,
 				onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
 				modifier = Modifier.matchParentSize()
-			)
-		}
-		if (showTechnicalInfo) {
-			val technicalInfoPlacement = nowPlayingTechnicalInfoPlacement(
-				isLandscape = isLandscape,
-				isVinylArtwork = vinylArtworkActive && !showClipInArtwork
-			)
-			NowPlayingTechnicalInfoRow(
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.offset(y = technicalInfoPlacement.verticalOffsetDp.dp)
-					.padding(horizontal = 24.dp)
-					.padding(bottom = technicalInfoPlacement.bottomPaddingDp.dp)
 			)
 		}
 	}

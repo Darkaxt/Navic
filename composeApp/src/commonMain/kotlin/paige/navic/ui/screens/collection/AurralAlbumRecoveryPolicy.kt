@@ -26,6 +26,18 @@ data class AurralAlbumRecoveryTrackRow(
 	val ownershipStatus: AurralOwnershipStatus
 )
 
+data class AurralAlbumDisplayRow(
+	val track: AurralAlbumRecoveryTrack?,
+	val localSong: DomainSong?,
+	val ownershipStatus: AurralOwnershipStatus?,
+	val title: String,
+	val artistName: String?,
+	val discNumber: Int?,
+	val trackNumber: Int?,
+	val durationMs: Long?,
+	val previewUrl: String?
+)
+
 data class AurralAlbumRecoveryCandidateChoice(
 	val album: AurralAlbumSearchItem,
 	val confidence: Int
@@ -144,6 +156,68 @@ fun aurralAlbumRecoveryRows(
 			}
 		)
 	}
+}
+
+fun aurralAlbumDisplayRows(
+	album: DomainAlbum,
+	recoveryRows: List<AurralAlbumRecoveryTrackRow>
+): List<AurralAlbumDisplayRow> {
+	if (recoveryRows.isEmpty()) {
+		return album.songs
+			.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }, { it.title }))
+			.map { song ->
+				AurralAlbumDisplayRow(
+					track = null,
+					localSong = song,
+					ownershipStatus = null,
+					title = song.title,
+					artistName = song.artistName,
+					discNumber = song.discNumber,
+					trackNumber = song.trackNumber,
+					durationMs = song.duration.inWholeMilliseconds,
+					previewUrl = null
+				)
+			}
+	}
+
+	val matchedLocalSongIds = recoveryRows.mapNotNull { it.localSong?.id }.toSet()
+	val rows = recoveryRows.map { row ->
+		AurralAlbumDisplayRow(
+			track = row.track,
+			localSong = row.localSong,
+			ownershipStatus = row.ownershipStatus,
+			title = row.localSong?.title ?: row.track.title,
+			artistName = row.localSong?.artistName,
+			discNumber = row.track.discNumber ?: row.localSong?.discNumber,
+			trackNumber = row.track.trackNumber ?: row.localSong?.trackNumber,
+			durationMs = row.track.durationMs ?: row.localSong?.duration?.inWholeMilliseconds,
+			previewUrl = row.track.previewUrl
+		)
+	}
+	val localOnlyRows = album.songs
+		.filterNot { it.id in matchedLocalSongIds }
+		.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }, { it.title }))
+		.map { song ->
+			AurralAlbumDisplayRow(
+				track = null,
+				localSong = song,
+				ownershipStatus = AurralOwnershipStatus.Owned,
+				title = song.title,
+				artistName = song.artistName,
+				discNumber = song.discNumber,
+				trackNumber = song.trackNumber,
+				durationMs = song.duration.inWholeMilliseconds,
+				previewUrl = null
+			)
+		}
+
+	return (rows + localOnlyRows).sortedWith(
+		compareBy<AurralAlbumDisplayRow>(
+			{ it.discNumber ?: Int.MAX_VALUE },
+			{ it.trackNumber ?: Int.MAX_VALUE },
+			{ it.title }
+		)
+	)
 }
 
 private fun bestLocalSongMatch(

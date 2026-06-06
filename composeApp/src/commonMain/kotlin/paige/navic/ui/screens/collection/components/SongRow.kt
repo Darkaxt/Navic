@@ -48,6 +48,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.SongSwipeDirection
 import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
@@ -61,6 +62,7 @@ import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.Waveform
@@ -81,7 +83,8 @@ fun CollectionDetailScreenSongRow(
 	onAddToQueue: (() -> Unit),
 	download: DownloadEntity? = null,
 	isOffline: Boolean = false,
-	inPlaylist: Boolean = false
+	inPlaylist: Boolean = false,
+	ownershipStatus: AurralOwnershipStatus? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
@@ -201,17 +204,28 @@ fun CollectionDetailScreenSongRow(
 							coverArtId = song.coverArtId,
 							shape = MaterialTheme.shapes.small
 						)
-				else 
-					Text(
-						text = "${index + 1}",
+				else
+					Column(
 						modifier = Modifier.width(25.dp),
-						style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-						fontWeight = FontWeight(400),
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						textAlign = TextAlign.Center,
-						autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
-					)
+						horizontalAlignment = Alignment.CenterHorizontally
+					) {
+						if (ownershipStatus != null) {
+							AurralOwnershipStatusDot(
+								status = ownershipStatus,
+								size = 10.dp
+							)
+							Spacer(Modifier.size(4.dp))
+						}
+						Text(
+							text = "${index + 1}",
+							style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+							fontWeight = FontWeight(400),
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							maxLines = 1,
+							textAlign = TextAlign.Center,
+							autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
+						)
+					}
 			},
 			content = {
 				Column {

@@ -16,6 +16,21 @@ class NowPlayingControlsLayoutPolicyTest {
 	}
 
 	@Test
+	fun technicalInfoRendersBetweenPlaybackButtonsAndTimelineInDefaultLayout() {
+		assertEquals(
+			listOf(
+				NowPlayingControlsLayoutBlock.Timeline,
+				NowPlayingControlsLayoutBlock.TechnicalInfo,
+				NowPlayingControlsLayoutBlock.PlaybackButtons
+			),
+			nowPlayingControlsLayoutBlocks(
+				swapControlsAndTimeline = false,
+				showTechnicalInfo = true
+			)
+		)
+	}
+
+	@Test
 	fun swappedLayoutMovesPlaybackButtonsAboveTimeline() {
 		assertEquals(
 			listOf(
@@ -23,6 +38,21 @@ class NowPlayingControlsLayoutPolicyTest {
 				NowPlayingControlsLayoutBlock.Timeline
 			),
 			nowPlayingControlsLayoutBlocks(swapControlsAndTimeline = true)
+		)
+	}
+
+	@Test
+	fun technicalInfoRendersBetweenPlaybackButtonsAndTimelineInSwappedLayout() {
+		assertEquals(
+			listOf(
+				NowPlayingControlsLayoutBlock.PlaybackButtons,
+				NowPlayingControlsLayoutBlock.TechnicalInfo,
+				NowPlayingControlsLayoutBlock.Timeline
+			),
+			nowPlayingControlsLayoutBlocks(
+				swapControlsAndTimeline = true,
+				showTechnicalInfo = true
+			)
 		)
 	}
 

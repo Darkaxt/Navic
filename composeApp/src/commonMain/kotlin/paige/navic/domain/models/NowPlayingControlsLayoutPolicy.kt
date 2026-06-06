@@ -5,6 +5,7 @@ import kotlin.math.roundToInt
 
 enum class NowPlayingControlsLayoutBlock {
 	Timeline,
+	TechnicalInfo,
 	PlaybackButtons
 }
 
@@ -14,9 +15,10 @@ enum class NowPlayingPlaybackButtonsArrangement {
 }
 
 fun nowPlayingControlsLayoutBlocks(
-	swapControlsAndTimeline: Boolean
-): List<NowPlayingControlsLayoutBlock> =
-	if (swapControlsAndTimeline) {
+	swapControlsAndTimeline: Boolean,
+	showTechnicalInfo: Boolean = false
+): List<NowPlayingControlsLayoutBlock> {
+	val primaryBlocks = if (swapControlsAndTimeline) {
 		listOf(
 			NowPlayingControlsLayoutBlock.PlaybackButtons,
 			NowPlayingControlsLayoutBlock.Timeline
@@ -27,6 +29,13 @@ fun nowPlayingControlsLayoutBlocks(
 			NowPlayingControlsLayoutBlock.PlaybackButtons
 		)
 	}
+	if (!showTechnicalInfo) return primaryBlocks
+	return listOf(
+		primaryBlocks.first(),
+		NowPlayingControlsLayoutBlock.TechnicalInfo,
+		primaryBlocks.last()
+	)
+}
 
 fun nowPlayingPlaybackButtonsArrangement(
 	spaceControlsEvenly: Boolean

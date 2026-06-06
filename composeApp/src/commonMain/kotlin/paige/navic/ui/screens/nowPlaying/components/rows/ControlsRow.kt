@@ -39,6 +39,8 @@ fun NowPlayingControlsRow(
 	modifier: Modifier = Modifier,
 	isLandscape: Boolean,
 	hasCurrentSong: Boolean,
+	showTechnicalInfo: Boolean,
+	onCollapse: (() -> Unit)?,
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
@@ -117,18 +119,24 @@ fun NowPlayingControlsRow(
 		verticalArrangement = Arrangement.Center
 	) {
 		NowPlayingInfoRow(
+			onCollapse = onCollapse,
 			songIsStarred = songIsStarred,
 			onSetSongIsStarred = onSetSongIsStarred,
 			songRating = songRating,
 			onSetSongRating = onSetSongRating
 		)
-		nowPlayingControlsLayoutBlocks(preferenceManager.swapNowPlayingControlsAndTimeline)
+		nowPlayingControlsLayoutBlocks(
+			swapControlsAndTimeline = preferenceManager.swapNowPlayingControlsAndTimeline,
+			showTechnicalInfo = showTechnicalInfo
+		)
 			.forEachIndexed { index, block ->
 				if (index > 0) {
 					Spacer(modifier = Modifier.height(if (isLandscape) 24.dp else 30.dp))
 				}
 				when (block) {
 					NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock()
+
+					NowPlayingControlsLayoutBlock.TechnicalInfo -> NowPlayingTechnicalInfoRow()
 
 					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow(
 						modifier = if (openQueueOnTap) {

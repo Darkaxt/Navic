@@ -17,12 +17,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
@@ -42,7 +40,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_acquire_album
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_no_songs
 import navic.composeapp.generated.resources.title_disc_number
@@ -63,11 +60,9 @@ import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.sortedForPlaylistDetail
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
-import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Album
-import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Note
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.shared.MediaPlayerViewModel
@@ -91,11 +86,12 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
-import paige.navic.ui.screens.aurral.aurralAlbumSearchRoute
+import paige.navic.ui.screens.aurral.aurralSearchAlbumOwnershipStatus
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.util.ui.segmentedShapes
 import paige.navic.util.ui.withoutTop
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -152,7 +148,10 @@ fun CollectionDetailScreen(
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
 		.collectAsState(DownloadStatus.NOT_DOWNLOADED)
-	val collectionIntegrationIndicators = integrationLoadingIndicators()
+	val collectionIntegrationIndicators = integrationLoadingIndicators(
+		aurralLoading = aurralAlbumRecoveryLoading
+	)
+	val uriHandler = LocalUriHandler.current
 
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
 	BackToTopScrollHandler(viewModel.listState)
@@ -231,109 +230,143 @@ fun CollectionDetailScreen(
 					}
 
 					item {
+						val match = aurralAlbumRecoveryMatch
+						val aurralAlbumActionStatus = if (contentCollection is DomainAlbum &&
+							match != null
+						) {
+							val matchStatus = aurralSearchAlbumOwnershipStatus(match)
+							when {
+								matchStatus == AurralOwnershipStatus.Partial -> AurralOwnershipStatus.Partial
+								matchStatus == AurralOwnershipStatus.Owned -> AurralOwnershipStatus.Owned
+								aurralAlbumRecoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Missing } ->
+									AurralOwnershipStatus.Missing
+								aurralAlbumRecoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Partial } ->
+									AurralOwnershipStatus.Partial
+								aurralAlbumRecoveryRows.isNotEmpty() -> AurralOwnershipStatus.Owned
+								else -> null
+							}
+						} else {
+							null
+						}
 						CollectionDetailScreenHeadingRowButtons(
 							collection = contentCollection,
-							onOpenAurralRecovery = (contentCollection as? DomainAlbum)
-								?.let { aurralAlbumRecoveryMatch }
-								?.let { recovery ->
-									{
-										aurralAlbumSearchRoute(recovery)?.let(backStack::add)
-									}
-								}
+							aurralAlbumActionStatus = aurralAlbumActionStatus,
+							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing) {
+								{ viewModel.requestAurralRecoveryAlbum() }
+							} else {
+								null
+							}
 						)
 					}
 
 					if (contentCollection is DomainAlbum) {
-						contentCollection.copy(
+						val album = contentCollection.copy(
 							songs = contentCollection.songs.sortedWith(compareBy(
 								{ it.discNumber },
 								{ it.trackNumber }
 							))
-						).let { album ->
-							album.songs.groupBy {it.discNumber}.forEach { group ->
-								val multipleDiscs = album.songs.groupBy { it.discNumber }.size > 1
-								if (group.key != null && multipleDiscs) {
-									item {
-										Row(
-											modifier = Modifier
-												.fillMaxWidth()
-												.padding(horizontal = 16.dp)
-												.padding(top = if (group.key == 1) 0.dp else 12.dp, bottom = 4.dp)
-												.heightIn(min = 32.dp),
-											verticalAlignment = Alignment.CenterVertically
-										) {
-											Icon(
-												imageVector = Icons.Outlined.Album,
-												contentDescription = null,
-												tint = MaterialTheme.colorScheme.onSurfaceVariant,
-												modifier = Modifier.size(20.dp)
-											)
+						)
+						val displayRows = aurralAlbumDisplayRows(
+							album = album,
+							recoveryRows = aurralAlbumRecoveryRows
+						)
+						val rowGroups = displayRows.groupBy { it.discNumber }
+						rowGroups.forEach { group ->
+							val multipleDiscs = rowGroups.size > 1
+							if (group.key != null && multipleDiscs) {
+								item {
+									Row(
+										modifier = Modifier
+											.fillMaxWidth()
+											.padding(horizontal = 16.dp)
+											.padding(top = if (group.key == 1) 0.dp else 12.dp, bottom = 4.dp)
+											.heightIn(min = 32.dp),
+										verticalAlignment = Alignment.CenterVertically
+									) {
+										Icon(
+											imageVector = Icons.Outlined.Album,
+											contentDescription = null,
+											tint = MaterialTheme.colorScheme.onSurfaceVariant,
+											modifier = Modifier.size(20.dp)
+										)
 
-											Spacer(modifier = Modifier.width(8.dp))
+										Spacer(modifier = Modifier.width(8.dp))
 
-											Text(
-												text = stringResource(
-													Res.string.title_disc_number,
-													group.key as Int
-												),
-												style = MaterialTheme.typography.titleMediumEmphasized,
-												fontWeight = FontWeight(600),
-												color = MaterialTheme.colorScheme.onSurfaceVariant
-											)
-										}
+										Text(
+											text = stringResource(
+												Res.string.title_disc_number,
+												group.key as Int
+											),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600),
+											color = MaterialTheme.colorScheme.onSurfaceVariant
+										)
 									}
 								}
-								itemsIndexed(group.value) { index, song ->
-									val download = allDownloads.find { it.songId == song.id }
-									Box {
-										CollectionDetailScreenSongRow(
-											song = song,
-											index = index,
-											count = group.value.count(),
-											isPlaylist = false,
-											onClick = {
-												if (playerState.currentSong?.id != song.id) {
-													player.clearQueue()
-													player.setPlaybackOrigin(album.toPlaybackOrigin())
-													player.addToQueue(album)
-													player.playAt(album.songs.indexOfFirst { it.id == song.id })
-												} else {
-													player.togglePlay()
-												}
-											},
-											onLongClick = {
-												viewModel.selectSong(song)
-											},
-											onPlayNext = {
-												player.playNextSingle(song)
-											},
-											onAddToQueue = {
-												player.addToQueueSingle(song)
-											},
-											download = download,
-											isOffline = !isOnline,
-											inPlaylist = song.id in playlistSongIds
-										)
-										CollectionDetailScreenSongRowDropdown(
-											expanded = selection == song,
-											onDismissRequest = { viewModel.clearSelection() },
-											onRemoveStar = { viewModel.unstarSelectedSong() },
-											onAddStar = { viewModel.starSelectedSong() },
-											onShare = { shareId = song.id },
-											collection = contentCollection,
-											song = song,
-											onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
-											starred = selectedSongIsStarred,
-											downloadStatus = download?.status,
-											onDownload = { viewModel.downloadSong(song) },
-											onCancelDownload = { viewModel.cancelDownload(song.id) },
-											onDeleteDownload = { viewModel.deleteDownload(song.id) },
-											onPlayNext = { player.playNextSingle(song) },
-											onAddToQueue = { player.addToQueueSingle(song) },
-											rating = selectedSongRating,
-											onSetRating = { viewModel.rateSelectedSong(it) }
-										)
-									}
+							}
+							itemsIndexed(group.value) { index, row ->
+								val song = row.localSong
+								if (song == null) {
+									CollectionDetailScreenAurralTrackRow(
+										row = row,
+										index = index,
+										count = group.value.count(),
+										onOpenPreview = row.previewUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { previewUrl ->
+											{ uriHandler.openUri(previewUrl) }
+										}
+									)
+									return@itemsIndexed
+								}
+								val download = allDownloads.find { it.songId == song.id }
+								Box {
+									CollectionDetailScreenSongRow(
+										song = song,
+										index = index,
+										count = group.value.count(),
+										isPlaylist = false,
+										onClick = {
+											if (playerState.currentSong?.id != song.id) {
+												player.clearQueue()
+												player.setPlaybackOrigin(album.toPlaybackOrigin())
+												player.addToQueue(album)
+												player.playAt(album.songs.indexOfFirst { it.id == song.id })
+											} else {
+												player.togglePlay()
+											}
+										},
+										onLongClick = {
+											viewModel.selectSong(song)
+										},
+										onPlayNext = {
+											player.playNextSingle(song)
+										},
+										onAddToQueue = {
+											player.addToQueueSingle(song)
+										},
+										download = download,
+										isOffline = !isOnline,
+										inPlaylist = song.id in playlistSongIds,
+										ownershipStatus = row.ownershipStatus
+									)
+									CollectionDetailScreenSongRowDropdown(
+										expanded = selection == song,
+										onDismissRequest = { viewModel.clearSelection() },
+										onRemoveStar = { viewModel.unstarSelectedSong() },
+										onAddStar = { viewModel.starSelectedSong() },
+										onShare = { shareId = song.id },
+										collection = contentCollection,
+										song = song,
+										onRemoveFromPlaylist = { viewModel.removeFromPlaylist() },
+										starred = selectedSongIsStarred,
+										downloadStatus = download?.status,
+										onDownload = { viewModel.downloadSong(song) },
+										onCancelDownload = { viewModel.cancelDownload(song.id) },
+										onDeleteDownload = { viewModel.deleteDownload(song.id) },
+										onPlayNext = { player.playNextSingle(song) },
+										onAddToQueue = { player.addToQueueSingle(song) },
+										rating = selectedSongRating,
+										onSetRating = { viewModel.rateSelectedSong(it) }
+									)
 								}
 							}
 						}
@@ -389,22 +422,6 @@ fun CollectionDetailScreen(
 									onSetRating = { viewModel.rateSelectedSong(it) }
 								)
 							}
-						}
-					}
-
-					if (contentCollection is DomainAlbum &&
-						(aurralAlbumRecoveryLoading ||
-							aurralAlbumRecoveryRows.isNotEmpty() ||
-							aurralAlbumRecoveryCandidates.isNotEmpty())
-					) {
-						item {
-							AurralAlbumRecoverySection(
-								rows = aurralAlbumRecoveryRows,
-								candidates = aurralAlbumRecoveryCandidates,
-								loading = aurralAlbumRecoveryLoading,
-								onSelectCandidate = { viewModel.selectAurralRecoveryCandidate(it) },
-								onAcquireAlbum = { viewModel.requestAurralRecoveryAlbum() }
-							)
 						}
 					}
 
@@ -485,166 +502,19 @@ fun CollectionDetailScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun AurralAlbumRecoverySection(
-	rows: List<AurralAlbumRecoveryTrackRow>,
-	candidates: List<AurralAlbumSearchItem>,
-	loading: Boolean,
-	onSelectCandidate: (AurralAlbumSearchItem) -> Unit,
-	onAcquireAlbum: () -> Unit
-) {
-	if (!loading && rows.isEmpty() && candidates.isEmpty()) return
-	val ownedCount = rows.count { it.ownershipStatus == AurralOwnershipStatus.Owned }
-	val missingCount = rows.count { it.ownershipStatus == AurralOwnershipStatus.Missing }
-	val requestedCount = rows.count { it.ownershipStatus == AurralOwnershipStatus.Partial }
-	Column(
-		modifier = Modifier
-			.fillMaxWidth()
-			.padding(top = 18.dp, bottom = 8.dp)
-	) {
-		Row(
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(horizontal = 16.dp, vertical = 8.dp),
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			Column(modifier = Modifier.weight(1f)) {
-				Text(
-					text = "Album recovery",
-					style = MaterialTheme.typography.titleLargeEmphasized,
-					fontWeight = FontWeight.SemiBold
-				)
-				if (candidates.isNotEmpty() && rows.isEmpty()) {
-					Text(
-						text = "Choose the Aurral album match",
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				} else if (rows.isNotEmpty()) {
-					Text(
-						text = buildList {
-							add("$ownedCount owned")
-							if (requestedCount > 0) add("$requestedCount requested")
-							if (missingCount > 0) add("$missingCount missing")
-						}.joinToString(" • "),
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-			}
-			if (loading) {
-				CircularProgressIndicator(
-					modifier = Modifier.size(24.dp),
-					strokeWidth = 2.dp
-				)
-			}
-			if (missingCount > 0) {
-				OutlinedButton(
-					onClick = onAcquireAlbum,
-					contentPadding = PaddingValues(horizontal = 14.dp)
-				) {
-					Icon(
-						imageVector = Icons.Outlined.LibraryAdd,
-						contentDescription = null,
-						modifier = Modifier
-							.size(20.dp)
-							.padding(end = 4.dp)
-					)
-					Text(
-						text = stringResource(Res.string.action_acquire_album),
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-			}
-		}
-		candidates.forEachIndexed { index, candidate ->
-			AurralAlbumRecoveryCandidateItem(
-				candidate = candidate,
-				index = index,
-				count = candidates.size,
-				onSelect = { onSelectCandidate(candidate) }
-			)
-		}
-		rows.forEachIndexed { index, row ->
-			AurralAlbumRecoveryTrackItem(
-				row = row,
-				index = index,
-				count = rows.size
-			)
-		}
-	}
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AurralAlbumRecoveryCandidateItem(
-	candidate: AurralAlbumSearchItem,
+private fun CollectionDetailScreenAurralTrackRow(
+	row: AurralAlbumDisplayRow,
 	index: Int,
 	count: Int,
-	onSelect: () -> Unit
+	onOpenPreview: (() -> Unit)?
 ) {
-	SegmentedListItem(
-		modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
-		onClick = onSelect,
-		shapes = segmentedShapes(index = index, count = count),
-		colors = ListItemDefaults.segmentedColors(
-			containerColor = MaterialTheme.colorScheme.surfaceContainer
-		),
-		contentPadding = PaddingValues(14.dp),
-		leadingContent = {
-			Icon(
-				imageVector = Icons.Outlined.Album,
-				contentDescription = null,
-				tint = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = Modifier.size(24.dp)
-			)
-		},
-		content = {
-			Column {
-				Text(
-					text = candidate.title,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-				Text(
-					text = listOfNotNull(
-						candidate.artistName.takeIf { it.isNotBlank() },
-						candidate.releaseDate?.take(4)?.takeIf { it.isNotBlank() },
-						candidate.primaryType?.takeIf { it.isNotBlank() }
-					).joinToString(" • "),
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
-		}
-	)
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AurralAlbumRecoveryTrackItem(
-	row: AurralAlbumRecoveryTrackRow,
-	index: Int,
-	count: Int
-) {
-	val uriHandler = LocalUriHandler.current
-	val previewUrl = row.track.previewUrl?.trim()?.takeIf { it.isNotEmpty() }
 	val number = listOfNotNull(
-		row.track.discNumber?.takeIf { it > 1 },
-		row.track.trackNumber
+		row.discNumber?.takeIf { it > 1 },
+		row.trackNumber
 	).joinToString(".").ifBlank { "${index + 1}" }
 	SegmentedListItem(
 		modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
-		onClick = {
-			previewUrl?.let(uriHandler::openUri)
-		},
+		onClick = { onOpenPreview?.invoke() },
 		shapes = segmentedShapes(index = index, count = count),
 		colors = ListItemDefaults.segmentedColors(
 			containerColor = MaterialTheme.colorScheme.surfaceContainer
@@ -656,7 +526,9 @@ private fun AurralAlbumRecoveryTrackItem(
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(4.dp)
 			) {
-				AurralOwnershipStatusDot(status = row.ownershipStatus, size = 11.dp)
+				row.ownershipStatus?.let { status ->
+					AurralOwnershipStatusDot(status = status, size = 11.dp)
+				}
 				Text(
 					text = number,
 					style = MaterialTheme.typography.labelSmall,
@@ -668,12 +540,12 @@ private fun AurralAlbumRecoveryTrackItem(
 		content = {
 			Column {
 				Text(
-					text = row.track.title,
+					text = row.title,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
 				Text(
-					text = row.recoveryStatusText(),
+					text = row.displayStatusText(),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = 1,
@@ -682,11 +554,9 @@ private fun AurralAlbumRecoveryTrackItem(
 			}
 		},
 		trailingContent = {
-			if (previewUrl != null) {
+			if (onOpenPreview != null) {
 				IconButton(
-					onClick = {
-						uriHandler.openUri(previewUrl)
-					}
+					onClick = onOpenPreview
 				) {
 					Icon(
 						imageVector = Icons.Filled.Play,
@@ -698,9 +568,10 @@ private fun AurralAlbumRecoveryTrackItem(
 	)
 }
 
-private fun AurralAlbumRecoveryTrackRow.recoveryStatusText(): String =
+private fun AurralAlbumDisplayRow.displayStatusText(): String =
 	when (ownershipStatus) {
-		AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally • ${it.title}" } ?: "Owned locally"
-		AurralOwnershipStatus.Partial -> track.status?.takeIf { it.isNotBlank() } ?: "Requested"
+		AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally" } ?: "Owned"
+		AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
 		AurralOwnershipStatus.Missing -> "Missing"
+		null -> artistName?.takeIf { it.isNotBlank() } ?: ""
 	}

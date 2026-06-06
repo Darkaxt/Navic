@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -21,9 +23,11 @@ import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_not_playing
+import navic.composeapp.generated.resources.action_navigate_back
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.nowPlayingInfoSubtitle
@@ -39,15 +43,18 @@ import paige.navic.util.core.InlineExplicitIconLarge
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.icons.outlined.Artist
+import paige.navic.icons.outlined.KeyboardArrowDown
 
 @Composable
 fun NowPlayingInfoRow(
+	onCollapse: (() -> Unit)? = null,
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
 	onSetSongRating: (Int) -> Unit
 ) {
 	val backStack = LocalNavStack.current
+	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val scope = rememberCoroutineScope()
@@ -171,6 +178,21 @@ fun NowPlayingInfoRow(
 		Row(
 			horizontalArrangement = Arrangement.spacedBy(10.dp)
 		) {
+			if (onCollapse != null) {
+				IconButton(
+					onClick = {
+						platformContext.clickSound()
+						onCollapse()
+					},
+					colors = IconButtonDefaults.filledTonalIconButtonColors(),
+					modifier = Modifier.size(32.dp)
+				) {
+					Icon(
+						imageVector = Icons.Outlined.KeyboardArrowDown,
+						contentDescription = stringResource(Res.string.action_navigate_back)
+					)
+				}
+			}
 			NowPlayingStarButton(
 				songIsStarred = songIsStarred,
 				onSetSongIsStarred = onSetSongIsStarred

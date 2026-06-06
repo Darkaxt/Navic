@@ -276,6 +276,88 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun displayRowsMergeMissingAurralTracksIntoAlbumTrackOrder() {
+		val localSong = song(
+			title = "Paradigm Shift",
+			musicBrainzId = "55ceca99-a43f-4dfb-8711-b27bd6dbecf2",
+			trackNumber = 1
+		)
+		val ownedTrack = AurralAlbumRecoveryTrack(
+			id = "aurral-1",
+			title = "Paradigm Shift",
+			recordingMbid = "55ceca99-a43f-4dfb-8711-b27bd6dbecf2",
+			trackNumber = 1
+		)
+		val missingTrack = AurralAlbumRecoveryTrack(
+			id = "aurral-2",
+			title = "Missing Theme",
+			trackNumber = 2
+		)
+
+		val rows = aurralAlbumDisplayRows(
+			album = album(
+				name = "Final Fantasy XIII-2 Original Soundtrack",
+				songs = listOf(localSong)
+			),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = ownedTrack,
+					localSong = localSong,
+					ownershipStatus = AurralOwnershipStatus.Owned
+				),
+				AurralAlbumRecoveryTrackRow(
+					track = missingTrack,
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Missing
+				)
+			)
+		)
+
+		assertEquals(listOf("Paradigm Shift", "Missing Theme"), rows.map { it.title })
+		assertEquals(localSong, rows[0].localSong)
+		assertEquals(AurralOwnershipStatus.Owned, rows[0].ownershipStatus)
+		assertNull(rows[1].localSong)
+		assertEquals(AurralOwnershipStatus.Missing, rows[1].ownershipStatus)
+	}
+
+	@Test
+	fun displayRowsKeepLocalOnlySongsWhenAurralHasPartialAlbumData() {
+		val ownedSong = song(title = "Owned", trackNumber = 1)
+		val localOnlySong = song(title = "Local Only", trackNumber = 2)
+		val rows = aurralAlbumDisplayRows(
+			album = album(name = "Album", songs = listOf(ownedSong, localOnlySong)),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-owned",
+						title = "Owned",
+						trackNumber = 1
+					),
+					localSong = ownedSong,
+					ownershipStatus = AurralOwnershipStatus.Owned
+				)
+			)
+		)
+
+		assertEquals(listOf("Owned", "Local Only"), rows.map { it.title })
+		assertEquals(localOnlySong, rows[1].localSong)
+		assertEquals(AurralOwnershipStatus.Owned, rows[1].ownershipStatus)
+	}
+
+	@Test
+	fun displayRowsFallbackToPlainLocalRowsWithoutAurralRecovery() {
+		val localSong = song(title = "Only Local", trackNumber = 1)
+		val rows = aurralAlbumDisplayRows(
+			album = album(name = "Album", songs = listOf(localSong)),
+			recoveryRows = emptyList()
+		)
+
+		assertEquals(listOf("Only Local"), rows.map { it.title })
+		assertEquals(localSong, rows.single().localSong)
+		assertNull(rows.single().ownershipStatus)
+	}
+
+	@Test
 	fun recoveryCandidateSkipsDifferentAlbumTitles() {
 		val album = album(name = "Final Fantasy XIII-2 Original Soundtrack")
 

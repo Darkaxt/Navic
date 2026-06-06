@@ -129,6 +129,12 @@ class DownloadManager(
 		}
 	}
 
+	fun prefetchPlaybackSongs(songs: List<DomainSong>): Job {
+		return scope.launch(Dispatchers.IO) {
+			queueSongDownloads(songs)
+		}
+	}
+
 	suspend fun downloadCollection(collection: DomainSongCollection) {
 		if (collection.songs.isEmpty()) return
 		queueSongDownloads(collection.songs)
@@ -479,10 +485,10 @@ class DownloadManager(
 				Logger.i("DownloadManager", "beginning download for ${song.id}")
 				downloadDao.insertDownload(DownloadEntity(song.id, DownloadStatus.DOWNLOADING, 0f))
 
+				downloadAudioFile(song)
 				cacheSongCoverArt(song.coverArtId)
 				cacheAlbumCoverArt(song.albumId)
 				cacheLyrics(song)
-				downloadAudioFile(song)
 				cacheOfflineLidaClip(song)
 				return
 			} catch (e: Exception) {

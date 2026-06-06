@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.sp
 import com.kyant.capsule.ContinuousCapsule
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_acquire_album
 import navic.composeapp.generated.resources.action_delete_download
-import navic.composeapp.generated.resources.action_find_missing_tracks
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.action_shuffle
 import navic.composeapp.generated.resources.info_download_failed
@@ -36,9 +36,11 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
+import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Download
@@ -52,7 +54,8 @@ import paige.navic.ui.theme.defaultFont
 @Composable
 fun CollectionDetailScreenHeadingRowButtons(
 	collection: DomainSongCollection,
-	onOpenAurralRecovery: (() -> Unit)? = null
+	aurralAlbumActionStatus: AurralOwnershipStatus? = null,
+	onAcquireAurralAlbum: (() -> Unit)? = null
 ) {
 	val platformContext = LocalPlatformContext.current
 	val player = koinInject<MediaPlayerViewModel>()
@@ -118,21 +121,42 @@ fun CollectionDetailScreenHeadingRowButtons(
 				fontFamily = defaultFont(round = 100f)
 			)
 		}
-		if (onOpenAurralRecovery != null) {
+		if (aurralAlbumActionStatus != null) {
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
 				onClick = {
 					platformContext.clickSound()
-					onOpenAurralRecovery()
+					onAcquireAurralAlbum?.invoke()
 				},
 				shape = buttonShape,
-				contentPadding = PaddingValues(0.dp)
+				contentPadding = PaddingValues(0.dp),
+				enabled = aurralAlbumActionStatus == AurralOwnershipStatus.Missing &&
+					onAcquireAurralAlbum != null
 			) {
-				Icon(
-					imageVector = Icons.Outlined.LibraryAdd,
-					contentDescription = stringResource(Res.string.action_find_missing_tracks),
-					modifier = Modifier.size(24.dp)
-				)
+				when (aurralAlbumActionStatus) {
+					AurralOwnershipStatus.Partial -> {
+						CircularProgressIndicator(
+							modifier = Modifier.size(22.dp),
+							strokeWidth = 2.dp,
+							color = MaterialTheme.colorScheme.primary
+						)
+					}
+					AurralOwnershipStatus.Owned -> {
+						Icon(
+							imageVector = Icons.Outlined.Check,
+							contentDescription = stringResource(Res.string.action_acquire_album),
+							modifier = Modifier.size(24.dp),
+							tint = MaterialTheme.colorScheme.primary
+						)
+					}
+					AurralOwnershipStatus.Missing -> {
+						Icon(
+							imageVector = Icons.Outlined.LibraryAdd,
+							contentDescription = stringResource(Res.string.action_acquire_album),
+							modifier = Modifier.size(24.dp)
+						)
+					}
+				}
 			}
 		}
 		OutlinedButton(

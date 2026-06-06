@@ -4,14 +4,26 @@ import android.util.Log
 
 actual object Logger {
 	actual fun e(tag: String, msg: String, tr: Throwable?) {
-		Log.e(tag, msg, tr)
+		runCatching {
+			Log.e(tag, msg, tr)
+		}.getOrElse {
+			println("E/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+		}
 	}
 
 	actual fun i(tag: String, msg: String, tr: Throwable?) {
-		Log.i(tag, msg, tr)
+		runCatching {
+			Log.i(tag, msg, tr)
+		}.getOrElse {
+			println("I/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+		}
 	}
 
 	actual fun w(tag: String, msg: String, tr: Throwable?) {
-		Log.w(tag, msg, tr)
+		runCatching {
+			Log.w(tag, msg, tr)
+		}.getOrElse {
+			println("W/$tag: $msg${tr?.let { throwable -> "\n$throwable" }.orEmpty()}")
+		}
 	}
 }
