@@ -343,19 +343,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 							requestHeaders = requestHeaders
 						),
 						onClick = {
-							backStack.add(
-								Screen.AurralMissingAlbum(
-									artistId = state.localArtist?.id ?: route.artistMbid,
-									artistName = state.artist.name,
-									artistMbid = route.artistMbid,
-									releaseGroupId = album.id,
-									title = album.title,
-									year = album.releaseDate?.trim()?.take(4),
-									primaryType = album.primaryType ?: album.secondaryTypes.firstOrNull(),
-									coverUrl = album.coverUrl,
-									requestStatus = album.status
-								)
-							)
+							aurralAlbumSearchDestination(album)?.let(backStack::add)
 						}
 					)
 				}

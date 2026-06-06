@@ -3,9 +3,13 @@ package paige.navic.ui.screens.collection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainExplicitStatus
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 
 class AurralAlbumRecoveryPolicyTest {
@@ -28,6 +32,250 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun recoveryCandidateUsesTitleAndYearBeforeSelectedTrackArtist() {
+		val album = album(
+			name = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "Masashi Hamauzu, Naoshi Mizuta & Mitsuto Suzuki"
+		)
+		val exactAlbum = aurralAlbum(
+			id = "release-group",
+			title = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "浜渦正志",
+			releaseDate = "2011-12-14",
+			primaryType = "Album",
+			secondaryTypes = listOf("Soundtrack")
+		)
+
+		assertEquals(
+			exactAlbum,
+			aurralAlbumRecoveryCandidate(
+				album,
+				listOf(
+					aurralAlbum(
+						id = "special",
+						title = "FINAL FANTASY XIII-2 Original Soundtrack -SPECIAL Package-",
+						artistName = "浜渦正志",
+						releaseDate = "2012-01-31"
+					),
+					aurralAlbum(
+						id = "composer-selected",
+						title = "Final Fantasy XIII-2 Composer Selected Soundtrack",
+						artistName = "Various Artists",
+						releaseDate = "2011-12-18"
+					),
+					exactAlbum
+				)
+			)
+		)
+	}
+
+	@Test
+	fun recoveryCandidateKeepsSoundtrackWhenArtistNameIsLocalized() {
+		val album = album(
+			name = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "Masashi Hamauzu, Naoshi Mizuta & Mitsuto Suzuki",
+			year = 2011
+		)
+		val localizedArtistCandidate = aurralAlbum(
+			id = "release-group",
+			title = "FINAL FANTASY XIII-2 Original Soundtrack",
+			artistName = "浜渦正志",
+			releaseDate = "2011-12-14",
+			primaryType = "Album",
+			secondaryTypes = listOf("Soundtrack")
+		)
+
+		assertEquals(
+			localizedArtistCandidate,
+			aurralAlbumRecoveryCandidate(album, listOf(localizedArtistCandidate))
+		)
+	}
+
+	@Test
+	fun recoveryCandidateAcceptsNearbyYearWhenTitleAndTypeAreStrong() {
+		val album = album(
+			name = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "Masashi Hamauzu, Naoshi Mizuta & Mitsuto Suzuki",
+			year = 2011
+		)
+		val candidate = aurralAlbum(
+			id = "near-year-soundtrack",
+			title = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "浜渦正志",
+			releaseDate = "2012-01-01",
+			primaryType = "Album",
+			secondaryTypes = listOf("Soundtrack")
+		)
+
+		assertEquals(candidate, aurralAlbumRecoveryCandidate(album, listOf(candidate)))
+	}
+
+	@Test
+	fun recoveryCandidateRejectsGenericExactTitleWithoutSupportingMetadata() {
+		val album = album(
+			name = "Crystallize",
+			artistName = "Lindsey Stirling",
+		)
+		val unrelatedAlbum = aurralAlbum(
+			id = "wrong-album",
+			title = "Crystallize...",
+			artistName = "Nora Below",
+			releaseDate = "2002",
+			primaryType = "Album"
+		)
+		val unrelatedSingle = aurralAlbum(
+			id = "wrong-single",
+			title = "Crystallize",
+			artistName = "Eliminate",
+			releaseDate = "2020-05-15",
+			primaryType = "Single"
+		)
+
+		assertNull(
+			aurralAlbumRecoveryCandidate(album, listOf(unrelatedAlbum, unrelatedSingle))
+		)
+	}
+
+	@Test
+	fun recoveryCandidateChoicesKeepLowConfidenceExactTitleMatchesForManualSelection() {
+		val album = album(
+			name = "Crystallize",
+			artistName = "Lindsey Stirling",
+		)
+		val unrelatedSingle = aurralAlbum(
+			id = "wrong-single",
+			title = "Crystallize",
+			artistName = "Eliminate",
+			releaseDate = "2020-05-15",
+			primaryType = "Single"
+		)
+
+		assertEquals(
+			listOf(unrelatedSingle),
+			aurralAlbumRecoveryCandidateChoices(album, listOf(unrelatedSingle)).map { it.album }
+		)
+	}
+
+	@Test
+	fun recoveryCandidateAcceptsSingleWhenArtistAndYearMatch() {
+		val album = album(
+			name = "strawberry moon",
+			artistName = "IU",
+			year = 2021
+		)
+		val exactSingle = aurralAlbum(
+			id = "iu-single",
+			title = "strawberry moon",
+			artistName = "IU",
+			releaseDate = "2021-10-19",
+			primaryType = "Single"
+		)
+		val unrelatedAlbum = aurralAlbum(
+			id = "raury-album",
+			title = "Strawberry Moon",
+			artistName = "Raury",
+			releaseDate = "2022-06-14",
+			primaryType = "Album"
+		)
+
+		assertEquals(
+			exactSingle,
+			aurralAlbumRecoveryCandidate(album, listOf(unrelatedAlbum, exactSingle))
+		)
+	}
+
+	@Test
+	fun recoveryQueriesUseAlbumTitleArtistCandidatesAndYearHints() {
+		val album = album(
+			name = "Final Fantasy XIII-2 Original Soundtrack",
+			artistName = "Masashi Hamauzu, Naoshi Mizuta & Mitsuto Suzuki",
+			year = 2011
+		)
+
+		assertEquals(
+			listOf(
+				"Final Fantasy XIII-2 Original Soundtrack Masashi Hamauzu 2011",
+				"Final Fantasy XIII-2 Original Soundtrack Naoshi Mizuta 2011",
+				"Final Fantasy XIII-2 Original Soundtrack Mitsuto Suzuki 2011",
+				"Final Fantasy XIII-2 Original Soundtrack Masashi Hamauzu",
+				"Final Fantasy XIII-2 Original Soundtrack Naoshi Mizuta",
+				"Final Fantasy XIII-2 Original Soundtrack Mitsuto Suzuki",
+				"Final Fantasy XIII-2 Original Soundtrack 2011",
+				"Final Fantasy XIII-2 Original Soundtrack"
+			),
+			aurralAlbumRecoveryQueries(album)
+		)
+	}
+
+	@Test
+	fun artistCreditPartsSplitClickableAlbumCredits() {
+		assertEquals(
+			listOf("Masashi Hamauzu", "Naoshi Mizuta", "Mitsuto Suzuki"),
+			aurralAlbumArtistCreditParts("Masashi Hamauzu, Naoshi Mizuta & Mitsuto Suzuki")
+		)
+	}
+
+	@Test
+	fun recoveryRowsMatchOwnedTrackByRecordingMbidEvenWhenTitlesDiffer() {
+		val localSong = song(
+			title = "Paradigm Shift",
+			musicBrainzId = "55ceca99-a43f-4dfb-8711-b27bd6dbecf2",
+			trackNumber = 1
+		)
+		val rows = aurralAlbumRecoveryRows(
+			album = album(
+				name = "Final Fantasy XIII-2 Original Soundtrack",
+				songs = listOf(localSong)
+			),
+			tracks = listOf(
+				AurralAlbumRecoveryTrack(
+					id = "aurral-15",
+					title = "パラダイムシフト",
+					recordingMbid = "55ceca99-a43f-4dfb-8711-b27bd6dbecf2",
+					trackNumber = 15
+				),
+				AurralAlbumRecoveryTrack(
+					id = "aurral-16",
+					title = "名誉のファンファーレ",
+					recordingMbid = "other-mbid",
+					trackNumber = 16
+				)
+			)
+		)
+
+		assertEquals(localSong, rows[0].localSong)
+		assertEquals(AurralOwnershipStatus.Owned, rows[0].ownershipStatus)
+		assertNull(rows[1].localSong)
+		assertEquals(AurralOwnershipStatus.Missing, rows[1].ownershipStatus)
+	}
+
+	@Test
+	fun recoveryRowsMatchNormalSameLanguageTracksByNumberTitleAndDuration() {
+		val localSong = song(
+			title = "A Normal Track",
+			trackNumber = 3,
+			discNumber = 1,
+			durationSeconds = 182
+		)
+
+		val rows = aurralAlbumRecoveryRows(
+			album = album(name = "Normal Album", songs = listOf(localSong)),
+			tracks = listOf(
+				AurralAlbumRecoveryTrack(
+					id = "aurral-3",
+					title = "A Normal Track",
+					discNumber = 1,
+					trackNumber = 3,
+					durationMs = 181_000
+				)
+			)
+		)
+
+		assertEquals(localSong, rows.single().localSong)
+		assertTrue(rows.single().track.previewUrl == null)
+	}
+
+	@Test
 	fun recoveryCandidateSkipsDifferentAlbumTitles() {
 		val album = album(name = "Final Fantasy XIII-2 Original Soundtrack")
 
@@ -41,13 +289,15 @@ class AurralAlbumRecoveryPolicyTest {
 
 	private fun album(
 		name: String,
-		artistName: String = "Artist"
+		artistName: String = "Artist",
+		year: Int? = 2011,
+		songs: List<DomainSong> = emptyList()
 	) = DomainAlbum(
 		id = "album",
 		name = name,
 		artistName = artistName,
 		artistId = "artist",
-		year = 2011,
+		year = year,
 		coverArtId = "cover",
 		genre = null,
 		genres = emptyList(),
@@ -59,17 +309,65 @@ class AurralAlbumRecoveryPolicyTest {
 		userRating = null,
 		version = null,
 		musicBrainzId = null,
-		songs = emptyList()
+		songs = songs
 	)
 
 	private fun aurralAlbum(
 		id: String = "id",
 		title: String,
-		artistName: String = "Artist"
+		artistName: String = "Artist",
+		releaseDate: String? = null,
+		primaryType: String? = null,
+		secondaryTypes: List<String> = emptyList()
 	) = AurralAlbumSearchItem(
 		id = id,
 		title = title,
 		artistName = artistName,
-		artistMbid = "artist-mbid"
+		artistMbid = "artist-mbid",
+		releaseDate = releaseDate,
+		primaryType = primaryType,
+		secondaryTypes = secondaryTypes
+	)
+
+	private fun song(
+		title: String,
+		musicBrainzId: String? = null,
+		trackNumber: Int? = null,
+		discNumber: Int? = null,
+		durationSeconds: Int = 180
+	) = DomainSong(
+		id = "song-$title",
+		title = title,
+		artistName = "Song Artist",
+		artistId = "song-artist",
+		albumTitle = "Album",
+		albumId = "album",
+		parentId = "album",
+		comment = null,
+		trackNumber = trackNumber,
+		discNumber = discNumber,
+		isrc = emptyList(),
+		year = 2011,
+		genre = null,
+		genres = emptyList(),
+		moods = emptyList(),
+		duration = durationSeconds.seconds,
+		bpm = null,
+		contributors = emptyList(),
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "flac",
+		mimeType = "audio/flac",
+		filePath = null,
+		starredAt = null,
+		coverArtId = null,
+		musicBrainzId = musicBrainzId,
+		explicitStatus = DomainExplicitStatus.Unknown
 	)
 }

@@ -31,6 +31,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralAlbumTrackItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.PlaylistRepository
@@ -38,6 +39,11 @@ import paige.navic.domain.repositories.SongRepository
 import paige.navic.util.core.Logger
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.collection.aurralAlbumRecoveryCandidate
+import paige.navic.ui.screens.collection.aurralAlbumRecoveryCandidateChoices
+import paige.navic.ui.screens.collection.aurralAlbumRecoveryQueries
+import paige.navic.ui.screens.collection.aurralAlbumRecoveryRows as buildAurralAlbumRecoveryRows
+import paige.navic.ui.screens.collection.AurralAlbumRecoveryTrack
+import paige.navic.ui.screens.collection.AurralAlbumRecoveryTrackRow
 
 class CollectionDetailViewModel(
 	private val collectionId: String,
@@ -118,6 +124,12 @@ class CollectionDetailViewModel(
 
 	private val _aurralAlbumRecoveryMatch = MutableStateFlow<AurralAlbumSearchItem?>(null)
 	val aurralAlbumRecoveryMatch = _aurralAlbumRecoveryMatch.asStateFlow()
+	private val _aurralAlbumRecoveryRows = MutableStateFlow<List<AurralAlbumRecoveryTrackRow>>(emptyList())
+	val aurralAlbumRecoveryRows = _aurralAlbumRecoveryRows.asStateFlow()
+	private val _aurralAlbumRecoveryLoading = MutableStateFlow(false)
+	val aurralAlbumRecoveryLoading = _aurralAlbumRecoveryLoading.asStateFlow()
+	private val _aurralAlbumRecoveryCandidates = MutableStateFlow<List<AurralAlbumSearchItem>>(emptyList())
+	val aurralAlbumRecoveryCandidates = _aurralAlbumRecoveryCandidates.asStateFlow()
 	private var aurralAlbumRecoveryKey: String? = null
 
 	private val _rating = MutableStateFlow(0)
@@ -132,6 +144,9 @@ class CollectionDetailViewModel(
 			if (!enabled) {
 				_aurralAlbumRequests.value = emptyList()
 				_aurralAlbumRecoveryMatch.value = null
+				_aurralAlbumRecoveryRows.value = emptyList()
+				_aurralAlbumRecoveryLoading.value = false
+				_aurralAlbumRecoveryCandidates.value = emptyList()
 				aurralAlbumRecoveryKey = null
 			}
 		}
@@ -164,6 +179,9 @@ class CollectionDetailViewModel(
 					refreshAurralAlbumRecovery(album)
 				} else {
 					_aurralAlbumRecoveryMatch.value = null
+					_aurralAlbumRecoveryRows.value = emptyList()
+					_aurralAlbumRecoveryLoading.value = false
+					_aurralAlbumRecoveryCandidates.value = emptyList()
 					aurralAlbumRecoveryKey = null
 				}
 			}
@@ -171,20 +189,83 @@ class CollectionDetailViewModel(
 	}
 
 	private suspend fun refreshAurralAlbumRecovery(album: DomainAlbum) {
-		val recoveryKey = "${album.id}|${album.name}|${album.artistName}"
+		val recoveryKey = buildString {
+			append(album.id)
+			append('|')
+			append(album.name)
+			append('|')
+			append(album.artistName)
+			append('|')
+			append(album.songs.joinToString("|") { song ->
+				"${song.id}:${song.title}:${song.musicBrainzId}:${song.discNumber}:${song.trackNumber}:${song.duration}"
+			})
+		}
 		if (aurralAlbumRecoveryKey == recoveryKey) return
 		aurralAlbumRecoveryKey = recoveryKey
 		_aurralAlbumRecoveryMatch.value = null
+		_aurralAlbumRecoveryRows.value = emptyList()
+		_aurralAlbumRecoveryLoading.value = false
+		_aurralAlbumRecoveryCandidates.value = emptyList()
 		if (!preferenceManager.aurralEnabled) return
-		aurralRepository.searchAlbums(album.name, limit = 8)
-			.onSuccess { result ->
-				_aurralAlbumRecoveryMatch.value = aurralAlbumRecoveryCandidate(
+		_aurralAlbumRecoveryLoading.value = true
+		val candidates = mutableListOf<AurralAlbumSearchItem>()
+		val candidateIds = mutableSetOf<String>()
+		var match: AurralAlbumSearchItem? = null
+		for (query in aurralAlbumRecoveryQueries(album)) {
+			aurralRepository.searchAlbums(query, limit = 8)
+				.onFailure { error ->
+					Logger.w(
+						"CollectionDetailViewModel",
+						"Failed to resolve Aurral recovery album for ${album.name} with query $query",
+						error
+					)
+				}
+				.getOrNull()
+				?.albums
+				.orEmpty()
+				.forEach { candidate ->
+					val key = candidate.id.trim().lowercase()
+					if (key.isNotEmpty() && candidateIds.add(key)) candidates += candidate
+				}
+			match = aurralAlbumRecoveryCandidate(
+				album = album,
+				candidates = candidates
+			)
+			if (match != null) break
+		}
+		_aurralAlbumRecoveryMatch.value = match
+		if (match != null) {
+			_aurralAlbumRecoveryCandidates.value = emptyList()
+			loadAurralAlbumRecoveryTracks(album, match)
+		} else {
+			_aurralAlbumRecoveryCandidates.value = aurralAlbumRecoveryCandidateChoices(
+				album = album,
+				candidates = candidates
+			)
+				.take(5)
+				.map { it.album }
+		}
+		_aurralAlbumRecoveryLoading.value = false
+	}
+
+	private suspend fun loadAurralAlbumRecoveryTracks(
+		album: DomainAlbum,
+		match: AurralAlbumSearchItem
+	) {
+		aurralRepository.getAlbumTracks(match)
+			.onSuccess { tracks ->
+				_aurralAlbumRecoveryRows.value = buildAurralAlbumRecoveryRows(
 					album = album,
-					candidates = result.albums
+					tracks = tracks.map(AurralAlbumTrackItem::toRecoveryTrack)
 				)
 			}
 			.onFailure { error ->
-				Logger.w("CollectionDetailViewModel", "Failed to resolve Aurral recovery album for ${album.name}", error)
+				_aurralAlbumRecoveryRows.value = emptyList()
+				Logger.w(
+					"CollectionDetailViewModel",
+					"Failed to load Aurral recovery tracks for ${album.name}",
+					error
+				)
 			}
 	}
 
@@ -224,6 +305,34 @@ class CollectionDetailViewModel(
 	fun clearError() {
 		_collectionState.value.data?.let {
 			_collectionState.value = UiState.Success(it)
+		}
+	}
+
+	fun requestAurralRecoveryAlbum() {
+		val album = _aurralAlbumRecoveryMatch.value ?: return
+		viewModelScope.launch {
+			aurralRepository.requestAlbum(album)
+				.onSuccess {
+					refreshAurralAcquisitionRequests()
+				}
+				.onFailure { error ->
+					_collectionState.value = UiState.Error(
+						error as? Exception ?: Exception(error),
+						_collectionState.value.data
+					)
+				}
+		}
+	}
+
+	fun selectAurralRecoveryCandidate(candidate: AurralAlbumSearchItem) {
+		val album = _collectionState.value.data as? DomainAlbum ?: return
+		viewModelScope.launch {
+			_aurralAlbumRecoveryMatch.value = candidate
+			_aurralAlbumRecoveryCandidates.value = emptyList()
+			_aurralAlbumRecoveryRows.value = emptyList()
+			_aurralAlbumRecoveryLoading.value = true
+			loadAurralAlbumRecoveryTracks(album, candidate)
+			_aurralAlbumRecoveryLoading.value = false
 		}
 	}
 
@@ -356,4 +465,16 @@ private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
 	artistMbid = artistMbid,
 	artistName = artistName,
 	status = status
+)
+
+private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
+	id = id,
+	title = title,
+	recordingMbid = recordingMbid,
+	discNumber = discNumber,
+	trackNumber = trackNumber,
+	durationMs = durationMs,
+	previewUrl = previewUrl,
+	status = status,
+	requested = requested
 )

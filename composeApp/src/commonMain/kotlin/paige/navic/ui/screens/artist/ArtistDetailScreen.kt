@@ -126,6 +126,7 @@ import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.aurral.AurralConfirmationQueueSnackbar
 import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
+import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
 import paige.navic.ui.screens.aurral.aurralMissingAlbumOwnershipStatus
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
@@ -546,20 +547,7 @@ fun ArtistDetailScreen(
 										requestHeaders = preferenceManager.aurralRequestHeadersMap()
 									),
 									onClick = {
-										backStack.add(
-											Screen.AurralMissingAlbum(
-												artistId = state.artist.id,
-												artistName = state.artist.name,
-												artistMbid = state.artist.musicBrainzId.orEmpty(),
-												releaseGroupId = album.id,
-												title = album.title,
-												year = album.releaseDate?.trim()?.take(4),
-												primaryType = album.primaryType
-													?: album.secondaryTypes.firstOrNull(),
-												coverUrl = album.coverUrl,
-												requestStatus = album.status
-											)
-										)
+										aurralAlbumSearchDestination(album)?.let(backStack::add)
 									}
 								)
 							}

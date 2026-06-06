@@ -13,6 +13,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
@@ -29,6 +30,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -59,6 +61,10 @@ private const val AURRAL_MONITOR_CONFIRMATION_POLLS_PER_CYCLE = 18
 private const val AURRAL_CONFIRMATION_QUEUE_RETAINED_ITEMS = 20
 private val AURRAL_MONITOR_CONFIRMATION_DELAY: Duration = 10.seconds
 private val AURRAL_CONFIRMATION_REEMIT_DELAY: Duration = 3.minutes
+private val AURRAL_JSON = Json {
+	ignoreUnknownKeys = true
+	isLenient = true
+}
 internal val AURRAL_LIBRARY_ARTISTS_CACHE_TTL: Duration = 10.minutes
 internal const val AURRAL_BASE_URL_REQUIRED_MESSAGE = "Enter the Aurral URL first."
 internal const val AURRAL_BASE_URL_INVALID_SCHEME_MESSAGE =
@@ -252,6 +258,30 @@ class AurralRepository(
 		}.recordAurralAvailability()
 	}
 
+	suspend fun getAlbumTracks(
+		album: AurralAlbumSearchItem
+	): Result<List<AurralAlbumTrackItem>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val releaseGroupMbid = album.id.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(emptyList())
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			apiClient.fetchAlbumTracks(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				releaseGroupMbid = releaseGroupMbid,
+				libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
+			)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral album track lookup failed for ${album.title}", error)
+		}.recordAurralAvailability()
+	}
+
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
 		if (!preferenceManager.aurralEnabled) return Result.success(null)
 		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
@@ -435,6 +465,43 @@ class AurralRepository(
 			albumName = albumName,
 			artistMbid = artistMbid,
 			artistName = artist.name,
+			triggerSearch = true
+		)
+
+		return runCatching {
+			apiClient.requestAlbum(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				payload = payload
+			)
+			rememberOptimisticAlbumRequest(payload)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral album request failed for $albumName", error)
+		}.recordAurralAvailability()
+	}
+
+	suspend fun requestAlbum(album: AurralAlbumSearchItem): Result<Unit> {
+		if (!preferenceManager.aurralEnabled) {
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
+		val albumMbid = album.id.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Album MusicBrainz ID is required."))
+		val albumName = album.title.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Album title is required."))
+		val artistMbid = album.artistMbid.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist MusicBrainz ID is required."))
+		val artistName = album.artistName.trim().takeIf { it.isNotEmpty() }
+			?: return Result.failure(IllegalStateException("Artist name is required."))
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val payload = AurralAlbumRequestPayload(
+			albumMbid = albumMbid,
+			albumName = albumName,
+			artistMbid = artistMbid,
+			artistName = artistName,
 			triggerSearch = true
 		)
 
@@ -1327,6 +1394,13 @@ interface AurralApiClient {
 		request: AurralAlbumSearchRequest
 	): AurralAlbumSearchResult = error("Aurral album search is not supported by this client.")
 
+	suspend fun fetchAlbumTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		releaseGroupMbid: String,
+		libraryAlbumId: String?
+	): List<AurralAlbumTrackItem> = error("Aurral album tracks are not supported by this client.")
+
 	suspend fun fetchArtistEnrichment(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -1415,12 +1489,7 @@ private class KtorAurralApiClient : AurralApiClient {
 			socketTimeoutMillis = 30000
 		}
 		install(ContentNegotiation) {
-			json(
-				Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-				}
-			)
+			json(AURRAL_JSON)
 		}
 	}
 
@@ -1601,6 +1670,56 @@ private class KtorAurralApiClient : AurralApiClient {
 			query = request.query,
 			response = response.body()
 		)
+	}
+
+	override suspend fun fetchAlbumTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		releaseGroupMbid: String,
+		libraryAlbumId: String?
+	): List<AurralAlbumTrackItem> {
+		if (libraryAlbumId != null) {
+			val libraryTracks = fetchAlbumTracksOrNull(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				path = "api/library/tracks",
+				parameters = mapOf(
+					"albumId" to libraryAlbumId,
+					"releaseGroupMbid" to releaseGroupMbid
+				),
+				operation = "Aurral library album tracks"
+			)
+			if (!libraryTracks.isNullOrEmpty()) return libraryTracks
+		}
+		return fetchAlbumTracksOrNull(
+			baseUrl = baseUrl,
+			requestHeaders = requestHeaders,
+			path = "api/artists/release-group/${encodeUrlComponent(releaseGroupMbid)}/tracks",
+			parameters = emptyMap(),
+			operation = "Aurral release-group tracks"
+		).orEmpty()
+	}
+
+	private suspend fun fetchAlbumTracksOrNull(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String,
+		parameters: Map<String, String>,
+		operation: String
+	): List<AurralAlbumTrackItem>? {
+		val response = client.get(aurralEndpoint(baseUrl, path)) {
+			aurralJsonRequest(requestHeaders)
+			parameters.forEach { (key, value) -> parameter(key, value) }
+		}
+		return when {
+			response.status.isSuccess() -> aurralAlbumTrackItems(
+				decodeAurralAlbumTracks(response.bodyAsText())
+			)
+			response.status == HttpStatusCode.NotFound -> null
+			response.status == HttpStatusCode.Unauthorized -> emptyList()
+			response.status == HttpStatusCode.Forbidden -> emptyList()
+			else -> error(aurralHttpErrorMessage(operation, response.status))
+		}
 	}
 
 	override suspend fun fetchArtistEnrichment(
@@ -2104,6 +2223,18 @@ data class AurralAlbumSearchItem(
 	val status: String? = null
 )
 
+data class AurralAlbumTrackItem(
+	val id: String,
+	val title: String,
+	val recordingMbid: String? = null,
+	val discNumber: Int? = null,
+	val trackNumber: Int? = null,
+	val durationMs: Long? = null,
+	val previewUrl: String? = null,
+	val status: String? = null,
+	val requested: Boolean? = null
+)
+
 data class AurralFlowSummary(
 	val id: String,
 	val name: String,
@@ -2316,6 +2447,33 @@ internal data class AurralAlbumSearchItemDto(
 	@SerialName("inLibrary") val inLibrary: Boolean = false,
 	@SerialName("libraryAlbumId") val libraryAlbumId: String? = null,
 	@SerialName("libraryArtistId") val libraryArtistId: String? = null,
+	val status: String? = null
+)
+
+@Serializable
+internal data class AurralAlbumTracksResponseDto(
+	val tracks: List<AurralAlbumTrackDto> = emptyList()
+)
+
+@Serializable
+internal data class AurralAlbumTrackDto(
+	val id: String? = null,
+	val mbid: String? = null,
+	@SerialName("recordingMbid") val recordingMbid: String? = null,
+	val title: String? = null,
+	@SerialName("trackName") val trackName: String? = null,
+	@SerialName("recordingTitle") val recordingTitle: String? = null,
+	@SerialName("discNumber") val discNumber: Int? = null,
+	@SerialName("mediumNumber") val mediumNumber: Int? = null,
+	@SerialName("trackNumber") val trackNumber: Int? = null,
+	val position: Int? = null,
+	@SerialName("absoluteTrackNumber") val absoluteTrackNumber: Int? = null,
+	val length: Long? = null,
+	@SerialName("durationMs") val durationMs: Long? = null,
+	@SerialName("duration_ms") val durationMsSnake: Long? = null,
+	@SerialName("previewUrl") val previewUrl: String? = null,
+	@SerialName("preview_url") val previewUrlSnake: String? = null,
+	val requested: Boolean? = null,
 	val status: String? = null
 )
 
@@ -2593,6 +2751,18 @@ internal fun aurralRecentReleases(
 ): List<AurralAlbumSearchItem> =
 	response.mapNotNull { it.toAlbumSearchItem(baseUrl) }
 
+internal fun decodeAurralAlbumTracks(responseText: String): List<AurralAlbumTrackDto> =
+	runCatching {
+		AURRAL_JSON.decodeFromString<List<AurralAlbumTrackDto>>(responseText)
+	}.getOrElse {
+		AURRAL_JSON.decodeFromString<AurralAlbumTracksResponseDto>(responseText).tracks
+	}
+
+internal fun aurralAlbumTrackItems(
+	response: List<AurralAlbumTrackDto>
+): List<AurralAlbumTrackItem> =
+	response.mapNotNull { it.toAlbumTrackItem() }
+
 internal fun aurralRecentlyAddedArtists(
 	baseUrl: String,
 	response: List<AurralDiscoverArtistDto>
@@ -2764,6 +2934,28 @@ private fun AurralAlbumSearchItemDto.toAlbumSearchItem(baseUrl: String): AurralA
 		libraryAlbumId = libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() },
 		libraryArtistId = libraryArtistId?.trim()?.takeIf { it.isNotEmpty() },
 		status = status?.trim()?.takeIf { it.isNotEmpty() }
+	)
+}
+
+private fun AurralAlbumTrackDto.toAlbumTrackItem(): AurralAlbumTrackItem? {
+	val safeTitle = listOf(title, trackName, recordingTitle)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: return null
+	val safeId = listOf(id, mbid, recordingMbid)
+		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
+		?: "track-${discNumber ?: mediumNumber ?: 1}-${trackNumber ?: position ?: absoluteTrackNumber ?: safeTitle}"
+	return AurralAlbumTrackItem(
+		id = safeId,
+		title = safeTitle,
+		recordingMbid = listOf(recordingMbid, mbid)
+			.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) },
+		discNumber = discNumber ?: mediumNumber,
+		trackNumber = trackNumber ?: position ?: absoluteTrackNumber,
+		durationMs = durationMs ?: durationMsSnake ?: length,
+		previewUrl = listOf(previewUrl, previewUrlSnake)
+			.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) },
+		status = status?.trim()?.takeIf { it.isNotEmpty() },
+		requested = requested
 	)
 }
 

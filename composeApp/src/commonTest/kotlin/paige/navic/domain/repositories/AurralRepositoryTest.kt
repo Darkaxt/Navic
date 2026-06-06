@@ -634,6 +634,68 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralAlbumTracksDecodeBareReleaseGroupArray() {
+		val tracks = aurralAlbumTrackItems(
+			decodeAurralAlbumTracks(
+				"""
+				[
+				  {
+				    "id": "1512f4c3-d609-4c8f-9c17-67de58a0eb3d",
+				    "mbid": "1512f4c3-d609-4c8f-9c17-67de58a0eb3d",
+				    "title": "FINAL FANTASY XIII-2 オーバーチュア",
+				    "trackName": "FINAL FANTASY XIII-2 オーバーチュア",
+				    "trackNumber": 1,
+				    "position": 1,
+				    "length": 132000
+				  }
+				]
+				""".trimIndent()
+			)
+		)
+
+		assertEquals(1, tracks.size)
+		assertEquals("1512f4c3-d609-4c8f-9c17-67de58a0eb3d", tracks.single().recordingMbid)
+		assertEquals("FINAL FANTASY XIII-2 オーバーチュア", tracks.single().title)
+		assertEquals(1, tracks.single().trackNumber)
+		assertEquals(132000, tracks.single().durationMs)
+	}
+
+	@Test
+	fun aurralAlbumTracksDecodeWrappedLibraryTracksResponse() {
+		val tracks = aurralAlbumTrackItems(
+			decodeAurralAlbumTracks(
+				"""
+				{
+				  "tracks": [
+				    {
+				      "id": "32950",
+				      "albumId": "759",
+				      "artistId": "81",
+				      "mbid": "1512f4c3-d609-4c8f-9c17-67de58a0eb3d",
+				      "trackName": "FINAL FANTASY XIII-2 オーバーチュア",
+				      "trackNumber": 1,
+				      "path": null,
+				      "hasFile": true,
+				      "size": 0,
+				      "quality": null,
+				      "status": "missing",
+				      "requested": false
+				    }
+				  ]
+				}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals(1, tracks.size)
+		assertEquals("32950", tracks.single().id)
+		assertEquals("1512f4c3-d609-4c8f-9c17-67de58a0eb3d", tracks.single().recordingMbid)
+		assertEquals("FINAL FANTASY XIII-2 オーバーチュア", tracks.single().title)
+		assertEquals("missing", tracks.single().status)
+		assertEquals(false, tracks.single().requested)
+	}
+
+	@Test
 	fun repositoryDiscoveryUsesNormalizedBaseUrlAndBasicHeaders(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true

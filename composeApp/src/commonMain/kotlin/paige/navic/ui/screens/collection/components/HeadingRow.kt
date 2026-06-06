@@ -3,8 +3,11 @@ package paige.navic.ui.screens.collection.components
 import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +37,7 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.screens.collection.aurralAlbumArtistCreditParts
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.theme.defaultFont
 import paige.navic.util.ui.EmphasizedDecelerateEasing
@@ -94,24 +98,48 @@ fun CollectionDetailScreenHeadingRow(
 				is DomainPlaylist -> collection.comment
 			}
 			subtitle?.let { subtitle ->
-				Text(
-					subtitle,
-					color = MaterialTheme.colorScheme.primary,
-					modifier = Modifier.clickable(collection is DomainAlbum, onClick = dropUnlessResumed {
-						platformContext.clickSound()
-						(collection as? DomainAlbum)?.let { album ->
-							scope.launch {
-								resolveArtistCreditDestination(
-									album.artistId,
-									album.artistName,
-									true
-								)?.let(backStack::add)
+				if (collection is DomainAlbum) {
+					val artistParts = aurralAlbumArtistCreditParts(subtitle).ifEmpty { listOf(subtitle) }
+					FlowRow(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+						verticalArrangement = Arrangement.spacedBy(2.dp),
+					) {
+						artistParts.forEachIndexed { index, artistName ->
+							Text(
+								artistName,
+								color = MaterialTheme.colorScheme.primary,
+								modifier = Modifier.clickable(onClick = dropUnlessResumed {
+									platformContext.clickSound()
+									scope.launch {
+										resolveArtistCreditDestination(
+											if (artistParts.size == 1) collection.artistId else null,
+											artistName,
+											false
+										)?.let(backStack::add)
+									}
+								}),
+								style = MaterialTheme.typography.bodyMedium,
+								fontFamily = defaultFont(grade = 100, round = 100f)
+							)
+							if (index < artistParts.lastIndex) {
+								Text(
+									"•",
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									style = MaterialTheme.typography.bodyMedium,
+									fontFamily = defaultFont(grade = 100, round = 100f)
+								)
 							}
 						}
-					}),
-					style = MaterialTheme.typography.bodyMedium,
-					fontFamily = defaultFont(grade = 100, round = 100f)
-				)
+					}
+				} else {
+					Text(
+						subtitle,
+						color = MaterialTheme.colorScheme.primary,
+						style = MaterialTheme.typography.bodyMedium,
+						fontFamily = defaultFont(grade = 100, round = 100f)
+					)
+				}
 			}
 			Text(
 				when (collection) {

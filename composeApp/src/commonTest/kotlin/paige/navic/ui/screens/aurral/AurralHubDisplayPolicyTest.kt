@@ -809,6 +809,21 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun albumSearchDestinationRoutesLibraryAlbumsToCollectionDetail() {
+		assertEquals(
+			Screen.CollectionDetail("local-album", "search"),
+			aurralAlbumSearchDestination(
+				albumSearchItem(
+					id = "release",
+					title = "Album",
+					inLibrary = true,
+					libraryAlbumId = " local-album "
+				)
+			)
+		)
+	}
+
+	@Test
 	fun albumOwnershipStatusMapsOwnedRequestedAndMissingRows() {
 		assertEquals(
 			AurralOwnershipStatus.Owned,
@@ -1132,6 +1147,7 @@ class AurralHubDisplayPolicyTest {
 		artistMbid: String = "artist-mbid",
 		releaseDate: String? = null,
 		inLibrary: Boolean = false,
+		libraryAlbumId: String? = null,
 		status: String? = null
 	) = AurralAlbumSearchItem(
 		id = id,
@@ -1140,6 +1156,7 @@ class AurralHubDisplayPolicyTest {
 		artistMbid = artistMbid,
 		releaseDate = releaseDate,
 		inLibrary = inLibrary,
+		libraryAlbumId = libraryAlbumId,
 		status = status
 	)
 
