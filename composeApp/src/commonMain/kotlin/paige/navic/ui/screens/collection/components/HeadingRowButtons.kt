@@ -52,6 +52,13 @@ import paige.navic.ui.components.common.AurralActionIcon
 import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.theme.defaultFont
 
+fun aurralAlbumActionIconOverlay(status: AurralOwnershipStatus): AurralActionIconOverlay =
+	when (status) {
+		AurralOwnershipStatus.Missing -> AurralActionIconOverlay.Crossed
+		AurralOwnershipStatus.Partial -> AurralActionIconOverlay.Progress
+		AurralOwnershipStatus.Owned -> AurralActionIconOverlay.None
+	}
+
 @Composable
 fun CollectionDetailScreenHeadingRowButtons(
 	collection: DomainSongCollection,
@@ -140,7 +147,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 				when (aurralAlbumActionStatus) {
 					AurralOwnershipStatus.Partial -> {
 						AurralActionIcon(
-							overlay = AurralActionIconOverlay.Progress,
+							overlay = aurralAlbumActionIconOverlay(aurralAlbumActionStatus),
 							contentDescription = stringResource(Res.string.action_acquire_album),
 							progressColor = MaterialTheme.colorScheme.primary
 						)
@@ -155,7 +162,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 					}
 					AurralOwnershipStatus.Missing -> {
 						AurralActionIcon(
-							overlay = AurralActionIconOverlay.None,
+							overlay = aurralAlbumActionIconOverlay(aurralAlbumActionStatus),
 							contentDescription = stringResource(Res.string.action_acquire_album)
 						)
 					}

@@ -145,7 +145,7 @@ fun aurralAlbumRecoveryRows(
 	tracks: List<AurralAlbumRecoveryTrack>
 ): List<AurralAlbumRecoveryTrackRow> {
 	val unmatchedSongs = album.songs.toMutableList()
-	return tracks.map { track ->
+	return tracks.withInferredDiscNumbers().map { track ->
 		val localSong = bestLocalSongMatch(track, unmatchedSongs)
 		if (localSong != null) unmatchedSongs.remove(localSong)
 		AurralAlbumRecoveryTrackRow(
@@ -159,6 +159,23 @@ fun aurralAlbumRecoveryRows(
 			}
 		)
 	}
+}
+
+private fun List<AurralAlbumRecoveryTrack>.withInferredDiscNumbers(): List<AurralAlbumRecoveryTrack> {
+	if (isEmpty() || any { it.discNumber != null }) return this
+	var currentDisc = 1
+	var previousTrackNumber: Int? = null
+	var inferredAnyDisc = false
+	val inferred = map { track ->
+		val trackNumber = track.trackNumber
+		if (trackNumber != null && previousTrackNumber != null && trackNumber <= previousTrackNumber) {
+			currentDisc += 1
+			inferredAnyDisc = true
+		}
+		if (trackNumber != null) previousTrackNumber = trackNumber
+		track.copy(discNumber = currentDisc)
+	}
+	return if (inferredAnyDisc) inferred else this
 }
 
 fun aurralAlbumDisplayRows(

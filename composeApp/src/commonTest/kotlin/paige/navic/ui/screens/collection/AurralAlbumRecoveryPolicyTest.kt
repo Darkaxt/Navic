@@ -443,6 +443,64 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun recoveryRowsInferDiscKeysWhenAurralTrackNumbersResetWithoutDiscNumbers() {
+		val localSong = song(
+			title = "Dearly Beloved",
+			trackNumber = 1,
+			discNumber = 1
+		)
+		val recoveryRows = aurralAlbumRecoveryRows(
+			album = album(
+				name = "Kingdom Hearts II Original Soundtrack",
+				songs = listOf(localSong)
+			),
+			tracks = listOf(
+				AurralAlbumRecoveryTrack(
+					id = "aurral-1",
+					title = "Dearly Beloved",
+					trackNumber = 1
+				),
+				AurralAlbumRecoveryTrack(
+					id = "aurral-51",
+					title = "Bounce-O-Rama (Speed Up Ver.)",
+					trackNumber = 51
+				),
+				AurralAlbumRecoveryTrack(
+					id = "aurral-52",
+					title = "Isn't It Lovely?",
+					trackNumber = 1
+				),
+				AurralAlbumRecoveryTrack(
+					id = "aurral-53",
+					title = "Let's Sing and Dance!",
+					trackNumber = 2
+				)
+			)
+		)
+
+		val displayRows = aurralAlbumDisplayRows(
+			album = album(
+				name = "Kingdom Hearts II Original Soundtrack",
+				songs = listOf(localSong)
+			),
+			recoveryRows = recoveryRows
+		)
+
+		assertEquals(
+			listOf(
+				"Dearly Beloved",
+				"Bounce-O-Rama (Speed Up Ver.)",
+				"Isn't It Lovely?",
+				"Let's Sing and Dance!"
+			),
+			displayRows.map { it.title }
+		)
+		assertEquals(listOf(1, 1, 2, 2), displayRows.map { aurralAlbumDisplayDiscKey(it) })
+		assertEquals(listOf(1, 51, 1, 2), displayRows.map { it.trackNumber })
+		assertEquals(localSong, displayRows.first().localSong)
+	}
+
+	@Test
 	fun displayRowsKeepAurralTrackArtistForMissingRows() {
 		val rows = aurralAlbumDisplayRows(
 			album = album(
