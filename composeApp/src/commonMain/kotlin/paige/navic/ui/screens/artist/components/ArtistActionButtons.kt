@@ -137,17 +137,20 @@ fun ArtistActionButtons(
 				monitoredInAurral == false -> AurralMonitorActionState.NotMonitored
 				else -> AurralMonitorActionState.PendingVerification
 			}
+			val monitorButtonIsActionable = monitorInAurralEnabled &&
+				!monitoringInAurral &&
+				!monitorPendingInAurral &&
+				monitoredInAurral != null
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = 44.dp),
 				onClick = {
-					platformContext.clickSound()
-					monitor()
+					if (monitorButtonIsActionable) {
+						platformContext.clickSound()
+						monitor()
+					}
 				},
 				shape = ContinuousCapsule,
-				enabled = monitorInAurralEnabled &&
-					!monitoringInAurral &&
-					!monitorPendingInAurral &&
-					monitoredInAurral != null,
+				enabled = true,
 				contentPadding = PaddingValues(0.dp)
 			) {
 				AurralActionIcon(
@@ -166,12 +169,6 @@ fun ArtistActionButtons(
 								Res.string.info_aurral_monitor_status_pending
 						}
 					),
-					tint = when (monitorState) {
-						AurralMonitorActionState.Monitored,
-						AurralMonitorActionState.PendingConfirmation -> MaterialTheme.colorScheme.primary
-						AurralMonitorActionState.NotMonitored,
-						AurralMonitorActionState.PendingVerification -> MaterialTheme.colorScheme.onSurfaceVariant
-					},
 					overlayColor = MaterialTheme.colorScheme.primary,
 					progressColor = MaterialTheme.colorScheme.primary
 				)

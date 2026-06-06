@@ -5,8 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,6 +31,7 @@ import paige.navic.domain.models.NowPlayingControlsLayoutBlock
 import paige.navic.domain.models.nowPlayingControlsLayoutBlocks
 import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsTap
 import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsSwipeUp
+import paige.navic.domain.models.shouldOverlayTechnicalInfoBetween
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
 import kotlin.time.Duration.Companion.milliseconds
@@ -125,30 +127,40 @@ fun NowPlayingControlsRow(
 			songRating = songRating,
 			onSetSongRating = onSetSongRating
 		)
-		nowPlayingControlsLayoutBlocks(
+		val blocks = nowPlayingControlsLayoutBlocks(
 			swapControlsAndTimeline = preferenceManager.swapNowPlayingControlsAndTimeline,
 			showTechnicalInfo = showTechnicalInfo
 		)
-			.forEachIndexed { index, block ->
-				if (index > 0) {
-					Spacer(modifier = Modifier.height(if (isLandscape) 24.dp else 30.dp))
-				}
-				when (block) {
-					NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock()
+		blocks.forEachIndexed { index, block ->
+			when (block) {
+				NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock()
 
-					NowPlayingControlsLayoutBlock.TechnicalInfo -> NowPlayingTechnicalInfoRow()
+				NowPlayingControlsLayoutBlock.TechnicalInfo -> Unit
 
-					NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow(
-						modifier = if (openQueueOnTap) {
-							Modifier.clickable {
-								openQueue()
-							}
-						} else {
-							Modifier
+				NowPlayingControlsLayoutBlock.PlaybackButtons -> NowPlayingButtonsRow(
+					modifier = if (openQueueOnTap) {
+						Modifier.clickable {
+							openQueue()
 						}
-					)
+					} else {
+						Modifier
+					}
+				)
+			}
+			val nextBlock = blocks.getOrNull(index + 1)
+			if (nextBlock != null) {
+				Box(
+					modifier = Modifier
+						.fillMaxWidth()
+						.height(if (isLandscape) 24.dp else 30.dp),
+					contentAlignment = Alignment.Center
+				) {
+					if (showTechnicalInfo && shouldOverlayTechnicalInfoBetween(block, nextBlock)) {
+						NowPlayingTechnicalInfoRow()
+					}
 				}
 			}
+		}
 	}
 }
 

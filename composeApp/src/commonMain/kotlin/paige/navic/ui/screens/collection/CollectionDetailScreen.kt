@@ -515,7 +515,7 @@ private fun CollectionDetailScreenAurralTrackRow(
 		contentPadding = PaddingValues(14.dp),
 		leadingContent = {
 			Column(
-				modifier = Modifier.width(38.dp),
+				modifier = Modifier.width(collectionDetailAlbumTrackLeadingWidth()),
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(4.dp)
 			) {

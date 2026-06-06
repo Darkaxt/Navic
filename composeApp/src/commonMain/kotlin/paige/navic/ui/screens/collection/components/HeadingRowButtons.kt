@@ -128,19 +128,20 @@ fun CollectionDetailScreenHeadingRowButtons(
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
 				onClick = {
-					platformContext.clickSound()
-					onAcquireAurralAlbum?.invoke()
+					if (acquireButtonIsActionable) {
+						platformContext.clickSound()
+						onAcquireAurralAlbum()
+					}
 				},
 				shape = buttonShape,
 				contentPadding = PaddingValues(0.dp),
-				enabled = acquireButtonIsActionable
+				enabled = true
 			) {
 				when (aurralAlbumActionStatus) {
 					AurralOwnershipStatus.Partial -> {
 						AurralActionIcon(
 							overlay = AurralActionIconOverlay.Progress,
 							contentDescription = stringResource(Res.string.action_acquire_album),
-							tint = MaterialTheme.colorScheme.primary,
 							progressColor = MaterialTheme.colorScheme.primary
 						)
 					}
@@ -149,14 +150,13 @@ fun CollectionDetailScreenHeadingRowButtons(
 							imageVector = Icons.Outlined.Check,
 							contentDescription = stringResource(Res.string.action_acquire_album),
 							modifier = Modifier.size(24.dp),
-							tint = MaterialTheme.colorScheme.primary
+							tint = MaterialTheme.colorScheme.onSurface
 						)
 					}
 					AurralOwnershipStatus.Missing -> {
 						AurralActionIcon(
 							overlay = AurralActionIconOverlay.None,
-							contentDescription = stringResource(Res.string.action_acquire_album),
-							tint = MaterialTheme.colorScheme.primary
+							contentDescription = stringResource(Res.string.action_acquire_album)
 						)
 					}
 				}

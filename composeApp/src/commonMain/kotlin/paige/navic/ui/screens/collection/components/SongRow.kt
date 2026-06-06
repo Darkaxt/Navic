@@ -66,6 +66,7 @@ import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.Waveform
+import paige.navic.ui.screens.collection.collectionDetailAlbumTrackLeadingWidth
 import paige.navic.util.core.InlineExplicitIcon
 import paige.navic.util.ui.segmentedShapes
 import paige.navic.util.core.toHoursMinutesSeconds
@@ -206,7 +207,7 @@ fun CollectionDetailScreenSongRow(
 						)
 				else
 					Column(
-						modifier = Modifier.width(25.dp),
+						modifier = Modifier.width(collectionDetailAlbumTrackLeadingWidth()),
 						horizontalAlignment = Alignment.CenterHorizontally
 					) {
 						if (ownershipStatus != null) {

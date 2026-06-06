@@ -16,11 +16,10 @@ class NowPlayingControlsLayoutPolicyTest {
 	}
 
 	@Test
-	fun technicalInfoRendersBetweenPlaybackButtonsAndTimelineInDefaultLayout() {
+	fun technicalInfoDoesNotAddSeparateBlockInDefaultLayout() {
 		assertEquals(
 			listOf(
 				NowPlayingControlsLayoutBlock.Timeline,
-				NowPlayingControlsLayoutBlock.TechnicalInfo,
 				NowPlayingControlsLayoutBlock.PlaybackButtons
 			),
 			nowPlayingControlsLayoutBlocks(
@@ -42,16 +41,33 @@ class NowPlayingControlsLayoutPolicyTest {
 	}
 
 	@Test
-	fun technicalInfoRendersBetweenPlaybackButtonsAndTimelineInSwappedLayout() {
+	fun technicalInfoDoesNotAddSeparateBlockInSwappedLayout() {
 		assertEquals(
 			listOf(
 				NowPlayingControlsLayoutBlock.PlaybackButtons,
-				NowPlayingControlsLayoutBlock.TechnicalInfo,
 				NowPlayingControlsLayoutBlock.Timeline
 			),
 			nowPlayingControlsLayoutBlocks(
 				swapControlsAndTimeline = true,
 				showTechnicalInfo = true
+			)
+		)
+	}
+
+	@Test
+	fun technicalInfoOverlaysOnlyBetweenTimelineAndPlaybackButtons() {
+		assertEquals(
+			true,
+			shouldOverlayTechnicalInfoBetween(
+				NowPlayingControlsLayoutBlock.PlaybackButtons,
+				NowPlayingControlsLayoutBlock.Timeline
+			)
+		)
+		assertEquals(
+			true,
+			shouldOverlayTechnicalInfoBetween(
+				NowPlayingControlsLayoutBlock.Timeline,
+				NowPlayingControlsLayoutBlock.PlaybackButtons
 			)
 		)
 	}

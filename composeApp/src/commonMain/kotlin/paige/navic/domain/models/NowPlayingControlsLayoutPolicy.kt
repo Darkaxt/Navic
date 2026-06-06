@@ -18,7 +18,7 @@ fun nowPlayingControlsLayoutBlocks(
 	swapControlsAndTimeline: Boolean,
 	showTechnicalInfo: Boolean = false
 ): List<NowPlayingControlsLayoutBlock> {
-	val primaryBlocks = if (swapControlsAndTimeline) {
+	return if (swapControlsAndTimeline) {
 		listOf(
 			NowPlayingControlsLayoutBlock.PlaybackButtons,
 			NowPlayingControlsLayoutBlock.Timeline
@@ -29,13 +29,16 @@ fun nowPlayingControlsLayoutBlocks(
 			NowPlayingControlsLayoutBlock.PlaybackButtons
 		)
 	}
-	if (!showTechnicalInfo) return primaryBlocks
-	return listOf(
-		primaryBlocks.first(),
-		NowPlayingControlsLayoutBlock.TechnicalInfo,
-		primaryBlocks.last()
-	)
 }
+
+fun shouldOverlayTechnicalInfoBetween(
+	first: NowPlayingControlsLayoutBlock,
+	second: NowPlayingControlsLayoutBlock
+): Boolean =
+	(first == NowPlayingControlsLayoutBlock.PlaybackButtons &&
+		second == NowPlayingControlsLayoutBlock.Timeline) ||
+		(first == NowPlayingControlsLayoutBlock.Timeline &&
+			second == NowPlayingControlsLayoutBlock.PlaybackButtons)
 
 fun nowPlayingPlaybackButtonsArrangement(
 	spaceControlsEvenly: Boolean
