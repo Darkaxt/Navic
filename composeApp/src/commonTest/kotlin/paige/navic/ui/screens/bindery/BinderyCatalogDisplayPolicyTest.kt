@@ -2,6 +2,8 @@ package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyBookResource
+import paige.navic.domain.repositories.BinderyFindingFile
+import paige.navic.domain.repositories.BinderyFindingMapping
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
@@ -16,6 +18,7 @@ import paige.navic.ui.navigation.SearchScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class BinderyCatalogDisplayPolicyTest {
@@ -213,6 +216,98 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals(
 			Screen.BinderyFinding("/opds/findings/894", "J.R.R. Tolkien - The Hobbit.epub"),
 			binderyDestinationForCard(findingCard)
+		)
+	}
+
+	@Test
+	fun bookFindingRowsSplitAudiobooksAndEbooksAndSortByContentQuality() {
+		val catalog = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:mp3",
+					title = "The Hobbit - Radio Drama",
+					finding = BinderyFindingMetadata(
+						findingId = "mp3",
+						mediaType = "audiobook",
+						format = "mp3",
+						language = "eng",
+						provider = "Internet Archive",
+						narrator = "Radio Drama Cast",
+						fileCount = 19,
+						sizeBytes = 175_000_000,
+						bitrateBps = 96_000
+					)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:m4b",
+					title = "The Hobbit - Unabridged",
+					finding = BinderyFindingMetadata(
+						findingId = "m4b",
+						mediaType = "audiobook",
+						format = "m4b",
+						language = "eng",
+						provider = "Audible",
+						narrator = "Rob Inglis",
+						fileCount = 1,
+						sizeBytes = 1_000_000_000,
+						bitrateBps = 224_000
+					)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:pdf",
+					title = "The Hobbit PDF",
+					finding = BinderyFindingMetadata(
+						findingId = "pdf",
+						mediaType = "ebook",
+						format = "pdf",
+						language = "eng",
+						publisher = "Houghton",
+						sizeBytes = 26_000_000
+					)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:epub",
+					title = "The Hobbit EPUB",
+					finding = BinderyFindingMetadata(
+						findingId = "epub",
+						mediaType = "ebook",
+						format = "epub",
+						language = "eng",
+						publisher = "HarperCollins",
+						sizeBytes = 4_000_000
+					)
+				)
+			)
+		)
+
+		val rows = binderyBookFindingRows(catalog)
+
+		assertEquals(
+			listOf("m4b", "mp3"),
+			rows.audiobooks.map { row -> row.id }
+		)
+		assertEquals(
+			listOf("epub", "pdf"),
+			rows.ebooks.map { row -> row.id }
+		)
+		assertTrue(rows.audiobooks.first().subtitle.orEmpty().contains("Audible"))
+		assertTrue(rows.ebooks.first().subtitle.orEmpty().contains("HarperCollins"))
+	}
+
+	@Test
+	fun binderyUiKeysStayUniqueWhenProviderFieldsAreBlank() {
+		assertNotEquals(
+			binderyUiStableKey("file", 0, "", null),
+			binderyUiStableKey("file", 1, "", null)
+		)
+		assertNotEquals(
+			binderyFindingFileRowKey(BinderyFindingFile(), 0),
+			binderyFindingFileRowKey(BinderyFindingFile(), 1)
+		)
+		assertNotEquals(
+			binderyFindingMappingRowKey(BinderyFindingMapping(), 0),
+			binderyFindingMappingRowKey(BinderyFindingMapping(), 1)
 		)
 	}
 

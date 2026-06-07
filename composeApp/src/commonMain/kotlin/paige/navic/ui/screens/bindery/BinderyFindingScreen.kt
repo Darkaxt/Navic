@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -210,9 +210,10 @@ fun BinderyFindingScreen(
 									item("bindery-finding-mapped-title") {
 										BinderyFindingSectionTitle(stringResource(Res.string.title_bindery_mapped_books))
 									}
-									items(metadata.mappings, key = { mapping ->
-										mapping.id ?: mapping.bookId ?: mapping.bookTitle.orEmpty()
-									}) { mapping ->
+									itemsIndexed(
+										metadata.mappings,
+										key = { index, mapping -> binderyFindingMappingRowKey(mapping, index) }
+									) { _, mapping ->
 										BinderyFindingMappingRow(
 											mapping = mapping,
 											onOpenBook = { bookId, bookTitle ->
@@ -231,7 +232,10 @@ fun BinderyFindingScreen(
 									item("bindery-finding-files-title") {
 										BinderyFindingSectionTitle(stringResource(Res.string.title_bindery_files))
 									}
-									items(metadata.files, key = { file -> file.href ?: file.name.orEmpty() }) { file ->
+									itemsIndexed(
+										metadata.files,
+										key = { index, file -> binderyFindingFileRowKey(file, index) }
+									) { _, file ->
 										BinderyFindingFileRow(file)
 									}
 								}

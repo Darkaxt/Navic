@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import paige.navic.domain.manager.PreferenceManager
 
 class BinderyRepositoryTest {
@@ -124,18 +125,111 @@ class BinderyRepositoryTest {
 	@Test
 	fun performActionPostsAdvertisedActionHrefWithConfiguredOpdsUrlAndApiKeyHeader() = runBlocking {
 		val apiClient = FakeBinderyApiClient()
+		val metadataCache = RecordingBinderyMetadataCache()
 		val preferences = PreferenceManager(MapSettings()).apply {
 			binderyEnabled = true
 			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
 			binderyApiKey = " secret "
 		}
-		val repository = BinderyRepository(preferences, apiClient)
+		val repository = BinderyRepository(
+			preferenceManager = preferences,
+			apiClient = apiClient,
+			metadataCache = metadataCache
+		)
 
 		repository.performAction("/opds/discover/authors/hc%3Apeter-sanderson/monitor").getOrThrow()
 
 		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.actionBaseUrls)
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.actionHeaders)
 		assertEquals(listOf("/opds/discover/authors/hc%3Apeter-sanderson/monitor"), apiClient.actionPaths)
+		assertEquals(listOf("https://bindery.example.com/opds"), metadataCache.clearedBaseUrls)
+	}
+
+	@Test
+	fun catalogUsesFreshMetadataCacheWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient(catalog = BinderyCatalog(title = "Live Books"))
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			put(
+				BinderyMetadataCacheRecord(
+					cacheKey = binderyMetadataCacheKey(
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.Catalog,
+						path = "/opds/books?owned=1"
+					),
+					baseUrl = "https://bindery.example.com/opds",
+					payloadType = BinderyMetadataPayloadType.Catalog,
+					path = "/opds/books?owned=1",
+					payloadJson = """{"title":"Cached Books"}""",
+					updatedAtMillis = 1_000L
+				)
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS - 1L }
+		)
+
+		val catalog = repository.getCatalog("/opds/books?owned=1").getOrThrow()
+
+		assertEquals("Cached Books", catalog.title)
+		assertEquals(emptyList(), apiClient.catalogPaths)
+	}
+
+	@Test
+	fun catalogStoresLiveResponseInMetadataCache() = runBlocking {
+		val apiClient = FakeBinderyApiClient(catalog = BinderyCatalog(title = "Live Books"))
+		val metadataCache = RecordingBinderyMetadataCache()
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 2_000L }
+		)
+
+		val catalog = repository.getCatalog("/opds/books?owned=1").getOrThrow()
+
+		assertEquals("Live Books", catalog.title)
+		assertEquals(listOf("/opds/books?owned=1"), apiClient.catalogPaths)
+		val cached = metadataCache.records.values.single()
+		assertEquals("https://bindery.example.com/opds", cached.baseUrl)
+		assertEquals(BinderyMetadataPayloadType.Catalog, cached.payloadType)
+		assertEquals("/opds/books?owned=1", cached.path)
+		assertEquals(2_000L, cached.updatedAtMillis)
+		assertTrue(cached.payloadJson.contains("Live Books"))
+	}
+
+	@Test
+	fun catalogFallsBackToStaleMetadataCacheWhenLiveFetchFails() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			catalog = BinderyCatalog(title = "Live Books"),
+			catalogFailure = IllegalStateException("Bindery unavailable")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			put(
+				BinderyMetadataCacheRecord(
+					cacheKey = binderyMetadataCacheKey(
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.Catalog,
+						path = "/opds/books?owned=1"
+					),
+					baseUrl = "https://bindery.example.com/opds",
+					payloadType = BinderyMetadataPayloadType.Catalog,
+					path = "/opds/books?owned=1",
+					payloadJson = """{"title":"Stale Books"}""",
+					updatedAtMillis = 1_000L
+				)
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS + 1L }
+		)
+
+		val catalog = repository.getCatalog("/opds/books?owned=1").getOrThrow()
+
+		assertEquals("Stale Books", catalog.title)
+		assertEquals(listOf("/opds/books?owned=1"), apiClient.catalogPaths)
 	}
 
 	@Test
@@ -539,8 +633,10 @@ class BinderyRepositoryTest {
 
 	private class FakeBinderyApiClient(
 		private val rootCatalog: BinderyCatalog = BinderyCatalog(title = "Bindery"),
+		private val catalog: BinderyCatalog = rootCatalog,
 		private val bookFindings: BinderyCatalog = BinderyCatalog(title = "Findings"),
-		private val rootFailure: Throwable? = null
+		private val rootFailure: Throwable? = null,
+		private val catalogFailure: Throwable? = null
 	) : BinderyApiClient {
 		var rootCalls = 0
 		val rootBaseUrls = mutableListOf<String>()
@@ -548,6 +644,9 @@ class BinderyRepositoryTest {
 		val actionBaseUrls = mutableListOf<String>()
 		val actionHeaders = mutableListOf<Map<String, String>>()
 		val actionPaths = mutableListOf<String>()
+		val catalogBaseUrls = mutableListOf<String>()
+		val catalogHeaders = mutableListOf<Map<String, String>>()
+		val catalogPaths = mutableListOf<String>()
 		val bookFindingBaseUrls = mutableListOf<String>()
 		val bookFindingHeaders = mutableListOf<Map<String, String>>()
 		val bookFindingIds = mutableListOf<String>()
@@ -567,7 +666,13 @@ class BinderyRepositoryTest {
 			baseUrl: String,
 			requestHeaders: Map<String, String>,
 			path: String
-		): BinderyCatalog = rootCatalog
+		): BinderyCatalog {
+			catalogBaseUrls += baseUrl
+			catalogHeaders += requestHeaders
+			catalogPaths += path
+			catalogFailure?.let { throw it }
+			return catalog
+		}
 
 		override suspend fun fetchManifest(
 			baseUrl: String,
@@ -604,6 +709,41 @@ class BinderyRepositoryTest {
 			actionHeaders += requestHeaders
 			actionPaths += path
 		}
+	}
+
+	private class RecordingBinderyMetadataCache : BinderyMetadataCache {
+		val records = linkedMapOf<String, BinderyMetadataCacheRecord>()
+		val clearedBaseUrls = mutableListOf<String>()
+
+		override suspend fun get(cacheKey: String): BinderyMetadataCacheRecord? =
+			records[cacheKey]
+
+		override suspend fun put(record: BinderyMetadataCacheRecord) {
+			records[record.cacheKey] = record
+		}
+
+		override suspend fun clearBaseUrl(baseUrl: String) {
+			clearedBaseUrls += baseUrl
+			records.entries.removeAll { (_, record) -> record.baseUrl == baseUrl }
+		}
+	}
+
+	private fun configuredBinderyRepository(
+		apiClient: BinderyApiClient,
+		metadataCache: BinderyMetadataCache,
+		currentTimeMillis: () -> Long
+	): BinderyRepository {
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		return BinderyRepository(
+			preferenceManager = preferences,
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = currentTimeMillis
+		)
 	}
 
 	private fun binderyRootCatalog(): BinderyCatalog =

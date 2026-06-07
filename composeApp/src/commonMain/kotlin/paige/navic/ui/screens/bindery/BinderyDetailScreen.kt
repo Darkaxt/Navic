@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -390,10 +390,17 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 					.padding(top = 12.dp)
 			)
 		}
-		items(
+		itemsIndexed(
 			items = publications,
-			key = { publication -> publication.id ?: publication.title }
-		) { publication ->
+			key = { index, publication ->
+				binderyUiStableKey(
+					prefix = "bindery-publication",
+					index = index,
+					publication.id,
+					publication.title
+				)
+			}
+		) { _, publication ->
 			BinderyPublicationGridItem(
 				modifier = Modifier.animateItem(),
 				publication = publication,

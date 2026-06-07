@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -277,7 +277,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
 	onAction: (BinderyLink) -> Unit
 ) {
-	items(cards, key = { it.id }) { card ->
+	itemsIndexed(cards, key = { index, card -> binderyCatalogCardLazyKey(card, index) }) { _, card ->
 		when (card) {
 			is BinderyCatalogCard.Book -> {
 				val visualPolicy = binderyCatalogCardVisualPolicy(card)

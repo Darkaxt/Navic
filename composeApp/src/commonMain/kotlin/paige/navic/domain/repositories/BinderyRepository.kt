@@ -15,6 +15,8 @@ import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
 import paige.navic.util.core.Logger
+import kotlin.time.Clock
 
 private const val TAG = "BinderyRepository"
 internal const val BINDERY_OPDS_URL_REQUIRED_MESSAGE = "Enter the Bindery OPDS URL first."
@@ -41,7 +44,9 @@ private val BinderyJson = Json {
 
 class BinderyRepository(
 	private val preferenceManager: PreferenceManager,
-	private val apiClient: BinderyApiClient = KtorBinderyApiClient()
+	private val apiClient: BinderyApiClient = KtorBinderyApiClient(),
+	private val metadataCache: BinderyMetadataCache = NoOpBinderyMetadataCache,
+	private val currentTimeMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() }
 ) {
 	suspend fun testConnection(): BinderyConnectionResult {
 		if (!preferenceManager.binderyEnabled) return BinderyConnectionResult.Disabled
@@ -134,32 +139,117 @@ class BinderyRepository(
 	}
 
 	suspend fun getCatalog(path: String): Result<BinderyCatalog> =
-		withConfiguredClient { baseUrl, headers ->
-			apiClient.fetchCatalog(baseUrl, headers, path)
-		}
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.Catalog,
+			path = path,
+			fetch = { baseUrl, headers -> apiClient.fetchCatalog(baseUrl, headers, path) },
+			encode = { catalog -> BinderyJson.encodeToString(catalog) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
+		)
 
 	suspend fun getManifest(bookId: String): Result<BinderyManifest> =
-		withConfiguredClient { baseUrl, headers ->
-			apiClient.fetchManifest(baseUrl, headers, bookId)
-		}
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.Manifest,
+			path = bookId,
+			fetch = { baseUrl, headers -> apiClient.fetchManifest(baseUrl, headers, bookId) },
+			encode = { manifest -> BinderyJson.encodeToString(manifest) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
+		)
 
 	suspend fun getBookResources(bookId: String): Result<BinderyResourceCatalog> =
-		withConfiguredClient { baseUrl, headers ->
-			apiClient.fetchBookResources(baseUrl, headers, bookId)
-		}
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.Resources,
+			path = bookId,
+			fetch = { baseUrl, headers -> apiClient.fetchBookResources(baseUrl, headers, bookId) },
+			encode = { resources -> BinderyJson.encodeToString(resources) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyResourceCatalog>(json) }
+		)
 
 	suspend fun getBookFindings(bookId: String): Result<BinderyCatalog> =
-		withConfiguredClient { baseUrl, headers ->
-			apiClient.fetchBookFindings(baseUrl, headers, bookId)
-		}
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.BookFindings,
+			path = bookId,
+			fetch = { baseUrl, headers -> apiClient.fetchBookFindings(baseUrl, headers, bookId) },
+			encode = { catalog -> BinderyJson.encodeToString(catalog) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
+		)
 
 	suspend fun performAction(path: String): Result<Unit> =
 		withConfiguredClient { baseUrl, headers ->
 			apiClient.performAction(baseUrl, headers, path)
+			metadataCache.clearBaseUrl(baseUrl)
 		}
+
+	private suspend fun <T> withConfiguredCachedPayload(
+		payloadType: String,
+		path: String,
+		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> T,
+		encode: (T) -> String,
+		decode: (String) -> T
+	): Result<T> =
+		withConfiguredClientAvailability { baseUrl, headers ->
+			val cachePath = path.trim()
+			val cacheKey = binderyMetadataCacheKey(baseUrl, payloadType, cachePath)
+			val cached = metadataCache.get(cacheKey)
+			if (cached != null && isFresh(cached.updatedAtMillis)) {
+				runCatching { decode(cached.payloadJson) }
+					.onSuccess { cachedPayload ->
+						return@withConfiguredClientAvailability Result.success(cachedPayload)
+					}
+					.onFailure { cacheError ->
+						Logger.w(TAG, "Bindery metadata cache decode failed", cacheError)
+					}
+			}
+
+			runCatching {
+				fetch(baseUrl, headers)
+			}.fold(
+				onSuccess = { live ->
+					metadataCache.put(
+						BinderyMetadataCacheRecord(
+							cacheKey = cacheKey,
+							baseUrl = baseUrl,
+							payloadType = payloadType,
+							path = cachePath,
+							payloadJson = encode(live),
+							updatedAtMillis = currentTimeMillis()
+						)
+					)
+					preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
+					Result.success(live)
+				},
+				onFailure = { error ->
+					Logger.w(TAG, "Bindery OPDS request failed", error)
+					preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
+					if (cached != null) {
+						runCatching { decode(cached.payloadJson) }
+							.onFailure { cacheError ->
+								Logger.w(TAG, "Bindery metadata cache decode failed", cacheError)
+							}
+					} else {
+						Result.failure(error)
+					}
+				}
+			)
+		}
+
+	private fun isFresh(updatedAtMillis: Long): Boolean =
+		currentTimeMillis() - updatedAtMillis <= BINDERY_METADATA_CACHE_FRESH_MILLIS
 
 	private suspend fun <T> withConfiguredClient(
 		action: suspend (baseUrl: String, headers: Map<String, String>) -> T
+	): Result<T> {
+		return withConfiguredClientAvailability { baseUrl, headers ->
+			runCatching {
+				action(baseUrl, headers)
+			}.onFailure { error ->
+				Logger.w(TAG, "Bindery OPDS request failed", error)
+			}.recordBinderyAvailability()
+		}
+	}
+
+	private suspend fun <T> withConfiguredClientAvailability(
+		action: suspend (baseUrl: String, headers: Map<String, String>) -> Result<T>
 	): Result<T> {
 		if (!preferenceManager.binderyEnabled) {
 			return Result.failure(IllegalStateException("Bindery is disabled."))
@@ -170,11 +260,7 @@ class BinderyRepository(
 		if (apiKey.isEmpty()) return Result.failure(IllegalStateException(BINDERY_API_KEY_REQUIRED_MESSAGE))
 		val baseUrl = configuredBinderyOpdsBaseUrl(preferenceManager.binderyOpdsBaseUrl)
 			?: return Result.failure(IllegalStateException(BINDERY_OPDS_URL_REQUIRED_MESSAGE))
-		return runCatching {
-			action(baseUrl, binderyApiKeyHeaders(apiKey))
-		}.onFailure { error ->
-			Logger.w(TAG, "Bindery OPDS request failed", error)
-		}.recordBinderyAvailability()
+		return action(baseUrl, binderyApiKeyHeaders(apiKey))
 	}
 
 	private fun <T> Result<T>.recordBinderyAvailability(): Result<T> =
@@ -345,6 +431,7 @@ data class BinderyServiceStatus(
 	val paginationSupported: Boolean = false
 )
 
+@Serializable
 data class BinderyCatalog(
 	val title: String,
 	val identifier: String? = null,
@@ -369,6 +456,7 @@ data class BinderyCatalog(
 	}
 }
 
+@Serializable
 data class BinderyPublication(
 	val id: String?,
 	val title: String,
@@ -384,6 +472,7 @@ data class BinderyPublication(
 	val finding: BinderyFindingMetadata? = null
 )
 
+@Serializable
 data class BinderyFindingMetadata(
 	val findingId: String? = null,
 	val provider: String? = null,
@@ -412,6 +501,7 @@ data class BinderyFindingMetadata(
 	val mappings: List<BinderyFindingMapping> = emptyList()
 )
 
+@Serializable
 data class BinderyFindingFile(
 	val name: String? = null,
 	val href: String? = null,
@@ -423,6 +513,7 @@ data class BinderyFindingFile(
 	val sampleRateHz: Long? = null
 )
 
+@Serializable
 data class BinderyFindingMapping(
 	val id: String? = null,
 	val bookId: String? = null,
@@ -436,6 +527,7 @@ data class BinderyFindingMapping(
 	val selectedBytes: Long? = null
 )
 
+@Serializable
 data class BinderyManifest(
 	val id: String?,
 	val title: String,
@@ -451,6 +543,7 @@ data class BinderyManifest(
 	val readingOrder: List<BinderyReadingOrderItem> = emptyList()
 )
 
+@Serializable
 data class BinderyReadingOrderItem(
 	val href: String,
 	val title: String,
@@ -460,6 +553,7 @@ data class BinderyReadingOrderItem(
 	val properties: Map<String, String> = emptyMap()
 )
 
+@Serializable
 data class BinderyLink(
 	val href: String,
 	val title: String? = null,
@@ -471,6 +565,7 @@ data class BinderyLink(
 	val links: List<BinderyLink> = emptyList()
 )
 
+@Serializable
 data class BinderyAvailability(
 	val owned: Boolean = false,
 	val complete: Boolean = false,
@@ -483,11 +578,13 @@ data class BinderyAvailability(
 	val mode: String? = null
 )
 
+@Serializable
 data class BinderyResourceCatalog(
 	val title: String,
 	val resources: List<BinderyBookResource> = emptyList()
 )
 
+@Serializable
 data class BinderyBookResource(
 	val href: String,
 	val title: String,

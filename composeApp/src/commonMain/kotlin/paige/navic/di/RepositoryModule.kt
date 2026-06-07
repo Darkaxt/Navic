@@ -5,6 +5,7 @@ import org.koin.dsl.module
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
+import paige.navic.domain.repositories.BinderyMetadataCache
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.CollectionRepository
 import paige.navic.domain.repositories.DbRepository
@@ -16,6 +17,7 @@ import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.RadioRepository
+import paige.navic.domain.repositories.RoomBinderyMetadataCache
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.ShareRepository
 import paige.navic.domain.repositories.SongRepository
@@ -26,7 +28,8 @@ val repositoryModule = module {
 	singleOf(::DbRepository)
 	singleOf(::GenreRepository)
 	single { LastFmRepository(get()) }
-	single { BinderyRepository(get()) }
+	single<BinderyMetadataCache> { RoomBinderyMetadataCache(get()) }
+	single { BinderyRepository(preferenceManager = get(), metadataCache = get()) }
 	single { LidaClipsRepository(get()) }
 	single { AurralRepository(preferenceManager = get(), confirmationWorkerEnabled = true) }
 	singleOf(::LyricsRepository)

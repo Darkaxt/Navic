@@ -16,11 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -36,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -47,9 +47,8 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.info_bindery_no_versions
-import navic.composeapp.generated.resources.info_bindery_version_available
-import navic.composeapp.generated.resources.title_audiobook_available_versions
-import navic.composeapp.generated.resources.title_audiobook_findings
+import navic.composeapp.generated.resources.title_audiobook_ebooks
+import navic.composeapp.generated.resources.title_audiobooks
 import navic.composeapp.generated.resources.title_audiobook_subjects
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -65,8 +64,10 @@ import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Audiobooks
 import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
@@ -199,14 +200,21 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							val findingRows = binderyCatalogCards(data.findings, BinderyCatalogTab.Findings)
-								.filterIsInstance<BinderyCatalogCard.Finding>()
-							if (findingRows.isNotEmpty()) {
-								item("bindery-book-findings-title") {
-									BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_findings))
+							val findingGroups = binderyBookFindingRows(data.findings, languageFilter)
+							if (findingGroups.isEmpty) {
+								item("bindery-book-no-findings") {
+									ContentUnavailable(
+										icon = Icons.Outlined.Audiobooks,
+										label = stringResource(Res.string.info_bindery_no_versions)
+									)
 								}
-								items(findingRows, key = { row -> row.id }) { row ->
-									BinderyBookFindingListItem(
+							}
+							if (findingGroups.audiobooks.isNotEmpty()) {
+								item("bindery-book-audiobooks-title") {
+									BinderyBookSectionTitle(stringResource(Res.string.title_audiobooks))
+								}
+								itemsIndexed(findingGroups.audiobooks, key = { _, row -> row.key }) { _, row ->
+									BinderyBookFindingCandidateListItem(
 										row = row,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
@@ -219,20 +227,22 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							item("bindery-book-versions-title") {
-								BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_available_versions))
-							}
-							val versionRows = binderyBookVersionRows(data.manifest, data.resources, languageFilter)
-							if (versionRows.isEmpty()) {
-								item("bindery-book-no-versions") {
-									ContentUnavailable(
-										icon = Icons.Outlined.Audiobooks,
-										label = stringResource(Res.string.info_bindery_no_versions)
-									)
+							if (findingGroups.ebooks.isNotEmpty()) {
+								item("bindery-book-ebooks-title") {
+									BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_ebooks))
 								}
-							} else {
-								items(versionRows, key = { row -> row.id }) { row ->
-									BinderyBookVersionListItem(row)
+								itemsIndexed(findingGroups.ebooks, key = { _, row -> row.key }) { _, row ->
+									BinderyBookFindingCandidateListItem(
+										row = row,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										actionInFlight = actionInFlight,
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
+										},
+										onAction = viewModel::performAction
+									)
 								}
 							}
 						}
@@ -414,21 +424,22 @@ private fun BinderyBookSubjectSection(
 }
 
 @Composable
-private fun BinderyBookFindingListItem(
-	row: BinderyCatalogCard.Finding,
+private fun BinderyBookFindingCandidateListItem(
+	row: BinderyBookFindingRow,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	actionInFlight: Set<String>,
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
 	onAction: (BinderyLink) -> Unit
 ) {
-	val action = row.primaryAction()
-	val visualPolicy = binderyCatalogCardVisualPolicy(row)
+	val card = row.card
+	val action = card.primaryAction()
+	val visualPolicy = binderyCatalogCardVisualPolicy(card)
 	Surface(
-		onClick = { onOpenFinding(row) },
+		onClick = { onOpenFinding(card) },
 		modifier = Modifier
 			.fillMaxWidth()
-			.alpha(row.availabilityAlpha()),
+			.alpha(card.availabilityAlpha()),
 		shape = RoundedCornerShape(8.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHighest
 	) {
@@ -439,10 +450,10 @@ private fun BinderyBookFindingListItem(
 		) {
 			CoverArt(
 				coverArtId = null,
-				imageUrl = row.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				contentDescription = row.title,
-				fallbackKind = "Finding",
+				fallbackKind = if (row.kind == BinderyBookFindingKind.Audiobook) "Audiobook" else "Book",
 				modifier = Modifier.width(42.dp).aspectRatio(visualPolicy.coverAspectRatio),
 				square = false,
 				contentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop
@@ -474,6 +485,22 @@ private fun BinderyBookFindingListItem(
 					onAction = onAction
 				)
 			}
+			IconButton(onClick = { onOpenFinding(card) }) {
+				Icon(
+					imageVector = Icons.Outlined.Info,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onSurfaceVariant
+				)
+			}
+			IconButton(
+				enabled = false,
+				onClick = {}
+			) {
+				Icon(
+					imageVector = Icons.Filled.Play,
+					contentDescription = null
+				)
+			}
 		}
 	}
 }
@@ -487,59 +514,6 @@ private fun BinderyBookSectionTitle(text: String) {
 		modifier = Modifier.fillMaxWidth().heightIn(min = 32.dp)
 	)
 }
-
-@Composable
-private fun BinderyBookVersionListItem(row: BinderyBookVersionRow) {
-	Surface(
-		modifier = Modifier.fillMaxWidth(),
-		shape = RoundedCornerShape(8.dp),
-		color = MaterialTheme.colorScheme.surfaceContainerHighest
-	) {
-		Row(
-			modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-			horizontalArrangement = Arrangement.spacedBy(12.dp),
-			verticalAlignment = Alignment.CenterVertically
-		) {
-			Icon(
-				imageVector = row.kind.icon(),
-				contentDescription = null,
-				modifier = Modifier.size(24.dp),
-				tint = MaterialTheme.colorScheme.primary
-			)
-			Column(
-				modifier = Modifier.weight(1f),
-				verticalArrangement = Arrangement.spacedBy(2.dp)
-			) {
-				Text(
-					text = row.title,
-					style = MaterialTheme.typography.titleSmall,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-				row.subtitle?.let {
-					Text(
-						text = it,
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-			}
-			Text(
-				text = stringResource(Res.string.info_bindery_version_available),
-				style = MaterialTheme.typography.labelMedium,
-				color = MaterialTheme.colorScheme.primary
-			)
-		}
-	}
-}
-
-private fun BinderyBookVersionKind.icon(): ImageVector =
-	when (this) {
-		BinderyBookVersionKind.Audiobook -> Icons.Outlined.Audiobooks
-		BinderyBookVersionKind.Ebook -> Icons.Outlined.Book
-	}
 
 private fun BinderyManifest.metadataText(): String? =
 	listOfNotNull(

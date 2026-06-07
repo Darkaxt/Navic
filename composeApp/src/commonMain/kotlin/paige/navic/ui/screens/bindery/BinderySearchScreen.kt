@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
@@ -140,7 +140,17 @@ fun BinderySearchScreen(
 							fixedColumns = bookGridColumns,
 							verticalArrangement = Arrangement.spacedBy(12.dp)
 						) {
-							items(results, key = { result -> "${result.tab}:${result.card.id}" }) { result ->
+							itemsIndexed(
+								results,
+								key = { index, result ->
+									binderyUiStableKey(
+										prefix = "bindery-search-${result.tab}",
+										index = index,
+										result.card.id,
+										result.card.title
+									)
+								}
+							) { _, result ->
 								BinderySearchResultItem(
 									modifier = Modifier.animateItem(),
 									result = result,

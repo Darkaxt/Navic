@@ -5,6 +5,8 @@ import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
 import paige.navic.domain.repositories.BinderyBookResource
+import paige.navic.domain.repositories.BinderyFindingFile
+import paige.navic.domain.repositories.BinderyFindingMapping
 import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
@@ -472,6 +474,110 @@ enum class BinderyBookVersionKind {
 	Ebook
 }
 
+enum class BinderyBookFindingKind {
+	Audiobook,
+	Ebook
+}
+
+data class BinderyBookFindingRow(
+	val id: String,
+	val key: String,
+	val kind: BinderyBookFindingKind,
+	val title: String,
+	val subtitle: String?,
+	val card: BinderyCatalogCard.Finding
+)
+
+data class BinderyBookFindingGroups(
+	val audiobooks: List<BinderyBookFindingRow>,
+	val ebooks: List<BinderyBookFindingRow>
+) {
+	val isEmpty: Boolean
+		get() = audiobooks.isEmpty() && ebooks.isEmpty()
+}
+
+fun binderyBookFindingRows(
+	catalog: BinderyCatalog,
+	languageFilter: String? = null
+): BinderyBookFindingGroups {
+	val language = languageFilter?.let(::normalizedBinderyLanguageFilter)
+	val rows = binderyCatalogCards(catalog, BinderyCatalogTab.Findings)
+		.filterIsInstance<BinderyCatalogCard.Finding>()
+		.mapIndexedNotNull { index, card ->
+			val metadata = card.finding
+			if (language != null && metadata?.language?.equals(language, ignoreCase = true) != true) {
+				return@mapIndexedNotNull null
+			}
+			val kind = metadata.findingKind() ?: return@mapIndexedNotNull null
+			BinderyBookFindingRow(
+				id = metadata?.findingId?.trim()?.takeIf { it.isNotEmpty() } ?: card.id,
+				key = binderyUiStableKey(
+					prefix = "bindery-book-finding",
+					index = index,
+					card.path,
+					metadata?.findingId,
+					card.id,
+					card.title
+				),
+				kind = kind,
+				title = metadata.findingTitle(kind, card.title),
+				subtitle = metadata.findingSubtitle(card.subtitle),
+				card = card
+			)
+		}
+	val audioRows = rows
+		.filter { row -> row.kind == BinderyBookFindingKind.Audiobook }
+		.sortedWith(
+			compareByDescending<BinderyBookFindingRow> { row -> row.card.finding.findingAudioQualityRank() }
+				.thenByDescending { row -> row.card.finding?.bitrateBps ?: 0L }
+				.thenByDescending { row -> row.card.finding?.sampleRateHz ?: 0L }
+				.thenByDescending { row -> row.card.finding?.sizeBytes ?: 0L }
+				.thenBy { row -> row.title.lowercase() }
+		)
+	val ebookRows = rows
+		.filter { row -> row.kind == BinderyBookFindingKind.Ebook }
+		.sortedWith(
+			compareByDescending<BinderyBookFindingRow> { row -> row.card.finding.findingEbookQualityRank() }
+				.thenByDescending { row -> row.card.finding?.sizeBytes ?: 0L }
+				.thenBy { row -> row.title.lowercase() }
+		)
+	return BinderyBookFindingGroups(audioRows, ebookRows)
+}
+
+internal fun binderyUiStableKey(
+	prefix: String,
+	index: Int,
+	vararg candidates: String?
+): String {
+	val identity = candidates
+		.firstNotNullOfOrNull { candidate -> candidate?.trim()?.takeIf { it.isNotEmpty() } }
+		?: "item"
+	return "$prefix-$index-$identity"
+}
+
+internal fun binderyCatalogCardLazyKey(card: BinderyCatalogCard, index: Int): String =
+	binderyUiStableKey("bindery-card", index, card.id, card.title)
+
+internal fun binderyFindingFileRowKey(file: BinderyFindingFile, index: Int): String =
+	binderyUiStableKey(
+		prefix = "bindery-finding-file",
+		index = index,
+		file.href,
+		file.name,
+		file.format,
+		file.language
+	)
+
+internal fun binderyFindingMappingRowKey(mapping: BinderyFindingMapping, index: Int): String =
+	binderyUiStableKey(
+		prefix = "bindery-finding-mapping",
+		index = index,
+		mapping.id,
+		mapping.bookId,
+		mapping.bookTitle,
+		mapping.authorName
+	)
+
 data class BinderyBookVersionRow(
 	val id: String,
 	val kind: BinderyBookVersionKind,
@@ -683,6 +789,82 @@ private fun String?.audioFormatQualityRank(): Int =
 		"OGG" -> 30
 		else -> 0
 	}
+
+private fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
+	val media = this?.mediaType.orEmpty().lowercase()
+	val format = this?.format.orEmpty()
+	return when {
+		"audio" in media || "audiobook" in media || format.audioFormatQualityRank() > 0 ->
+			BinderyBookFindingKind.Audiobook
+		"ebook" in media || "book" in media || format.ebookFormatQualityRank() > 0 ->
+			BinderyBookFindingKind.Ebook
+		else -> null
+	}
+}
+
+private fun BinderyFindingMetadata?.findingTitle(
+	kind: BinderyBookFindingKind,
+	fallbackTitle: String
+): String {
+	val metadata = this
+	return when (kind) {
+		BinderyBookFindingKind.Audiobook -> listOfNotNull(
+			metadata?.narrator?.trim()?.takeIf { it.isNotEmpty() },
+			metadata?.edition?.trim()?.takeIf { it.isNotEmpty() },
+			metadata?.provider?.trim()?.takeIf { it.isNotEmpty() }
+		)
+		BinderyBookFindingKind.Ebook -> listOfNotNull(
+			metadata?.publisher?.trim()?.takeIf { it.isNotEmpty() },
+			metadata?.edition?.trim()?.takeIf { it.isNotEmpty() },
+			metadata?.provider?.trim()?.takeIf { it.isNotEmpty() },
+			metadata?.format?.displayToken()?.takeIf { it.isNotEmpty() }
+		)
+	}.distinctBy { label -> label.lowercase() }
+		.joinToString(" / ")
+		.takeIf { it.isNotBlank() }
+		?: fallbackTitle.trim().takeIf { it.isNotEmpty() }
+		?: when (kind) {
+			BinderyBookFindingKind.Audiobook -> "Audiobook"
+			BinderyBookFindingKind.Ebook -> "Ebook"
+		}
+}
+
+private fun BinderyFindingMetadata?.findingSubtitle(fallbackSubtitle: String?): String? {
+	val metadata = this ?: return fallbackSubtitle
+	return listOfNotNull(
+		metadata.provider?.trim()?.takeIf { it.isNotEmpty() },
+		metadata.publisher?.trim()?.takeIf { it.isNotEmpty() },
+		metadata.edition?.trim()?.takeIf { it.isNotEmpty() },
+		metadata.format?.displayToken(),
+		metadata.sizeBytes?.toFileSize(),
+		metadata.bitrateBps?.toBitrateLabel(),
+		metadata.sampleRateHz?.toSampleRateLabel(),
+		metadata.fileCount?.takeIf { it > 0 }?.let { count -> if (count == 1) "1 file" else "$count files" },
+		metadata.language?.uppercase(),
+		metadata.availabilityStatus?.displayToken()
+	).distinctBy { label -> label.lowercase() }
+		.joinToString(" / ")
+		.takeIf { it.isNotBlank() }
+		?: fallbackSubtitle
+}
+
+private fun BinderyFindingMetadata?.findingAudioQualityRank(): Int =
+	this?.format.audioFormatQualityRank()
+
+private fun BinderyFindingMetadata?.findingEbookQualityRank(): Int =
+	this?.format.ebookFormatQualityRank()
+
+private fun Long.toBitrateLabel(): String =
+	"${(this / 1000).coerceAtLeast(1)} kbps"
+
+private fun Long.toSampleRateLabel(): String {
+	val khz = this.toDouble() / 1000.0
+	return if (khz % 1.0 == 0.0) {
+		"${khz.toInt()} kHz"
+	} else {
+		"${((khz * 10).roundToLong() / 10.0)} kHz"
+	}
+}
 
 private fun String.fileExtension(): String? {
 	val extension = substringAfterLast('.', missingDelimiterValue = "")
