@@ -59,6 +59,7 @@ import navic.composeapp.generated.resources.option_bindery_authors
 import navic.composeapp.generated.resources.option_bindery_book_grid_columns
 import navic.composeapp.generated.resources.option_bindery_collections
 import navic.composeapp.generated.resources.option_bindery_enabled
+import navic.composeapp.generated.resources.option_bindery_findings
 import navic.composeapp.generated.resources.option_bindery_language_filter
 import navic.composeapp.generated.resources.option_bindery_navigation
 import navic.composeapp.generated.resources.option_bindery_opds_url
@@ -371,6 +372,7 @@ private fun binderyStatusTitle(type: BinderyStatusType): String =
 		BinderyStatusType.Audiobooks -> stringResource(Res.string.option_bindery_audiobooks)
 		BinderyStatusType.Authors -> stringResource(Res.string.option_bindery_authors)
 		BinderyStatusType.Collections -> stringResource(Res.string.option_bindery_collections)
+		BinderyStatusType.Findings -> stringResource(Res.string.option_bindery_findings)
 		BinderyStatusType.Series -> stringResource(Res.string.option_bindery_series)
 		BinderyStatusType.Search -> stringResource(Res.string.option_bindery_search)
 		BinderyStatusType.Navigation -> stringResource(Res.string.option_bindery_navigation)

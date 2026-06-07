@@ -29,6 +29,7 @@ enum class BinderyStatusType {
 	Audiobooks,
 	Authors,
 	Collections,
+	Findings,
 	Series,
 	Search,
 	Navigation,
@@ -113,6 +114,10 @@ fun binderyStatusRows(status: BinderyServiceStatus): List<BinderyStatusRow> =
 		BinderyStatusRow(
 			type = BinderyStatusType.Collections,
 			value = if (status.hasCollections) BinderyStatusValue.Enabled else BinderyStatusValue.Disabled
+		),
+		BinderyStatusRow(
+			type = BinderyStatusType.Findings,
+			value = if (status.hasFindings) BinderyStatusValue.Enabled else BinderyStatusValue.Disabled
 		),
 		BinderyStatusRow(
 			type = BinderyStatusType.Series,

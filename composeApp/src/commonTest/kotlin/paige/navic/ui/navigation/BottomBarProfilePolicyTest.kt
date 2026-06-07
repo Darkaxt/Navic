@@ -116,6 +116,10 @@ class BottomBarProfilePolicyTest {
 			bottomBarProfileForScreen(Screen.BinderyBook("3693", "Alcatraz"), BottomBarProfile.Music)
 		)
 		assertEquals(
+			BottomBarProfile.Audiobooks,
+			bottomBarProfileForScreen(Screen.BinderyFinding("/opds/findings/894", "The Hobbit.pdf"), BottomBarProfile.Music)
+		)
+		assertEquals(
 			BottomBarProfile.Music,
 			bottomBarProfileForScreen(Screen.Library(), BottomBarProfile.Music)
 		)
@@ -166,6 +170,10 @@ class BottomBarProfilePolicyTest {
 		assertEquals(
 			SearchScope.Audiobooks,
 			searchScopeForScreen(Screen.BinderyBook("3693", "Alcatraz"))
+		)
+		assertEquals(
+			SearchScope.Audiobooks,
+			searchScopeForScreen(Screen.BinderyFinding("/opds/findings/894", "The Hobbit.pdf"))
 		)
 		assertEquals(
 			SearchScope.Music,

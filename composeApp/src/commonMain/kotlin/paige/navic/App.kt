@@ -80,6 +80,7 @@ import paige.navic.ui.screens.bindery.BinderyCatalogTab
 import paige.navic.ui.screens.bindery.BinderyBookScreen
 import paige.navic.ui.screens.bindery.BinderyDetailKind
 import paige.navic.ui.screens.bindery.BinderyDetailScreen
+import paige.navic.ui.screens.bindery.BinderyFindingScreen
 import paige.navic.ui.screens.bindery.BinderyHubScreen
 import paige.navic.ui.screens.bindery.BinderySearchScreen
 import paige.navic.ui.screens.collection.CollectionDetailScreen
@@ -341,6 +342,12 @@ private fun entryProvider(
 		entry<Screen.BinderyBook>(metadata = navtabMetadata) { key ->
 			BinderyBookScreen(
 				bookId = key.bookId,
+				title = key.title
+			)
+		}
+		entry<Screen.BinderyFinding>(metadata = navtabMetadata) { key ->
+			BinderyFindingScreen(
+				path = key.path,
 				title = key.title
 			)
 		}

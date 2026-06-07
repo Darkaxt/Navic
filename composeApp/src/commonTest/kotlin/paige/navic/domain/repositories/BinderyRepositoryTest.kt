@@ -81,7 +81,7 @@ class BinderyRepositoryTest {
 
 		assertEquals(
 			BinderyConnectionResult.Connected(
-				navigationCount = 5,
+				navigationCount = 6,
 				audiobooksAvailable = true
 			),
 			repository.testConnection()
@@ -107,12 +107,13 @@ class BinderyRepositoryTest {
 				enabled = true,
 				opdsUrlConfigured = true,
 				apiKeyConfigured = true,
-				navigationCount = 5,
+				navigationCount = 6,
 				hasSearch = true,
 				hasAudiobooks = true,
 				hasAuthors = true,
 				hasSeries = true,
 				hasCollections = true,
+				hasFindings = true,
 				progressSyncSupported = false,
 				paginationSupported = false
 			),
@@ -297,6 +298,112 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun catalogJsonPreservesFindingMetadataMappingsAndFiles() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Findings"},
+			  "publications": [
+			    {
+			      "metadata": {
+			        "title": "J.R.R. Tolkien (author) - The Hobbit.epub",
+			        "identifier": "urn:bindery:finding:894",
+			        "description": "Provider notes",
+			        "author": [{"name": "J.R.R. Tolkien"}]
+			      },
+			      "properties": {
+			        "findingId": 894,
+			        "mediaType": "ebook",
+			        "language": "eng",
+			        "format": "epub",
+			        "provider": "Anna's Archive",
+			        "providerKind": "metadata",
+			        "publisher": "Houghton Mifflin Harcourt",
+			        "edition": "Annotated",
+			        "sizeBytes": 27151009,
+			        "fileCount": 1,
+			        "availabilityStatus": "imported",
+			        "providerComments": "theme: Middle Earth",
+			        "files": [
+			          {
+			            "name": "The Hobbit.epub",
+			            "format": "epub",
+			            "language": "eng",
+			            "size": 27151009
+			          }
+			        ],
+			        "mappings": [
+			          {
+			            "id": 60452,
+			            "bookId": 3816,
+			            "bookTitle": "The Hobbit",
+			            "authorName": "J.R.R. Tolkien",
+			            "confidence": 100,
+			            "mediaType": "ebook",
+			            "targetLanguage": "eng",
+			            "acquisitionStatus": "imported",
+			            "acquisitionScope": "file_selection",
+			            "selectedBytes": 27151009
+			          }
+			        ]
+			      },
+			      "images": [{"href": "/opds/books/3816/cover", "type": "image/jpeg", "rel": "cover"}],
+			      "links": [
+			        {"href": "/opds/findings/894", "rel": "self", "type": "application/opds-publication+json"},
+			        {
+			          "href": "/api/v1/findings/894/acquire",
+			          "title": "Request download",
+			          "type": "application/json",
+			          "rel": "https://bindery.app/opds/rel/download-request"
+			        }
+			      ]
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val finding = catalog.publications.single().finding
+		requireNotNull(finding)
+		assertEquals("894", finding.findingId)
+		assertEquals("ebook", finding.mediaType)
+		assertEquals("eng", finding.language)
+		assertEquals("epub", finding.format)
+		assertEquals("Anna's Archive", finding.provider)
+		assertEquals("Houghton Mifflin Harcourt", finding.publisher)
+		assertEquals("Annotated", finding.edition)
+		assertEquals(27151009L, finding.sizeBytes)
+		assertEquals(1, finding.fileCount)
+		assertEquals("imported", finding.availabilityStatus)
+		assertEquals("theme: Middle Earth", finding.providerComments)
+		assertEquals("The Hobbit.epub", finding.files.single().name)
+		assertEquals(27151009L, finding.files.single().sizeBytes)
+		assertEquals("3816", finding.mappings.single().bookId)
+		assertEquals("The Hobbit", finding.mappings.single().bookTitle)
+		assertEquals(100.0, finding.mappings.single().confidence)
+		assertNull(catalog.publications.single().properties["files"])
+		assertNull(catalog.publications.single().properties["mappings"])
+	}
+
+	@Test
+	fun repositoryFetchesBookFindingsFromCanonicalRoute() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			bookFindings = BinderyCatalog(title = "Book Findings")
+		)
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+
+		assertEquals("Book Findings", repository.getBookFindings("3693").getOrThrow().title)
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.bookFindingBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.bookFindingHeaders)
+		assertEquals(listOf("3693"), apiClient.bookFindingIds)
+	}
+
+	@Test
 	fun manifestJsonPreservesBookLinksPropertiesDurationAndReadingOrder() {
 		val manifest = decodeBinderyManifestJson(
 			"""
@@ -432,6 +539,7 @@ class BinderyRepositoryTest {
 
 	private class FakeBinderyApiClient(
 		private val rootCatalog: BinderyCatalog = BinderyCatalog(title = "Bindery"),
+		private val bookFindings: BinderyCatalog = BinderyCatalog(title = "Findings"),
 		private val rootFailure: Throwable? = null
 	) : BinderyApiClient {
 		var rootCalls = 0
@@ -440,6 +548,9 @@ class BinderyRepositoryTest {
 		val actionBaseUrls = mutableListOf<String>()
 		val actionHeaders = mutableListOf<Map<String, String>>()
 		val actionPaths = mutableListOf<String>()
+		val bookFindingBaseUrls = mutableListOf<String>()
+		val bookFindingHeaders = mutableListOf<Map<String, String>>()
+		val bookFindingIds = mutableListOf<String>()
 
 		override suspend fun fetchRootCatalog(
 			baseUrl: String,
@@ -473,6 +584,17 @@ class BinderyRepositoryTest {
 			bookId: String
 		): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
 
+		override suspend fun fetchBookFindings(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			bookId: String
+		): BinderyCatalog {
+			bookFindingBaseUrls += baseUrl
+			bookFindingHeaders += requestHeaders
+			bookFindingIds += bookId
+			return bookFindings
+		}
+
 		override suspend fun performAction(
 			baseUrl: String,
 			requestHeaders: Map<String, String>,
@@ -499,7 +621,8 @@ class BinderyRepositoryTest {
 				BinderyLink(href = "/opds/formats/audiobook", title = "Audiobooks"),
 				BinderyLink(href = "/opds/authors", title = "Authors"),
 				BinderyLink(href = "/opds/series", title = "Series"),
-				BinderyLink(href = "/opds/collections", title = "Collections")
+				BinderyLink(href = "/opds/collections", title = "Collections"),
+				BinderyLink(href = "/opds/findings", title = "Findings")
 			)
 		)
 }

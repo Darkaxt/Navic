@@ -88,8 +88,17 @@ class BinderySearchViewModel(
 				binderyDiscoverAuthorsPath(query)
 			)
 		}
+		val findings = async {
+			repository.getCatalog(
+				binderySearchCatalogPath(
+					path = "${BinderyCatalogTab.Findings.path}?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
+					languageFilter = languageFilter
+				)
+			)
+		}
 		val results = listOf(
 			books.await().toSearchResults(BinderyCatalogTab.Books, terms),
+			findings.await().toSearchResults(BinderyCatalogTab.Findings, terms),
 			collections.await().toSearchResults(BinderyCatalogTab.Collections, terms),
 			authors.await().toSearchResults(BinderyCatalogTab.Authors, terms)
 		)
@@ -153,6 +162,7 @@ data class BinderySearchResult(
 enum class BinderySearchCategory {
 	All,
 	Books,
+	Findings,
 	Collections,
 	Authors
 }
@@ -164,6 +174,7 @@ fun binderySearchResultsForCategory(
 	when (category) {
 		BinderySearchCategory.All -> results
 		BinderySearchCategory.Books -> results.filter { it.tab == BinderyCatalogTab.Books }
+		BinderySearchCategory.Findings -> results.filter { it.tab == BinderyCatalogTab.Findings }
 		BinderySearchCategory.Collections -> results.filter { it.tab == BinderyCatalogTab.Collections }
 		BinderySearchCategory.Authors -> results.filter { it.tab == BinderyCatalogTab.Authors }
 	}
@@ -188,6 +199,26 @@ private fun BinderyCatalogCard.matchesTerms(terms: List<String>): Boolean {
 	if (terms.isEmpty()) return false
 	val haystack = when (this) {
 		is BinderyCatalogCard.Book -> listOfNotNull(title, subtitle)
+		is BinderyCatalogCard.Finding -> listOfNotNull(
+			title,
+			subtitle,
+			finding?.author,
+			finding?.bookTitleHint,
+			finding?.provider,
+			finding?.providerKind,
+			finding?.publisher,
+			finding?.edition,
+			finding?.narrator,
+			finding?.mediaType,
+			finding?.format,
+			finding?.language,
+			finding?.availabilityStatus,
+			finding?.providerComments
+		) + finding?.files.orEmpty().flatMap { file ->
+			listOfNotNull(file.name, file.format, file.language)
+		} + finding?.mappings.orEmpty().flatMap { mapping ->
+			listOfNotNull(mapping.bookTitle, mapping.authorName, mapping.mediaType, mapping.targetLanguage)
+		}
 		is BinderyCatalogCard.Link -> listOfNotNull(title, subtitle) + properties.values
 	}.joinToString(separator = " ").lowercase()
 	return terms.all { term -> haystack.contains(term) }

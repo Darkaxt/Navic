@@ -41,6 +41,7 @@ import navic.composeapp.generated.resources.title_all
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobook_findings
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -154,6 +155,10 @@ fun BinderySearchScreen(
 										platformContext.clickSound()
 										backStack.add(binderyDestinationForLink(link))
 									},
+									onOpenFinding = { finding ->
+										platformContext.clickSound()
+										backStack.add(binderyDestinationForCard(finding))
+									},
 									onAction = viewModel::performAction
 								)
 							}
@@ -230,6 +235,7 @@ private fun BinderySearchResultItem(
 	actionInFlight: Set<String>,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
 	onAction: (BinderyLink) -> Unit
 ) {
 	when (val card = result.card) {
@@ -262,6 +268,39 @@ private fun BinderySearchResultItem(
 					null
 				},
 				fallbackKind = "Book",
+				id = card.id,
+				tab = "bindery-search"
+			)
+		}
+		is BinderyCatalogCard.Finding -> {
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			val action = card.primaryAction()
+			ArtGridItem(
+				modifier = modifier.alpha(card.availabilityAlpha()),
+				onClick = { onOpenFinding(card) },
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				coverOverlay = if (action != null) {
+					{
+						BinderyCardActionButton(
+							action = action,
+							loading = action.link.href in actionInFlight,
+							onAction = onAction,
+							modifier = Modifier
+								.align(Alignment.BottomEnd)
+								.padding(8.dp)
+						)
+					}
+				} else {
+					null
+				},
+				fallbackKind = "Finding",
 				id = card.id,
 				tab = "bindery-search"
 			)
@@ -306,6 +345,7 @@ private fun BinderySearchCategory.titleResource(): StringResource =
 	when (this) {
 		BinderySearchCategory.All -> Res.string.title_all
 		BinderySearchCategory.Books -> Res.string.title_audiobook_books
+		BinderySearchCategory.Findings -> Res.string.title_audiobook_findings
 		BinderySearchCategory.Collections -> Res.string.title_audiobook_collections
 		BinderySearchCategory.Authors -> Res.string.title_audiobook_authors
 	}

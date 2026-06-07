@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyRepository
@@ -14,7 +15,8 @@ import paige.navic.ui.core.UiState
 
 data class BinderyBookData(
 	val manifest: BinderyManifest,
-	val resources: BinderyResourceCatalog = BinderyResourceCatalog(title = "Resources")
+	val resources: BinderyResourceCatalog = BinderyResourceCatalog(title = "Resources"),
+	val findings: BinderyCatalog = BinderyCatalog(title = "Findings")
 )
 
 class BinderyBookViewModel(
@@ -39,14 +41,26 @@ class BinderyBookViewModel(
 			}
 			repository.getManifest(bookId).fold(
 				onSuccess = { manifest ->
+					val findings = repository.getBookFindings(bookId).getOrElse {
+						BinderyCatalog(title = "Findings")
+					}
 					repository.getBookResources(bookId).fold(
 						onSuccess = { resources ->
-							_bookState.value = UiState.Success(BinderyBookData(manifest, resources))
+							_bookState.value = UiState.Success(
+								BinderyBookData(
+									manifest = manifest,
+									resources = resources,
+									findings = findings
+								)
+							)
 						},
 						onFailure = { error ->
 							_bookState.value = UiState.Error(
 								error = error as? Exception ?: Exception(error),
-								data = BinderyBookData(manifest)
+								data = BinderyBookData(
+									manifest = manifest,
+									findings = findings
+								)
 							)
 						}
 					)

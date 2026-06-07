@@ -7,6 +7,7 @@ import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
@@ -24,6 +25,7 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals("/opds/books", BinderyCatalogTab.Books.path)
 		assertEquals("/opds/collections", BinderyCatalogTab.Collections.path)
 		assertEquals("/opds/authors", BinderyCatalogTab.Authors.path)
+		assertEquals("/opds/findings", BinderyCatalogTab.Findings.path)
 	}
 
 	@Test
@@ -32,6 +34,7 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals("/opds/books?limit=5", BinderyCatalogTab.Books.initialCatalogPath())
 		assertEquals("/opds/collections", BinderyCatalogTab.Collections.initialCatalogPath())
 		assertEquals("/opds/authors", BinderyCatalogTab.Authors.initialCatalogPath())
+		assertEquals("/opds/findings?limit=5", BinderyCatalogTab.Findings.initialCatalogPath())
 	}
 
 	@Test
@@ -56,6 +59,7 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals("/opds/books?limit=5", binderyInitialCatalogPath("/opds/books"))
 		assertEquals("/opds/books?sort=title&limit=5", binderyInitialCatalogPath("/opds/books?sort=title"))
 		assertEquals("/opds/books?limit=20", binderyInitialCatalogPath("/opds/books?limit=20"))
+		assertEquals("/opds/findings?limit=5", binderyInitialCatalogPath("/opds/findings"))
 		assertEquals("/opds/recent", binderyInitialCatalogPath("/opds/recent"))
 	}
 
@@ -160,6 +164,56 @@ class BinderyCatalogDisplayPolicyTest {
 
 		assertEquals(download, bookCard.downloadRequestAction)
 		assertEquals(monitor, authorCard.monitorAction)
+	}
+
+	@Test
+	fun findingCardsOpenNativeFindingDetailScreensAndPreserveActionLinks() {
+		val download = BinderyLink(
+			href = "/api/v1/findings/894/acquire",
+			title = "Request download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+		val findingCard = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Findings",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:finding:894",
+						title = "J.R.R. Tolkien - The Hobbit.epub",
+						author = "J.R.R. Tolkien",
+						finding = BinderyFindingMetadata(
+							findingId = "894",
+							mediaType = "ebook",
+							language = "eng",
+							format = "epub",
+							availabilityStatus = "imported"
+						),
+						images = listOf(BinderyLink(href = "/opds/books/3816/cover")),
+						links = listOf(
+							BinderyLink(
+								href = "/opds/findings/894",
+								rel = listOf("self"),
+								type = "application/opds-publication+json"
+							),
+							download
+						)
+					)
+				)
+			),
+			BinderyCatalogTab.Findings
+		).single() as BinderyCatalogCard.Finding
+
+		assertEquals("894", findingCard.id)
+		assertEquals("J.R.R. Tolkien - The Hobbit.epub", findingCard.title)
+		assertEquals("Ebook / ENG / EPUB / Imported", findingCard.subtitle)
+		assertEquals("/opds/findings/894", findingCard.path)
+		assertEquals("/opds/books/3816/cover", findingCard.imageUrl)
+		assertEquals(download, findingCard.downloadRequestAction)
+		assertEquals(
+			Screen.BinderyFinding("/opds/findings/894", "J.R.R. Tolkien - The Hobbit.epub"),
+			binderyDestinationForCard(findingCard)
+		)
 	}
 
 	@Test
@@ -285,6 +339,21 @@ class BinderyCatalogDisplayPolicyTest {
 					title = "Frank Herbert",
 					subtitle = "Author",
 					path = "/opds/authors/frank-herbert"
+				)
+			)
+		)
+		assertEquals(
+			BinderyCatalogCardVisualPolicy(
+				coverAspectRatio = 2f / 3f,
+				imageContentScaleFit = true
+			),
+			binderyCatalogCardVisualPolicy(
+				BinderyCatalogCard.Finding(
+					id = "894",
+					title = "The Hobbit.epub",
+					subtitle = "Ebook / ENG / EPUB",
+					path = "/opds/findings/894",
+					imageUrl = "/opds/books/3816/cover"
 				)
 			)
 		)
@@ -924,6 +993,7 @@ class BinderyCatalogDisplayPolicyTest {
 				BinderyLink(href = "/opds/authors", title = "Authors"),
 				BinderyLink(href = "/opds/series", title = "Series"),
 				BinderyLink(href = "/opds/collections", title = "Collections"),
+				BinderyLink(href = "/opds/findings", title = "Findings"),
 				BinderyLink(href = "/opds/formats/audiobook", title = "Audiobooks")
 			)
 		)
@@ -939,6 +1009,11 @@ class BinderyCatalogDisplayPolicyTest {
 					kind = BinderyHubRowKind.Audiobooks,
 					path = "/opds/formats/audiobook",
 					title = "Audiobooks"
+				),
+				BinderyHubRow(
+					kind = BinderyHubRowKind.Findings,
+					path = "/opds/findings",
+					title = "Findings"
 				),
 				BinderyHubRow(
 					kind = BinderyHubRowKind.Authors,

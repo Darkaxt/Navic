@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -48,6 +49,7 @@ import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.info_bindery_no_versions
 import navic.composeapp.generated.resources.info_bindery_version_available
 import navic.composeapp.generated.resources.title_audiobook_available_versions
+import navic.composeapp.generated.resources.title_audiobook_findings
 import navic.composeapp.generated.resources.title_audiobook_subjects
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -194,6 +196,26 @@ fun BinderyBookScreen(
 												backStack.add(destination)
 											}
 										}
+									)
+								}
+							}
+							val findingRows = binderyCatalogCards(data.findings, BinderyCatalogTab.Findings)
+								.filterIsInstance<BinderyCatalogCard.Finding>()
+							if (findingRows.isNotEmpty()) {
+								item("bindery-book-findings-title") {
+									BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_findings))
+								}
+								items(findingRows, key = { row -> row.id }) { row ->
+									BinderyBookFindingListItem(
+										row = row,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										actionInFlight = actionInFlight,
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
+										},
+										onAction = viewModel::performAction
 									)
 								}
 							}
@@ -386,6 +408,71 @@ private fun BinderyBookSubjectSection(
 						modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
 					)
 				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun BinderyBookFindingListItem(
+	row: BinderyCatalogCard.Finding,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	actionInFlight: Set<String>,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
+	onAction: (BinderyLink) -> Unit
+) {
+	val action = row.primaryAction()
+	val visualPolicy = binderyCatalogCardVisualPolicy(row)
+	Surface(
+		onClick = { onOpenFinding(row) },
+		modifier = Modifier
+			.fillMaxWidth()
+			.alpha(row.availabilityAlpha()),
+		shape = RoundedCornerShape(8.dp),
+		color = MaterialTheme.colorScheme.surfaceContainerHighest
+	) {
+		Row(
+			modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			CoverArt(
+				coverArtId = null,
+				imageUrl = row.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				contentDescription = row.title,
+				fallbackKind = "Finding",
+				modifier = Modifier.width(42.dp).aspectRatio(visualPolicy.coverAspectRatio),
+				square = false,
+				contentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop
+			)
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(2.dp)
+			) {
+				Text(
+					text = row.title,
+					style = MaterialTheme.typography.titleSmall,
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis
+				)
+				row.subtitle?.let {
+					Text(
+						text = it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
+			if (action != null) {
+				BinderyCardActionButton(
+					action = action,
+					loading = action.link.href in actionInFlight,
+					onAction = onAction
+				)
 			}
 		}
 	}

@@ -304,6 +304,7 @@ fun CollectionDetailScreen(
 										row = row,
 										index = index,
 										count = group.value.count(),
+										isGroupedByDisc = multipleDiscs,
 										onOpenPreview = row.previewUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { previewUrl ->
 											{ uriHandler.openUri(previewUrl) }
 										}
@@ -499,12 +500,14 @@ private fun CollectionDetailScreenAurralTrackRow(
 	row: AurralAlbumDisplayRow,
 	index: Int,
 	count: Int,
+	isGroupedByDisc: Boolean,
 	onOpenPreview: (() -> Unit)?
 ) {
-	val number = listOfNotNull(
-		row.discNumber?.takeIf { it > 1 },
-		row.trackNumber
-	).joinToString(".").ifBlank { "${index + 1}" }
+	val number = aurralAlbumDisplayTrackNumberLabel(
+		row = row,
+		index = index,
+		isGroupedByDisc = isGroupedByDisc
+	)
 	SegmentedListItem(
 		modifier = Modifier.padding(horizontal = 16.dp, vertical = 1.5.dp),
 		onClick = { onOpenPreview?.invoke() },

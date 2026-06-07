@@ -46,6 +46,18 @@ data class AurralAlbumRecoveryCandidateChoice(
 
 fun aurralAlbumDisplayDiscKey(row: AurralAlbumDisplayRow): Int = row.discNumber ?: 1
 
+fun aurralAlbumDisplayTrackNumberLabel(
+	row: AurralAlbumDisplayRow,
+	index: Int,
+	isGroupedByDisc: Boolean
+): String {
+	val trackNumber = row.trackNumber
+	if (trackNumber == null) return "${index + 1}"
+	if (isGroupedByDisc) return "$trackNumber"
+	val discNumber = row.discNumber?.takeIf { it > 1 }
+	return listOfNotNull(discNumber, trackNumber).joinToString(".")
+}
+
 fun aurralAlbumRecoveryCandidate(
 	album: DomainAlbum,
 	candidates: List<AurralAlbumSearchItem>

@@ -82,6 +82,7 @@ fun bottomBarProfileForScreen(
 		is Screen.BinderyAuthor,
 		is Screen.BinderyCollection,
 		is Screen.BinderyBook,
+		is Screen.BinderyFinding,
 		is Screen.BinderyCatalog -> if (binderyEnabled) BottomBarProfile.Audiobooks else rememberedProfile
 
 		else -> rememberedProfile
@@ -100,6 +101,7 @@ fun searchScopeForScreen(
 			is Screen.BinderyAuthor,
 			is Screen.BinderyCollection,
 			is Screen.BinderyBook,
+			is Screen.BinderyFinding,
 			is Screen.BinderyCatalog -> SearchScope.Audiobooks
 			is Screen.Search -> screen.scope
 			else -> SearchScope.Music

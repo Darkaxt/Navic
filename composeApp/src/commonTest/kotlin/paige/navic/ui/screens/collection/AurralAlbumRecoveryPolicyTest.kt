@@ -501,6 +501,54 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun displayTrackNumberLabelUsesPerDiscNumberWhenGroupedByDisc() {
+		val row = AurralAlbumDisplayRow(
+			track = null,
+			localSong = null,
+			ownershipStatus = AurralOwnershipStatus.Missing,
+			title = "Isn't It Lovely?",
+			artistName = null,
+			discNumber = 2,
+			trackNumber = 1,
+			durationMs = null,
+			previewUrl = null
+		)
+
+		assertEquals(
+			"1",
+			aurralAlbumDisplayTrackNumberLabel(
+				row = row,
+				index = 0,
+				isGroupedByDisc = true
+			)
+		)
+	}
+
+	@Test
+	fun displayTrackNumberLabelKeepsDiscPrefixWhenRowsAreFlattened() {
+		val row = AurralAlbumDisplayRow(
+			track = null,
+			localSong = null,
+			ownershipStatus = AurralOwnershipStatus.Missing,
+			title = "Isn't It Lovely?",
+			artistName = null,
+			discNumber = 2,
+			trackNumber = 1,
+			durationMs = null,
+			previewUrl = null
+		)
+
+		assertEquals(
+			"2.1",
+			aurralAlbumDisplayTrackNumberLabel(
+				row = row,
+				index = 0,
+				isGroupedByDisc = false
+			)
+		)
+	}
+
+	@Test
 	fun displayRowsKeepAurralTrackArtistForMissingRows() {
 		val rows = aurralAlbumDisplayRows(
 			album = album(

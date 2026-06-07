@@ -122,6 +122,7 @@ class BinderyRepository(
 				hasAuthors = catalog.hasNavigationPath("/opds/authors"),
 				hasSeries = catalog.hasNavigationPath("/opds/series"),
 				hasCollections = catalog.hasNavigationPath("/opds/collections"),
+				hasFindings = catalog.hasNavigationPath("/opds/findings"),
 				progressSyncSupported = false,
 				paginationSupported = catalog.links.any { link ->
 					link.rel.any { it.equals("next", ignoreCase = true) }
@@ -145,6 +146,11 @@ class BinderyRepository(
 	suspend fun getBookResources(bookId: String): Result<BinderyResourceCatalog> =
 		withConfiguredClient { baseUrl, headers ->
 			apiClient.fetchBookResources(baseUrl, headers, bookId)
+		}
+
+	suspend fun getBookFindings(bookId: String): Result<BinderyCatalog> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchBookFindings(baseUrl, headers, bookId)
 		}
 
 	suspend fun performAction(path: String): Result<Unit> =
@@ -202,6 +208,12 @@ interface BinderyApiClient {
 		requestHeaders: Map<String, String>,
 		bookId: String
 	): BinderyResourceCatalog
+
+	suspend fun fetchBookFindings(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyCatalog
 
 	suspend fun performAction(
 		baseUrl: String,
@@ -277,6 +289,16 @@ private class KtorBinderyApiClient : BinderyApiClient {
 		return response.body<BinderyResourceCatalogDto>().toResourceCatalog()
 	}
 
+	override suspend fun fetchBookFindings(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyCatalog {
+		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery book id is required.")
+		return fetchCatalog(baseUrl, requestHeaders, "books/${encodeUrlPathSegment(safeBookId)}/findings")
+	}
+
 	override suspend fun performAction(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -318,6 +340,7 @@ data class BinderyServiceStatus(
 	val hasAuthors: Boolean = false,
 	val hasSeries: Boolean = false,
 	val hasCollections: Boolean = false,
+	val hasFindings: Boolean = false,
 	val progressSyncSupported: Boolean = false,
 	val paginationSupported: Boolean = false
 )
@@ -332,7 +355,8 @@ data class BinderyCatalog(
 	val images: List<BinderyLink> = emptyList(),
 	val links: List<BinderyLink> = emptyList(),
 	val navigation: List<BinderyLink> = emptyList(),
-	val publications: List<BinderyPublication> = emptyList()
+	val publications: List<BinderyPublication> = emptyList(),
+	val finding: BinderyFindingMetadata? = null
 ) {
 	fun hasRel(rel: String): Boolean =
 		links.any { link -> link.rel.any { it.equals(rel, ignoreCase = true) } }
@@ -356,7 +380,60 @@ data class BinderyPublication(
 	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val links: List<BinderyLink> = emptyList(),
-	val images: List<BinderyLink> = emptyList()
+	val images: List<BinderyLink> = emptyList(),
+	val finding: BinderyFindingMetadata? = null
+)
+
+data class BinderyFindingMetadata(
+	val findingId: String? = null,
+	val provider: String? = null,
+	val providerKind: String? = null,
+	val mediaType: String? = null,
+	val format: String? = null,
+	val language: String? = null,
+	val author: String? = null,
+	val bookTitleHint: String? = null,
+	val edition: String? = null,
+	val narrator: String? = null,
+	val publisher: String? = null,
+	val protocol: String? = null,
+	val fileCount: Int? = null,
+	val sizeBytes: Long? = null,
+	val bitrateBps: Long? = null,
+	val sampleRateHz: Long? = null,
+	val availabilityStatus: String? = null,
+	val availabilityReason: String? = null,
+	val sourceUrl: String? = null,
+	val coverUrl: String? = null,
+	val publishedDate: String? = null,
+	val uploadDate: String? = null,
+	val providerComments: String? = null,
+	val files: List<BinderyFindingFile> = emptyList(),
+	val mappings: List<BinderyFindingMapping> = emptyList()
+)
+
+data class BinderyFindingFile(
+	val name: String? = null,
+	val href: String? = null,
+	val format: String? = null,
+	val language: String? = null,
+	val sizeBytes: Long? = null,
+	val durationSeconds: Double? = null,
+	val bitrateBps: Long? = null,
+	val sampleRateHz: Long? = null
+)
+
+data class BinderyFindingMapping(
+	val id: String? = null,
+	val bookId: String? = null,
+	val bookTitle: String? = null,
+	val authorName: String? = null,
+	val confidence: Double? = null,
+	val mediaType: String? = null,
+	val targetLanguage: String? = null,
+	val acquisitionStatus: String? = null,
+	val acquisitionScope: String? = null,
+	val selectedBytes: Long? = null
 )
 
 data class BinderyManifest(
@@ -492,7 +569,8 @@ private fun BinderyCatalogDto.toCatalog(): BinderyCatalog =
 		images = images.mapNotNull { it.toLink() },
 		links = links.mapNotNull { it.toLink() },
 		navigation = navigation.mapNotNull { it.toLink() },
-		publications = publications.map { it.toPublication() }
+		publications = publications.map { it.toPublication() },
+		finding = properties.toFindingMetadata()
 	)
 
 private fun BinderyPublicationDto.toPublication(): BinderyPublication =
@@ -507,7 +585,8 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication =
 		availability = properties.toAvailability(),
 		properties = properties.toStringProperties(),
 		links = links.mapNotNull { it.toLink() },
-		images = images.mapNotNull { it.toLink() }
+		images = images.mapNotNull { it.toLink() },
+		finding = properties.toFindingMetadata()
 	)
 
 private fun BinderyPublicationDto.toManifest(): BinderyManifest =
@@ -591,6 +670,94 @@ private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
 			?.let { key to it }
 	}.toMap()
 
+private fun Map<String, JsonElement>.toFindingMetadata(): BinderyFindingMetadata? {
+	val files = jsonArray("files").mapNotNull { (it as? JsonObject)?.toFindingFile() }
+	val mappings = jsonArray("mappings").mapNotNull { (it as? JsonObject)?.toFindingMapping() }
+	val finding = BinderyFindingMetadata(
+		findingId = stringValue("findingId") ?: stringValue("id"),
+		provider = stringValue("provider"),
+		providerKind = stringValue("providerKind"),
+		mediaType = stringValue("mediaType") ?: stringValue("kind"),
+		format = stringValue("format"),
+		language = stringValue("language"),
+		author = stringValue("author"),
+		bookTitleHint = stringValue("bookTitleHint") ?: stringValue("bookTitle"),
+		edition = stringValue("edition") ?: stringValue("version"),
+		narrator = stringValue("narrator"),
+		publisher = stringValue("publisher"),
+		protocol = stringValue("protocol"),
+		fileCount = intValue("fileCount"),
+		sizeBytes = longValue("sizeBytes") ?: longValue("size") ?: longValue("selectedBytes"),
+		bitrateBps = longValue("bitrateBps"),
+		sampleRateHz = longValue("sampleRateHz"),
+		availabilityStatus = stringValue("availabilityStatus"),
+		availabilityReason = stringValue("availabilityReason"),
+		sourceUrl = stringValue("sourceUrl") ?: stringValue("downloadUrl"),
+		coverUrl = stringValue("coverUrl") ?: stringValue("image") ?: stringValue("cover"),
+		publishedDate = stringValue("publishedDate"),
+		uploadDate = stringValue("uploadDate"),
+		providerComments = stringValue("providerComments") ?: stringValue("providerNotes"),
+		files = files,
+		mappings = mappings
+	)
+	return finding.takeIf(BinderyFindingMetadata::hasContent)
+}
+
+private fun JsonObject.toFindingFile(): BinderyFindingFile =
+	BinderyFindingFile(
+		name = stringValue("name") ?: stringValue("title") ?: stringValue("relativePath"),
+		href = stringValue("href") ?: stringValue("url"),
+		format = stringValue("format"),
+		language = stringValue("language"),
+		sizeBytes = longValue("sizeBytes") ?: longValue("size"),
+		durationSeconds = doubleValue("durationSeconds") ?: doubleValue("duration"),
+		bitrateBps = longValue("bitrateBps"),
+		sampleRateHz = longValue("sampleRateHz")
+	)
+
+private fun JsonObject.toFindingMapping(): BinderyFindingMapping =
+	BinderyFindingMapping(
+		id = stringValue("id"),
+		bookId = stringValue("bookId"),
+		bookTitle = stringValue("bookTitle") ?: stringValue("title"),
+		authorName = stringValue("authorName") ?: stringValue("author"),
+		confidence = doubleValue("confidence"),
+		mediaType = stringValue("mediaType"),
+		targetLanguage = stringValue("targetLanguage") ?: stringValue("language"),
+		acquisitionStatus = stringValue("acquisitionStatus"),
+		acquisitionScope = stringValue("acquisitionScope"),
+		selectedBytes = longValue("selectedBytes")
+	)
+
+private fun BinderyFindingMetadata.hasContent(): Boolean =
+	listOf(
+		findingId,
+		provider,
+		providerKind,
+		mediaType,
+		format,
+		language,
+		author,
+		bookTitleHint,
+		edition,
+		narrator,
+		publisher,
+		protocol,
+		availabilityStatus,
+		availabilityReason,
+		sourceUrl,
+		coverUrl,
+		publishedDate,
+		uploadDate,
+		providerComments
+	).any { !it.isNullOrBlank() } ||
+		fileCount != null ||
+		sizeBytes != null ||
+		bitrateBps != null ||
+		sampleRateHz != null ||
+		files.isNotEmpty() ||
+		mappings.isNotEmpty()
+
 private fun Map<String, JsonElement>.toAvailability(): BinderyAvailability? {
 	val value = this["availability"] as? JsonObject ?: return null
 	return BinderyAvailability(
@@ -606,6 +773,22 @@ private fun Map<String, JsonElement>.toAvailability(): BinderyAvailability? {
 	)
 }
 
+private fun Map<String, JsonElement>.jsonArray(key: String): JsonArray =
+	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value as? JsonArray
+		?: JsonArray(emptyList())
+
+private fun Map<String, JsonElement>.stringValue(key: String): String? =
+	(entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value as? JsonPrimitive)
+		?.contentOrNull
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+
+private fun Map<String, JsonElement>.intValue(key: String): Int? =
+	stringValue(key)?.toIntOrNull()
+
+private fun Map<String, JsonElement>.longValue(key: String): Long? =
+	stringValue(key)?.toLongOrNull()
+
 private fun JsonObject.stringValue(key: String): String? =
 	(get(key) as? JsonPrimitive)
 		?.contentOrNull
@@ -617,6 +800,12 @@ private fun JsonObject.booleanValue(key: String): Boolean? =
 
 private fun JsonObject.intValue(key: String): Int? =
 	stringValue(key)?.toIntOrNull()
+
+private fun JsonObject.longValue(key: String): Long? =
+	stringValue(key)?.toLongOrNull()
+
+private fun JsonObject.doubleValue(key: String): Double? =
+	stringValue(key)?.toDoubleOrNull()
 
 private fun JsonObject.stringList(key: String): List<String> =
 	when (val value = get(key)) {

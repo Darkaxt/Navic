@@ -82,6 +82,7 @@ class BinderySettingsDisplayPolicyTest {
 				BinderyStatusRow(BinderyStatusType.Audiobooks, BinderyStatusValue.Enabled),
 				BinderyStatusRow(BinderyStatusType.Authors, BinderyStatusValue.Enabled),
 				BinderyStatusRow(BinderyStatusType.Collections, BinderyStatusValue.Enabled),
+				BinderyStatusRow(BinderyStatusType.Findings, BinderyStatusValue.Enabled),
 				BinderyStatusRow(BinderyStatusType.Series, BinderyStatusValue.Enabled),
 				BinderyStatusRow(BinderyStatusType.Search, BinderyStatusValue.Enabled),
 				BinderyStatusRow(BinderyStatusType.Navigation, BinderyStatusValue.Count(4)),
@@ -98,6 +99,7 @@ class BinderySettingsDisplayPolicyTest {
 					hasAudiobooks = true,
 					hasAuthors = true,
 					hasCollections = true,
+					hasFindings = true,
 					hasSeries = true,
 					progressSyncSupported = false,
 					paginationSupported = false

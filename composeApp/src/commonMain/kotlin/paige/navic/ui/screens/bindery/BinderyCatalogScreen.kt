@@ -27,6 +27,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobook_findings
 import navic.composeapp.generated.resources.title_audiobooks
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -170,6 +171,10 @@ fun BinderyCatalogScreen(
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
 										},
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
+										},
 										onAction = viewModel::performAction
 									)
 								}
@@ -197,6 +202,10 @@ fun BinderyCatalogScreen(
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
 										},
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
+										},
 										onAction = viewModel::performAction
 									)
 								}
@@ -218,6 +227,10 @@ fun BinderyCatalogScreen(
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
+								},
+								onOpenFinding = { finding ->
+									platformContext.clickSound()
+									backStack.add(binderyDestinationForCard(finding))
 								},
 								onAction = viewModel::performAction
 							)
@@ -261,6 +274,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	onLoadNextPage: () -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
 	onAction: (BinderyLink) -> Unit
 ) {
 	items(cards, key = { it.id }) { card ->
@@ -339,6 +353,41 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					tab = "bindery"
 				)
 			}
+			is BinderyCatalogCard.Finding -> {
+				val visualPolicy = binderyCatalogCardVisualPolicy(card)
+				val action = card.primaryAction()
+				ArtGridItem(
+					modifier = Modifier
+						.animateItem()
+						.alpha(card.availabilityAlpha()),
+					onClick = { onOpenFinding(card) },
+					coverArtId = null,
+					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+					imageRequestHeaders = imageRequestHeaders,
+					title = card.title,
+					subtitle = card.subtitle,
+					ownershipStatus = card.availabilityStatus(),
+					coverAspectRatio = visualPolicy.coverAspectRatio,
+					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+					coverOverlay = if (action != null) {
+						{
+							BinderyCardActionButton(
+								action = action,
+								loading = action.link.href in actionInFlight,
+								onAction = onAction,
+								modifier = Modifier
+									.align(Alignment.BottomEnd)
+									.padding(8.dp)
+							)
+						}
+					} else {
+						null
+					},
+					fallbackKind = "Finding",
+					id = card.id,
+					tab = "bindery"
+				)
+			}
 		}
 	}
 	if (hasNextPage) {
@@ -365,6 +414,7 @@ private fun BinderyCatalogTab.titleResource(): StringResource =
 		BinderyCatalogTab.Books -> Res.string.title_audiobook_books
 		BinderyCatalogTab.Collections -> Res.string.title_audiobook_collections
 		BinderyCatalogTab.Authors -> Res.string.title_audiobook_authors
+		BinderyCatalogTab.Findings -> Res.string.title_audiobook_findings
 	}
 
 private fun binderyPlaceholderCoverAspectRatio(
@@ -374,7 +424,9 @@ private fun binderyPlaceholderCoverAspectRatio(
 	val normalizedPath = path.trim().trimEnd('/').substringBefore('?').lowercase()
 	return if (tab == BinderyCatalogTab.Audiobooks ||
 		tab == BinderyCatalogTab.Books ||
+		tab == BinderyCatalogTab.Findings ||
 		normalizedPath == "/opds/books" ||
+		normalizedPath == "/opds/findings" ||
 		normalizedPath == "/opds/formats/audiobook"
 	) {
 		2f / 3f

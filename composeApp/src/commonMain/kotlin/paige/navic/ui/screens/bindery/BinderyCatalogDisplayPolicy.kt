@@ -5,6 +5,7 @@ import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
 import paige.navic.domain.repositories.BinderyBookResource
+import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
@@ -29,7 +30,8 @@ enum class BinderyCatalogTab(
 	Audiobooks("/opds/formats/audiobook"),
 	Books("/opds/books"),
 	Collections("/opds/collections"),
-	Authors("/opds/authors")
+	Authors("/opds/authors"),
+	Findings("/opds/findings")
 }
 
 fun BinderyCatalogTab.initialCatalogPath(): String =
@@ -42,7 +44,8 @@ fun binderyInitialCatalogPath(path: String): String {
 	val trimmed = path.trim()
 	val normalizedPath = trimmed.substringBefore('?').trimEnd('/').lowercase()
 	return if ((normalizedPath == BinderyCatalogTab.Audiobooks.path.lowercase() ||
-			normalizedPath == BinderyCatalogTab.Books.path.lowercase()) &&
+			normalizedPath == BinderyCatalogTab.Books.path.lowercase() ||
+			normalizedPath == BinderyCatalogTab.Findings.path.lowercase()) &&
 		!trimmed.substringAfter('?', "").split('&').any { parameter ->
 			parameter.substringBefore('=').equals("limit", ignoreCase = true)
 		}
@@ -130,6 +133,7 @@ enum class BinderyHubRowKind {
 	Genres,
 	Authors,
 	Collections,
+	Findings,
 	Wanted
 }
 
@@ -145,6 +149,7 @@ data class BinderyHubRow(
 		get() = when (kind) {
 			BinderyHubRowKind.Authors -> BinderyCatalogTab.Authors
 			BinderyHubRowKind.Collections -> BinderyCatalogTab.Collections
+			BinderyHubRowKind.Findings -> BinderyCatalogTab.Findings
 			else -> null
 		}
 }
@@ -173,13 +178,28 @@ sealed interface BinderyCatalogCard {
 		val properties: Map<String, String> = emptyMap(),
 		val links: List<BinderyLink> = emptyList()
 	) : BinderyCatalogCard
+
+	data class Finding(
+		override val id: String,
+		override val title: String,
+		override val subtitle: String?,
+		val path: String,
+		val imageUrl: String? = null,
+		val availability: BinderyAvailability? = null,
+		val finding: BinderyFindingMetadata? = null,
+		val links: List<BinderyLink> = emptyList()
+	) : BinderyCatalogCard
 }
 
 fun binderyCatalogCards(
 	catalog: BinderyCatalog,
 	tab: BinderyCatalogTab?
 ): List<BinderyCatalogCard> =
-	if (tab == BinderyCatalogTab.Collections || tab == BinderyCatalogTab.Authors ||
+	if (tab == BinderyCatalogTab.Findings || catalog.isFindingsCatalog()) {
+		catalog.publications.map { publication ->
+			publication.toFindingCard()
+		}
+	} else if (tab == BinderyCatalogTab.Collections || tab == BinderyCatalogTab.Authors ||
 		(catalog.publications.isEmpty() && catalog.navigation.isNotEmpty())
 	) {
 		val catalogActionLinks = catalog.links.filter(BinderyLink::isBinderyActionLink)
@@ -211,8 +231,57 @@ fun binderyCatalogCards(
 				availability = publication.availability,
 				links = publication.links
 			)
+		}
+	}
+
+private fun BinderyCatalog.isFindingsCatalog(): Boolean =
+	publications.any { publication -> publication.finding != null } ||
+		title.equals("Findings", ignoreCase = true) ||
+		links.any { link -> link.href.contains("/opds/findings", ignoreCase = true) }
+
+private fun BinderyPublication.toFindingCard(): BinderyCatalogCard.Finding {
+	val metadata = finding
+	val path = links.firstOrNull { link ->
+		link.rel.any { rel -> rel.equals("self", ignoreCase = true) } &&
+			link.href.contains("/opds/findings", ignoreCase = true)
+	}?.href
+		?: links.firstOrNull { link -> link.href.contains("/opds/findings", ignoreCase = true) }?.href
+		?: metadata?.findingId?.let { findingId -> "/opds/findings/$findingId" }
+		?: id?.let(::binderyFindingRoutePath)
+		?: title
+	val findingId = metadata?.findingId
+		?: path.substringAfterLast('/').takeIf { it.isNotBlank() }
+		?: id
+		?: title
+	return BinderyCatalogCard.Finding(
+		id = findingId,
+		title = title,
+		subtitle = metadata?.displaySubtitle() ?: author,
+		path = path,
+		imageUrl = images.firstOrNull()?.href ?: metadata?.coverUrl,
+		availability = availability,
+		finding = metadata,
+		links = links
+	)
+}
+
+private fun binderyFindingRoutePath(id: String): String {
+	val trimmed = id.trim()
+	return when {
+		trimmed.startsWith("/opds/findings/") -> trimmed
+		trimmed.startsWith("urn:bindery:finding:") -> "/opds/findings/${trimmed.removePrefix("urn:bindery:finding:")}"
+		else -> trimmed
 	}
 }
+
+fun BinderyFindingMetadata.displaySubtitle(): String? =
+	listOfNotNull(
+		mediaType?.displayToken(),
+		language?.uppercase(),
+		format?.uppercase(),
+		availabilityStatus?.displayToken()
+	).joinToString(separator = " / ")
+		.takeIf { it.isNotBlank() }
 
 enum class BinderyOpdsActionType {
 	Monitor,
@@ -252,6 +321,15 @@ val BinderyCatalogCard.Link.unmonitorAction: BinderyLink?
 val BinderyCatalogCard.Link.downloadRequestAction: BinderyLink?
 	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
 
+val BinderyCatalogCard.Finding.monitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_MONITOR_REL)
+
+val BinderyCatalogCard.Finding.unmonitorAction: BinderyLink?
+	get() = links.actionLink(BINDERY_UNMONITOR_REL)
+
+val BinderyCatalogCard.Finding.downloadRequestAction: BinderyLink?
+	get() = links.actionLink(BINDERY_DOWNLOAD_REQUEST_REL)
+
 fun BinderyCatalog.primaryAction(): BinderyOpdsAction? =
 	unmonitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
 		?: monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
@@ -268,6 +346,10 @@ fun BinderyCatalogCard.primaryAction(): BinderyOpdsAction? =
 			?: monitorAction
 			?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 			?: downloadRequestAction?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+		is BinderyCatalogCard.Finding -> downloadRequestAction
+			?.let { BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, it) }
+			?: unmonitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Unmonitor, it) }
+			?: monitorAction?.let { BinderyOpdsAction(BinderyOpdsActionType.Monitor, it) }
 	}
 
 fun BinderyPublication.primaryAction(): BinderyOpdsAction? =
@@ -308,6 +390,7 @@ fun BinderyCatalogCard.availabilityStatus(): AurralOwnershipStatus? =
 	when (this) {
 		is BinderyCatalogCard.Book -> availability.toOwnershipStatus()
 		is BinderyCatalogCard.Link -> availability.toOwnershipStatus()
+		is BinderyCatalogCard.Finding -> availability.toOwnershipStatus()
 	}
 
 fun BinderyCatalogCard.availabilityAlpha(): Float =
@@ -341,6 +424,10 @@ fun binderyCatalogCardVisualPolicy(card: BinderyCatalogCard): BinderyCatalogCard
 			coverAspectRatio = 2f / 3f,
 			imageContentScaleFit = true
 		)
+		is BinderyCatalogCard.Finding -> BinderyCatalogCardVisualPolicy(
+			coverAspectRatio = 2f / 3f,
+			imageContentScaleFit = true
+		)
 		is BinderyCatalogCard.Link -> if (card.subtitle == "Collection") {
 			BinderyCatalogCardVisualPolicy(
 				coverAspectRatio = 2f / 3f,
@@ -368,6 +455,7 @@ fun binderyDestinationForCard(card: BinderyCatalogCard): Screen =
 	when (card) {
 		is BinderyCatalogCard.Book -> binderyDestinationForBook(card)
 		is BinderyCatalogCard.Link -> binderyDestinationForLink(card)
+		is BinderyCatalogCard.Finding -> Screen.BinderyFinding(card.path, card.title)
 	}
 
 internal fun binderyBookRouteId(id: String): String {
@@ -725,6 +813,7 @@ private val binderyHubRowKindOrder = listOf(
 	BinderyHubRowKind.MostPopular,
 	BinderyHubRowKind.Audiobooks,
 	BinderyHubRowKind.Genres,
+	BinderyHubRowKind.Findings,
 	BinderyHubRowKind.Authors,
 	BinderyHubRowKind.Collections,
 	BinderyHubRowKind.Wanted
@@ -748,6 +837,9 @@ private fun binderyHubRowKind(
 
 		normalizedPath.endsWith("/collections") ||
 			normalizedTitle == "collections" -> BinderyHubRowKind.Collections
+
+		normalizedPath.endsWith("/findings") ||
+			normalizedTitle == "findings" -> BinderyHubRowKind.Findings
 
 		normalizedPath.endsWith("/wanted") ||
 			normalizedTitle == "wanted" -> BinderyHubRowKind.Wanted

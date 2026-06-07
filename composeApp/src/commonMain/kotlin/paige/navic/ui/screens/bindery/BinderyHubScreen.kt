@@ -30,6 +30,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobook_findings
 import navic.composeapp.generated.resources.title_audiobook_genres
 import navic.composeapp.generated.resources.title_audiobook_last_read
 import navic.composeapp.generated.resources.title_audiobook_most_popular
@@ -193,6 +194,10 @@ fun BinderyHubScreen() {
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
+										},
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
 										}
 									)
 								}
@@ -216,6 +221,10 @@ fun BinderyHubScreen() {
 										onOpenCatalog = { link ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForLink(link))
+										},
+										onOpenFinding = { finding ->
+											platformContext.clickSound()
+											backStack.add(binderyDestinationForCard(finding))
 										}
 									)
 								}
@@ -234,6 +243,10 @@ fun BinderyHubScreen() {
 								onOpenCatalog = { link ->
 									platformContext.clickSound()
 									backStack.add(binderyDestinationForLink(link))
+								},
+								onOpenFinding = { finding ->
+									platformContext.clickSound()
+									backStack.add(binderyDestinationForCard(finding))
 								}
 							)
 						}
@@ -268,7 +281,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
-	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
 ) {
 	rows.forEach { row ->
 		val cards = row.cards
@@ -292,7 +306,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 				collectionArtworkByPath = collectionArtworkByPath,
 				onResolveCollectionArtwork = onResolveCollectionArtwork,
 				onOpenBook = onOpenBook,
-				onOpenCatalog = onOpenCatalog
+				onOpenCatalog = onOpenCatalog,
+				onOpenFinding = onOpenFinding
 			)
 		}
 	}
@@ -307,7 +322,8 @@ private fun BinderyHubCard(
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
-	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
 ) {
 	when (card) {
 		is BinderyCatalogCard.Book -> {
@@ -350,6 +366,24 @@ private fun BinderyHubCard(
 				tab = "bindery-hub"
 			)
 		}
+		is BinderyCatalogCard.Finding -> {
+			val visualPolicy = binderyCatalogCardVisualPolicy(card)
+			ArtGridItem(
+				modifier = modifier.alpha(card.availabilityAlpha()),
+				onClick = { onOpenFinding(card) },
+				coverArtId = null,
+				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
+				imageRequestHeaders = imageRequestHeaders,
+				title = card.title,
+				subtitle = card.subtitle,
+				ownershipStatus = card.availabilityStatus(),
+				coverAspectRatio = visualPolicy.coverAspectRatio,
+				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				fallbackKind = "Finding",
+				id = card.id,
+				tab = "bindery-hub"
+			)
+		}
 	}
 }
 
@@ -360,6 +394,7 @@ private fun BinderyHubRowKind.titleResource(): StringResource =
 		BinderyHubRowKind.MostPopular -> Res.string.title_audiobook_most_popular
 		BinderyHubRowKind.Audiobooks -> Res.string.title_audiobooks
 		BinderyHubRowKind.Genres -> Res.string.title_audiobook_genres
+		BinderyHubRowKind.Findings -> Res.string.title_audiobook_findings
 		BinderyHubRowKind.Authors -> Res.string.title_audiobook_authors
 		BinderyHubRowKind.Collections -> Res.string.title_audiobook_collections
 		BinderyHubRowKind.Wanted -> Res.string.title_audiobook_wanted
