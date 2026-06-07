@@ -198,9 +198,7 @@ fun binderyCatalogCards(
 	tab: BinderyCatalogTab?
 ): List<BinderyCatalogCard> =
 	if (tab == BinderyCatalogTab.Findings || catalog.isFindingsCatalog()) {
-		catalog.publications.map { publication ->
-			publication.toFindingCard()
-		}
+		catalog.publications.mapNotNull(BinderyPublication::toFindingCardOrNull)
 	} else if (tab == BinderyCatalogTab.Collections || tab == BinderyCatalogTab.Authors ||
 		(catalog.publications.isEmpty() && catalog.navigation.isNotEmpty())
 	) {
@@ -237,23 +235,23 @@ fun binderyCatalogCards(
 	}
 
 private fun BinderyCatalog.isFindingsCatalog(): Boolean =
-	publications.any { publication -> publication.finding != null } ||
-		title.equals("Findings", ignoreCase = true) ||
-		links.any { link -> link.href.contains("/opds/findings", ignoreCase = true) }
+	publications.any(BinderyPublication::hasFindingIdentity) ||
+		(publications.isEmpty() && (
+			title.equals("Findings", ignoreCase = true) ||
+				links.any { link -> link.href.contains("/opds/findings", ignoreCase = true) }
+			))
 
-private fun BinderyPublication.toFindingCard(): BinderyCatalogCard.Finding {
+private fun BinderyPublication.hasFindingIdentity(): Boolean =
+	findingRoutePath() != null
+
+private fun BinderyPublication.toFindingCardOrNull(): BinderyCatalogCard.Finding? {
 	val metadata = finding
-	val path = links.firstOrNull { link ->
-		link.rel.any { rel -> rel.equals("self", ignoreCase = true) } &&
-			link.href.contains("/opds/findings", ignoreCase = true)
-	}?.href
-		?: links.firstOrNull { link -> link.href.contains("/opds/findings", ignoreCase = true) }?.href
-		?: metadata?.findingId?.let { findingId -> "/opds/findings/$findingId" }
-		?: id?.let(::binderyFindingRoutePath)
-		?: title
+	val path = findingRoutePath() ?: return null
 	val findingId = metadata?.findingId
-		?: path.substringAfterLast('/').takeIf { it.isNotBlank() }
-		?: id
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: path.substringAfterLast('/').takeIf { it.isNotBlank() && it != path }
+		?: id?.removePrefix("urn:bindery:finding:")?.takeIf { it.isNotBlank() }
 		?: title
 	return BinderyCatalogCard.Finding(
 		id = findingId,
@@ -267,12 +265,24 @@ private fun BinderyPublication.toFindingCard(): BinderyCatalogCard.Finding {
 	)
 }
 
-private fun binderyFindingRoutePath(id: String): String {
+private fun BinderyPublication.findingRoutePath(): String? =
+	links.firstOrNull { link ->
+		link.rel.any { rel -> rel.equals("self", ignoreCase = true) } &&
+			link.href.contains("/opds/findings", ignoreCase = true)
+	}?.href
+		?: links.firstOrNull { link -> link.href.contains("/opds/findings", ignoreCase = true) }?.href
+		?: finding?.findingId
+			?.trim()
+			?.takeIf { findingId -> findingId.isNotEmpty() }
+			?.let { findingId -> "/opds/findings/$findingId" }
+		?: id?.let(::binderyFindingRoutePathOrNull)
+
+private fun binderyFindingRoutePathOrNull(id: String): String? {
 	val trimmed = id.trim()
 	return when {
 		trimmed.startsWith("/opds/findings/") -> trimmed
 		trimmed.startsWith("urn:bindery:finding:") -> "/opds/findings/${trimmed.removePrefix("urn:bindery:finding:")}"
-		else -> trimmed
+		else -> null
 	}
 }
 

@@ -220,6 +220,56 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun bookPublicationsAreNotPromotedToFindingRoutesByCatalogTitle() {
+		val cards = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Findings",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:3913",
+						title = "The Maps of Middle-Earth",
+						author = "J.R.R. Tolkien",
+						links = listOf(
+							BinderyLink(
+								href = "/opds/books/3913",
+								rel = listOf("self"),
+								type = "application/opds-publication+json"
+							)
+						)
+					)
+				)
+			),
+			tab = null
+		)
+
+		val card = cards.single() as BinderyCatalogCard.Book
+		assertEquals("urn:bindery:book:3913", card.id)
+		assertEquals(
+			Screen.BinderyBook("3913", "The Maps of Middle-Earth"),
+			binderyDestinationForCard(card)
+		)
+	}
+
+	@Test
+	fun malformedFindingRowsWithoutFindingIdentityAreIgnored() {
+		val cards = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Findings",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:3913",
+						title = "The Maps of Middle-Earth",
+						author = "J.R.R. Tolkien"
+					)
+				)
+			),
+			BinderyCatalogTab.Findings
+		)
+
+		assertTrue(cards.isEmpty())
+	}
+
+	@Test
 	fun bookFindingRowsSplitAudiobooksAndEbooksAndSortByContentQuality() {
 		val catalog = BinderyCatalog(
 			title = "Findings",

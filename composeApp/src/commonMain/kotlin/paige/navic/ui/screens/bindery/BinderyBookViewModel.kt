@@ -44,25 +44,15 @@ class BinderyBookViewModel(
 					val findings = repository.getBookFindings(bookId).getOrElse {
 						BinderyCatalog(title = "Findings")
 					}
-					repository.getBookResources(bookId).fold(
-						onSuccess = { resources ->
-							_bookState.value = UiState.Success(
-								BinderyBookData(
-									manifest = manifest,
-									resources = resources,
-									findings = findings
-								)
-							)
-						},
-						onFailure = { error ->
-							_bookState.value = UiState.Error(
-								error = error as? Exception ?: Exception(error),
-								data = BinderyBookData(
-									manifest = manifest,
-									findings = findings
-								)
-							)
-						}
+					val resources = repository.getBookResources(bookId).getOrElse {
+						BinderyResourceCatalog(title = "Resources")
+					}
+					_bookState.value = UiState.Success(
+						BinderyBookData(
+							manifest = manifest,
+							resources = resources,
+							findings = findings
+						)
 					)
 				},
 				onFailure = { error ->

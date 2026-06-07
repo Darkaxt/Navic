@@ -498,6 +498,72 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun bookFindingsUseFreshMetadataCacheWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			bookFindings = BinderyCatalog(title = "Live Findings")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			put(
+				BinderyMetadataCacheRecord(
+					cacheKey = binderyMetadataCacheKey(
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.BookFindings,
+						path = "3913"
+					),
+					baseUrl = "https://bindery.example.com/opds",
+					payloadType = BinderyMetadataPayloadType.BookFindings,
+					path = "3913",
+					payloadJson = """{"title":"Cached Findings"}""",
+					updatedAtMillis = 4_000L
+				)
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 4_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS - 1L }
+		)
+
+		val catalog = repository.getBookFindings("3913").getOrThrow()
+
+		assertEquals("Cached Findings", catalog.title)
+		assertEquals(emptyList(), apiClient.bookFindingIds)
+	}
+
+	@Test
+	fun bookFindingsFallBackToStaleMetadataCacheWhenLiveFetchFails() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			bookFindingsFailure = IllegalStateException("Bindery unavailable")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			put(
+				BinderyMetadataCacheRecord(
+					cacheKey = binderyMetadataCacheKey(
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.BookFindings,
+						path = "3913"
+					),
+					baseUrl = "https://bindery.example.com/opds",
+					payloadType = BinderyMetadataPayloadType.BookFindings,
+					path = "3913",
+					payloadJson = """{"title":"Stale Findings"}""",
+					updatedAtMillis = 4_000L
+				)
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 4_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS + 1L }
+		)
+
+		val catalog = repository.getBookFindings("3913").getOrThrow()
+
+		assertEquals("Stale Findings", catalog.title)
+		assertEquals(listOf("3913"), apiClient.bookFindingIds)
+	}
+
+	@Test
 	fun manifestJsonPreservesBookLinksPropertiesDurationAndReadingOrder() {
 		val manifest = decodeBinderyManifestJson(
 			"""
@@ -636,7 +702,8 @@ class BinderyRepositoryTest {
 		private val catalog: BinderyCatalog = rootCatalog,
 		private val bookFindings: BinderyCatalog = BinderyCatalog(title = "Findings"),
 		private val rootFailure: Throwable? = null,
-		private val catalogFailure: Throwable? = null
+		private val catalogFailure: Throwable? = null,
+		private val bookFindingsFailure: Throwable? = null
 	) : BinderyApiClient {
 		var rootCalls = 0
 		val rootBaseUrls = mutableListOf<String>()
@@ -697,6 +764,7 @@ class BinderyRepositoryTest {
 			bookFindingBaseUrls += baseUrl
 			bookFindingHeaders += requestHeaders
 			bookFindingIds += bookId
+			bookFindingsFailure?.let { throw it }
 			return bookFindings
 		}
 
