@@ -422,7 +422,7 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun recentlyAddedHubRowsHideRequestOnlyBooks() {
+	fun recentlyAddedHubRowsHideBooksWithoutExplicitAvailability() {
 		val row = BinderyHubCatalogRow(
 			row = BinderyHubRow(
 				kind = BinderyHubRowKind.RecentlyAdded,
@@ -444,14 +444,23 @@ class BinderyCatalogDisplayPolicyTest {
 						)
 					),
 					BinderyPublication(
-						id = "urn:bindery:book:owned",
-						title = "Owned ebook",
+						id = "urn:bindery:book:loose-acquisition",
+						title = "Loose acquisition metadata",
 						links = listOf(
 							BinderyLink(
-								href = "/opds/books/owned/resources/ebook",
+								href = "/opds/books/loose-acquisition/resources/ebook",
 								rel = listOf("http://opds-spec.org/acquisition"),
 								type = "application/epub+zip"
 							)
+						)
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:owned",
+						title = "Explicitly owned ebook",
+						availability = paige.navic.domain.repositories.BinderyAvailability(
+							owned = true,
+							complete = true,
+							missingBooks = 0
 						)
 					)
 				)
@@ -459,7 +468,7 @@ class BinderyCatalogDisplayPolicyTest {
 		)
 
 		assertEquals(
-			listOf("Owned ebook"),
+			listOf("Explicitly owned ebook"),
 			row.cards.map { it.title }
 		)
 	}
@@ -733,7 +742,7 @@ class BinderyCatalogDisplayPolicyTest {
 			).availabilityStatus()
 		)
 		assertEquals(
-			AurralOwnershipStatus.Owned,
+			AurralOwnershipStatus.Missing,
 			BinderyCatalogCard.Book(
 				id = "book-2",
 				title = "Concrete ebook",

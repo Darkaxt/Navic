@@ -421,12 +421,7 @@ private fun List<BinderyLink>.actionLink(rel: String): BinderyLink? =
 
 fun BinderyCatalogCard.availabilityStatus(): AurralOwnershipStatus? =
 	when (this) {
-		is BinderyCatalogCard.Book -> availability.toOwnershipStatus()
-			?: if (links.hasConcreteAcquisition()) {
-				AurralOwnershipStatus.Owned
-			} else {
-				AurralOwnershipStatus.Missing
-			}
+		is BinderyCatalogCard.Book -> availability.toOwnershipStatus() ?: AurralOwnershipStatus.Missing
 		is BinderyCatalogCard.Link -> availability.toOwnershipStatus()
 		is BinderyCatalogCard.Finding -> availability.toOwnershipStatus()
 			?: if (isAvailableFindingCandidate()) {

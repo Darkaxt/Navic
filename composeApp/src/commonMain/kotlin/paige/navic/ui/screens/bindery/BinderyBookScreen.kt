@@ -178,11 +178,13 @@ fun BinderyBookScreen(
 							BinderyBookLoadingPlaceholder(titleText)
 						}
 						else -> {
+							val findingGroups = binderyBookFindingRows(data.findings, languageFilter)
 							item("bindery-book-hero") {
 								BinderyBookHero(
 									manifest = data.manifest,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
+									showDownloadAction = !findingGroups.isEmpty,
 									actionInFlight = actionInFlight,
 									onAction = viewModel::performAction
 								)
@@ -200,7 +202,6 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							val findingGroups = binderyBookFindingRows(data.findings, languageFilter)
 							if (findingGroups.isEmpty) {
 								item("bindery-book-no-findings") {
 									ContentUnavailable(
@@ -308,6 +309,7 @@ private fun BinderyBookHero(
 	manifest: BinderyManifest,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	showDownloadAction: Boolean,
 	actionInFlight: Set<String>,
 	onAction: (BinderyLink) -> Unit
 ) {
@@ -316,6 +318,9 @@ private fun BinderyBookHero(
 	val metadataText = manifest.metadataText()
 	val description = manifest.description?.trim()?.takeIf { it.isNotEmpty() }
 	val action = manifest.primaryAction()
+		?.takeIf { opdsAction ->
+			opdsAction.type != BinderyOpdsActionType.DownloadRequest || showDownloadAction
+		}
 	var descriptionHasOverflow by rememberSaveable(manifest.id, manifest.title, description) {
 		mutableStateOf(false)
 	}
