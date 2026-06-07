@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -104,6 +105,7 @@ class AurralRepository(
 	private val preferenceManager: PreferenceManager,
 	private val apiClient: AurralApiClient = KtorAurralApiClient(),
 	private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+	private val metadataCache: AurralMetadataCache = NoOpAurralMetadataCache,
 	private val confirmationWorkerEnabled: Boolean = false
 ) {
 	private val optimisticAlbumRequestsByMbid = mutableMapOf<String, AurralAlbumRequest>()
@@ -189,7 +191,14 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			val discovery = apiClient.fetchDiscovery(baseUrl, requestHeaders)
+			val discovery = cachedAurralPayload<AurralDiscoverySummary>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "summary",
+				operation = "Aurral discovery"
+			) {
+				apiClient.fetchDiscovery(baseUrl, requestHeaders)
+			}
 				.withLibraryArtists(
 					libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
 				)
@@ -200,7 +209,7 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral discovery failed", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
@@ -226,10 +235,17 @@ class AurralRepository(
 		)
 
 		return runCatching {
-			apiClient.searchArtists(baseUrl, requestHeaders, request)
+			cachedAurralPayload<AurralArtistSearchResult>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistSearch,
+				path = aurralSearchCachePath(request.query, request.limit, request.offset),
+				operation = "Aurral artist search for $trimmedQuery"
+			) {
+				apiClient.searchArtists(baseUrl, requestHeaders, request)
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist search failed for $trimmedQuery", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	suspend fun searchAlbums(
@@ -252,10 +268,17 @@ class AurralRepository(
 		)
 
 		return runCatching {
-			apiClient.searchAlbums(baseUrl, requestHeaders, request)
+			cachedAurralPayload<AurralAlbumSearchResult>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.AlbumSearch,
+				path = aurralSearchCachePath(request.query, request.limit, request.offset),
+				operation = "Aurral album search for $trimmedQuery"
+			) {
+				apiClient.searchAlbums(baseUrl, requestHeaders, request)
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album search failed for $trimmedQuery", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	suspend fun getAlbumTracks(
@@ -271,15 +294,23 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			apiClient.fetchAlbumTracks(
+			val libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
+			cachedAurralPayload<List<AurralAlbumTrackItem>>(
 				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				releaseGroupMbid = releaseGroupMbid,
-				libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
-			)
+				payloadType = AurralMetadataPayloadType.AlbumTracks,
+				path = aurralAlbumTracksCachePath(releaseGroupMbid, libraryAlbumId),
+				operation = "Aurral album tracks for ${album.title}"
+			) {
+				apiClient.fetchAlbumTracks(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					releaseGroupMbid = releaseGroupMbid,
+					libraryAlbumId = libraryAlbumId
+				)
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album track lookup failed for ${album.title}", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	suspend fun getArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
@@ -302,12 +333,22 @@ class AurralRepository(
 			) ?: return@runCatching null
 			coroutineScope {
 				val enrichment = async {
-					apiClient.fetchArtistEnrichment(
+					cachedAurralPayload<AurralArtistEnrichment>(
 						baseUrl = baseUrl,
-						requestHeaders = requestHeaders,
-						artistMbid = resolvedArtist.artistMbid,
-						artistName = resolvedArtist.artistName
-					)
+						payloadType = AurralMetadataPayloadType.ArtistEnrichment,
+						path = aurralArtistEnrichmentCachePath(
+							artistMbid = resolvedArtist.artistMbid,
+							artistName = resolvedArtist.artistName
+						),
+						operation = "Aurral artist enrichment for ${resolvedArtist.artistName}"
+					) {
+						apiClient.fetchArtistEnrichment(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = resolvedArtist.artistMbid,
+							artistName = resolvedArtist.artistName
+						)
+					}
 				}
 				val libraryArtistMonitoring = async {
 					getCachedLibraryArtistMonitoring(
@@ -339,7 +380,7 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist enrichment failed for $artistName", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	private suspend fun resolveArtistForEnrichment(
@@ -349,16 +390,24 @@ class AurralRepository(
 		artistName: String
 	): ResolvedAurralArtist? {
 		artistMbid?.let { return ResolvedAurralArtist(artistMbid = it, artistName = artistName) }
+		val request = AurralArtistSearchRequest(
+			query = artistName,
+			limit = 5,
+			offset = 0
+		)
 		val search = runCatching {
-			apiClient.searchArtists(
+			cachedAurralPayload<AurralArtistSearchResult>(
 				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				request = AurralArtistSearchRequest(
-					query = artistName,
-					limit = 5,
-					offset = 0
+				payloadType = AurralMetadataPayloadType.ArtistSearch,
+				path = aurralSearchCachePath(request.query, request.limit, request.offset),
+				operation = "Aurral artist lookup for $artistName"
+			) {
+				apiClient.searchArtists(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					request = request
 				)
-			)
+			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist name lookup failed for $artistName", error)
 		}.getOrNull() ?: return null
@@ -399,6 +448,7 @@ class AurralRepository(
 					bumpArtistStateRevision()
 				}
 			}
+			clearAurralMetadataCache(baseUrl)
 			Unit
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral acquisition cancel failed for ${item.albumName}", error)
@@ -437,6 +487,7 @@ class AurralRepository(
 				payload = payload
 			)
 			rememberOptimisticAlbumRequest(payload)
+			clearAurralMetadataCache(baseUrl)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral acquisition retry failed for $albumName", error)
 		}.recordAurralAvailability()
@@ -475,6 +526,7 @@ class AurralRepository(
 				payload = payload
 			)
 			rememberOptimisticAlbumRequest(payload)
+			clearAurralMetadataCache(baseUrl)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album request failed for $albumName", error)
 		}.recordAurralAvailability()
@@ -512,6 +564,7 @@ class AurralRepository(
 				payload = payload
 			)
 			rememberOptimisticAlbumRequest(payload)
+			clearAurralMetadataCache(baseUrl)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral album request failed for $albumName", error)
 		}.recordAurralAvailability()
@@ -598,6 +651,7 @@ class AurralRepository(
 					payload = payload
 				)
 			}
+			clearAurralMetadataCache(baseUrl)
 		}.onFailure { error ->
 			upsertConfirmationQueueItem(
 				AurralConfirmationQueueItem(
@@ -789,20 +843,33 @@ class AurralRepository(
 		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
 
 		return runCatching {
-			apiClient.fetchReleaseGroupCoverImageUrl(
+			cachedAurralPayload<AurralCachedString>(
 				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				releaseGroupMbid = releaseGroupMbid,
-				artistName = artistName.trim(),
-				albumTitle = albumTitle
-			).also { coverUrl ->
+				payloadType = AurralMetadataPayloadType.ReleaseGroupCover,
+				path = aurralReleaseGroupCoverCachePath(
+					releaseGroupMbid = releaseGroupMbid,
+					artistName = artistName,
+					albumTitle = albumTitle
+				),
+				operation = "Aurral release group cover for $albumTitle"
+			) {
+				AurralCachedString(
+					value = apiClient.fetchReleaseGroupCoverImageUrl(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						releaseGroupMbid = releaseGroupMbid,
+						artistName = artistName.trim(),
+						albumTitle = albumTitle
+					)
+				)
+			}.value.also { coverUrl ->
 				if (!coverUrl.isNullOrBlank()) {
 					rememberReleaseGroupCoverUrl(releaseGroupMbid, coverUrl)
 				}
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral release group cover failed for $albumTitle", error)
-		}.recordAurralAvailability()
+		}
 	}
 
 	private fun AurralConnectionResult.recordAurralAvailability(): AurralConnectionResult {
@@ -824,6 +891,74 @@ class AurralRepository(
 		}.onFailure {
 			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
 		}
+
+	private suspend inline fun <reified T> cachedAurralPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String,
+		operation: String,
+		crossinline fetch: suspend () -> T
+	): T {
+		val cacheKey = aurralMetadataCacheKey(baseUrl, payloadType, path)
+		val currentTime = nowMillis()
+		val cached = runCatching { metadataCache.get(cacheKey) }
+			.onFailure { error -> Logger.w(TAG, "Aurral metadata cache read failed for $operation", error) }
+			.getOrNull()
+		cached
+			?.takeIf { it.isFreshAurralMetadata(currentTime) }
+			?.decodeAurralMetadata<T>(operation)
+			?.let { return it }
+
+		return try {
+			fetch().also { payload ->
+				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Aurral)
+				runCatching {
+					metadataCache.put(
+						AurralMetadataCacheRecord(
+							cacheKey = cacheKey,
+							baseUrl = baseUrl,
+							payloadType = payloadType,
+							path = path,
+							payloadJson = AURRAL_JSON.encodeToString(payload),
+							updatedAtMillis = currentTime
+						)
+					)
+				}.onFailure { error ->
+					Logger.w(TAG, "Aurral metadata cache write failed for $operation", error)
+				}
+			}
+		} catch (error: Exception) {
+			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
+			cached
+				?.decodeAurralMetadata<T>(operation)
+				?.let { payload ->
+					Logger.w(TAG, "$operation failed; using stale Aurral metadata cache", error)
+					return payload
+				}
+			throw error
+		}
+	}
+
+	private suspend fun clearAurralMetadataCache(baseUrl: String) {
+		runCatching {
+			metadataCache.clearBaseUrl(baseUrl)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral metadata cache clear failed", error)
+		}
+	}
+
+	private fun AurralMetadataCacheRecord.isFreshAurralMetadata(currentTime: Long): Boolean =
+		currentTime >= updatedAtMillis &&
+			currentTime - updatedAtMillis < AURRAL_METADATA_CACHE_FRESH_MILLIS
+
+	private inline fun <reified T> AurralMetadataCacheRecord.decodeAurralMetadata(
+		operation: String
+	): T? =
+		runCatching {
+			AURRAL_JSON.decodeFromString<T>(payloadJson)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral metadata cache decode failed for $operation", error)
+		}.getOrNull()
 
 	private fun rememberOptimisticAlbumRequest(payload: AurralAlbumRequestPayload) {
 		val albumKey = payload.albumMbid.normalizedAurralCacheKey() ?: return
@@ -1049,7 +1184,14 @@ class AurralRepository(
 
 		val cachedFallback = libraryArtistsCache?.takeIf { it.key == cacheKey }
 		return runCatching {
-			apiClient.fetchLibraryArtists(baseUrl, requestHeaders)
+			cachedAurralPayload<List<AurralDiscoverArtist>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.LibraryArtists,
+				path = cacheKey,
+				operation = "Aurral library artists"
+			) {
+				apiClient.fetchLibraryArtists(baseUrl, requestHeaders)
+			}
 		}.onSuccess { artists ->
 			libraryArtistsCache = AurralLibraryArtistsCacheEntry(
 				key = cacheKey,
@@ -1152,15 +1294,23 @@ class AurralRepository(
 			return discoverArtistImageUrlsByName[nameKey]
 		}
 		val imageUrl = runCatching {
-			apiClient.searchArtists(
+			val request = AurralArtistSearchRequest(
+				query = artistName.trim(),
+				limit = AURRAL_DISCOVERY_IMAGE_SEARCH_LIMIT,
+				offset = 0
+			)
+			cachedAurralPayload<AurralArtistSearchResult>(
 				baseUrl = baseUrl,
-				requestHeaders = requestHeaders,
-				request = AurralArtistSearchRequest(
-					query = artistName.trim(),
-					limit = AURRAL_DISCOVERY_IMAGE_SEARCH_LIMIT,
-					offset = 0
+				payloadType = AurralMetadataPayloadType.ArtistSearch,
+				path = aurralSearchCachePath(request.query, request.limit, request.offset),
+				operation = "Aurral discovery image lookup for $artistName"
+			) {
+				apiClient.searchArtists(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					request = request
 				)
-			).artists
+			}.artists
 				.firstOrNull { candidate ->
 					candidate.name.normalizedAurralImageLookupName() == nameKey &&
 						!candidate.imageUrl.isNullOrBlank()
@@ -1262,6 +1412,11 @@ private data class ResolvedAurralArtist(
 	val artistName: String
 )
 
+@Serializable
+private data class AurralCachedString(
+	val value: String? = null
+)
+
 private fun aurralLibraryArtistsCacheKey(
 	baseUrl: String,
 	requestHeaders: Map<String, String>
@@ -1275,6 +1430,46 @@ private fun aurralLibraryArtistsCacheKey(
 			append(value.hashCode())
 		}
 	}
+
+private fun aurralSearchCachePath(
+	query: String,
+	limit: Int,
+	offset: Int
+): String =
+	listOf(
+		"query=${query.normalizedAurralSearchName().orEmpty()}",
+		"limit=${limit.coerceAtLeast(1)}",
+		"offset=${offset.coerceAtLeast(0)}"
+	).joinToString("|")
+
+private fun aurralAlbumTracksCachePath(
+	releaseGroupMbid: String,
+	libraryAlbumId: String?
+): String =
+	listOf(
+		"releaseGroup=${releaseGroupMbid.normalizedAurralCacheKey().orEmpty()}",
+		"libraryAlbum=${libraryAlbumId.normalizedAurralCacheKey().orEmpty()}"
+	).joinToString("|")
+
+private fun aurralArtistEnrichmentCachePath(
+	artistMbid: String,
+	artistName: String
+): String =
+	listOf(
+		"artist=${artistMbid.normalizedAurralCacheKey().orEmpty()}",
+		"name=${artistName.normalizedAurralSearchName().orEmpty()}"
+	).joinToString("|")
+
+private fun aurralReleaseGroupCoverCachePath(
+	releaseGroupMbid: String,
+	artistName: String,
+	albumTitle: String
+): String =
+	listOf(
+		"releaseGroup=${releaseGroupMbid.normalizedAurralCacheKey().orEmpty()}",
+		"artist=${artistName.normalizedAurralSearchName().orEmpty()}",
+		"album=${albumTitle.normalizedAurralSearchName().orEmpty()}"
+	).joinToString("|")
 
 private fun aurralArtistMonitoringConfirmationId(artistMbid: String): String =
 	"artist-monitor:${artistMbid.normalizedAurralCacheKey() ?: artistMbid.trim()}"
@@ -2146,6 +2341,7 @@ sealed class AurralAcquisitionDeleteTarget {
 	data class Artist(val artistMbid: String) : AurralAcquisitionDeleteTarget()
 }
 
+@Serializable
 data class AurralDiscoverySummary(
 	val recentlyAdded: List<AurralDiscoverArtist> = emptyList(),
 	val recommendations: List<AurralDiscoverArtist> = emptyList(),
@@ -2162,6 +2358,7 @@ data class AurralDiscoverySummary(
 	val discoveryMode: String? = null
 )
 
+@Serializable
 data class AurralDiscoverArtist(
 	val id: String,
 	val name: String,
@@ -2176,17 +2373,20 @@ data class AurralDiscoverArtist(
 	val detailsIdVerified: Boolean = false
 )
 
+@Serializable
 data class AurralFallbackGenreSection(
 	val genre: String,
 	val artists: List<AurralDiscoverArtist>
 )
 
+@Serializable
 data class AurralArtistSearchRequest(
 	val query: String,
 	val limit: Int = 12,
 	val offset: Int = 0
 )
 
+@Serializable
 data class AurralArtistSearchResult(
 	val query: String = "",
 	val count: Int = 0,
@@ -2194,12 +2394,14 @@ data class AurralArtistSearchResult(
 	val artists: List<AurralDiscoverArtist> = emptyList()
 )
 
+@Serializable
 data class AurralAlbumSearchRequest(
 	val query: String,
 	val limit: Int = 12,
 	val offset: Int = 0
 )
 
+@Serializable
 data class AurralAlbumSearchResult(
 	val query: String = "",
 	val count: Int = 0,
@@ -2208,6 +2410,7 @@ data class AurralAlbumSearchResult(
 	val albums: List<AurralAlbumSearchItem> = emptyList()
 )
 
+@Serializable
 data class AurralAlbumSearchItem(
 	val id: String,
 	val title: String,
@@ -2223,6 +2426,7 @@ data class AurralAlbumSearchItem(
 	val status: String? = null
 )
 
+@Serializable
 data class AurralAlbumTrackItem(
 	val id: String,
 	val title: String,

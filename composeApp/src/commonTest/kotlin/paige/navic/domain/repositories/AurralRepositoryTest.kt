@@ -863,6 +863,169 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryDiscoveryPersistsCatalogMetadataAcrossRepositoryInstances(): Unit = runBlocking {
+		var nowMillis = 1_000L
+		val metadataCache = RecordingAurralMetadataCache()
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val firstApiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond", monitored = true))
+		)
+		val firstRepository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = firstApiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		assertEquals(true, firstRepository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+
+		nowMillis += 1_000L
+		val secondApiClient = FakeAurralApiClient(
+			discoveryFailure = IllegalStateException("Aurral offline"),
+			libraryArtistsFailure = IllegalStateException("Aurral offline")
+		)
+		val secondRepository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = secondApiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		val cachedDiscovery = secondRepository.getLibraryDiscovery().getOrThrow()
+
+		assertEquals(true, cachedDiscovery.recommendations.single().monitored)
+		assertEquals(emptyList(), secondApiClient.discoveryBaseUrls)
+		assertEquals(emptyList(), secondApiClient.libraryArtistsBaseUrls)
+	}
+
+	@Test
+	fun repositoryDiscoveryFallsBackToStaleCatalogMetadataWhenAurralIsDown(): Unit = runBlocking {
+		var nowMillis = 1_000L
+		val metadataCache = RecordingAurralMetadataCache()
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = FakeAurralApiClient(
+				discovery = AurralDiscoverySummary(
+					recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+				)
+			),
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		).getLibraryDiscovery().getOrThrow()
+
+		nowMillis += AURRAL_METADATA_CACHE_FRESH_MILLIS + 1
+		val offlineApiClient = FakeAurralApiClient(
+			discoveryFailure = IllegalStateException("Aurral offline")
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = offlineApiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		val cachedDiscovery = repository.getLibraryDiscovery().getOrThrow()
+
+		assertEquals("Bond", cachedDiscovery.recommendations.single().name)
+		assertEquals(listOf("https://aurral.example.com"), offlineApiClient.discoveryBaseUrls)
+	}
+
+	@Test
+	fun repositoryArtistSearchPersistsMetadataAcrossRepositoryInstances(): Unit = runBlocking {
+		var nowMillis = 1_000L
+		val metadataCache = RecordingAurralMetadataCache()
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = FakeAurralApiClient(
+				artistSearch = AurralArtistSearchResult(
+					query = "Alex",
+					count = 1,
+					artists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Alex Warren"))
+				)
+			),
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		).searchArtists("Alex").getOrThrow()
+
+		nowMillis += 1_000L
+		val offlineApiClient = FakeAurralApiClient(
+			artistSearchFailure = IllegalStateException("Aurral offline")
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = offlineApiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		val cachedSearch = repository.searchArtists("Alex").getOrThrow()
+
+		assertEquals("Alex Warren", cachedSearch.artists.single().name)
+		assertEquals(emptyList(), offlineApiClient.artistSearchRequests)
+	}
+
+	@Test
+	fun repositoryAlbumTracksPersistMetadataAcrossRepositoryInstances(): Unit = runBlocking {
+		var nowMillis = 1_000L
+		val metadataCache = RecordingAurralMetadataCache()
+		val album = AurralAlbumSearchItem(
+			id = "release-group-mbid",
+			title = "Ori",
+			artistName = "Gareth Coker",
+			artistMbid = "artist-mbid",
+			libraryAlbumId = "album-1"
+		)
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = FakeAurralApiClient(
+				albumTracks = listOf(
+					AurralAlbumTrackItem(
+						id = "track-1",
+						title = "Ori, Lost In the Storm",
+						trackNumber = 1
+					)
+				)
+			),
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		).getAlbumTracks(album).getOrThrow()
+
+		nowMillis += 1_000L
+		val offlineApiClient = FakeAurralApiClient(
+			albumTracksFailure = IllegalStateException("Aurral offline")
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = offlineApiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		val cachedTracks = repository.getAlbumTracks(album).getOrThrow()
+
+		assertEquals("Ori, Lost In the Storm", cachedTracks.single().title)
+		assertEquals(emptyList(), offlineApiClient.albumTracksRequests)
+	}
+
+	@Test
 	fun repositoryArtistEnrichmentUsesCachedLibraryMonitoringWithoutPerArtistLookup(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -1668,9 +1831,15 @@ class AurralRepositoryTest {
 		private val connectionResult: AurralConnectionResult = AurralConnectionResult.Connected,
 		private val serviceStatus: AurralServiceStatus = AurralServiceStatus(),
 		private val discovery: AurralDiscoverySummary = AurralDiscoverySummary(),
+		private val discoveryFailure: Exception? = null,
 		private val libraryArtists: List<AurralDiscoverArtist> = discovery.libraryArtists,
+		private val libraryArtistsFailure: Exception? = null,
 		private val artistSearch: AurralArtistSearchResult = AurralArtistSearchResult(),
+		private val artistSearchFailure: Exception? = null,
 		private val albumSearch: AurralAlbumSearchResult = AurralAlbumSearchResult(),
+		private val albumSearchFailure: Exception? = null,
+		private val albumTracks: List<AurralAlbumTrackItem> = emptyList(),
+		private val albumTracksFailure: Exception? = null,
 		private val artistEnrichment: AurralArtistEnrichment = AurralArtistEnrichment(
 			artistMbid = "artist-mbid",
 			artistName = "Artist"
@@ -1722,6 +1891,7 @@ class AurralRepositoryTest {
 		val cancelAcquisitionTargets = mutableListOf<AurralAcquisitionDeleteTarget>()
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
 		val artistEnrichmentRequests = mutableListOf<Pair<String, String>>()
+		val albumTracksRequests = mutableListOf<Pair<String, String?>>()
 
 		override suspend fun testConnection(
 			baseUrl: String,
@@ -1747,6 +1917,7 @@ class AurralRepositoryTest {
 		): AurralDiscoverySummary {
 			discoveryBaseUrls += baseUrl
 			discoveryRequestHeaders += requestHeaders
+			discoveryFailure?.let { throw it }
 			return discovery
 		}
 
@@ -1756,6 +1927,7 @@ class AurralRepositoryTest {
 		): List<AurralDiscoverArtist> {
 			libraryArtistsBaseUrls += baseUrl
 			libraryArtistsRequestHeaders += requestHeaders
+			libraryArtistsFailure?.let { throw it }
 			return libraryArtists
 		}
 
@@ -1767,6 +1939,7 @@ class AurralRepositoryTest {
 			artistSearchBaseUrls += baseUrl
 			artistSearchRequestHeaders += requestHeaders
 			artistSearchRequests += request
+			artistSearchFailure?.let { throw it }
 			return artistSearch
 		}
 
@@ -1778,7 +1951,19 @@ class AurralRepositoryTest {
 			albumSearchBaseUrls += baseUrl
 			albumSearchRequestHeaders += requestHeaders
 			albumSearchRequests += request
+			albumSearchFailure?.let { throw it }
 			return albumSearch
+		}
+
+		override suspend fun fetchAlbumTracks(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			releaseGroupMbid: String,
+			libraryAlbumId: String?
+		): List<AurralAlbumTrackItem> {
+			albumTracksRequests += releaseGroupMbid to libraryAlbumId
+			albumTracksFailure?.let { throw it }
+			return albumTracks
 		}
 
 		override suspend fun fetchArtistEnrichment(
@@ -1907,6 +2092,23 @@ class AurralRepositoryTest {
 			streamTokenBaseUrls += baseUrl
 			streamTokenRequestHeaders += requestHeaders
 			return streamToken?.let { AurralStreamTokenDto(token = it) }
+		}
+	}
+
+	private class RecordingAurralMetadataCache : AurralMetadataCache {
+		val records = linkedMapOf<String, AurralMetadataCacheRecord>()
+		val clearedBaseUrls = mutableListOf<String>()
+
+		override suspend fun get(cacheKey: String): AurralMetadataCacheRecord? =
+			records[cacheKey]
+
+		override suspend fun put(record: AurralMetadataCacheRecord) {
+			records[record.cacheKey] = record
+		}
+
+		override suspend fun clearBaseUrl(baseUrl: String) {
+			clearedBaseUrls += baseUrl
+			records.values.removeAll { it.baseUrl == baseUrl }
 		}
 	}
 }

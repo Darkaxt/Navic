@@ -1,8 +1,10 @@
 package paige.navic.domain.models
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
 
 @Immutable
+@Serializable
 data class AurralArtistEnrichment(
 	val artistMbid: String,
 	val artistName: String,
@@ -14,6 +16,7 @@ data class AurralArtistEnrichment(
 )
 
 @Immutable
+@Serializable
 data class AurralReleaseGroup(
 	val id: String,
 	val title: String,
@@ -24,6 +27,7 @@ data class AurralReleaseGroup(
 )
 
 @Immutable
+@Serializable
 data class AurralPreviewTrack(
 	val id: String,
 	val title: String,
@@ -38,6 +42,7 @@ data class AurralPreviewTrack(
 )
 
 @Immutable
+@Serializable
 data class AurralSimilarArtist(
 	val id: String,
 	val name: String,
@@ -46,6 +51,7 @@ data class AurralSimilarArtist(
 )
 
 @Immutable
+@Serializable
 data class AurralAlbumRequest(
 	val albumMbid: String? = null,
 	val albumName: String? = null,

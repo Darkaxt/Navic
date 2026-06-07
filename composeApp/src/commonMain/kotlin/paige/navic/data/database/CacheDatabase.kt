@@ -8,6 +8,7 @@ import androidx.room3.TypeConverters
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
+import paige.navic.data.database.dao.AurralMetadataCacheDao
 import paige.navic.data.database.dao.BinderyMetadataCacheDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.GenreDao
@@ -20,6 +21,7 @@ import paige.navic.data.database.dao.SyncActionDao
 import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.entities.ArtistEntity
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
+import paige.navic.data.database.entities.AurralMetadataCacheEntity
 import paige.navic.data.database.entities.BinderyMetadataCacheEntity
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.GenreEntity
@@ -32,7 +34,7 @@ import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.entities.SyncActionEntity
 
 @Database(
-	version = 18,
+	version = 19,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,
@@ -46,6 +48,7 @@ import paige.navic.data.database.entities.SyncActionEntity
 		DownloadEntity::class,
 		PlaybackOriginEntity::class,
 		ArtistPhotoCacheEntity::class,
+		AurralMetadataCacheEntity::class,
 		BinderyMetadataCacheEntity::class
 	]
 )
@@ -63,6 +66,7 @@ abstract class CacheDatabase : RoomDatabase() {
 	abstract fun syncActionDao(): SyncActionDao
 	abstract fun playbackOriginDao(): PlaybackOriginDao
 	abstract fun artistPhotoCacheDao(): ArtistPhotoCacheDao
+	abstract fun aurralMetadataCacheDao(): AurralMetadataCacheDao
 	abstract fun binderyMetadataCacheDao(): BinderyMetadataCacheDao
 }
 
