@@ -6,7 +6,9 @@ import kotlinx.coroutines.flow.emptyFlow
 import org.koin.core.context.GlobalContext.stopKoin
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import paige.navic.data.database.dao.BinderyMetadataCacheDao
 import paige.navic.data.database.dao.PlaybackOriginDao
+import paige.navic.data.database.entities.BinderyMetadataCacheEntity
 import paige.navic.data.database.entities.PlaybackOriginEntity
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
@@ -57,6 +59,7 @@ class RepositoryModuleTest {
 			modules(
 				module {
 					single { PreferenceManager(MapSettings()) }
+					single<BinderyMetadataCacheDao> { FakeBinderyMetadataCacheDao() }
 				},
 				repositoryModule
 			)
@@ -64,6 +67,16 @@ class RepositoryModuleTest {
 
 		assertIs<BinderyRepository>(app.koin.get<BinderyRepository>())
 	}
+}
+
+private class FakeBinderyMetadataCacheDao : BinderyMetadataCacheDao {
+	override suspend fun get(cacheKey: String): BinderyMetadataCacheEntity? = null
+
+	override suspend fun upsert(entity: BinderyMetadataCacheEntity) = Unit
+
+	override suspend fun clearBaseUrl(baseUrl: String) = Unit
+
+	override suspend fun clearAll() = Unit
 }
 
 private class FakePlaybackOriginDao : PlaybackOriginDao {

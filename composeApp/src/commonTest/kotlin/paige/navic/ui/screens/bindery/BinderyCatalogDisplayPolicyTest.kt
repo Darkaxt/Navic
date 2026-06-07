@@ -286,7 +286,8 @@ class BinderyCatalogDisplayPolicyTest {
 						narrator = "Radio Drama Cast",
 						fileCount = 19,
 						sizeBytes = 175_000_000,
-						bitrateBps = 96_000
+						bitrateBps = 96_000,
+						availabilityStatus = "available"
 					)
 				),
 				BinderyPublication(
@@ -301,7 +302,8 @@ class BinderyCatalogDisplayPolicyTest {
 						narrator = "Rob Inglis",
 						fileCount = 1,
 						sizeBytes = 1_000_000_000,
-						bitrateBps = 224_000
+						bitrateBps = 224_000,
+						availabilityStatus = "available"
 					)
 				),
 				BinderyPublication(
@@ -313,7 +315,8 @@ class BinderyCatalogDisplayPolicyTest {
 						format = "pdf",
 						language = "eng",
 						publisher = "Houghton",
-						sizeBytes = 26_000_000
+						sizeBytes = 26_000_000,
+						availabilityStatus = "available"
 					)
 				),
 				BinderyPublication(
@@ -325,7 +328,8 @@ class BinderyCatalogDisplayPolicyTest {
 						format = "epub",
 						language = "eng",
 						publisher = "HarperCollins",
-						sizeBytes = 4_000_000
+						sizeBytes = 4_000_000,
+						availabilityStatus = "available"
 					)
 				)
 			)
@@ -343,6 +347,121 @@ class BinderyCatalogDisplayPolicyTest {
 		)
 		assertTrue(rows.audiobooks.first().subtitle.orEmpty().contains("Audible"))
 		assertTrue(rows.ebooks.first().subtitle.orEmpty().contains("HarperCollins"))
+	}
+
+	@Test
+	fun bookFindingRowsOnlyShowAvailableFindings() {
+		val availableDownload = BinderyLink(
+			href = "/opds/findings/downloadable/download",
+			title = "Request download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+		val catalog = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:imported",
+					title = "Imported EPUB",
+					finding = BinderyFindingMetadata(
+						findingId = "imported",
+						mediaType = "ebook",
+						format = "epub",
+						language = "eng",
+						availabilityStatus = "imported"
+					)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:downloadable",
+					title = "Downloadable MP3",
+					finding = BinderyFindingMetadata(
+						findingId = "downloadable",
+						mediaType = "audiobook",
+						format = "mp3",
+						language = "eng",
+						availabilityStatus = "available"
+					),
+					links = listOf(availableDownload)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:unknown",
+					title = "Unknown EPUB",
+					finding = BinderyFindingMetadata(
+						findingId = "unknown",
+						mediaType = "ebook",
+						format = "epub",
+						language = "eng",
+						availabilityStatus = "unknown"
+					),
+					links = listOf(
+						BinderyLink(
+							href = "/opds/findings/unknown/download",
+							title = "Request download",
+							rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+							type = "application/json"
+						)
+					)
+				),
+				BinderyPublication(
+					id = "urn:bindery:finding:metadata-only",
+					title = "Metadata-only PDF",
+					finding = BinderyFindingMetadata(
+						findingId = "metadata-only",
+						mediaType = "ebook",
+						format = "pdf",
+						language = "eng"
+					)
+				)
+			)
+		)
+
+		val rows = binderyBookFindingRows(catalog)
+
+		assertEquals(listOf("downloadable"), rows.audiobooks.map { it.id })
+		assertEquals(listOf("imported"), rows.ebooks.map { it.id })
+	}
+
+	@Test
+	fun recentlyAddedHubRowsHideRequestOnlyBooks() {
+		val row = BinderyHubCatalogRow(
+			row = BinderyHubRow(
+				kind = BinderyHubRowKind.RecentlyAdded,
+				path = "/opds/recent",
+				title = "Recently Added"
+			),
+			catalog = BinderyCatalog(
+				title = "Recently Added",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:request-only",
+						title = "Request-only metadata",
+						links = listOf(
+							BinderyLink(
+								href = "/opds/books/request-only/download",
+								rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+								type = "application/json"
+							)
+						)
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:owned",
+						title = "Owned ebook",
+						links = listOf(
+							BinderyLink(
+								href = "/opds/books/owned/resources/ebook",
+								rel = listOf("http://opds-spec.org/acquisition"),
+								type = "application/epub+zip"
+							)
+						)
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("Owned ebook"),
+			row.cards.map { it.title }
+		)
 	}
 
 	@Test
@@ -611,6 +730,38 @@ class BinderyCatalogDisplayPolicyTest {
 				subtitle = "Author",
 				imageUrl = null,
 				availability = paige.navic.domain.repositories.BinderyAvailability(owned = false)
+			).availabilityStatus()
+		)
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			BinderyCatalogCard.Book(
+				id = "book-2",
+				title = "Concrete ebook",
+				subtitle = "Author",
+				imageUrl = null,
+				links = listOf(
+					BinderyLink(
+						href = "/opds/books/2/resources/ebook",
+						rel = listOf("http://opds-spec.org/acquisition"),
+						type = "application/epub+zip"
+					)
+				)
+			).availabilityStatus()
+		)
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			BinderyCatalogCard.Book(
+				id = "book-3",
+				title = "Request-only metadata",
+				subtitle = "Author",
+				imageUrl = null,
+				links = listOf(
+					BinderyLink(
+						href = "/opds/books/3/download",
+						rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+						type = "application/json"
+					)
+				)
 			).availabilityStatus()
 		)
 	}
@@ -1154,11 +1305,6 @@ class BinderyCatalogDisplayPolicyTest {
 					kind = BinderyHubRowKind.Audiobooks,
 					path = "/opds/formats/audiobook",
 					title = "Audiobooks"
-				),
-				BinderyHubRow(
-					kind = BinderyHubRowKind.Findings,
-					path = "/opds/findings",
-					title = "Findings"
 				),
 				BinderyHubRow(
 					kind = BinderyHubRowKind.Authors,

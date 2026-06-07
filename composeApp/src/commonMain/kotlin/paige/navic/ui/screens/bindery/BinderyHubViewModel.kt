@@ -25,7 +25,27 @@ data class BinderyHubCatalogRow(
 ) {
 	val cards: List<BinderyCatalogCard>
 		get() = binderyCatalogCards(catalog, row.catalogTab)
+			.let { cards ->
+				if (row.kind.showOnlyAvailableContent()) {
+					cards.filter(BinderyCatalogCard::hasAvailableContent)
+				} else {
+					cards
+				}
+			}
 }
+
+private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
+	when (this) {
+		BinderyHubRowKind.LastRead,
+		BinderyHubRowKind.RecentlyAdded,
+		BinderyHubRowKind.MostPopular,
+		BinderyHubRowKind.Audiobooks -> true
+		BinderyHubRowKind.Genres,
+		BinderyHubRowKind.Authors,
+		BinderyHubRowKind.Collections,
+		BinderyHubRowKind.Findings,
+		BinderyHubRowKind.Wanted -> false
+	}
 
 class BinderyHubViewModel(
 	private val repository: BinderyRepository

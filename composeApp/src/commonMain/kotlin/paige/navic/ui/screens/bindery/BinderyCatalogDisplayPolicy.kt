@@ -24,7 +24,28 @@ private const val BINDERY_BOOK_CATALOG_PAGE_SIZE = 5
 internal const val BINDERY_MONITOR_REL = "https://bindery.app/opds/rel/monitor"
 internal const val BINDERY_UNMONITOR_REL = "https://bindery.app/opds/rel/unmonitor"
 internal const val BINDERY_DOWNLOAD_REQUEST_REL = "https://bindery.app/opds/rel/download-request"
+private const val BINDERY_ACQUISITION_REL = "http://opds-spec.org/acquisition"
 private val BinderyAvailabilityQueryKeys = setOf("owned", "languages", "coverage")
+private val BinderyAvailableFindingStatuses = setOf(
+	"available",
+	"downloadable",
+	"downloaded",
+	"imported",
+	"owned",
+	"ready",
+	"acquired"
+)
+private val BinderyUnavailableFindingStatuses = setOf(
+	"unknown",
+	"missing",
+	"unavailable",
+	"not_available",
+	"not found",
+	"not_found",
+	"failed",
+	"excluded",
+	"rejected"
+)
 
 enum class BinderyCatalogTab(
 	val path: String
@@ -401,8 +422,18 @@ private fun List<BinderyLink>.actionLink(rel: String): BinderyLink? =
 fun BinderyCatalogCard.availabilityStatus(): AurralOwnershipStatus? =
 	when (this) {
 		is BinderyCatalogCard.Book -> availability.toOwnershipStatus()
+			?: if (links.hasConcreteAcquisition()) {
+				AurralOwnershipStatus.Owned
+			} else {
+				AurralOwnershipStatus.Missing
+			}
 		is BinderyCatalogCard.Link -> availability.toOwnershipStatus()
 		is BinderyCatalogCard.Finding -> availability.toOwnershipStatus()
+			?: if (isAvailableFindingCandidate()) {
+				AurralOwnershipStatus.Owned
+			} else {
+				AurralOwnershipStatus.Missing
+			}
 	}
 
 fun BinderyCatalogCard.availabilityAlpha(): Float =
@@ -410,6 +441,11 @@ fun BinderyCatalogCard.availabilityAlpha(): Float =
 		AurralOwnershipStatus.Missing -> 0.42f
 		else -> 1f
 	}
+
+fun BinderyCatalogCard.hasAvailableContent(): Boolean =
+	availabilityStatus()
+		?.let { status -> status != AurralOwnershipStatus.Missing }
+		?: false
 
 fun BinderyAvailability?.availabilityAlpha(): Float =
 	when (toOwnershipStatus()) {
@@ -516,6 +552,9 @@ fun binderyBookFindingRows(
 		.mapIndexedNotNull { index, card ->
 			val metadata = card.finding
 			if (language != null && metadata?.language?.equals(language, ignoreCase = true) != true) {
+				return@mapIndexedNotNull null
+			}
+			if (!card.isAvailableFindingCandidate()) {
 				return@mapIndexedNotNull null
 			}
 			val kind = metadata.findingKind() ?: return@mapIndexedNotNull null
@@ -681,9 +720,25 @@ private fun BinderyBookResource.isEbookResource(): Boolean =
 	kind.equals("ebook", ignoreCase = true) ||
 		type.isEbookMediaType()
 
+private fun BinderyLink.isAcquisition(): Boolean =
+	rel.any { it.equals(BINDERY_ACQUISITION_REL, ignoreCase = true) }
+
+private fun List<BinderyLink>.hasConcreteAcquisition(): Boolean =
+	any(BinderyLink::isAcquisition)
+
 private fun BinderyLink.isEbookAcquisition(): Boolean =
-	rel.any { it.equals("http://opds-spec.org/acquisition", ignoreCase = true) } &&
+	isAcquisition() &&
 		(properties["kind"]?.equals("ebook", ignoreCase = true) == true || type.isEbookMediaType())
+
+private fun BinderyCatalogCard.Finding.isAvailableFindingCandidate(): Boolean {
+	val status = finding?.availabilityStatus
+		?.trim()
+		?.lowercase()
+	if (status in BinderyUnavailableFindingStatuses) return false
+	if (status in BinderyAvailableFindingStatuses) return true
+	return availability.toOwnershipStatus() == AurralOwnershipStatus.Owned ||
+		links.hasConcreteAcquisition()
+}
 
 private fun BinderyLink.toBookResource(): BinderyBookResource =
 	BinderyBookResource(
@@ -1005,7 +1060,6 @@ private val binderyHubRowKindOrder = listOf(
 	BinderyHubRowKind.MostPopular,
 	BinderyHubRowKind.Audiobooks,
 	BinderyHubRowKind.Genres,
-	BinderyHubRowKind.Findings,
 	BinderyHubRowKind.Authors,
 	BinderyHubRowKind.Collections,
 	BinderyHubRowKind.Wanted
@@ -1029,9 +1083,6 @@ private fun binderyHubRowKind(
 
 		normalizedPath.endsWith("/collections") ||
 			normalizedTitle == "collections" -> BinderyHubRowKind.Collections
-
-		normalizedPath.endsWith("/findings") ||
-			normalizedTitle == "findings" -> BinderyHubRowKind.Findings
 
 		normalizedPath.endsWith("/wanted") ||
 			normalizedTitle == "wanted" -> BinderyHubRowKind.Wanted
