@@ -1,7 +1,12 @@
 package paige.navic.reader
 
+import android.content.Context
 import java.io.File
 import java.security.MessageDigest
+
+internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
+private const val ReaderPublicationCacheDirectoryName = "reader"
+private const val ReaderPublicationCachePublicationDirectory = "reader-publications"
 
 data class ReaderPublicationResourceRequest(
 	val bookId: String,
@@ -29,14 +34,17 @@ class BinderyReaderPublicationResolver(
 		val resourceHref = request.safeResourceHref()
 		val bytes = fetchResourceBytes(resourceHref)
 		val cacheKey = request.readerPublicationCacheKey()
+		val publicationExtension = request.publicationExtension()
 		val publicationFile = File(
-			File(cacheRoot, "reader-publications/$cacheKey"),
-			"publication.${request.publicationExtension()}"
+			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
+			"publication.$publicationExtension"
 		)
 		publicationFile.parentFile?.mkdirs()
 		publicationFile.writeBytes(bytes)
 		return ReaderResolvedPublicationResource(
-			publicationUrl = publicationFile.toURI().toString(),
+			publicationUrl = readerPublicationAssetUrl(
+				"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
+			),
 			publicationFile = publicationFile,
 			resourceHref = resourceHref,
 			sourceUrl = request.sourceUrl,
@@ -45,6 +53,14 @@ class BinderyReaderPublicationResolver(
 		)
 	}
 }
+
+internal fun readerPublicationCacheRoot(context: Context): File =
+	File(context.cacheDir, ReaderPublicationCacheDirectoryName)
+
+internal fun readerPublicationAssetUrl(relativePath: String): String =
+	ReaderWebRuntime.AssetLoaderOrigin +
+		ReaderPublicationCachePathPrefix +
+		relativePath.trimStart('/')
 
 internal fun ReaderPublicationResourceRequest.safeResourceHref(): String =
 	resourceHref.trim().takeIf { it.isNotEmpty() }

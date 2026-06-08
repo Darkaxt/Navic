@@ -31,7 +31,9 @@ class BinderyReaderPublicationResolverTest {
 
 		assertEquals(listOf("/opds/books/3693/resources/ebook-1"), fetchedPaths)
 		assertEquals("/opds/books/3693/resources/ebook-1", resolved.resourceHref)
-		assertTrue(resolved.publicationUrl.startsWith("file:"))
+		assertTrue(
+			resolved.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/reader-publications/")
+		)
 		assertNotEquals(request.sourceUrl, resolved.publicationUrl)
 		assertEquals(emptyMap(), resolved.requestHeaders)
 		assertTrue(resolved.publicationFile.exists())
@@ -68,6 +70,6 @@ class BinderyReaderPublicationResolverTest {
 
 		assertEquals(first.cacheKey, second.cacheKey)
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
-		assertTrue(first.publicationUrl.startsWith("file:"))
+		assertTrue(first.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/"))
 	}
 }

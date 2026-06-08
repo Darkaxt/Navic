@@ -24,9 +24,8 @@ class StorytellerReadaloudAudioCacheTest {
 
 		val uri = cache.audioHrefResolver("EPUB/Audio/chapter1.mp3")
 		assertTrue(uri.startsWith("file:"))
-		assertTrue(cache.publicationUri.startsWith("file:"))
+		assertTrue(cache.publicationUri.startsWith("https://appassets.androidplatform.net/reader-cache/storyteller-readaloud/"))
 		assertTrue(cache.publicationFile.exists())
-		assertEquals(cache.publicationFile.toURI().toString(), cache.publicationUri)
 		assertEquals(epubBytes.size.toLong(), cache.publicationFile.length())
 		val cachedFile = cache.cachedAudioFiles.single()
 		assertTrue(cachedFile.exists())

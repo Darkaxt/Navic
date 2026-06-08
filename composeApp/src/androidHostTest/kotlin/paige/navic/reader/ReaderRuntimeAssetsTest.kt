@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderRuntimeAssetsTest {
@@ -51,9 +52,9 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidRuntimeConstantsPointAtPackagedReaderEntrypoint() {
 		assertEquals("reader/index.html", ReaderWebRuntime.AssetEntrypointPath)
-		assertEquals("file:///android_asset/reader/index.html", ReaderWebRuntime.entrypointUrl)
+		assertEquals("https://appassets.androidplatform.net/assets/reader/index.html", ReaderWebRuntime.entrypointUrl)
 		assertEquals("NavicAndroidBridge", ReaderWebRuntime.AndroidBridgeName)
-		assertTrue(ReaderWebRuntime.LocalPublicationFileAccessEnabled)
+		assertFalse(ReaderWebRuntime.LocalPublicationFileAccessEnabled)
 	}
 
 	private fun readerAssetRoot(): File =

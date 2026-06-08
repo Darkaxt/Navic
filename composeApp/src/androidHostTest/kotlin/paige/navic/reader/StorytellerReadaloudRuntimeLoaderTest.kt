@@ -43,7 +43,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		)
 
 		assertEquals(listOf("/opds/books/3693/resources/readaloud-1"), fetchedPaths)
-		assertTrue(runtime.publicationUrl.startsWith("file:"))
+		assertTrue(runtime.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/storyteller-readaloud/"))
 		assertNotEquals(request.sourceUrl, runtime.publicationUrl)
 		assertEquals(2, runtime.timeline.clips.size)
 		assertEquals(ReaderPublicationKind.Readaloud, runtime.playbackPlan.kind)

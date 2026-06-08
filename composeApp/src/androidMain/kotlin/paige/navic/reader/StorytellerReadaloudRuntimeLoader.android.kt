@@ -30,7 +30,7 @@ class StorytellerReadaloudRuntimeLoader(
 			audioHrefResolver = cache::audioHrefResolver
 		)
 		return StorytellerReadaloudRuntime(
-			publicationUrl = cache.publicationUri,
+			publicationUrl = cache.publicationUrl,
 			playbackPlan = session.toReadaloudPlaybackPlan(),
 			timeline = readaloudPackage.timeline
 		)

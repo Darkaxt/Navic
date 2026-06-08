@@ -17,15 +17,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderJavascriptBridge
 import paige.navic.reader.ReaderLocator
+import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
+import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
 
@@ -46,6 +49,19 @@ actual fun ReaderWebViewHost(
 	modifier: Modifier
 ) {
 	val context = LocalContext.current
+	val readerAssetLoader = remember(context) {
+		WebViewAssetLoader.Builder()
+			.setDomain(ReaderWebRuntime.AssetLoaderDomain)
+			.addPathHandler(
+				ReaderWebRuntime.AssetLoaderAssetsPathPrefix,
+				WebViewAssetLoader.AssetsPathHandler(context)
+			)
+			.addPathHandler(
+				ReaderPublicationCachePathPrefix,
+				WebViewAssetLoader.InternalStoragePathHandler(context, readerPublicationCacheRoot(context))
+			)
+			.build()
+	}
 	val currentOnEvent by rememberUpdatedState(onEvent)
 	val publicationKey = remember(publicationUrl, mediaOverlayEnabled, startCfi, startHref) {
 		listOf(
@@ -148,6 +164,13 @@ actual fun ReaderWebViewHost(
 					}
 				}
 				webViewClient = object : WebViewClient() {
+					override fun shouldInterceptRequest(
+						view: WebView,
+						request: WebResourceRequest
+					): WebResourceResponse? =
+						readerAssetLoader.shouldInterceptRequest(request.url)
+							?: super.shouldInterceptRequest(view, request)
+
 					override fun onPageFinished(view: WebView, url: String?) {
 						Logger.i(ReaderWebViewHostTag, "Reader page finished: ${url?.readerUrlLabel().orEmpty()}")
 						view.dispatchReadyReaderCommands()

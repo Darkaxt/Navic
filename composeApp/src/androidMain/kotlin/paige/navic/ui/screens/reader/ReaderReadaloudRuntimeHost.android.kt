@@ -23,8 +23,8 @@ import paige.navic.reader.StorytellerReadaloudRuntime
 import paige.navic.reader.StorytellerReadaloudRuntimeLoader
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderEvent
+import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.ui.navigation.Screen
-import java.io.File
 
 @Composable
 actual fun ReaderReadaloudRuntimeHost(
@@ -79,7 +79,7 @@ actual fun ReaderReadaloudRuntimeHost(
 		runCatching {
 			StorytellerReadaloudRuntimeLoader(
 				fetchResourceBytes = { path -> repository.getResourceBytes(path).getOrThrow() },
-				cacheRoot = File(context.cacheDir, "reader")
+				cacheRoot = readerPublicationCacheRoot(context)
 			).load(
 				ReaderPublicationResourceRequest(
 					bookId = reader.bookId,

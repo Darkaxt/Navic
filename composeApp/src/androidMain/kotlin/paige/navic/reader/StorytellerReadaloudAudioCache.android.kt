@@ -7,11 +7,12 @@ import java.util.zip.ZipInputStream
 
 data class MaterializedStorytellerReadaloudAudio(
 	val publicationFile: File,
+	val publicationUrl: String,
 	val cachedAudioFiles: List<File>,
 	private val uriByResource: Map<String, String>
 ) {
 	val publicationUri: String
-		get() = publicationFile.toURI().toString()
+		get() = publicationUrl
 
 	fun audioHrefResolver(href: String): String =
 		uriByResource[normalizedMediaOverlayResource(href)] ?: href
@@ -25,9 +26,10 @@ object StorytellerReadaloudAudioCache {
 		cacheRoot: File
 	): MaterializedStorytellerReadaloudAudio {
 		val entries = epubEntries(epubBytes)
+		val sessionDirectoryName = "storyteller-readaloud/${sanitizeSegment(sessionId ?: "anonymous")}"
 		val sessionDirectory = File(
 			cacheRoot,
-			"storyteller-readaloud/${sanitizeSegment(sessionId ?: "anonymous")}"
+			sessionDirectoryName
 		)
 		sessionDirectory.mkdirs()
 		val publicationFile = File(sessionDirectory, "publication.epub")
@@ -44,6 +46,7 @@ object StorytellerReadaloudAudioCache {
 		}
 		return MaterializedStorytellerReadaloudAudio(
 			publicationFile = publicationFile,
+			publicationUrl = readerPublicationAssetUrl("$sessionDirectoryName/publication.epub"),
 			cachedAudioFiles = cachedFiles,
 			uriByResource = uriByResource
 		)

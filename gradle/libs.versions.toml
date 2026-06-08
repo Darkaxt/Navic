@@ -19,6 +19,7 @@ androidx-sqlite = "2.6.2"
 androidx-navigation3 = "1.1.0-beta01"
 androidx-media3 = "1.10.1"
 androidx-glance = "1.2.0-rc01"
+androidx-webkit = "1.16.0"
 
 # Compose/UI
 compose = "1.11.0"
@@ -65,6 +66,7 @@ androidx-media3-session = { module = "androidx.media3:media3-session", version.r
 androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "androidx-media3" }
 androidx-glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "androidx-glance" }
 androidx-glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "androidx-glance" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "androidx-webkit" }
 
 # Kotlinx
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version = "0.8.0" }
@@ -108,7 +110,7 @@ ktor = ["ktor-client-core", "ktor-client-contentNegotiation", "ktor-serializatio
 ktor-ios = ["ktor-client-darwin"]
 ktor-android = ["ktor-client-okhttp"]
 cmpThirdParty = ["capsule", "wavySlider", "kmpalette-core", "kmpalette-network", "materialKolor", "composePipette", "multiplatformSettings", "aboutLibraries-compose", "aboutLibraries-core"]
-androidx-android = ["androidx-activity-compose", "androidx-datastore-preferences", "androidx-animation-graphics"]
+androidx-android = ["androidx-activity-compose", "androidx-datastore-preferences", "androidx-animation-graphics", "androidx-webkit"]
 androidx-lifecycle = ["androidx-lifecycle-viewmodel", "androidx-lifecycle-runtime"]
 room = ["androidx-room3-runtime", "androidx-sqlite-bundled"]
 koin = ["koin-core", "koin-compose", "koin-compose-viewmodel"]

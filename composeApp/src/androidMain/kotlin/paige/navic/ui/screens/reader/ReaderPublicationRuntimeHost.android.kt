@@ -8,10 +8,12 @@ import androidx.compose.ui.platform.LocalContext
 import org.koin.compose.koinInject
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.BinderyReaderPublicationResolver
+import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
+import paige.navic.reader.ReaderWebRuntime
+import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.ui.navigation.Screen
-import java.io.File
 
 @Composable
 actual fun ReaderPublicationRuntimeHost(
@@ -37,7 +39,7 @@ actual fun ReaderPublicationRuntimeHost(
 		runCatching {
 			BinderyReaderPublicationResolver(
 				fetchResourceBytes = { path -> repository.getResourceBytes(path).getOrThrow() },
-				cacheRoot = File(context.cacheDir, "reader")
+				cacheRoot = readerPublicationCacheRoot(context)
 			).resolve(
 				ReaderPublicationResourceRequest(
 					bookId = reader.bookId,
@@ -57,4 +59,5 @@ actual fun ReaderPublicationRuntimeHost(
 
 private fun String.isLocalReaderPublicationUrl(): Boolean =
 	startsWith("file:", ignoreCase = true) ||
-		startsWith("content:", ignoreCase = true)
+		startsWith("content:", ignoreCase = true) ||
+		startsWith("${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix", ignoreCase = true)
