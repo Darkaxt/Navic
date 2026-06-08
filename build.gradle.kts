@@ -1,12 +1,12 @@
 buildscript {
 	configurations.classpath {
 		resolutionStrategy.force(
-			"io.netty:netty-codec:4.1.133.Final",
-			"io.netty:netty-codec-http:4.1.133.Final",
-			"io.netty:netty-codec-http2:4.1.133.Final",
-			"io.netty:netty-common:4.1.133.Final",
-			"io.netty:netty-handler:4.1.133.Final",
-			"io.netty:netty-handler-proxy:4.1.133.Final",
+			"io.netty:netty-codec:4.1.135.Final",
+			"io.netty:netty-codec-http:4.1.135.Final",
+			"io.netty:netty-codec-http2:4.1.135.Final",
+			"io.netty:netty-common:4.1.135.Final",
+			"io.netty:netty-handler:4.1.135.Final",
+			"io.netty:netty-handler-proxy:4.1.135.Final",
 			"io.opentelemetry:opentelemetry-api:1.62.0",
 			"io.opentelemetry:opentelemetry-context:1.62.0",
 			"org.apache.commons:commons-lang3:3.18.0",
@@ -31,12 +31,12 @@ plugins {
 }
 
 val securityPatchedDependencies = listOf(
-	"io.netty:netty-codec:4.1.133.Final",
-	"io.netty:netty-codec-http:4.1.133.Final",
-	"io.netty:netty-codec-http2:4.1.133.Final",
-	"io.netty:netty-common:4.1.133.Final",
-	"io.netty:netty-handler:4.1.133.Final",
-	"io.netty:netty-handler-proxy:4.1.133.Final",
+	"io.netty:netty-codec:4.1.135.Final",
+	"io.netty:netty-codec-http:4.1.135.Final",
+	"io.netty:netty-codec-http2:4.1.135.Final",
+	"io.netty:netty-common:4.1.135.Final",
+	"io.netty:netty-handler:4.1.135.Final",
+	"io.netty:netty-handler-proxy:4.1.135.Final",
 	"io.opentelemetry:opentelemetry-api:1.62.0",
 	"io.opentelemetry:opentelemetry-context:1.62.0",
 	"org.apache.commons:commons-lang3:3.18.0",
