@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderSettings
 
 @Composable
 actual fun ReaderWebViewHost(
@@ -16,6 +17,7 @@ actual fun ReaderWebViewHost(
 	title: String,
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
+	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
 	command: ReaderBridgeCommand?,

@@ -239,6 +239,9 @@ sealed interface Screen : NavKey {
 		data object Playback : Settings
 		@Immutable
 		@Serializable
+		data object Ebooks : Settings
+		@Immutable
+		@Serializable
 		data object Developer : Settings
 		@Immutable
 		@Serializable

@@ -51,6 +51,11 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
+import paige.navic.reader.ReaderDarkTheme
+import paige.navic.reader.ReaderLightTheme
+import paige.navic.reader.ReaderSansFontFamily
+import paige.navic.reader.ReaderSerifFontFamily
+import paige.navic.reader.readerDefaultSettings
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
@@ -125,6 +130,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val nowPlaying = stringResource(Res.string.title_now_playing)
 	val bottomBar = stringResource(Res.string.title_bottom_app_bar)
 	val playback = stringResource(Res.string.title_playback)
+	val ebooks = stringResource(Res.string.title_ebook_reader)
 	val dataStorage = stringResource(Res.string.title_data_storage)
 	val integrations = stringResource(Res.string.title_integrations)
 	val developer = stringResource(Res.string.title_developer)
@@ -142,6 +148,8 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val miniPlayer = stringResource(Res.string.title_mini_player)
 	val navigationBar = stringResource(Res.string.title_navigation_bar)
 	val streamingQuality = stringResource(Res.string.title_streaming_quality)
+	val readerSettings = preferenceManager.readerDefaultSettings()
+	val readerLineHeightPercent = (((readerSettings.lineHeight ?: 1.55) * 100.0).roundToInt())
 
 	return buildList {
 		add(selectionRow(
@@ -679,6 +687,100 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keyboardType = KeyboardType.NumberPassword,
 			digitsOnly = true,
 			onValueChange = { preferenceManager.customMaxBitrateCellular = it.toIntOrNull() ?: 0 }
+		))
+
+		add(selectionRow(
+			id = "ebooks.font-family",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_font_family),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_font_family),
+			keywords = listOf("reader", "ebook", "EPUB", "typeface"),
+			items = readerFontFamilySearchOptions,
+			label = { fontFamily ->
+				if (fontFamily == ReaderSerifFontFamily) {
+					stringResource(Res.string.option_ebook_reader_font_family_serif)
+				} else {
+					stringResource(Res.string.option_ebook_reader_font_family_sans)
+				}
+			},
+			selection = readerSettings.fontFamily ?: ReaderSansFontFamily,
+			onSelect = { fontFamily -> preferenceManager.readerFontFamily = fontFamily }
+		))
+		add(selectionRow(
+			id = "ebooks.font-size",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_font_size),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_font_size),
+			keywords = listOf("reader", "ebook", "EPUB", "text"),
+			items = readerFontSizeSearchOptions,
+			label = { percent -> "$percent%" },
+			selection = readerSettings.fontSizePercent ?: 100,
+			onSelect = { percent -> preferenceManager.readerFontSizePercent = percent }
+		))
+		add(selectionRow(
+			id = "ebooks.line-height",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_line_height),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_line_height),
+			keywords = listOf("reader", "ebook", "EPUB", "spacing"),
+			items = readerLineHeightSearchOptions,
+			label = { percent -> readerLineHeightSearchLabel(percent) },
+			selection = readerLineHeightPercent,
+			onSelect = { percent -> preferenceManager.readerLineHeightPercent = percent }
+		))
+		add(selectionRow(
+			id = "ebooks.margin",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_margin),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_margin),
+			keywords = listOf("reader", "ebook", "EPUB", "layout"),
+			items = readerMarginSearchOptions,
+			label = { percent -> "$percent%" },
+			selection = readerSettings.marginPercent ?: 0,
+			onSelect = { percent -> preferenceManager.readerMarginPercent = percent }
+		))
+		add(selectionRow(
+			id = "ebooks.theme",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_theme),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_theme),
+			keywords = listOf("reader", "ebook", "EPUB", "dark", "light"),
+			items = readerThemeSearchOptions,
+			label = { theme ->
+				if (theme == ReaderDarkTheme) {
+					stringResource(Res.string.option_ebook_reader_theme_dark)
+				} else {
+					stringResource(Res.string.option_ebook_reader_theme_light)
+				}
+			},
+			selection = readerSettings.theme ?: ReaderLightTheme,
+			onSelect = { theme -> preferenceManager.readerTheme = theme }
+		))
+		add(selectionRow(
+			id = "ebooks.flow",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_flow),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_paged),
+			keywords = listOf("reader", "ebook", "EPUB", "paged", "scroll"),
+			items = readerFlowSearchOptions,
+			label = { paged ->
+				if (paged) {
+					stringResource(Res.string.option_ebook_reader_paged)
+				} else {
+					stringResource(Res.string.option_ebook_reader_scroll)
+				}
+			},
+			selection = readerSettings.paged != false,
+			onSelect = { paged -> preferenceManager.readerPaged = paged }
+		))
+		add(switchRow(
+			id = "ebooks.media-overlay",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_media_overlay),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_media_overlay),
+			keywords = listOf("reader", "ebook", "Storyteller", "readaloud", "media overlay", "audio labels"),
+			value = preferenceManager.readerMediaOverlayEnabled,
+			onSetValue = { enabled -> preferenceManager.readerMediaOverlayEnabled = enabled }
 		))
 
 		if (!isApple) {
@@ -1697,6 +1799,16 @@ private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
 private val binderyBookGridColumnSearchOptions = (BinderyMinBookGridColumns..BinderyMaxBookGridColumns).toList()
+private val readerFontFamilySearchOptions = listOf(ReaderSansFontFamily, ReaderSerifFontFamily)
+private val readerFontSizeSearchOptions = listOf(90, 100, 112, 125, 140, 160, 180)
+private val readerLineHeightSearchOptions = listOf(120, 135, 155, 170, 190, 220)
+private val readerMarginSearchOptions = listOf(0, 4, 8, 12, 16, 24)
+private val readerThemeSearchOptions = listOf(ReaderLightTheme, ReaderDarkTheme)
+private val readerFlowSearchOptions = listOf(true, false)
+
+@Composable
+private fun readerLineHeightSearchLabel(percent: Int): String =
+	"${percent / 100}.${(percent % 100).toString().padStart(2, '0')}".trimEnd('0').trimEnd('.')
 private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)
 private val quickPicksMinDurationSearchOptions = listOf(0, 30, 60, 120, 180)
 

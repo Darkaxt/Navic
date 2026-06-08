@@ -70,7 +70,8 @@ sealed interface ReaderBridgeCommand {
 	data class OpenPublication(
 		val url: String,
 		val mediaOverlayEnabled: Boolean = false,
-		val startLocator: ReaderLocator? = null
+		val startLocator: ReaderLocator? = null,
+		val settings: ReaderSettings? = null
 	) : ReaderBridgeCommand {
 		override val type: String = "openPublication"
 
@@ -80,6 +81,7 @@ sealed interface ReaderBridgeCommand {
 				put("url", url)
 				put("mediaOverlayEnabled", mediaOverlayEnabled)
 				startLocator?.let { put("startLocator", it.toJsonObject()) }
+				settings?.let { put("settings", it.toJsonObject()) }
 			}
 	}
 

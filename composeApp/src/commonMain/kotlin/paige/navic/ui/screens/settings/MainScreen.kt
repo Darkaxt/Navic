@@ -39,6 +39,7 @@ import navic.composeapp.generated.resources.subtitle_appearance
 import navic.composeapp.generated.resources.subtitle_bottom_app_bar
 import navic.composeapp.generated.resources.subtitle_data_storage
 import navic.composeapp.generated.resources.subtitle_developer
+import navic.composeapp.generated.resources.subtitle_ebook_reader
 import navic.composeapp.generated.resources.subtitle_integrations
 import navic.composeapp.generated.resources.subtitle_now_playing
 import navic.composeapp.generated.resources.subtitle_playback
@@ -47,6 +48,7 @@ import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_developer
+import navic.composeapp.generated.resources.title_ebook_reader
 import navic.composeapp.generated.resources.title_integrations
 import navic.composeapp.generated.resources.title_now_playing
 import navic.composeapp.generated.resources.title_playback
@@ -64,6 +66,7 @@ import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.ChevronForward
 import paige.navic.icons.outlined.Close
 import paige.navic.icons.outlined.Code
+import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Link
 import paige.navic.icons.outlined.Note
@@ -122,6 +125,13 @@ fun SettingsScreen() {
 						iconSize = 24.dp,
 						title = Res.string.title_playback,
 						subtitle = Res.string.subtitle_playback
+					)
+					PageRow(
+						destination = Screen.Settings.Ebooks,
+						icon = Icons.Outlined.Book,
+						iconSize = 24.dp,
+						title = Res.string.title_ebook_reader,
+						subtitle = Res.string.subtitle_ebook_reader
 					)
 					PageRow(
 						destination = Screen.Settings.DataStorage,

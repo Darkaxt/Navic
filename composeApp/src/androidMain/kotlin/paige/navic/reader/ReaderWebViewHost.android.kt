@@ -17,6 +17,7 @@ import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderJavascriptBridge
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
@@ -27,6 +28,7 @@ actual fun ReaderWebViewHost(
 	title: String,
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
+	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
 	command: ReaderBridgeCommand?,
@@ -44,14 +46,15 @@ actual fun ReaderWebViewHost(
 			startHref.orEmpty()
 		).joinToString("|")
 	}
-	val openCommand = remember(publicationUrl, mediaOverlayEnabled, startCfi, startHref) {
+	val openCommand = remember(publicationUrl, mediaOverlayEnabled, settings, startCfi, startHref) {
 		ReaderBridgeCommand.OpenPublication(
 			url = publicationUrl,
 			mediaOverlayEnabled = mediaOverlayEnabled,
 			startLocator = ReaderLocator(
 				cfi = startCfi,
 				href = startHref
-			).takeIf { it.cfi != null || it.href != null }
+			).takeIf { it.cfi != null || it.href != null },
+			settings = settings
 		)
 	}
 	val currentPublicationKey by rememberUpdatedState(publicationKey)

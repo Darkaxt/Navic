@@ -4,24 +4,68 @@ import kotlin.math.roundToInt
 
 private const val MinReaderFontSizePercent = 80
 private const val MaxReaderFontSizePercent = 180
+private const val DefaultReaderFontSizePercent = 100
 private const val MinReaderLineHeight = 1.2
 private const val MaxReaderLineHeight = 2.2
+private const val DefaultReaderLineHeight = 1.55
 private const val MinReaderMarginPercent = 0
 private const val MaxReaderMarginPercent = 24
+private const val DefaultReaderMarginPercent = 0
 const val ReaderSansFontFamily = "system-ui, sans-serif"
 const val ReaderSerifFontFamily = "Georgia, serif"
+const val ReaderLightTheme = "light"
+const val ReaderDarkTheme = "dark"
+
+fun defaultReaderSettings(): ReaderSettings =
+	normalizedReaderSettings(
+		fontFamily = ReaderSansFontFamily,
+		fontSizePercent = DefaultReaderFontSizePercent,
+		lineHeightPercent = (DefaultReaderLineHeight * 100).roundToInt(),
+		marginPercent = DefaultReaderMarginPercent,
+		theme = ReaderLightTheme,
+		paged = true
+	)
+
+fun normalizedReaderSettings(
+	fontFamily: String?,
+	fontSizePercent: Int,
+	lineHeightPercent: Int,
+	marginPercent: Int,
+	theme: String?,
+	paged: Boolean
+): ReaderSettings =
+	ReaderSettings(
+		fontFamily = when (fontFamily) {
+			ReaderSerifFontFamily -> ReaderSerifFontFamily
+			else -> ReaderSansFontFamily
+		},
+		fontSizePercent = fontSizePercent.coerceIn(MinReaderFontSizePercent, MaxReaderFontSizePercent),
+		lineHeight = (lineHeightPercent.coerceIn(
+			(MinReaderLineHeight * 100).roundToInt(),
+			(MaxReaderLineHeight * 100).roundToInt()
+		) / 100.0),
+		marginPercent = marginPercent.coerceIn(MinReaderMarginPercent, MaxReaderMarginPercent),
+		theme = when (theme) {
+			ReaderDarkTheme -> ReaderDarkTheme
+			else -> ReaderLightTheme
+		},
+		paged = paged
+	)
+
+fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
+	normalizedReaderSettings(
+		fontFamily = fontFamily,
+		fontSizePercent = fontSizePercent ?: DefaultReaderFontSizePercent,
+		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
+		marginPercent = marginPercent ?: DefaultReaderMarginPercent,
+		theme = theme,
+		paged = paged ?: true
+	)
 
 data class ReaderChromeState(
 	val currentLocator: ReaderLocator? = null,
 	val currentSectionTitle: String? = null,
-	val settings: ReaderSettings = ReaderSettings(
-		fontFamily = ReaderSansFontFamily,
-		fontSizePercent = 100,
-		lineHeight = 1.55,
-		marginPercent = 0,
-		theme = "light",
-		paged = true
-	),
+	val settings: ReaderSettings = defaultReaderSettings(),
 	val readaloudPlayback: ReaderReadaloudPlaybackUiState = ReaderReadaloudPlaybackUiState()
 ) {
 	val progressFraction: Float?
@@ -72,7 +116,7 @@ data class ReaderChromeState(
 	fun adjustLineHeight(delta: Double): ReaderChromeState =
 		copy(
 			settings = settings.copy(
-				lineHeight = (((settings.lineHeight ?: 1.55) + delta)
+				lineHeight = (((settings.lineHeight ?: DefaultReaderLineHeight) + delta)
 					.coerceIn(MinReaderLineHeight, MaxReaderLineHeight) * 100.0)
 					.roundToInt() / 100.0
 			)
@@ -89,7 +133,7 @@ data class ReaderChromeState(
 	fun toggleTheme(): ReaderChromeState =
 		copy(
 			settings = settings.copy(
-				theme = if (settings.theme == "dark") "light" else "dark"
+				theme = if (settings.theme == ReaderDarkTheme) ReaderLightTheme else ReaderDarkTheme
 			)
 		)
 

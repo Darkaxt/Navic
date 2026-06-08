@@ -66,14 +66,18 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSerifFontFamily
+import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.decodeReaderAnnotations
 import paige.navic.reader.decodeReaderBookmarks
 import paige.navic.reader.encodeReaderAnnotations
 import paige.navic.reader.encodeReaderBookmarks
+import paige.navic.reader.normalizedReaderSettings
 import paige.navic.reader.readerBookmarkFromLocator
+import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerReadaloudControlsVisible
+import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
 import paige.navic.reader.toReaderStartLocatorFor
 import paige.navic.ui.components.layouts.RootTopBar
@@ -96,7 +100,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var readerCommandKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
 	var lastReaderEvent by remember(reader.publicationUrl) { mutableStateOf<ReaderBridgeEvent?>(null) }
 	var readerEventKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
-	var chromeState by remember(reader.publicationUrl) { mutableStateOf(ReaderChromeState()) }
+	val defaultReaderSettings = remember(
+		reader.publicationUrl,
+		preferenceManager.readerFontFamily,
+		preferenceManager.readerFontSizePercent,
+		preferenceManager.readerLineHeightPercent,
+		preferenceManager.readerMarginPercent,
+		preferenceManager.readerTheme,
+		preferenceManager.readerPaged
+	) {
+		preferenceManager.readerDefaultSettings()
+	}
+	var chromeState by remember(reader.publicationUrl, defaultReaderSettings) {
+		mutableStateOf(ReaderChromeState(settings = defaultReaderSettings))
+	}
 	var tocVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var tocItems by remember(reader.publicationUrl) { mutableStateOf(emptyList<ReaderTocItem>()) }
 	var annotationsVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
@@ -173,8 +190,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun updateChromeSettings(nextState: ReaderChromeState) {
-		chromeState = nextState
-		dispatchReaderCommand(nextState.toSettingsCommand())
+		val normalizedState = nextState.copy(settings = nextState.settings.normalizedReaderSettings())
+		chromeState = normalizedState
+		preferenceManager.setReaderDefaultSettings(normalizedState.settings)
+		dispatchReaderCommand(normalizedState.toSettingsCommand())
 	}
 
 	fun submitReaderSearch() {
@@ -399,6 +418,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					title = reader.title,
 					kind = reader.kind,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled,
+					settings = chromeState.settings,
 					startCfi = resumeStartLocator?.cfi,
 					startHref = resumeStartLocator?.href,
 					command = readerCommand,
@@ -1008,6 +1028,7 @@ expect fun ReaderWebViewHost(
 	title: String,
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
+	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
 	command: ReaderBridgeCommand? = null,

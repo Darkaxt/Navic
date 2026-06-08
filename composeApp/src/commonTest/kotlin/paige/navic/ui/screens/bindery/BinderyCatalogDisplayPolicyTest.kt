@@ -259,9 +259,7 @@ class BinderyCatalogDisplayPolicyTest {
 		val row = binderyBookFindingRows(catalog).ebooks.single()
 
 		assertEquals(BinderyBookFindingRowAction.Play, row.readerAction)
-		assertEquals(BinderyOpdsActionType.DownloadRequest, row.readerOpdsAction?.type)
-		assertEquals(BinderyOpdsActionPresentation.Play, row.readerOpdsAction?.type?.presentation())
-		assertEquals(download, row.readerOpdsAction?.link)
+		assertEquals(null, row.readerOpdsAction)
 		assertEquals(download, row.card.downloadRequestAction)
 		assertEquals(BinderyOpdsActionType.DownloadRequest, row.card.primaryAction()?.type)
 	}
@@ -1512,6 +1510,132 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			),
 			binderyBookVersionRows(manifest, resources)
+		)
+	}
+
+	@Test
+	fun bookVersionRowsAttachCurrentBookFindingToMatchingConcreteResource() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3880",
+			title = "Leaf by Niggle",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3880/resources/audio-89fb6c8269e08bd7a52e",
+					title = "02 Leaf by Niggle",
+					type = "audio/mpeg",
+					durationSeconds = 2069.742,
+					sizeBytes = 33118504,
+					properties = mapOf(
+						"bookFileId" to "765",
+						"format" to "audiobook",
+						"language" to "eng",
+						"narrator" to "Derek Jacobi",
+						"provider" to "AudioBook Bay"
+					)
+				)
+			)
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:17",
+					title = "Tales from the Perilous Realm - J.R.R. Tolkien Audiobook [MP3]",
+					finding = BinderyFindingMetadata(
+						findingId = "17",
+						mediaType = "audiobook",
+						format = "mp3",
+						language = "eng",
+						narrator = "Derek Jacobi",
+						availabilityStatus = "imported",
+						mappings = listOf(
+							BinderyFindingMapping(
+								id = "52018",
+								bookId = "3880",
+								bookTitle = "Leaf by Niggle",
+								mediaType = "audiobook",
+								targetLanguage = "eng",
+								acquisitionStatus = "imported",
+								bookFileId = "765",
+								sourceCatalogCandidateId = "17"
+							),
+							BinderyFindingMapping(
+								id = "65058",
+								bookId = "3735",
+								bookTitle = "Tales from the Perilous Realm",
+								mediaType = "ebook",
+								targetLanguage = "eng",
+								acquisitionStatus = "imported",
+								bookFileId = "799",
+								sourceCatalogCandidateId = "0"
+							)
+						)
+					),
+					links = listOf(
+						BinderyLink(
+							href = "/opds/findings/17",
+							rel = listOf("self"),
+							type = "application/opds-publication+json"
+						)
+					)
+				)
+			)
+		)
+
+		val row = binderyBookVersionRows(
+			manifest = manifest,
+			resourceCatalog = null,
+			languageFilter = "eng",
+			findingsCatalog = findings
+		).single()
+
+		assertEquals(BinderyBookVersionKind.Audiobook, row.kind)
+		assertEquals("audiobook:765", row.id)
+		assertEquals("17", row.finding?.id)
+		assertEquals("/opds/findings/17", row.finding?.path)
+	}
+
+	@Test
+	fun bookVersionRowsDoNotCreateRowsFromFindingsWithoutConcreteResources() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3880",
+			title = "Leaf by Niggle"
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:17",
+					title = "Tales from the Perilous Realm - J.R.R. Tolkien Audiobook [MP3]",
+					finding = BinderyFindingMetadata(
+						findingId = "17",
+						mediaType = "audiobook",
+						format = "mp3",
+						language = "eng",
+						availabilityStatus = "imported",
+						mappings = listOf(
+							BinderyFindingMapping(
+								bookId = "3880",
+								bookTitle = "Leaf by Niggle",
+								mediaType = "audiobook",
+								targetLanguage = "eng",
+								acquisitionStatus = "imported",
+								bookFileId = "765"
+							)
+						)
+					),
+					links = listOf(BinderyLink(href = "/opds/findings/17", type = "application/opds+json"))
+				)
+			)
+		)
+
+		assertTrue(
+			binderyBookVersionRows(
+				manifest = manifest,
+				resourceCatalog = null,
+				languageFilter = "eng",
+				findingsCatalog = findings
+			).isEmpty()
 		)
 	}
 

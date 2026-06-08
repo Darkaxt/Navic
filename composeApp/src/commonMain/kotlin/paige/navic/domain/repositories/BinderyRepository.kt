@@ -645,7 +645,11 @@ data class BinderyFindingMapping(
 	val targetLanguage: String? = null,
 	val acquisitionStatus: String? = null,
 	val acquisitionScope: String? = null,
-	val selectedBytes: Long? = null
+	val selectedBytes: Long? = null,
+	val bookFileId: String? = null,
+	val bookFileFormat: String? = null,
+	val bookFileSizeBytes: Long? = null,
+	val sourceCatalogCandidateId: String? = null
 )
 
 @Serializable
@@ -1158,7 +1162,11 @@ private fun JsonObject.toFindingMapping(): BinderyFindingMapping =
 		targetLanguage = stringValue("targetLanguage") ?: stringValue("language"),
 		acquisitionStatus = stringValue("acquisitionStatus"),
 		acquisitionScope = stringValue("acquisitionScope"),
-		selectedBytes = longValue("selectedBytes")
+		selectedBytes = longValue("selectedBytes"),
+		bookFileId = stringValue("bookFileId")?.takeUnless { it == "0" },
+		bookFileFormat = stringValue("bookFileFormat"),
+		bookFileSizeBytes = longValue("bookFileSizeBytes"),
+		sourceCatalogCandidateId = stringValue("sourceCatalogCandidateId")?.takeUnless { it == "0" }
 	)
 
 private fun BinderyFindingMetadata.hasContent(): Boolean =

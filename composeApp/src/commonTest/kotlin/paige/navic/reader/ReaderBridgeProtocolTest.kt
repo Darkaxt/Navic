@@ -12,7 +12,15 @@ class ReaderBridgeProtocolTest {
 		val script = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/opds/books/3693/resources/readaloud-1?title=\"Alcatraz\"",
 			mediaOverlayEnabled = true,
-			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)")
+			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)"),
+			settings = ReaderSettings(
+				fontFamily = ReaderSerifFontFamily,
+				fontSizePercent = 112,
+				lineHeight = 1.7,
+				marginPercent = 8,
+				theme = "dark",
+				paged = false
+			)
 		).toJavaScript()
 
 		assertContains(script, "window.NavicReaderBridge.dispatch")
@@ -20,6 +28,12 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "epubcfi(/6/2!/4/1:0)")
 		assertContains(script, "\"type\":\"openPublication\"")
 		assertContains(script, "\"mediaOverlayEnabled\":true")
+		assertContains(script, "\"fontFamily\":\"Georgia, serif\"")
+		assertContains(script, "\"fontSizePercent\":112")
+		assertContains(script, "\"lineHeight\":1.7")
+		assertContains(script, "\"marginPercent\":8")
+		assertContains(script, "\"theme\":\"dark\"")
+		assertContains(script, "\"paged\":false")
 	}
 
 	@Test

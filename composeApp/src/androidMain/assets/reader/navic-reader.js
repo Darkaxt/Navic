@@ -58,7 +58,7 @@ class NavicReaderRuntime {
     }
   }
 
-  async openPublication({ url, mediaOverlayEnabled = false, startLocator = null }) {
+  async openPublication({ url, mediaOverlayEnabled = false, startLocator = null, settings = null }) {
     if (!url) {
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
       return
@@ -72,6 +72,7 @@ class NavicReaderRuntime {
       this.view.addEventListener('external-link', event => event.preventDefault())
       readerRoot.replaceChildren(this.view)
       await this.view.open(url)
+      if (settings) this.applySettings(settings)
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       if (locator) {

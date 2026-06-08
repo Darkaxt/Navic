@@ -180,13 +180,15 @@ fun BinderyBookScreen(
 							BinderyBookLoadingPlaceholder(titleText)
 						}
 						else -> {
-							val findingGroups = binderyBookFindingRows(data.findings, languageFilter)
+							val versionRows = binderyBookVersionRows(
+								manifest = data.manifest,
+								resourceCatalog = data.resources,
+								languageFilter = languageFilter,
+								findingsCatalog = data.findings,
+								bookId = bookId
+							)
 							val versionGroups = binderyBookVersionGroups(
-								binderyBookVersionRows(
-									manifest = data.manifest,
-									resourceCatalog = data.resources,
-									languageFilter = languageFilter
-								)
+								versionRows
 							)
 							item("bindery-book-hero") {
 								BinderyBookHero(
@@ -208,7 +210,7 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							if (findingGroups.isEmpty && versionGroups.isEmpty) {
+							if (versionGroups.isEmpty) {
 								item("bindery-book-no-findings") {
 									ContentUnavailable(
 										icon = Icons.Outlined.Audiobooks,
@@ -216,7 +218,7 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							if (versionGroups.audiobooks.isNotEmpty() || findingGroups.audiobooks.isNotEmpty()) {
+							if (versionGroups.audiobooks.isNotEmpty()) {
 								item("bindery-book-audiobooks-title") {
 									BinderyBookSectionTitle(stringResource(Res.string.title_audiobooks))
 								}
@@ -229,31 +231,19 @@ fun BinderyBookScreen(
 										bookId = bookId,
 										bookTitle = data.manifest.title,
 										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+										readaloudMediaOverlayEnabled = preferenceManager.readerMediaOverlayEnabled,
 										onOpenReader = { destination ->
 											platformContext.clickSound()
 											backStack.add(destination)
-										}
-									)
-								}
-								itemsIndexed(findingGroups.audiobooks, key = { _, row -> row.key }) { _, row ->
-									BinderyBookFindingCandidateListItem(
-										row = row,
-										baseUrl = preferenceManager.binderyOpdsBaseUrl,
-										imageRequestHeaders = imageRequestHeaders,
+										},
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
-										},
-										actionInFlight = actionInFlight,
-										onReaderAction = { link ->
-											platformContext.clickSound()
-											viewModel.performAction(link)
-										},
-										languageFilter = languageFilter
+										}
 									)
 								}
 							}
-							if (versionGroups.ebooks.isNotEmpty() || findingGroups.ebooks.isNotEmpty()) {
+							if (versionGroups.ebooks.isNotEmpty()) {
 								item("bindery-book-ebooks-title") {
 									BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_ebooks))
 								}
@@ -266,27 +256,15 @@ fun BinderyBookScreen(
 										bookId = bookId,
 										bookTitle = data.manifest.title,
 										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+										readaloudMediaOverlayEnabled = preferenceManager.readerMediaOverlayEnabled,
 										onOpenReader = { destination ->
 											platformContext.clickSound()
 											backStack.add(destination)
-										}
-									)
-								}
-								itemsIndexed(findingGroups.ebooks, key = { _, row -> row.key }) { _, row ->
-									BinderyBookFindingCandidateListItem(
-										row = row,
-										baseUrl = preferenceManager.binderyOpdsBaseUrl,
-										imageRequestHeaders = imageRequestHeaders,
+										},
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
-										},
-										actionInFlight = actionInFlight,
-										onReaderAction = { link ->
-											platformContext.clickSound()
-											viewModel.performAction(link)
-										},
-										languageFilter = languageFilter
+										}
 									)
 								}
 							}
@@ -460,13 +438,16 @@ private fun BinderyBookVersionListItem(
 	bookId: String,
 	bookTitle: String,
 	opdsBaseUrl: String,
-	onOpenReader: (Screen.Reader) -> Unit
+	readaloudMediaOverlayEnabled: Boolean,
+	onOpenReader: (Screen.Reader) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
 ) {
 	val readerDestination = binderyReaderDestinationForVersionRow(
 		row = row,
 		bookId = bookId,
 		bookTitle = bookTitle,
-		opdsBaseUrl = opdsBaseUrl
+		opdsBaseUrl = opdsBaseUrl,
+		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled
 	)
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
@@ -505,6 +486,15 @@ private fun BinderyBookVersionListItem(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
+			row.finding?.let { finding ->
+				IconButton(onClick = { onOpenFinding(finding) }) {
+					Icon(
+						imageVector = Icons.Outlined.Info,
+						contentDescription = null,
+						tint = MaterialTheme.colorScheme.onSurfaceVariant
 					)
 				}
 			}

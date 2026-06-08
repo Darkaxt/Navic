@@ -771,8 +771,7 @@ data class BinderyBookFindingRow(
 	val subtitle: String?,
 	val card: BinderyCatalogCard.Finding,
 	val readerAction: BinderyBookFindingRowAction = BinderyBookFindingRowAction.Play,
-	val readerOpdsAction: BinderyOpdsAction? = card.downloadRequestAction
-		?.let { link -> BinderyOpdsAction(BinderyOpdsActionType.DownloadRequest, link) }
+	val readerOpdsAction: BinderyOpdsAction? = null
 )
 
 data class BinderyBookFindingGroups(
@@ -785,7 +784,9 @@ data class BinderyBookFindingGroups(
 
 fun binderyBookFindingRows(
 	catalog: BinderyCatalog,
-	languageFilter: String? = null
+	languageFilter: String? = null,
+	currentBookId: String? = null,
+	concreteVersionRows: List<BinderyBookVersionRow> = emptyList()
 ): BinderyBookFindingGroups {
 	val language = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
 	val rows = binderyCatalogCards(catalog, BinderyCatalogTab.Findings)
@@ -799,6 +800,15 @@ fun binderyBookFindingRows(
 				return@mapIndexedNotNull null
 			}
 			val kind = metadata.findingKind() ?: return@mapIndexedNotNull null
+			if (metadata.isImportedCurrentBookFindingAlreadyRepresented(
+					currentBookId = currentBookId,
+					kind = kind,
+					language = language,
+					concreteVersionRows = concreteVersionRows
+				)
+			) {
+				return@mapIndexedNotNull null
+			}
 			BinderyBookFindingRow(
 				id = metadata?.findingId?.trim()?.takeIf { it.isNotEmpty() } ?: card.id,
 				key = binderyUiStableKey(
@@ -832,6 +842,64 @@ fun binderyBookFindingRows(
 				.thenBy { row -> row.title.lowercase() }
 		)
 	return BinderyBookFindingGroups(audioRows, ebookRows)
+}
+
+private fun BinderyFindingMetadata?.isImportedCurrentBookFindingAlreadyRepresented(
+	currentBookId: String?,
+	kind: BinderyBookFindingKind,
+	language: String?,
+	concreteVersionRows: List<BinderyBookVersionRow>
+): Boolean {
+	val metadata = this ?: return false
+	val status = metadata.availabilityStatus?.trim()?.lowercase()
+	if (status != "imported") return false
+	if (concreteVersionRows.none { row -> row.kind.representsFindingKind(kind) }) return false
+	val normalizedBookId = currentBookId
+		?.let(::binderyBookRouteId)
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+		?: return false
+	return metadata.mappings.any { mapping ->
+		mapping.bookId
+			?.let(::binderyBookRouteId)
+			?.trim()
+			?.lowercase() == normalizedBookId &&
+			mapping.acquisitionStatus?.trim()?.lowercase() == "imported" &&
+			mapping.matchesFindingKind(kind, metadata) &&
+			mapping.matchesFindingLanguage(language, metadata)
+	}
+}
+
+private fun BinderyBookVersionKind.representsFindingKind(kind: BinderyBookFindingKind): Boolean =
+	when (kind) {
+		BinderyBookFindingKind.Audiobook -> this == BinderyBookVersionKind.Audiobook
+		BinderyBookFindingKind.Ebook -> this == BinderyBookVersionKind.Ebook ||
+			this == BinderyBookVersionKind.Readaloud
+	}
+
+private fun BinderyFindingMapping.matchesFindingKind(
+	kind: BinderyBookFindingKind,
+	metadata: BinderyFindingMetadata
+): Boolean {
+	val expected = when (kind) {
+		BinderyBookFindingKind.Audiobook -> "audiobook"
+		BinderyBookFindingKind.Ebook -> "ebook"
+	}
+	val actual = mediaType?.normalizedBinderyMediaFormat()
+		?: metadata.mediaType?.normalizedBinderyMediaFormat()
+		?: metadata.format?.normalizedBinderyMediaFormat()
+	return actual == expected
+}
+
+private fun BinderyFindingMapping.matchesFindingLanguage(
+	language: String?,
+	metadata: BinderyFindingMetadata
+): Boolean {
+	if (language == null) return true
+	val actual = targetLanguage?.normalizedBinderyAvailabilityLanguage()
+		?: metadata.language?.normalizedBinderyAvailabilityLanguage()
+	return actual == language
 }
 
 internal fun binderyUiStableKey(
@@ -872,7 +940,8 @@ data class BinderyBookVersionRow(
 	val id: String,
 	val kind: BinderyBookVersionKind,
 	val title: String,
-	val subtitle: String?
+	val subtitle: String?,
+	val finding: BinderyCatalogCard.Finding? = null
 )
 
 data class BinderyBookVersionGroups(
@@ -912,7 +981,8 @@ fun binderyReaderDestinationForVersionRow(
 	row: BinderyBookVersionRow,
 	bookId: String,
 	bookTitle: String,
-	opdsBaseUrl: String
+	opdsBaseUrl: String,
+	readaloudMediaOverlayEnabled: Boolean = true
 ): Screen.Reader? =
 	when (row.routingAction()) {
 		BinderyBookVersionRoutingAction.OpenReadaloud -> Screen.Reader(
@@ -921,7 +991,7 @@ fun binderyReaderDestinationForVersionRow(
 			bookId = bookId,
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Readaloud,
-			mediaOverlayEnabled = true
+			mediaOverlayEnabled = readaloudMediaOverlayEnabled
 		)
 		BinderyBookVersionRoutingAction.OpenEbook -> Screen.Reader(
 			title = bookTitle,
@@ -937,9 +1007,15 @@ fun binderyReaderDestinationForVersionRow(
 fun binderyBookVersionRows(
 	manifest: BinderyManifest?,
 	resourceCatalog: BinderyResourceCatalog?,
-	languageFilter: String? = null
+	languageFilter: String? = null,
+	findingsCatalog: BinderyCatalog? = null,
+	bookId: String? = manifest?.id
 ): List<BinderyBookVersionRow> {
 	val language = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
+	val findingByBookFileId = findingsCatalog.findingCardsByBookFileId(
+		currentBookId = bookId ?: manifest?.id,
+		language = language
+	)
 	val manifestReadingOrder = manifest?.readingOrder.orEmpty()
 	val audioItems = manifestReadingOrder
 		.filter(BinderyReadingOrderItem::isAudioResource)
@@ -975,25 +1051,62 @@ fun binderyBookVersionRows(
 				.thenByDescending { items -> items.audioBytesPerSecond() }
 				.thenByDescending { items -> items.totalSizeBytes() }
 		)
-		.map { items -> items.toAudiobookVersionRow() }
+		.map { items -> items.toAudiobookVersionRow(findingByBookFileId) }
 	val readaloudRows = readaloudResources
 		.sortedWith(
 			compareByDescending<BinderyBookResource> { resource -> resource.sizeBytes ?: 0L }
 				.thenBy { resource -> resource.versionTitle().lowercase() }
 		)
-		.map { resource -> resource.toReadaloudVersionRow() }
+		.map { resource -> resource.toReadaloudVersionRow(findingByBookFileId) }
 	val ebookRows = ebookResources
 		.sortedWith(
 			compareByDescending<BinderyBookResource> { resource -> resource.ebookFormatQualityRank() }
 				.thenByDescending { resource -> resource.sizeBytes ?: 0L }
 				.thenBy { resource -> resource.versionTitle().lowercase() }
 		)
-		.map { resource -> resource.toEbookVersionRow() }
+		.map { resource -> resource.toEbookVersionRow(findingByBookFileId) }
 
 	return readaloudRows + audioRows + ebookRows
 }
 
-private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(): BinderyBookVersionRow {
+private fun BinderyCatalog?.findingCardsByBookFileId(
+	currentBookId: String?,
+	language: String?
+): Map<String, BinderyCatalogCard.Finding> {
+	val catalog = this ?: return emptyMap()
+	val normalizedBookId = currentBookId
+		?.let(::binderyBookRouteId)
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+		?: return emptyMap()
+	return binderyCatalogCards(catalog, BinderyCatalogTab.Findings)
+		.filterIsInstance<BinderyCatalogCard.Finding>()
+		.flatMap { card ->
+			val metadata = card.finding ?: return@flatMap emptyList()
+			val kind = metadata.findingKind()
+			metadata.mappings.mapNotNull { mapping ->
+				val bookFileId = mapping.bookFileId
+					?.trim()
+					?.takeIf { it.isNotEmpty() && it != "0" }
+					?: return@mapNotNull null
+				val mappingBookId = mapping.bookId
+					?.let(::binderyBookRouteId)
+					?.trim()
+					?.lowercase()
+				if (mappingBookId != normalizedBookId) return@mapNotNull null
+				if (!mapping.matchesFindingLanguage(language, metadata)) return@mapNotNull null
+				if (kind != null && !mapping.matchesFindingKind(kind, metadata)) return@mapNotNull null
+				bookFileId to card
+			}
+		}
+		.distinctBy { (bookFileId, _) -> bookFileId }
+		.toMap()
+}
+
+private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(
+	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
+): BinderyBookVersionRow {
 	val totalDuration = sumOf { it.durationSeconds ?: 0.0 }.takeIf { it > 0.0 }
 	val totalSize = sumOf { it.sizeBytes ?: 0L }.takeIf { it > 0L }
 	val format = mostCommonFormat()
@@ -1001,6 +1114,7 @@ private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(): BinderyBookVe
 	val provider = firstNotNullOfOrNull { item -> item.providerLabel() }
 	val narrator = firstNotNullOfOrNull { item -> item.properties.firstNonBlankValue("narrator") }
 	val partsText = if (size == 1) "1 part" else "$size parts"
+	val bookFileId = firstNotNullOfOrNull { item -> item.bookFileId() }
 	val subtitle = listOfNotNull(
 		provider,
 		publisher,
@@ -1014,11 +1128,14 @@ private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(): BinderyBookVe
 		id = firstOrNull()?.audioEditionKey()?.takeIf { it != "audiobook" }?.let { "audiobook:$it" } ?: "audiobook",
 		kind = BinderyBookVersionKind.Audiobook,
 		title = "Audiobook",
-		subtitle = subtitle
+		subtitle = subtitle,
+		finding = bookFileId?.let(findingByBookFileId::get)
 	)
 }
 
-private fun BinderyBookResource.toEbookVersionRow(): BinderyBookVersionRow =
+private fun BinderyBookResource.toEbookVersionRow(
+	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
+): BinderyBookVersionRow =
 	BinderyBookVersionRow(
 		id = href,
 		kind = BinderyBookVersionKind.Ebook,
@@ -1027,10 +1144,13 @@ private fun BinderyBookResource.toEbookVersionRow(): BinderyBookVersionRow =
 			providerLabel(),
 			displayFormat().takeUnless { it == versionTitle() },
 			sizeBytes?.toFileSize()
-		).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
+		finding = bookFileId()?.let(findingByBookFileId::get)
 	)
 
-private fun BinderyBookResource.toReadaloudVersionRow(): BinderyBookVersionRow =
+private fun BinderyBookResource.toReadaloudVersionRow(
+	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
+): BinderyBookVersionRow =
 	BinderyBookVersionRow(
 		id = href,
 		kind = BinderyBookVersionKind.Readaloud,
@@ -1039,7 +1159,8 @@ private fun BinderyBookResource.toReadaloudVersionRow(): BinderyBookVersionRow =
 			providerLabel(),
 			displayFormat(),
 			sizeBytes?.toFileSize()
-		).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
+		finding = bookFileId()?.let(findingByBookFileId::get)
 	)
 
 private fun BinderyBookResource.isAudioResource(): Boolean =
@@ -1152,6 +1273,12 @@ private fun BinderyReadingOrderItem.toBookResource(): BinderyBookResource =
 
 private fun BinderyReadingOrderItem.audioEditionKey(): String =
 	properties.firstNonBlankValue("bookFileId") ?: "audiobook"
+
+private fun BinderyReadingOrderItem.bookFileId(): String? =
+	properties.firstNonBlankValue("bookFileId")?.takeIf { it != "0" }
+
+private fun BinderyBookResource.bookFileId(): String? =
+	properties.firstNonBlankValue("bookFileId")?.takeIf { it != "0" }
 
 private fun BinderyReadingOrderItem.matchesLanguage(language: String?): Boolean =
 	language == null || properties.firstNonBlankValue("language")
