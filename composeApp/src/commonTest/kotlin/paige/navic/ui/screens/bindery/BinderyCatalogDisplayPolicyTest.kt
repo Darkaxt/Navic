@@ -221,7 +221,7 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun findingRowsExposePlayActionWithoutPromotingDownloadRequestButtons() {
+	fun findingRowsPreserveDownloadMetadataForFindingDetailAndExposeOnlyReaderAction() {
 		val download = BinderyLink(
 			href = "/api/v1/findings/894/acquire",
 			title = "Request download",
@@ -257,7 +257,14 @@ class BinderyCatalogDisplayPolicyTest {
 
 		assertEquals(BinderyBookFindingRowAction.Play, row.readerAction)
 		assertEquals(download, row.card.downloadRequestAction)
-		assertEquals(null, binderyFindingRowOpdsAction(row.card))
+		assertEquals(BinderyOpdsActionType.DownloadRequest, row.card.primaryAction()?.type)
+	}
+
+	@Test
+	fun downloadRequestActionsUsePlayPresentationInBinderyUi() {
+		assertEquals(BinderyOpdsActionPresentation.Add, BinderyOpdsActionType.Monitor.presentation())
+		assertEquals(BinderyOpdsActionPresentation.Hide, BinderyOpdsActionType.Unmonitor.presentation())
+		assertEquals(BinderyOpdsActionPresentation.Play, BinderyOpdsActionType.DownloadRequest.presentation())
 	}
 
 	@Test
@@ -512,7 +519,7 @@ class BinderyCatalogDisplayPolicyTest {
 
 		assertEquals(
 			listOf("Explicitly owned book"),
-			row.cards.map { it.title }
+			row.cards().map { it.title }
 		)
 	}
 
@@ -846,7 +853,82 @@ class BinderyCatalogDisplayPolicyTest {
 				subtitle = "Author",
 				imageUrl = null,
 				availability = crossLanguageAvailability
-			).availabilityStatus()
+			).availabilityStatus(languageFilter = "eng")
+		)
+	}
+
+	@Test
+	fun bookAvailabilityUsesSelectedLanguageAsTheOnlyGreenPipeline() {
+		val spanishCompleteEnglishEbookOnly = paige.navic.domain.repositories.BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedFormats = listOf("ebook", "audiobook"),
+			ownedLanguages = listOf("eng", "spa"),
+			ownedCombinations = listOf(
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "ebook",
+					language = "eng"
+				),
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "ebook",
+					language = "spa"
+				),
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "audiobook",
+					language = "spa"
+				)
+			)
+		)
+		val englishMissingSpanishComplete = paige.navic.domain.repositories.BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedFormats = listOf("ebook", "audiobook"),
+			ownedLanguages = listOf("eng", "spa"),
+			ownedCombinations = listOf(
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "ebook",
+					language = "spa"
+				),
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "audiobook",
+					language = "spa"
+				)
+			)
+		)
+
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			spanishCompleteEnglishEbookOnly.toBookOwnershipStatus(languageFilter = "eng")
+		)
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			spanishCompleteEnglishEbookOnly.toBookOwnershipStatus(languageFilter = "spa")
+		)
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			englishMissingSpanishComplete.toBookOwnershipStatus(languageFilter = "eng")
+		)
+	}
+
+	@Test
+	fun aggregateOwnedCompleteDoesNotOverrideSelectedLanguageMediaMissing() {
+		val noEnglishMedia = paige.navic.domain.repositories.BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedBooks = 1,
+			missingBooks = 0,
+			totalBooks = 1,
+			ownedFormats = listOf("ebook", "audiobook"),
+			ownedLanguages = listOf("spa")
+		)
+
+		assertEquals(
+			AurralOwnershipStatus.Missing,
+			noEnglishMedia.toBookOwnershipStatus(languageFilter = "eng")
+		)
+		assertEquals(
+			AurralOwnershipStatus.Owned,
+			noEnglishMedia.toBookOwnershipStatus(languageFilter = "spa")
 		)
 	}
 

@@ -23,11 +23,11 @@ data class BinderyHubCatalogRow(
 	val row: BinderyHubRow,
 	val catalog: BinderyCatalog
 ) {
-	val cards: List<BinderyCatalogCard>
-		get() = binderyCatalogCards(catalog, row.catalogTab)
+	fun cards(languageFilter: String? = null): List<BinderyCatalogCard> =
+		binderyCatalogCards(catalog, row.catalogTab)
 			.let { cards ->
 				if (row.kind.showOnlyAvailableContent()) {
-					cards.filter(BinderyCatalogCard::hasAvailableContent)
+					cards.filter { card -> card.hasAvailableContent(languageFilter) }
 				} else {
 					cards
 				}

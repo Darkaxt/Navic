@@ -19,14 +19,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_bindery_monitor
-import navic.composeapp.generated.resources.action_bindery_request_download
 import navic.composeapp.generated.resources.action_bindery_unmonitor
+import navic.composeapp.generated.resources.action_play
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Add
-import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.VisibilityOff
 
 @Composable
@@ -97,15 +97,15 @@ fun BinderyActionButton(
 }
 
 private fun BinderyOpdsAction.icon(): ImageVector =
-	when (type) {
-		BinderyOpdsActionType.Monitor -> Icons.Outlined.Add
-		BinderyOpdsActionType.Unmonitor -> Icons.Outlined.VisibilityOff
-		BinderyOpdsActionType.DownloadRequest -> Icons.Outlined.Download
+	when (type.presentation()) {
+		BinderyOpdsActionPresentation.Add -> Icons.Outlined.Add
+		BinderyOpdsActionPresentation.Hide -> Icons.Outlined.VisibilityOff
+		BinderyOpdsActionPresentation.Play -> Icons.Filled.Play
 	}
 
 private fun BinderyOpdsAction.labelResource(): StringResource =
-	when (type) {
-		BinderyOpdsActionType.Monitor -> Res.string.action_bindery_monitor
-		BinderyOpdsActionType.Unmonitor -> Res.string.action_bindery_unmonitor
-		BinderyOpdsActionType.DownloadRequest -> Res.string.action_bindery_request_download
+	when (type.presentation()) {
+		BinderyOpdsActionPresentation.Add -> Res.string.action_bindery_monitor
+		BinderyOpdsActionPresentation.Hide -> Res.string.action_bindery_unmonitor
+		BinderyOpdsActionPresentation.Play -> Res.string.action_play
 	}

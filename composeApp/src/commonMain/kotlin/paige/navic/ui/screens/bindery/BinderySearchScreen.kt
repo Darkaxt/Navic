@@ -83,6 +83,7 @@ fun BinderySearchScreen(
 	val query = viewModel.searchQuery
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
+	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	var selectedCategory by remember { mutableStateOf(BinderySearchCategory.All) }
@@ -156,6 +157,7 @@ fun BinderySearchScreen(
 									result = result,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
+									languageFilter = languageFilter,
 									actionInFlight = actionInFlight,
 									onOpenBook = { book ->
 										platformContext.clickSound()
@@ -242,6 +244,7 @@ private fun BinderySearchResultItem(
 	result: BinderySearchResult,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	languageFilter: String?,
 	actionInFlight: Set<String>,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
 	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
@@ -253,14 +256,14 @@ private fun BinderySearchResultItem(
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			val action = card.primaryAction()
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenBook(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				coverOverlay = if (action != null) {
@@ -286,14 +289,14 @@ private fun BinderySearchResultItem(
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			val action = card.primaryAction()
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenFinding(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				coverOverlay = if (action != null) {
@@ -319,14 +322,14 @@ private fun BinderySearchResultItem(
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			val action = card.primaryAction()
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenCatalog(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				coverOverlay = if (action != null) {

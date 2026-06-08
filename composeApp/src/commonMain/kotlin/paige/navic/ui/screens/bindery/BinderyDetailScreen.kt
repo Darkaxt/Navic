@@ -198,6 +198,7 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										languageFilter = languageFilter,
 										actionInFlight = actionInFlight,
 										onOpenBook = { publication ->
 											platformContext.clickSound()
@@ -235,6 +236,7 @@ fun BinderyDetailScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										languageFilter = languageFilter,
 										actionInFlight = actionInFlight,
 										onOpenBook = { publication ->
 											platformContext.clickSound()
@@ -267,6 +269,7 @@ fun BinderyDetailScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								bookGridColumns = bookGridColumns,
+								languageFilter = languageFilter,
 								actionInFlight = actionInFlight,
 								onOpenBook = { publication ->
 									platformContext.clickSound()
@@ -325,6 +328,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	bookGridColumns: Int,
+	languageFilter: String?,
 	actionInFlight: Set<String>,
 	onOpenBook: (BinderyPublication) -> Unit,
 	onOpenCollection: (BinderyCatalogCard.Link) -> Unit,
@@ -371,6 +375,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 				card = card,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,
+				languageFilter = languageFilter,
 				onOpenCollection = onOpenCollection
 			)
 		}
@@ -408,6 +413,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyDetailIte
 				kind = kind,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,
+				languageFilter = languageFilter,
 				actionInFlight = actionInFlight,
 				onOpenBook = onOpenBook,
 				onAction = onAction
@@ -440,18 +446,19 @@ private fun BinderyRelatedCollectionCard(
 	card: BinderyCatalogCard.Link,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	languageFilter: String?,
 	onOpenCollection: (BinderyCatalogCard.Link) -> Unit
 ) {
 	val visualPolicy = binderyCatalogCardVisualPolicy(card)
 	ArtGridItem(
-		modifier = modifier.alpha(card.availabilityAlpha()),
+		modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 		onClick = { onOpenCollection(card) },
 		coverArtId = null,
 		imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 		imageRequestHeaders = imageRequestHeaders,
 		title = card.title,
 		subtitle = card.collectionSummarySubtitle(),
-		ownershipStatus = card.availabilityStatus(),
+		ownershipStatus = card.availabilityStatus(languageFilter),
 		coverAspectRatio = visualPolicy.coverAspectRatio,
 		coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 		fallbackKind = card.subtitle,
@@ -558,12 +565,13 @@ private fun BinderyPublicationGridItem(
 	kind: BinderyDetailKind,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	languageFilter: String?,
 	actionInFlight: Set<String>,
 	onOpenBook: (BinderyPublication) -> Unit,
 	onAction: (BinderyLink) -> Unit
 ) {
 	val action = publication.primaryAction()
-	val ownershipStatus = publication.availability.toBookOwnershipStatus()
+	val ownershipStatus = publication.availability.toBookOwnershipStatus(languageFilter)
 	ArtGridItem(
 		modifier = modifier.alpha(if (ownershipStatus == AurralOwnershipStatus.Missing) 0.42f else 1f),
 		onClick = { onOpenBook(publication) },

@@ -60,7 +60,6 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
-import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
@@ -97,8 +96,6 @@ fun BinderyBookScreen(
 		parameters = { parametersOf(bookId) }
 	)
 	val bookState by viewModel.bookState.collectAsStateWithLifecycle()
-	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
-	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyConfigured = shouldLoadBinderyUi(
@@ -184,9 +181,7 @@ fun BinderyBookScreen(
 								BinderyBookHero(
 									manifest = data.manifest,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
-									imageRequestHeaders = imageRequestHeaders,
-									actionInFlight = actionInFlight,
-									onAction = viewModel::performAction
+									imageRequestHeaders = imageRequestHeaders
 								)
 							}
 							if (data.manifest.subjects.isNotEmpty()) {
@@ -219,12 +214,11 @@ fun BinderyBookScreen(
 										row = row,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
-										actionInFlight = actionInFlight,
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
 										},
-										onAction = viewModel::performAction
+										languageFilter = languageFilter
 									)
 								}
 							}
@@ -237,12 +231,11 @@ fun BinderyBookScreen(
 										row = row,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
-										actionInFlight = actionInFlight,
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
 										},
-										onAction = viewModel::performAction
+										languageFilter = languageFilter
 									)
 								}
 							}
@@ -267,10 +260,6 @@ fun BinderyBookScreen(
 	ErrorSnackbar(
 		error = (bookState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
-	)
-	ErrorSnackbar(
-		error = actionError,
-		onClearError = viewModel::clearActionError
 	)
 }
 
@@ -308,15 +297,12 @@ private fun BinderyBookLoadingPlaceholder(title: String) {
 private fun BinderyBookHero(
 	manifest: BinderyManifest,
 	baseUrl: String,
-	imageRequestHeaders: Map<String, String>,
-	actionInFlight: Set<String>,
-	onAction: (BinderyLink) -> Unit
+	imageRequestHeaders: Map<String, String>
 ) {
 	var expanded by rememberSaveable(manifest.id, manifest.title) { mutableStateOf(false) }
 	val imageHref = manifest.images.firstOrNull()?.href
 	val metadataText = manifest.metadataText()
 	val description = manifest.description?.trim()?.takeIf { it.isNotEmpty() }
-	val action = manifest.primaryAction()
 	var descriptionHasOverflow by rememberSaveable(manifest.id, manifest.title, description) {
 		mutableStateOf(false)
 	}
@@ -340,9 +326,7 @@ private fun BinderyBookHero(
 				contentScale = ContentScale.Fit
 			)
 			Column(
-				modifier = Modifier
-					.weight(1f)
-					.padding(end = if (action != null) 48.dp else 0.dp),
+				modifier = Modifier.weight(1f),
 				verticalArrangement = Arrangement.spacedBy(8.dp)
 			) {
 				Text(
@@ -384,14 +368,6 @@ private fun BinderyBookHero(
 				}
 			}
 		}
-		if (action != null) {
-			BinderyCardActionButton(
-				action = action,
-				loading = action.link.href in actionInFlight,
-				onAction = onAction,
-				modifier = Modifier.align(Alignment.TopEnd)
-			)
-		}
 	}
 }
 
@@ -429,18 +405,16 @@ private fun BinderyBookFindingCandidateListItem(
 	row: BinderyBookFindingRow,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
-	actionInFlight: Set<String>,
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
-	onAction: (BinderyLink) -> Unit
+	languageFilter: String?
 ) {
 	val card = row.card
-	val action = binderyFindingRowOpdsAction(card)
 	val visualPolicy = binderyCatalogCardVisualPolicy(card)
 	Surface(
 		onClick = { onOpenFinding(card) },
 		modifier = Modifier
 			.fillMaxWidth()
-			.alpha(card.availabilityAlpha()),
+			.alpha(card.availabilityAlpha(languageFilter)),
 		shape = RoundedCornerShape(8.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHighest
 	) {
@@ -479,13 +453,6 @@ private fun BinderyBookFindingCandidateListItem(
 					)
 				}
 			}
-			if (action != null) {
-				BinderyCardActionButton(
-					action = action,
-					loading = action.link.href in actionInFlight,
-					onAction = onAction
-				)
-			}
 			IconButton(onClick = { onOpenFinding(card) }) {
 				Icon(
 					imageVector = Icons.Outlined.Info,
@@ -494,7 +461,8 @@ private fun BinderyBookFindingCandidateListItem(
 				)
 			}
 			IconButton(
-				onClick = { onOpenFinding(card) }
+				onClick = { },
+				enabled = false
 			) {
 				Icon(
 					imageVector = Icons.Filled.Play,

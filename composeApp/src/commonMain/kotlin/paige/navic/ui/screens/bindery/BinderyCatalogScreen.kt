@@ -158,6 +158,7 @@ fun BinderyCatalogScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										languageFilter = languageFilter,
 										actionInFlight = actionInFlight,
 										hasNextPage = hasNextPage,
 										isLoadingNextPage = isLoadingNextPage,
@@ -189,6 +190,7 @@ fun BinderyCatalogScreen(
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										collectionArtworkByPath = collectionArtworkByPath,
+										languageFilter = languageFilter,
 										actionInFlight = actionInFlight,
 										hasNextPage = hasNextPage,
 										isLoadingNextPage = isLoadingNextPage,
@@ -215,6 +217,7 @@ fun BinderyCatalogScreen(
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								collectionArtworkByPath = collectionArtworkByPath,
+								languageFilter = languageFilter,
 								actionInFlight = actionInFlight,
 								hasNextPage = hasNextPage,
 								isLoadingNextPage = isLoadingNextPage,
@@ -267,6 +270,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	collectionArtworkByPath: Map<String, String>,
+	languageFilter: String?,
 	actionInFlight: Set<String>,
 	hasNextPage: Boolean,
 	isLoadingNextPage: Boolean,
@@ -285,14 +289,14 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				ArtGridItem(
 					modifier = Modifier
 						.animateItem()
-						.alpha(card.availabilityAlpha()),
+						.alpha(card.availabilityAlpha(languageFilter)),
 					onClick = { onOpenBook(card) },
 					coverArtId = null,
 					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
-					ownershipStatus = card.availabilityStatus(),
+					ownershipStatus = card.availabilityStatus(languageFilter),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					coverOverlay = if (action != null) {
@@ -324,14 +328,14 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				ArtGridItem(
 					modifier = Modifier
 						.animateItem()
-						.alpha(card.availabilityAlpha()),
+						.alpha(card.availabilityAlpha(languageFilter)),
 					onClick = { onOpenCatalog(card) },
 					coverArtId = null,
 					imageUrl = imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
-					ownershipStatus = card.availabilityStatus(),
+					ownershipStatus = card.availabilityStatus(languageFilter),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					coverOverlay = if (action != null) {
@@ -359,14 +363,14 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 				ArtGridItem(
 					modifier = Modifier
 						.animateItem()
-						.alpha(card.availabilityAlpha()),
+						.alpha(card.availabilityAlpha(languageFilter)),
 					onClick = { onOpenFinding(card) },
 					coverArtId = null,
 					imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 					imageRequestHeaders = imageRequestHeaders,
 					title = card.title,
 					subtitle = card.subtitle,
-					ownershipStatus = card.availabilityStatus(),
+					ownershipStatus = card.availabilityStatus(languageFilter),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 					coverOverlay = if (action != null) {
