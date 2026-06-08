@@ -10,6 +10,13 @@ data class ReaderWebCommandDispatchStep(
 	val commands: List<ReaderBridgeCommand>
 )
 
+fun shouldDispatchReaderCommandsToWebRuntime(
+	runtimeReady: Boolean,
+	currentUrl: String?,
+	entrypointUrl: String
+): Boolean =
+	runtimeReady && currentUrl == entrypointUrl
+
 fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 	publicationKey: String,
 	openCommand: ReaderBridgeCommand.OpenPublication,

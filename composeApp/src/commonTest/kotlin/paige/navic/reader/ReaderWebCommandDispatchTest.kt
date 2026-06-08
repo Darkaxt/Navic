@@ -2,8 +2,19 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ReaderWebCommandDispatchTest {
+	@Test
+	fun readerCommandsDispatchOnlyAfterEntrypointRuntimeIsReady() {
+		val entrypoint = "file:///android_asset/reader/index.html"
+
+		assertFalse(shouldDispatchReaderCommandsToWebRuntime(runtimeReady = false, currentUrl = entrypoint, entrypointUrl = entrypoint))
+		assertFalse(shouldDispatchReaderCommandsToWebRuntime(runtimeReady = true, currentUrl = "about:blank", entrypointUrl = entrypoint))
+		assertTrue(shouldDispatchReaderCommandsToWebRuntime(runtimeReady = true, currentUrl = entrypoint, entrypointUrl = entrypoint))
+	}
+
 	@Test
 	fun runtimeReadyDispatchesOpenCommandAndEachExternalCommandOnlyOnce() {
 		val open = ReaderBridgeCommand.OpenPublication(

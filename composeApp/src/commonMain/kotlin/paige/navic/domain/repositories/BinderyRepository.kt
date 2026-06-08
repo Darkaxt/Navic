@@ -827,27 +827,27 @@ class BinderyApiException(
 
 @Serializable
 private data class BinderyCatalogDto(
-	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
-	val properties: Map<String, JsonElement> = emptyMap(),
-	val images: List<BinderyLinkDto> = emptyList(),
-	val links: List<BinderyLinkDto> = emptyList(),
-	val navigation: List<BinderyLinkDto> = emptyList(),
-	val publications: List<BinderyPublicationDto> = emptyList()
+	val metadata: BinderyMetadataDto? = null,
+	val properties: Map<String, JsonElement>? = null,
+	val images: List<BinderyLinkDto>? = null,
+	val links: List<BinderyLinkDto>? = null,
+	val navigation: List<BinderyLinkDto>? = null,
+	val publications: List<BinderyPublicationDto>? = null
 )
 
 @Serializable
 private data class BinderyResourceCatalogDto(
-	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
-	val resources: List<BinderyLinkDto> = emptyList()
+	val metadata: BinderyMetadataDto? = null,
+	val resources: List<BinderyLinkDto>? = null
 )
 
 @Serializable
 private data class BinderyPublicationDto(
-	val metadata: BinderyMetadataDto = BinderyMetadataDto(),
-	val properties: Map<String, JsonElement> = emptyMap(),
-	val links: List<BinderyLinkDto> = emptyList(),
-	val images: List<BinderyLinkDto> = emptyList(),
-	@SerialName("readingOrder") val readingOrder: List<BinderyLinkDto> = emptyList()
+	val metadata: BinderyMetadataDto? = null,
+	val properties: Map<String, JsonElement>? = null,
+	val links: List<BinderyLinkDto>? = null,
+	val images: List<BinderyLinkDto>? = null,
+	@SerialName("readingOrder") val readingOrder: List<BinderyLinkDto>? = null
 )
 
 @Serializable
@@ -855,13 +855,13 @@ private data class BinderyMetadataDto(
 	val title: String? = null,
 	val identifier: String? = null,
 	val sortAs: String? = null,
-	val author: List<BinderyContributorDto> = emptyList(),
+	val author: List<BinderyContributorDto>? = null,
 	val published: String? = null,
 	val modified: String? = null,
 	val description: String? = null,
-	val subject: List<String> = emptyList(),
+	val subject: List<String>? = null,
 	val duration: Double? = null,
-	val properties: Map<String, JsonElement> = emptyMap()
+	val properties: Map<String, JsonElement>? = null
 )
 
 @Serializable
@@ -875,74 +875,79 @@ private data class BinderyLinkDto(
 	val title: String? = null,
 	val type: String? = null,
 	val rel: JsonElement? = null,
-	val properties: Map<String, JsonElement> = emptyMap(),
-	val images: List<BinderyLinkDto> = emptyList(),
-	val links: List<BinderyLinkDto> = emptyList(),
+	val properties: Map<String, JsonElement>? = null,
+	val images: List<BinderyLinkDto>? = null,
+	val links: List<BinderyLinkDto>? = null,
 	val duration: Double? = null
 )
 
 private fun BinderyCatalogDto.toCatalog(): BinderyCatalog {
-	val decodedProperties = metadata.properties + properties
+	val safeMetadata = metadata ?: BinderyMetadataDto()
+	val decodedProperties = safeMetadata.properties.orEmpty() + properties.orEmpty()
 	return BinderyCatalog(
-		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Bindery",
-		identifier = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
-		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
-		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		title = safeMetadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Bindery",
+		identifier = safeMetadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
+		description = safeMetadata.description?.trim()?.takeIf { it.isNotEmpty() },
+		subjects = safeMetadata.subject.orEmpty().mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		availability = decodedProperties.toAvailability(),
 		properties = decodedProperties.toStringProperties(),
 		propertyValues = decodedProperties.toPropertyBag(),
-		images = images.mapNotNull { it.toLink() },
-		links = links.mapNotNull { it.toLink() },
-		navigation = navigation.mapNotNull { it.toLink() },
-		publications = publications.map { it.toPublication() },
+		images = images.orEmpty().mapNotNull { it.toLink() },
+		links = links.orEmpty().mapNotNull { it.toLink() },
+		navigation = navigation.orEmpty().mapNotNull { it.toLink() },
+		publications = publications.orEmpty().map { it.toPublication() },
 		finding = decodedProperties.toFindingMetadata()
 	)
 }
 
 private fun BinderyPublicationDto.toPublication(): BinderyPublication {
-	val decodedProperties = metadata.properties + properties
+	val safeMetadata = metadata ?: BinderyMetadataDto()
+	val decodedProperties = safeMetadata.properties.orEmpty() + properties.orEmpty()
 	return BinderyPublication(
-		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
-		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
-		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
-		published = metadata.published?.trim()?.takeIf { it.isNotEmpty() },
-		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
-		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
-		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		id = safeMetadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
+		title = safeMetadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
+		author = safeMetadata.author.orEmpty().firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
+		published = safeMetadata.published?.trim()?.takeIf { it.isNotEmpty() },
+		description = safeMetadata.description?.trim()?.takeIf { it.isNotEmpty() },
+		subjects = safeMetadata.subject.orEmpty().mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		durationSeconds = safeMetadata.duration?.takeIf { it > 0.0 },
 		availability = decodedProperties.toAvailability(),
 		properties = decodedProperties.toStringProperties(),
 		propertyValues = decodedProperties.toPropertyBag(),
-		links = links.mapNotNull { it.toLink() },
-		images = images.mapNotNull { it.toLink() },
-		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() },
+		links = links.orEmpty().mapNotNull { it.toLink() },
+		images = images.orEmpty().mapNotNull { it.toLink() },
+		readingOrder = readingOrder.orEmpty().mapNotNull { it.toReadingOrderItem() },
 		finding = decodedProperties.toFindingMetadata()
 	)
 }
 
 private fun BinderyPublicationDto.toManifest(): BinderyManifest {
-	val decodedProperties = metadata.properties + properties
+	val safeMetadata = metadata ?: BinderyMetadataDto()
+	val decodedProperties = safeMetadata.properties.orEmpty() + properties.orEmpty()
 	return BinderyManifest(
-		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
-		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
-		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
-		published = metadata.published?.trim()?.takeIf { it.isNotEmpty() },
-		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
-		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
-		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
+		id = safeMetadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
+		title = safeMetadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
+		author = safeMetadata.author.orEmpty().firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
+		published = safeMetadata.published?.trim()?.takeIf { it.isNotEmpty() },
+		description = safeMetadata.description?.trim()?.takeIf { it.isNotEmpty() },
+		subjects = safeMetadata.subject.orEmpty().mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		durationSeconds = safeMetadata.duration?.takeIf { it > 0.0 },
 		availability = decodedProperties.toAvailability(),
 		properties = decodedProperties.toStringProperties(),
 		propertyValues = decodedProperties.toPropertyBag(),
-		links = links.mapNotNull { it.toLink() },
-		images = images.mapNotNull { it.toLink() },
-		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() }
+		links = links.orEmpty().mapNotNull { it.toLink() },
+		images = images.orEmpty().mapNotNull { it.toLink() },
+		readingOrder = readingOrder.orEmpty().mapNotNull { it.toReadingOrderItem() }
 	)
 }
 
-private fun BinderyResourceCatalogDto.toResourceCatalog(): BinderyResourceCatalog =
-	BinderyResourceCatalog(
-		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Resources",
-		resources = resources.mapNotNull { it.toBookResource() }
+private fun BinderyResourceCatalogDto.toResourceCatalog(): BinderyResourceCatalog {
+	val safeMetadata = metadata ?: BinderyMetadataDto()
+	return BinderyResourceCatalog(
+		title = safeMetadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Resources",
+		resources = resources.orEmpty().mapNotNull { it.toBookResource() }
 	)
+}
 
 internal fun decodeBinderyCatalogJson(jsonText: String): BinderyCatalog =
 	BinderyJson.decodeFromString<BinderyCatalogDto>(jsonText).toCatalog()
@@ -955,7 +960,8 @@ internal fun decodeBinderyResourceCatalogJson(jsonText: String): BinderyResource
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val stringProperties = properties.toStringProperties()
+	val safeProperties = properties.orEmpty()
+	val stringProperties = safeProperties.toStringProperties()
 	return BinderyReadingOrderItem(
 		href = safeHref,
 		title = title?.trim()?.takeIf { it.isNotEmpty() } ?: safeHref.substringAfterLast('/'),
@@ -963,29 +969,31 @@ private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 		durationSeconds = duration?.takeIf { it > 0.0 },
 		sizeBytes = stringProperties.firstNonBlankValue("size")?.toLongOrNull(),
 		properties = stringProperties,
-		propertyValues = properties.toPropertyBag(),
-		metadata = properties.toResourceMetadata()
+		propertyValues = safeProperties.toPropertyBag(),
+		metadata = safeProperties.toResourceMetadata()
 	)
 }
 
 private fun BinderyLinkDto.toLink(): BinderyLink? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val safeProperties = properties.orEmpty()
 	return BinderyLink(
 		href = safeHref,
 		title = title?.trim()?.takeIf { it.isNotEmpty() },
 		type = type?.trim()?.takeIf { it.isNotEmpty() },
 		rel = rel.toRelList(),
-		availability = properties.toAvailability(),
-		properties = properties.toStringProperties(),
-		propertyValues = properties.toPropertyBag(),
-		images = images.mapNotNull { it.toLink() },
-		links = links.mapNotNull { it.toLink() }
+		availability = safeProperties.toAvailability(),
+		properties = safeProperties.toStringProperties(),
+		propertyValues = safeProperties.toPropertyBag(),
+		images = images.orEmpty().mapNotNull { it.toLink() },
+		links = links.orEmpty().mapNotNull { it.toLink() }
 	)
 }
 
 private fun BinderyLinkDto.toBookResource(): BinderyBookResource? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val stringProperties = properties.toStringProperties()
+	val safeProperties = properties.orEmpty()
+	val stringProperties = safeProperties.toStringProperties()
 	return BinderyBookResource(
 		href = safeHref,
 		title = title?.trim()?.takeIf { it.isNotEmpty() } ?: safeHref.substringAfterLast('/'),
@@ -994,8 +1002,8 @@ private fun BinderyLinkDto.toBookResource(): BinderyBookResource? {
 		durationSeconds = duration?.takeIf { it > 0.0 },
 		sizeBytes = stringProperties.firstNonBlankValue("size")?.toLongOrNull(),
 		properties = stringProperties,
-		propertyValues = properties.toPropertyBag(),
-		metadata = properties.toResourceMetadata()
+		propertyValues = safeProperties.toPropertyBag(),
+		metadata = safeProperties.toResourceMetadata()
 	)
 }
 

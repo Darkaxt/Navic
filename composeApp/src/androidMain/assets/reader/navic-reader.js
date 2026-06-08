@@ -3,17 +3,32 @@ import './vendor/foliate-js/view.js'
 const readerRoot = document.getElementById('reader')
 const overlayClass = 'navic-active-overlay-fragment'
 
+const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
+const logError = (label, ...details) => console.error('[NavicReader]', label, ...details)
+
+const describeUrl = url => {
+  try {
+    const parsed = new URL(url)
+    const fileName = parsed.pathname.split('/').filter(Boolean).pop() || ''
+    return `${parsed.protocol}${fileName}`
+  } catch {
+    return typeof url === 'string' ? url.slice(0, 80) : typeof url
+  }
+}
+
 const post = message => {
   const json = JSON.stringify(message)
+  log('post', message.type, message.code || '')
   if (window.NavicAndroidBridge?.postMessage) {
     window.NavicAndroidBridge.postMessage(json)
   } else {
-    console.debug('Navic reader event', message)
+    log('bridge-unavailable', message)
   }
 }
 
 const reportError = (error, code = 'reader_error') => {
   const message = error?.message || String(error)
+  logError('reportError', code, message, error?.stack || error)
   readerRoot.replaceChildren(errorElement(message))
   post({ type: 'error', code, message })
 }
@@ -33,6 +48,7 @@ class NavicReaderRuntime {
   mediaOverlayEnabled = false
 
   dispatch(command) {
+    log('dispatch', command?.type || 'invalid')
     if (!command || typeof command !== 'object') return
     switch (command.type) {
       case 'openPublication':
@@ -60,10 +76,12 @@ class NavicReaderRuntime {
 
   async openPublication({ url, mediaOverlayEnabled = false, startLocator = null, settings = null }) {
     if (!url) {
+      logError('openPublication:missing-url')
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
       return
     }
     this.mediaOverlayEnabled = Boolean(mediaOverlayEnabled)
+    log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
       this.view = document.createElement('foliate-view')
@@ -72,6 +90,7 @@ class NavicReaderRuntime {
       this.view.addEventListener('external-link', event => event.preventDefault())
       readerRoot.replaceChildren(this.view)
       await this.view.open(url)
+      log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
@@ -80,6 +99,7 @@ class NavicReaderRuntime {
       } else {
         await this.view.init?.({ showTextStart: true })
       }
+      log('openPublication:ready', describeUrl(url))
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
     } catch (error) {
@@ -317,4 +337,5 @@ window.NavicReaderBridge = {
   postOverlayFragmentInactive: fragmentId => post({ type: 'overlayFragmentInactive', fragmentId }),
 }
 
+log('module-loaded')
 post({ type: 'ready' })

@@ -203,6 +203,27 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun catalogDecodeTreatsExplicitNullPublicationListsAsEmpty() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": { "title": "Author Detail" },
+			  "images": null,
+			  "links": null,
+			  "navigation": null,
+			  "publications": null
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("Author Detail", catalog.title)
+		assertEquals(emptyList(), catalog.images)
+		assertEquals(emptyList(), catalog.links)
+		assertEquals(emptyList(), catalog.navigation)
+		assertEquals(emptyList(), catalog.publications)
+	}
+
+	@Test
 	fun progressFetchUsesConfiguredOpdsUrlAndPreservesTypedReaderLocator() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			progress = BinderyReadingProgress(
