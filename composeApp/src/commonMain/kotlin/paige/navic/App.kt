@@ -96,6 +96,7 @@ import paige.navic.ui.screens.nowPlaying.PlaybackSpeedScreen
 import paige.navic.ui.screens.playlist.PlaylistListScreen
 import paige.navic.ui.screens.queue.QueueScreen
 import paige.navic.ui.screens.radio.RadioListScreen
+import paige.navic.ui.screens.reader.ReaderScreen
 import paige.navic.ui.screens.search.SearchScreen
 import paige.navic.ui.screens.settings.BottomBarScreen
 import paige.navic.ui.screens.settings.FontsScreen
@@ -350,6 +351,9 @@ private fun entryProvider(
 				path = key.path,
 				title = key.title
 			)
+		}
+		entry<Screen.Reader>(metadata = navtabMetadata) { key ->
+			ReaderScreen(key)
 		}
 
 		// misc

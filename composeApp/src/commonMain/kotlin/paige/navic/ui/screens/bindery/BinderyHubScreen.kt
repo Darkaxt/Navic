@@ -185,6 +185,7 @@ fun BinderyHubScreen() {
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										languageFilter = languageFilter,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenBook = { book ->
@@ -212,6 +213,7 @@ fun BinderyHubScreen() {
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
+										languageFilter = languageFilter,
 										collectionArtworkByPath = collectionArtworkByPath,
 										onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 										onOpenBook = { book ->
@@ -234,6 +236,7 @@ fun BinderyHubScreen() {
 								baseUrl = preferenceManager.binderyOpdsBaseUrl,
 								imageRequestHeaders = imageRequestHeaders,
 								bookGridColumns = bookGridColumns,
+								languageFilter = languageFilter,
 								collectionArtworkByPath = collectionArtworkByPath,
 								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
 								onOpenBook = { book ->
@@ -278,6 +281,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	bookGridColumns: Int,
+	languageFilter: String?,
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
@@ -285,7 +289,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
 ) {
 	rows.forEach { row ->
-		val cards = row.cards
+		val cards = row.cards(languageFilter)
 		if (cards.isEmpty()) return@forEach
 		horizontalSectionWithAvailableWidth(
 			title = row.row.kind.titleResource(),
@@ -303,6 +307,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(
 				card = card,
 				baseUrl = baseUrl,
 				imageRequestHeaders = imageRequestHeaders,
+				languageFilter = languageFilter,
 				collectionArtworkByPath = collectionArtworkByPath,
 				onResolveCollectionArtwork = onResolveCollectionArtwork,
 				onOpenBook = onOpenBook,
@@ -319,6 +324,7 @@ private fun BinderyHubCard(
 	card: BinderyCatalogCard,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
+	languageFilter: String?,
 	collectionArtworkByPath: Map<String, String>,
 	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
 	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
@@ -329,14 +335,14 @@ private fun BinderyHubCard(
 		is BinderyCatalogCard.Book -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenBook(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = "Book",
@@ -351,14 +357,14 @@ private fun BinderyHubCard(
 			val imageUrl = card.imageUrl ?: collectionArtworkByPath[card.path]
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenCatalog(card) },
 				coverArtId = null,
 				imageUrl = imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = card.subtitle,
@@ -369,14 +375,14 @@ private fun BinderyHubCard(
 		is BinderyCatalogCard.Finding -> {
 			val visualPolicy = binderyCatalogCardVisualPolicy(card)
 			ArtGridItem(
-				modifier = modifier.alpha(card.availabilityAlpha()),
+				modifier = modifier.alpha(card.availabilityAlpha(languageFilter)),
 				onClick = { onOpenFinding(card) },
 				coverArtId = null,
 				imageUrl = card.imageUrl?.let { binderyEndpoint(baseUrl, it) },
 				imageRequestHeaders = imageRequestHeaders,
 				title = card.title,
 				subtitle = card.subtitle,
-				ownershipStatus = card.availabilityStatus(),
+				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
 				fallbackKind = "Finding",

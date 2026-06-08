@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.reader.ReaderPublicationKind
 
 @Immutable
 @Serializable
@@ -125,6 +126,19 @@ sealed interface Screen : NavKey {
 	data class BinderyFinding(
 		val path: String,
 		val title: String
+	) : Screen
+
+	@Immutable
+	@Serializable
+	data class Reader(
+		val title: String,
+		val publicationUrl: String,
+		val bookId: String,
+		val resourceHref: String,
+		val kind: ReaderPublicationKind,
+		val mediaOverlayEnabled: Boolean = false,
+		val startCfi: String? = null,
+		val startHref: String? = null
 	) : Screen
 
 	// misc

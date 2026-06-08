@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https: http:; connect-src 'self' https: http: blob: data:; media-src 'self' https: http: blob: data:; font-src 'self' blob: data:; frame-src blob: data:; object-src 'none'; base-uri 'none'"
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Navic Reader</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --reader-background: #fbfaf8;
+      --reader-foreground: #1d1b18;
+      --reader-accent: #2f6f73;
+      --reader-font-size: 100%;
+      --reader-line-height: 1.55;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --reader-background: #111315;
+        --reader-foreground: #f2f0ea;
+        --reader-accent: #8ecdd1;
+      }
+    }
+
+    html,
+    body,
+    #reader {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--reader-background);
+      color: var(--reader-foreground);
+      font-size: var(--reader-font-size);
+      line-height: var(--reader-line-height);
+    }
+
+    body {
+      overscroll-behavior: none;
+      touch-action: pan-x pan-y;
+    }
+
+    foliate-view {
+      display: block;
+      width: 100%;
+      height: 100%;
+      color: var(--reader-foreground);
+      background: var(--reader-background);
+    }
+
+    .reader-empty,
+    .reader-error {
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+      text-align: center;
+      color: color-mix(in srgb, var(--reader-foreground) 72%, transparent);
+      font: 500 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .reader-error {
+      color: #a3382c;
+    }
+
+    .navic-active-overlay-fragment {
+      background: color-mix(in srgb, var(--reader-accent) 28%, transparent);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <main id="reader" aria-live="polite">
+    <div class="reader-empty">Open a book to start reading.</div>
+  </main>
+  <script type="module" src="./navic-reader.js"></script>
+</body>
+</html>

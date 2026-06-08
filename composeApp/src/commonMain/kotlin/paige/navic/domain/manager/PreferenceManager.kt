@@ -241,6 +241,8 @@ class PreferenceManager(
 	var checkForUpdates by preference(true)
 	var pauseSearchHistory by preference(false)
 	var searchHistoryEntries by preference("")
+	var readerBookmarksJson by preference("")
+	var readerAnnotationsJson by preference("")
 	var autoDownloadStarredSongs by preference(false)
 	var autoDownloadStarredAlbums by preference(false)
 	var maxConcurrentDownloads by preference(DefaultMaxConcurrentDownloads)
