@@ -601,7 +601,6 @@ private fun BinderyLink.matchesLanguage(language: String?): Boolean =
 private fun BinderyLink.concreteMediaFormat(): String? =
 	properties.firstNonBlankValue("kind", "mediaType", "format")
 		?.normalizedBinderyMediaFormat()
-		?: type?.normalizedBinderyMediaFormat()
 
 private fun List<BinderyReadingOrderItem>.toReadingOrderResourceOwnershipStatus(languageFilter: String? = null): AurralOwnershipStatus? {
 	val normalizedLanguage = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
