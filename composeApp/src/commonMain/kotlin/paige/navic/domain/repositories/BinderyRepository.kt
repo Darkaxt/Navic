@@ -8,10 +8,13 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.http.encodeURLQueryComponent
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -165,6 +168,24 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyResourceCatalog>(json) }
 		)
 
+	suspend fun getResourceBytes(path: String): Result<ByteArray> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchResourceBytes(baseUrl, headers, path)
+		}
+
+	suspend fun getReadingProgress(
+		bookId: String,
+		alias: String? = null
+	): Result<BinderyReadingProgress> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchReadingProgress(baseUrl, headers, bookId, alias)
+		}
+
+	suspend fun putReadingProgress(progress: BinderyReadingProgress): Result<Unit> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.putReadingProgress(baseUrl, headers, progress)
+		}
+
 	suspend fun getBookFindings(bookId: String): Result<BinderyCatalog> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.BookFindings,
@@ -295,6 +316,25 @@ interface BinderyApiClient {
 		bookId: String
 	): BinderyResourceCatalog
 
+	suspend fun fetchResourceBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): ByteArray
+
+	suspend fun fetchReadingProgress(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String,
+		alias: String? = null
+	): BinderyReadingProgress
+
+	suspend fun putReadingProgress(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		progress: BinderyReadingProgress
+	)
+
 	suspend fun fetchBookFindings(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -375,6 +415,57 @@ private class KtorBinderyApiClient : BinderyApiClient {
 		return response.body<BinderyResourceCatalogDto>().toResourceCatalog()
 	}
 
+	override suspend fun fetchResourceBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): ByteArray {
+		val safePath = path.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery resource path is required.")
+		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
+			requestHeaders.forEach { (key, value) -> header(key, value) }
+			accept(ContentType.Application.OctetStream)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS resource", response.status))
+		}
+		return response.body<ByteArray>()
+	}
+
+	override suspend fun fetchReadingProgress(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String,
+		alias: String?
+	): BinderyReadingProgress {
+		val path = binderyReadingProgressPath(bookId, alias)
+		val response = client.get(binderyEndpoint(baseUrl, path)) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery reading progress", response.status))
+		}
+		return response.body<BinderyReadingProgress>()
+	}
+
+	override suspend fun putReadingProgress(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		progress: BinderyReadingProgress
+	) {
+		val path = binderyReadingProgressPath(progress.bookId, progress.alias)
+		val response = client.put(binderyEndpoint(baseUrl, path)) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+			contentType(ContentType.Application.Json)
+			setBody(progress)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery reading progress", response.status))
+		}
+	}
+
 	override suspend fun fetchBookFindings(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -432,6 +523,33 @@ data class BinderyServiceStatus(
 )
 
 @Serializable
+data class BinderyReadingProgress(
+	val bookId: String,
+	val alias: String? = null,
+	val kind: BinderyReadingProgressKind,
+	val resourceHref: String? = null,
+	val textHref: String? = null,
+	val cfi: String? = null,
+	val fragmentId: String? = null,
+	val positionMs: Long? = null,
+	val durationMs: Long? = null,
+	val progressFraction: Double? = null,
+	val updatedAt: String? = null
+)
+
+@Serializable
+enum class BinderyReadingProgressKind {
+	@SerialName("ebook")
+	Ebook,
+
+	@SerialName("audiobook")
+	Audiobook,
+
+	@SerialName("readaloud")
+	Readaloud
+}
+
+@Serializable
 data class BinderyCatalog(
 	val title: String,
 	val identifier: String? = null,
@@ -471,6 +589,7 @@ data class BinderyPublication(
 	val propertyValues: BinderyPropertyBag = BinderyPropertyBag(),
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
+	val readingOrder: List<BinderyReadingOrderItem> = emptyList(),
 	val finding: BinderyFindingMetadata? = null
 )
 
@@ -737,7 +856,8 @@ private data class BinderyMetadataDto(
 	val modified: String? = null,
 	val description: String? = null,
 	val subject: List<String> = emptyList(),
-	val duration: Double? = null
+	val duration: Double? = null,
+	val properties: Map<String, JsonElement> = emptyMap()
 )
 
 @Serializable
@@ -757,24 +877,27 @@ private data class BinderyLinkDto(
 	val duration: Double? = null
 )
 
-private fun BinderyCatalogDto.toCatalog(): BinderyCatalog =
-	BinderyCatalog(
+private fun BinderyCatalogDto.toCatalog(): BinderyCatalog {
+	val decodedProperties = metadata.properties + properties
+	return BinderyCatalog(
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Bindery",
 		identifier = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
-		availability = properties.toAvailability(),
-		properties = properties.toStringProperties(),
-		propertyValues = properties.toPropertyBag(),
+		availability = decodedProperties.toAvailability(),
+		properties = decodedProperties.toStringProperties(),
+		propertyValues = decodedProperties.toPropertyBag(),
 		images = images.mapNotNull { it.toLink() },
 		links = links.mapNotNull { it.toLink() },
 		navigation = navigation.mapNotNull { it.toLink() },
 		publications = publications.map { it.toPublication() },
-		finding = properties.toFindingMetadata()
+		finding = decodedProperties.toFindingMetadata()
 	)
+}
 
-private fun BinderyPublicationDto.toPublication(): BinderyPublication =
-	BinderyPublication(
+private fun BinderyPublicationDto.toPublication(): BinderyPublication {
+	val decodedProperties = metadata.properties + properties
+	return BinderyPublication(
 		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
 		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
@@ -782,16 +905,19 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication =
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
-		availability = properties.toAvailability(),
-		properties = properties.toStringProperties(),
-		propertyValues = properties.toPropertyBag(),
+		availability = decodedProperties.toAvailability(),
+		properties = decodedProperties.toStringProperties(),
+		propertyValues = decodedProperties.toPropertyBag(),
 		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() },
-		finding = properties.toFindingMetadata()
+		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() },
+		finding = decodedProperties.toFindingMetadata()
 	)
+}
 
-private fun BinderyPublicationDto.toManifest(): BinderyManifest =
-	BinderyManifest(
+private fun BinderyPublicationDto.toManifest(): BinderyManifest {
+	val decodedProperties = metadata.properties + properties
+	return BinderyManifest(
 		id = metadata.identifier?.trim()?.takeIf { it.isNotEmpty() },
 		title = metadata.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled",
 		author = metadata.author.firstNotNullOfOrNull { it.name?.trim()?.takeIf(String::isNotEmpty) },
@@ -799,13 +925,14 @@ private fun BinderyPublicationDto.toManifest(): BinderyManifest =
 		description = metadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = metadata.subject.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		durationSeconds = metadata.duration?.takeIf { it > 0.0 },
-		availability = properties.toAvailability(),
-		properties = properties.toStringProperties(),
-		propertyValues = properties.toPropertyBag(),
+		availability = decodedProperties.toAvailability(),
+		properties = decodedProperties.toStringProperties(),
+		propertyValues = decodedProperties.toPropertyBag(),
 		links = links.mapNotNull { it.toLink() },
 		images = images.mapNotNull { it.toLink() },
 		readingOrder = readingOrder.mapNotNull { it.toReadingOrderItem() }
 	)
+}
 
 private fun BinderyResourceCatalogDto.toResourceCatalog(): BinderyResourceCatalog =
 	BinderyResourceCatalog(
@@ -880,9 +1007,20 @@ private fun Map<String, JsonElement>.toStringProperties(): Map<String, String> =
 private fun Map<String, JsonElement>.toPropertyBag(): BinderyPropertyBag =
 	BinderyPropertyBag(
 		mapNotNull { (key, value) ->
-			value.toBinderyPropertyValue()?.let { key to it }
+			if (!value.shouldKeepPropertyBagEntry(key)) {
+				null
+			} else {
+				value.toBinderyPropertyValue()?.let { key to it }
+			}
 		}.toMap()
 	)
+
+private fun JsonElement.shouldKeepPropertyBagEntry(key: String): Boolean =
+	if (key.equals("audio", ignoreCase = true) && this is JsonObject) {
+		toAudioMetadata(emptyMap()) != null
+	} else {
+		true
+	}
 
 private fun JsonElement.toBinderyPropertyValue(): BinderyPropertyValue? =
 	when (this) {
@@ -928,9 +1066,9 @@ private fun Map<String, JsonElement>.toResourceMetadata(): BinderyResourceMetada
 private fun JsonObject?.toAudioMetadata(fallback: Map<String, JsonElement>): BinderyAudioMetadata? {
 	val audio = BinderyAudioMetadata(
 		codec = this?.stringValue("codec") ?: fallback.stringValue("codec"),
-		bitrateKbps = this?.intValue("bitrateKbps") ?: fallback.intValue("bitrateKbps"),
-		sampleRateHz = this?.longValue("sampleRateHz") ?: fallback.longValue("sampleRateHz"),
-		channels = this?.intValue("channels") ?: fallback.intValue("channels"),
+		bitrateKbps = (this?.intValue("bitrateKbps") ?: fallback.intValue("bitrateKbps"))?.takeIf { it > 0 },
+		sampleRateHz = (this?.longValue("sampleRateHz") ?: fallback.longValue("sampleRateHz"))?.takeIf { it > 0L },
+		channels = (this?.intValue("channels") ?: fallback.intValue("channels"))?.takeIf { it > 0 },
 		qualityLabel = this?.stringValue("qualityLabel") ?: fallback.stringValue("qualityLabel"),
 		qualityScore = this?.doubleValue("qualityScore") ?: fallback.doubleValue("qualityScore")
 	)
@@ -982,8 +1120,8 @@ private fun Map<String, JsonElement>.toFindingMetadata(): BinderyFindingMetadata
 		protocol = stringValue("protocol"),
 		fileCount = intValue("fileCount"),
 		sizeBytes = longValue("sizeBytes") ?: longValue("size") ?: longValue("selectedBytes"),
-		bitrateBps = longValue("bitrateBps"),
-		sampleRateHz = longValue("sampleRateHz"),
+		bitrateBps = longValue("bitrateBps")?.takeIf { it > 0L },
+		sampleRateHz = longValue("sampleRateHz")?.takeIf { it > 0L },
 		availabilityStatus = stringValue("availabilityStatus"),
 		availabilityReason = stringValue("availabilityReason"),
 		sourceUrl = stringValue("sourceUrl") ?: stringValue("downloadUrl"),
@@ -1004,9 +1142,9 @@ private fun JsonObject.toFindingFile(): BinderyFindingFile =
 		format = stringValue("format"),
 		language = stringValue("language"),
 		sizeBytes = longValue("sizeBytes") ?: longValue("size"),
-		durationSeconds = doubleValue("durationSeconds") ?: doubleValue("duration"),
-		bitrateBps = longValue("bitrateBps"),
-		sampleRateHz = longValue("sampleRateHz")
+		durationSeconds = (doubleValue("durationSeconds") ?: doubleValue("duration"))?.takeIf { it > 0.0 },
+		bitrateBps = longValue("bitrateBps")?.takeIf { it > 0L },
+		sampleRateHz = longValue("sampleRateHz")?.takeIf { it > 0L }
 	)
 
 private fun JsonObject.toFindingMapping(): BinderyFindingMapping =
@@ -1187,6 +1325,15 @@ private fun binderyEndpointFromNormalizedBase(baseUrl: String, path: String): St
 	} else {
 		"$baseUrl/$relativePath"
 	}
+}
+
+private fun binderyReadingProgressPath(bookId: String, alias: String?): String {
+	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
+		?: throw IllegalStateException("Bindery book id is required.")
+	val basePath = "books/${encodeUrlPathSegment(safeBookId)}/progress"
+	val safeAlias = alias?.trim()?.takeIf { it.isNotEmpty() }
+		?: return basePath
+	return "$basePath?alias=${safeAlias.encodeURLQueryComponent()}"
 }
 
 private fun binderyOrigin(baseUrl: String): String {

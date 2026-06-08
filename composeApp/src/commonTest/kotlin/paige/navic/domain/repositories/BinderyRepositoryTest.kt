@@ -146,6 +146,118 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun resourceBytesUseConfiguredOpdsUrlAndApiKeyHeader() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			resourceBytes = "epub bytes".encodeToByteArray()
+		)
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		val repository = BinderyRepository(
+			preferenceManager = preferences,
+			apiClient = apiClient
+		)
+
+		val bytes = repository.getResourceBytes("/opds/books/3693/resources/readaloud-1").getOrThrow()
+
+		assertEquals("epub bytes", bytes.decodeToString())
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.resourceBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.resourceHeaders)
+		assertEquals(listOf("/opds/books/3693/resources/readaloud-1"), apiClient.resourcePaths)
+	}
+
+	@Test
+	fun progressFetchUsesConfiguredOpdsUrlAndPreservesTypedReaderLocator() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			progress = BinderyReadingProgress(
+				bookId = "3693",
+				alias = "darko",
+				kind = BinderyReadingProgressKind.Ebook,
+				resourceHref = "/opds/books/3693/resources/epub",
+				cfi = "epubcfi(/6/8!/4/1:0)",
+				fragmentId = "chapter-03",
+				progressFraction = 0.34,
+				updatedAt = "2026-06-08T12:00:00Z"
+			)
+		)
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+
+		val progress = repository.getReadingProgress(bookId = "3693", alias = "darko").getOrThrow()
+
+		assertEquals("3693", progress.bookId)
+		assertEquals("darko", progress.alias)
+		assertEquals(BinderyReadingProgressKind.Ebook, progress.kind)
+		assertEquals("epubcfi(/6/8!/4/1:0)", progress.cfi)
+		assertEquals("/opds/books/3693/resources/epub", progress.resourceHref)
+		assertEquals(0.34, progress.progressFraction!!)
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.progressFetchBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.progressFetchHeaders)
+		assertEquals(listOf("3693"), apiClient.progressFetchBookIds)
+		assertEquals(listOf<String?>("darko"), apiClient.progressFetchAliases)
+	}
+
+	@Test
+	fun progressSaveUsesConfiguredOpdsUrlAndPreservesReadaloudResourcePosition() = runBlocking {
+		val apiClient = FakeBinderyApiClient()
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = true
+			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
+			binderyApiKey = " secret "
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			alias = "darko",
+			kind = BinderyReadingProgressKind.Readaloud,
+			resourceHref = "/opds/books/3693/resources/readaloud-1",
+			textHref = "EPUB/Text/chapter-01.xhtml",
+			fragmentId = "p-42",
+			positionMs = 92_500L,
+			durationMs = 180_000L,
+			progressFraction = 0.51
+		)
+
+		repository.putReadingProgress(progress).getOrThrow()
+
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.progressPutBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.progressPutHeaders)
+		assertEquals(listOf(progress), apiClient.progressPutPayloads)
+	}
+
+	@Test
+	fun progressCallsRequireEnabledConfiguredBinderyWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient()
+		val preferences = PreferenceManager(MapSettings()).apply {
+			binderyEnabled = false
+			binderyOpdsBaseUrl = "https://bindery.example.com/opds"
+			binderyApiKey = "secret"
+		}
+		val repository = BinderyRepository(preferences, apiClient)
+
+		assertFailsWith<IllegalStateException> {
+			repository.getReadingProgress(bookId = "3693").getOrThrow()
+		}
+		assertFailsWith<IllegalStateException> {
+			repository.putReadingProgress(
+				BinderyReadingProgress(
+					bookId = "3693",
+					kind = BinderyReadingProgressKind.Ebook,
+					cfi = "epubcfi(/6/8!/4/1:0)"
+				)
+			).getOrThrow()
+		}
+		assertEquals(emptyList(), apiClient.progressFetchBookIds)
+		assertEquals(emptyList(), apiClient.progressPutPayloads)
+	}
+
+	@Test
 	fun catalogUsesFreshMetadataCacheWithoutCallingApiClient() = runBlocking {
 		val apiClient = FakeBinderyApiClient(catalog = BinderyCatalog(title = "Live Books"))
 		val metadataCache = RecordingBinderyMetadataCache().apply {
@@ -864,6 +976,81 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun ebookResourceAndFindingJsonKeepEbookButSuppressAudioMetadata() {
+		val resources = decodeBinderyResourceCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "The Maps Resources"},
+			  "resources": [
+			    {
+			      "href": "/opds/books/3913/resources/ebook-1",
+			      "type": "application/epub+zip",
+			      "title": "[Publisher] The Maps of Middle-Earth",
+			      "properties": {
+			        "kind": "ebook",
+			        "format": "epub",
+			        "language": "eng",
+			        "bitrateBps": 0,
+			        "sampleRateHz": 0,
+			        "audio": {
+			          "bitrateKbps": 0,
+			          "sampleRateHz": 0,
+			          "channels": 0
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val findings = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Findings"},
+			  "publications": [
+			    {
+			      "metadata": {
+			        "identifier": "urn:bindery:finding:ebook",
+			        "title": "The Maps EPUB",
+			        "properties": {
+			          "findingId": "ebook",
+			          "mediaType": "ebook",
+			          "format": "epub",
+			          "language": "eng",
+			          "bitrateBps": 0,
+			          "sampleRateHz": 0,
+			          "files": [
+			            {
+			              "name": "The Maps.epub",
+			              "format": "epub",
+			              "bitrateBps": 0,
+			              "sampleRateHz": 0
+			            }
+			          ]
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val resource = resources.resources.single()
+		assertEquals("ebook", resource.kind)
+		assertEquals("application/epub+zip", resource.type)
+		assertEquals("/opds/books/3913/resources/ebook-1", resource.href)
+		assertNull(resource.metadata.audio)
+		assertNull(resource.propertyValues.values["audio"])
+		val finding = findings.publications.single().finding!!
+		assertEquals("ebook", finding.mediaType)
+		assertEquals("epub", finding.format)
+		assertNull(finding.bitrateBps)
+		assertNull(finding.sampleRateHz)
+		assertNull(finding.files.single().bitrateBps)
+		assertNull(finding.files.single().sampleRateHz)
+	}
+
+	@Test
 	fun opdsPropertiesExposeTypedPropertyBagsForBookResourceAndReadingOrderMetadata() {
 		val manifest = decodeBinderyManifestJson(
 			"""
@@ -966,6 +1153,11 @@ class BinderyRepositoryTest {
 		private val rootCatalog: BinderyCatalog = BinderyCatalog(title = "Bindery"),
 		private val catalog: BinderyCatalog = rootCatalog,
 		private val bookFindings: BinderyCatalog = BinderyCatalog(title = "Findings"),
+		private val resourceBytes: ByteArray = ByteArray(0),
+		private val progress: BinderyReadingProgress = BinderyReadingProgress(
+			bookId = "book",
+			kind = BinderyReadingProgressKind.Ebook
+		),
 		private val rootFailure: Throwable? = null,
 		private val catalogFailure: Throwable? = null,
 		private val bookFindingsFailure: Throwable? = null
@@ -982,6 +1174,16 @@ class BinderyRepositoryTest {
 		val bookFindingBaseUrls = mutableListOf<String>()
 		val bookFindingHeaders = mutableListOf<Map<String, String>>()
 		val bookFindingIds = mutableListOf<String>()
+		val resourceBaseUrls = mutableListOf<String>()
+		val resourceHeaders = mutableListOf<Map<String, String>>()
+		val resourcePaths = mutableListOf<String>()
+		val progressFetchBaseUrls = mutableListOf<String>()
+		val progressFetchHeaders = mutableListOf<Map<String, String>>()
+		val progressFetchBookIds = mutableListOf<String>()
+		val progressFetchAliases = mutableListOf<String?>()
+		val progressPutBaseUrls = mutableListOf<String>()
+		val progressPutHeaders = mutableListOf<Map<String, String>>()
+		val progressPutPayloads = mutableListOf<BinderyReadingProgress>()
 
 		override suspend fun fetchRootCatalog(
 			baseUrl: String,
@@ -1020,6 +1222,40 @@ class BinderyRepositoryTest {
 			requestHeaders: Map<String, String>,
 			bookId: String
 		): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
+
+		override suspend fun fetchResourceBytes(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			path: String
+		): ByteArray {
+			resourceBaseUrls += baseUrl
+			resourceHeaders += requestHeaders
+			resourcePaths += path
+			return resourceBytes
+		}
+
+		override suspend fun fetchReadingProgress(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			bookId: String,
+			alias: String?
+		): BinderyReadingProgress {
+			progressFetchBaseUrls += baseUrl
+			progressFetchHeaders += requestHeaders
+			progressFetchBookIds += bookId
+			progressFetchAliases += alias
+			return progress
+		}
+
+		override suspend fun putReadingProgress(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			progress: BinderyReadingProgress
+		) {
+			progressPutBaseUrls += baseUrl
+			progressPutHeaders += requestHeaders
+			progressPutPayloads += progress
+		}
 
 		override suspend fun fetchBookFindings(
 			baseUrl: String,

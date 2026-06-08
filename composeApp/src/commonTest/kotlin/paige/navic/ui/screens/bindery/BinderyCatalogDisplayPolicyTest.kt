@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.bindery
 
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyAvailability
+import paige.navic.domain.repositories.BinderyAvailabilityCombination
 import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyFindingFile
 import paige.navic.domain.repositories.BinderyFindingMapping
@@ -13,6 +15,7 @@ import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
+import paige.navic.reader.ReaderPublicationKind
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
 import kotlin.test.Test
@@ -221,7 +224,7 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun findingRowsPreserveDownloadMetadataForFindingDetailAndExposeOnlyReaderAction() {
+	fun findingRowsPreserveDownloadMetadataForFindingDetailButDoNotExposeBookPageAction() {
 		val download = BinderyLink(
 			href = "/api/v1/findings/894/acquire",
 			title = "Request download",
@@ -256,6 +259,9 @@ class BinderyCatalogDisplayPolicyTest {
 		val row = binderyBookFindingRows(catalog).ebooks.single()
 
 		assertEquals(BinderyBookFindingRowAction.Play, row.readerAction)
+		assertEquals(BinderyOpdsActionType.DownloadRequest, row.readerOpdsAction?.type)
+		assertEquals(BinderyOpdsActionPresentation.Play, row.readerOpdsAction?.type?.presentation())
+		assertEquals(download, row.readerOpdsAction?.link)
 		assertEquals(download, row.card.downloadRequestAction)
 		assertEquals(BinderyOpdsActionType.DownloadRequest, row.card.primaryAction()?.type)
 	}
@@ -398,6 +404,39 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun ebookFindingRowsSuppressAudioOnlyMetadataDefaults() {
+		val catalog = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:ebook",
+					title = "The Maps of Middle-Earth EPUB",
+					finding = BinderyFindingMetadata(
+						findingId = "ebook",
+						mediaType = "ebook",
+						format = "epub",
+						language = "eng",
+						publisher = "Houghton",
+						fileCount = 1,
+						sizeBytes = 26_000_000,
+						bitrateBps = 0,
+						sampleRateHz = 0,
+						availabilityStatus = "imported"
+					)
+				)
+			)
+		)
+
+		val subtitle = binderyBookFindingRows(catalog).ebooks.single().subtitle.orEmpty()
+
+		assertTrue(subtitle.contains("Houghton"))
+		assertTrue(subtitle.contains("Epub"))
+		assertFalse(subtitle.contains("kbps"))
+		assertFalse(subtitle.contains("kHz"))
+		assertFalse(subtitle.contains("Hz"))
+	}
+
+	@Test
 	fun bookFindingRowsOnlyShowAvailableFindings() {
 		val availableDownload = BinderyLink(
 			href = "/opds/findings/downloadable/download",
@@ -500,6 +539,17 @@ class BinderyCatalogDisplayPolicyTest {
 								rel = listOf("http://opds-spec.org/acquisition"),
 								type = "application/epub+zip"
 							)
+						)
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:aggregate-only",
+						title = "Aggregate-only ownership",
+						availability = paige.navic.domain.repositories.BinderyAvailability(
+							owned = true,
+							complete = true,
+							ownedBooks = 1,
+							missingBooks = 0,
+							totalBooks = 1
 						)
 					),
 					BinderyPublication(
@@ -933,6 +983,219 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun ambiguousAggregateFormatsCannotMakeSelectedLanguageGreen() {
+		val ambiguousMultiLanguageMedia = BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedBooks = 2,
+			missingBooks = 0,
+			totalBooks = 2,
+			ownedFormats = listOf("ebook", "audiobook"),
+			ownedLanguages = listOf("eng", "spa"),
+			languages = listOf("eng", "spa"),
+			mode = "any"
+		)
+
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			ambiguousMultiLanguageMedia.toBookOwnershipStatus(languageFilter = "eng")
+		)
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			BinderyCatalogCard.Book(
+				id = "book-ambiguous",
+				title = "Ambiguous",
+				subtitle = "Author",
+				imageUrl = null,
+				availability = ambiguousMultiLanguageMedia
+			).availabilityStatus(languageFilter = "eng")
+		)
+	}
+
+	@Test
+	fun englishEbookOnlyAvailabilityStaysYellowAcrossCatalogCards() {
+		val englishEbookOnly = BinderyAvailability(
+			owned = true,
+			complete = false,
+			formats = listOf("ebook", "audiobook"),
+			ownedFormats = listOf("ebook"),
+			ownedLanguages = listOf("eng"),
+			ownedCombinations = listOf(
+				BinderyAvailabilityCombination(format = "ebook", language = "eng")
+			),
+			languages = listOf("eng"),
+			mode = "any"
+		)
+		val book = BinderyCatalogCard.Book(
+			id = "book-ebook-only",
+			title = "The Maps of Middle-Earth",
+			subtitle = "J.R.R. Tolkien",
+			imageUrl = null,
+			availability = englishEbookOnly
+		)
+		val link = BinderyCatalogCard.Link(
+			id = "/opds/collections/1",
+			title = "Middle-earth",
+			subtitle = "Collection",
+			path = "/opds/collections/1",
+			availability = englishEbookOnly
+		)
+
+		assertEquals(AurralOwnershipStatus.Partial, englishEbookOnly.toBookOwnershipStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Partial, book.availabilityStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Partial, link.availabilityStatus("eng"))
+		assertEquals(true, book.hasAvailableContent("eng"))
+		assertEquals(1f, englishEbookOnly.availabilityAlpha("eng"))
+	}
+
+	@Test
+	fun concreteAcquisitionLinksContributeToBookAvailabilityWhenAvailabilityIsMissing() {
+		val englishEpub = BinderyLink(
+			href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+			rel = listOf("http://opds-spec.org/acquisition"),
+			type = "application/epub+zip",
+			properties = mapOf(
+				"format" to "ebook",
+				"language" to "eng"
+			)
+		)
+		val englishAudiobook = BinderyLink(
+			href = "/opds/books/3913/resources/audiobook-1",
+			rel = listOf("http://opds-spec.org/acquisition"),
+			type = "audio/mpeg",
+			properties = mapOf(
+				"format" to "audiobook",
+				"language" to "eng"
+			)
+		)
+		val spanishEpub = BinderyLink(
+			href = "/opds/books/3913/resources/ebook-spanish",
+			rel = listOf("http://opds-spec.org/acquisition"),
+			type = "application/epub+zip",
+			properties = mapOf(
+				"format" to "ebook",
+				"language" to "spa"
+			)
+		)
+		val ebookOnly = BinderyCatalogCard.Book(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth",
+			subtitle = "J.R.R. Tolkien",
+			imageUrl = null,
+			links = listOf(englishEpub)
+		)
+		val complete = ebookOnly.copy(
+			id = "urn:bindery:book:complete",
+			links = listOf(englishEpub, englishAudiobook)
+		)
+		val otherLanguageOnly = ebookOnly.copy(
+			id = "urn:bindery:book:spanish",
+			links = listOf(spanishEpub)
+		)
+
+		assertEquals(AurralOwnershipStatus.Partial, ebookOnly.availabilityStatus("eng"))
+		assertEquals(true, ebookOnly.hasAvailableContent("eng"))
+		assertEquals(AurralOwnershipStatus.Owned, complete.availabilityStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Missing, otherLanguageOnly.availabilityStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Partial, otherLanguageOnly.availabilityStatus("spa"))
+	}
+
+	@Test
+	fun downloadRequestOnlyDoesNotMakeBookAvailable() {
+		val downloadRequestOnly = BinderyCatalogCard.Book(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth",
+			subtitle = "J.R.R. Tolkien",
+			imageUrl = null,
+			links = listOf(
+				BinderyLink(
+					href = "/opds/books/3913/download",
+					title = "Request download",
+					rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+					type = "application/json"
+				)
+			)
+		)
+
+		assertEquals(AurralOwnershipStatus.Missing, downloadRequestOnly.availabilityStatus("eng"))
+		assertEquals(false, downloadRequestOnly.hasAvailableContent("eng"))
+	}
+
+	@Test
+	fun aggregateOnlyOwnershipDoesNotMakeBookAvailabilityGreen() {
+		val aggregateOnly = BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedBooks = 1,
+			missingBooks = 0,
+			totalBooks = 1
+		)
+		val card = BinderyCatalogCard.Book(
+			id = "book-aggregate-only",
+			title = "Aggregate-only ownership",
+			subtitle = "Author",
+			imageUrl = null,
+			availability = aggregateOnly
+		)
+
+		assertEquals(AurralOwnershipStatus.Missing, aggregateOnly.toBookOwnershipStatus(languageFilter = "eng"))
+		assertEquals(AurralOwnershipStatus.Missing, aggregateOnly.toBookOwnershipStatus())
+		assertEquals(AurralOwnershipStatus.Missing, card.availabilityStatus(languageFilter = "eng"))
+		assertEquals(false, card.hasAvailableContent(languageFilter = "eng"))
+	}
+
+	@Test
+	fun catalogLinksUseTheSameSelectedLanguageMediaPipelineAsBooks() {
+		val aggregateOnly = BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedBooks = 12,
+			missingBooks = 0,
+			totalBooks = 12
+		)
+		val englishAudioOnly = BinderyAvailability(
+			owned = true,
+			complete = false,
+			ownedCombinations = listOf(
+				BinderyAvailabilityCombination(format = "audiobook", language = "eng")
+			)
+		)
+		val englishComplete = BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedCombinations = listOf(
+				BinderyAvailabilityCombination(format = "ebook", language = "eng"),
+				BinderyAvailabilityCombination(format = "audiobook", language = "eng")
+			)
+		)
+		val aggregateOnlyLink = BinderyCatalogCard.Link(
+			id = "/opds/collections/1",
+			title = "Aggregate Only",
+			subtitle = "Collection",
+			path = "/opds/collections/1",
+			availability = aggregateOnly
+		)
+		val audioOnlyLink = aggregateOnlyLink.copy(
+			id = "/opds/collections/2",
+			title = "Audio Only",
+			path = "/opds/collections/2",
+			availability = englishAudioOnly
+		)
+		val completeLink = aggregateOnlyLink.copy(
+			id = "/opds/collections/3",
+			title = "Complete",
+			path = "/opds/collections/3",
+			availability = englishComplete
+		)
+
+		assertEquals(AurralOwnershipStatus.Missing, aggregateOnlyLink.availabilityStatus("eng"))
+		assertEquals(false, aggregateOnlyLink.hasAvailableContent("eng"))
+		assertEquals(0.42f, aggregateOnly.availabilityAlpha("eng"))
+		assertEquals(AurralOwnershipStatus.Partial, audioOnlyLink.availabilityStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Owned, completeLink.availabilityStatus("eng"))
+	}
+
+	@Test
 	fun genericBookPublicationsAndManifestsDoNotExposeDownloadAsPrimaryAction() {
 		val download = BinderyLink(
 			href = "/opds/books/3693/download",
@@ -1271,6 +1534,66 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun ebookAndReadaloudVersionRowsOpenNativeReaderRoutes() {
+		assertEquals(
+			Screen.Reader(
+				title = "Alcatraz versus the Evil Librarians",
+				publicationUrl = "https://bindery.local/opds/books/3693/resources/readaloud-1",
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/readaloud-1",
+				kind = ReaderPublicationKind.Readaloud,
+				mediaOverlayEnabled = true
+			),
+			binderyReaderDestinationForVersionRow(
+				row = BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/readaloud-1",
+					kind = BinderyBookVersionKind.Readaloud,
+					title = "Readaloud",
+					subtitle = null
+				),
+				bookId = "3693",
+				bookTitle = "Alcatraz versus the Evil Librarians",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+		assertEquals(
+			Screen.Reader(
+				title = "Alcatraz versus the Evil Librarians",
+				publicationUrl = "https://bindery.local/opds/books/3693/resources/ebook-1",
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false
+			),
+			binderyReaderDestinationForVersionRow(
+				row = BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-1",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "EPUB",
+					subtitle = null
+				),
+				bookId = "3693",
+				bookTitle = "Alcatraz versus the Evil Librarians",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+		assertEquals(
+			null,
+			binderyReaderDestinationForVersionRow(
+				row = BinderyBookVersionRow(
+					id = "audiobook",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Audiobook",
+					subtitle = null
+				),
+				bookId = "3693",
+				bookTitle = "Alcatraz versus the Evil Librarians",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
 	fun bookVersionRowsFallBackToAudioResourcesWhenManifestHasNoReadingOrder() {
 		val resources = BinderyResourceCatalog(
 			title = "Resources",
@@ -1444,6 +1767,142 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			),
 			binderyBookVersionRows(manifest, resources, "eng")
+		)
+	}
+
+	@Test
+	fun resourceOnlyBookStillProducesVisibleEbookVersion() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth"
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					title = "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 8_210_367,
+					properties = mapOf(
+						"format" to "ebook",
+						"language" to "eng",
+						"publisher" to "The Tolkien Estate Limited",
+						"relativePath" to "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien.EPUB"
+					)
+				)
+			)
+		)
+
+		val groups = binderyBookVersionGroups(binderyBookVersionRows(manifest, resources, "eng"))
+
+		assertTrue(groups.audiobooks.isEmpty())
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "The Tolkien Estate Limited",
+					subtitle = "EPUB / 7.83 MB"
+				)
+			),
+			groups.ebooks
+		)
+		assertFalse(groups.isEmpty)
+	}
+
+	@Test
+	fun ebookManifestReadingOrderDoesNotCreateFakeAudiobookVersion() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					title = "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien",
+					type = "application/epub+zip",
+					sizeBytes = 8_210_367,
+					properties = mapOf(
+						"format" to "ebook",
+						"kind" to "ebook",
+						"language" to "eng",
+						"publisher" to "The Tolkien Estate Limited",
+						"relativePath" to "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien.EPUB"
+					)
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					title = "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 8_210_367,
+					properties = mapOf(
+						"format" to "ebook",
+						"language" to "eng",
+						"publisher" to "The Tolkien Estate Limited",
+						"relativePath" to "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien.EPUB"
+					)
+				)
+			)
+		)
+
+		val groups = binderyBookVersionGroups(binderyBookVersionRows(manifest, resources, "eng"))
+
+		assertTrue(groups.audiobooks.isEmpty())
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "The Tolkien Estate Limited",
+					subtitle = "EPUB / 7.83 MB"
+				)
+			),
+			groups.ebooks
+		)
+	}
+
+	@Test
+	fun ebookManifestReadingOrderStillShowsVersionWhenResourcesAreUnavailable() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					title = "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien",
+					type = "application/epub+zip",
+					sizeBytes = 8_210_367,
+					properties = mapOf(
+						"format" to "ebook",
+						"kind" to "ebook",
+						"language" to "eng",
+						"publisher" to "The Tolkien Estate Limited",
+						"relativePath" to "[The Tolkien Estate Limited] The Shaping of Middle-Earth - J.R.R. Tolkien.EPUB"
+					)
+				)
+			)
+		)
+
+		val groups = binderyBookVersionGroups(binderyBookVersionRows(manifest, null, "eng"))
+
+		assertTrue(groups.audiobooks.isEmpty())
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "The Tolkien Estate Limited",
+					subtitle = "EPUB / 7.83 MB"
+				)
+			),
+			groups.ebooks
 		)
 	}
 

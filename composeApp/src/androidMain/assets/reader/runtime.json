@@ -1,0 +1,10 @@
+{
+  "engine": "foliate-js",
+  "version": "1.0.1",
+  "entrypoint": "index.html",
+  "bridge": {
+    "android": "NavicAndroidBridge",
+    "javascript": "NavicReaderBridge"
+  },
+  "vendorPath": "vendor/foliate-js/"
+}

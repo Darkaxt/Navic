@@ -60,6 +60,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
@@ -79,6 +80,7 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
 import kotlin.math.roundToLong
 
 @OptIn(
@@ -108,6 +110,8 @@ fun BinderyBookScreen(
 	)
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val data = bookState.data
+	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
+	val actionError by viewModel.actionError.collectAsStateWithLifecycle()
 	val titleText = data?.manifest?.title?.takeIf { it.isNotBlank() } ?: title
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 	val backStack = LocalNavStack.current
@@ -177,6 +181,13 @@ fun BinderyBookScreen(
 						}
 						else -> {
 							val findingGroups = binderyBookFindingRows(data.findings, languageFilter)
+							val versionGroups = binderyBookVersionGroups(
+								binderyBookVersionRows(
+									manifest = data.manifest,
+									resourceCatalog = data.resources,
+									languageFilter = languageFilter
+								)
+							)
 							item("bindery-book-hero") {
 								BinderyBookHero(
 									manifest = data.manifest,
@@ -197,7 +208,7 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							if (findingGroups.isEmpty) {
+							if (findingGroups.isEmpty && versionGroups.isEmpty) {
 								item("bindery-book-no-findings") {
 									ContentUnavailable(
 										icon = Icons.Outlined.Audiobooks,
@@ -205,9 +216,24 @@ fun BinderyBookScreen(
 									)
 								}
 							}
-							if (findingGroups.audiobooks.isNotEmpty()) {
+							if (versionGroups.audiobooks.isNotEmpty() || findingGroups.audiobooks.isNotEmpty()) {
 								item("bindery-book-audiobooks-title") {
 									BinderyBookSectionTitle(stringResource(Res.string.title_audiobooks))
+								}
+								itemsIndexed(
+									versionGroups.audiobooks,
+									key = { index, row -> binderyBookVersionRowLazyKey(row, index) }
+								) { _, row ->
+									BinderyBookVersionListItem(
+										row = row,
+										bookId = bookId,
+										bookTitle = data.manifest.title,
+										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+										onOpenReader = { destination ->
+											platformContext.clickSound()
+											backStack.add(destination)
+										}
+									)
 								}
 								itemsIndexed(findingGroups.audiobooks, key = { _, row -> row.key }) { _, row ->
 									BinderyBookFindingCandidateListItem(
@@ -218,13 +244,33 @@ fun BinderyBookScreen(
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
 										},
+										actionInFlight = actionInFlight,
+										onReaderAction = { link ->
+											platformContext.clickSound()
+											viewModel.performAction(link)
+										},
 										languageFilter = languageFilter
 									)
 								}
 							}
-							if (findingGroups.ebooks.isNotEmpty()) {
+							if (versionGroups.ebooks.isNotEmpty() || findingGroups.ebooks.isNotEmpty()) {
 								item("bindery-book-ebooks-title") {
 									BinderyBookSectionTitle(stringResource(Res.string.title_audiobook_ebooks))
+								}
+								itemsIndexed(
+									versionGroups.ebooks,
+									key = { index, row -> binderyBookVersionRowLazyKey(row, index) }
+								) { _, row ->
+									BinderyBookVersionListItem(
+										row = row,
+										bookId = bookId,
+										bookTitle = data.manifest.title,
+										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+										onOpenReader = { destination ->
+											platformContext.clickSound()
+											backStack.add(destination)
+										}
+									)
 								}
 								itemsIndexed(findingGroups.ebooks, key = { _, row -> row.key }) { _, row ->
 									BinderyBookFindingCandidateListItem(
@@ -234,6 +280,11 @@ fun BinderyBookScreen(
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
+										},
+										actionInFlight = actionInFlight,
+										onReaderAction = { link ->
+											platformContext.clickSound()
+											viewModel.performAction(link)
 										},
 										languageFilter = languageFilter
 									)
@@ -258,8 +309,11 @@ fun BinderyBookScreen(
 	}
 
 	ErrorSnackbar(
-		error = (bookState as? UiState.Error)?.error,
-		onClearError = { viewModel.clearError() }
+		error = actionError ?: (bookState as? UiState.Error)?.error,
+		onClearError = {
+			viewModel.clearActionError()
+			viewModel.clearError()
+		}
 	)
 }
 
@@ -401,15 +455,87 @@ private fun BinderyBookSubjectSection(
 }
 
 @Composable
+private fun BinderyBookVersionListItem(
+	row: BinderyBookVersionRow,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String,
+	onOpenReader: (Screen.Reader) -> Unit
+) {
+	val readerDestination = binderyReaderDestinationForVersionRow(
+		row = row,
+		bookId = bookId,
+		bookTitle = bookTitle,
+		opdsBaseUrl = opdsBaseUrl
+	)
+	Surface(
+		modifier = Modifier.fillMaxWidth(),
+		shape = RoundedCornerShape(8.dp),
+		color = MaterialTheme.colorScheme.surfaceContainerHighest
+	) {
+		Row(
+			modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			Icon(
+				imageVector = when (row.kind) {
+					BinderyBookVersionKind.Audiobook -> Icons.Outlined.Audiobooks
+					BinderyBookVersionKind.Readaloud,
+					BinderyBookVersionKind.Ebook -> Icons.Outlined.Book
+				},
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.primary,
+				modifier = Modifier.size(24.dp)
+			)
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(2.dp)
+			) {
+				Text(
+					text = row.title,
+					style = MaterialTheme.typography.titleSmall,
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis
+				)
+				row.subtitle?.let {
+					Text(
+						text = it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
+			IconButton(
+				onClick = {
+					readerDestination?.let(onOpenReader)
+				},
+				enabled = readerDestination != null
+			) {
+				Icon(
+					imageVector = Icons.Filled.Play,
+					contentDescription = stringResource(Res.string.action_play)
+				)
+			}
+		}
+	}
+}
+
+@Composable
 private fun BinderyBookFindingCandidateListItem(
 	row: BinderyBookFindingRow,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit,
+	actionInFlight: Set<String>,
+	onReaderAction: (BinderyLink) -> Unit,
 	languageFilter: String?
 ) {
 	val card = row.card
 	val visualPolicy = binderyCatalogCardVisualPolicy(card)
+	val action = row.readerOpdsAction
 	Surface(
 		onClick = { onOpenFinding(card) },
 		modifier = Modifier
@@ -461,17 +587,26 @@ private fun BinderyBookFindingCandidateListItem(
 				)
 			}
 			IconButton(
-				onClick = { },
-				enabled = false
+				onClick = {
+					action?.link?.let(onReaderAction)
+				},
+				enabled = action != null && action.link.href !in actionInFlight
 			) {
-				Icon(
-					imageVector = Icons.Filled.Play,
-					contentDescription = stringResource(
-						when (row.readerAction) {
-							BinderyBookFindingRowAction.Play -> Res.string.action_play
-						}
+				if (action != null && action.link.href in actionInFlight) {
+					androidx.compose.material3.CircularProgressIndicator(
+						modifier = Modifier.size(20.dp),
+						strokeWidth = 2.dp
 					)
-				)
+				} else {
+					Icon(
+						imageVector = Icons.Filled.Play,
+						contentDescription = stringResource(
+							when (row.readerAction) {
+								BinderyBookFindingRowAction.Play -> Res.string.action_play
+							}
+						)
+					)
+				}
 			}
 		}
 	}
