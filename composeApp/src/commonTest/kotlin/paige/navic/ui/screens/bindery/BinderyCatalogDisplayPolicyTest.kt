@@ -532,7 +532,7 @@ class BinderyCatalogDisplayPolicyTest {
 					),
 					BinderyPublication(
 						id = "urn:bindery:book:loose-acquisition",
-						title = "Loose acquisition metadata",
+						title = "Concrete ebook without findings",
 						links = listOf(
 							BinderyLink(
 								href = "/opds/books/loose-acquisition/resources/ebook",
@@ -568,8 +568,12 @@ class BinderyCatalogDisplayPolicyTest {
 		)
 
 		assertEquals(
-			listOf("Explicitly owned book"),
+			listOf("Concrete ebook without findings", "Explicitly owned book"),
 			row.cards().map { it.title }
+		)
+		assertEquals(
+			listOf(AurralOwnershipStatus.Partial, AurralOwnershipStatus.Owned),
+			row.cards().map { it.availabilityStatus() }
 		)
 	}
 
@@ -843,7 +847,7 @@ class BinderyCatalogDisplayPolicyTest {
 			).availabilityStatus()
 		)
 		assertEquals(
-			AurralOwnershipStatus.Missing,
+			AurralOwnershipStatus.Partial,
 			BinderyCatalogCard.Book(
 				id = "book-2",
 				title = "Legacy concrete ebook",
@@ -874,6 +878,40 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			).availabilityStatus()
 		)
+	}
+
+	@Test
+	fun catalogPublicationReadingOrderContributesToBookAvailabilityWithoutFindings() {
+		val row = BinderyHubCatalogRow(
+			row = BinderyHubRow(
+				kind = BinderyHubRowKind.RecentlyAdded,
+				path = "/opds/recent",
+				title = "Recently Added"
+			),
+			catalog = BinderyCatalog(
+				title = "Recently Added",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:3913",
+						title = "The Maps of Middle-Earth",
+						author = "J.R.R. Tolkien",
+						readingOrder = listOf(
+							BinderyReadingOrderItem(
+								href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+								title = "The Maps of Middle-Earth",
+								type = "application/epub+zip",
+								properties = mapOf("language" to "eng")
+							)
+						)
+					)
+				)
+			)
+		)
+
+		val card = row.cards(languageFilter = "eng").single()
+		assertEquals("The Maps of Middle-Earth", card.title)
+		assertEquals(AurralOwnershipStatus.Partial, card.availabilityStatus("eng"))
+		assertTrue(card.hasAvailableContent("eng"))
 	}
 
 	@Test
@@ -1098,6 +1136,49 @@ class BinderyCatalogDisplayPolicyTest {
 		assertEquals(AurralOwnershipStatus.Owned, complete.availabilityStatus("eng"))
 		assertEquals(AurralOwnershipStatus.Missing, otherLanguageOnly.availabilityStatus("eng"))
 		assertEquals(AurralOwnershipStatus.Partial, otherLanguageOnly.availabilityStatus("spa"))
+	}
+
+	@Test
+	fun publicationRowsUseTheSameConcreteMediaAvailabilityPipelineAsBookCards() {
+		val englishEpub = BinderyLink(
+			href = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+			rel = listOf("http://opds-spec.org/acquisition"),
+			type = "application/epub+zip",
+			properties = mapOf("language" to "eng")
+		)
+		val englishAudiobook = BinderyReadingOrderItem(
+			href = "/opds/books/3913/resources/audiobook-1",
+			title = "The Maps of Middle-Earth",
+			type = "audio/mpeg",
+			properties = mapOf("language" to "eng")
+		)
+		val requestOnly = BinderyLink(
+			href = "/opds/books/3913/download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+		val ebookOnly = BinderyPublication(
+			id = "urn:bindery:book:3913",
+			title = "The Maps of Middle-Earth",
+			author = "J.R.R. Tolkien",
+			links = listOf(englishEpub)
+		)
+		val complete = ebookOnly.copy(
+			readingOrder = listOf(englishAudiobook)
+		)
+		val downloadRequestOnly = ebookOnly.copy(
+			id = "urn:bindery:book:request-only",
+			links = listOf(requestOnly),
+			readingOrder = emptyList()
+		)
+
+		assertEquals(AurralOwnershipStatus.Partial, ebookOnly.availabilityStatus("eng"))
+		assertEquals(1f, ebookOnly.availabilityAlpha("eng"))
+		assertEquals(true, ebookOnly.hasAvailableContent("eng"))
+		assertEquals(AurralOwnershipStatus.Owned, complete.availabilityStatus("eng"))
+		assertEquals(AurralOwnershipStatus.Missing, downloadRequestOnly.availabilityStatus("eng"))
+		assertEquals(0.42f, downloadRequestOnly.availabilityAlpha("eng"))
+		assertEquals(false, downloadRequestOnly.hasAvailableContent("eng"))
 	}
 
 	@Test

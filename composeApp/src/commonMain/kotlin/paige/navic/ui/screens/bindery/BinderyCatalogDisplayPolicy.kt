@@ -460,13 +460,17 @@ private fun List<BinderyLink>.actionLink(rel: String): BinderyLink? =
 
 fun BinderyCatalogCard.availabilityStatus(languageFilter: String? = null): AurralOwnershipStatus? =
 	when (this) {
-		is BinderyCatalogCard.Book -> availability.toOwnershipStatus(languageFilter)
-			.mergeBookMediaStatus(links.toConcreteResourceOwnershipStatus(languageFilter))
-			.mergeBookMediaStatus(readingOrder.toReadingOrderResourceOwnershipStatus(languageFilter))
-			?: AurralOwnershipStatus.Missing
-		is BinderyCatalogCard.Link -> availability.toOwnershipStatus(languageFilter)
-			.mergeBookMediaStatus(links.toConcreteResourceOwnershipStatus(languageFilter))
-			?: AurralOwnershipStatus.Missing
+		is BinderyCatalogCard.Book -> concreteBookMediaStatus(
+			languageFilter = languageFilter,
+			availability = availability,
+			links = links,
+			readingOrder = readingOrder
+		)
+		is BinderyCatalogCard.Link -> concreteBookMediaStatus(
+			languageFilter = languageFilter,
+			availability = availability,
+			links = links
+		)
 		is BinderyCatalogCard.Finding -> availability.toOwnershipStatus(languageFilter)
 			?: if (isAvailableFindingCandidate(languageFilter)) {
 				AurralOwnershipStatus.Owned
@@ -485,6 +489,23 @@ fun BinderyCatalogCard.hasAvailableContent(languageFilter: String? = null): Bool
 	availabilityStatus(languageFilter)
 		?.let { status -> status != AurralOwnershipStatus.Missing }
 		?: false
+
+fun BinderyPublication.availabilityStatus(languageFilter: String? = null): AurralOwnershipStatus =
+	concreteBookMediaStatus(
+		languageFilter = languageFilter,
+		availability = availability,
+		links = links,
+		readingOrder = readingOrder
+	)
+
+fun BinderyPublication.availabilityAlpha(languageFilter: String? = null): Float =
+	when (availabilityStatus(languageFilter)) {
+		AurralOwnershipStatus.Missing -> 0.42f
+		else -> 1f
+	}
+
+fun BinderyPublication.hasAvailableContent(languageFilter: String? = null): Boolean =
+	availabilityStatus(languageFilter) != AurralOwnershipStatus.Missing
 
 fun BinderyAvailability?.availabilityAlpha(languageFilter: String? = null): Float =
 	when (toBookOwnershipStatus(languageFilter)) {
@@ -575,22 +596,58 @@ private fun ownershipStatusForRequiredBookFormats(formats: Set<String>): AurralO
 		else -> AurralOwnershipStatus.Missing
 	}
 
-private fun List<BinderyLink>.toConcreteResourceOwnershipStatus(languageFilter: String? = null): AurralOwnershipStatus? {
+private fun concreteBookMediaStatus(
+	languageFilter: String?,
+	availability: BinderyAvailability?,
+	links: List<BinderyLink>,
+	readingOrder: List<BinderyReadingOrderItem> = emptyList()
+): AurralOwnershipStatus {
+	val formats = availability.ownedMediaFormats(languageFilter) +
+		links.concreteLinkMediaFormats(languageFilter) +
+		readingOrder.concreteReadingOrderMediaFormats(languageFilter)
+	return formats
+		.takeIf { it.isNotEmpty() }
+		?.let(::ownershipStatusForRequiredBookFormats)
+		?: availability.toOwnershipStatus(languageFilter)
+		?: AurralOwnershipStatus.Missing
+}
+
+private fun BinderyAvailability?.ownedMediaFormats(languageFilter: String? = null): Set<String> {
+	if (this == null || owned != true) return emptySet()
 	val normalizedLanguage = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
-	val formats = mapNotNull { link ->
+	val combinationFormats = ownedCombinations.mapNotNull { combination ->
+		val combinationLanguage = combination.language.normalizedBinderyAvailabilityLanguage()
+		if (normalizedLanguage != null && combinationLanguage != normalizedLanguage) return@mapNotNull null
+		combination.format.normalizedBinderyMediaFormat()
+	}
+	if (ownedCombinations.isNotEmpty()) {
+		return combinationFormats.toSet()
+	}
+	val normalizedLanguages = ownedLanguages
+		.mapNotNull { language -> language.normalizedBinderyAvailabilityLanguage() }
+		.toSet()
+	val normalizedFormats = ownedFormats.mapNotNull(String::normalizedBinderyMediaFormat)
+	val languagesMatch = normalizedLanguage == null ||
+		normalizedLanguages.isEmpty() ||
+		normalizedLanguage in normalizedLanguages
+	val aggregateFormatsAreLanguageSafe = normalizedLanguage == null ||
+		normalizedLanguages.size <= 1 ||
+		BinderyRequiredBookFormats.count(normalizedFormats::contains) <= 1
+	val directFormats = if (languagesMatch && aggregateFormatsAreLanguageSafe) {
+		normalizedFormats
+	} else {
+		emptyList()
+	}
+	return directFormats.toSet()
+}
+
+private fun List<BinderyLink>.concreteLinkMediaFormats(languageFilter: String? = null): Set<String> {
+	val normalizedLanguage = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
+	return mapNotNull { link ->
 		if (!link.isAcquisition() || !link.matchesLanguage(normalizedLanguage)) return@mapNotNull null
 		link.concreteMediaFormat()
 	}.toSet()
-	return formats.takeIf { it.isNotEmpty() }?.let(::ownershipStatusForRequiredBookFormats)
 }
-
-private fun AurralOwnershipStatus?.mergeBookMediaStatus(other: AurralOwnershipStatus?): AurralOwnershipStatus? =
-	when {
-		this == AurralOwnershipStatus.Owned || other == AurralOwnershipStatus.Owned -> AurralOwnershipStatus.Owned
-		this == AurralOwnershipStatus.Partial || other == AurralOwnershipStatus.Partial -> AurralOwnershipStatus.Partial
-		this == AurralOwnershipStatus.Missing || other == AurralOwnershipStatus.Missing -> AurralOwnershipStatus.Missing
-		else -> null
-	}
 
 private fun BinderyLink.matchesLanguage(language: String?): Boolean =
 	language == null ||
@@ -601,14 +658,14 @@ private fun BinderyLink.matchesLanguage(language: String?): Boolean =
 private fun BinderyLink.concreteMediaFormat(): String? =
 	properties.firstNonBlankValue("kind", "mediaType", "format")
 		?.normalizedBinderyMediaFormat()
+		?: type?.normalizedBinderyMediaFormat()
 
-private fun List<BinderyReadingOrderItem>.toReadingOrderResourceOwnershipStatus(languageFilter: String? = null): AurralOwnershipStatus? {
+private fun List<BinderyReadingOrderItem>.concreteReadingOrderMediaFormats(languageFilter: String? = null): Set<String> {
 	val normalizedLanguage = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
-	val formats = mapNotNull { item ->
+	return mapNotNull { item ->
 		if (!item.matchesLanguage(normalizedLanguage)) return@mapNotNull null
 		item.concreteMediaFormat()
 	}.toSet()
-	return formats.takeIf { it.isNotEmpty() }?.let(::ownershipStatusForRequiredBookFormats)
 }
 
 private fun BinderyReadingOrderItem.concreteMediaFormat(): String? =

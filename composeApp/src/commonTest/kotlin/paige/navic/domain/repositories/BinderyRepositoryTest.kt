@@ -169,6 +169,40 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun catalogDecodePreservesPublicationReadingOrderResources() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": { "title": "Recently Added" },
+			  "publications": [
+			    {
+			      "metadata": {
+			        "identifier": "urn:bindery:book:3913",
+			        "title": "The Maps of Middle-Earth"
+			      },
+			      "readingOrder": [
+			        {
+			          "href": "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+			          "title": "The Maps of Middle-Earth",
+			          "type": "application/epub+zip",
+			          "properties": {
+			            "language": "eng"
+			          }
+			        }
+			      ]
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val item = catalog.publications.single().readingOrder.single()
+		assertEquals("/opds/books/3913/resources/ebook-b84add4a73f1c4b01513", item.href)
+		assertEquals("application/epub+zip", item.type)
+		assertEquals("eng", item.properties["language"])
+	}
+
+	@Test
 	fun progressFetchUsesConfiguredOpdsUrlAndPreservesTypedReaderLocator() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			progress = BinderyReadingProgress(
@@ -515,6 +549,59 @@ class BinderyRepositoryTest {
 		assertEquals("Mistborn", catalog.publications.single().properties["collectionTitle"])
 		assertEquals(
 			BinderyAvailability(ownedBooks = 0, missingBooks = 1, totalBooks = 1),
+			catalog.publications.single().availability
+		)
+	}
+
+	@Test
+	fun catalogJsonDecodesTopLevelPublicationAvailabilityForEbookOnlyBooks() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Recently Added"},
+			  "publications": [
+			    {
+			      "metadata": {
+			        "title": "The Maps of Middle-Earth",
+			        "identifier": "urn:bindery:book:3913",
+			        "author": [{"name": "J.R.R. Tolkien"}]
+			      },
+			      "properties": {
+			        "availability": {
+			          "complete": false,
+			          "formats": ["ebook", "audiobook"],
+			          "languages": ["eng"],
+			          "missingCombinations": [
+			            {"format": "audiobook", "language": "eng"}
+			          ],
+			          "mode": "any",
+			          "owned": true,
+			          "ownedCombinations": [
+			            {"format": "ebook", "language": "eng"}
+			          ],
+			          "ownedFormats": ["ebook"],
+			          "ownedLanguages": ["eng"]
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals(
+			BinderyAvailability(
+				owned = true,
+				complete = false,
+				formats = listOf("ebook", "audiobook"),
+				ownedFormats = listOf("ebook"),
+				ownedLanguages = listOf("eng"),
+				ownedCombinations = listOf(
+					BinderyAvailabilityCombination(format = "ebook", language = "eng")
+				),
+				languages = listOf("eng"),
+				mode = "any"
+			),
 			catalog.publications.single().availability
 		)
 	}

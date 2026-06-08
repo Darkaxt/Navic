@@ -454,6 +454,7 @@ private fun BinderyFindingMappingRow(
 
 @Composable
 private fun BinderyFindingFileRow(file: BinderyFindingFile) {
+	val isAudio = file.isAudioFile()
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = RoundedCornerShape(8.dp),
@@ -472,10 +473,10 @@ private fun BinderyFindingFileRow(file: BinderyFindingFile) {
 			listOfNotNull(
 				file.language?.uppercase(),
 				file.format?.uppercase(),
-				file.durationSeconds?.roundToLong()?.let(::queueTotalDurationLabel),
+				file.durationSeconds?.takeIf { isAudio && it > 0.0 }?.roundToLong()?.let(::queueTotalDurationLabel),
 				file.sizeBytes?.toFileSize(),
-				file.bitrateBps?.let(::bitrateLabel),
-				file.sampleRateHz?.let(::sampleRateLabel)
+				file.bitrateBps?.takeIf { isAudio && it > 0L }?.let(::bitrateLabel),
+				file.sampleRateHz?.takeIf { isAudio && it > 0L }?.let(::sampleRateLabel)
 			).joinToString(separator = " / ")
 				.takeIf { it.isNotBlank() }
 				?.let { subtitle ->
@@ -491,8 +492,9 @@ private fun BinderyFindingFileRow(file: BinderyFindingFile) {
 	}
 }
 
-private fun BinderyFindingMetadata.infoRows(): List<Pair<String, String>> =
-	listOfNotNull(
+private fun BinderyFindingMetadata.infoRows(): List<Pair<String, String>> {
+	val isAudio = isAudioFinding()
+	return listOfNotNull(
 		"Media" to mediaType?.displayToken(),
 		"Language" to language?.uppercase(),
 		"Format" to format?.uppercase(),
@@ -508,11 +510,23 @@ private fun BinderyFindingMetadata.infoRows(): List<Pair<String, String>> =
 		"Protocol" to protocol?.displayToken(),
 		fileCount?.let { "Files" to it.toString() },
 		sizeBytes?.let { "Size" to it.toFileSize() },
-		bitrateBps?.let { "Bitrate" to bitrateLabel(it) },
-		sampleRateHz?.let { "Sample rate" to sampleRateLabel(it) }
+		bitrateBps?.takeIf { isAudio && it > 0L }?.let { "Bitrate" to bitrateLabel(it) },
+		sampleRateHz?.takeIf { isAudio && it > 0L }?.let { "Sample rate" to sampleRateLabel(it) }
 	).mapNotNull { (label, value) ->
 		value?.takeIf { it.isNotBlank() }?.let { label to it }
 	}
+}
+
+private fun BinderyFindingMetadata.isAudioFinding(): Boolean =
+	mediaType.isAudioFindingToken() || format.isAudioFindingToken()
+
+private fun BinderyFindingFile.isAudioFile(): Boolean =
+	format.isAudioFindingToken() ||
+		name?.substringAfterLast('.', missingDelimiterValue = "").isAudioFindingToken() ||
+		href?.substringBefore('?')?.substringBefore('#')?.substringAfterLast('.', missingDelimiterValue = "").isAudioFindingToken()
+
+private fun String?.isAudioFindingToken(): Boolean =
+	this?.trim()?.lowercase() in setOf("audio", "audiobook", "mp3", "m4b", "m4a", "aac", "ogg", "opus", "flac", "wav")
 
 private fun bitrateLabel(value: Long): String =
 	"${(value / 1000).coerceAtLeast(1)} kbps"
