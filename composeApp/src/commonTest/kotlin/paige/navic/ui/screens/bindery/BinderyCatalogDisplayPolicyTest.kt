@@ -69,13 +69,13 @@ class BinderyCatalogDisplayPolicyTest {
 	@Test
 	fun languageAvailabilityFilteringAddsOwnedConstraintOnlyForCatalogLists() {
 		assertEquals(
-			"/opds/books?limit=5&owned=1&languages=eng&coverage=any",
+			"/opds/books?limit=5&owned=1&formats=ebook,audiobook&languages=eng&coverage=any",
 			binderyAvailabilityFilteredCatalogPath("/opds/books?limit=5", "eng")
 		)
 		assertEquals(
-			"/opds/books?limit=5&owned=1&languages=eng&coverage=any",
+			"/opds/books?limit=5&owned=1&formats=ebook,audiobook&languages=eng&coverage=any",
 			binderyAvailabilityFilteredCatalogPath(
-				"/opds/books?limit=5&owned=1&languages=spa&coverage=all",
+				"/opds/books?limit=5&owned=1&formats=ebook&languages=spa&coverage=all",
 				"eng"
 			)
 		)
@@ -122,7 +122,7 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun catalogCardsPreserveOpdsMonitorAndDownloadActionLinks() {
+	fun catalogCardsPreserveOpdsActionLinksButDoNotPromoteBookDownloads() {
 		val monitor = BinderyLink(
 			href = "/opds/discover/authors/hc%3Apeter-sanderson/monitor",
 			title = "Monitor author",
@@ -166,6 +166,7 @@ class BinderyCatalogDisplayPolicyTest {
 		).single() as BinderyCatalogCard.Link
 
 		assertEquals(download, bookCard.downloadRequestAction)
+		assertEquals(null, bookCard.primaryAction())
 		assertEquals(monitor, authorCard.monitorAction)
 	}
 
@@ -217,6 +218,46 @@ class BinderyCatalogDisplayPolicyTest {
 			Screen.BinderyFinding("/opds/findings/894", "J.R.R. Tolkien - The Hobbit.epub"),
 			binderyDestinationForCard(findingCard)
 		)
+	}
+
+	@Test
+	fun findingRowsExposePlayActionWithoutPromotingDownloadRequestButtons() {
+		val download = BinderyLink(
+			href = "/api/v1/findings/894/acquire",
+			title = "Request download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+		val catalog = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:894",
+					title = "J.R.R. Tolkien - The Hobbit.epub",
+					finding = BinderyFindingMetadata(
+						findingId = "894",
+						mediaType = "ebook",
+						language = "eng",
+						format = "epub",
+						availabilityStatus = "imported"
+					),
+					links = listOf(
+						BinderyLink(
+							href = "/opds/findings/894",
+							rel = listOf("self"),
+							type = "application/opds-publication+json"
+						),
+						download
+					)
+				)
+			)
+		)
+
+		val row = binderyBookFindingRows(catalog).ebooks.single()
+
+		assertEquals(BinderyBookFindingRowAction.Play, row.readerAction)
+		assertEquals(download, row.card.downloadRequestAction)
+		assertEquals(null, binderyFindingRowOpdsAction(row.card))
 	}
 
 	@Test
@@ -456,10 +497,12 @@ class BinderyCatalogDisplayPolicyTest {
 					),
 					BinderyPublication(
 						id = "urn:bindery:book:owned",
-						title = "Explicitly owned ebook",
+						title = "Explicitly owned book",
 						availability = paige.navic.domain.repositories.BinderyAvailability(
 							owned = true,
 							complete = true,
+							ownedFormats = listOf("ebook", "audiobook"),
+							ownedLanguages = listOf("eng"),
 							missingBooks = 0
 						)
 					)
@@ -468,7 +511,7 @@ class BinderyCatalogDisplayPolicyTest {
 		)
 
 		assertEquals(
-			listOf("Explicitly owned ebook"),
+			listOf("Explicitly owned book"),
 			row.cards.map { it.title }
 		)
 	}
@@ -704,30 +747,31 @@ class BinderyCatalogDisplayPolicyTest {
 	fun availabilityStatusUsesMusicOwnershipDotSemantics() {
 		assertEquals(
 			AurralOwnershipStatus.Owned,
-			BinderyCatalogCard.Link(
-				id = "/opds/collections/1",
-				title = "Complete",
-				subtitle = "Collection",
-				path = "/opds/collections/1",
+			BinderyCatalogCard.Book(
+				id = "book-owned",
+				title = "Owned",
+				subtitle = "Author",
+				imageUrl = null,
 				availability = paige.navic.domain.repositories.BinderyAvailability(
 					owned = true,
 					complete = true,
-					missingBooks = 0
+					ownedFormats = listOf("ebook", "audiobook"),
+					ownedLanguages = listOf("eng")
 				)
 			).availabilityStatus()
 		)
 		assertEquals(
 			AurralOwnershipStatus.Partial,
-			BinderyCatalogCard.Link(
-				id = "/opds/collections/2",
+			BinderyCatalogCard.Book(
+				id = "book-partial",
 				title = "Partial",
-				subtitle = "Collection",
-				path = "/opds/collections/2",
+				subtitle = "Author",
+				imageUrl = null,
 				availability = paige.navic.domain.repositories.BinderyAvailability(
 					owned = true,
 					complete = false,
-					ownedBooks = 2,
-					missingBooks = 1
+					ownedFormats = listOf("ebook"),
+					ownedLanguages = listOf("eng")
 				)
 			).availabilityStatus()
 		)
@@ -745,7 +789,7 @@ class BinderyCatalogDisplayPolicyTest {
 			AurralOwnershipStatus.Missing,
 			BinderyCatalogCard.Book(
 				id = "book-2",
-				title = "Concrete ebook",
+				title = "Legacy concrete ebook",
 				subtitle = "Author",
 				imageUrl = null,
 				links = listOf(
@@ -772,6 +816,64 @@ class BinderyCatalogDisplayPolicyTest {
 					)
 				)
 			).availabilityStatus()
+		)
+	}
+
+	@Test
+	fun bookAvailabilityRequiresBothFormatsInTheSameLanguage() {
+		val crossLanguageAvailability = paige.navic.domain.repositories.BinderyAvailability(
+			owned = true,
+			complete = true,
+			ownedFormats = listOf("ebook", "audiobook"),
+			ownedLanguages = listOf("eng", "spa"),
+			ownedCombinations = listOf(
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "ebook",
+					language = "eng"
+				),
+				paige.navic.domain.repositories.BinderyAvailabilityCombination(
+					format = "audiobook",
+					language = "spa"
+				)
+			)
+		)
+
+		assertEquals(
+			AurralOwnershipStatus.Partial,
+			BinderyCatalogCard.Book(
+				id = "book-cross-language",
+				title = "Cross-language",
+				subtitle = "Author",
+				imageUrl = null,
+				availability = crossLanguageAvailability
+			).availabilityStatus()
+		)
+	}
+
+	@Test
+	fun genericBookPublicationsAndManifestsDoNotExposeDownloadAsPrimaryAction() {
+		val download = BinderyLink(
+			href = "/opds/books/3693/download",
+			title = "Request download",
+			rel = listOf(BINDERY_DOWNLOAD_REQUEST_REL),
+			type = "application/json"
+		)
+
+		assertEquals(
+			null,
+			BinderyPublication(
+				id = "urn:bindery:book:3693",
+				title = "Alcatraz",
+				links = listOf(download)
+			).primaryAction()
+		)
+		assertEquals(
+			null,
+			BinderyManifest(
+				id = "urn:bindery:book:3693",
+				title = "Alcatraz",
+				links = listOf(download)
+			).primaryAction()
 		)
 	}
 
@@ -984,6 +1086,105 @@ class BinderyCatalogDisplayPolicyTest {
 				)
 			),
 			binderyBookVersionRows(manifest, resources)
+		)
+	}
+
+	@Test
+	fun bookVersionRowsPreferReadaloudWithoutHidingStandaloneFormats() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3693",
+			title = "Alcatraz versus the Evil Librarians",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3693/resources/audio-1",
+					title = "Part 01",
+					type = "audio/mpeg",
+					durationSeconds = 1800.0,
+					sizeBytes = 1048576,
+					properties = mapOf("relativePath" to "Part 01.mp3")
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Alcatraz Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/readaloud-1",
+					title = "Alcatraz Storyteller EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 3145728,
+					properties = mapOf(
+						"provider" to "Storyteller",
+						"format" to "epub",
+						"mediaOverlay" to "true",
+						"relativePath" to "Alcatraz.readaloud.epub"
+					)
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-1",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 431666,
+					properties = mapOf("format" to "epub")
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/readaloud-1",
+					kind = BinderyBookVersionKind.Readaloud,
+					title = "Readaloud",
+					subtitle = "Storyteller / EPUB / 3.0 MB"
+				),
+				BinderyBookVersionRow(
+					id = "audiobook",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Audiobook",
+					subtitle = "MP3 / 1 part / 30m 0s / 1.0 MB"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-1",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "EPUB",
+					subtitle = "421.54 KB"
+				)
+			),
+			binderyBookVersionRows(manifest, resources)
+		)
+	}
+
+	@Test
+	fun bookVersionRoutingKeepsReadaloudSeparateFromEbookAndAudiobookActions() {
+		assertEquals(
+			BinderyBookVersionRoutingAction.OpenReadaloud,
+			BinderyBookVersionRow(
+				id = "/opds/books/3693/resources/readaloud-1",
+				kind = BinderyBookVersionKind.Readaloud,
+				title = "Readaloud",
+				subtitle = null
+			).routingAction()
+		)
+		assertEquals(
+			BinderyBookVersionRoutingAction.OpenEbook,
+			BinderyBookVersionRow(
+				id = "/opds/books/3693/resources/ebook-1",
+				kind = BinderyBookVersionKind.Ebook,
+				title = "EPUB",
+				subtitle = null
+			).routingAction()
+		)
+		assertEquals(
+			BinderyBookVersionRoutingAction.OpenAudiobook,
+			BinderyBookVersionRow(
+				id = "audiobook",
+				kind = BinderyBookVersionKind.Audiobook,
+				title = "Audiobook",
+				subtitle = null
+			).routingAction()
 		)
 	}
 

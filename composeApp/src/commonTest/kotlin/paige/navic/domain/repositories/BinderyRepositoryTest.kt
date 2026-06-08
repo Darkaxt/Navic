@@ -273,8 +273,13 @@ class BinderyRepositoryTest {
 			      "ownedBooks": 3,
 			      "missingBooks": 1,
 			      "totalBooks": 4,
+			      "formats": ["audiobook", "ebook"],
 			      "ownedFormats": ["audiobook", "ebook"],
 			      "ownedLanguages": ["eng"],
+			      "ownedCombinations": [
+			        {"format": "audiobook", "language": "eng"},
+			        {"format": "ebook", "language": "eng"}
+			      ],
 			      "languages": ["eng"],
 			      "mode": "any"
 			    }
@@ -351,8 +356,19 @@ class BinderyRepositoryTest {
 				ownedBooks = 3,
 				missingBooks = 1,
 				totalBooks = 4,
+				formats = listOf("audiobook", "ebook"),
 				ownedFormats = listOf("audiobook", "ebook"),
 				ownedLanguages = listOf("eng"),
+				ownedCombinations = listOf(
+					BinderyAvailabilityCombination(
+						format = "audiobook",
+						language = "eng"
+					),
+					BinderyAvailabilityCombination(
+						format = "ebook",
+						language = "eng"
+					)
+				),
 				languages = listOf("eng"),
 				mode = "any"
 			),
@@ -636,7 +652,15 @@ class BinderyRepositoryTest {
 					"kind" to "audio",
 					"size" to "120973860",
 					"trackNumber" to "1"
-				)
+				),
+				propertyValues = BinderyPropertyBag(
+					mapOf(
+						"kind" to BinderyPropertyValue.StringValue("audio"),
+						"size" to BinderyPropertyValue.NumberValue(120973860.0, "120973860"),
+						"trackNumber" to BinderyPropertyValue.NumberValue(1.0, "1")
+					)
+				),
+				metadata = BinderyResourceMetadata(trackNumber = 1)
 			),
 			manifest.readingOrder.single()
 		)
@@ -688,13 +712,254 @@ class BinderyRepositoryTest {
 					"kind" to "ebook",
 					"size" to "431666",
 					"trackNumber" to "1"
-				)
+				),
+				propertyValues = BinderyPropertyBag(
+					mapOf(
+						"kind" to BinderyPropertyValue.StringValue("ebook"),
+						"size" to BinderyPropertyValue.NumberValue(431666.0, "431666"),
+						"trackNumber" to BinderyPropertyValue.NumberValue(1.0, "1")
+					)
+				),
+				metadata = BinderyResourceMetadata(trackNumber = 1)
 			),
 			catalog.resources.first()
 		)
 		assertEquals("audio", catalog.resources[1].kind)
 		assertEquals(3763.592, catalog.resources[1].durationSeconds)
 		assertEquals(120973860, catalog.resources[1].sizeBytes)
+	}
+
+	@Test
+	fun resourceAndReadingOrderJsonPreserveStructuredAudioAndSourceMetadata() {
+		val manifest = decodeBinderyManifestJson(
+			"""
+			{
+			  "metadata": {"title": "Alcatraz"},
+			  "readingOrder": [
+			    {
+			      "href": "/opds/books/3693/resources/audio-1",
+			      "type": "audio/mpeg",
+			      "title": "Part 01",
+			      "duration": 3763.592,
+			      "properties": {
+			        "kind": "audio",
+			        "resourceKey": "audio-001",
+			        "relativePath": "Audio/Part 01.mp3",
+			        "durationMs": 3763592,
+			        "language": "eng",
+			        "chapterLabel": "Chapter 1",
+			        "sectionLabel": "Opening",
+			        "trackNumber": 1,
+			        "discNumber": 1,
+			        "narrator": "Michael Kramer",
+			        "author": "Brandon Sanderson",
+			        "editionSuffix": "unabridged",
+			        "sourceProvider": "audible",
+			        "audio": {
+			          "codec": "mp3",
+			          "bitrateKbps": 128,
+			          "sampleRateHz": 44100,
+			          "channels": 2,
+			          "qualityLabel": "High"
+			        },
+			        "sourceRelease": {
+			          "provider": "Audible",
+			          "sourceUrl": "https://example.com/audible/alcatraz",
+			          "narrator": "Michael Kramer",
+			          "readBy": "Michael Kramer",
+			          "edition": "Unabridged",
+			          "format": "MP3",
+			          "categories": ["Fantasy", "Juvenile fiction"],
+			          "keywords": ["alcatraz", "sanderson"]
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val resources = decodeBinderyResourceCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Alcatraz Resources"},
+			  "resources": [
+			    {
+			      "href": "/opds/books/3693/resources/audio-1",
+			      "type": "audio/mpeg",
+			      "title": "Part 01",
+			      "duration": 3763.592,
+			      "properties": {
+			        "kind": "audio",
+			        "resourceKey": "audio-001",
+			        "relativePath": "Audio/Part 01.mp3",
+			        "durationMs": 3763592,
+			        "language": "eng",
+			        "chapterLabel": "Chapter 1",
+			        "sectionLabel": "Opening",
+			        "trackNumber": 1,
+			        "discNumber": 1,
+			        "narrator": "Michael Kramer",
+			        "author": "Brandon Sanderson",
+			        "editionSuffix": "unabridged",
+			        "sourceProvider": "audible",
+			        "audio": {
+			          "codec": "mp3",
+			          "bitrateKbps": 128,
+			          "sampleRateHz": 44100,
+			          "channels": 2,
+			          "qualityLabel": "High"
+			        },
+			        "sourceRelease": {
+			          "provider": "Audible",
+			          "sourceUrl": "https://example.com/audible/alcatraz",
+			          "narrator": "Michael Kramer",
+			          "readBy": "Michael Kramer",
+			          "edition": "Unabridged",
+			          "format": "MP3",
+			          "categories": ["Fantasy", "Juvenile fiction"],
+			          "keywords": ["alcatraz", "sanderson"]
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val expectedMetadata = BinderyResourceMetadata(
+			resourceKey = "audio-001",
+			relativePath = "Audio/Part 01.mp3",
+			durationMs = 3763592,
+			language = "eng",
+			chapterLabel = "Chapter 1",
+			sectionLabel = "Opening",
+			trackNumber = 1,
+			discNumber = 1,
+			narrator = "Michael Kramer",
+			author = "Brandon Sanderson",
+			editionSuffix = "unabridged",
+			sourceProvider = "audible",
+			audio = BinderyAudioMetadata(
+				codec = "mp3",
+				bitrateKbps = 128,
+				sampleRateHz = 44100,
+				channels = 2,
+				qualityLabel = "High"
+			),
+			sourceRelease = BinderySourceReleaseMetadata(
+				provider = "Audible",
+				sourceUrl = "https://example.com/audible/alcatraz",
+				narrator = "Michael Kramer",
+				readBy = "Michael Kramer",
+				edition = "Unabridged",
+				format = "MP3",
+				categories = listOf("Fantasy", "Juvenile fiction"),
+				keywords = listOf("alcatraz", "sanderson")
+			)
+		)
+
+		assertEquals(expectedMetadata, manifest.readingOrder.single().metadata)
+		assertEquals(expectedMetadata, resources.resources.single().metadata)
+		assertNull(manifest.readingOrder.single().properties["audio"])
+		assertNull(resources.resources.single().properties["sourceRelease"])
+	}
+
+	@Test
+	fun opdsPropertiesExposeTypedPropertyBagsForBookResourceAndReadingOrderMetadata() {
+		val manifest = decodeBinderyManifestJson(
+			"""
+			{
+			  "metadata": {"title": "Alcatraz"},
+			  "properties": {
+			    "sourceProvider": "hardcover",
+			    "readaloud": true,
+			    "qualityScore": 4.5,
+			    "tags": ["storyteller", "media-overlay"],
+			    "sourceRelease": {
+			      "provider": "Hardcover",
+			      "edition": "Deluxe"
+			    }
+			  },
+			  "readingOrder": [
+			    {
+			      "href": "/opds/books/3693/resources/audio-1",
+			      "type": "audio/mpeg",
+			      "title": "Part 01",
+			      "properties": {
+			        "trackNumber": 1,
+			        "audio": {
+			          "codec": "mp3",
+			          "channels": 2
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val resources = decodeBinderyResourceCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Alcatraz Resources"},
+			  "resources": [
+			    {
+			      "href": "/opds/books/3693/resources/readaloud-1",
+			      "type": "application/epub+zip",
+			      "title": "Alcatraz Readaloud",
+			      "properties": {
+			        "kind": "ebook",
+			        "mediaOverlay": true,
+			        "resourceKey": "readaloud-001",
+			        "clips": [
+			          {"fragmentId": "frag-1", "startSeconds": 0.0, "endSeconds": 4.2}
+			        ]
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("hardcover", manifest.propertyValues.string("sourceProvider"))
+		assertEquals(true, manifest.propertyValues.boolean("readaloud"))
+		assertEquals(4.5, manifest.propertyValues.number("qualityScore"))
+		assertEquals(
+			listOf("storyteller", "media-overlay"),
+			manifest.propertyValues.array("tags").mapNotNull { (it as? BinderyPropertyValue.StringValue)?.value }
+		)
+		assertEquals(
+			BinderyPropertyValue.ObjectValue(
+				mapOf(
+					"provider" to BinderyPropertyValue.StringValue("Hardcover"),
+					"edition" to BinderyPropertyValue.StringValue("Deluxe")
+				)
+			),
+			manifest.propertyValues["sourceRelease"]
+		)
+		assertEquals(1.0, manifest.readingOrder.single().propertyValues.number("trackNumber"))
+		assertEquals(
+			BinderyPropertyValue.ObjectValue(
+				mapOf(
+					"codec" to BinderyPropertyValue.StringValue("mp3"),
+					"channels" to BinderyPropertyValue.NumberValue(2.0, "2")
+				)
+			),
+			manifest.readingOrder.single().propertyValues["audio"]
+		)
+		assertEquals(true, resources.resources.single().propertyValues.boolean("mediaOverlay"))
+		assertEquals(
+			BinderyPropertyValue.ArrayValue(
+				listOf(
+					BinderyPropertyValue.ObjectValue(
+						mapOf(
+							"fragmentId" to BinderyPropertyValue.StringValue("frag-1"),
+							"startSeconds" to BinderyPropertyValue.NumberValue(0.0, "0.0"),
+							"endSeconds" to BinderyPropertyValue.NumberValue(4.2, "4.2")
+						)
+					)
+				)
+			),
+			resources.resources.single().propertyValues["clips"]
+		)
 	}
 
 	private class FakeBinderyApiClient(

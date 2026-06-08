@@ -49,6 +49,7 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyCatalog
@@ -562,15 +563,16 @@ private fun BinderyPublicationGridItem(
 	onAction: (BinderyLink) -> Unit
 ) {
 	val action = publication.primaryAction()
+	val ownershipStatus = publication.availability.toBookOwnershipStatus()
 	ArtGridItem(
-		modifier = modifier.alpha(publication.availability.availabilityAlpha()),
+		modifier = modifier.alpha(if (ownershipStatus == AurralOwnershipStatus.Missing) 0.42f else 1f),
 		onClick = { onOpenBook(publication) },
 		coverArtId = null,
 		imageUrl = publication.images.firstOrNull()?.href?.let { binderyEndpoint(baseUrl, it) },
 		imageRequestHeaders = imageRequestHeaders,
 		title = publication.title,
 		subtitle = publication.detailSubtitle(kind),
-		ownershipStatus = publication.availability.toOwnershipStatus(),
+		ownershipStatus = ownershipStatus,
 		coverAspectRatio = 2f / 3f,
 		coverContentScale = ContentScale.Fit,
 		coverOverlay = if (action != null) {

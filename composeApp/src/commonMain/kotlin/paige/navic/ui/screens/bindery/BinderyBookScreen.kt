@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
+import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_bindery_no_versions
 import navic.composeapp.generated.resources.title_audiobook_ebooks
 import navic.composeapp.generated.resources.title_audiobooks
@@ -184,7 +185,6 @@ fun BinderyBookScreen(
 									manifest = data.manifest,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
-									showDownloadAction = !findingGroups.isEmpty,
 									actionInFlight = actionInFlight,
 									onAction = viewModel::performAction
 								)
@@ -309,7 +309,6 @@ private fun BinderyBookHero(
 	manifest: BinderyManifest,
 	baseUrl: String,
 	imageRequestHeaders: Map<String, String>,
-	showDownloadAction: Boolean,
 	actionInFlight: Set<String>,
 	onAction: (BinderyLink) -> Unit
 ) {
@@ -318,9 +317,6 @@ private fun BinderyBookHero(
 	val metadataText = manifest.metadataText()
 	val description = manifest.description?.trim()?.takeIf { it.isNotEmpty() }
 	val action = manifest.primaryAction()
-		?.takeIf { opdsAction ->
-			opdsAction.type != BinderyOpdsActionType.DownloadRequest || showDownloadAction
-		}
 	var descriptionHasOverflow by rememberSaveable(manifest.id, manifest.title, description) {
 		mutableStateOf(false)
 	}
@@ -438,7 +434,7 @@ private fun BinderyBookFindingCandidateListItem(
 	onAction: (BinderyLink) -> Unit
 ) {
 	val card = row.card
-	val action = card.primaryAction()
+	val action = binderyFindingRowOpdsAction(card)
 	val visualPolicy = binderyCatalogCardVisualPolicy(card)
 	Surface(
 		onClick = { onOpenFinding(card) },
@@ -498,12 +494,15 @@ private fun BinderyBookFindingCandidateListItem(
 				)
 			}
 			IconButton(
-				enabled = false,
-				onClick = {}
+				onClick = { onOpenFinding(card) }
 			) {
 				Icon(
 					imageVector = Icons.Filled.Play,
-					contentDescription = null
+					contentDescription = stringResource(
+						when (row.readerAction) {
+							BinderyBookFindingRowAction.Play -> Res.string.action_play
+						}
+					)
 				)
 			}
 		}
