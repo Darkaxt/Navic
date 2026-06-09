@@ -3,6 +3,8 @@ import './vendor/foliate-js/view.js'
 const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
+const ReaderThemeLight = 'light'
+const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
 const ReaderTapZoneDefault = 'default'
@@ -91,8 +93,11 @@ const errorElement = message => {
 const optionalNumber = value =>
   Number.isFinite(value) ? value : undefined
 
+const readerThemeKey = theme =>
+  ReaderThemePalettes[theme] ? theme : ReaderThemeLight
+
 const readerThemePalette = theme =>
-  ReaderThemePalettes[theme] || ReaderThemePalettes.light
+  ReaderThemePalettes[readerThemeKey(theme)]
 
 const readerFlowMode = settings => {
   if (settings?.flowMode === ReaderFlowPagedVertical) return ReaderFlowPagedVertical
@@ -569,6 +574,27 @@ class NavicReaderRuntime {
     }, { capture: true })
   }
 
+  attachSepiaImageOverlayToggle(doc) {
+    if (!doc?.defaultView || doc.defaultView.__navicSepiaImageOverlayToggleAttached) return
+    doc.defaultView.__navicSepiaImageOverlayToggleAttached = true
+    doc.addEventListener('click', event => {
+      if (event.defaultPrevented || event.button !== 0) return
+      if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return
+      const image = closestElement(event.target, 'img')
+      if (!image) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      const disabled = image.dataset.navicSepiaOverlay === 'off'
+      if (disabled) {
+        delete image.dataset.navicSepiaOverlay
+      } else {
+        image.dataset.navicSepiaOverlay = 'off'
+      }
+      log('image:sepia-overlay', disabled ? 'on' : 'off')
+    }, { capture: true, passive: false })
+  }
+
   readerTapZone(event, doc) {
     const win = doc?.defaultView || window
     const width = Math.max(1, win.innerWidth || doc?.documentElement?.clientWidth || 0)
@@ -714,6 +740,7 @@ class NavicReaderRuntime {
     const root = doc.documentElement
     const body = doc.body
     const styleHost = doc.head || root
+    root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
     let themeStyle = doc.getElementById(ReaderDocumentThemeStyleId)
     if (!themeStyle) {
       themeStyle = doc.createElement('style')
@@ -827,6 +854,7 @@ class NavicReaderRuntime {
       const doc = content.doc
       if (!doc) continue
       this.applyDocumentTheme(doc, this.readerSettings)
+      this.attachSepiaImageOverlayToggle(doc)
       this.attachLinkNavigation(doc, content.index)
       this.attachScrolledEdgeTurnGestures(doc)
       this.attachCenterTapGesture(doc)
@@ -959,6 +987,20 @@ const readerDocumentThemeCss = settings => {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
+  }
+  ${readerThemeKey(settings?.theme) === ReaderThemeSepia ? `
+  img:not([data-navic-sepia-overlay="off"]) {
+    background-color: var(--reader-background) !important;
+    mix-blend-mode: multiply;
+  }
+  ` : `
+  img {
+    mix-blend-mode: normal !important;
+  }
+  `}
+  img[data-navic-sepia-overlay="off"] {
+    background-color: transparent !important;
+    mix-blend-mode: normal !important;
   }
   canvas, svg {
     background-color: transparent !important;

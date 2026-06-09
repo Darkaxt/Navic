@@ -323,6 +323,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderAppliesToggleableSepiaOverlayToWhiteBackedImages() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "ReaderThemeSepia")
+		assertContains(bridgeText, "readerThemeKey(settings?.theme)")
+		assertContains(bridgeText, "attachSepiaImageOverlayToggle")
+		assertContains(bridgeText, "closestElement(event.target, 'img')")
+		assertContains(bridgeText, "data-navic-sepia-overlay")
+		assertContains(bridgeText, "img:not([data-navic-sepia-overlay=\"off\"])")
+		assertContains(bridgeText, "background-color: var(--reader-background) !important")
+		assertContains(bridgeText, "mix-blend-mode: multiply")
+		assertContains(bridgeText, "mix-blend-mode: normal !important")
+		assertContains(bridgeText, "event.stopImmediatePropagation()")
+		assertContains(bridgeText, "image:sepia-overlay")
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuStyleTapZonePresets() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
