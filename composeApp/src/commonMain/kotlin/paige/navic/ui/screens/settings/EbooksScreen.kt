@@ -56,6 +56,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_edge
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_kindle
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shaped
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
+import navic.composeapp.generated.resources.option_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.option_ebook_reader_theme
 import navic.composeapp.generated.resources.option_ebook_reader_theme_black
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
@@ -77,6 +78,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
 import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styles
+import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
 import navic.composeapp.generated.resources.subtitle_ebook_reader_volume_keys
@@ -249,6 +251,12 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_tap_zone),
 						selection = tapZone,
 						onSelect = { option -> preferenceManager.readerTapZone = option.tapZone }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_smaller_tap_zones)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_smaller_tap_zones)) },
+						value = preferenceManager.readerSmallerTapZone,
+						onSetValue = { enabled -> preferenceManager.readerSmallerTapZone = enabled }
 					)
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_publisher_styles)) },

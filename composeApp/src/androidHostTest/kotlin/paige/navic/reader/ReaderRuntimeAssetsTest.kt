@@ -323,6 +323,28 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
+		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+
+		assertContains(bridgeText, "settings.smallerTapZone === true")
+		assertContains(bridgeText, "this.smallerTapZone = settings.smallerTapZone === true")
+		assertContains(readerScreenText, "Smaller tap zones")
+		assertContains(readerScreenText, "toggleSmallerTapZone()")
+		assertContains(ebooksSettingsText, "readerSmallerTapZone")
+		assertContains(ebooksSettingsText, "option_ebook_reader_smaller_tap_zones")
+		assertContains(searchSettingsText, "ebooks.smaller-tap-zones")
+		assertContains(searchSettingsText, "readerSmallerTapZone")
+		assertContains(preferenceText, "smallerTapZone = readerSmallerTapZone")
+		assertContains(bridgeProtocolText, "val smallerTapZone: Boolean? = null")
+		assertContains(bridgeProtocolText, "smallerTapZone?.let { put(\"smallerTapZone\", it) }")
+	}
+
+	@Test
 	fun androidReaderExposesExpandedThemePalettes() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()

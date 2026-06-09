@@ -853,6 +853,15 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSelect = { tapZone -> preferenceManager.readerTapZone = tapZone }
 		))
 		add(switchRow(
+			id = "ebooks.smaller-tap-zones",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_smaller_tap_zones),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_smaller_tap_zones),
+			keywords = listOf("reader", "ebook", "EPUB", "tap", "gesture", "Komikku", "smaller", "zones"),
+			value = preferenceManager.readerSmallerTapZone,
+			onSetValue = { enabled -> preferenceManager.readerSmallerTapZone = enabled }
+		))
+		add(switchRow(
 			id = "ebooks.publisher-styles",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_publisher_styles),

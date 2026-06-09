@@ -17,6 +17,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings =
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
+		smallerTapZone = readerSmallerTapZone,
 		publisherStyles = readerPublisherStylesEnabled,
 		keepScreenOn = readerKeepScreenOn,
 		readaloudSyncEnabled = readerReadaloudSyncEnabled,
@@ -38,6 +39,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
+	readerSmallerTapZone = normalized.smallerTapZone ?: false
 	readerPublisherStylesEnabled = normalized.publisherStyles ?: false
 	readerKeepScreenOn = normalized.keepScreenOn ?: false
 	readerReadaloudSyncEnabled = normalized.readaloudSyncEnabled ?: true

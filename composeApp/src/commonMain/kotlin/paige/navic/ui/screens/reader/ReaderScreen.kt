@@ -141,6 +141,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerFlowMode,
 		preferenceManager.readerPaged,
 		preferenceManager.readerTapZone,
+		preferenceManager.readerSmallerTapZone,
 		preferenceManager.readerPublisherStylesEnabled,
 		preferenceManager.readerKeepScreenOn,
 		preferenceManager.readerWebContentsDebuggingEnabled
@@ -1352,6 +1353,11 @@ private fun ReaderGeneralOptions(
 			label = "Tap zones",
 			value = readerTapZoneShortLabel(state.settings.tapZone),
 			onClick = { onSettingsChange(state.toggleTapZone()) }
+		)
+		ReaderToggleRow(
+			label = "Smaller tap zones",
+			checked = state.settings.smallerTapZone == true,
+			onCheckedChange = { onSettingsChange(state.toggleSmallerTapZone()) }
 		)
 		ReaderControlStepper(
 			label = "Dim overlay",

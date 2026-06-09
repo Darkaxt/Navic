@@ -619,6 +619,7 @@ class NavicReaderRuntime {
   applySettings(settings) {
     const rootStyle = document.documentElement.style
     if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
+    this.smallerTapZone = settings.smallerTapZone === true
     if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
     if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
     rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))

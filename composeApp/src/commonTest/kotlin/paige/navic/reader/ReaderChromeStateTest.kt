@@ -220,6 +220,7 @@ class ReaderChromeStateTest {
 			.toggleKeepScreenOn()
 			.toggleVolumeKeyPageTurns()
 			.toggleTapZone()
+			.toggleSmallerTapZone()
 			.toggleOrientation()
 
 		assertEquals(50, updated.settings.paragraphSpacingPercent)
@@ -228,6 +229,7 @@ class ReaderChromeStateTest {
 		assertEquals(true, updated.settings.keepScreenOn)
 		assertEquals(true, updated.settings.volumeKeyPageTurns)
 		assertEquals(ReaderTapZoneEdge, updated.settings.tapZone)
+		assertEquals(true, updated.settings.smallerTapZone)
 		assertEquals(ReaderOrientationFree, updated.settings.orientation)
 		assertEquals("Edge", readerTapZoneShortLabel(updated.settings.tapZone))
 		assertEquals("Free", readerOrientationShortLabel(updated.settings.orientation))

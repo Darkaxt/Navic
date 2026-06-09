@@ -11,14 +11,20 @@ class ReaderPreferenceSettingsTest {
 		val preferences = PreferenceManager(MapSettings())
 
 		preferences.readerTapZone = ReaderTapZoneEdge
+		preferences.readerSmallerTapZone = true
 
 		assertEquals(ReaderTapZoneEdge, preferences.readerDefaultSettings().tapZone)
+		assertEquals(true, preferences.readerDefaultSettings().smallerTapZone)
 
 		preferences.setReaderDefaultSettings(
-			ReaderSettings(tapZone = ReaderTapZoneDisabled)
+			ReaderSettings(
+				tapZone = ReaderTapZoneDisabled,
+				smallerTapZone = false
+			)
 		)
 
 		assertEquals(ReaderTapZoneDisabled, preferences.readerTapZone)
+		assertEquals(false, preferences.readerSmallerTapZone)
 	}
 
 	@Test

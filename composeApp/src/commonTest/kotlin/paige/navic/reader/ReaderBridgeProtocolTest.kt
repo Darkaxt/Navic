@@ -25,6 +25,7 @@ class ReaderBridgeProtocolTest {
 				direction = ReaderDirectionRtl,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,
+				smallerTapZone = true,
 				publisherStyles = true,
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
@@ -49,6 +50,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"direction\":\"rtl\"")
 		assertContains(script, "\"paged\":false")
 		assertContains(script, "\"tapZone\":\"kindle\"")
+		assertContains(script, "\"smallerTapZone\":true")
 		assertContains(script, "\"publisherStyles\":true")
 		assertContains(script, "\"keepScreenOn\":true")
 		assertContains(script, "\"readaloudSyncEnabled\":false")

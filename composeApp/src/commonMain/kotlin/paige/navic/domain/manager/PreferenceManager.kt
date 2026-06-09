@@ -255,6 +255,7 @@ class PreferenceManager(
 	var readerFlowMode by preference("paged")
 	var readerPaged by preference(true)
 	var readerTapZone by preference("default")
+	var readerSmallerTapZone by preference(false)
 	var readerPublisherStylesEnabled by preference(false)
 	var readerKeepScreenOn by preference(false)
 	var readerMediaOverlayEnabled by preference(true)
