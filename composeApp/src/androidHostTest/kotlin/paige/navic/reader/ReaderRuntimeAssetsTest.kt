@@ -29,6 +29,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(manifestText, "\"entrypoint\": \"index.html\"")
 
 		assertContains(index.readText(), "navic-reader.js")
+		assertContains(index.readText(), "style-src 'self' blob: 'unsafe-inline'")
 		assertContains(bridge.readText(), "window.NavicReaderBridge")
 		assertContains(bridge.readText(), "selectionChanged")
 		assertContains(bridge.readText(), "applyOverlayFragment")
