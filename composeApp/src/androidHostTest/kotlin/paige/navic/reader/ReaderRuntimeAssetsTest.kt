@@ -461,7 +461,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "this.view.book.dir")
 		assertContains(bridgeText, "doc.documentElement")
 		assertContains(readerScreenText, "Direction")
-		assertContains(readerScreenText, "toggleDirection()")
+		assertContains(readerScreenText, "ReaderSupportedDirections")
+		assertContains(readerScreenText, "state.settings.copy(direction = direction)")
 		assertContains(ebooksSettingsText, "readerDirection")
 		assertContains(ebooksSettingsText, "ReaderDirectionOption")
 		assertContains(searchSettingsText, "ebooks.direction")
@@ -562,6 +563,31 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(
 			bottomChromeBody.contains("ReaderOptionsPanel("),
 			"Bottom reader chrome must stay compact; settings belong in the Komikku-style modal sheet."
+		)
+	}
+
+	@Test
+	fun commonReaderOptionsUseKomikkuStyleChipGroups() {
+		val readerScreenText = readerScreenFile().readText()
+		val readingOptionsBody = readerScreenText.substringAfter("private fun ReaderReadingOptions(")
+			.substringBefore("private fun ReaderGeneralOptions(")
+		val generalOptionsBody = readerScreenText.substringAfter("private fun ReaderGeneralOptions(")
+			.substringBefore("private fun ReaderMediaOptions(")
+
+		assertContains(readerScreenText, "ReaderSettingsChipRow")
+		assertContains(readerScreenText, "ReaderOptionChip")
+		assertContains(readerScreenText, "ReaderToggleChip")
+		assertContains(readerScreenText, "FilterChip(")
+		assertContains(readerScreenText, "FlowRow(")
+		assertContains(readingOptionsBody, "ReaderSupportedFlowModes")
+		assertContains(readingOptionsBody, "ReaderSupportedDirections")
+		assertContains(readingOptionsBody, "ReaderSupportedFontFamilies")
+		assertContains(generalOptionsBody, "ReaderSupportedThemes")
+		assertContains(generalOptionsBody, "ReaderSupportedOrientations")
+		assertContains(generalOptionsBody, "ReaderSupportedTapZones")
+		assertFalse(
+			readingOptionsBody.contains("ReaderCycleRow(") || generalOptionsBody.contains("ReaderCycleRow("),
+			"Reading and General reader options should use Komikku-style selectable chip groups instead of cyclic value rows."
 		)
 	}
 

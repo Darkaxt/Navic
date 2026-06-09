@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -86,7 +88,15 @@ import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSearchResult
+import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedFlowModes
+import paige.navic.reader.ReaderSupportedFontFamilies
+import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedTapZones
+import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderTocItem
+import paige.navic.reader.ReaderFlowScrolled
+import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.decodeReaderAnnotations
 import paige.navic.reader.decodeReaderBookmarks
 import paige.navic.reader.encodeReaderAnnotations
@@ -1297,22 +1307,43 @@ private fun ReaderReadingOptions(
 	state: ReaderChromeState,
 	onSettingsChange: (ReaderChromeState) -> Unit
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-		ReaderCycleRow(
-			label = "Reading mode",
-			value = readerFlowShortLabel(state.settings.flowMode, state.settings.paged),
-			onClick = { onSettingsChange(state.toggleFlowMode()) }
-		)
-		ReaderCycleRow(
-			label = "Direction",
-			value = readerDirectionShortLabel(state.settings.direction),
-			onClick = { onSettingsChange(state.toggleDirection()) }
-		)
-		ReaderCycleRow(
-			label = "Font",
-			value = readerFontFamilyShortLabel(state.settings.fontFamily),
-			onClick = { onSettingsChange(state.toggleFontFamily()) }
-		)
+	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		ReaderSettingsChipRow("Reading mode") {
+			ReaderSupportedFlowModes.forEach { flowMode ->
+				ReaderOptionChip(
+					label = readerFlowShortLabel(flowMode, flowMode.readerFlowModePaged()),
+					selected = state.settings.flowMode == flowMode,
+					onClick = {
+						onSettingsChange(
+							state.copy(
+								settings = state.settings.copy(
+									flowMode = flowMode,
+									paged = flowMode.readerFlowModePaged()
+								)
+							)
+						)
+					}
+				)
+			}
+		}
+		ReaderSettingsChipRow("Direction") {
+			ReaderSupportedDirections.forEach { direction ->
+				ReaderOptionChip(
+					label = readerDirectionShortLabel(direction),
+					selected = state.settings.direction == direction,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(direction = direction))) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("Font") {
+			ReaderSupportedFontFamilies.forEach { fontFamily ->
+				ReaderOptionChip(
+					label = readerFontFamilyShortLabel(fontFamily),
+					selected = state.settings.fontFamily == fontFamily,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(fontFamily = fontFamily))) }
+				)
+			}
+		}
 		ReaderControlStepper(
 			label = "Font size",
 			value = "${state.settings.fontSizePercent ?: 100}%",
@@ -1345,52 +1376,68 @@ private fun ReaderGeneralOptions(
 	state: ReaderChromeState,
 	onSettingsChange: (ReaderChromeState) -> Unit
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-		ReaderCycleRow(
-			label = "Theme",
-			value = readerThemeShortLabel(state.settings.theme),
-			onClick = { onSettingsChange(state.toggleTheme()) }
-		)
-		ReaderCycleRow(
-			label = "Rotation",
-			value = readerOrientationShortLabel(state.settings.orientation),
-			onClick = { onSettingsChange(state.toggleOrientation()) }
-		)
-		ReaderToggleRow(
-			label = "Fullscreen",
-			checked = state.settings.fullscreen == true,
-			onCheckedChange = { onSettingsChange(state.toggleFullscreen()) }
-		)
-		ReaderCycleRow(
-			label = "Tap zones",
-			value = readerTapZoneShortLabel(state.settings.tapZone),
-			onClick = { onSettingsChange(state.toggleTapZone()) }
-		)
-		ReaderToggleRow(
-			label = "Smaller tap zones",
-			checked = state.settings.smallerTapZone == true,
-			onCheckedChange = { onSettingsChange(state.toggleSmallerTapZone()) }
-		)
+	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		ReaderSettingsChipRow("Theme") {
+			ReaderSupportedThemes.forEach { theme ->
+				ReaderOptionChip(
+					label = readerThemeShortLabel(theme),
+					selected = state.settings.theme == theme,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(theme = theme))) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("Rotation") {
+			ReaderSupportedOrientations.forEach { orientation ->
+				ReaderOptionChip(
+					label = readerOrientationShortLabel(orientation),
+					selected = state.settings.orientation == orientation,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(orientation = orientation))) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("Tap zones") {
+			ReaderSupportedTapZones.forEach { tapZone ->
+				ReaderOptionChip(
+					label = readerTapZoneShortLabel(tapZone),
+					selected = state.settings.tapZone == tapZone,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(tapZone = tapZone))) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("Display") {
+			ReaderToggleChip(
+				label = "Fullscreen",
+				checked = state.settings.fullscreen == true,
+				onClick = { onSettingsChange(state.toggleFullscreen()) }
+			)
+			ReaderToggleChip(
+				label = "Smaller tap zones",
+				checked = state.settings.smallerTapZone == true,
+				onClick = { onSettingsChange(state.toggleSmallerTapZone()) }
+			)
+			ReaderToggleChip(
+				label = "Publisher styles",
+				checked = state.settings.publisherStyles == true,
+				onClick = { onSettingsChange(state.togglePublisherStyles()) }
+			)
+		}
+		ReaderSettingsChipRow("Controls") {
+			ReaderToggleChip(
+				label = "Keep screen on",
+				checked = state.settings.keepScreenOn == true,
+				onClick = { onSettingsChange(state.toggleKeepScreenOn()) }
+			)
+			ReaderToggleChip(
+				label = "Volume keys",
+				checked = state.settings.volumeKeyPageTurns == true,
+				onClick = { onSettingsChange(state.toggleVolumeKeyPageTurns()) }
+			)
+		}
 		ReaderControlStepper(
 			label = "Dim overlay",
 			value = "${state.settings.dimOverlayPercent ?: 0}%",
 			onDecrease = { onSettingsChange(state.adjustDimOverlay(-10)) },
 			onIncrease = { onSettingsChange(state.adjustDimOverlay(10)) }
-		)
-		ReaderToggleRow(
-			label = "Publisher styles",
-			checked = state.settings.publisherStyles == true,
-			onCheckedChange = { onSettingsChange(state.togglePublisherStyles()) }
-		)
-		ReaderToggleRow(
-			label = "Keep screen on",
-			checked = state.settings.keepScreenOn == true,
-			onCheckedChange = { onSettingsChange(state.toggleKeepScreenOn()) }
-		)
-		ReaderToggleRow(
-			label = "Volume keys",
-			checked = state.settings.volumeKeyPageTurns == true,
-			onCheckedChange = { onSettingsChange(state.toggleVolumeKeyPageTurns()) }
 		)
 	}
 }
@@ -1477,6 +1524,74 @@ private fun ReaderOptionalValueRow(
 	)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReaderSettingsChipRow(
+	label: String,
+	content: @Composable () -> Unit
+) {
+	Column(
+		verticalArrangement = Arrangement.spacedBy(8.dp),
+		modifier = Modifier.fillMaxWidth()
+	) {
+		Text(
+			text = label,
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis
+		)
+		FlowRow(
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+			modifier = Modifier.fillMaxWidth()
+		) {
+			content()
+		}
+	}
+}
+
+@Composable
+private fun ReaderOptionChip(
+	label: String,
+	selected: Boolean,
+	onClick: () -> Unit
+) {
+	FilterChip(
+		selected = selected,
+		onClick = onClick,
+		label = {
+			Text(
+				text = label,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+	)
+}
+
+@Composable
+private fun ReaderToggleChip(
+	label: String,
+	checked: Boolean,
+	onClick: () -> Unit
+) {
+	FilterChip(
+		selected = checked,
+		onClick = onClick,
+		label = {
+			Text(
+				text = label,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+	)
+}
+
+private fun String.readerFlowModePaged(): Boolean =
+	this != ReaderFlowScrolled && this != ReaderFlowScrolledGaps
+
 @Composable
 private fun ReaderControlStepper(
 	label: String,
@@ -1556,9 +1671,10 @@ private fun ReaderToggleRow(
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis
 		)
-		Switch(
+		ReaderToggleChip(
+			label = if (checked) "On" else "Off",
 			checked = checked,
-			onCheckedChange = { onCheckedChange() }
+			onClick = onCheckedChange
 		)
 	}
 }
