@@ -4,10 +4,17 @@ const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
-const CenterTapStartFraction = 0.25
-const CenterTapEndFraction = 0.75
-const PageTapEdgeFraction = 0.25
 const ReaderTapZoneDefault = 'default'
+const ReaderTapZoneEdge = 'edge'
+const ReaderTapZoneKindle = 'kindle'
+const ReaderTapZoneLShaped = 'l-shaped'
+const ReaderTapZoneRightLeft = 'right-left'
+const ReaderTapZoneDisabled = 'disabled'
+const KomikkuNavigationRegionMenu = 'menu'
+const KomikkuNavigationRegionPrevious = 'previous'
+const KomikkuNavigationRegionNext = 'next'
+const KomikkuNavigationRegionLeft = 'left'
+const KomikkuNavigationRegionRight = 'right'
 const ReaderFlowPaged = 'paged'
 const ReaderFlowPagedVertical = 'paged-vertical'
 const ReaderFlowScrolled = 'scrolled'
@@ -105,6 +112,90 @@ const readerDirectionMode = settings => {
   return ReaderDirectionDefault
 }
 
+// Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
+const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
+  left,
+  top,
+  right,
+  bottom,
+  type,
+})
+
+const komikkuConstantMenuRegion = komikkuNavigationRegion(
+  0,
+  0,
+  1,
+  0.05,
+  KomikkuNavigationRegionMenu
+)
+
+const komikkuRegionContains = (region, x, y) =>
+  x >= region.left && x <= region.right && y >= region.top && y <= region.bottom
+
+const komikkuRegionSize = smallerTapZone => smallerTapZone ? 0.25 : 0.33
+
+const komikkuDefaultNavigationMode = flowMode =>
+  flowMode === ReaderFlowPagedVertical ||
+  flowMode === ReaderFlowScrolled ||
+  flowMode === ReaderFlowScrolledGaps
+    ? ReaderTapZoneLShaped
+    : ReaderTapZoneRightLeft
+
+const komikkuNavigationRegions = (
+  tapZoneMode,
+  smallerTapZone = false,
+  flowMode = ReaderFlowPaged
+) => {
+  const mode = tapZoneMode === ReaderTapZoneDefault
+    ? komikkuDefaultNavigationMode(flowMode)
+    : tapZoneMode
+  const regionSize1 = komikkuRegionSize(smallerTapZone)
+  const regionSize2 = 1 - regionSize1
+  switch (mode) {
+    case ReaderTapZoneLShaped:
+      return [
+        komikkuNavigationRegion(0, regionSize1, regionSize1, regionSize2, KomikkuNavigationRegionPrevious),
+        komikkuNavigationRegion(0, 0, 1, regionSize1, KomikkuNavigationRegionPrevious),
+        komikkuNavigationRegion(regionSize2, regionSize1, 1, regionSize2, KomikkuNavigationRegionNext),
+        komikkuNavigationRegion(0, regionSize2, 1, 1, KomikkuNavigationRegionNext),
+      ]
+    case ReaderTapZoneKindle:
+      return [
+        komikkuNavigationRegion(regionSize1, regionSize1, 1, 1, KomikkuNavigationRegionNext),
+        komikkuNavigationRegion(0, regionSize1, regionSize1, 1, KomikkuNavigationRegionPrevious),
+      ]
+    case ReaderTapZoneEdge:
+      return [
+        komikkuNavigationRegion(0, 0, regionSize1, 1, KomikkuNavigationRegionNext),
+        komikkuNavigationRegion(regionSize1, regionSize2, regionSize2, 1, KomikkuNavigationRegionPrevious),
+        komikkuNavigationRegion(regionSize2, 0, 1, 1, KomikkuNavigationRegionNext),
+      ]
+    case ReaderTapZoneRightLeft:
+      return [
+        komikkuNavigationRegion(0, 0, regionSize1, 1, KomikkuNavigationRegionLeft),
+        komikkuNavigationRegion(regionSize2, 0, 1, 1, KomikkuNavigationRegionRight),
+      ]
+    case ReaderTapZoneDisabled:
+      return []
+    default:
+      return komikkuNavigationRegions(ReaderTapZoneDefault, smallerTapZone, flowMode)
+  }
+}
+
+const komikkuTapAction = (
+  tapZoneMode,
+  x,
+  y,
+  smallerTapZone = false,
+  flowMode = ReaderFlowPaged
+) => {
+  const regions = komikkuNavigationRegions(tapZoneMode, smallerTapZone, flowMode)
+  const region = regions.find(candidate => komikkuRegionContains(candidate, x, y))
+  if (region) return region.type
+  if (komikkuRegionContains(komikkuConstantMenuRegion, x, y)) return KomikkuNavigationRegionMenu
+  return KomikkuNavigationRegionMenu
+}
+
 const readerAssetUrl = path => new URL(path, document.baseURI).href
 
 const readerFontFaceCss = () => `
@@ -163,7 +254,9 @@ class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
   readerTapZoneMode = ReaderTapZoneDefault
+  readerFlowModeValue = ReaderFlowPaged
   readerDirectionModeValue = ReaderDirectionDefault
+  smallerTapZone = false
   originalBookDir = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
@@ -424,6 +517,16 @@ class NavicReaderRuntime {
         await this.nextPage()
         return
       }
+      if (tapZone === 'left') {
+        if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
+        else await this.previousPage()
+        return
+      }
+      if (tapZone === 'right') {
+        if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
+        else await this.nextPage()
+        return
+      }
       log('center-tap')
       post({ type: 'readerCenterTap' })
     }, { passive: false })
@@ -438,40 +541,20 @@ class NavicReaderRuntime {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null
     const xFraction = x / width
     const yFraction = y / height
-    if (this.readerTapZoneMode !== ReaderTapZoneDefault && this.isReaderCenterTap(xFraction, yFraction)) {
-      return 'center'
-    }
-    switch (this.readerTapZoneMode) {
-      case 'disabled':
-        return null
-      case 'edge':
-        if (xFraction <= 0.14) return 'previous'
-        if (xFraction >= 0.86) return 'next'
-        return this.isReaderCenterTap(xFraction, yFraction) ? 'center' : null
-      case 'kindle':
-        if (xFraction <= 0.22) return 'previous'
-        if (xFraction >= 0.38) return 'next'
-        return null
-      case 'l-shaped':
-        if (xFraction <= 0.24 || (yFraction >= 0.78 && xFraction < 0.5)) return 'previous'
-        if (xFraction >= 0.76 || (yFraction >= 0.78 && xFraction >= 0.5)) return 'next'
-        return null
-      case 'right-left':
-        if (xFraction <= 0.33) return 'previous'
-        if (xFraction >= 0.67) return 'next'
-        return null
-      default:
-        if (xFraction <= PageTapEdgeFraction) return 'previous'
-        if (xFraction >= 1 - PageTapEdgeFraction) return 'next'
-        return this.isReaderCenterTap(xFraction, yFraction) ? 'center' : null
-    }
+    return komikkuTapAction(
+      this.readerTapZoneMode,
+      xFraction,
+      yFraction,
+      this.smallerTapZone,
+      this.readerFlowModeValue
+    )
   }
 
-  isReaderCenterTap(xFraction, yFraction) {
-    return yFraction >= CenterTapStartFraction &&
-      yFraction <= CenterTapEndFraction &&
-      xFraction >= CenterTapStartFraction &&
-      xFraction <= CenterTapEndFraction
+  effectiveReaderDirection() {
+    if (this.readerDirectionModeValue === ReaderDirectionLtr || this.readerDirectionModeValue === ReaderDirectionRtl) {
+      return this.readerDirectionModeValue
+    }
+    return this.view?.book?.dir === ReaderDirectionRtl ? ReaderDirectionRtl : ReaderDirectionLtr
   }
 
   turnScrolledEdgePage(deltaY) {
@@ -544,6 +627,7 @@ class NavicReaderRuntime {
     rootStyle.setProperty('--reader-foreground', palette.foreground)
     rootStyle.setProperty('--reader-accent', palette.accent)
     const flowMode = readerFlowMode(settings)
+    this.readerFlowModeValue = flowMode
     rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
     this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
     this.readerDirectionModeValue = readerDirectionMode(settings)
@@ -741,8 +825,11 @@ const readerContentCss = settings => `
     box-shadow: none !important;
   }
   a:any-link::after {
-    content: ' >>';
+    content: ' »';
+    font-size: 0.72em;
     font-weight: 700;
+    line-height: 0;
+    vertical-align: sub;
     white-space: nowrap;
     opacity: 0.72;
   }

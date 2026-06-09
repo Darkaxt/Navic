@@ -283,7 +283,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "a:any-link")
 		assertContains(bridgeText, "color: inherit !important")
 		assertContains(bridgeText, "text-decoration: none !important")
-		assertContains(bridgeText, "content: ' >>'")
+		assertFalse(
+			bridgeText.contains("content: ' >>'"),
+			"Hyperlinks must not expose the literal ASCII fast-forward marker."
+		)
+		assertContains(bridgeText, "content: ' »'")
+		assertContains(bridgeText, "vertical-align: sub")
+		assertContains(bridgeText, "font-size: 0.72em")
 	}
 
 	@Test
@@ -293,10 +299,24 @@ class ReaderRuntimeAssetsTest {
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
 		assertContains(bridgeText, "readerTapZoneMode")
-		assertContains(bridgeText, "case 'edge'")
-		assertContains(bridgeText, "case 'kindle'")
-		assertContains(bridgeText, "case 'l-shaped'")
-		assertContains(bridgeText, "case 'disabled'")
+		assertContains(bridgeText, "KomikkuNavigationRegionMenu")
+		assertContains(bridgeText, "KomikkuNavigationRegionPrevious")
+		assertContains(bridgeText, "KomikkuNavigationRegionNext")
+		assertContains(bridgeText, "KomikkuNavigationRegionLeft")
+		assertContains(bridgeText, "KomikkuNavigationRegionRight")
+		assertContains(bridgeText, "komikkuConstantMenuRegion")
+		assertContains(bridgeText, "komikkuRegionSize")
+		assertContains(bridgeText, "komikkuNavigationRegions")
+		assertContains(bridgeText, "komikkuTapAction")
+		assertContains(bridgeText, "case ReaderTapZoneEdge")
+		assertContains(bridgeText, "case ReaderTapZoneKindle")
+		assertContains(bridgeText, "case ReaderTapZoneLShaped")
+		assertContains(bridgeText, "case ReaderTapZoneRightLeft")
+		assertContains(bridgeText, "case ReaderTapZoneDisabled")
+		assertFalse(
+			bridgeText.contains("CenterTapStartFraction") || bridgeText.contains("CenterTapEndFraction"),
+			"Tap-zone dispatch must use the Komikku normalized-region model, not Navic's old center box thresholds."
+		)
 		assertContains(ebooksSettingsText, "readerTapZone")
 		assertContains(ebooksSettingsText, "option_ebook_reader_tap_zone")
 		assertContains(searchSettingsText, "ebooks.tap-zone")
@@ -449,6 +469,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(ebooksSettingsText, "option_ebook_reader_volume_keys")
 		assertContains(searchSettingsText, "ebooks.volume-keys")
 		assertContains(searchSettingsText, "readerVolumeKeyPageTurns")
+	}
+
+	@Test
+	fun commonReaderChromeUsesKomikkuStyleOptionsSheetInsteadOfDockedSettingsList() {
+		val readerScreenText = readerScreenFile().readText()
+		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
+			.substringBefore("private fun ReaderKomikkuOptionsSheet(")
+
+		assertContains(readerScreenText, "optionsVisible")
+		assertContains(readerScreenText, "onToggleOptions: () -> Unit")
+		assertContains(readerScreenText, "Icons.Filled.Settings")
+		assertContains(readerScreenText, "ReaderKomikkuOptionsSheet(")
+		assertContains(readerScreenText, "skipPartiallyExpanded = false")
+		assertContains(readerScreenText, "BoxWithConstraints")
+		assertContains(readerScreenText, "heightIn(max = maxHeight * 0.75f)")
+		assertContains(readerScreenText, "ReaderOptionsTabChip")
+		assertFalse(
+			bottomChromeBody.contains("ReaderOptionsPanel("),
+			"Bottom reader chrome must stay compact; settings belong in the Komikku-style modal sheet."
+		)
 	}
 
 	@Test
