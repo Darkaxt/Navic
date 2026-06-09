@@ -1070,8 +1070,33 @@ fun binderyBookVersionRows(
 		)
 		.map { resource -> resource.toEbookVersionRow(findingByBookFileId) }
 
-	return readaloudRows + audioRows + ebookRows
+	return (readaloudRows + audioRows + ebookRows).collapsedDuplicateVersionRows()
 }
+
+private fun List<BinderyBookVersionRow>.collapsedDuplicateVersionRows(): List<BinderyBookVersionRow> {
+	val rowsByVisibleIdentity = linkedMapOf<String, BinderyBookVersionRow>()
+	forEach { row ->
+		val key = row.visibleIdentityKey()
+		val existing = rowsByVisibleIdentity[key]
+		if (existing == null || (existing.finding == null && row.finding != null)) {
+			rowsByVisibleIdentity[key] = row
+		}
+	}
+	return rowsByVisibleIdentity.values.toList()
+}
+
+private fun BinderyBookVersionRow.visibleIdentityKey(): String =
+	listOf(
+		kind.name,
+		title.normalizedDuplicateRowField(),
+		subtitle.normalizedDuplicateRowField()
+	).joinToString(separator = "\u001f")
+
+private fun String?.normalizedDuplicateRowField(): String =
+	orEmpty()
+		.trim()
+		.replace(Regex("\\s+"), " ")
+		.lowercase()
 
 private fun BinderyCatalog?.findingCardsByBookFileId(
 	currentBookId: String?,

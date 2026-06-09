@@ -2085,6 +2085,89 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun bookVersionRowsCollapseDuplicateEbookLinksAfterFindingEnrichment() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			links = listOf(
+				BinderyLink(
+					href = "/opds/books/3816/resources/ebook-abb-pdf/download",
+					rel = listOf("http://opds-spec.org/acquisition"),
+					type = "application/pdf",
+					properties = mapOf(
+						"provider" to "AudioBook Bay",
+						"format" to "pdf",
+						"kind" to "ebook",
+						"language" to "eng",
+						"size" to "7214203",
+						"relativePath" to "01 - The Hobbit Movie Books The Hobbit - Digital booklet - Batttle Of Five Armies.pdf"
+					)
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-abb-pdf",
+					title = "PDF",
+					type = "application/pdf",
+					kind = "ebook",
+					sizeBytes = 7_214_203,
+					properties = mapOf(
+						"provider" to "AudioBook Bay",
+						"format" to "pdf",
+						"language" to "eng",
+						"bookFileId" to "765",
+						"relativePath" to "01 - The Hobbit Movie Books The Hobbit - Digital booklet - Batttle Of Five Armies.pdf"
+					)
+				)
+			)
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				BinderyPublication(
+					id = "urn:bindery:finding:17",
+					title = "The Hobbit - Digital booklet",
+					finding = BinderyFindingMetadata(
+						findingId = "17",
+						mediaType = "ebook",
+						format = "pdf",
+						language = "eng",
+						availabilityStatus = "imported",
+						mappings = listOf(
+							BinderyFindingMapping(
+								bookId = "3816",
+								bookTitle = "The Hobbit",
+								mediaType = "ebook",
+								targetLanguage = "eng",
+								acquisitionStatus = "imported",
+								bookFileId = "765"
+							)
+						)
+					),
+					links = listOf(BinderyLink(href = "/opds/findings/17", type = "application/opds+json"))
+				)
+			)
+		)
+
+		val rows = binderyBookVersionRows(
+			manifest = manifest,
+			resourceCatalog = resources,
+			languageFilter = "eng",
+			findingsCatalog = findings
+		)
+
+		assertEquals(1, rows.size)
+		assertEquals("17", rows.single().finding?.id)
+		assertEquals(
+			"01 - The Hobbit Movie Books The Hobbit - Digital booklet - Batttle Of Five Armies",
+			rows.single().title
+		)
+	}
+
+	@Test
 	fun ebookManifestReadingOrderDoesNotCreateFakeAudiobookVersion() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3913",
