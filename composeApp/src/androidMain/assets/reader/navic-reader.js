@@ -2,6 +2,7 @@ import './vendor/foliate-js/view.js'
 
 const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
+const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
 const ReaderTapZoneDefault = 'default'
@@ -259,6 +260,7 @@ const readerViewportSize = () => {
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
+  readerSettings = {}
   readerTapZoneMode = ReaderTapZoneDefault
   readerFlowModeValue = ReaderFlowPaged
   readerDirectionModeValue = ReaderDirectionDefault
@@ -315,6 +317,7 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      if (settings) this.readerSettings = settings
       this.applyReaderViewportLayout('before-open')
       this.view = document.createElement('foliate-view')
       this.view.addEventListener('relocate', event => this.onRelocate(event.detail || {}))
@@ -348,6 +351,7 @@ class NavicReaderRuntime {
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null
+    this.readerSettings = {}
     this.originalBookDir = null
     this.readerDirectionModeValue = ReaderDirectionDefault
   }
@@ -650,6 +654,8 @@ class NavicReaderRuntime {
   }
 
   applySettings(settings) {
+    settings = { ...this.readerSettings, ...settings }
+    this.readerSettings = settings
     const rootStyle = document.documentElement.style
     if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
     this.smallerTapZone = settings.smallerTapZone === true
@@ -660,6 +666,7 @@ class NavicReaderRuntime {
     rootStyle.setProperty('--reader-background', palette.background)
     rootStyle.setProperty('--reader-foreground', palette.foreground)
     rootStyle.setProperty('--reader-accent', palette.accent)
+    rootStyle.setProperty('--theme-bg-color', palette.background)
     const flowMode = readerFlowMode(settings)
     this.readerFlowModeValue = flowMode
     rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
@@ -668,6 +675,82 @@ class NavicReaderRuntime {
     this.applyReaderDirection(this.readerDirectionModeValue)
     this.applyReaderViewportLayout('settings')
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
+    this.applyThemeToLoadedContent(settings)
+  }
+
+  applyThemeToLoadedContent(settings = this.readerSettings) {
+    for (const doc of this.contentDocuments()) {
+      this.applyDocumentTheme(doc, settings)
+    }
+    this.applyRendererTheme(settings)
+  }
+
+  applyRendererTheme(settings = this.readerSettings) {
+    const palette = readerThemePalette(settings?.theme)
+    setStylesImportant(this.view, {
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+    })
+    const renderer = this.view?.renderer
+    setStylesImportant(renderer, {
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+    })
+    const shadowRoot = renderer?.shadowRoot
+    if (!shadowRoot) return
+    for (const element of shadowRoot.querySelectorAll('#background, #background > *')) {
+      setStylesImportant(element, {
+        background: palette.background,
+        'background-color': palette.background,
+      })
+    }
+  }
+
+  applyDocumentTheme(doc, settings = this.readerSettings) {
+    if (!doc?.documentElement) return
+    const palette = readerThemePalette(settings?.theme)
+    const root = doc.documentElement
+    const body = doc.body
+    const styleHost = doc.head || root
+    let themeStyle = doc.getElementById(ReaderDocumentThemeStyleId)
+    if (!themeStyle) {
+      themeStyle = doc.createElement('style')
+      themeStyle.id = ReaderDocumentThemeStyleId
+      styleHost.append(themeStyle)
+    }
+    themeStyle.textContent = readerDocumentThemeCss(settings)
+    for (const element of [root, body].filter(Boolean)) {
+      setStylesImportant(element, {
+        '--reader-background': palette.background,
+        '--reader-foreground': palette.foreground,
+        '--reader-accent': palette.accent,
+        '--theme-bg-color': palette.background,
+        background: palette.background,
+        'background-color': palette.background,
+        color: palette.foreground,
+      })
+    }
+    for (const element of doc.querySelectorAll('[style*="background"], [bgcolor]')) {
+      if (!element || element === root || element === body || isThemeBackgroundMediaElement(element)) continue
+      if (element.hasAttribute('bgcolor')) {
+        if (element.dataset.navicOriginalBgcolor === undefined) {
+          element.dataset.navicOriginalBgcolor = element.getAttribute('bgcolor') || ''
+        }
+        element.removeAttribute('bgcolor')
+      }
+      setStylesImportant(element, {
+        background: 'transparent',
+        'background-color': 'transparent',
+        'background-image': 'none',
+      })
+    }
+    for (const element of doc.querySelectorAll('canvas, svg')) {
+      setStylesImportant(element, {
+        'background-color': 'transparent',
+      })
+    }
   }
 
   applyReaderDirection(direction, rerender = true) {
@@ -743,6 +826,7 @@ class NavicReaderRuntime {
     for (const content of contents) {
       const doc = content.doc
       if (!doc) continue
+      this.applyDocumentTheme(doc, this.readerSettings)
       this.attachLinkNavigation(doc, content.index)
       this.attachScrolledEdgeTurnGestures(doc)
       this.attachCenterTapGesture(doc)
@@ -768,6 +852,7 @@ class NavicReaderRuntime {
       })
     }
     requestAnimationFrame(() => {
+      this.applyRendererTheme(this.readerSettings)
       requestAnimationFrame(() => this.logContentLayout('load'))
     })
     if (this.mediaOverlayEnabled) post({ type: 'overlayFragmentInactive' })
@@ -845,21 +930,48 @@ const readerTypographyCss = settings => settings.publisherStyles === true
   }
 `
 
-const readerContentCss = settings => {
-  const palette = readerThemePalette(settings.theme)
+const isThemeBackgroundMediaElement = element =>
+  ['IMG', 'PICTURE', 'VIDEO', 'CANVAS', 'SVG'].includes(element?.tagName)
+
+const readerDocumentThemeCss = settings => {
+  const palette = readerThemePalette(settings?.theme)
   return `
-  ${readerFontFaceCss()}
   html {
     --reader-background: ${palette.background};
     --reader-foreground: ${palette.foreground};
     --reader-accent: ${palette.accent};
+    --theme-bg-color: ${palette.background};
+    color-scheme: ${palette.background === '#fbfaf8' || palette.background === '#f3ead7' ? 'light' : 'dark'};
     color: var(--reader-foreground) !important;
+    background: var(--reader-background) !important;
     background-color: var(--reader-background) !important;
-    font-size: ${settings.fontSizePercent || 100}%;
   }
   html, body {
     color: var(--reader-foreground) !important;
+    background: var(--reader-background) !important;
     background-color: var(--reader-background) !important;
+  }
+  body :not(img):not(picture):not(video):not(canvas):not(svg) {
+    background-color: transparent !important;
+  }
+  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg),
+  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg) {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+  canvas, svg {
+    background-color: transparent !important;
+  }
+`
+}
+
+const readerContentCss = settings => {
+  return `
+  ${readerFontFaceCss()}
+  ${readerDocumentThemeCss(settings)}
+  html {
+    font-size: ${settings.fontSizePercent || 100}%;
   }
   ${readerTypographyCss(settings)}
   a:any-link {
