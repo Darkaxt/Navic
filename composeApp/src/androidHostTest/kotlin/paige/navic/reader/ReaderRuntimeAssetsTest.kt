@@ -332,11 +332,16 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "closestElement(event.target, 'img')")
 		assertContains(bridgeText, "data-navic-sepia-overlay")
 		assertContains(bridgeText, "img:not([data-navic-sepia-overlay=\"off\"])")
-		assertContains(bridgeText, "background-color: var(--reader-background) !important")
 		assertContains(bridgeText, "mix-blend-mode: multiply")
 		assertContains(bridgeText, "mix-blend-mode: normal !important")
 		assertContains(bridgeText, "event.stopImmediatePropagation()")
 		assertContains(bridgeText, "image:sepia-overlay")
+		val sepiaImageRule = bridgeText.substringAfter("img:not([data-navic-sepia-overlay=\"off\"]) {")
+			.substringBefore("}")
+		assertFalse(
+			sepiaImageRule.contains("background-color"),
+			"Sepia image overlay must not fill transparent image pixels with a second sepia background."
+		)
 	}
 
 	@Test

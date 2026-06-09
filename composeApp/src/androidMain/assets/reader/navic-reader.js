@@ -990,7 +990,6 @@ const readerDocumentThemeCss = settings => {
   }
   ${readerThemeKey(settings?.theme) === ReaderThemeSepia ? `
   img:not([data-navic-sepia-overlay="off"]) {
-    background-color: var(--reader-background) !important;
     mix-blend-mode: multiply;
   }
   ` : `
