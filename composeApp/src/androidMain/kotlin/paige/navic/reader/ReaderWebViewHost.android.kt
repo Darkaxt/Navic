@@ -238,6 +238,7 @@ actual fun ReaderWebViewHost(
 				}
 			},
 			update = { view ->
+				view.keepScreenOn = settings.keepScreenOn == true
 				ReaderWebRuntime.setWebContentsDebuggingEnabled(settings.webContentsDebuggingEnabled == true)
 				if (
 					shouldDispatchReaderCommandsToWebRuntime(
@@ -259,6 +260,7 @@ private fun ReaderBridgeCommand.debugLabel(): String =
 			"openPublication(url=${url.readerUrlLabel()}, overlay=$mediaOverlayEnabled)"
 		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
 		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.readerUrlLabel()})"
+		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"
 		ReaderBridgeCommand.NextPage -> "nextPage"
 		ReaderBridgeCommand.PreviousPage -> "previousPage"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"

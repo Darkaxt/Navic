@@ -8,11 +8,38 @@
 
 **Goal:** Build a proper ebook reader experience in Navic, with Storyteller-generated readaloud EPUB support injected into the reader and playback runtime.
 
+**Replacement objective:** Build Navic into a proper premium ebook and synced audiobook reader, using the strongest reusable pieces from Readest, Anx Reader, Colibrio, LibreraReader, and Komikku instead of centering the architecture on any single upstream repo. The reader must support Storyteller-generated ebooks as first-class input, including merged ebook/audiobook packages with audio metadata labels, chapter/position mapping, media overlays, and synced read-aloud playback. Bindery remains the private backend integration layer, while the public Navic fork contains the open reader/client implementation.
+
 **Non-negotiable direction:** The reader UX must be closer to Readest/Anx Reader than to the Storyteller client. Storyteller is the artifact compatibility target for generated readaloud EPUBs and Media Overlay metadata, not the UX baseline.
 
 **Architecture:** Use a foliate-js based reader runtime for the polished ebook surface, a Navic Compose host for native UI, and Android Media3 for audio playback. EPUB Media Overlay and Storyteller clip metadata bridge the reader and audio controller.
 
 **Tech stack:** Kotlin Multiplatform, Compose Multiplatform, Android WebView, foliate-js, Media3, Bindery OPDS 2, Storyteller EPUB 3 Media Overlay artifacts.
+
+---
+
+## Delivery Protocol - Microdeliverables
+
+Reader work must land as small, reviewable checkpoints rather than a long private implementation pass. Each checkpoint should be something the user can evaluate, redirect, or reject before the next layer is built on top of it.
+
+Required cadence:
+
+1. Define the microdeliverable before editing: user-visible behavior, files likely touched, and the exact verification command or device smoke test.
+2. Prefer one focused change per checkpoint: parser/model, bridge command, runtime rendering, native UI control, persisted setting, or smoke-test/logging hook.
+3. Use upstream projects as implementation references before inventing renderer behavior. For reader rendering/layout issues, inspect Anx Reader/Readest/Foliate usage first; only write Navic-specific fixes after identifying why the upstream pattern does not directly apply.
+4. Stop after each microdeliverable with a concise checkpoint report: changed files, test/build result, what the user can try, and the next proposed slice.
+5. Do not batch unrelated reader settings into one opaque update. Group controls by evaluateable surfaces: navigation, typography, appearance, readaloud, PDF/image, logs/debugging.
+6. If a microdeliverable changes behavior on device, produce a debug APK or adb validation target before moving to the next feature.
+7. Keep commits aligned with microdeliverables when asked to commit/push. Avoid giant mixed commits that combine rendering fixes, settings UI, parser changes, and release mechanics.
+
+Default reader microdeliverable size:
+
+- 1-3 production files plus matching tests, or
+- one UI panel/control group with persisted settings and tests, or
+- one runtime bridge behavior with JavaScript syntax validation and Android test coverage, or
+- one signed/debug phone smoke fix with adb evidence and logs.
+
+The user must be able to redirect focus at every checkpoint.
 
 ---
 
@@ -115,6 +142,28 @@ Komikku is image/manga-first, so it is not the EPUB core. Its useful parts are r
 - Crop-border behavior for image/PDF-like pages.
 - Per-title reader preferences that override global defaults.
 - Bottom-reader-button customization for commands users use repeatedly.
+
+### Komikku-Inspired Reader UX Direction
+
+Use Komikku's reader chrome behavior as the reader-shell target:
+
+- Center tap reveals a reader-owned overlay, not Navic's global app chrome.
+- The top overlay should contain only reader context: back, book title, current chapter/section, bookmark/readaloud state, and optionally a compact play/pause chip for readaloud books.
+- The bottom overlay should use icon-first commands: table of contents, readaloud/audio sync, reader settings, search, bookmark/highlight actions, and page/navigation controls.
+- The settings surface should be a modal tabbed panel over dimmed content, with dense segmented controls instead of a long generic settings list.
+- Reader settings should support global defaults plus per-book/per-series overrides, mirroring Komikku's "For this series" model as "For this book" in Navic.
+- A right-side progress scrubber is desirable for PDF/image/continuous layouts. For EPUB/readaloud it should be treated as a progress navigator only after Foliate locator/percentage seeking is reliable.
+- The reader must stay usable with chrome hidden: left/right tap zones, center menu zone, and scroll/page gestures should work inside the WebView content document.
+
+Navic should adapt Komikku's shell, not its manga-only content model. EPUB/readaloud remains Foliate/WebView, Storyteller remains the generated media-overlay compatibility target, and Media3 remains the synced audio engine.
+
+Proposed reader-settings tabs:
+
+- **Reading mode:** paged/scroll, LTR/RTL direction, vertical/continuous where supported, tap-zone preset, page-turn animation/behavior, volume-key turns.
+- **General:** font family/custom font, font size, line height, paragraph spacing, margins, publisher style override, keep screen on, fullscreen/system bars.
+- **Appearance:** theme palette, foreground/background colors, background image, brightness overlay, color filter, code/highlight theme if needed.
+- **Readaloud:** narrator/source labels, clip label display, sync on/off, auto-scroll/highlight behavior, audio quality/source release metadata, compact controls visibility.
+- **PDF/Image:** fit width/height/page, crop borders, page gap, background, orientation, continuous strip behavior.
 
 ### Required Next Steps
 

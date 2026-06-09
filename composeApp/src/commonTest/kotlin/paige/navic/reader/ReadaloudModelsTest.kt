@@ -124,4 +124,57 @@ class ReadaloudModelsTest {
 		assertEquals("readaloud:audio-002", plan.mediaItems.last().mediaId)
 		assertEquals(mapOf("X-Api-Key" to "secret"), plan.mediaItems.last().requestHeaders)
 	}
+
+	@Test
+	fun playbackPlanExposesReaderMetadataLabelsForActiveTrack() {
+		val plan = ReadaloudPlaybackPlan(
+			sessionId = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			kind = ReaderPublicationKind.Readaloud,
+			mediaItems = listOf(
+				ReadaloudMediaItemDescriptor(
+					mediaId = "readaloud:audio-1",
+					uri = "https://bindery.local/opds/books/3816/resources/audio-1",
+					title = "Chapter 1",
+					subtitle = "An Unexpected Party",
+					artist = "Andy Serkis",
+					albumTitle = "The Hobbit",
+					albumArtist = "J.R.R. Tolkien",
+					trackNumber = 1,
+					discNumber = 1,
+					requestHeaders = mapOf("X-Api-Key" to "secret"),
+					resourceKey = "audio-1",
+					qualityLabel = "128 kbps",
+					sourceProviderLabel = "AudioBook Bay",
+					codec = "mp3",
+					bitrateKbps = 128,
+					sampleRateHz = 44100,
+					channels = 2,
+					durationMs = 12345L
+				)
+			),
+			startTrackIndex = 0,
+			startPositionMs = 0L,
+			playbackSpeed = 1f
+		)
+
+		val labels = plan.metadataLabelsForPlaybackPosition(
+			ReadaloudPlaybackPosition(
+				sessionId = "urn:bindery:book:3816",
+				trackIndex = 0,
+				mediaId = "readaloud:audio-1",
+				positionMs = 1200L,
+				durationMs = 12345L,
+				isPlaying = true,
+				playbackSpeed = 1f
+			)
+		)
+
+		assertEquals("Chapter 1", labels?.chapterLabel)
+		assertEquals("An Unexpected Party", labels?.sectionLabel)
+		assertEquals("Andy Serkis", labels?.narratorLabel)
+		assertEquals("128 kbps", labels?.qualityLabel)
+		assertEquals("AudioBook Bay", labels?.sourceProviderLabel)
+		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
+	}
 }

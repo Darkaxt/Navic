@@ -32,6 +32,7 @@ object StorytellerMediaOverlayParser {
 			}
 		val manifestById = manifestItems.associateBy(OpfManifestItem::id)
 		val durationMsByRef = opf.mediaDurationMsByRef()
+		val textDocuments = entries.textDocuments()
 		val referencedSmilIds = manifestItems.mapNotNull(OpfManifestItem::mediaOverlay).toSet()
 		val smilItems = if (referencedSmilIds.isNotEmpty()) {
 			referencedSmilIds.mapNotNull(manifestById::get)
@@ -41,7 +42,8 @@ object StorytellerMediaOverlayParser {
 		val clips = smilItems.flatMap { item ->
 			parseSmilClips(
 				smilPath = item.href,
-				smil = entries[item.href]?.parseXml() ?: return@flatMap emptyList()
+				smil = entries[item.href]?.parseXml() ?: return@flatMap emptyList(),
+				textDocuments = textDocuments
 			)
 		}.sortedWith(
 			compareBy<MediaOverlayClip> { clip -> clip.audioResource }
@@ -65,7 +67,11 @@ object StorytellerMediaOverlayParser {
 					id = item.id,
 					href = item.href,
 					mediaType = item.mediaType,
-					durationMs = durationMsByRef[item.id] ?: clips.durationMsForAudioResource(item.href)
+					durationMs = durationMsByRef[item.id] ?: clips.durationMsForAudioResource(item.href),
+					label = textDocuments.audioResourceLabel(
+						audioResource = item.href,
+						clips = clips
+					)
 				)
 			}
 		return StorytellerReadaloudPackage(
@@ -76,7 +82,8 @@ object StorytellerMediaOverlayParser {
 
 	private fun parseSmilClips(
 		smilPath: String,
-		smil: Document
+		smil: Document,
+		textDocuments: Map<String, Document>
 	): List<MediaOverlayClip> =
 		smil.elements("par").mapNotNull { par ->
 			val text = par.childElement("text") ?: return@mapNotNull null
@@ -92,7 +99,9 @@ object StorytellerMediaOverlayParser {
 				fragmentId = fragmentId,
 				startSeconds = startSeconds,
 				endSeconds = endSeconds,
-				label = par.attr("id") ?: fragmentId
+				label = textDocuments.fragmentLabel(textResource, fragmentId)
+					?: par.attr("id")
+					?: fragmentId
 			)
 		}
 
@@ -155,6 +164,70 @@ object StorytellerMediaOverlayParser {
 
 	private fun Element.attr(name: String): String? =
 		getAttribute(name).trim().takeIf { it.isNotEmpty() }
+
+	private fun Map<String, ByteArray>.textDocuments(): Map<String, Document> =
+		mapNotNull { (path, bytes) ->
+			path.takeIf { it.endsWith(".xhtml", ignoreCase = true) || it.endsWith(".html", ignoreCase = true) }
+				?.let { textPath ->
+					runCatching { bytes.parseXml() }.getOrNull()?.let { document -> textPath to document }
+				}
+		}.toMap()
+
+	private fun Map<String, Document>.fragmentLabel(
+		textResource: String,
+		fragmentId: String?
+	): String? {
+		val document = this[normalizedMediaOverlayResource(textResource)] ?: return null
+		val element = if (fragmentId == null) {
+			document.documentElement
+		} else {
+			document.navicMediaOverlayElementById(fragmentId) ?: document.documentElement
+		}
+		return element
+			?.readableLabel()
+			?.takeIf { it.isNotEmpty() }
+	}
+
+	private fun Map<String, Document>.audioResourceLabel(
+		audioResource: String,
+		clips: List<MediaOverlayClip>
+	): String? {
+		val normalizedAudioResource = normalizedMediaOverlayResource(audioResource)
+		return clips
+			.asSequence()
+			.filter { clip -> normalizedMediaOverlayResource(clip.audioResource) == normalizedAudioResource }
+			.map { clip -> normalizedMediaOverlayResource(clip.textResource) }
+			.distinct()
+			.firstNotNullOfOrNull { textResource -> chapterLabel(textResource) }
+	}
+
+	private fun Map<String, Document>.chapterLabel(textResource: String): String? {
+		val document = this[normalizedMediaOverlayResource(textResource)] ?: return null
+		return listOf("h1", "h2", "h3", "h4", "h5", "h6")
+			.firstNotNullOfOrNull { heading ->
+				document.elements(heading).firstOrNull()?.readableLabel()
+			}
+			?: document.elements("title").firstOrNull()?.readableLabel()
+	}
+
+	private fun Document.navicMediaOverlayElementById(id: String): Element? =
+		getElementsByTagName("*")
+			.asElements()
+			.firstOrNull { element -> element.attr("id") == id }
+
+	private fun Element.readableLabel(): String? =
+		listOfNotNull(
+			attr("aria-label"),
+			attr("title"),
+			textContent
+		).firstNotNullOfOrNull { raw ->
+			raw.normalizedLabelText()
+		}
+
+	private fun String.normalizedLabelText(): String? =
+		replace(Regex("\\s+"), " ")
+			.trim()
+			.takeIf { it.isNotEmpty() }
 
 	private fun Document.mediaDurationMsByRef(): Map<String, Long> =
 		elements("meta")

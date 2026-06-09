@@ -19,7 +19,8 @@ data class MediaOverlayClip(
 			fragmentId = fragmentId,
 			textHref = textResource,
 			clipBeginSeconds = startSeconds,
-			clipEndSeconds = endSeconds
+			clipEndSeconds = endSeconds,
+			label = label
 		)
 }
 
@@ -85,6 +86,17 @@ data class MediaOverlayTimeline(
 				clip = clip
 			)
 		}
+	}
+
+	fun activeLabelForPlaybackPosition(
+		plan: ReadaloudPlaybackPlan,
+		position: ReadaloudPlaybackPosition
+	): String? {
+		val audioResource = plan.audioResourceFor(position) ?: return null
+		return activeClip(audioResource, position.positionMs)
+			?.label
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
 	}
 }
 
@@ -177,3 +189,7 @@ private fun String.audioCodecLabel(): String? =
 		?.substringAfter('/')
 		?.trim()
 		?.takeIf { it.isNotEmpty() }
+
+private fun ReadaloudPlaybackPlan.audioResourceFor(position: ReadaloudPlaybackPosition): String? =
+	mediaItems.getOrNull(position.trackIndex)?.uri
+		?: position.mediaId?.let { mediaId -> mediaItems.firstOrNull { item -> item.mediaId == mediaId }?.uri }

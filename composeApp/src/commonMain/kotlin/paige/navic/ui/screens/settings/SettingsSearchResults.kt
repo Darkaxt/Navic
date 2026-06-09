@@ -52,10 +52,44 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
+import paige.navic.reader.ReaderBookFontFamily
+import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderDarkTheme
+import paige.navic.reader.ReaderDirectionDefault
+import paige.navic.reader.ReaderDirectionLtr
+import paige.navic.reader.ReaderDirectionRtl
+import paige.navic.reader.ReaderDuskTheme
+import paige.navic.reader.ReaderDyslexicFontFamily
+import paige.navic.reader.ReaderFlowPaged
+import paige.navic.reader.ReaderFlowPagedVertical
+import paige.navic.reader.ReaderFlowScrolled
+import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
+import paige.navic.reader.ReaderMonoFontFamily
+import paige.navic.reader.ReaderOrientationDefault
+import paige.navic.reader.ReaderOrientationFree
+import paige.navic.reader.ReaderOrientationLandscape
+import paige.navic.reader.ReaderOrientationLockedLandscape
+import paige.navic.reader.ReaderOrientationLockedPortrait
+import paige.navic.reader.ReaderOrientationPortrait
+import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSansFontFamily
+import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
+import paige.navic.reader.ReaderSupportedFlowModes
+import paige.navic.reader.ReaderSupportedFontFamilies
+import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedTapZones
+import paige.navic.reader.ReaderSupportedThemes
+import paige.navic.reader.ReaderTapZoneDefault
+import paige.navic.reader.ReaderTapZoneDisabled
+import paige.navic.reader.ReaderTapZoneEdge
+import paige.navic.reader.ReaderTapZoneKindle
+import paige.navic.reader.ReaderTapZoneLShaped
+import paige.navic.reader.ReaderTapZoneRightLeft
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.Form
@@ -698,13 +732,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			subtitle = stringResource(Res.string.subtitle_ebook_reader_font_family),
 			keywords = listOf("reader", "ebook", "EPUB", "typeface"),
 			items = readerFontFamilySearchOptions,
-			label = { fontFamily ->
-				if (fontFamily == ReaderSerifFontFamily) {
-					stringResource(Res.string.option_ebook_reader_font_family_serif)
-				} else {
-					stringResource(Res.string.option_ebook_reader_font_family_sans)
-				}
-			},
+			label = { fontFamily -> readerFontFamilySearchLabel(fontFamily) },
 			selection = readerSettings.fontFamily ?: ReaderSansFontFamily,
 			onSelect = { fontFamily -> preferenceManager.readerFontFamily = fontFamily }
 		))
@@ -731,6 +759,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSelect = { percent -> preferenceManager.readerLineHeightPercent = percent }
 		))
 		add(selectionRow(
+			id = "ebooks.paragraph-spacing",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_paragraph_spacing),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_paragraph_spacing),
+			keywords = listOf("reader", "ebook", "EPUB", "paragraph", "spacing"),
+			items = readerParagraphSpacingSearchOptions,
+			label = { percent -> "$percent%" },
+			selection = readerSettings.paragraphSpacingPercent ?: 0,
+			onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
+		))
+		add(selectionRow(
 			id = "ebooks.margin",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_margin),
@@ -742,38 +781,103 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSelect = { percent -> preferenceManager.readerMarginPercent = percent }
 		))
 		add(selectionRow(
+			id = "ebooks.dim-overlay",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_dim_overlay),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_dim_overlay),
+			keywords = listOf("reader", "ebook", "EPUB", "brightness", "dim", "Komikku"),
+			items = readerDimOverlaySearchOptions,
+			label = { percent -> readerDimOverlaySearchLabel(percent) },
+			selection = readerSettings.dimOverlayPercent ?: 0,
+			onSelect = { percent -> preferenceManager.readerDimOverlayPercent = percent }
+		))
+		add(selectionRow(
 			id = "ebooks.theme",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_theme),
 			subtitle = stringResource(Res.string.subtitle_ebook_reader_theme),
 			keywords = listOf("reader", "ebook", "EPUB", "dark", "light"),
 			items = readerThemeSearchOptions,
-			label = { theme ->
-				if (theme == ReaderDarkTheme) {
-					stringResource(Res.string.option_ebook_reader_theme_dark)
-				} else {
-					stringResource(Res.string.option_ebook_reader_theme_light)
-				}
-			},
+			label = { theme -> readerThemeSearchLabel(theme) },
 			selection = readerSettings.theme ?: ReaderLightTheme,
 			onSelect = { theme -> preferenceManager.readerTheme = theme }
+		))
+		add(selectionRow(
+			id = "ebooks.orientation",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_orientation),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_orientation),
+			keywords = listOf("reader", "ebook", "EPUB", "PDF", "rotation", "orientation", "Komikku"),
+			items = readerOrientationSearchOptions,
+			label = { orientation -> readerOrientationSearchLabel(orientation) },
+			selection = readerSettings.orientation ?: ReaderOrientationDefault,
+			onSelect = { orientation -> preferenceManager.readerOrientation = orientation }
+		))
+		add(selectionRow(
+			id = "ebooks.direction",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_direction),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_direction),
+			keywords = listOf("reader", "ebook", "EPUB", "direction", "RTL", "LTR", "manga", "Komikku"),
+			items = readerDirectionSearchOptions,
+			label = { direction -> readerDirectionSearchLabel(direction) },
+			selection = readerSettings.direction ?: ReaderDirectionDefault,
+			onSelect = { direction -> preferenceManager.readerDirection = direction }
 		))
 		add(selectionRow(
 			id = "ebooks.flow",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_flow),
 			subtitle = stringResource(Res.string.subtitle_ebook_reader_paged),
-			keywords = listOf("reader", "ebook", "EPUB", "paged", "scroll"),
+			keywords = listOf("reader", "ebook", "EPUB", "paged", "vertical", "scroll", "gaps"),
 			items = readerFlowSearchOptions,
-			label = { paged ->
-				if (paged) {
-					stringResource(Res.string.option_ebook_reader_paged)
-				} else {
-					stringResource(Res.string.option_ebook_reader_scroll)
-				}
+			label = { flowMode ->
+				readerFlowSearchLabel(flowMode)
 			},
-			selection = readerSettings.paged != false,
-			onSelect = { paged -> preferenceManager.readerPaged = paged }
+			selection = readerSettings.flowMode ?: ReaderFlowPaged,
+			onSelect = { flowMode ->
+				preferenceManager.readerFlowMode = flowMode
+				preferenceManager.readerPaged = flowMode != ReaderFlowScrolled &&
+					flowMode != ReaderFlowScrolledGaps
+			}
+		))
+		add(selectionRow(
+			id = "ebooks.tap-zone",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_tap_zone),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_tap_zone),
+			keywords = listOf("reader", "ebook", "EPUB", "tap", "gesture", "Komikku", "page turn"),
+			items = readerTapZoneSearchOptions,
+			label = { tapZone -> readerTapZoneSearchLabel(tapZone) },
+			selection = readerSettings.tapZone ?: ReaderTapZoneDefault,
+			onSelect = { tapZone -> preferenceManager.readerTapZone = tapZone }
+		))
+		add(switchRow(
+			id = "ebooks.publisher-styles",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_publisher_styles),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_publisher_styles),
+			keywords = listOf("reader", "ebook", "EPUB", "publisher", "CSS", "style"),
+			value = preferenceManager.readerPublisherStylesEnabled,
+			onSetValue = { enabled -> preferenceManager.readerPublisherStylesEnabled = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.keep-screen-on",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_keep_screen_on),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_keep_screen_on),
+			keywords = listOf("reader", "ebook", "EPUB", "screen", "awake", "battery"),
+			value = preferenceManager.readerKeepScreenOn,
+			onSetValue = { enabled -> preferenceManager.readerKeepScreenOn = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.volume-keys",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_volume_keys),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_volume_keys),
+			keywords = listOf("reader", "ebook", "EPUB", "volume", "keys", "page turn", "Librera", "Komikku"),
+			value = preferenceManager.readerVolumeKeyPageTurns,
+			onSetValue = { enabled -> preferenceManager.readerVolumeKeyPageTurns = enabled }
 		))
 		add(switchRow(
 			id = "ebooks.media-overlay",
@@ -1821,16 +1925,87 @@ private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
 private val binderyBookGridColumnSearchOptions = (BinderyMinBookGridColumns..BinderyMaxBookGridColumns).toList()
-private val readerFontFamilySearchOptions = listOf(ReaderSansFontFamily, ReaderSerifFontFamily)
+private val readerFontFamilySearchOptions = ReaderSupportedFontFamilies
 private val readerFontSizeSearchOptions = listOf(90, 100, 112, 125, 140, 160, 180)
 private val readerLineHeightSearchOptions = listOf(120, 135, 155, 170, 190, 220)
+private val readerParagraphSpacingSearchOptions = listOf(0, 25, 50, 75, 100, 150, 200)
 private val readerMarginSearchOptions = listOf(0, 4, 8, 12, 16, 24)
-private val readerThemeSearchOptions = listOf(ReaderLightTheme, ReaderDarkTheme)
-private val readerFlowSearchOptions = listOf(true, false)
+private val readerDimOverlaySearchOptions = listOf(0, 10, 20, 30, 40, 50, 60, 70, 80)
+private val readerThemeSearchOptions = ReaderSupportedThemes
+private val readerOrientationSearchOptions = ReaderSupportedOrientations
+private val readerDirectionSearchOptions = ReaderSupportedDirections
+private val readerFlowSearchOptions = ReaderSupportedFlowModes
+private val readerTapZoneSearchOptions = ReaderSupportedTapZones
+
+@Composable
+private fun readerFontFamilySearchLabel(fontFamily: String): String =
+	when (fontFamily) {
+		ReaderSerifFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_serif)
+		ReaderBookFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_book)
+		ReaderHumanistFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_humanist)
+		ReaderDyslexicFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_dyslexic)
+		ReaderMonoFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_mono)
+		ReaderPublisherFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_publisher)
+		else -> stringResource(Res.string.option_ebook_reader_font_family_sans)
+	}
+
+@Composable
+private fun readerThemeSearchLabel(theme: String): String =
+	when (theme) {
+		ReaderSepiaTheme -> stringResource(Res.string.option_ebook_reader_theme_sepia)
+		ReaderDuskTheme -> stringResource(Res.string.option_ebook_reader_theme_dusk)
+		ReaderDarkTheme -> stringResource(Res.string.option_ebook_reader_theme_dark)
+		ReaderBlackTheme -> stringResource(Res.string.option_ebook_reader_theme_black)
+		else -> stringResource(Res.string.option_ebook_reader_theme_light)
+	}
+
+@Composable
+private fun readerOrientationSearchLabel(orientation: String): String =
+	when (orientation) {
+		ReaderOrientationFree -> stringResource(Res.string.option_ebook_reader_orientation_free)
+		ReaderOrientationPortrait -> stringResource(Res.string.option_ebook_reader_orientation_portrait)
+		ReaderOrientationLandscape -> stringResource(Res.string.option_ebook_reader_orientation_landscape)
+		ReaderOrientationLockedPortrait -> stringResource(Res.string.option_ebook_reader_orientation_locked_portrait)
+		ReaderOrientationLockedLandscape -> stringResource(Res.string.option_ebook_reader_orientation_locked_landscape)
+		ReaderOrientationReversePortrait -> stringResource(Res.string.option_ebook_reader_orientation_reverse_portrait)
+		else -> stringResource(Res.string.option_ebook_reader_orientation_default)
+	}
+
+@Composable
+private fun readerDirectionSearchLabel(direction: String): String =
+	when (direction) {
+		ReaderDirectionLtr -> stringResource(Res.string.option_ebook_reader_direction_ltr)
+		ReaderDirectionRtl -> stringResource(Res.string.option_ebook_reader_direction_rtl)
+		else -> stringResource(Res.string.option_ebook_reader_direction_default)
+	}
+
+@Composable
+private fun readerFlowSearchLabel(flowMode: String): String =
+	when (flowMode) {
+		ReaderFlowPagedVertical -> stringResource(Res.string.option_ebook_reader_paged_vertical)
+		ReaderFlowScrolled -> stringResource(Res.string.option_ebook_reader_scroll)
+		ReaderFlowScrolledGaps -> stringResource(Res.string.option_ebook_reader_scroll_gaps)
+		else -> stringResource(Res.string.option_ebook_reader_paged)
+	}
+
+@Composable
+private fun readerTapZoneSearchLabel(tapZone: String): String =
+	when (tapZone) {
+		ReaderTapZoneEdge -> stringResource(Res.string.option_ebook_reader_tap_zone_edge)
+		ReaderTapZoneKindle -> stringResource(Res.string.option_ebook_reader_tap_zone_kindle)
+		ReaderTapZoneLShaped -> stringResource(Res.string.option_ebook_reader_tap_zone_l_shaped)
+		ReaderTapZoneRightLeft -> stringResource(Res.string.option_ebook_reader_tap_zone_right_left)
+		ReaderTapZoneDisabled -> stringResource(Res.string.option_ebook_reader_tap_zone_disabled)
+		else -> stringResource(Res.string.option_ebook_reader_tap_zone_default)
+	}
 
 @Composable
 private fun readerLineHeightSearchLabel(percent: Int): String =
 	"${percent / 100}.${(percent % 100).toString().padStart(2, '0')}".trimEnd('0').trimEnd('.')
+
+@Composable
+private fun readerDimOverlaySearchLabel(percent: Int): String =
+	if (percent <= 0) stringResource(Res.string.option_off) else "$percent%"
 private val quickPicksLimitSearchOptions = listOf(10, 20, 30, 50)
 private val quickPicksMinDurationSearchOptions = listOf(0, 30, 60, 120, 180)
 

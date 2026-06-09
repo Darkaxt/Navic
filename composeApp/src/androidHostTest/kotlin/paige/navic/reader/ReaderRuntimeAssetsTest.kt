@@ -110,6 +110,19 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
+		val hostText = readerWebViewHostFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(hostText, "view.keepScreenOn = settings.keepScreenOn == true")
+		assertContains(ebooksSettingsText, "readerKeepScreenOn")
+		assertContains(ebooksSettingsText, "option_ebook_reader_keep_screen_on")
+		assertContains(searchSettingsText, "ebooks.keep-screen-on")
+		assertContains(searchSettingsText, "readerKeepScreenOn")
+	}
+
+	@Test
 	fun androidPdfRuntimePublishesStableViewportForFixedLayout() {
 		val root = readerAssetRoot()
 		val foliateFixedLayoutText = root.resolve("vendor/foliate-js/fixed-layout.js").readText()
@@ -203,6 +216,20 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderBridgeExposesProgressSeekCommand() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+
+		assertContains(bridgeText, "case 'goToProgress'")
+		assertContains(bridgeText, "async goToProgress(progress)")
+		assertContains(bridgeText, "this.view?.goToFraction")
+		assertContains(bridgeText, "progress-seek")
+		assertContains(readerScreenText, "ReaderBridgeCommand.GoToProgress")
+		assertContains(readerScreenText, "Slider(")
+		assertContains(readerScreenText, "onProgressSeek: (Float) -> Unit")
+	}
+
+	@Test
 	fun androidReaderBridgePortsAnxStyleScrolledEdgePageTurns() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 
@@ -249,6 +276,227 @@ class ReaderRuntimeAssetsTest {
 		)
 	}
 
+	@Test
+	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "a:any-link")
+		assertContains(bridgeText, "color: inherit !important")
+		assertContains(bridgeText, "text-decoration: none !important")
+		assertContains(bridgeText, "content: ' >>'")
+	}
+
+	@Test
+	fun androidReaderExposesKomikkuStyleTapZonePresets() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(bridgeText, "readerTapZoneMode")
+		assertContains(bridgeText, "case 'edge'")
+		assertContains(bridgeText, "case 'kindle'")
+		assertContains(bridgeText, "case 'l-shaped'")
+		assertContains(bridgeText, "case 'disabled'")
+		assertContains(ebooksSettingsText, "readerTapZone")
+		assertContains(ebooksSettingsText, "option_ebook_reader_tap_zone")
+		assertContains(searchSettingsText, "ebooks.tap-zone")
+	}
+
+	@Test
+	fun androidReaderExposesExpandedThemePalettes() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(bridgeText, "ReaderThemePalettes")
+		assertContains(bridgeText, "sepia: {")
+		assertContains(bridgeText, "dusk: {")
+		assertContains(bridgeText, "black: {")
+		assertContains(bridgeText, "--reader-accent")
+		assertContains(ebooksSettingsText, "option_ebook_reader_theme_sepia")
+		assertContains(ebooksSettingsText, "option_ebook_reader_theme_black")
+		assertContains(searchSettingsText, "ReaderSupportedThemes")
+	}
+
+	@Test
+	fun androidReaderExposesParagraphSpacingAndPublisherStyleControls() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(bridgeText, "readerParagraphSpacingEm")
+		assertContains(bridgeText, "--reader-paragraph-spacing")
+		assertContains(bridgeText, "settings.publisherStyles === true")
+		assertContains(bridgeText, "paragraphSpacingPercent")
+		assertContains(ebooksSettingsText, "readerParagraphSpacingPercent")
+		assertContains(ebooksSettingsText, "readerPublisherStylesEnabled")
+		assertContains(ebooksSettingsText, "option_ebook_reader_paragraph_spacing")
+		assertContains(ebooksSettingsText, "option_ebook_reader_publisher_styles")
+		assertContains(searchSettingsText, "ebooks.paragraph-spacing")
+		assertContains(searchSettingsText, "ebooks.publisher-styles")
+	}
+
+	@Test
+	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(bridgeText, "readerFlowMode(settings)")
+		assertContains(bridgeText, "ReaderFlowPagedVertical")
+		assertContains(bridgeText, "ReaderFlowScrolledGaps")
+		assertContains(bridgeText, "setAttribute('flow', readerFoliateFlow(flowMode))")
+		assertContains(bridgeText, "--reader-scroll-gap")
+		assertContains(bridgeText, "writing-mode: vertical-rl")
+		assertContains(ebooksSettingsText, "readerFlowMode")
+		assertContains(ebooksSettingsText, "PagedVertical(ReaderFlowPagedVertical")
+		assertContains(ebooksSettingsText, "ScrollGaps(ReaderFlowScrolledGaps")
+		assertContains(searchSettingsText, "readerFlowMode")
+		assertContains(searchSettingsText, "ReaderSupportedFlowModes")
+	}
+
+	@Test
+	fun androidReaderMapsExplicitReadingDirectionToFoliateRuntime() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(bridgeText, "readerDirectionMode(settings)")
+		assertContains(bridgeText, "applyReaderDirection")
+		assertContains(bridgeText, "this.view.book.dir")
+		assertContains(bridgeText, "doc.documentElement")
+		assertContains(readerScreenText, "Direction")
+		assertContains(readerScreenText, "toggleDirection()")
+		assertContains(ebooksSettingsText, "readerDirection")
+		assertContains(ebooksSettingsText, "ReaderDirectionOption")
+		assertContains(searchSettingsText, "ebooks.direction")
+		assertContains(searchSettingsText, "ReaderSupportedDirections")
+	}
+
+	@Test
+	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
+		val root = readerAssetRoot()
+		val bridgeText = root.resolve("navic-reader.js").readText()
+		val literata = root.resolve("fonts/navic-literata-regular.ttf")
+		val atkinson = root.resolve("fonts/navic-atkinson-hyperlegible-regular.otf")
+		val openDyslexic = root.resolve("fonts/navic-opendyslexic-regular.otf")
+
+		assertTrue(literata.isFile, "Literata must be bundled for book font rendering")
+		assertTrue(atkinson.isFile, "Atkinson Hyperlegible must be bundled for humanist font rendering")
+		assertTrue(openDyslexic.isFile, "OpenDyslexic must be bundled for dyslexic font rendering")
+		assertTrue(literata.length() > 16_000, "Literata asset should be a real font file")
+		assertTrue(atkinson.length() > 16_000, "Atkinson asset should be a real font file")
+		assertTrue(openDyslexic.length() > 16_000, "OpenDyslexic asset should be a real font file")
+		assertContains(bridgeText, "readerFontFaceCss")
+		assertContains(bridgeText, "@font-face")
+		assertContains(bridgeText, "Navic Literata")
+		assertContains(bridgeText, "Navic Atkinson Hyperlegible")
+		assertContains(bridgeText, "Navic OpenDyslexic")
+		assertContains(bridgeText, "fonts/navic-literata-regular.ttf")
+		assertContains(bridgeText, "fonts/navic-atkinson-hyperlegible-regular.otf")
+		assertContains(bridgeText, "fonts/navic-opendyslexic-regular.otf")
+	}
+
+	@Test
+	fun commonReaderChromeExposesDimOverlayControl() {
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(readerScreenText, "ReaderDimOverlay")
+		assertContains(readerScreenText, "matchParentSize()")
+		assertContains(readerScreenText, "Color.Black.copy")
+		assertContains(ebooksSettingsText, "readerDimOverlayPercent")
+		assertContains(ebooksSettingsText, "option_ebook_reader_dim_overlay")
+		assertContains(searchSettingsText, "ebooks.dim-overlay")
+		assertContains(searchSettingsText, "readerDimOverlayPercent")
+	}
+
+	@Test
+	fun androidReaderExposesKomikkuStyleOrientationControl() {
+		val orientationEffectText = readerAndroidFile("ReaderOrientationEffect.android.kt").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_FULL_SENSOR")
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_SENSOR_PORTRAIT")
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_SENSOR_LANDSCAPE")
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_PORTRAIT")
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_LANDSCAPE")
+		assertContains(orientationEffectText, "SCREEN_ORIENTATION_REVERSE_PORTRAIT")
+		assertContains(orientationEffectText, "activity.requestedOrientation = previousOrientation")
+		assertContains(readerScreenText, "ReaderOrientationEffect(chromeState.settings.orientation)")
+		assertContains(ebooksSettingsText, "readerOrientation")
+		assertContains(ebooksSettingsText, "option_ebook_reader_orientation")
+		assertContains(searchSettingsText, "ebooks.orientation")
+		assertContains(searchSettingsText, "ReaderSupportedOrientations")
+	}
+
+	@Test
+	fun commonReaderChromeExposesVolumeKeyPageTurnControl() {
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(readerScreenText, "onPreviewKeyEvent")
+		assertContains(readerScreenText, "Key.VolumeUp")
+		assertContains(readerScreenText, "Key.VolumeDown")
+		assertContains(readerScreenText, "volumeKeyPageTurns")
+		assertContains(readerScreenText, "Volume keys")
+		assertContains(ebooksSettingsText, "readerVolumeKeyPageTurns")
+		assertContains(ebooksSettingsText, "option_ebook_reader_volume_keys")
+		assertContains(searchSettingsText, "ebooks.volume-keys")
+		assertContains(searchSettingsText, "readerVolumeKeyPageTurns")
+	}
+
+	@Test
+	fun commonReadaloudChromeSurfacesAudioMetadataLabels() {
+		val readerScreenText = readerScreenFile().readText()
+		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
+
+		assertContains(readerScreenText, "activeAudioLabel")
+		assertContains(readerScreenText, "ReaderReadaloudMetadataLabel")
+		assertContains(readerScreenText, "activeAudioMetadata")
+		assertContains(readerScreenText, "Narrator")
+		assertContains(readerScreenText, "Quality")
+		assertContains(readerScreenText, "Source")
+		assertContains(runtimeHostText, "activeAudioLabel =")
+		assertContains(runtimeHostText, "activeLabelForPlaybackPosition")
+		assertContains(runtimeHostText, "activeAudioMetadata =")
+		assertContains(runtimeHostText, "metadataLabelsForPlaybackPosition")
+	}
+
+	@Test
+	fun commonReadaloudChromeExposesPlaybackSpeedControls() {
+		val readerScreenText = readerScreenFile().readText()
+		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
+
+		assertContains(readerScreenText, "onReadaloudSpeedChange")
+		assertContains(readerScreenText, "adjustSpeedCommand")
+		assertContains(readerScreenText, "ReaderControlStepper(")
+		assertContains(readerScreenText, "label = \"Speed\"")
+		assertContains(runtimeHostText, "ReaderReadaloudPlaybackCommand.SetSpeed")
+		assertContains(runtimeHostText, "controller.setPlaybackSpeed")
+	}
+
+	@Test
+	fun commonReadaloudChromeExposesSyncHighlightToggle() {
+		val readerScreenText = readerScreenFile().readText()
+		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
+		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
+
+		assertContains(readerScreenText, "onReadaloudSyncChange")
+		assertContains(readerScreenText, "toggleSyncCommand")
+		assertContains(readerScreenText, "Sync highlight")
+		assertContains(readerScreenText, "readaloudSyncEnabled")
+		assertContains(preferenceText, "readerReadaloudSyncEnabled")
+		assertContains(runtimeHostText, "ReaderReadaloudPlaybackCommand.SetSyncEnabled")
+		assertContains(runtimeHostText, "setSyncEnabled")
+		assertContains(runtimeHostText, "readaloudSyncEnabled")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),
@@ -283,4 +531,18 @@ class ReaderRuntimeAssetsTest {
 			File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 		).firstOrNull { it.isFile }
 			?: error("Could not locate ReaderScreen.kt")
+
+	private fun readerAndroidFile(fileName: String): File =
+		listOf(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate Android reader file $fileName")
+
+	private fun readerCommonFile(fileName: String): File =
+		listOf(
+			File("src/commonMain/kotlin/paige/navic/reader/$fileName"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/reader/$fileName")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate common reader file $fileName")
 }

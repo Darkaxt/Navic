@@ -17,26 +17,69 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.option_ebook_reader_font_family
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_book
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_dyslexic
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_humanist
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_mono
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_sans
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_serif
 import navic.composeapp.generated.resources.option_ebook_reader_font_size
+import navic.composeapp.generated.resources.option_ebook_reader_dim_overlay
+import navic.composeapp.generated.resources.option_ebook_reader_direction
+import navic.composeapp.generated.resources.option_ebook_reader_direction_default
+import navic.composeapp.generated.resources.option_ebook_reader_direction_ltr
+import navic.composeapp.generated.resources.option_ebook_reader_direction_rtl
 import navic.composeapp.generated.resources.option_ebook_reader_flow
 import navic.composeapp.generated.resources.option_ebook_reader_line_height
+import navic.composeapp.generated.resources.option_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.option_ebook_reader_margin
 import navic.composeapp.generated.resources.option_ebook_reader_media_overlay
+import navic.composeapp.generated.resources.option_ebook_reader_orientation
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_landscape
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_locked_landscape
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_locked_portrait
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_portrait
+import navic.composeapp.generated.resources.option_ebook_reader_orientation_reverse_portrait
 import navic.composeapp.generated.resources.option_ebook_reader_paged
+import navic.composeapp.generated.resources.option_ebook_reader_paged_vertical
+import navic.composeapp.generated.resources.option_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.option_ebook_reader_publisher_styles
 import navic.composeapp.generated.resources.option_ebook_reader_scroll
+import navic.composeapp.generated.resources.option_ebook_reader_scroll_gaps
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_default
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_disabled
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_edge
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_kindle
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shaped
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
 import navic.composeapp.generated.resources.option_ebook_reader_theme
+import navic.composeapp.generated.resources.option_ebook_reader_theme_black
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
+import navic.composeapp.generated.resources.option_ebook_reader_theme_dusk
 import navic.composeapp.generated.resources.option_ebook_reader_theme_light
+import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
+import navic.composeapp.generated.resources.option_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
+import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
+import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
+import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
 import navic.composeapp.generated.resources.subtitle_ebook_reader_line_height
+import navic.composeapp.generated.resources.subtitle_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
 import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
+import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
+import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styles
+import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
+import navic.composeapp.generated.resources.subtitle_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.title_ebook_reader
 import org.jetbrains.compose.resources.StringResource
@@ -44,10 +87,38 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.reader.ReaderBookFontFamily
+import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderDarkTheme
+import paige.navic.reader.ReaderDirectionDefault
+import paige.navic.reader.ReaderDirectionLtr
+import paige.navic.reader.ReaderDirectionRtl
+import paige.navic.reader.ReaderDuskTheme
+import paige.navic.reader.ReaderDyslexicFontFamily
+import paige.navic.reader.ReaderFlowPaged
+import paige.navic.reader.ReaderFlowPagedVertical
+import paige.navic.reader.ReaderFlowScrolled
+import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
+import paige.navic.reader.ReaderMonoFontFamily
+import paige.navic.reader.ReaderOrientationDefault
+import paige.navic.reader.ReaderOrientationFree
+import paige.navic.reader.ReaderOrientationLandscape
+import paige.navic.reader.ReaderOrientationLockedLandscape
+import paige.navic.reader.ReaderOrientationLockedPortrait
+import paige.navic.reader.ReaderOrientationPortrait
+import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSansFontFamily
+import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
+import paige.navic.reader.ReaderTapZoneDefault
+import paige.navic.reader.ReaderTapZoneDisabled
+import paige.navic.reader.ReaderTapZoneEdge
+import paige.navic.reader.ReaderTapZoneKindle
+import paige.navic.reader.ReaderTapZoneLShaped
+import paige.navic.reader.ReaderTapZoneRightLeft
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormTitle
@@ -65,7 +136,10 @@ fun SettingsEbooksScreen() {
 	val settings = preferenceManager.readerDefaultSettings()
 	val fontFamily = ReaderFontFamilyOption.forFontFamily(settings.fontFamily)
 	val theme = ReaderThemeOption.forTheme(settings.theme)
-	val flow = if (settings.paged == false) ReaderFlowOption.Scroll else ReaderFlowOption.Paged
+	val direction = ReaderDirectionOption.forDirection(settings.direction)
+	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
+	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
+	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
 	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
 
 	Scaffold(
@@ -110,12 +184,28 @@ fun SettingsEbooksScreen() {
 						onSelect = { percent -> preferenceManager.readerLineHeightPercent = percent }
 					)
 					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_paragraph_spacing)) },
+						items = readerParagraphSpacingOptions.toImmutableList(),
+						label = { percent -> "$percent%" },
+						description = stringResource(Res.string.subtitle_ebook_reader_paragraph_spacing),
+						selection = settings.paragraphSpacingPercent ?: 0,
+						onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
+					)
+					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_margin)) },
 						items = readerMarginOptions.toImmutableList(),
 						label = { percent -> "$percent%" },
 						description = stringResource(Res.string.subtitle_ebook_reader_margin),
 						selection = settings.marginPercent ?: 0,
 						onSelect = { percent -> preferenceManager.readerMarginPercent = percent }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_dim_overlay)) },
+						items = readerDimOverlayOptions.toImmutableList(),
+						label = { percent -> readerDimOverlayLabel(percent) },
+						description = stringResource(Res.string.subtitle_ebook_reader_dim_overlay),
+						selection = settings.dimOverlayPercent ?: 0,
+						onSelect = { percent -> preferenceManager.readerDimOverlayPercent = percent }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_theme)) },
@@ -126,12 +216,57 @@ fun SettingsEbooksScreen() {
 						onSelect = { option -> preferenceManager.readerTheme = option.theme }
 					)
 					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_orientation)) },
+						items = ReaderOrientationOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_orientation),
+						selection = orientation,
+						onSelect = { option -> preferenceManager.readerOrientation = option.orientation }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_direction)) },
+						items = ReaderDirectionOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_direction),
+						selection = direction,
+						onSelect = { option -> preferenceManager.readerDirection = option.direction }
+					)
+					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_flow)) },
 						items = ReaderFlowOption.entries.toImmutableList(),
 						label = { option -> stringResource(option.title) },
 						description = stringResource(Res.string.subtitle_ebook_reader_paged),
 						selection = flow,
-						onSelect = { option -> preferenceManager.readerPaged = option.paged }
+						onSelect = { option ->
+							preferenceManager.readerFlowMode = option.flowMode
+							preferenceManager.readerPaged = option.paged
+						}
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_tap_zone)) },
+						items = ReaderTapZoneOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_tap_zone),
+						selection = tapZone,
+						onSelect = { option -> preferenceManager.readerTapZone = option.tapZone }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_publisher_styles)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_publisher_styles)) },
+						value = preferenceManager.readerPublisherStylesEnabled,
+						onSetValue = { enabled -> preferenceManager.readerPublisherStylesEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_keep_screen_on)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_keep_screen_on)) },
+						value = preferenceManager.readerKeepScreenOn,
+						onSetValue = { enabled -> preferenceManager.readerKeepScreenOn = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_volume_keys)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_volume_keys)) },
+						value = preferenceManager.readerVolumeKeyPageTurns,
+						onSetValue = { enabled -> preferenceManager.readerVolumeKeyPageTurns = enabled }
 					)
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_media_overlay)) },
@@ -158,7 +293,12 @@ private enum class ReaderFontFamilyOption(
 	val title: StringResource
 ) {
 	Sans(ReaderSansFontFamily, Res.string.option_ebook_reader_font_family_sans),
-	Serif(ReaderSerifFontFamily, Res.string.option_ebook_reader_font_family_serif);
+	Serif(ReaderSerifFontFamily, Res.string.option_ebook_reader_font_family_serif),
+	Book(ReaderBookFontFamily, Res.string.option_ebook_reader_font_family_book),
+	Humanist(ReaderHumanistFontFamily, Res.string.option_ebook_reader_font_family_humanist),
+	Dyslexic(ReaderDyslexicFontFamily, Res.string.option_ebook_reader_font_family_dyslexic),
+	Mono(ReaderMonoFontFamily, Res.string.option_ebook_reader_font_family_mono),
+	Publisher(ReaderPublisherFontFamily, Res.string.option_ebook_reader_font_family_publisher);
 
 	companion object {
 		fun forFontFamily(fontFamily: String?): ReaderFontFamilyOption =
@@ -171,7 +311,10 @@ private enum class ReaderThemeOption(
 	val title: StringResource
 ) {
 	Light(ReaderLightTheme, Res.string.option_ebook_reader_theme_light),
-	Dark(ReaderDarkTheme, Res.string.option_ebook_reader_theme_dark);
+	Sepia(ReaderSepiaTheme, Res.string.option_ebook_reader_theme_sepia),
+	Dusk(ReaderDuskTheme, Res.string.option_ebook_reader_theme_dusk),
+	Dark(ReaderDarkTheme, Res.string.option_ebook_reader_theme_dark),
+	Black(ReaderBlackTheme, Res.string.option_ebook_reader_theme_black);
 
 	companion object {
 		fun forTheme(theme: String?): ReaderThemeOption =
@@ -180,17 +323,81 @@ private enum class ReaderThemeOption(
 }
 
 private enum class ReaderFlowOption(
+	val flowMode: String,
 	val paged: Boolean,
 	val title: StringResource
 ) {
-	Paged(true, Res.string.option_ebook_reader_paged),
-	Scroll(false, Res.string.option_ebook_reader_scroll)
+	Paged(ReaderFlowPaged, true, Res.string.option_ebook_reader_paged),
+	PagedVertical(ReaderFlowPagedVertical, true, Res.string.option_ebook_reader_paged_vertical),
+	Scroll(ReaderFlowScrolled, false, Res.string.option_ebook_reader_scroll),
+	ScrollGaps(ReaderFlowScrolledGaps, false, Res.string.option_ebook_reader_scroll_gaps);
+
+	companion object {
+		fun forFlowMode(flowMode: String?, paged: Boolean?): ReaderFlowOption =
+			entries.firstOrNull { option -> option.flowMode == flowMode }
+				?: if (paged == false) Scroll else Paged
+	}
+}
+
+private enum class ReaderDirectionOption(
+	val direction: String,
+	val title: StringResource
+) {
+	Default(ReaderDirectionDefault, Res.string.option_ebook_reader_direction_default),
+	LeftToRight(ReaderDirectionLtr, Res.string.option_ebook_reader_direction_ltr),
+	RightToLeft(ReaderDirectionRtl, Res.string.option_ebook_reader_direction_rtl);
+
+	companion object {
+		fun forDirection(direction: String?): ReaderDirectionOption =
+			entries.firstOrNull { option -> option.direction == direction } ?: Default
+	}
+}
+
+private enum class ReaderOrientationOption(
+	val orientation: String,
+	val title: StringResource
+) {
+	Default(ReaderOrientationDefault, Res.string.option_ebook_reader_orientation_default),
+	Free(ReaderOrientationFree, Res.string.option_ebook_reader_orientation_free),
+	Portrait(ReaderOrientationPortrait, Res.string.option_ebook_reader_orientation_portrait),
+	Landscape(ReaderOrientationLandscape, Res.string.option_ebook_reader_orientation_landscape),
+	LockedPortrait(ReaderOrientationLockedPortrait, Res.string.option_ebook_reader_orientation_locked_portrait),
+	LockedLandscape(ReaderOrientationLockedLandscape, Res.string.option_ebook_reader_orientation_locked_landscape),
+	ReversePortrait(ReaderOrientationReversePortrait, Res.string.option_ebook_reader_orientation_reverse_portrait);
+
+	companion object {
+		fun forOrientation(orientation: String?): ReaderOrientationOption =
+			entries.firstOrNull { option -> option.orientation == orientation } ?: Default
+	}
+}
+
+private enum class ReaderTapZoneOption(
+	val tapZone: String,
+	val title: StringResource
+) {
+	Default(ReaderTapZoneDefault, Res.string.option_ebook_reader_tap_zone_default),
+	Edge(ReaderTapZoneEdge, Res.string.option_ebook_reader_tap_zone_edge),
+	Kindle(ReaderTapZoneKindle, Res.string.option_ebook_reader_tap_zone_kindle),
+	LShaped(ReaderTapZoneLShaped, Res.string.option_ebook_reader_tap_zone_l_shaped),
+	RightLeft(ReaderTapZoneRightLeft, Res.string.option_ebook_reader_tap_zone_right_left),
+	Disabled(ReaderTapZoneDisabled, Res.string.option_ebook_reader_tap_zone_disabled);
+
+	companion object {
+		fun forTapZone(tapZone: String?): ReaderTapZoneOption =
+			entries.firstOrNull { option -> option.tapZone == tapZone } ?: Default
+	}
 }
 
 private val readerFontSizeOptions = listOf(90, 100, 112, 125, 140, 160, 180)
 private val readerLineHeightOptions = listOf(120, 135, 155, 170, 190, 220)
+private val readerParagraphSpacingOptions = listOf(0, 25, 50, 75, 100, 150, 200)
 private val readerMarginOptions = listOf(0, 4, 8, 12, 16, 24)
+private val readerDimOverlayOptions = listOf(0, 10, 20, 30, 40, 50, 60, 70, 80)
 
 @Composable
 private fun readerLineHeightLabel(percent: Int): String =
 	"${percent / 100}.${(percent % 100).toString().padStart(2, '0')}".trimEnd('0').trimEnd('.')
+
+@Composable
+private fun readerDimOverlayLabel(percent: Int): String =
+	if (percent <= 0) stringResource(Res.string.option_off) else "$percent%"

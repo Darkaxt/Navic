@@ -2,8 +2,10 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReaderMediaOverlaySyncTest {
 	@Test
@@ -19,6 +21,7 @@ class ReaderMediaOverlaySyncTest {
 		)
 		val firstCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(first.readerCommand)
 		assertEquals("frag-1", firstCommand.fragment.fragmentId)
+		assertEquals("First", firstCommand.fragment.label)
 
 		val duplicate = first.state.onReadaloudPlaybackPosition(
 			plan = plan,
@@ -35,6 +38,7 @@ class ReaderMediaOverlaySyncTest {
 		)
 		val secondCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(second.readerCommand)
 		assertEquals("frag-2", secondCommand.fragment.fragmentId)
+		assertEquals("Second", secondCommand.fragment.label)
 
 		val outsideClip = second.state.onReadaloudPlaybackPosition(
 			plan = plan,
@@ -77,6 +81,7 @@ class ReaderMediaOverlaySyncTest {
 		assertEquals(0, seek?.trackIndex)
 		assertEquals("EPUB/Audio/chapter1.mp3", seek?.audioResource)
 		assertEquals(5_000, seek?.positionMs)
+		assertEquals("Second", seek?.clip?.toReaderOverlayFragment()?.label)
 
 		assertNull(
 			active.copy(syncEnabled = false).audioSeekTargetForReaderEvent(
@@ -87,6 +92,45 @@ class ReaderMediaOverlaySyncTest {
 				)
 			)
 		)
+	}
+
+	@Test
+	fun togglingSyncOffClearsActiveOverlayAndSuppressesLaterHighlightCommands() {
+		val timeline = mediaOverlayTimeline()
+		val plan = readaloudPlaybackPlan()
+		val active = ReaderMediaOverlaySyncState(syncEnabled = true)
+			.onReadaloudPlaybackPosition(
+				plan = plan,
+				timeline = timeline,
+				position = playbackPosition(positionMs = 1_500)
+			)
+			.state
+
+		val disabled = active.setSyncEnabled(false)
+
+		assertFalse(disabled.state.syncEnabled)
+		assertNull(disabled.state.activeClipKey)
+		assertEquals(ReaderBridgeCommand.ClearOverlay, disabled.readerCommand)
+
+		val suppressed = disabled.state.onReadaloudPlaybackPosition(
+			plan = plan,
+			timeline = timeline,
+			position = playbackPosition(positionMs = 5_500)
+		)
+		assertNull(suppressed.readerCommand)
+		assertFalse(suppressed.state.syncEnabled)
+
+		val enabled = suppressed.state.setSyncEnabled(true)
+		assertTrue(enabled.state.syncEnabled)
+		assertNull(enabled.readerCommand)
+
+		val resumed = enabled.state.onReadaloudPlaybackPosition(
+			plan = plan,
+			timeline = timeline,
+			position = playbackPosition(positionMs = 5_500)
+		)
+		val resumedCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(resumed.readerCommand)
+		assertEquals("frag-2", resumedCommand.fragment.fragmentId)
 	}
 
 	private fun mediaOverlayTimeline(): MediaOverlayTimeline =

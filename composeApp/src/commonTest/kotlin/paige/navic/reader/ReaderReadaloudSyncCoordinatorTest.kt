@@ -19,6 +19,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 		)
 		val firstCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(first.readerCommand)
 		assertEquals("frag-1", firstCommand.fragment.fragmentId)
+		assertEquals("First", firstCommand.fragment.label)
 		assertEquals(1L, first.readerCommandKey)
 
 		val duplicate = first.onPlaybackPosition(
@@ -61,6 +62,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
 		val seekCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(seek.state.readerCommand)
 		assertEquals("frag-2", seekCommand.fragment.fragmentId)
+		assertEquals("Second", seekCommand.fragment.label)
 		assertEquals(2L, seek.state.readerCommandKey)
 
 		val repeated = seek.state.onReaderEvent(
@@ -72,6 +74,24 @@ class ReaderReadaloudSyncCoordinatorTest {
 		)
 		assertNull(repeated.audioSeekTarget)
 		assertEquals(seek.state.readerCommandKey, repeated.state.readerCommandKey)
+	}
+
+	@Test
+	fun syncTogglePublishesClearOverlayCommandWhenActiveHighlightIsVisible() {
+		val timeline = mediaOverlayTimeline()
+		val plan = readaloudPlaybackPlan()
+		val active = ReaderReadaloudSyncState().onPlaybackPosition(
+			plan = plan,
+			timeline = timeline,
+			position = playbackPosition(positionMs = 1_500)
+		)
+
+		val disabled = active.setSyncEnabled(false)
+
+		assertEquals(false, disabled.overlayState.syncEnabled)
+		assertNull(disabled.overlayState.activeClipKey)
+		assertEquals(ReaderBridgeCommand.ClearOverlay, disabled.readerCommand)
+		assertEquals(2L, disabled.readerCommandKey)
 	}
 
 	private fun mediaOverlayTimeline(): MediaOverlayTimeline =

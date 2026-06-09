@@ -14,12 +14,20 @@ class ReaderBridgeProtocolTest {
 			mediaOverlayEnabled = true,
 			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)"),
 			settings = ReaderSettings(
-				fontFamily = ReaderSerifFontFamily,
+				fontFamily = ReaderBookFontFamily,
 				fontSizePercent = 112,
 				lineHeight = 1.7,
+				paragraphSpacingPercent = 75,
 				marginPercent = 8,
-				theme = "dark",
+				dimOverlayPercent = 30,
+				orientation = ReaderOrientationLockedLandscape,
+				theme = ReaderDuskTheme,
+				direction = ReaderDirectionRtl,
 				paged = false,
+				tapZone = ReaderTapZoneKindle,
+				publisherStyles = true,
+				keepScreenOn = true,
+				readaloudSyncEnabled = false,
 				webContentsDebuggingEnabled = true
 			)
 		).toJavaScript()
@@ -29,12 +37,21 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "epubcfi(/6/2!/4/1:0)")
 		assertContains(script, "\"type\":\"openPublication\"")
 		assertContains(script, "\"mediaOverlayEnabled\":true")
-		assertContains(script, "\"fontFamily\":\"Georgia, serif\"")
+		assertContains(script, "Navic Literata")
+		assertContains(script, "Bookerly, Georgia, serif")
 		assertContains(script, "\"fontSizePercent\":112")
 		assertContains(script, "\"lineHeight\":1.7")
+		assertContains(script, "\"paragraphSpacingPercent\":75")
 		assertContains(script, "\"marginPercent\":8")
-		assertContains(script, "\"theme\":\"dark\"")
+		assertContains(script, "\"dimOverlayPercent\":30")
+		assertContains(script, "\"orientation\":\"locked-landscape\"")
+		assertContains(script, "\"theme\":\"dusk\"")
+		assertContains(script, "\"direction\":\"rtl\"")
 		assertContains(script, "\"paged\":false")
+		assertContains(script, "\"tapZone\":\"kindle\"")
+		assertContains(script, "\"publisherStyles\":true")
+		assertContains(script, "\"keepScreenOn\":true")
+		assertContains(script, "\"readaloudSyncEnabled\":false")
 		assertContains(script, "\"webContentsDebuggingEnabled\":true")
 	}
 
@@ -46,7 +63,8 @@ class ReaderBridgeProtocolTest {
 				fragmentId = "frag-1",
 				textHref = "EPUB/Text/chapter1.xhtml",
 				clipBeginSeconds = 1.25,
-				clipEndSeconds = 3.5
+				clipEndSeconds = 3.5,
+				label = "Chapter 1 / Paragraph 1"
 			)
 		).toJavaScript()
 
@@ -56,6 +74,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"textHref\":\"EPUB/Text/chapter1.xhtml\"")
 		assertContains(script, "\"clipBeginSeconds\":1.25")
 		assertContains(script, "\"clipEndSeconds\":3.5")
+		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
 	}
 
 	@Test
@@ -75,6 +94,15 @@ class ReaderBridgeProtocolTest {
 		assertContains(nextScript, "\"type\":\"nextPage\"")
 		assertContains(previousScript, "window.NavicReaderBridge.dispatch")
 		assertContains(previousScript, "\"type\":\"previousPage\"")
+	}
+
+	@Test
+	fun progressSeekCommandDispatchesClampedFractionNavigationIntent() {
+		val script = ReaderBridgeCommand.GoToProgress(1.4).toJavaScript()
+
+		assertContains(script, "window.NavicReaderBridge.dispatch")
+		assertContains(script, "\"type\":\"goToProgress\"")
+		assertContains(script, "\"progress\":1.0")
 	}
 
 	@Test
@@ -120,7 +148,8 @@ class ReaderBridgeProtocolTest {
 			  "fragmentId": "frag-1",
 			  "textHref": "chapter-01.xhtml#frag-1",
 			  "clipBeginSeconds": 12.4,
-			  "clipEndSeconds": 16.9
+			  "clipEndSeconds": 16.9,
+			  "label": "Chapter 1 / Paragraph 4"
 			}
 			""".trimIndent()
 		)
@@ -137,6 +166,7 @@ class ReaderBridgeProtocolTest {
 		assertEquals("chapter-01.xhtml#frag-1", active.fragment.textHref)
 		assertEquals(12.4, active.fragment.clipBeginSeconds)
 		assertEquals(16.9, active.fragment.clipEndSeconds)
+		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
 	}
 
 	@Test

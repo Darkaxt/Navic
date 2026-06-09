@@ -64,6 +64,15 @@ data class ReadaloudMediaItemDescriptor(
 	val durationMs: Long? = null
 )
 
+data class ReadaloudPlaybackMetadataLabels(
+	val chapterLabel: String? = null,
+	val sectionLabel: String? = null,
+	val narratorLabel: String? = null,
+	val qualityLabel: String? = null,
+	val sourceProviderLabel: String? = null,
+	val formatLabel: String? = null
+)
+
 data class ReadaloudPlaybackPlan(
 	val sessionId: String?,
 	val title: String,
@@ -151,6 +160,36 @@ fun normalizedReadaloudPlaybackSpeed(value: Float): Float =
 	} else {
 		value.coerceIn(0.5f, 3f)
 	}
+
+fun ReadaloudPlaybackPlan.metadataLabelsForPlaybackPosition(
+	position: ReadaloudPlaybackPosition
+): ReadaloudPlaybackMetadataLabels? =
+	mediaItemFor(position)?.toReadaloudPlaybackMetadataLabels()
+
+private fun ReadaloudPlaybackPlan.mediaItemFor(
+	position: ReadaloudPlaybackPosition
+): ReadaloudMediaItemDescriptor? =
+	mediaItems.getOrNull(position.trackIndex)
+		?: position.mediaId?.let { mediaId -> mediaItems.firstOrNull { item -> item.mediaId == mediaId } }
+
+private fun ReadaloudMediaItemDescriptor.toReadaloudPlaybackMetadataLabels(): ReadaloudPlaybackMetadataLabels =
+	ReadaloudPlaybackMetadataLabels(
+		chapterLabel = title.trimLabel(),
+		sectionLabel = subtitle.trimLabel(),
+		narratorLabel = artist.trimLabel(),
+		qualityLabel = qualityLabel.trimLabel(),
+		sourceProviderLabel = sourceProviderLabel.trimLabel(),
+		formatLabel = audioFormatLabel()
+	)
+
+private fun ReadaloudMediaItemDescriptor.audioFormatLabel(): String? =
+	listOfNotNull(
+		codec.trimLabel(),
+		bitrateKbps?.takeIf { it > 0 }?.let { "$it kbps" }
+	).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+
+private fun String?.trimLabel(): String? =
+	this?.trim()?.takeIf { it.isNotEmpty() }
 
 fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent {
 	val firstItem = mediaItems.firstOrNull()

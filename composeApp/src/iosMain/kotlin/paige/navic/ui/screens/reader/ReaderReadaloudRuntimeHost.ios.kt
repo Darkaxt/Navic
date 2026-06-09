@@ -10,6 +10,7 @@ import paige.navic.ui.navigation.Screen
 @Composable
 actual fun ReaderReadaloudRuntimeHost(
 	reader: Screen.Reader,
+	readaloudSyncEnabled: Boolean,
 	readerEvent: ReaderBridgeEvent?,
 	readerEventKey: Long,
 	onPublicationReady: (String) -> Unit,

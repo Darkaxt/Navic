@@ -15,6 +15,7 @@ import paige.navic.reader.ReadaloudAudioController
 import paige.navic.reader.ReadaloudPlaybackLogTag
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
+import paige.navic.reader.ReaderMediaOverlaySyncState
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -22,16 +23,19 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudSyncState
 import paige.navic.reader.StorytellerReadaloudRuntime
 import paige.navic.reader.StorytellerReadaloudRuntimeLoader
+import paige.navic.reader.metadataLabelsForPlaybackPosition
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderEvent
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
+import paige.navic.reader.setSyncEnabled
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
 @Composable
 actual fun ReaderReadaloudRuntimeHost(
 	reader: Screen.Reader,
+	readaloudSyncEnabled: Boolean,
 	readerEvent: ReaderBridgeEvent?,
 	readerEventKey: Long,
 	onPublicationReady: (String) -> Unit,
@@ -46,7 +50,9 @@ actual fun ReaderReadaloudRuntimeHost(
 	val context = LocalContext.current
 	val repository = koinInject<BinderyRepository>()
 	var runtime by remember(reader.resourceHref) { mutableStateOf<StorytellerReadaloudRuntime?>(null) }
-	var syncState by remember(reader.resourceHref) { mutableStateOf(ReaderReadaloudSyncState()) }
+	var syncState by remember(reader.resourceHref) {
+		mutableStateOf(ReaderReadaloudSyncState(overlayState = ReaderMediaOverlaySyncState(readaloudSyncEnabled)))
+	}
 	val currentRuntime by rememberUpdatedState(runtime)
 	val currentSyncState by rememberUpdatedState(syncState)
 	val currentOnReaderCommand by rememberUpdatedState(onReaderCommand)
@@ -54,8 +60,18 @@ actual fun ReaderReadaloudRuntimeHost(
 	val currentOnError by rememberUpdatedState(onError)
 	val controller = remember(context) {
 		ReadaloudAudioController(context) { position ->
-			currentOnPlaybackState(position.toReaderReadaloudPlaybackUiState(isAvailable = currentRuntime != null))
 			val activeRuntime = currentRuntime ?: return@ReadaloudAudioController
+			currentOnPlaybackState(
+				position.toReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					activeAudioLabel = activeRuntime.timeline.activeLabelForPlaybackPosition(
+						plan = activeRuntime.playbackPlan,
+						position = position
+					),
+					activeAudioMetadata = activeRuntime.playbackPlan.metadataLabelsForPlaybackPosition(position),
+					syncEnabled = currentSyncState.overlayState.syncEnabled
+				)
+			)
 			val nextState = currentSyncState.onPlaybackPosition(
 				plan = activeRuntime.playbackPlan,
 				timeline = activeRuntime.timeline,
@@ -78,7 +94,9 @@ actual fun ReaderReadaloudRuntimeHost(
 
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.title) {
 		runtime = null
-		syncState = ReaderReadaloudSyncState()
+		syncState = ReaderReadaloudSyncState(
+			overlayState = ReaderMediaOverlaySyncState(readaloudSyncEnabled)
+		)
 		Logger.i(
 			ReadaloudPlaybackLogTag,
 			"Preparing readaloud publication bookId=${reader.bookId} " +
@@ -121,7 +139,12 @@ actual fun ReaderReadaloudRuntimeHost(
 						"clips=${loadedRuntime.timeline.clips.size}"
 				)
 				controller.load(loadedRuntime.playbackPlan, playWhenReady = false)
-				onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = true))
+				onPlaybackState(
+					ReaderReadaloudPlaybackUiState(
+						isAvailable = true,
+						syncEnabled = syncState.overlayState.syncEnabled
+					)
+				)
 				onPublicationReady(loadedRuntime.publicationUrl)
 			},
 			onFailure = { error ->
@@ -142,6 +165,16 @@ actual fun ReaderReadaloudRuntimeHost(
 		when (playbackCommand) {
 			ReaderReadaloudPlaybackCommand.Play -> controller.play()
 			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
+			is ReaderReadaloudPlaybackCommand.SetSpeed -> controller.setPlaybackSpeed(playbackCommand.speed)
+			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
+				val nextState = syncState.setSyncEnabled(playbackCommand.enabled)
+				if (nextState.readerCommandKey != syncState.readerCommandKey) {
+					nextState.readerCommand?.let { command ->
+						currentOnReaderCommand(command, nextState.readerCommandKey)
+					}
+				}
+				syncState = nextState
+			}
 			null -> Unit
 		}
 	}
@@ -167,12 +200,18 @@ actual fun ReaderReadaloudRuntimeHost(
 }
 
 private fun paige.navic.reader.ReadaloudPlaybackPosition.toReaderReadaloudPlaybackUiState(
-	isAvailable: Boolean
+	isAvailable: Boolean,
+	activeAudioLabel: String? = null,
+	activeAudioMetadata: paige.navic.reader.ReadaloudPlaybackMetadataLabels? = null,
+	syncEnabled: Boolean = true
 ): ReaderReadaloudPlaybackUiState =
 	ReaderReadaloudPlaybackUiState(
 		isAvailable = isAvailable,
 		isPlaying = isPlaying,
 		positionMs = positionMs,
 		durationMs = durationMs,
-		playbackSpeed = playbackSpeed
+		playbackSpeed = playbackSpeed,
+		activeAudioLabel = activeAudioLabel,
+		activeAudioMetadata = activeAudioMetadata,
+		syncEnabled = syncEnabled
 	)

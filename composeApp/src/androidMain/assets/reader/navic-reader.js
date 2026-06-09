@@ -7,6 +7,41 @@ const ScrollEdgeTurnSlop = 2
 const CenterTapStartFraction = 0.25
 const CenterTapEndFraction = 0.75
 const PageTapEdgeFraction = 0.25
+const ReaderTapZoneDefault = 'default'
+const ReaderFlowPaged = 'paged'
+const ReaderFlowPagedVertical = 'paged-vertical'
+const ReaderFlowScrolled = 'scrolled'
+const ReaderFlowScrolledGaps = 'scrolled-gaps'
+const ReaderDirectionDefault = 'default'
+const ReaderDirectionLtr = 'ltr'
+const ReaderDirectionRtl = 'rtl'
+const ReaderThemePalettes = {
+  light: {
+    background: '#fbfaf8',
+    foreground: '#1d1b18',
+    accent: '#5b6fed',
+  },
+  sepia: {
+    background: '#f3ead7',
+    foreground: '#2b2118',
+    accent: '#8a5a2b',
+  },
+  dusk: {
+    background: '#252236',
+    foreground: '#ece7f6',
+    accent: '#d08cff',
+  },
+  dark: {
+    background: '#111315',
+    foreground: '#f2f0ea',
+    accent: '#91a7ff',
+  },
+  black: {
+    background: '#000000',
+    foreground: '#f3f3f3',
+    accent: '#7dd3fc',
+  },
+}
 
 const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
 const logError = (label, ...details) => console.error('[NavicReader]', label, ...details)
@@ -48,6 +83,62 @@ const errorElement = message => {
 const optionalNumber = value =>
   Number.isFinite(value) ? value : undefined
 
+const readerThemePalette = theme =>
+  ReaderThemePalettes[theme] || ReaderThemePalettes.light
+
+const readerFlowMode = settings => {
+  if (settings?.flowMode === ReaderFlowPagedVertical) return ReaderFlowPagedVertical
+  if (settings?.flowMode === ReaderFlowScrolled) return ReaderFlowScrolled
+  if (settings?.flowMode === ReaderFlowScrolledGaps) return ReaderFlowScrolledGaps
+  if (settings?.paged === false) return ReaderFlowScrolled
+  return ReaderFlowPaged
+}
+
+const readerFoliateFlow = flowMode =>
+  flowMode === ReaderFlowScrolled || flowMode === ReaderFlowScrolledGaps
+    ? 'scrolled'
+    : 'paginated'
+
+const readerDirectionMode = settings => {
+  if (settings?.direction === ReaderDirectionLtr) return ReaderDirectionLtr
+  if (settings?.direction === ReaderDirectionRtl) return ReaderDirectionRtl
+  return ReaderDirectionDefault
+}
+
+const readerAssetUrl = path => new URL(path, document.baseURI).href
+
+const readerFontFaceCss = () => `
+  @font-face {
+    font-family: 'Navic Literata';
+    src: url('${readerAssetUrl('fonts/navic-literata-regular.ttf')}') format('truetype');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Navic Atkinson Hyperlegible';
+    src: url('${readerAssetUrl('fonts/navic-atkinson-hyperlegible-regular.otf')}') format('opentype');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Navic OpenDyslexic';
+    src: url('${readerAssetUrl('fonts/navic-opendyslexic-regular.otf')}') format('opentype');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+`
+
+const readerParagraphSpacingEm = settings => {
+  const percent = Number(settings.paragraphSpacingPercent)
+  const normalized = Number.isFinite(percent)
+    ? Math.min(200, Math.max(0, percent))
+    : 0
+  return `${normalized / 100}em`
+}
+
 const setStylesImportant = (element, styles) => {
   if (!element) return
   for (const [property, value] of Object.entries(styles)) {
@@ -71,6 +162,9 @@ const readerViewportSize = () => {
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
+  readerTapZoneMode = ReaderTapZoneDefault
+  readerDirectionModeValue = ReaderDirectionDefault
+  originalBookDir = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -89,6 +183,8 @@ class NavicReaderRuntime {
         return this.goTo(command.cfi)
       case 'goToHref':
         return this.goTo(command.href)
+      case 'goToProgress':
+        return this.goToProgress(command.progress)
       case 'nextPage':
         return this.nextPage()
       case 'previousPage':
@@ -153,6 +249,8 @@ class NavicReaderRuntime {
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null
+    this.originalBookDir = null
+    this.readerDirectionModeValue = ReaderDirectionDefault
   }
 
   applyReaderViewportLayout(label = 'unknown') {
@@ -207,6 +305,29 @@ class NavicReaderRuntime {
     try {
       await this.view.goTo(locator)
       this.logContentLayout('go-to')
+    } catch (error) {
+      reportError(error, 'navigation_failed')
+    }
+  }
+
+  async goToProgress(progress) {
+    if (!this.view) return
+    const numericProgress = Number(progress)
+    const fraction = Number.isFinite(numericProgress)
+      ? Math.min(1, Math.max(0, numericProgress))
+      : 0
+    try {
+      log('progress-seek:start', fraction)
+      if (typeof this.view?.goToFraction === 'function') {
+        await this.view.goToFraction(fraction)
+      } else {
+        await this.view.goTo({ fraction })
+      }
+      this.applyReaderViewportLayout('progress-seek')
+      requestAnimationFrame(() => {
+        this.logContentLayout('progress-seek')
+        log('progress-seek:done', fraction)
+      })
     } catch (error) {
       reportError(error, 'navigation_failed')
     }
@@ -315,18 +436,42 @@ class NavicReaderRuntime {
     const x = event.clientX
     const y = event.clientY
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-    const inCenterBand = y >= height * CenterTapStartFraction &&
-      y <= height * CenterTapEndFraction
-    if (x <= width * PageTapEdgeFraction) return 'previous'
-    if (x >= width * (1 - PageTapEdgeFraction)) return 'next'
-    if (
-      inCenterBand &&
-      x >= width * CenterTapStartFraction &&
-      x <= width * CenterTapEndFraction
-    ) {
+    const xFraction = x / width
+    const yFraction = y / height
+    if (this.readerTapZoneMode !== ReaderTapZoneDefault && this.isReaderCenterTap(xFraction, yFraction)) {
       return 'center'
     }
-    return null
+    switch (this.readerTapZoneMode) {
+      case 'disabled':
+        return null
+      case 'edge':
+        if (xFraction <= 0.14) return 'previous'
+        if (xFraction >= 0.86) return 'next'
+        return this.isReaderCenterTap(xFraction, yFraction) ? 'center' : null
+      case 'kindle':
+        if (xFraction <= 0.22) return 'previous'
+        if (xFraction >= 0.38) return 'next'
+        return null
+      case 'l-shaped':
+        if (xFraction <= 0.24 || (yFraction >= 0.78 && xFraction < 0.5)) return 'previous'
+        if (xFraction >= 0.76 || (yFraction >= 0.78 && xFraction >= 0.5)) return 'next'
+        return null
+      case 'right-left':
+        if (xFraction <= 0.33) return 'previous'
+        if (xFraction >= 0.67) return 'next'
+        return null
+      default:
+        if (xFraction <= PageTapEdgeFraction) return 'previous'
+        if (xFraction >= 1 - PageTapEdgeFraction) return 'next'
+        return this.isReaderCenterTap(xFraction, yFraction) ? 'center' : null
+    }
+  }
+
+  isReaderCenterTap(xFraction, yFraction) {
+    return yFraction >= CenterTapStartFraction &&
+      yFraction <= CenterTapEndFraction &&
+      xFraction >= CenterTapStartFraction &&
+      xFraction <= CenterTapEndFraction
   }
 
   turnScrolledEdgePage(deltaY) {
@@ -390,20 +535,54 @@ class NavicReaderRuntime {
 
   applySettings(settings) {
     const rootStyle = document.documentElement.style
+    if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
     if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
     if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
-    if (settings.theme === 'dark') {
-      rootStyle.setProperty('--reader-background', '#111315')
-      rootStyle.setProperty('--reader-foreground', '#f2f0ea')
-    } else if (settings.theme === 'light') {
-      rootStyle.setProperty('--reader-background', '#fbfaf8')
-      rootStyle.setProperty('--reader-foreground', '#1d1b18')
-    }
-    if (typeof settings.paged === 'boolean') {
-      this.view?.renderer?.setAttribute('flow', settings.paged ? 'paginated' : 'scrolled')
-    }
+    rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))
+    const palette = readerThemePalette(settings.theme)
+    rootStyle.setProperty('--reader-background', palette.background)
+    rootStyle.setProperty('--reader-foreground', palette.foreground)
+    rootStyle.setProperty('--reader-accent', palette.accent)
+    const flowMode = readerFlowMode(settings)
+    rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
+    this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
+    this.readerDirectionModeValue = readerDirectionMode(settings)
+    this.applyReaderDirection(this.readerDirectionModeValue)
     this.applyReaderViewportLayout('settings')
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
+  }
+
+  applyReaderDirection(direction, rerender = true) {
+    const normalized = direction === ReaderDirectionLtr || direction === ReaderDirectionRtl
+      ? direction
+      : ReaderDirectionDefault
+    if (this.view?.book) {
+      if (this.originalBookDir === null) this.originalBookDir = this.view.book.dir || ''
+      this.view.book.dir = normalized === ReaderDirectionDefault ? this.originalBookDir : normalized
+    }
+    for (const doc of this.contentDocuments()) {
+      this.applyDocumentDirection(doc, normalized)
+    }
+    if (rerender) this.view?.renderer?.render?.()
+  }
+
+  applyDocumentDirection(doc, direction) {
+    if (!doc) return
+    for (const element of [doc.documentElement, doc.body].filter(Boolean)) {
+      if (direction === ReaderDirectionDefault) {
+        if (element.dataset.navicOriginalDir !== undefined) {
+          const original = element.dataset.navicOriginalDir
+          if (original) element.setAttribute('dir', original)
+          else element.removeAttribute('dir')
+          delete element.dataset.navicOriginalDir
+        }
+      } else {
+        if (element.dataset.navicOriginalDir === undefined) {
+          element.dataset.navicOriginalDir = element.getAttribute('dir') || ''
+        }
+        element.setAttribute('dir', direction)
+      }
+    }
   }
 
   async search(query) {
@@ -441,6 +620,7 @@ class NavicReaderRuntime {
 
   onLoad() {
     this.applyReaderViewportLayout('load')
+    this.applyReaderDirection(this.readerDirectionModeValue, false)
     const contents = this.view?.renderer?.getContents?.() || []
     for (const content of contents) {
       const doc = content.doc
@@ -526,16 +706,48 @@ class NavicReaderRuntime {
   }
 }
 
+const readerTypographyCss = settings => settings.publisherStyles === true
+  ? ''
+  : `
+  ${readerFlowMode(settings) === ReaderFlowPagedVertical ? `
+  html, body {
+    writing-mode: vertical-rl !important;
+  }
+  ` : ''}
+  body {
+    line-height: ${settings.lineHeight || 1.55} !important;
+    font-family: ${settings.fontFamily || 'system-ui, sans-serif'} !important;
+    margin-inline: ${settings.marginPercent || 0}% !important;
+    padding-block: var(--reader-scroll-gap, 0rem) !important;
+  }
+  p {
+    margin-block-start: 0 !important;
+    margin-block-end: var(--reader-paragraph-spacing, 0em) !important;
+  }
+`
+
 const readerContentCss = settings => `
+  ${readerFontFaceCss()}
   html {
-    color: var(--reader-foreground);
-    background: var(--reader-background);
+    color: var(--reader-foreground) !important;
+    background: var(--reader-background) !important;
     font-size: ${settings.fontSizePercent || 100}%;
   }
-  body {
-    line-height: ${settings.lineHeight || 1.55};
-    font-family: ${settings.fontFamily || 'system-ui, sans-serif'};
-    margin-inline: ${settings.marginPercent || 0}%;
+  ${readerTypographyCss(settings)}
+  a:any-link {
+    color: inherit !important;
+    text-decoration: none !important;
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+  }
+  a:any-link::after {
+    content: ' >>';
+    font-weight: 700;
+    white-space: nowrap;
+    opacity: 0.72;
+  }
+  a:any-link:empty::after {
+    content: '';
   }
   .${overlayClass} {
     background: color-mix(in srgb, var(--reader-accent) 28%, transparent);

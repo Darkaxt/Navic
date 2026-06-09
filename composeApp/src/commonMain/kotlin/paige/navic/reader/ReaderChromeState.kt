@@ -8,22 +8,265 @@ private const val DefaultReaderFontSizePercent = 100
 private const val MinReaderLineHeight = 1.2
 private const val MaxReaderLineHeight = 2.2
 private const val DefaultReaderLineHeight = 1.55
+private const val MinReaderParagraphSpacingPercent = 0
+private const val MaxReaderParagraphSpacingPercent = 200
+private const val DefaultReaderParagraphSpacingPercent = 0
 private const val MinReaderMarginPercent = 0
 private const val MaxReaderMarginPercent = 24
 private const val DefaultReaderMarginPercent = 0
+private const val MinReaderDimOverlayPercent = 0
+private const val MaxReaderDimOverlayPercent = 80
+private const val DefaultReaderDimOverlayPercent = 0
 const val ReaderSansFontFamily = "system-ui, sans-serif"
 const val ReaderSerifFontFamily = "Georgia, serif"
+const val ReaderBookFontFamily = "\"Navic Literata\", Literata, Bookerly, Georgia, serif"
+const val ReaderHumanistFontFamily = "\"Navic Atkinson Hyperlegible\", \"Atkinson Hyperlegible\", Lexend, system-ui, sans-serif"
+const val ReaderDyslexicFontFamily = "\"Navic OpenDyslexic\", OpenDyslexic, \"Navic Atkinson Hyperlegible\", system-ui, sans-serif"
+const val ReaderMonoFontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+const val ReaderPublisherFontFamily = "inherit"
+private const val LegacyReaderBookFontFamily = "Literata, Bookerly, Georgia, serif"
+private const val LegacyReaderHumanistFontFamily = "Atkinson Hyperlegible, Lexend, system-ui, sans-serif"
+private const val LegacyReaderDyslexicFontFamily = "OpenDyslexic, Atkinson Hyperlegible, Lexend, system-ui, sans-serif"
 const val ReaderLightTheme = "light"
+const val ReaderSepiaTheme = "sepia"
+const val ReaderDuskTheme = "dusk"
 const val ReaderDarkTheme = "dark"
+const val ReaderBlackTheme = "black"
+const val ReaderDirectionDefault = "default"
+const val ReaderDirectionLtr = "ltr"
+const val ReaderDirectionRtl = "rtl"
+const val ReaderFlowPaged = "paged"
+const val ReaderFlowPagedVertical = "paged-vertical"
+const val ReaderFlowScrolled = "scrolled"
+const val ReaderFlowScrolledGaps = "scrolled-gaps"
+const val ReaderTapZoneDefault = "default"
+const val ReaderTapZoneEdge = "edge"
+const val ReaderTapZoneKindle = "kindle"
+const val ReaderTapZoneLShaped = "l-shaped"
+const val ReaderTapZoneRightLeft = "right-left"
+const val ReaderTapZoneDisabled = "disabled"
+const val ReaderOrientationDefault = "default"
+const val ReaderOrientationFree = "free"
+const val ReaderOrientationPortrait = "portrait"
+const val ReaderOrientationLandscape = "landscape"
+const val ReaderOrientationLockedPortrait = "locked-portrait"
+const val ReaderOrientationLockedLandscape = "locked-landscape"
+const val ReaderOrientationReversePortrait = "reverse-portrait"
+
+val ReaderSupportedFontFamilies: List<String> = listOf(
+	ReaderSansFontFamily,
+	ReaderSerifFontFamily,
+	ReaderBookFontFamily,
+	ReaderHumanistFontFamily,
+	ReaderDyslexicFontFamily,
+	ReaderMonoFontFamily,
+	ReaderPublisherFontFamily
+)
+
+val ReaderSupportedTapZones: List<String> = listOf(
+	ReaderTapZoneDefault,
+	ReaderTapZoneEdge,
+	ReaderTapZoneKindle,
+	ReaderTapZoneLShaped,
+	ReaderTapZoneRightLeft,
+	ReaderTapZoneDisabled
+)
+
+val ReaderSupportedThemes: List<String> = listOf(
+	ReaderLightTheme,
+	ReaderSepiaTheme,
+	ReaderDuskTheme,
+	ReaderDarkTheme,
+	ReaderBlackTheme
+)
+
+val ReaderSupportedFlowModes: List<String> = listOf(
+	ReaderFlowPaged,
+	ReaderFlowPagedVertical,
+	ReaderFlowScrolled,
+	ReaderFlowScrolledGaps
+)
+
+val ReaderSupportedDirections: List<String> = listOf(
+	ReaderDirectionDefault,
+	ReaderDirectionLtr,
+	ReaderDirectionRtl
+)
+
+val ReaderSupportedOrientations: List<String> = listOf(
+	ReaderOrientationDefault,
+	ReaderOrientationFree,
+	ReaderOrientationPortrait,
+	ReaderOrientationLandscape,
+	ReaderOrientationLockedPortrait,
+	ReaderOrientationLockedLandscape,
+	ReaderOrientationReversePortrait
+)
+
+fun normalizedReaderFontFamily(fontFamily: String?): String =
+	when (fontFamily) {
+		LegacyReaderBookFontFamily -> ReaderBookFontFamily
+		LegacyReaderHumanistFontFamily -> ReaderHumanistFontFamily
+		LegacyReaderDyslexicFontFamily -> ReaderDyslexicFontFamily
+		else -> ReaderSupportedFontFamilies.firstOrNull { supported -> supported == fontFamily } ?: ReaderSansFontFamily
+	}
+
+fun normalizedReaderTheme(theme: String?): String =
+	ReaderSupportedThemes.firstOrNull { supported -> supported == theme } ?: ReaderLightTheme
+
+fun normalizedReaderFlowMode(
+	flowMode: String?,
+	paged: Boolean?
+): String =
+	ReaderSupportedFlowModes.firstOrNull { supported -> supported == flowMode }
+		?: if (paged == false) ReaderFlowScrolled else ReaderFlowPaged
+
+fun normalizedReaderTapZone(tapZone: String?): String =
+	ReaderSupportedTapZones.firstOrNull { supported -> supported == tapZone } ?: ReaderTapZoneDefault
+
+fun normalizedReaderOrientation(orientation: String?): String =
+	ReaderSupportedOrientations.firstOrNull { supported -> supported == orientation } ?: ReaderOrientationDefault
+
+fun normalizedReaderDirection(direction: String?): String =
+	ReaderSupportedDirections.firstOrNull { supported -> supported == direction } ?: ReaderDirectionDefault
+
+enum class ReaderOptionsTab {
+	Reading,
+	General,
+	Media
+}
+
+fun readerOptionsTabs(showReadaloudControls: Boolean): List<ReaderOptionsTab> =
+	if (showReadaloudControls) {
+		listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General, ReaderOptionsTab.Media)
+	} else {
+		listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General)
+	}
+
+fun normalizedReaderOptionsTab(
+	tab: ReaderOptionsTab,
+	showReadaloudControls: Boolean
+): ReaderOptionsTab =
+	readerOptionsTabs(showReadaloudControls).firstOrNull { supported -> supported == tab }
+		?: ReaderOptionsTab.Reading
+
+fun readerOptionsTabLabel(tab: ReaderOptionsTab): String =
+	when (tab) {
+		ReaderOptionsTab.Reading -> "Reading"
+		ReaderOptionsTab.General -> "General"
+		ReaderOptionsTab.Media -> "Media"
+	}
+
+fun nextReaderTheme(theme: String?): String {
+	val normalized = normalizedReaderTheme(theme)
+	val index = ReaderSupportedThemes.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedThemes[(index + 1) % ReaderSupportedThemes.size]
+}
+
+fun nextReaderFontFamily(fontFamily: String?): String {
+	val normalized = normalizedReaderFontFamily(fontFamily)
+	val index = ReaderSupportedFontFamilies.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedFontFamilies[(index + 1) % ReaderSupportedFontFamilies.size]
+}
+
+fun nextReaderFlowMode(flowMode: String?, paged: Boolean?): String {
+	val normalized = normalizedReaderFlowMode(flowMode, paged)
+	val index = ReaderSupportedFlowModes.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedFlowModes[(index + 1) % ReaderSupportedFlowModes.size]
+}
+
+fun nextReaderTapZone(tapZone: String?): String {
+	val normalized = normalizedReaderTapZone(tapZone)
+	val index = ReaderSupportedTapZones.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedTapZones[(index + 1) % ReaderSupportedTapZones.size]
+}
+
+fun nextReaderOrientation(orientation: String?): String {
+	val normalized = normalizedReaderOrientation(orientation)
+	val index = ReaderSupportedOrientations.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedOrientations[(index + 1) % ReaderSupportedOrientations.size]
+}
+
+fun nextReaderDirection(direction: String?): String {
+	val normalized = normalizedReaderDirection(direction)
+	val index = ReaderSupportedDirections.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedDirections[(index + 1) % ReaderSupportedDirections.size]
+}
+
+fun readerFontFamilyShortLabel(fontFamily: String?): String =
+	when (normalizedReaderFontFamily(fontFamily)) {
+		ReaderSerifFontFamily -> "Serif"
+		ReaderBookFontFamily -> "Book"
+		ReaderHumanistFontFamily -> "Human"
+		ReaderDyslexicFontFamily -> "Dys"
+		ReaderMonoFontFamily -> "Mono"
+		ReaderPublisherFontFamily -> "Pub"
+		else -> "Sans"
+	}
+
+fun readerThemeShortLabel(theme: String?): String =
+	when (normalizedReaderTheme(theme)) {
+		ReaderSepiaTheme -> "Sepia"
+		ReaderDuskTheme -> "Dusk"
+		ReaderDarkTheme -> "Dark"
+		ReaderBlackTheme -> "Black"
+		else -> "Light"
+	}
+
+fun readerFlowShortLabel(flowMode: String?, paged: Boolean?): String =
+	when (normalizedReaderFlowMode(flowMode, paged)) {
+		ReaderFlowPagedVertical -> "Vertical"
+		ReaderFlowScrolled -> "Scroll"
+		ReaderFlowScrolledGaps -> "Scroll gaps"
+		else -> "Paged"
+	}
+
+fun readerTapZoneShortLabel(tapZone: String?): String =
+	when (normalizedReaderTapZone(tapZone)) {
+		ReaderTapZoneEdge -> "Edge"
+		ReaderTapZoneKindle -> "Kindle"
+		ReaderTapZoneLShaped -> "L-shaped"
+		ReaderTapZoneRightLeft -> "R/L"
+		ReaderTapZoneDisabled -> "Off"
+		else -> "Default"
+	}
+
+fun readerOrientationShortLabel(orientation: String?): String =
+	when (normalizedReaderOrientation(orientation)) {
+		ReaderOrientationFree -> "Free"
+		ReaderOrientationPortrait -> "Portrait"
+		ReaderOrientationLandscape -> "Land"
+		ReaderOrientationLockedPortrait -> "Lock P"
+		ReaderOrientationLockedLandscape -> "Lock L"
+		ReaderOrientationReversePortrait -> "Reverse"
+		else -> "Default"
+	}
+
+fun readerDirectionShortLabel(direction: String?): String =
+	when (normalizedReaderDirection(direction)) {
+		ReaderDirectionLtr -> "LTR"
+		ReaderDirectionRtl -> "RTL"
+		else -> "Default"
+	}
 
 fun defaultReaderSettings(): ReaderSettings =
 	normalizedReaderSettings(
 		fontFamily = ReaderSansFontFamily,
 		fontSizePercent = DefaultReaderFontSizePercent,
 		lineHeightPercent = (DefaultReaderLineHeight * 100).roundToInt(),
+		paragraphSpacingPercent = DefaultReaderParagraphSpacingPercent,
 		marginPercent = DefaultReaderMarginPercent,
+		dimOverlayPercent = DefaultReaderDimOverlayPercent,
+		orientation = ReaderOrientationDefault,
 		theme = ReaderLightTheme,
+		direction = ReaderDirectionDefault,
+		flowMode = ReaderFlowPaged,
 		paged = true,
+		tapZone = ReaderTapZoneDefault,
+		publisherStyles = false,
+		keepScreenOn = false,
+		readaloudSyncEnabled = true,
+		volumeKeyPageTurns = false,
 		webContentsDebuggingEnabled = false
 	)
 
@@ -31,27 +274,48 @@ fun normalizedReaderSettings(
 	fontFamily: String?,
 	fontSizePercent: Int,
 	lineHeightPercent: Int,
+	paragraphSpacingPercent: Int = DefaultReaderParagraphSpacingPercent,
 	marginPercent: Int,
+	dimOverlayPercent: Int = DefaultReaderDimOverlayPercent,
+	orientation: String? = ReaderOrientationDefault,
 	theme: String?,
+	direction: String? = ReaderDirectionDefault,
+	flowMode: String? = null,
 	paged: Boolean,
+	tapZone: String? = ReaderTapZoneDefault,
+	publisherStyles: Boolean = false,
+	keepScreenOn: Boolean = false,
+	readaloudSyncEnabled: Boolean = true,
+	volumeKeyPageTurns: Boolean = false,
 	webContentsDebuggingEnabled: Boolean = false
 ): ReaderSettings =
 	ReaderSettings(
-		fontFamily = when (fontFamily) {
-			ReaderSerifFontFamily -> ReaderSerifFontFamily
-			else -> ReaderSansFontFamily
-		},
+		fontFamily = normalizedReaderFontFamily(fontFamily),
 		fontSizePercent = fontSizePercent.coerceIn(MinReaderFontSizePercent, MaxReaderFontSizePercent),
 		lineHeight = (lineHeightPercent.coerceIn(
 			(MinReaderLineHeight * 100).roundToInt(),
 			(MaxReaderLineHeight * 100).roundToInt()
 		) / 100.0),
+		paragraphSpacingPercent = paragraphSpacingPercent.coerceIn(
+			MinReaderParagraphSpacingPercent,
+			MaxReaderParagraphSpacingPercent
+		),
 		marginPercent = marginPercent.coerceIn(MinReaderMarginPercent, MaxReaderMarginPercent),
-		theme = when (theme) {
-			ReaderDarkTheme -> ReaderDarkTheme
-			else -> ReaderLightTheme
-		},
-		paged = paged,
+		dimOverlayPercent = dimOverlayPercent.coerceIn(
+			MinReaderDimOverlayPercent,
+			MaxReaderDimOverlayPercent
+		),
+		orientation = normalizedReaderOrientation(orientation),
+		theme = normalizedReaderTheme(theme),
+		direction = normalizedReaderDirection(direction),
+		flowMode = normalizedReaderFlowMode(flowMode, paged),
+		paged = normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolled &&
+			normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolledGaps,
+		tapZone = normalizedReaderTapZone(tapZone),
+		publisherStyles = publisherStyles,
+		keepScreenOn = keepScreenOn,
+		readaloudSyncEnabled = readaloudSyncEnabled,
+		volumeKeyPageTurns = volumeKeyPageTurns,
 		webContentsDebuggingEnabled = webContentsDebuggingEnabled
 	)
 
@@ -60,9 +324,19 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		fontFamily = fontFamily,
 		fontSizePercent = fontSizePercent ?: DefaultReaderFontSizePercent,
 		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
+		paragraphSpacingPercent = paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
 		marginPercent = marginPercent ?: DefaultReaderMarginPercent,
+		dimOverlayPercent = dimOverlayPercent ?: DefaultReaderDimOverlayPercent,
+		orientation = orientation,
 		theme = theme,
+		direction = direction,
+		flowMode = flowMode,
 		paged = paged ?: true,
+		tapZone = tapZone,
+		publisherStyles = publisherStyles ?: false,
+		keepScreenOn = keepScreenOn ?: false,
+		readaloudSyncEnabled = readaloudSyncEnabled ?: true,
+		volumeKeyPageTurns = volumeKeyPageTurns ?: false,
 		webContentsDebuggingEnabled = webContentsDebuggingEnabled ?: false
 	)
 
@@ -109,11 +383,7 @@ data class ReaderChromeState(
 	fun toggleFontFamily(): ReaderChromeState =
 		copy(
 			settings = settings.copy(
-				fontFamily = if (settings.fontFamily == ReaderSerifFontFamily) {
-					ReaderSansFontFamily
-				} else {
-					ReaderSerifFontFamily
-				}
+				fontFamily = nextReaderFontFamily(settings.fontFamily)
 			)
 		)
 
@@ -134,15 +404,64 @@ data class ReaderChromeState(
 			)
 		)
 
+	fun adjustParagraphSpacing(deltaPercent: Int): ReaderChromeState =
+		copy(
+			settings = settings.copy(
+				paragraphSpacingPercent = ((settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent) + deltaPercent)
+					.coerceIn(MinReaderParagraphSpacingPercent, MaxReaderParagraphSpacingPercent)
+			)
+		)
+
+	fun adjustDimOverlay(deltaPercent: Int): ReaderChromeState =
+		copy(
+			settings = settings.copy(
+				dimOverlayPercent = ((settings.dimOverlayPercent ?: DefaultReaderDimOverlayPercent) + deltaPercent)
+					.coerceIn(MinReaderDimOverlayPercent, MaxReaderDimOverlayPercent)
+			)
+		)
+
 	fun toggleTheme(): ReaderChromeState =
 		copy(
 			settings = settings.copy(
-				theme = if (settings.theme == ReaderDarkTheme) ReaderLightTheme else ReaderDarkTheme
+				theme = nextReaderTheme(settings.theme)
 			)
 		)
 
 	fun togglePagedMode(): ReaderChromeState =
-		copy(settings = settings.copy(paged = settings.paged != true))
+		copy(
+			settings = settings.copy(
+				flowMode = if (settings.paged == false) ReaderFlowPaged else ReaderFlowScrolled,
+				paged = settings.paged != true
+			)
+		)
+
+	fun toggleFlowMode(): ReaderChromeState {
+		val nextFlowMode = nextReaderFlowMode(settings.flowMode, settings.paged)
+		return copy(
+			settings = settings.copy(
+				flowMode = nextFlowMode,
+				paged = nextFlowMode != ReaderFlowScrolled && nextFlowMode != ReaderFlowScrolledGaps
+			)
+		)
+	}
+
+	fun toggleTapZone(): ReaderChromeState =
+		copy(settings = settings.copy(tapZone = nextReaderTapZone(settings.tapZone)))
+
+	fun toggleOrientation(): ReaderChromeState =
+		copy(settings = settings.copy(orientation = nextReaderOrientation(settings.orientation)))
+
+	fun toggleDirection(): ReaderChromeState =
+		copy(settings = settings.copy(direction = nextReaderDirection(settings.direction)))
+
+	fun togglePublisherStyles(): ReaderChromeState =
+		copy(settings = settings.copy(publisherStyles = settings.publisherStyles != true))
+
+	fun toggleKeepScreenOn(): ReaderChromeState =
+		copy(settings = settings.copy(keepScreenOn = settings.keepScreenOn != true))
+
+	fun toggleVolumeKeyPageTurns(): ReaderChromeState =
+		copy(settings = settings.copy(volumeKeyPageTurns = settings.volumeKeyPageTurns != true))
 
 	fun toSettingsCommand(): ReaderBridgeCommand.ApplySettings =
 		ReaderBridgeCommand.ApplySettings(settings)
@@ -153,7 +472,10 @@ data class ReaderReadaloudPlaybackUiState(
 	val isPlaying: Boolean = false,
 	val positionMs: Long = 0L,
 	val durationMs: Long? = null,
-	val playbackSpeed: Float = 1f
+	val playbackSpeed: Float = 1f,
+	val activeAudioLabel: String? = null,
+	val activeAudioMetadata: ReadaloudPlaybackMetadataLabels? = null,
+	val syncEnabled: Boolean = true
 ) {
 	fun toggleCommand(): ReaderReadaloudPlaybackCommand? =
 		if (!isAvailable) {
@@ -163,11 +485,41 @@ data class ReaderReadaloudPlaybackUiState(
 		} else {
 			ReaderReadaloudPlaybackCommand.Play
 		}
+
+	fun speedCommandFor(speed: Float): ReaderReadaloudPlaybackCommand? =
+		if (!isAvailable) {
+			null
+		} else {
+			ReaderReadaloudPlaybackCommand.SetSpeed(normalizedReadaloudPlaybackSpeed(speed))
+		}
+
+	fun adjustSpeedCommand(delta: Float): ReaderReadaloudPlaybackCommand? =
+		speedCommandFor(playbackSpeed + delta)
+
+	fun toggleSyncCommand(): ReaderReadaloudPlaybackCommand? =
+		if (!isAvailable) {
+			null
+		} else {
+			ReaderReadaloudPlaybackCommand.SetSyncEnabled(!syncEnabled)
+		}
 }
 
-enum class ReaderReadaloudPlaybackCommand {
-	Play,
-	Pause
+sealed interface ReaderReadaloudPlaybackCommand {
+	data object Play : ReaderReadaloudPlaybackCommand
+	data object Pause : ReaderReadaloudPlaybackCommand
+	data class SetSpeed(val speed: Float) : ReaderReadaloudPlaybackCommand
+	data class SetSyncEnabled(val enabled: Boolean) : ReaderReadaloudPlaybackCommand
+}
+
+fun readerReadaloudPlaybackSpeedLabel(playbackSpeed: Float): String {
+	val quarters = (normalizedReadaloudPlaybackSpeed(playbackSpeed) * 4f).roundToInt()
+	val whole = quarters / 4
+	return when (quarters % 4) {
+		0 -> "${whole}x"
+		1 -> "$whole.25x"
+		2 -> "$whole.5x"
+		else -> "$whole.75x"
+	}
 }
 
 fun readerReadaloudControlsVisible(

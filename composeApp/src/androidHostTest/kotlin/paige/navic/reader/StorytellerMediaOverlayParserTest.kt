@@ -22,7 +22,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("frag-1", first.fragmentId)
 		assertEquals(1.25, first.startSeconds)
 		assertEquals(3.5, first.endSeconds)
-		assertEquals("p1", first.label)
+		assertEquals("First fragment.", first.label)
 	}
 
 	@Test
@@ -40,6 +40,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("frag-2", overlay.fragment.fragmentId)
 		assertEquals(5.0, overlay.fragment.clipBeginSeconds)
 		assertEquals(8.0, overlay.fragment.clipEndSeconds)
+		assertEquals("Second fragment.", overlay.fragment.label)
 
 		val seek = timeline.seekTargetForText("EPUB/Text/chapter1.xhtml#frag-1")
 		assertEquals("EPUB/Audio/chapter1.mp3", seek?.audioResource)
@@ -64,6 +65,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("EPUB/Audio/chapter1.mp3", audio.href)
 		assertEquals("audio/mpeg", audio.mediaType)
 		assertEquals(8_000L, audio.durationMs)
+		assertEquals("Chapter 1: A Beginning", audio.label)
 
 		val session = readaloudPackage.toReadaloudAudioSession(
 			id = "book-1",
@@ -75,7 +77,8 @@ class StorytellerMediaOverlayParserTest {
 		val track = session.tracks.single()
 		assertEquals("audio1", track.resourceKey)
 		assertEquals("file:///cache/EPUB/Audio/chapter1.mp3", track.href)
-		assertEquals("chapter1.mp3", track.displayTitle)
+		assertEquals("Chapter 1: A Beginning", track.displayTitle)
+		assertEquals("Chapter 1: A Beginning", track.sectionLabel)
 		assertEquals("Narrator", track.narrator)
 		assertEquals("Author", track.author)
 		assertEquals(8_000L, track.durationMs)
@@ -128,7 +131,11 @@ class StorytellerMediaOverlayParserTest {
 			""".trimIndent(),
 			"EPUB/Text/chapter1.xhtml" to """
 				<html xmlns="http://www.w3.org/1999/xhtml">
+					<head>
+						<title>Chapter 1</title>
+					</head>
 					<body>
+						<h1>Chapter 1: A Beginning</h1>
 						<p id="frag-1">First fragment.</p>
 						<p id="frag-2">Second fragment.</p>
 					</body>

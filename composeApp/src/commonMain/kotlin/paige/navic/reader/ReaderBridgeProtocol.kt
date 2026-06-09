@@ -30,7 +30,8 @@ data class ReaderOverlayFragment(
 	val fragmentId: String? = null,
 	val textHref: String? = null,
 	val clipBeginSeconds: Double? = null,
-	val clipEndSeconds: Double? = null
+	val clipEndSeconds: Double? = null,
+	val label: String? = null
 )
 
 data class ReaderSearchResult(
@@ -52,9 +53,19 @@ data class ReaderSettings(
 	val fontFamily: String? = null,
 	val fontSizePercent: Int? = null,
 	val lineHeight: Double? = null,
+	val paragraphSpacingPercent: Int? = null,
 	val marginPercent: Int? = null,
+	val dimOverlayPercent: Int? = null,
+	val orientation: String? = null,
 	val theme: String? = null,
+	val direction: String? = null,
+	val flowMode: String? = null,
 	val paged: Boolean? = null,
+	val tapZone: String? = null,
+	val publisherStyles: Boolean? = null,
+	val keepScreenOn: Boolean? = null,
+	val readaloudSyncEnabled: Boolean? = null,
+	val volumeKeyPageTurns: Boolean? = null,
 	val webContentsDebuggingEnabled: Boolean? = null
 )
 
@@ -109,6 +120,19 @@ sealed interface ReaderBridgeCommand {
 				put("type", type)
 				put("href", href)
 			}
+	}
+
+	data class GoToProgress(val progress: Double) : ReaderBridgeCommand {
+		override val type: String = "goToProgress"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("progress", normalizedProgress)
+			}
+
+		private val normalizedProgress: Double
+			get() = progress.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
 	}
 
 	data object NextPage : ReaderBridgeCommand {
@@ -300,6 +324,7 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		textHref?.let { put("textHref", it) }
 		clipBeginSeconds?.let { put("clipBeginSeconds", it) }
 		clipEndSeconds?.let { put("clipEndSeconds", it) }
+		label?.let { put("label", it) }
 	}
 
 private fun ReaderAnnotation.toHighlightJsonObject(): JsonObject =
@@ -315,9 +340,19 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		fontFamily?.let { put("fontFamily", it) }
 		fontSizePercent?.let { put("fontSizePercent", it) }
 		lineHeight?.let { put("lineHeight", it) }
+		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }
 		marginPercent?.let { put("marginPercent", it) }
+		dimOverlayPercent?.let { put("dimOverlayPercent", it) }
+		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
+		direction?.let { put("direction", it) }
+		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
+		tapZone?.let { put("tapZone", it) }
+		publisherStyles?.let { put("publisherStyles", it) }
+		keepScreenOn?.let { put("keepScreenOn", it) }
+		readaloudSyncEnabled?.let { put("readaloudSyncEnabled", it) }
+		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }
 		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
 	}
 
@@ -328,7 +363,8 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		fragmentId = stringValue("fragmentId"),
 		textHref = stringValue("textHref"),
 		clipBeginSeconds = doubleValue("clipBeginSeconds"),
-		clipEndSeconds = doubleValue("clipEndSeconds")
+		clipEndSeconds = doubleValue("clipEndSeconds"),
+		label = stringValue("label")
 	)
 }
 

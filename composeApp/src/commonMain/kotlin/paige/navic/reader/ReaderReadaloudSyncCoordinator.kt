@@ -11,6 +11,11 @@ data class ReaderReadaloudReaderEventStep(
 	val audioSeekTarget: ReadaloudAudioSeekTarget? = null
 )
 
+fun ReaderReadaloudSyncState.setSyncEnabled(enabled: Boolean): ReaderReadaloudSyncState {
+	val step = overlayState.setSyncEnabled(enabled)
+	return copy(overlayState = step.state).withReaderCommand(step.readerCommand)
+}
+
 fun ReaderReadaloudSyncState.onPlaybackPosition(
 	plan: ReadaloudPlaybackPlan,
 	timeline: MediaOverlayTimeline?,

@@ -17,6 +17,22 @@ data class ReadaloudAudioSeekTarget(
 	val clip: MediaOverlayClip
 )
 
+fun ReaderMediaOverlaySyncState.setSyncEnabled(enabled: Boolean): ReaderMediaOverlaySyncStep {
+	val nextState = copy(
+		syncEnabled = enabled,
+		activeClipKey = if (enabled) activeClipKey else null
+	)
+	val clearCommand = if (!enabled && activeClipKey != null) {
+		ReaderBridgeCommand.ClearOverlay
+	} else {
+		null
+	}
+	return ReaderMediaOverlaySyncStep(
+		state = nextState,
+		readerCommand = clearCommand
+	)
+}
+
 fun ReaderMediaOverlaySyncState.onReadaloudPlaybackPosition(
 	plan: ReadaloudPlaybackPlan,
 	timeline: MediaOverlayTimeline?,
