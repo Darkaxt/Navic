@@ -41,6 +41,29 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun resolvesPdfResourcesToPdfCacheFiles() = runBlocking {
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { "%PDF-1.7".encodeToByteArray() },
+			cacheRoot = createTempDirectory("navic-reader-pdf-publications").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3816",
+			title = "The Hobbit",
+			resourceHref = "/opds/books/3816/resources/ebook-abb-pdf",
+			sourceUrl = "https://bindery.local/opds/books/3816/resources/ebook-abb-pdf",
+			kind = ReaderPublicationKind.Ebook,
+			format = ReaderPublicationFormat.Pdf,
+			mediaOverlayEnabled = false
+		)
+
+		val resolved = resolver.resolve(request)
+
+		assertTrue(resolved.publicationUrl.endsWith("/publication.pdf"))
+		assertTrue(resolved.publicationFile.name.endsWith(".pdf"))
+		assertEquals("%PDF-1.7", resolved.publicationFile.readText())
+	}
+
+	@Test
 	fun localCacheContractIsStableAcrossBinderyBaseUrlChanges() = runBlocking {
 		val cacheRoot = createTempDirectory("navic-reader-publications").toFile()
 		val resolver = BinderyReaderPublicationResolver(

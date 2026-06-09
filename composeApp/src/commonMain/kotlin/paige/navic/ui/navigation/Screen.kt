@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainSongListType
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 
 @Immutable
@@ -136,6 +137,7 @@ sealed interface Screen : NavKey {
 		val bookId: String,
 		val resourceHref: String,
 		val kind: ReaderPublicationKind,
+		val publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 		val mediaOverlayEnabled: Boolean = false,
 		val startCfi: String? = null,
 		val startHref: String? = null

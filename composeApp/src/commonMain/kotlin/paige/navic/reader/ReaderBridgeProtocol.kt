@@ -62,6 +62,11 @@ enum class ReaderPublicationKind {
 	Readaloud
 }
 
+enum class ReaderPublicationFormat {
+	Epub,
+	Pdf
+}
+
 sealed interface ReaderBridgeCommand {
 	val type: String
 

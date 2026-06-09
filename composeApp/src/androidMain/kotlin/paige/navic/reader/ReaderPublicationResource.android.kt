@@ -14,6 +14,7 @@ data class ReaderPublicationResourceRequest(
 	val resourceHref: String,
 	val sourceUrl: String,
 	val kind: ReaderPublicationKind,
+	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 	val mediaOverlayEnabled: Boolean
 )
 
@@ -70,6 +71,7 @@ internal fun ReaderPublicationResourceRequest.readerPublicationCacheKey(): Strin
 	val identity = listOf(
 		bookId.trim().takeIf { it.isNotEmpty() } ?: "anonymous",
 		kind.name,
+		format.name,
 		mediaOverlayEnabled.toString(),
 		safeResourceHref()
 	).joinToString(separator = "|")
@@ -77,9 +79,10 @@ internal fun ReaderPublicationResourceRequest.readerPublicationCacheKey(): Strin
 }
 
 private fun ReaderPublicationResourceRequest.publicationExtension(): String =
-	when (kind) {
-		ReaderPublicationKind.Ebook,
-		ReaderPublicationKind.Readaloud -> "epub"
+	when {
+		kind == ReaderPublicationKind.Readaloud -> "epub"
+		format == ReaderPublicationFormat.Pdf -> "pdf"
+		else -> "epub"
 	}
 
 private fun String.sha256Hex(): String =

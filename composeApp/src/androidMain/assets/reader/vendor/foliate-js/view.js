@@ -20,6 +20,15 @@ const isFBZ = ({ name, type }) =>
     type === 'application/x-zip-compressed-fb2'
     || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
 
+const isPDF = async file => {
+    const name = file.name?.toLowerCase() ?? ''
+    if (file.type === 'application/pdf' || name.endsWith('.pdf')) return true
+    const arr = new Uint8Array(await file.slice(0, 5).arrayBuffer())
+    return arr[0] === 0x25
+        && arr[1] === 0x50 && arr[2] === 0x44 && arr[3] === 0x46
+        && arr[4] === 0x2d
+}
+
 const makeZipLoader = async file => {
     const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
         await import('./vendor/zip.js')
@@ -95,6 +104,10 @@ export const makeBook = async file => {
             const { EPUB } = await import('./epub.js')
             book = await new EPUB(loader).init()
         }
+    }
+    else if (await isPDF(file)) {
+        const { makePDF } = await import('./pdf.js')
+        book = await makePDF(file)
     }
     else {
         const { isMOBI, MOBI } = await import('./mobi.js')

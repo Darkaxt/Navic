@@ -107,6 +107,7 @@ actual fun ReaderReadaloudRuntimeHost(
 					resourceHref = reader.resourceHref,
 					sourceUrl = reader.publicationUrl,
 					kind = reader.kind,
+					format = reader.publicationFormat,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled
 				)
 			)

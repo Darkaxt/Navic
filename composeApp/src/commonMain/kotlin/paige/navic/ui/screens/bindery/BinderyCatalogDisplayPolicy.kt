@@ -16,6 +16,7 @@ import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.models.queueTotalDurationLabel
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
@@ -941,6 +942,7 @@ data class BinderyBookVersionRow(
 	val kind: BinderyBookVersionKind,
 	val title: String,
 	val subtitle: String?,
+	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 	val finding: BinderyCatalogCard.Finding? = null
 )
 
@@ -991,6 +993,7 @@ fun binderyReaderDestinationForVersionRow(
 			bookId = bookId,
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Readaloud,
+			publicationFormat = ReaderPublicationFormat.Epub,
 			mediaOverlayEnabled = readaloudMediaOverlayEnabled
 		)
 		BinderyBookVersionRoutingAction.OpenEbook -> Screen.Reader(
@@ -999,6 +1002,7 @@ fun binderyReaderDestinationForVersionRow(
 			bookId = bookId,
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Ebook,
+			publicationFormat = row.format,
 			mediaOverlayEnabled = false
 		)
 		BinderyBookVersionRoutingAction.OpenAudiobook -> null
@@ -1146,6 +1150,7 @@ private fun BinderyBookResource.toEbookVersionRow(
 			displayFormat().takeUnless { it == title },
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
+		format = readerPublicationFormat(),
 		finding = bookFileId()?.let(findingByBookFileId::get)
 	)
 }
@@ -1355,6 +1360,17 @@ private fun Map<String, String>.providerLabel(): String? =
 
 private fun BinderyBookResource.ebookFormatQualityRank(): Int =
 	displayFormat().ebookFormatQualityRank()
+
+private fun BinderyBookResource.readerPublicationFormat(): ReaderPublicationFormat =
+	if (
+		displayFormat().equals("PDF", ignoreCase = true) ||
+		type?.contains("pdf", ignoreCase = true) == true ||
+		displayName().fileExtension().equals("PDF", ignoreCase = true)
+	) {
+		ReaderPublicationFormat.Pdf
+	} else {
+		ReaderPublicationFormat.Epub
+	}
 
 private fun BinderyBookResource.displayName(): String =
 	properties.firstNonBlankValue("relativePath") ?: title

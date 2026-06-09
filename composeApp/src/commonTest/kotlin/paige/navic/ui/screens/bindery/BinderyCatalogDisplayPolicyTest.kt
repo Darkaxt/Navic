@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
@@ -2048,10 +2049,38 @@ class BinderyCatalogDisplayPolicyTest {
 					id = "/opds/books/3816/resources/ebook-abb-pdf",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "01 - The Hobbit The Hobbit (Illustrated Edition by Alan Lee)",
-					subtitle = "AudioBook Bay / PDF / 7.0 MB"
+					subtitle = "AudioBook Bay / PDF / 7.0 MB",
+					format = ReaderPublicationFormat.Pdf
 				)
 			),
 			binderyBookVersionRows(manifest, resources, "eng")
+		)
+	}
+
+	@Test
+	fun pdfVersionRowsPreservePdfPublicationFormatForReaderRoutes() {
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-abb-pdf",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-abb-pdf",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false,
+				publicationFormat = ReaderPublicationFormat.Pdf
+			),
+			binderyReaderDestinationForVersionRow(
+				row = BinderyBookVersionRow(
+					id = "/opds/books/3816/resources/ebook-abb-pdf",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "PDF",
+					subtitle = "AudioBook Bay / PDF / 7.0 MB",
+					format = ReaderPublicationFormat.Pdf
+				),
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
 		)
 	}
 

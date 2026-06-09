@@ -422,6 +422,32 @@ fun ReaderScreen(reader: Screen.Reader) {
 				onError = { message -> lastReaderError = message }
 			)
 			if (progressResumeLoaded) preparedPublicationUrl?.let { publicationUrl ->
+				val handleReaderEvent: (ReaderBridgeEvent) -> Unit = { event ->
+					lastReaderEvent = event
+					readerEventKey += 1L
+					chromeState = chromeState.onReaderEvent(event)
+					if (event is ReaderBridgeEvent.Error) {
+						lastReaderError = event.message
+					}
+					if (event is ReaderBridgeEvent.SearchResults) {
+						searchResults = event.results
+					}
+					if (event is ReaderBridgeEvent.Toc) {
+						tocItems = event.items
+					}
+					if (event is ReaderBridgeEvent.SelectionChanged) {
+						readerSelection = event.takeIf { selection ->
+							selection.cfi?.isNotBlank() == true &&
+								selection.text?.isNotBlank() == true
+						}
+					}
+					if (event is ReaderBridgeEvent.PublicationReady && currentBookAnnotations.isNotEmpty()) {
+						dispatchReaderCommand(ReaderBridgeCommand.ApplyHighlights(currentBookAnnotations))
+					}
+					if (event is ReaderBridgeEvent.LocationChanged) {
+						saveReaderProgress(event.locator)
+					}
+				}
 				ReaderWebViewHost(
 					publicationUrl = publicationUrl,
 					title = reader.title,
@@ -432,32 +458,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					startHref = resumeStartLocator?.href,
 					command = readerCommand,
 					commandKey = readerCommandKey,
-					onEvent = { event ->
-						lastReaderEvent = event
-						readerEventKey += 1L
-						chromeState = chromeState.onReaderEvent(event)
-						if (event is ReaderBridgeEvent.Error) {
-							lastReaderError = event.message
-						}
-						if (event is ReaderBridgeEvent.SearchResults) {
-							searchResults = event.results
-						}
-						if (event is ReaderBridgeEvent.Toc) {
-							tocItems = event.items
-						}
-						if (event is ReaderBridgeEvent.SelectionChanged) {
-							readerSelection = event.takeIf { selection ->
-								selection.cfi?.isNotBlank() == true &&
-									selection.text?.isNotBlank() == true
-							}
-						}
-						if (event is ReaderBridgeEvent.PublicationReady && currentBookAnnotations.isNotEmpty()) {
-							dispatchReaderCommand(ReaderBridgeCommand.ApplyHighlights(currentBookAnnotations))
-						}
-						if (event is ReaderBridgeEvent.LocationChanged) {
-							saveReaderProgress(event.locator)
-						}
-					},
+					onEvent = handleReaderEvent,
 					modifier = Modifier.fillMaxSize()
 				)
 			}

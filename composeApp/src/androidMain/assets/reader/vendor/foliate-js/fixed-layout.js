@@ -1,5 +1,3 @@
-import 'construct-style-sheets-polyfill'
-
 const parseViewport = str => str
     ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
     ?.filter(x => x)
@@ -31,6 +29,27 @@ const getViewport = (doc, viewport) => {
     return { width: 1000, height: 2000 }
 }
 
+const hostStyles = `:host {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: auto;
+}`
+
+const applyShadowStyles = root => {
+    if ('adoptedStyleSheets' in root && typeof CSSStyleSheet !== 'undefined') {
+        const sheet = new CSSStyleSheet()
+        sheet.replaceSync(hostStyles)
+        root.adoptedStyleSheets = [sheet]
+    } else {
+        const style = document.createElement('style')
+        style.textContent = hostStyles
+        root.append(style)
+    }
+}
+
 export class FixedLayout extends HTMLElement {
     static observedAttributes = ['zoom']
     #root = this.attachShadow({ mode: 'closed' })
@@ -48,16 +67,7 @@ export class FixedLayout extends HTMLElement {
     constructor() {
         super()
 
-        const sheet = new CSSStyleSheet()
-        this.#root.adoptedStyleSheets = [sheet]
-        sheet.replaceSync(`:host {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: auto;
-        }`)
+        applyShadowStyles(this.#root)
 
         this.#observer.observe(this)
     }
