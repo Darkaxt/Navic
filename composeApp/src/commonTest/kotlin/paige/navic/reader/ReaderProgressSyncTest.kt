@@ -56,6 +56,21 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun progressOnlyLocatorCanResumeFixedLayoutPublications() {
+		val progress = BinderyReadingProgress(
+			bookId = "3816",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3816/resources/ebook-abb-pdf",
+			progressFraction = 0.42
+		)
+
+		assertEquals(
+			ReaderLocator(progress = 0.42),
+			progress.toReaderStartLocator()
+		)
+	}
+
+	@Test
 	fun readerLocatorSavesEbookProgressAsCfiTextHrefAndFragment() {
 		val progress = ReaderLocator(
 			href = "EPUB/Text/chapter-04.xhtml#note-9",
@@ -105,5 +120,54 @@ class ReaderProgressSyncTest {
 			),
 			progress
 		)
+	}
+
+	@Test
+	fun localReadingProgressStateStoresLatestLocatorForPublication() {
+		val first = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			textHref = "EPUB/Text/chapter-01.xhtml",
+			cfi = "epubcfi(/6/2!/4/1:0)",
+			progressFraction = 0.1
+		)
+		val latest = first.copy(
+			textHref = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progressFraction = 0.62
+		)
+		val state = ReaderReadingProgressState()
+			.upsert(first)
+			.upsert(latest)
+
+		assertEquals(1, state.progresses.size)
+		assertEquals(
+			ReaderLocator(
+				href = "EPUB/Text/chapter-04.xhtml",
+				cfi = "epubcfi(/6/10!/4/3:12)",
+				progress = 0.62
+			),
+			state.progressFor(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)?.toReaderStartLocator()
+		)
+	}
+
+	@Test
+	fun localReadingProgressJsonRoundTripsAndIgnoresInvalidPayloads() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			cfi = "epubcfi(/6/8!/4/1:0)"
+		)
+
+		val decoded = decodeReaderReadingProgress(encodeReaderReadingProgress(listOf(progress)))
+
+		assertEquals(listOf(progress), decoded)
+		assertEquals(emptyList(), decodeReaderReadingProgress("not-json"))
 	}
 }

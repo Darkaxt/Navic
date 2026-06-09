@@ -1,7 +1,17 @@
 package paige.navic.reader
 
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyReadingProgressKind
+
+private const val ReaderReadingProgressMaxEntries = 200
+
+private val ReaderReadingProgressJson = Json {
+	ignoreUnknownKeys = true
+	encodeDefaults = false
+}
 
 fun BinderyReadingProgress.toReaderStartLocator(): ReaderLocator? {
 	val safeCfi = cfi?.trim()?.takeIf { it.isNotEmpty() }
@@ -11,7 +21,7 @@ fun BinderyReadingProgress.toReaderStartLocator(): ReaderLocator? {
 		href = safeHref,
 		cfi = safeCfi,
 		progress = safeProgress
-	).takeIf { it.cfi != null || it.href != null }
+	).takeIf { it.cfi != null || it.href != null || it.progress != null }
 }
 
 fun BinderyReadingProgress.toReaderStartLocatorFor(
@@ -26,6 +36,31 @@ fun BinderyReadingProgress.toReaderStartLocatorFor(
 		toReaderStartLocator()
 	} else {
 		null
+	}
+}
+
+data class ReaderReadingProgressState(
+	val progresses: List<BinderyReadingProgress> = emptyList()
+) {
+	fun progressFor(
+		bookId: String,
+		resourceHref: String,
+		kind: ReaderPublicationKind
+	): BinderyReadingProgress? {
+		val key = ReaderReadingProgressKey.from(
+			bookId = bookId,
+			resourceHref = resourceHref,
+			kind = kind.toBinderyReadingProgressKind()
+		) ?: return null
+		return progresses.firstOrNull { it.readingProgressKey == key }
+	}
+
+	fun upsert(progress: BinderyReadingProgress): ReaderReadingProgressState {
+		val key = progress.readingProgressKey ?: return this
+		return copy(
+			progresses = (listOf(progress) + progresses.filterNot { it.readingProgressKey == key })
+				.take(ReaderReadingProgressMaxEntries)
+		)
 	}
 }
 
@@ -57,10 +92,48 @@ fun ReaderLocator.toBinderyReadingProgress(
 	}
 }
 
+fun encodeReaderReadingProgress(progresses: List<BinderyReadingProgress>): String =
+	ReaderReadingProgressJson.encodeToString(progresses.filter { it.readingProgressKey != null })
+
+fun decodeReaderReadingProgress(json: String): List<BinderyReadingProgress> =
+	runCatching {
+		ReaderReadingProgressJson.decodeFromString<List<BinderyReadingProgress>>(json)
+			.filter { it.readingProgressKey != null }
+	}.getOrDefault(emptyList())
+
 private data class ReaderHrefParts(
 	val textHref: String? = null,
 	val fragmentId: String? = null
 )
+
+private data class ReaderReadingProgressKey(
+	val bookId: String,
+	val resourceHref: String,
+	val kind: BinderyReadingProgressKind
+) {
+	companion object {
+		fun from(
+			bookId: String?,
+			resourceHref: String?,
+			kind: BinderyReadingProgressKind?
+		): ReaderReadingProgressKey? {
+			val safeBookId = bookId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+			val safeResourceHref = resourceHref?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+			return ReaderReadingProgressKey(
+				bookId = safeBookId,
+				resourceHref = safeResourceHref,
+				kind = kind ?: BinderyReadingProgressKind.Ebook
+			)
+		}
+	}
+}
+
+private val BinderyReadingProgress.readingProgressKey: ReaderReadingProgressKey?
+	get() = ReaderReadingProgressKey.from(
+		bookId = bookId,
+		resourceHref = resourceHref,
+		kind = kind
+	)
 
 private fun String?.toReaderHref(fragmentId: String?): String? {
 	val safeTextHref = this?.trim()?.takeIf { it.isNotEmpty() }

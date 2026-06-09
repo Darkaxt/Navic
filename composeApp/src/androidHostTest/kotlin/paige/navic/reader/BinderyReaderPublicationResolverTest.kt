@@ -41,6 +41,35 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun reusesExistingPublicationCacheFileWithoutFetchingAgain() = runBlocking {
+		var fetchCount = 0
+		val cacheRoot = createTempDirectory("navic-reader-reuse-publications").toFile()
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = {
+				fetchCount += 1
+				"EPUB_BYTES_$fetchCount".encodeToByteArray()
+			},
+			cacheRoot = cacheRoot
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3693",
+			title = "Alcatraz",
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			sourceUrl = "https://bindery.local/opds/books/3693/resources/ebook-1",
+			kind = ReaderPublicationKind.Ebook,
+			mediaOverlayEnabled = false
+		)
+
+		val first = resolver.resolve(request)
+		val second = resolver.resolve(request)
+
+		assertEquals(1, fetchCount)
+		assertEquals(first.publicationUrl, second.publicationUrl)
+		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
+		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
+	}
+
+	@Test
 	fun resolvesPdfResourcesToPdfCacheFiles() = runBlocking {
 		val resolver = BinderyReaderPublicationResolver(
 			fetchResourceBytes = { "%PDF-1.7".encodeToByteArray() },

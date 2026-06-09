@@ -277,6 +277,19 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderSupportsPdfSurfaceNavigationAndScrolling() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "attachSurfaceTapGesture")
+		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
+		assertContains(bridgeText, "this.view?.isFixedLayout === true")
+		assertContains(bridgeText, "overflow: fixedLayout ? 'auto' : 'hidden'")
+		assertContains(bridgeText, "surface-tap")
+		assertContains(bridgeText, "startLocator?.progress")
+		assertContains(bridgeText, "await this.goToProgress(progress)")
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

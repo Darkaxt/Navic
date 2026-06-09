@@ -336,11 +336,15 @@ class NavicReaderRuntime {
       if (settings) this.applySettings(settings)
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
+      const progress = Number(startLocator?.progress)
       if (locator) {
         await this.view.goTo(locator)
+      } else if (Number.isFinite(progress)) {
+        await this.goToProgress(progress)
       } else {
         await this.view.init?.({ showTextStart: true })
       }
+      this.attachSurfaceTapGesture(this.view)
       log('openPublication:ready', describeUrl(url))
       this.applyReaderViewportLayout('ready')
       this.logContentLayout('ready')
@@ -394,6 +398,7 @@ class NavicReaderRuntime {
       overflow: 'hidden',
     })
     const renderer = this.view?.renderer
+    const fixedLayout = this.view?.isFixedLayout === true || renderer?.localName === 'foliate-fxl'
     setStylesImportant(renderer, {
       position: 'absolute',
       inset: '0px',
@@ -402,7 +407,7 @@ class NavicReaderRuntime {
       'min-width': widthPx,
       height: heightPx,
       'min-height': heightPx,
-      overflow: 'hidden',
+      overflow: fixedLayout ? 'auto' : 'hidden',
     })
     if (renderer) requestAnimationFrame(() => renderer?.render?.())
     log('viewport-layout', `label=${label}`, `${width}x${height}`)
@@ -544,6 +549,40 @@ class NavicReaderRuntime {
       }
       log('center-tap')
       post({ type: 'readerCenterTap' })
+    }, { passive: false })
+  }
+
+  attachSurfaceTapGesture(element) {
+    if (!element || element.__navicSurfaceTapGestureAttached) return
+    element.__navicSurfaceTapGestureAttached = true
+    element.addEventListener('click', async event => {
+      if (event.defaultPrevented || event.button !== 0) return
+      if (this.view?.isFixedLayout === true) {
+        const tapZone = this.readerTapZone(event, document)
+        if (!tapZone) return
+        event.preventDefault()
+        event.stopPropagation()
+        log('surface-tap', tapZone)
+        if (tapZone === 'previous') {
+          await this.previousPage()
+          return
+        }
+        if (tapZone === 'next') {
+          await this.nextPage()
+          return
+        }
+        if (tapZone === 'left') {
+          if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
+          else await this.previousPage()
+          return
+        }
+        if (tapZone === 'right') {
+          if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
+          else await this.nextPage()
+          return
+        }
+        post({ type: 'readerCenterTap' })
+      }
     }, { passive: false })
   }
 

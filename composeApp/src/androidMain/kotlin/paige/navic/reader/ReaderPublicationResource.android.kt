@@ -33,24 +33,28 @@ class BinderyReaderPublicationResolver(
 ) {
 	suspend fun resolve(request: ReaderPublicationResourceRequest): ReaderResolvedPublicationResource {
 		val resourceHref = request.safeResourceHref()
-		val bytes = fetchResourceBytes(resourceHref)
 		val cacheKey = request.readerPublicationCacheKey()
 		val publicationExtension = request.publicationExtension()
 		val publicationFile = File(
 			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
 			"publication.$publicationExtension"
 		)
+		if (publicationFile.isFile && publicationFile.length() > 0L) {
+			return request.resolvedPublicationResource(
+				publicationFile = publicationFile,
+				resourceHref = resourceHref,
+				cacheKey = cacheKey,
+				publicationExtension = publicationExtension
+			)
+		}
+		val bytes = fetchResourceBytes(resourceHref)
 		publicationFile.parentFile?.mkdirs()
 		publicationFile.writeBytes(bytes)
-		return ReaderResolvedPublicationResource(
-			publicationUrl = readerPublicationAssetUrl(
-				"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
-			),
+		return request.resolvedPublicationResource(
 			publicationFile = publicationFile,
 			resourceHref = resourceHref,
-			sourceUrl = request.sourceUrl,
 			cacheKey = cacheKey,
-			requestHeaders = emptyMap()
+			publicationExtension = publicationExtension
 		)
 	}
 }
@@ -84,6 +88,23 @@ private fun ReaderPublicationResourceRequest.publicationExtension(): String =
 		format == ReaderPublicationFormat.Pdf -> "pdf"
 		else -> "epub"
 	}
+
+private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
+	publicationFile: File,
+	resourceHref: String,
+	cacheKey: String,
+	publicationExtension: String
+): ReaderResolvedPublicationResource =
+	ReaderResolvedPublicationResource(
+		publicationUrl = readerPublicationAssetUrl(
+			"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
+		),
+		publicationFile = publicationFile,
+		resourceHref = resourceHref,
+		sourceUrl = sourceUrl,
+		cacheKey = cacheKey,
+		requestHeaders = emptyMap()
+	)
 
 private fun String.sha256Hex(): String =
 	MessageDigest.getInstance("SHA-256")

@@ -86,6 +86,7 @@ import paige.navic.reader.ReaderOptionsTab
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
+import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSupportedDirections
@@ -99,8 +100,10 @@ import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.decodeReaderAnnotations
 import paige.navic.reader.decodeReaderBookmarks
+import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderAnnotations
 import paige.navic.reader.encodeReaderBookmarks
+import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.reader.normalizedReaderOptionsTab
 import paige.navic.reader.normalizedReaderSettings
 import paige.navic.reader.readerFlowShortLabel
@@ -170,6 +173,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var annotationState by remember {
 		mutableStateOf(ReaderAnnotationState(decodeReaderAnnotations(preferenceManager.readerAnnotationsJson)))
 	}
+	var readingProgressState by remember {
+		mutableStateOf(
+			ReaderReadingProgressState(decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson))
+		)
+	}
 	var readerSelection by remember(reader.publicationUrl) {
 		mutableStateOf<ReaderBridgeEvent.SelectionChanged?>(null)
 	}
@@ -237,12 +245,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 			return@LaunchedEffect
 		}
 		progressResumeLoaded = false
-		resumeStartLocator = binderyRepository.getReadingProgress(reader.bookId)
+		val remoteStartLocator = binderyRepository.getReadingProgress(reader.bookId)
 			.getOrNull()
 			?.toReaderStartLocatorFor(
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
 			)
+		val localStartLocator = readingProgressState
+			.progressFor(
+				bookId = reader.bookId,
+				resourceHref = reader.resourceHref,
+				kind = reader.kind
+			)
+			?.toReaderStartLocatorFor(
+				resourceHref = reader.resourceHref,
+				kind = reader.kind
+			)
+		resumeStartLocator = remoteStartLocator ?: localStartLocator
 		progressResumeLoaded = true
 	}
 
@@ -376,6 +395,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 		) ?: return
 		if (progress == lastSavedProgress) return
 		lastSavedProgress = progress
+		val nextProgressState = readingProgressState.upsert(progress)
+		if (nextProgressState != readingProgressState) {
+			readingProgressState = nextProgressState
+			preferenceManager.readerReadingProgressJson = encodeReaderReadingProgress(nextProgressState.progresses)
+		}
 		readerScope.launch {
 			binderyRepository.putReadingProgress(progress)
 		}

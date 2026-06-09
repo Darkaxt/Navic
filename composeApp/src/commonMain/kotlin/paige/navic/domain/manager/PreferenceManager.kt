@@ -265,6 +265,7 @@ class PreferenceManager(
 	var readerWebContentsDebuggingEnabled by preference(false)
 	var readerBookmarksJson by preference("")
 	var readerAnnotationsJson by preference("")
+	var readerReadingProgressJson by preference("")
 	var autoDownloadStarredSongs by preference(false)
 	var autoDownloadStarredAlbums by preference(false)
 	var maxConcurrentDownloads by preference(DefaultMaxConcurrentDownloads)
