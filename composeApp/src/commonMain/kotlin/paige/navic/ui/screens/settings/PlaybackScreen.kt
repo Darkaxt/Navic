@@ -319,7 +319,7 @@ fun SettingsPlaybackScreen() {
 						SettingSelectionRow(
 							title = { Text(stringResource(Res.string.option_smart_rewind)) },
 							items = smartRewindOptions.toImmutableList(),
-							label = { "${it}s" },
+							label = { if (it < 0) stringResource(Res.string.option_off) else "${it}s" },
 							description = stringResource(Res.string.subtitle_smart_rewind),
 							selection = preferenceManager.smartRewindSeconds,
 							onSelect = { preferenceManager.smartRewindSeconds = it }
@@ -691,6 +691,6 @@ fun SettingsPlaybackScreen() {
 
 private val pauseBetweenSongsOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
 private val medleyModeOptions = listOf(0, 15, 30, 45, 60)
-private val smartRewindOptions = listOf(1, 2, 3, 5, 10, 15, 30)
+private val smartRewindOptions = listOf(-1, 1, 2, 3, 5, 10, 15, 30)
 private val audioFadeDurationOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeOptions = listOf(10, 25, 50, 100)

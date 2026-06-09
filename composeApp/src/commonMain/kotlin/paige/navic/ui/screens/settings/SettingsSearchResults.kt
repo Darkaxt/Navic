@@ -1047,7 +1047,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				title = stringResource(Res.string.option_smart_rewind),
 				subtitle = stringResource(Res.string.subtitle_smart_rewind),
 				items = smartRewindSearchOptions,
-				label = { "${it}s" },
+				label = { if (it < 0) stringResource(Res.string.option_off) else "${it}s" },
 				selection = preferenceManager.smartRewindSeconds,
 				onSelect = { preferenceManager.smartRewindSeconds = it }
 			))
@@ -1963,7 +1963,7 @@ private fun textFieldRow(
 private val nowPlayingUpNextCountSearchOptions = listOf(1, 2, 3, 5)
 private val pauseBetweenSongsSearchOptions = listOf(0, 5, 10, 15, 20, 30, 40, 50, 60)
 private val medleyModeSearchOptions = listOf(0, 15, 30, 45, 60)
-private val smartRewindSearchOptions = listOf(1, 2, 3, 5, 10, 15, 30)
+private val smartRewindSearchOptions = listOf(-1, 1, 2, 3, 5, 10, 15, 30)
 private val audioFadeSearchOptions = listOf(0, 250, 500, 1000, 2000)
 private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)

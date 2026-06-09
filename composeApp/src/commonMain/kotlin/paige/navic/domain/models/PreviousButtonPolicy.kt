@@ -6,7 +6,7 @@ fun shouldRestartCurrentOnPrevious(
 	currentPositionMs: Long
 ): Boolean =
 	!hasPreviousMediaItem ||
-		currentPositionMs > smartRewindThresholdMs(smartRewindSeconds)
+		(smartRewindSeconds >= 0 && currentPositionMs > smartRewindThresholdMs(smartRewindSeconds))
 
 private fun smartRewindThresholdMs(smartRewindSeconds: Int): Long =
 	smartRewindSeconds.coerceAtLeast(0) * 1000L

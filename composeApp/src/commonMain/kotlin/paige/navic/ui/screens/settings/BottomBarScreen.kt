@@ -27,7 +27,6 @@ import navic.composeapp.generated.resources.option_mini_player_style
 import navic.composeapp.generated.resources.option_navigation_bar_label_visibility
 import navic.composeapp.generated.resources.option_navigation_bar_style
 import navic.composeapp.generated.resources.option_navigation_bar_tabs
-import navic.composeapp.generated.resources.option_swipe_to_skip
 import navic.composeapp.generated.resources.subtitle_mini_player_queue_action
 import navic.composeapp.generated.resources.title_bottom_app_bar
 import navic.composeapp.generated.resources.title_mini_player
@@ -76,12 +75,6 @@ fun BottomBarScreen() {
 					.padding(top = 16.dp, end = 16.dp, start = 16.dp)
 			) {
 				Form {
-					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_swipe_to_skip)) },
-						value = preferenceManager.swipeToSkip,
-						onSetValue = { preferenceManager.swipeToSkip = it }
-					)
-
 					SettingSelectionRow(
 						items = BottomBarCollapseMode.entries.toImmutableList(),
 						label = { stringResource(it.displayName) },

@@ -39,18 +39,22 @@ class PreviousButtonPolicyTest {
 	}
 
 	@Test
-	fun clampsNegativeThresholdToZeroSeconds() {
-		assertTrue(
-			shouldRestartCurrentOnPrevious(
-				smartRewindSeconds = -5,
-				hasPreviousMediaItem = true,
-				currentPositionMs = 1L
-			)
-		)
+	fun disabledSmartRewindAlwaysGoesToPreviousSongWhenAvailable() {
 		assertFalse(
 			shouldRestartCurrentOnPrevious(
-				smartRewindSeconds = -5,
+				smartRewindSeconds = -1,
 				hasPreviousMediaItem = true,
+				currentPositionMs = 90_000L
+			)
+		)
+	}
+
+	@Test
+	fun disabledSmartRewindStillRestartsWhenThereIsNoPreviousItem() {
+		assertTrue(
+			shouldRestartCurrentOnPrevious(
+				smartRewindSeconds = -1,
+				hasPreviousMediaItem = false,
 				currentPositionMs = 0L
 			)
 		)
