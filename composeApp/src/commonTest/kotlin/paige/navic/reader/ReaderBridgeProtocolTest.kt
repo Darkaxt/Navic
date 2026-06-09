@@ -67,6 +67,17 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun pageTurnCommandsDispatchReaderPaginationIntents() {
+		val nextScript = ReaderBridgeCommand.NextPage.toJavaScript()
+		val previousScript = ReaderBridgeCommand.PreviousPage.toJavaScript()
+
+		assertContains(nextScript, "window.NavicReaderBridge.dispatch")
+		assertContains(nextScript, "\"type\":\"nextPage\"")
+		assertContains(previousScript, "window.NavicReaderBridge.dispatch")
+		assertContains(previousScript, "\"type\":\"previousPage\"")
+	}
+
+	@Test
 	fun applyHighlightsCommandDispatchesPersistedAnnotationBatch() {
 		val script = ReaderBridgeCommand.ApplyHighlights(
 			listOf(

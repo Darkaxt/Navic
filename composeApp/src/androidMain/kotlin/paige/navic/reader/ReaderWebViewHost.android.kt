@@ -259,6 +259,8 @@ private fun ReaderBridgeCommand.debugLabel(): String =
 			"openPublication(url=${url.readerUrlLabel()}, overlay=$mediaOverlayEnabled)"
 		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
 		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.readerUrlLabel()})"
+		ReaderBridgeCommand.NextPage -> "nextPage"
+		ReaderBridgeCommand.PreviousPage -> "previousPage"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
 		is ReaderBridgeCommand.ApplyHighlights -> "applyHighlights(count=${highlights.size})"
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"

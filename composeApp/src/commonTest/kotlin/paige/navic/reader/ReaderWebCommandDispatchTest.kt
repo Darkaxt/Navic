@@ -55,6 +55,22 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 2L
 		)
 		assertEquals(listOf(ReaderBridgeCommand.ClearOverlay), clear.commands)
+
+		val nextPage = clear.state.commandsForReadyReaderRuntime(
+			publicationKey = "book-1",
+			openCommand = open,
+			command = ReaderBridgeCommand.NextPage,
+			commandKey = 3L
+		)
+		assertEquals(listOf(ReaderBridgeCommand.NextPage), nextPage.commands)
+
+		val previousPage = nextPage.state.commandsForReadyReaderRuntime(
+			publicationKey = "book-1",
+			openCommand = open,
+			command = ReaderBridgeCommand.PreviousPage,
+			commandKey = 4L
+		)
+		assertEquals(listOf(ReaderBridgeCommand.PreviousPage), previousPage.commands)
 	}
 
 	@Test

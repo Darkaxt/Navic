@@ -84,6 +84,10 @@ class NavicReaderRuntime {
         return this.goTo(command.cfi)
       case 'goToHref':
         return this.goTo(command.href)
+      case 'nextPage':
+        return this.nextPage()
+      case 'previousPage':
+        return this.previousPage()
       case 'applyHighlight':
         return this.applyHighlight(command)
       case 'applyHighlights':
@@ -197,6 +201,34 @@ class NavicReaderRuntime {
     if (!this.view || !locator) return
     try {
       await this.view.goTo(locator)
+      this.logContentLayout('go-to')
+    } catch (error) {
+      reportError(error, 'navigation_failed')
+    }
+  }
+
+  async nextPage() {
+    return this.turnPage('next')
+  }
+
+  async previousPage() {
+    return this.turnPage('previous')
+  }
+
+  async turnPage(direction) {
+    if (!this.view) return
+    try {
+      log('page-turn:start', direction)
+      if (direction === 'next') {
+        await this.view?.next?.()
+      } else {
+        await this.view?.prev?.()
+      }
+      this.applyReaderViewportLayout(`page-turn:${direction}`)
+      requestAnimationFrame(() => {
+        this.logContentLayout(`page-turn:${direction}`)
+        log('page-turn:done', direction)
+      })
     } catch (error) {
       reportError(error, 'navigation_failed')
     }

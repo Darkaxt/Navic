@@ -51,6 +51,8 @@ import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
+import paige.navic.icons.filled.SkipNext
+import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.DataTable
@@ -307,6 +309,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 					kind = reader.kind,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled
 				),
+				onPreviousPage = {
+					platformContext.clickSound()
+					dispatchReaderCommand(ReaderBridgeCommand.PreviousPage)
+				},
+				onNextPage = {
+					platformContext.clickSound()
+					dispatchReaderCommand(ReaderBridgeCommand.NextPage)
+				},
 				onSettingsChange = { nextState ->
 					platformContext.clickSound()
 					updateChromeSettings(nextState)
@@ -486,6 +496,8 @@ private fun ReaderBottomChrome(
 	title: String,
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
+	onPreviousPage: () -> Unit,
+	onNextPage: () -> Unit,
 	onSettingsChange: (ReaderChromeState) -> Unit,
 	tocVisible: Boolean,
 	tocItems: List<ReaderTocItem>,
@@ -532,6 +544,12 @@ private fun ReaderBottomChrome(
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
 				verticalAlignment = Alignment.CenterVertically
 			) {
+				IconButton(onClick = onPreviousPage) {
+					Icon(
+						imageVector = Icons.Filled.SkipPrevious,
+						contentDescription = null
+					)
+				}
 				Column(Modifier.weight(1f)) {
 					Text(
 						text = state.currentSectionTitle ?: title,
@@ -546,12 +564,27 @@ private fun ReaderBottomChrome(
 						maxLines = 1
 					)
 				}
+				IconButton(onClick = onNextPage) {
+					Icon(
+						imageVector = Icons.Filled.SkipNext,
+						contentDescription = null
+					)
+				}
 				if (showReadaloudControls) {
 					ReaderReadaloudButton(
 						state = state.readaloudPlayback,
 						onClick = onReadaloudToggle
 					)
 				}
+			}
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					.horizontalScroll(rememberScrollState())
+					.padding(horizontal = 8.dp),
+				horizontalArrangement = Arrangement.spacedBy(2.dp),
+				verticalAlignment = Alignment.CenterVertically
+			) {
 				IconButton(
 					onClick = onToggleToc,
 					enabled = tocItems.isNotEmpty()

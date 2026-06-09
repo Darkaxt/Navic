@@ -111,6 +111,24 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data object NextPage : ReaderBridgeCommand {
+		override val type: String = "nextPage"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+			}
+	}
+
+	data object PreviousPage : ReaderBridgeCommand {
+		override val type: String = "previousPage"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+			}
+	}
+
 	data class ApplyHighlight(
 		val id: String,
 		val cfi: String,

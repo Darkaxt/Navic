@@ -188,6 +188,32 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "renderer?.render?.()")
 	}
 
+	@Test
+	fun androidReaderBridgeExposesAnxStylePageTurnCommands() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "case 'nextPage'")
+		assertContains(bridgeText, "case 'previousPage'")
+		assertContains(bridgeText, "async nextPage()")
+		assertContains(bridgeText, "async previousPage()")
+		assertContains(bridgeText, "this.view?.next?.()")
+		assertContains(bridgeText, "this.view?.prev?.()")
+		assertContains(bridgeText, "page-turn:start")
+		assertContains(bridgeText, "page-turn:done")
+	}
+
+	@Test
+	fun commonReaderChromeExposesPageTurnControls() {
+		val readerScreenText = readerScreenFile().readText()
+
+		assertContains(readerScreenText, "onPreviousPage: () -> Unit")
+		assertContains(readerScreenText, "onNextPage: () -> Unit")
+		assertContains(readerScreenText, "ReaderBridgeCommand.PreviousPage")
+		assertContains(readerScreenText, "ReaderBridgeCommand.NextPage")
+		assertContains(readerScreenText, "Icons.Filled.SkipPrevious")
+		assertContains(readerScreenText, "Icons.Filled.SkipNext")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),
@@ -215,4 +241,11 @@ class ReaderRuntimeAssetsTest {
 			File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/$fileName")
 		).firstOrNull { it.isFile }
 			?: error("Could not locate settings file $fileName")
+
+	private fun readerScreenFile(): File =
+		listOf(
+			File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate ReaderScreen.kt")
 }
