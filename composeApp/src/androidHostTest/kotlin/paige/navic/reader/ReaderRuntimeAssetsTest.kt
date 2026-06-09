@@ -93,6 +93,8 @@ class ReaderRuntimeAssetsTest {
 			message = "PDF page HTML must expose dimensions before the fixed-layout iframe load event"
 		)
 		assertContains(foliatePdfAdapterText, "[FoliatePDF] renderPage")
+		assertContains(foliatePdfAdapterText, "spread: 'none'")
+		assertContains(foliatePdfAdapterText, "canvas.toDataURL('image/png')")
 		assertContains(foliateFixedLayoutText, "await getViewport(doc, this.defaultViewport)")
 		assertContains(foliateFixedLayoutText, "normalizeFrameSize")
 		assertContains(foliateFixedLayoutText, "Number.isFinite")

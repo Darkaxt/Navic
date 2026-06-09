@@ -545,8 +545,7 @@ const renderPage = async (page, getImageBlob) => {
     canvas.width = pageWidth
     const canvasContext = canvas.getContext('2d')
     await page.render({ canvasContext, viewport }).promise
-    const blob = await new Promise(resolve => canvas.toBlob(resolve))
-    if (getImageBlob) return blob
+    if (getImageBlob) return new Promise(resolve => canvas.toBlob(resolve))
 
     /*
     // with the SVG backend
@@ -574,7 +573,7 @@ const renderPage = async (page, getImageBlob) => {
         },
     })
 
-    const src = URL.createObjectURL(blob)
+    const src = canvas.toDataURL('image/png')
     const url = URL.createObjectURL(new Blob([`
         <!DOCTYPE html>
         <meta charset="utf-8">
@@ -618,7 +617,7 @@ export const makePDF = async file => {
     const data = new Uint8Array(await file.arrayBuffer())
     const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise
 
-    const book = { rendition: { layout: 'pre-paginated' } }
+    const book = { rendition: { layout: 'pre-paginated', spread: 'none' } }
 
     const info = (await pdf.getMetadata())?.info
     book.metadata = {

@@ -130,7 +130,11 @@ export class FixedLayout extends HTMLElement {
                 const { width, height } = await getViewport(doc, this.defaultViewport)
                 const frameWidth = normalizeFrameSize(width)
                 const frameHeight = normalizeFrameSize(height, frameWidth * 1.5)
-                console.info(`[FoliateFXL] frame-loaded index=${index} width=${frameWidth} height=${frameHeight}`)
+                const img = doc?.querySelector('img')
+                const imageState = img
+                    ? ` imageComplete=${img.complete} imageNatural=${img.naturalWidth}x${img.naturalHeight}`
+                    : ' image=none'
+                console.info(`[FoliateFXL] frame-loaded index=${index} width=${frameWidth} height=${frameHeight}${imageState}`)
                 resolve({
                     element, iframe,
                     width: frameWidth,
@@ -178,6 +182,7 @@ export class FixedLayout extends HTMLElement {
         if (safeScale !== scale) {
             console.warn(`[FoliateFXL] invalid-scale width=${viewportWidth} height=${viewportHeight} targetWidth=${targetWidth} targetHeight=${targetHeight} scale=${scale}`)
         }
+        console.debug(`[FoliateFXL] render side=${side} viewport=${viewportWidth}x${viewportHeight} target=${targetWidth}x${targetHeight} scale=${safeScale}`)
 
         const transform = frame => {
             let { element, iframe, width, height, blank, onZoom } = frame
