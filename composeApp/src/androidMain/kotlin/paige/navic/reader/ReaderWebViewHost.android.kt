@@ -273,6 +273,7 @@ private fun ReaderBridgeEvent.debugLabel(): String =
 	when (this) {
 		ReaderBridgeEvent.Ready -> "ready"
 		ReaderBridgeEvent.PublicationReady -> "publicationReady"
+		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
 		is ReaderBridgeEvent.LocationChanged -> "locationChanged(${locator.href?.readerUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.readerUrlLabel().orEmpty()})"

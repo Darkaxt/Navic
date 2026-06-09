@@ -26,7 +26,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,13 +83,11 @@ import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
 import paige.navic.reader.toReaderStartLocatorFor
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.navigation.Screen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(reader: Screen.Reader) {
-	val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 	val snackbarState = LocalSnackbarState.current
 	val platformContext = LocalPlatformContext.current
 	val binderyRepository = koinInject<BinderyRepository>()
@@ -120,6 +116,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var chromeState by remember(reader.publicationUrl, defaultReaderSettings) {
 		mutableStateOf(ReaderChromeState(settings = defaultReaderSettings))
 	}
+	var chromeVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var tocVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var tocItems by remember(reader.publicationUrl) { mutableStateOf(emptyList<ReaderTocItem>()) }
 	var annotationsVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
@@ -193,6 +190,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 	fun dispatchReaderCommand(command: ReaderBridgeCommand) {
 		readerCommand = command
 		readerCommandKey += 1L
+	}
+
+	fun hideReaderPanels() {
+		tocVisible = false
+		annotationsVisible = false
+		bookmarksVisible = false
+		searchVisible = false
+	}
+
+	fun hideReaderChrome() {
+		chromeVisible = false
+		hideReaderPanels()
+	}
+
+	fun toggleReaderChrome() {
+		chromeVisible = !chromeVisible
+		if (!chromeVisible) hideReaderPanels()
 	}
 
 	fun updateChromeSettings(nextState: ReaderChromeState) {
@@ -294,110 +308,109 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	Scaffold(
-		modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-		topBar = {
-			RootTopBar(
-				title = { Text(reader.title) },
-				scrollBehavior = scrollBehavior
-			)
-		},
 		bottomBar = {
-			ReaderBottomChrome(
-				title = reader.title,
-				state = chromeState,
-				showReadaloudControls = readerReadaloudControlsVisible(
-					kind = reader.kind,
-					mediaOverlayEnabled = reader.mediaOverlayEnabled
-				),
-				onPreviousPage = {
-					platformContext.clickSound()
-					dispatchReaderCommand(ReaderBridgeCommand.PreviousPage)
-				},
-				onNextPage = {
-					platformContext.clickSound()
-					dispatchReaderCommand(ReaderBridgeCommand.NextPage)
-				},
-				onSettingsChange = { nextState ->
-					platformContext.clickSound()
-					updateChromeSettings(nextState)
-				},
-				tocVisible = tocVisible,
-				tocItems = tocItems,
-				onToggleToc = {
-					platformContext.clickSound()
-					tocVisible = !tocVisible
-					if (tocVisible) searchVisible = false
-					if (tocVisible) annotationsVisible = false
-					if (tocVisible) bookmarksVisible = false
-				},
-				onOpenTocItem = { item ->
-					platformContext.clickSound()
-					openTocItem(item)
-				},
-				annotationsVisible = annotationsVisible,
-				annotations = currentBookAnnotations,
-				canHighlightSelection = canHighlightSelection,
-				onToggleAnnotations = {
-					platformContext.clickSound()
-					annotationsVisible = !annotationsVisible
-					if (annotationsVisible) tocVisible = false
-					if (annotationsVisible) bookmarksVisible = false
-					if (annotationsVisible) searchVisible = false
-				},
-				onAddSelectionHighlight = {
-					platformContext.clickSound()
-					addSelectionHighlight()
-					annotationsVisible = true
-				},
-				onOpenAnnotation = { annotation ->
-					platformContext.clickSound()
-					openAnnotation(annotation)
-				},
-				bookmarksVisible = bookmarksVisible,
-				bookmarks = currentBookBookmarks,
-				currentLocationBookmarked = currentLocationBookmarked,
-				canBookmarkCurrentLocation = canBookmarkCurrentLocation,
-				onToggleBookmarks = {
-					platformContext.clickSound()
-					bookmarksVisible = !bookmarksVisible
-					if (bookmarksVisible) tocVisible = false
-					if (bookmarksVisible) annotationsVisible = false
-					if (bookmarksVisible) searchVisible = false
-				},
-				onToggleCurrentBookmark = {
-					platformContext.clickSound()
-					toggleCurrentBookmark()
-				},
-				onOpenBookmark = { bookmark ->
-					platformContext.clickSound()
-					openBookmark(bookmark)
-				},
-				searchVisible = searchVisible,
-				searchQuery = searchQuery,
-				searchResults = searchResults,
-				onToggleSearch = {
-					platformContext.clickSound()
-					searchVisible = !searchVisible
-					if (searchVisible) tocVisible = false
-					if (searchVisible) annotationsVisible = false
-					if (searchVisible) bookmarksVisible = false
-				},
-				onSearchQueryChange = { query -> searchQuery = query },
-				onSubmitSearch = {
-					platformContext.clickSound()
-					submitReaderSearch()
-				},
-				onOpenSearchResult = { result ->
-					platformContext.clickSound()
-					openSearchResult(result)
-				},
-				onReadaloudToggle = {
-					val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderBottomChrome
-					platformContext.clickSound()
-					readaloudCommand = command
-					readaloudCommandKey += 1L
-				}
-			)
+			if (chromeVisible) {
+				ReaderBottomChrome(
+					title = reader.title,
+					state = chromeState,
+					showReadaloudControls = readerReadaloudControlsVisible(
+						kind = reader.kind,
+						mediaOverlayEnabled = reader.mediaOverlayEnabled
+					),
+					onPreviousPage = {
+						platformContext.clickSound()
+						dispatchReaderCommand(ReaderBridgeCommand.PreviousPage)
+					},
+					onNextPage = {
+						platformContext.clickSound()
+						dispatchReaderCommand(ReaderBridgeCommand.NextPage)
+					},
+					onSettingsChange = { nextState ->
+						platformContext.clickSound()
+						updateChromeSettings(nextState)
+					},
+					tocVisible = tocVisible,
+					tocItems = tocItems,
+					onToggleToc = {
+						platformContext.clickSound()
+						tocVisible = !tocVisible
+						if (tocVisible) searchVisible = false
+						if (tocVisible) annotationsVisible = false
+						if (tocVisible) bookmarksVisible = false
+					},
+					onOpenTocItem = { item ->
+						platformContext.clickSound()
+						openTocItem(item)
+						hideReaderChrome()
+					},
+					annotationsVisible = annotationsVisible,
+					annotations = currentBookAnnotations,
+					canHighlightSelection = canHighlightSelection,
+					onToggleAnnotations = {
+						platformContext.clickSound()
+						annotationsVisible = !annotationsVisible
+						if (annotationsVisible) tocVisible = false
+						if (annotationsVisible) bookmarksVisible = false
+						if (annotationsVisible) searchVisible = false
+					},
+					onAddSelectionHighlight = {
+						platformContext.clickSound()
+						addSelectionHighlight()
+						annotationsVisible = true
+					},
+					onOpenAnnotation = { annotation ->
+						platformContext.clickSound()
+						openAnnotation(annotation)
+						hideReaderChrome()
+					},
+					bookmarksVisible = bookmarksVisible,
+					bookmarks = currentBookBookmarks,
+					currentLocationBookmarked = currentLocationBookmarked,
+					canBookmarkCurrentLocation = canBookmarkCurrentLocation,
+					onToggleBookmarks = {
+						platformContext.clickSound()
+						bookmarksVisible = !bookmarksVisible
+						if (bookmarksVisible) tocVisible = false
+						if (bookmarksVisible) annotationsVisible = false
+						if (bookmarksVisible) searchVisible = false
+					},
+					onToggleCurrentBookmark = {
+						platformContext.clickSound()
+						toggleCurrentBookmark()
+					},
+					onOpenBookmark = { bookmark ->
+						platformContext.clickSound()
+						openBookmark(bookmark)
+						hideReaderChrome()
+					},
+					searchVisible = searchVisible,
+					searchQuery = searchQuery,
+					searchResults = searchResults,
+					onToggleSearch = {
+						platformContext.clickSound()
+						searchVisible = !searchVisible
+						if (searchVisible) tocVisible = false
+						if (searchVisible) annotationsVisible = false
+						if (searchVisible) bookmarksVisible = false
+					},
+					onSearchQueryChange = { query -> searchQuery = query },
+					onSubmitSearch = {
+						platformContext.clickSound()
+						submitReaderSearch()
+					},
+					onOpenSearchResult = { result ->
+						platformContext.clickSound()
+						openSearchResult(result)
+						hideReaderChrome()
+					},
+					onReadaloudToggle = {
+						val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderBottomChrome
+						platformContext.clickSound()
+						readaloudCommand = command
+						readaloudCommandKey += 1L
+					}
+				)
+			}
 		}
 	) { innerPadding ->
 		Box(
@@ -457,6 +470,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 					}
 					if (event is ReaderBridgeEvent.LocationChanged) {
 						saveReaderProgress(event.locator)
+					}
+					if (event is ReaderBridgeEvent.CenterTap) {
+						toggleReaderChrome()
 					}
 				}
 				ReaderWebViewHost(

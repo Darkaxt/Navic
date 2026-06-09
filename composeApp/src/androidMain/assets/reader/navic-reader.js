@@ -4,6 +4,9 @@ const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
+const CenterTapStartFraction = 0.25
+const CenterTapEndFraction = 0.75
+const PageTapEdgeFraction = 0.25
 
 const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
 const logError = (label, ...details) => console.error('[NavicReader]', label, ...details)
@@ -281,6 +284,51 @@ class NavicReaderRuntime {
     }, { passive: true })
   }
 
+  attachCenterTapGesture(doc) {
+    if (!doc?.defaultView || doc.defaultView.__navicCenterTapGestureAttached) return
+    doc.defaultView.__navicCenterTapGestureAttached = true
+    doc.addEventListener('click', async event => {
+      if (event.defaultPrevented || event.button !== 0) return
+      if (event.target?.closest?.('a,button,input,textarea,select,summary,[role="button"]')) return
+      const selection = doc.getSelection?.()
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
+      const tapZone = this.readerTapZone(event, doc)
+      if (!tapZone) return
+      event.preventDefault()
+      if (tapZone === 'previous') {
+        await this.previousPage()
+        return
+      }
+      if (tapZone === 'next') {
+        await this.nextPage()
+        return
+      }
+      log('center-tap')
+      post({ type: 'readerCenterTap' })
+    }, { passive: false })
+  }
+
+  readerTapZone(event, doc) {
+    const win = doc?.defaultView || window
+    const width = Math.max(1, win.innerWidth || doc?.documentElement?.clientWidth || 0)
+    const height = Math.max(1, win.innerHeight || doc?.documentElement?.clientHeight || 0)
+    const x = event.clientX
+    const y = event.clientY
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+    const inCenterBand = y >= height * CenterTapStartFraction &&
+      y <= height * CenterTapEndFraction
+    if (x <= width * PageTapEdgeFraction) return 'previous'
+    if (x >= width * (1 - PageTapEdgeFraction)) return 'next'
+    if (
+      inCenterBand &&
+      x >= width * CenterTapStartFraction &&
+      x <= width * CenterTapEndFraction
+    ) {
+      return 'center'
+    }
+    return null
+  }
+
   turnScrolledEdgePage(deltaY) {
     const renderer = this.view?.renderer
     if (!renderer || !renderer.scrolled) return false
@@ -398,6 +446,7 @@ class NavicReaderRuntime {
       const doc = content.doc
       if (!doc) continue
       this.attachScrolledEdgeTurnGestures(doc)
+      this.attachCenterTapGesture(doc)
       if (doc.defaultView?.__navicSelectionBridgeAttached) continue
       doc.defaultView.__navicSelectionBridgeAttached = true
       doc.addEventListener('selectionchange', () => {

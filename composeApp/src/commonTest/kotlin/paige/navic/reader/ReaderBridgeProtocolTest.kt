@@ -225,6 +225,13 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeReaderCenterTap() {
+		assertIs<ReaderBridgeEvent.CenterTap>(
+			decodeReaderBridgeEvent("""{"type":"readerCenterTap"}""")
+		)
+	}
+
+	@Test
 	fun bridgeEventDecodeIgnoresMalformedOrUnknownMessages() {
 		assertNull(decodeReaderBridgeEvent("not-json"))
 		assertNull(decodeReaderBridgeEvent("""{"type":"unknown"}"""))

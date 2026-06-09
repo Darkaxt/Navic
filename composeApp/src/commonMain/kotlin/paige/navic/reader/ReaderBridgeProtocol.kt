@@ -209,6 +209,7 @@ sealed interface ReaderBridgeCommand {
 sealed interface ReaderBridgeEvent {
 	data object Ready : ReaderBridgeEvent
 	data object PublicationReady : ReaderBridgeEvent
+	data object CenterTap : ReaderBridgeEvent
 	data class LocationChanged(
 		val locator: ReaderLocator,
 		val tocTitle: String? = null
@@ -242,6 +243,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 		when (json.stringValue("type")) {
 			"ready" -> ReaderBridgeEvent.Ready
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
+			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
 			"locationChanged" -> ReaderBridgeEvent.LocationChanged(
 				locator = ReaderLocator(
 					href = json.stringValue("href"),

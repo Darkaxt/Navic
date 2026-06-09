@@ -229,6 +229,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(readerScreenText, "Icons.Filled.SkipNext")
 	}
 
+	@Test
+	fun readerChromeIsImmersiveAndDrivenByCenterTapBridgeEvents() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+
+		assertContains(bridgeText, "readerCenterTap")
+		assertContains(bridgeText, "attachCenterTapGesture")
+		assertContains(bridgeText, "doc.addEventListener('click'")
+		assertContains(bridgeText, "readerTapZone")
+		assertContains(bridgeText, "await this.previousPage()")
+		assertContains(bridgeText, "await this.nextPage()")
+		assertContains(readerScreenText, "ReaderBridgeEvent.CenterTap")
+		assertContains(readerScreenText, "chromeVisible")
+		assertContains(readerScreenText, "if (chromeVisible)")
+		assertFalse(
+			readerScreenText.contains("RootTopBar("),
+			"ReaderScreen must not show the global search/settings/account top bar in the reading area."
+		)
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),

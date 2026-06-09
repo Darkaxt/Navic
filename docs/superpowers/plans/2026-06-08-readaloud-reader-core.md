@@ -64,6 +64,69 @@ These labels must be available to UI, playback metadata, progress sync, and test
 
 ---
 
+## Current Support Audit - 2026-06-09
+
+Reference snapshots inspected:
+
+- Anx Reader: `Anxcye/anx-reader` at `107f4fa`
+- Komikku: `komikku-app/komikku` at `582ea3e`
+
+The checked tasks below mean first-pass Navic implementation exists. They do not mean Navic has Anx/Readest-class reader parity yet.
+
+### Anx Reader Parity
+
+| Capability | Navic status | Required direction |
+| --- | --- | --- |
+| Foliate-style EPUB runtime | Supported | Keep this as the EPUB/readaloud reader surface. Do not replace it with the Storyteller client. |
+| Bindery EPUB/readaloud routing | Supported | Keep ebook/readaloud routing separate from audiobook-only playback. |
+| PDF.js-backed PDF opening | Partial | PDF.js assets are present through foliate-js, but signed-release phone smoke tests must prove real Bindery PDFs render. |
+| TOC navigation | Supported | Hide reader chrome after TOC navigation so content stays immersive. |
+| Search and result navigation | Supported | Keep as core reader chrome, not the global app search bar. |
+| CFI/location progress and resume | Supported | Continue syncing Bindery progress by locator/CFI where available. |
+| Bookmarks | Supported | Keep CFI-backed and hide chrome after navigation. |
+| Annotations/highlights | Supported | Keep CFI-backed, and add export/share later only after renderer stability is settled. |
+| Basic typography settings | Supported | Current set is font family, font size, line height, margin, light/dark theme, paged/scroll. |
+| Immersive reader chrome | Supported in `v1.0.10-epsilon7` work | Reader removes the global top bar, hides controls by default, and toggles reader controls through center tap. |
+| Left/right tap page turns | Supported in `v1.0.10-epsilon7` work | Keep page-zone behavior in the WebView bridge so it works inside EPUB iframe documents. |
+| Storyteller EPUB Media Overlay parsing | Supported in tests, partial on device | Requires signed-release smoke tests with real Storyteller-generated EPUB bundles. |
+| Media3 readaloud playback | Supported in tests, partial on device | Use Media3 for audio. Do not play embedded audio through WebView. |
+| Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
+| Audio metadata labels | Partial | Preserve labels in models and Media3 metadata; still need reader UI display for chapter, section, narrator, quality, and source labels. |
+| Custom/downloaded/book fonts | Missing | Adapt Anx-style custom font model, but expose it through Navic settings and reader chrome. |
+| Rich themes/background images | Missing | Add named reader themes with foreground/background/accent and optional background image. |
+| Paragraph spacing and publisher style override | Missing | Extend `ReaderSettings` and JS `applySettings`; include "follow book styles" vs "override" toggle. |
+| Custom CSS editor | Missing | Adapt Anx's custom CSS concept only after sanitizing/injection boundaries in the Foliate runtime. |
+| Screen awake/fullscreen controls | Missing | Add keep-screen-on and system bar/fullscreen preferences. |
+| Volume-key page turn | Missing | Add Android key handling in the reader host. |
+| Custom tap-zone editor | Missing | Adapt Anx's simple/custom page-turn mode and 3x3 zone editor. |
+| Header/footer reading info customization | Missing | Add configurable chapter title, book progress, section progress, battery/time slots. |
+| TTS service/rate/pitch/volume | Not prioritized | Storyteller synced audio is the primary path. Generic TTS is fallback work, not the core experience. |
+
+### Komikku Options To Adapt
+
+Komikku is image/manga-first, so it is not the EPUB core. Its useful parts are reader settings architecture and native viewer ergonomics:
+
+- Reading mode and direction presets: default, left-to-right, right-to-left, vertical, continuous vertical.
+- Orientation lock: default, portrait, landscape, sensor variants where Android supports them cleanly.
+- Fullscreen and display-cutout handling.
+- Tap navigation modes with a preview overlay.
+- Brightness overlay and color filter controls.
+- Image/PDF scaling options: fit width, fit height, original size, smart fit, background color.
+- Crop-border behavior for image/PDF-like pages.
+- Per-title reader preferences that override global defaults.
+- Bottom-reader-button customization for commands users use repeatedly.
+
+### Required Next Steps
+
+1. Stabilize the signed-release phone test loop: build in CI, install the signed APK over the existing release package, and run an adb smoke script for EPUB, PDF, and readaloud EPUB.
+2. Promote reader navigation settings from hard-coded behavior to persisted preferences: tap zones, center-menu zone, swap zones, disable tap turns, RTL/LTR direction, and volume-key turns.
+3. Expand `ReaderSettings` and the Settings > Ebooks page with Anx-class controls: custom fonts, paragraph spacing, theme palettes, publisher-style override, fullscreen/awake settings, and optional custom CSS.
+4. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
+5. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
+6. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
+
+---
+
 ### Task 1: Add Readaloud As A First-Class Variant
 
 **Files:**
@@ -217,6 +280,7 @@ Use the candidate projects this way:
 
 - **Readest:** reader product model, CFI progress, annotations, search, sidebar/notebook patterns, OPDS UX ideas.
 - **Anx Reader:** practical foliate-js WebView bridge, bundled reader runtime patterns, Media Overlay support already present in its foliate assets.
+- **Komikku:** reader settings architecture, tap-zone overlay, orientation/fullscreen handling, brightness/color filters, and image/PDF ergonomics.
 - **Storyteller:** generated readaloud EPUB contract, SMIL/clip semantics, readaloud compatibility, audio/text sync fixtures.
 - **Colibrio:** multimedia UX reference and possible iOS/commercial reference, not Android core.
 - **LibreraReader:** broad format/TTS fallback reference, not the main reader runtime.
