@@ -1169,17 +1169,32 @@ private fun Map<String, JsonElement>.toFindingMetadata(): BinderyFindingMetadata
 	return finding.takeIf(BinderyFindingMetadata::hasContent)
 }
 
-private fun JsonObject.toFindingFile(): BinderyFindingFile =
-	BinderyFindingFile(
-		name = stringValue("name") ?: stringValue("title") ?: stringValue("relativePath"),
+private fun JsonObject.toFindingFile(): BinderyFindingFile? {
+	val file = BinderyFindingFile(
+		name = stringValue("name")
+			?: stringValue("title")
+			?: stringValue("displayName")
+			?: stringValue("relativePath")
+			?: stringValue("path")?.substringAfterLast('/')?.substringAfterLast('\\'),
 		href = stringValue("href") ?: stringValue("url"),
-		format = stringValue("format"),
+		format = stringValue("format") ?: stringValue("extension"),
 		language = stringValue("language"),
-		sizeBytes = longValue("sizeBytes") ?: longValue("size"),
-		durationSeconds = (doubleValue("durationSeconds") ?: doubleValue("duration"))?.takeIf { it > 0.0 },
+		sizeBytes = (longValue("sizeBytes") ?: longValue("size"))?.takeIf { it > 0L },
+		durationSeconds = (doubleValue("durationSeconds")
+			?: doubleValue("duration")
+			?: longValue("durationMs")?.let { it.toDouble() / 1000.0 })?.takeIf { it > 0.0 },
 		bitrateBps = longValue("bitrateBps")?.takeIf { it > 0L },
 		sampleRateHz = longValue("sampleRateHz")?.takeIf { it > 0L }
 	)
+	return file.takeIf(BinderyFindingFile::hasContent)
+}
+
+private fun BinderyFindingFile.hasContent(): Boolean =
+	listOf(name, href, format, language).any { !it.isNullOrBlank() } ||
+		sizeBytes != null ||
+		durationSeconds != null ||
+		bitrateBps != null ||
+		sampleRateHz != null
 
 private fun JsonObject.toFindingMapping(): BinderyFindingMapping =
 	BinderyFindingMapping(

@@ -593,6 +593,44 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun findingDetailMappingsCollapseSelectedImportedDuplicatesForSameBook() {
+		val selected = BinderyFindingMapping(
+			id = "selected",
+			bookId = "3816",
+			bookTitle = "The Hobbit",
+			authorName = "J.R.R. Tolkien",
+			confidence = 100.0,
+			mediaType = "ebook",
+			targetLanguage = "eng",
+			acquisitionStatus = "selected",
+			selectedBytes = 7_214_203,
+			bookFileId = "0",
+			sourceCatalogCandidateId = "17"
+		)
+		val imported = BinderyFindingMapping(
+			id = "imported",
+			bookId = "3816",
+			bookTitle = "The Hobbit",
+			authorName = "J.R.R. Tolkien",
+			confidence = 0.0,
+			mediaType = "ebook",
+			targetLanguage = "eng",
+			acquisitionStatus = "imported",
+			selectedBytes = 0,
+			bookFileId = "765",
+			sourceCatalogCandidateId = "0"
+		)
+		val otherLanguage = imported.copy(
+			id = "spanish",
+			targetLanguage = "spa"
+		)
+
+		val rows = listOf(imported, selected, otherLanguage).collapsedForBinderyFindingDetail()
+
+		assertEquals(listOf(selected, otherLanguage), rows)
+	}
+
+	@Test
 	fun authorCardsPreserveNestedOpdsUnmonitorActionLinks() {
 		val unmonitor = BinderyLink(
 			href = "/opds/authors/28/unmonitor",

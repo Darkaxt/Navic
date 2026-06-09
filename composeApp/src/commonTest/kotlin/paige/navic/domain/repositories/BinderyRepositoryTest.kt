@@ -748,6 +748,53 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun catalogJsonPreservesFindingFileDisplayFieldsAndSuppressesUnknownSizes() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Findings"},
+			  "publications": [
+			    {
+			      "metadata": {
+			        "title": "Wheel of Time 12 - The Gathering Storm",
+			        "identifier": "urn:bindery:finding:19"
+			      },
+			      "properties": {
+			        "findingId": 19,
+			        "mediaType": "audiobook",
+			        "format": "mp3",
+			        "files": [
+			          {
+			            "displayName": "Robert Jordan The Gathering Storm - 01 - Foreword.mp3",
+			            "path": "Wheel of Time/Robert Jordan The Gathering Storm - 01 - Foreword.mp3",
+			            "extension": "mp3",
+			            "sizeBytes": 0,
+			            "durationMs": 123000,
+			            "bitrateBps": 128000,
+			            "sampleRateHz": 44100
+			          },
+			          {}
+			        ]
+			      },
+			      "links": [
+			        {"href": "/opds/findings/19", "rel": "self", "type": "application/opds-publication+json"}
+			      ]
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val file = catalog.publications.single().finding!!.files.single()
+		assertEquals("Robert Jordan The Gathering Storm - 01 - Foreword.mp3", file.name)
+		assertEquals("mp3", file.format)
+		assertNull(file.sizeBytes)
+		assertEquals(123.0, file.durationSeconds)
+		assertEquals(128000L, file.bitrateBps)
+		assertEquals(44100L, file.sampleRateHz)
+	}
+
+	@Test
 	fun repositoryFetchesBookFindingsFromCanonicalRoute() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			bookFindings = BinderyCatalog(title = "Book Findings")

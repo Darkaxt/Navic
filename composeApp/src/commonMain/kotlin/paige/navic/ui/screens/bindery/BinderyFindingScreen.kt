@@ -201,17 +201,18 @@ fun BinderyFindingScreen(
 							}
 							finding?.let { metadata ->
 								val rows = metadata.infoRows()
+								val mappings = metadata.mappings.collapsedForBinderyFindingDetail()
 								if (rows.isNotEmpty()) {
 									item("bindery-finding-metadata") {
 										BinderyFindingMetadataGrid(rows)
 									}
 								}
-								if (metadata.mappings.isNotEmpty()) {
+								if (mappings.isNotEmpty()) {
 									item("bindery-finding-mapped-title") {
 										BinderyFindingSectionTitle(stringResource(Res.string.title_bindery_mapped_books))
 									}
 									itemsIndexed(
-										metadata.mappings,
+										mappings,
 										key = { index, mapping -> binderyFindingMappingRowKey(mapping, index) }
 									) { _, mapping ->
 										BinderyFindingMappingRow(
@@ -474,7 +475,7 @@ private fun BinderyFindingFileRow(file: BinderyFindingFile) {
 				file.language?.uppercase(),
 				file.format?.uppercase(),
 				file.durationSeconds?.takeIf { isAudio && it > 0.0 }?.roundToLong()?.let(::queueTotalDurationLabel),
-				file.sizeBytes?.toFileSize(),
+				file.sizeBytes?.takeIf { it > 0L }?.toFileSize(),
 				file.bitrateBps?.takeIf { isAudio && it > 0L }?.let(::bitrateLabel),
 				file.sampleRateHz?.takeIf { isAudio && it > 0L }?.let(::sampleRateLabel)
 			).joinToString(separator = " / ")
@@ -509,7 +510,7 @@ private fun BinderyFindingMetadata.infoRows(): List<Pair<String, String>> {
 		"Reason" to availabilityReason?.displayToken(),
 		"Protocol" to protocol?.displayToken(),
 		fileCount?.let { "Files" to it.toString() },
-		sizeBytes?.let { "Size" to it.toFileSize() },
+		sizeBytes?.takeIf { it > 0L }?.let { "Size" to it.toFileSize() },
 		bitrateBps?.takeIf { isAudio && it > 0L }?.let { "Bitrate" to bitrateLabel(it) },
 		sampleRateHz?.takeIf { isAudio && it > 0L }?.let { "Sample rate" to sampleRateLabel(it) }
 	).mapNotNull { (label, value) ->

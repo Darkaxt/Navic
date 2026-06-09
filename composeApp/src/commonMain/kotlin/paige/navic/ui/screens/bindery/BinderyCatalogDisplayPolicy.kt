@@ -937,6 +937,71 @@ internal fun binderyFindingMappingRowKey(mapping: BinderyFindingMapping, index: 
 		mapping.authorName
 	)
 
+internal fun List<BinderyFindingMapping>.collapsedForBinderyFindingDetail(): List<BinderyFindingMapping> {
+	val mappingsByVisibleIdentity = linkedMapOf<String, BinderyFindingMapping>()
+	forEachIndexed { index, mapping ->
+		val key = mapping.findingDetailIdentityKey() ?: "mapping-$index"
+		val existing = mappingsByVisibleIdentity[key]
+		if (existing == null || mapping.isBetterFindingDetailMappingThan(existing)) {
+			mappingsByVisibleIdentity[key] = mapping
+		}
+	}
+	return mappingsByVisibleIdentity.values.toList()
+}
+
+private fun BinderyFindingMapping.findingDetailIdentityKey(): String? {
+	val bookIdentity = bookId
+		?.let(::binderyBookRouteId)
+		?.normalizedDuplicateRowField()
+		?.takeIf { it.isNotEmpty() }
+		?: listOfNotNull(
+			bookTitle.normalizedDuplicateRowField().takeIf { it.isNotEmpty() },
+			authorName.normalizedDuplicateRowField().takeIf { it.isNotEmpty() }
+		).joinToString(separator = "\u001f").takeIf { it.isNotEmpty() }
+		?: return null
+	val media = mediaType
+		?.normalizedBinderyMediaFormat()
+		?: mediaType.normalizedDuplicateRowField()
+	val language = targetLanguage
+		?.normalizedBinderyAvailabilityLanguage()
+		?: targetLanguage.normalizedDuplicateRowField()
+	return listOf(bookIdentity, media, language).joinToString(separator = "\u001f")
+}
+
+private fun BinderyFindingMapping.isBetterFindingDetailMappingThan(
+	other: BinderyFindingMapping
+): Boolean {
+	val confidence = confidence ?: -1.0
+	val otherConfidence = other.confidence ?: -1.0
+	if (confidence != otherConfidence) return confidence > otherConfidence
+
+	val statusRank = acquisitionStatus.findingDetailStatusRank()
+	val otherStatusRank = other.acquisitionStatus.findingDetailStatusRank()
+	if (statusRank != otherStatusRank) return statusRank > otherStatusRank
+
+	val selectedBytes = selectedBytes?.takeIf { it > 0L } ?: 0L
+	val otherSelectedBytes = other.selectedBytes?.takeIf { it > 0L } ?: 0L
+	if (selectedBytes != otherSelectedBytes) return selectedBytes > otherSelectedBytes
+
+	val fileSizeBytes = bookFileSizeBytes?.takeIf { it > 0L } ?: 0L
+	val otherFileSizeBytes = other.bookFileSizeBytes?.takeIf { it > 0L } ?: 0L
+	if (fileSizeBytes != otherFileSizeBytes) return fileSizeBytes > otherFileSizeBytes
+
+	return hasConcreteBookFileId() && !other.hasConcreteBookFileId()
+}
+
+private fun String?.findingDetailStatusRank(): Int =
+	when (this?.trim()?.lowercase()) {
+		"selected" -> 50
+		"imported" -> 40
+		"downloaded", "downloadable", "available", "ready", "owned", "acquired" -> 30
+		"failed", "rejected", "excluded", "unknown" -> 0
+		else -> 10
+	}
+
+private fun BinderyFindingMapping.hasConcreteBookFileId(): Boolean =
+	bookFileId?.trim()?.takeIf { it.isNotEmpty() && it != "0" } != null
+
 data class BinderyBookVersionRow(
 	val id: String,
 	val kind: BinderyBookVersionKind,
