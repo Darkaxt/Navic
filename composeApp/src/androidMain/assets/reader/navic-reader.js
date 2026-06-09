@@ -1,6 +1,6 @@
 import './vendor/foliate-js/view.js'
 
-const readerRoot = document.getElementById('reader')
+const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 
 const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
@@ -43,9 +43,36 @@ const errorElement = message => {
 const optionalNumber = value =>
   Number.isFinite(value) ? value : undefined
 
+const setStylesImportant = (element, styles) => {
+  if (!element) return
+  for (const [property, value] of Object.entries(styles)) {
+    element.style.setProperty(property, value, 'important')
+  }
+}
+
+const readerViewportSize = () => {
+  const viewport = window.visualViewport
+  const width = Math.max(
+    1,
+    Math.round(viewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
+  )
+  const height = Math.max(
+    1,
+    Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
+  )
+  return { width, height }
+}
+
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
+  viewportResizeListener = () => this.applyReaderViewportLayout('resize')
+
+  constructor() {
+    window.visualViewport?.addEventListener('resize', this.viewportResizeListener)
+    window.addEventListener('resize', this.viewportResizeListener)
+    requestAnimationFrame(() => this.applyReaderViewportLayout('startup'))
+  }
 
   dispatch(command) {
     log('dispatch', command?.type || 'invalid')
@@ -84,12 +111,15 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.applyReaderViewportLayout('before-open')
       this.view = document.createElement('foliate-view')
       this.view.addEventListener('relocate', event => this.onRelocate(event.detail || {}))
       this.view.addEventListener('load', event => this.onLoad(event.detail || {}))
       this.view.addEventListener('external-link', event => event.preventDefault())
       readerRoot.replaceChildren(this.view)
+      this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
+      this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
       this.postToc()
@@ -100,6 +130,7 @@ class NavicReaderRuntime {
         await this.view.init?.({ showTextStart: true })
       }
       log('openPublication:ready', describeUrl(url))
+      this.applyReaderViewportLayout('ready')
       this.logContentLayout('ready')
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
@@ -113,6 +144,53 @@ class NavicReaderRuntime {
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null
+  }
+
+  applyReaderViewportLayout(label = 'unknown') {
+    const { width, height } = readerViewportSize()
+    const widthPx = `${width}px`
+    const heightPx = `${height}px`
+    setStylesImportant(document.documentElement, {
+      width: '100%',
+      height: heightPx,
+      'min-height': heightPx,
+      margin: '0px',
+      overflow: 'hidden',
+    })
+    setStylesImportant(document.body, {
+      position: 'fixed',
+      inset: '0px',
+      display: 'block',
+      width: widthPx,
+      'min-width': widthPx,
+      height: heightPx,
+      'min-height': heightPx,
+      margin: '0px',
+      overflow: 'hidden',
+    })
+    setStylesImportant(this.view, {
+      position: 'fixed',
+      inset: '0px',
+      display: 'block',
+      width: widthPx,
+      'min-width': widthPx,
+      height: heightPx,
+      'min-height': heightPx,
+      overflow: 'hidden',
+    })
+    const renderer = this.view?.renderer
+    setStylesImportant(renderer, {
+      position: 'absolute',
+      inset: '0px',
+      display: 'block',
+      width: widthPx,
+      'min-width': widthPx,
+      height: heightPx,
+      'min-height': heightPx,
+      overflow: 'hidden',
+    })
+    if (renderer) requestAnimationFrame(() => renderer?.render?.())
+    log('viewport-layout', `label=${label}`, `${width}x${height}`)
   }
 
   async goTo(locator) {
@@ -179,6 +257,7 @@ class NavicReaderRuntime {
     if (typeof settings.paged === 'boolean') {
       this.view?.renderer?.setAttribute('flow', settings.paged ? 'paginated' : 'scrolled')
     }
+    this.applyReaderViewportLayout('settings')
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
   }
 
@@ -216,6 +295,7 @@ class NavicReaderRuntime {
   }
 
   onLoad() {
+    this.applyReaderViewportLayout('load')
     const contents = this.view?.renderer?.getContents?.() || []
     for (const content of contents) {
       const doc = content.doc
@@ -247,14 +327,24 @@ class NavicReaderRuntime {
   }
 
   logContentLayout(label = 'unknown') {
+    const describeRect = rect => rect
+      ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
+      : 'missing'
     const contents = this.view?.renderer?.getContents?.() || []
+    const surfaceRect = this.view?.getBoundingClientRect?.()
+    const rendererRect = this.view?.renderer?.getBoundingClientRect?.()
+    log(
+      'surface-layout',
+      `label=${label}`,
+      `view=${describeRect(surfaceRect)}`,
+      `renderer=${describeRect(rendererRect)}`,
+      `inner=${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)}`,
+      `visual=${Math.round(window.visualViewport?.width || 0)}x${Math.round(window.visualViewport?.height || 0)}`
+    )
     if (!contents.length) {
       log('content-layout', `label=${label}`, 'contents=0')
       return
     }
-    const describeRect = rect => rect
-      ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
-      : 'missing'
     for (const content of contents) {
       const doc = content.doc
       if (!doc) {

@@ -168,6 +168,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "frameElement")
 	}
 
+	@Test
+	fun androidReaderShellOwnsAnxStyleViewportSurface() {
+		val root = readerAssetRoot()
+		val indexText = root.resolve("index.html").readText()
+		val bridgeText = root.resolve("navic-reader.js").readText()
+
+		assertContains(
+			indexText,
+			"height: 100vh",
+			message = "Reader shell must use an Anx-style viewport height instead of inheriting a collapsed percentage height"
+		)
+		assertContains(indexText, "position: fixed;")
+		assertContains(indexText, "inset: 0;")
+		assertContains(indexText, "body > foliate-view")
+		assertContains(bridgeText, "readerRoot = document.body")
+		assertContains(bridgeText, "applyReaderViewportLayout")
+		assertContains(bridgeText, "window.visualViewport")
+		assertContains(bridgeText, "renderer?.render?.()")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),
