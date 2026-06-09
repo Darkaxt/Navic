@@ -225,6 +225,25 @@ const roundedRect = rect => rect
     ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
     : 'missing'
 
+const firstTextLayout = doc => {
+    const walker = doc.createTreeWalker(doc.body, SHOW_TEXT, {
+        acceptNode: node => node.nodeValue?.trim() ? FILTER_ACCEPT : FILTER_SKIP,
+    })
+    const node = walker.nextNode()
+    if (!node) return null
+    const range = doc.createRange()
+    range.selectNodeContents(node)
+    const element = node.parentElement
+    const style = element ? doc.defaultView.getComputedStyle(element) : null
+    return {
+        rect: range.getBoundingClientRect(),
+        color: style?.color,
+        display: style?.display,
+        visibility: style?.visibility,
+        opacity: style?.opacity,
+    }
+}
+
 const logPaginatorContentLayout = (index, view, container, flow) => {
     const doc = view?.document
     if (!doc) {
@@ -238,13 +257,37 @@ const logPaginatorContentLayout = (index, view, container, flow) => {
     const containerRect = container?.getBoundingClientRect?.()
     const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
     const rootStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+    const firstText = firstTextLayout(doc)
     const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
     console.info(
         `[FoliatePaginator] content-layout index=${index} flow=${flow} ` +
         `container=${roundedRect(containerRect)} iframe=${roundedRect(frameRect)} ` +
         `html=${roundedRect(rootRect)} body=${roundedRect(bodyRect)} textLength=${textLength} ` +
+        `firstText=${roundedRect(firstText?.rect)} firstTextColor=${firstText?.color || 'missing'} ` +
+        `firstTextDisplay=${firstText?.display || 'missing'} firstTextVisibility=${firstText?.visibility || 'missing'} ` +
+        `firstTextOpacity=${firstText?.opacity || 'missing'} ` +
         `color=${bodyStyle.color} background=${bodyStyle.backgroundColor || rootStyle.backgroundColor}`
     )
+}
+
+const loadIframeSource = async (iframe, src) => {
+    if (src.startsWith('blob:')) {
+        try {
+            const response = await fetch(src)
+            if (response.ok) {
+                const html = await response.text()
+                iframe.removeAttribute('src')
+                iframe.srcdoc = html
+                console.info(`[FoliatePaginator] iframe-srcdoc-loaded bytes=${html.length}`)
+                return
+            }
+            console.warn(`[FoliatePaginator] iframe-srcdoc-fetch status=${response.status}`)
+        } catch (error) {
+            console.warn('[FoliatePaginator] iframe-srcdoc-fetch-failed', error)
+        }
+    }
+    iframe.removeAttribute('srcdoc')
+    iframe.src = src
 }
 
 class View {
@@ -292,7 +335,7 @@ class View {
     }
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             this.#iframe.addEventListener('load', () => {
                 const doc = this.document
                 afterLoad?.(doc)
@@ -321,7 +364,10 @@ class View {
 
                 resolve()
             }, { once: true })
-            this.#iframe.src = src
+            this.#iframe.addEventListener('error', () => {
+                reject(new Error(`Failed to load iframe source ${src.slice(0, 80)}`))
+            }, { once: true })
+            loadIframeSource(this.#iframe, src).catch(reject)
         })
     }
     render(layout) {

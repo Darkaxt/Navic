@@ -41,6 +41,7 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(index.readText(), "navic-reader.js")
 		assertContains(index.readText(), "style-src 'self' blob: 'unsafe-inline'")
+		assertContains(index.readText(), "frame-src blob: data: about:")
 		assertContains(bridge.readText(), "window.NavicReaderBridge")
 		assertContains(bridge.readText(), "selectionChanged")
 		assertContains(bridge.readText(), "applyOverlayFragment")
@@ -147,6 +148,8 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(paginatorText, "[FoliatePaginator] layout")
 		assertContains(paginatorText, "visualViewport")
+		assertContains(paginatorText, "iframe-srcdoc-loaded")
+		assertContains(paginatorText, "firstText")
 		assertContains(bridgeText, "content-layout")
 		assertContains(bridgeText, "frameElement")
 	}
