@@ -23,6 +23,9 @@ object ReaderWebRuntime {
 		WebView.setWebContentsDebuggingEnabled(enableDebugging)
 		webView.settings.javaScriptEnabled = true
 		webView.settings.domStorageEnabled = true
+		webView.settings.useWideViewPort = true
+		webView.settings.loadWithOverviewMode = false
+		webView.settings.textZoom = 100
 		webView.settings.allowFileAccess = LocalPublicationFileAccessEnabled
 		webView.settings.allowContentAccess = false
 		webView.addJavascriptInterface(bridge, AndroidBridgeName)

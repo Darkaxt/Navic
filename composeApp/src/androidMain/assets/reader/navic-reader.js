@@ -100,6 +100,7 @@ class NavicReaderRuntime {
         await this.view.init?.({ showTextStart: true })
       }
       log('openPublication:ready', describeUrl(url))
+      this.logContentLayout('ready')
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
     } catch (error) {
@@ -239,7 +240,47 @@ class NavicReaderRuntime {
         })
       })
     }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => this.logContentLayout('load'))
+    })
     if (this.mediaOverlayEnabled) post({ type: 'overlayFragmentInactive' })
+  }
+
+  logContentLayout(label = 'unknown') {
+    const contents = this.view?.renderer?.getContents?.() || []
+    if (!contents.length) {
+      log('content-layout', `label=${label}`, 'contents=0')
+      return
+    }
+    const describeRect = rect => rect
+      ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
+      : 'missing'
+    for (const content of contents) {
+      const doc = content.doc
+      if (!doc) {
+        log('content-layout', `label=${label}`, `index=${content.index}`, 'doc=missing')
+        continue
+      }
+      const frameElement = doc.defaultView?.frameElement
+      const frameRect = frameElement?.getBoundingClientRect?.()
+      const bodyRect = doc.body?.getBoundingClientRect?.()
+      const htmlRect = doc.documentElement?.getBoundingClientRect?.()
+      const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
+      const htmlStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+      const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
+      log(
+        'content-layout',
+        `label=${label}`,
+        `index=${content.index}`,
+        `frameElement=${frameElement?.localName || 'missing'}`,
+        `iframe=${describeRect(frameRect)}`,
+        `html=${describeRect(htmlRect)}`,
+        `body=${describeRect(bodyRect)}`,
+        `textLength=${textLength}`,
+        `color=${bodyStyle.color}`,
+        `background=${bodyStyle.backgroundColor || htmlStyle.backgroundColor}`
+      )
+    }
   }
 
   contentDocuments() {

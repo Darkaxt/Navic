@@ -197,6 +197,56 @@ const setStylesImportant = (el, styles) => {
     for (const [k, v] of Object.entries(styles)) style.setProperty(k, v, 'important')
 }
 
+const normalizeFrameSize = (size, fallback = 1000) => {
+    const value = parseFloat(size)
+    if (Number.isFinite(value) && value > 0) return value
+    const fallbackValue = parseFloat(fallback)
+    return Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 1000
+}
+
+const visibleViewport = rect => {
+    const visualViewport = globalThis.visualViewport
+    const rectWidth = normalizeFrameSize(rect.width)
+    const rectHeight = normalizeFrameSize(rect.height, 2000)
+    const visualWidth = visualViewport ? normalizeFrameSize(visualViewport.width, rectWidth) : rectWidth
+    const visualHeight = visualViewport ? normalizeFrameSize(visualViewport.height, rectHeight) : rectHeight
+    return {
+        width: Math.min(rectWidth, visualWidth),
+        height: Math.min(rectHeight, visualHeight),
+        rectWidth,
+        rectHeight,
+        visualWidth,
+        visualHeight,
+        devicePixelRatio: globalThis.devicePixelRatio || 1,
+    }
+}
+
+const roundedRect = rect => rect
+    ? `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`
+    : 'missing'
+
+const logPaginatorContentLayout = (index, view, container, flow) => {
+    const doc = view?.document
+    if (!doc) {
+        console.warn(`[FoliatePaginator] content-layout index=${index} doc=missing`)
+        return
+    }
+    const frame = doc.defaultView?.frameElement
+    const frameRect = frame?.getBoundingClientRect?.()
+    const bodyRect = doc.body?.getBoundingClientRect?.()
+    const rootRect = doc.documentElement?.getBoundingClientRect?.()
+    const containerRect = container?.getBoundingClientRect?.()
+    const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
+    const rootStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+    const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
+    console.info(
+        `[FoliatePaginator] content-layout index=${index} flow=${flow} ` +
+        `container=${roundedRect(containerRect)} iframe=${roundedRect(frameRect)} ` +
+        `html=${roundedRect(rootRect)} body=${roundedRect(bodyRect)} textLength=${textLength} ` +
+        `color=${bodyStyle.color} background=${bodyStyle.backgroundColor || rootStyle.backgroundColor}`
+    )
+}
+
 class View {
     #observer = new ResizeObserver(() => this.expand())
     #element = document.createElement('div')
@@ -437,6 +487,7 @@ export class Paginator extends HTMLElement {
     #styleMap = new WeakMap()
     #mediaQuery = matchMedia('(prefers-color-scheme: dark)')
     #mediaQueryListener
+    #visualViewportResizeListener
     #scrollBounds
     #touchState
     #touchScrolled
@@ -616,6 +667,8 @@ export class Paginator extends HTMLElement {
             this.#replaceBackground(this.#view.docBackground, this.columnCount)
         }
         this.#mediaQuery.addEventListener('change', this.#mediaQueryListener)
+        this.#visualViewportResizeListener = debounce(() => this.render(), 100)
+        globalThis.visualViewport?.addEventListener('resize', this.#visualViewportResizeListener)
     }
     attributeChangedCallback(name, _, value) {
         switch (name) {
@@ -692,11 +745,25 @@ export class Paginator extends HTMLElement {
             this.#background.appendChild(column)
         }
     }
+    #applyVisibleViewport() {
+        const rect = this.getBoundingClientRect()
+        const viewport = visibleViewport(rect)
+        this.#top.style.width = `${viewport.width}px`
+        this.#top.style.height = `${viewport.height}px`
+        console.info(
+            `[FoliatePaginator] layout rect=${viewport.rectWidth}x${viewport.rectHeight} ` +
+            `visualViewport=${viewport.visualWidth}x${viewport.visualHeight} ` +
+            `dpr=${viewport.devicePixelRatio} top=${viewport.width}x${viewport.height} ` +
+            `flow=${this.getAttribute('flow') || 'paginated'}`
+        )
+        return viewport
+    }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
         this.#rtl = rtl
         this.#top.classList.toggle('vertical', vertical)
 
+        this.#applyVisibleViewport()
         const { width, height } = this.#container.getBoundingClientRect()
         const size = vertical ? height : width
 
@@ -1021,6 +1088,7 @@ export class Paginator extends HTMLElement {
             }
             const beforeRender = this.#beforeRender.bind(this)
             await view.load(src, afterLoad, beforeRender)
+            logPaginatorContentLayout(index, view, this.#container, this.getAttribute('flow') || 'paginated')
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
@@ -1155,10 +1223,13 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
-        this.#observer.unobserve(this)
-        this.#view.destroy()
+        this.#observer.unobserve(this.#container)
+        if (this.#visualViewportResizeListener) {
+            globalThis.visualViewport?.removeEventListener('resize', this.#visualViewportResizeListener)
+        }
+        this.#view?.destroy()
         this.#view = null
-        this.sections[this.#index]?.unload?.()
+        this.sections?.[this.#index]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
     }
 }

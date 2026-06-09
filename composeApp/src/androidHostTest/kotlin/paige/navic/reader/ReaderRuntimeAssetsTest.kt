@@ -82,6 +82,19 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidWebViewRuntimeHonorsReaderViewportMeta() {
+		val runtimeText = readerWebRuntimeFile().readText()
+
+		assertContains(
+			runtimeText,
+			"useWideViewPort = true",
+			message = "Android WebView must honor the reader viewport meta tag instead of using a tall wide layout viewport"
+		)
+		assertContains(runtimeText, "loadWithOverviewMode = false")
+		assertContains(runtimeText, "textZoom = 100")
+	}
+
+	@Test
 	fun androidPdfRuntimePublishesStableViewportForFixedLayout() {
 		val root = readerAssetRoot()
 		val foliateFixedLayoutText = root.resolve("vendor/foliate-js/fixed-layout.js").readText()
@@ -121,10 +134,34 @@ class ReaderRuntimeAssetsTest {
 		assertContains(foliatePdfAdapterText, "nonWhite")
 	}
 
+	@Test
+	fun androidPaginatorKeepsEpubIframesInsideVisibleViewport() {
+		val root = readerAssetRoot()
+		val bridgeText = root.resolve("navic-reader.js").readText()
+		val paginatorText = root.resolve("vendor/foliate-js/paginator.js").readText()
+
+		assertContains(
+			paginatorText,
+			"applyVisibleViewport",
+			message = "EPUB paginator must constrain layout to Android WebView's visible viewport"
+		)
+		assertContains(paginatorText, "[FoliatePaginator] layout")
+		assertContains(paginatorText, "visualViewport")
+		assertContains(bridgeText, "content-layout")
+		assertContains(bridgeText, "frameElement")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),
 			File("composeApp/src/androidMain/assets/reader")
 		).firstOrNull { it.isDirectory }
 			?: error("Could not locate Android reader assets")
+
+	private fun readerWebRuntimeFile(): File =
+		listOf(
+			File("src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate Android reader WebView runtime")
 }
