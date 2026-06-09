@@ -556,54 +556,14 @@ const renderPage = async (page, getImageBlob) => {
     const blob = new Blob([str], { type: 'image/svg+xml' })
     */
 
-    const container = document.createElement('div')
-    container.classList.add('textLayer')
-    await pdfjsLib.renderTextLayer({
-        textContentSource: await page.getTextContent(),
-        container, viewport,
-    }).promise
-
-    const div = document.createElement('div')
-    div.classList.add('annotationLayer')
-    await new pdfjsLib.AnnotationLayer({ page, viewport, div }).render({
-        annotations: await page.getAnnotations(),
-        linkService: {
-            getDestinationHash: dest => JSON.stringify(dest),
-            addLinkAttributes: (link, url) => link.href = url,
-        },
+    const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(value => {
+            if (value) resolve(value)
+            else reject(new Error(`Failed to encode PDF page ${page.pageNumber}`))
+        }, 'image/png')
     })
-
-    const src = canvas.toDataURL('image/png')
-    const url = URL.createObjectURL(new Blob([`
-        <!DOCTYPE html>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=${pageWidth}, height=${pageHeight}">
-        <link rel="icon" href="data:,">
-        <style>
-        :root {
-            --scale-factor: ${scale};
-        }
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: ${pageWidth}px;
-            height: ${pageHeight}px;
-            overflow: hidden;
-            background: #fff;
-        }
-        img {
-            display: block;
-            width: ${pageWidth}px;
-            height: ${pageHeight}px;
-        }
-        ${textLayerBuilderCSS}
-        ${annotationLayerBuilderCSS}
-        </style>
-        <img src="${src}" alt="">
-        ${container.outerHTML}
-        ${div.outerHTML}
-    `], { type: 'text/html' }))
-    return url
+    const src = URL.createObjectURL(blob)
+    return { type: 'image', src, width: pageWidth, height: pageHeight }
 }
 
 const makeTOCItem = item => ({

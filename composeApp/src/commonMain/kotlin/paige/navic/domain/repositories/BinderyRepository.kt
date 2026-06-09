@@ -548,7 +548,7 @@ data class BinderyServiceStatus(
 data class BinderyReadingProgress(
 	val bookId: String,
 	val alias: String? = null,
-	val kind: BinderyReadingProgressKind,
+	val kind: BinderyReadingProgressKind = BinderyReadingProgressKind.Ebook,
 	val resourceHref: String? = null,
 	val textHref: String? = null,
 	val cfi: String? = null,

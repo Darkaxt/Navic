@@ -89,12 +89,15 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(
 			foliatePdfAdapterText,
-			"<meta name=\"viewport\" content=\"width=\${pageWidth}, height=\${pageHeight}\">",
-			message = "PDF page HTML must expose dimensions before the fixed-layout iframe load event"
+			"return { type: 'image', src, width: pageWidth, height: pageHeight }",
+			message = "PDF pages must expose direct image dimensions before fixed-layout paint"
 		)
 		assertContains(foliatePdfAdapterText, "[FoliatePDF] renderPage")
 		assertContains(foliatePdfAdapterText, "spread: 'none'")
-		assertContains(foliatePdfAdapterText, "canvas.toDataURL('image/png')")
+		assertContains(foliatePdfAdapterText, "type: 'image'")
+		assertContains(foliatePdfAdapterText, "URL.createObjectURL")
+		assertContains(foliateFixedLayoutText, "inlineImage")
+		assertContains(foliateFixedLayoutText, "[FoliateFXL] inline-image-loaded")
 		assertContains(foliateFixedLayoutText, "await getViewport(doc, this.defaultViewport)")
 		assertContains(foliateFixedLayoutText, "normalizeFrameSize")
 		assertContains(foliateFixedLayoutText, "Number.isFinite")
