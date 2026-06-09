@@ -58,7 +58,7 @@ const hostStyles = `:host {
     height: 100%;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     overflow: auto;
 }`
 
@@ -71,6 +71,23 @@ const applyShadowStyles = root => {
         const style = document.createElement('style')
         style.textContent = hostStyles
         root.append(style)
+    }
+}
+
+const visibleViewport = rect => {
+    const visualViewport = globalThis.visualViewport
+    const rectWidth = normalizeFrameSize(rect.width)
+    const rectHeight = normalizeFrameSize(rect.height, 2000)
+    const visualWidth = visualViewport ? normalizeFrameSize(visualViewport.width, rectWidth) : rectWidth
+    const visualHeight = visualViewport ? normalizeFrameSize(visualViewport.height, rectHeight) : rectHeight
+    return {
+        width: Math.min(rectWidth, visualWidth),
+        height: Math.min(rectHeight, visualHeight),
+        rectWidth,
+        rectHeight,
+        visualWidth,
+        visualHeight,
+        devicePixelRatio: globalThis.devicePixelRatio || 1,
     }
 }
 
@@ -184,12 +201,13 @@ export class FixedLayout extends HTMLElement {
         const left = this.#left ?? {}
         const right = this.#center ?? this.#right
         const target = side === 'left' ? left : right
-        const { width, height } = this.getBoundingClientRect()
+        const rect = this.getBoundingClientRect()
+        const viewport = visibleViewport(rect)
         const portrait = this.spread !== 'both' && this.spread !== 'portrait'
-            && height > width
+            && viewport.height > viewport.width
         this.#portrait = portrait
-        const viewportWidth = normalizeFrameSize(width)
-        const viewportHeight = normalizeFrameSize(height, 2000)
+        const viewportWidth = normalizeFrameSize(viewport.width)
+        const viewportHeight = normalizeFrameSize(viewport.height, 2000)
         const blankWidth = normalizeFrameSize(left.width ?? right.width)
         const blankHeight = normalizeFrameSize(left.height ?? right.height, blankWidth * 1.5)
         const targetWidth = normalizeFrameSize(target.width ?? blankWidth, blankWidth)
@@ -216,6 +234,11 @@ export class FixedLayout extends HTMLElement {
         if (safeScale !== scale) {
             console.warn(`[FoliateFXL] invalid-scale width=${viewportWidth} height=${viewportHeight} targetWidth=${targetWidth} targetHeight=${targetHeight} scale=${scale}`)
         }
+        console.info(
+            `[FoliateFXL] layout rect=${viewport.rectWidth}x${viewport.rectHeight} ` +
+            `visualViewport=${viewport.visualWidth}x${viewport.visualHeight} ` +
+            `dpr=${viewport.devicePixelRatio} viewport=${viewportWidth}x${viewportHeight}`
+        )
         console.debug(`[FoliateFXL] render side=${side} viewport=${viewportWidth}x${viewportHeight} target=${targetWidth}x${targetHeight} scale=${safeScale}`)
 
         const transform = frame => {
@@ -245,7 +268,7 @@ export class FixedLayout extends HTMLElement {
                 overflow: 'hidden',
                 display: 'block',
                 flexShrink: '0',
-                marginBlock: 'auto',
+                marginBlock: '0',
             })
             if (portrait && frame !== target) {
                 element.style.display = 'none'

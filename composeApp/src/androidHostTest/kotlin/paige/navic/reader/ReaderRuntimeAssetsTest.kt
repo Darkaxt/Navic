@@ -104,6 +104,23 @@ class ReaderRuntimeAssetsTest {
 		assertContains(foliateFixedLayoutText, "[FoliateFXL] frame-loaded")
 	}
 
+	@Test
+	fun androidFixedLayoutKeepsPdfPagesVisibleWhenWebViewReportsWideViewport() {
+		val root = readerAssetRoot()
+		val foliateFixedLayoutText = root.resolve("vendor/foliate-js/fixed-layout.js").readText()
+		val foliatePdfAdapterText = root.resolve("vendor/foliate-js/pdf.js").readText()
+
+		assertContains(
+			foliateFixedLayoutText,
+			"align-items: flex-start;",
+			message = "PDF image pages must not be vertically centered inside Android WebView's wide layout viewport"
+		)
+		assertContains(foliateFixedLayoutText, "[FoliateFXL] layout")
+		assertContains(foliateFixedLayoutText, "visualViewport")
+		assertContains(foliatePdfAdapterText, "[FoliatePDF] bitmap")
+		assertContains(foliatePdfAdapterText, "nonWhite")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),
