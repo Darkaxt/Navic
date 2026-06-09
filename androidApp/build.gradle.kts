@@ -46,8 +46,8 @@ extensions.configure<ApplicationExtension> {
 		applicationId = "darkaxt.navic"
 		minSdk = libs.versions.android.minSdk.get().toInt()
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
-		versionCode = 269
-		versionName = "v1.0.10-gamma82"
+		versionCode = 270
+		versionName = "v1.0.10-gamma83"
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))

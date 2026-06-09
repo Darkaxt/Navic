@@ -81,6 +81,24 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(ReaderWebRuntime.LocalPublicationFileAccessEnabled)
 	}
 
+	@Test
+	fun androidPdfRuntimePublishesStableViewportForFixedLayout() {
+		val root = readerAssetRoot()
+		val foliateFixedLayoutText = root.resolve("vendor/foliate-js/fixed-layout.js").readText()
+		val foliatePdfAdapterText = root.resolve("vendor/foliate-js/pdf.js").readText()
+
+		assertContains(
+			foliatePdfAdapterText,
+			"<meta name=\"viewport\" content=\"width=\${pageWidth}, height=\${pageHeight}\">",
+			message = "PDF page HTML must expose dimensions before the fixed-layout iframe load event"
+		)
+		assertContains(foliatePdfAdapterText, "[FoliatePDF] renderPage")
+		assertContains(foliateFixedLayoutText, "await getViewport(doc, this.defaultViewport)")
+		assertContains(foliateFixedLayoutText, "normalizeFrameSize")
+		assertContains(foliateFixedLayoutText, "Number.isFinite")
+		assertContains(foliateFixedLayoutText, "[FoliateFXL] frame-loaded")
+	}
+
 	private fun readerAssetRoot(): File =
 		listOf(
 			File("src/androidMain/assets/reader"),

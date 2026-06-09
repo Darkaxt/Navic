@@ -3,7 +3,15 @@ const parseViewport = str => str
     ?.filter(x => x)
     ?.map(x => x.split('=').map(x => x.trim()))
 
-const getViewport = (doc, viewport) => {
+const toViewport = viewport => {
+    if (typeof viewport === 'string') {
+        const parsed = parseViewport(viewport)
+        return parsed ? Object.fromEntries(parsed) : null
+    }
+    return viewport
+}
+
+const getViewport = async (doc, viewport) => {
     // use `viewBox` for SVG
     if (doc.documentElement.localName === 'svg') {
         const [, , width, height] = doc.documentElement
@@ -17,16 +25,32 @@ const getViewport = (doc, viewport) => {
     if (meta) return Object.fromEntries(meta)
 
     // fallback to book's viewport
-    if (typeof viewport === 'string') return parseViewport(viewport)
-    if (viewport) return viewport
+    const defaultViewport = toViewport(viewport)
+    if (defaultViewport) return defaultViewport
 
     // if no viewport (possibly with image directly in spine), get image size
     const img = doc.querySelector('img')
-    if (img) return { width: img.naturalWidth, height: img.naturalHeight }
+    if (img) {
+        if ((!img.naturalWidth || !img.naturalHeight) && typeof img.decode === 'function') {
+            try {
+                await img.decode()
+            } catch (error) {
+                console.warn('[FoliateFXL] image decode before viewport measurement failed', error)
+            }
+        }
+        return { width: img.naturalWidth, height: img.naturalHeight }
+    }
 
     // just show *something*, i guess...
     console.warn(new Error('Missing viewport properties'))
     return { width: 1000, height: 2000 }
+}
+
+const normalizeFrameSize = (size, fallback = 1000) => {
+    const value = parseFloat(size)
+    if (Number.isFinite(value) && value > 0) return value
+    const fallbackValue = parseFloat(fallback)
+    return Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 1000
 }
 
 const hostStyles = `:host {
@@ -100,14 +124,17 @@ export class FixedLayout extends HTMLElement {
         this.#root.append(element)
         if (!src) return { blank: true, element, iframe }
         return new Promise(resolve => {
-            iframe.addEventListener('load', () => {
+            iframe.addEventListener('load', async () => {
                 const doc = iframe.contentDocument
                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
-                const { width, height } = getViewport(doc, this.defaultViewport)
+                const { width, height } = await getViewport(doc, this.defaultViewport)
+                const frameWidth = normalizeFrameSize(width)
+                const frameHeight = normalizeFrameSize(height, frameWidth * 1.5)
+                console.info(`[FoliateFXL] frame-loaded index=${index} width=${frameWidth} height=${frameHeight}`)
                 resolve({
                     element, iframe,
-                    width: parseFloat(width),
-                    height: parseFloat(height),
+                    width: frameWidth,
+                    height: frameHeight,
                     onZoom,
                 })
             }, { once: true })
@@ -123,38 +150,51 @@ export class FixedLayout extends HTMLElement {
         const portrait = this.spread !== 'both' && this.spread !== 'portrait'
             && height > width
         this.#portrait = portrait
-        const blankWidth = left.width ?? right.width
-        const blankHeight = left.height ?? right.height
+        const viewportWidth = normalizeFrameSize(width)
+        const viewportHeight = normalizeFrameSize(height, 2000)
+        const blankWidth = normalizeFrameSize(left.width ?? right.width)
+        const blankHeight = normalizeFrameSize(left.height ?? right.height, blankWidth * 1.5)
+        const targetWidth = normalizeFrameSize(target.width ?? blankWidth, blankWidth)
+        const targetHeight = normalizeFrameSize(target.height ?? blankHeight, blankHeight)
+        const leftWidth = normalizeFrameSize(left.width ?? blankWidth, blankWidth)
+        const leftHeight = normalizeFrameSize(left.height ?? blankHeight, blankHeight)
+        const rightWidth = normalizeFrameSize(right.width ?? blankWidth, blankWidth)
+        const rightHeight = normalizeFrameSize(right.height ?? blankHeight, blankHeight)
 
         const scale = typeof this.#zoom === 'number' && !isNaN(this.#zoom)
             ? this.#zoom
             : this.#zoom === 'fit-width' ? (portrait || this.#center
-                ? width / (target.width ?? blankWidth)
-                : width / ((left.width ?? blankWidth) + (right.width ?? blankWidth)))
+                ? viewportWidth / targetWidth
+                : viewportWidth / (leftWidth + rightWidth))
             : (portrait || this.#center
                 ? Math.min(
-                    width / (target.width ?? blankWidth),
-                    height / (target.height ?? blankHeight))
+                    viewportWidth / targetWidth,
+                    viewportHeight / targetHeight)
                 : Math.min(
-                    width / ((left.width ?? blankWidth) + (right.width ?? blankWidth)),
-                    height / Math.max(
-                        left.height ?? blankHeight,
-                        right.height ?? blankHeight)))
+                    viewportWidth / (leftWidth + rightWidth),
+                    viewportHeight / Math.max(leftHeight, rightHeight)))
+
+        const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1
+        if (safeScale !== scale) {
+            console.warn(`[FoliateFXL] invalid-scale width=${viewportWidth} height=${viewportHeight} targetWidth=${targetWidth} targetHeight=${targetHeight} scale=${scale}`)
+        }
 
         const transform = frame => {
             let { element, iframe, width, height, blank, onZoom } = frame
-            if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale })
-            const iframeScale = onZoom ? scale : 1
+            const frameWidth = normalizeFrameSize(width, blankWidth)
+            const frameHeight = normalizeFrameSize(height, blankHeight)
+            if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale: safeScale })
+            const iframeScale = onZoom ? safeScale : 1
             Object.assign(iframe.style, {
-                width: `${width * iframeScale}px`,
-                height: `${height * iframeScale}px`,
-                transform: onZoom ? 'none' : `scale(${scale})`,
+                width: `${frameWidth * iframeScale}px`,
+                height: `${frameHeight * iframeScale}px`,
+                transform: onZoom ? 'none' : `scale(${safeScale})`,
                 transformOrigin: 'top left',
                 display: blank ? 'none' : 'block',
             })
             Object.assign(element.style, {
-                width: `${(width ?? blankWidth) * scale}px`,
-                height: `${(height ?? blankHeight) * scale}px`,
+                width: `${frameWidth * safeScale}px`,
+                height: `${frameHeight * safeScale}px`,
                 overflow: 'hidden',
                 display: 'block',
                 flexShrink: '0',

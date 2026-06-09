@@ -536,10 +536,13 @@ const renderPage = async (page, getImageBlob) => {
 
     const scale = devicePixelRatio * pdfToAppResolutionRatio
     const viewport = page.getViewport({ scale })
+    const pageWidth = viewport.width
+    const pageHeight = viewport.height
+    console.info(`[FoliatePDF] renderPage page=${page.pageNumber} width=${pageWidth} height=${pageHeight} scale=${scale}`)
 
     const canvas = document.createElement('canvas')
-    canvas.height = viewport.height
-    canvas.width = viewport.width
+    canvas.height = pageHeight
+    canvas.width = pageWidth
     const canvasContext = canvas.getContext('2d')
     await page.render({ canvasContext, viewport }).promise
     const blob = await new Promise(resolve => canvas.toBlob(resolve))
@@ -575,6 +578,8 @@ const renderPage = async (page, getImageBlob) => {
     const url = URL.createObjectURL(new Blob([`
         <!DOCTYPE html>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=${pageWidth}, height=${pageHeight}">
+        <link rel="icon" href="data:,">
         <style>
         :root {
             --scale-factor: ${scale};
@@ -582,11 +587,20 @@ const renderPage = async (page, getImageBlob) => {
         html, body {
             margin: 0;
             padding: 0;
+            width: ${pageWidth}px;
+            height: ${pageHeight}px;
+            overflow: hidden;
+            background: #fff;
+        }
+        img {
+            display: block;
+            width: ${pageWidth}px;
+            height: ${pageHeight}px;
         }
         ${textLayerBuilderCSS}
         ${annotationLayerBuilderCSS}
         </style>
-        <img src="${src}">
+        <img src="${src}" alt="">
         ${container.outerHTML}
         ${div.outerHTML}
     `], { type: 'text/html' }))
