@@ -290,6 +290,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "content: ' »'")
 		assertContains(bridgeText, "vertical-align: sub")
 		assertContains(bridgeText, "font-size: 0.72em")
+		assertContains(bridgeText, "closestElement")
+		assertContains(bridgeText, "parentElement?.closest")
+		assertContains(bridgeText, "attachLinkNavigation")
+		assertContains(bridgeText, "closestElement(event.target, 'a[href]')")
+		assertContains(bridgeText, "event.stopPropagation()")
+		assertContains(bridgeText, "await this.goTo(href)")
+		assertContains(bridgeText, "link:navigate")
+	}
+
+	@Test
+	fun androidReaderInjectsThemeColorsIntoPublicationDocuments() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "const palette = readerThemePalette(settings.theme)")
+		assertContains(bridgeText, "--reader-background: \${palette.background}")
+		assertContains(bridgeText, "--reader-foreground: \${palette.foreground}")
+		assertContains(bridgeText, "--reader-accent: \${palette.accent}")
+		assertContains(bridgeText, "html, body")
+		assertContains(bridgeText, "background-color: var(--reader-background) !important")
+		assertContains(bridgeText, "color: var(--reader-foreground) !important")
 	}
 
 	@Test
@@ -342,6 +362,38 @@ class ReaderRuntimeAssetsTest {
 		assertContains(preferenceText, "smallerTapZone = readerSmallerTapZone")
 		assertContains(bridgeProtocolText, "val smallerTapZone: Boolean? = null")
 		assertContains(bridgeProtocolText, "smallerTapZone?.let { put(\"smallerTapZone\", it) }")
+	}
+
+	@Test
+	fun androidReaderPortsKomikkuFullscreenSystemBars() {
+		val systemBarsEffect = listOf(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderSystemBarsEffect.android.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderSystemBarsEffect.android.kt")
+		).firstOrNull { it.isFile }
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
+		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+
+		assertTrue(systemBarsEffect?.isFile == true, "Reader must own a native system-bars effect like Komikku ReaderActivity.")
+		val systemBarsEffectText = systemBarsEffect.readText()
+		assertContains(systemBarsEffectText, "WindowCompat.getInsetsController")
+		assertContains(systemBarsEffectText, "WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE")
+		assertContains(systemBarsEffectText, "WindowInsetsCompat.Type.systemBars()")
+		assertContains(systemBarsEffectText, "controller.hide(WindowInsetsCompat.Type.systemBars())")
+		assertContains(systemBarsEffectText, "controller.show(WindowInsetsCompat.Type.systemBars())")
+		assertContains(readerScreenText, "ReaderSystemBarsEffect(")
+		assertContains(readerScreenText, "chromeVisible || optionsVisible")
+		assertContains(readerScreenText, "Fullscreen")
+		assertContains(readerScreenText, "toggleFullscreen()")
+		assertContains(ebooksSettingsText, "readerFullscreen")
+		assertContains(ebooksSettingsText, "option_ebook_reader_fullscreen")
+		assertContains(searchSettingsText, "ebooks.fullscreen")
+		assertContains(searchSettingsText, "readerFullscreen")
+		assertContains(preferenceText, "fullscreen = readerFullscreen")
+		assertContains(bridgeProtocolText, "val fullscreen: Boolean? = null")
+		assertContains(bridgeProtocolText, "fullscreen?.let { put(\"fullscreen\", it) }")
 	}
 
 	@Test

@@ -112,6 +112,12 @@ const readerDirectionMode = settings => {
   return ReaderDirectionDefault
 }
 
+const closestElement = (target, selector) =>
+  target?.closest?.(selector) ||
+  target?.parentElement?.closest?.(selector) ||
+  target?.parentNode?.closest?.(selector) ||
+  null
+
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
   left,
@@ -503,7 +509,7 @@ class NavicReaderRuntime {
     doc.defaultView.__navicCenterTapGestureAttached = true
     doc.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button !== 0) return
-      if (event.target?.closest?.('a,button,input,textarea,select,summary,[role="button"]')) return
+      if (closestElement(event.target, 'a,button,input,textarea,select,summary,[role="button"]')) return
       const selection = doc.getSelection?.()
       if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
       const tapZone = this.readerTapZone(event, doc)
@@ -530,6 +536,33 @@ class NavicReaderRuntime {
       log('center-tap')
       post({ type: 'readerCenterTap' })
     }, { passive: false })
+  }
+
+  attachLinkNavigation(doc, index) {
+    if (!doc?.defaultView || doc.defaultView.__navicLinkNavigationAttached) return
+    doc.defaultView.__navicLinkNavigationAttached = true
+    doc.addEventListener('click', async event => {
+      if (event.defaultPrevented || event.button > 0) return
+      const anchor = closestElement(event.target, 'a[href]')
+      if (!anchor) return
+      const rawHref = anchor.getAttribute('href')
+      if (!rawHref) return
+      const section = this.view?.book?.sections?.[index]
+      const href = section?.resolveHref?.(rawHref) ?? rawHref
+      event.preventDefault()
+      event.stopPropagation()
+      try {
+        if (this.view?.book?.isExternal?.(href)) {
+          log('link:external', describeUrl(href))
+          globalThis.open?.(href, '_blank')
+          return
+        }
+        log('link:navigate', href)
+        await this.goTo(href)
+      } catch (error) {
+        reportError(error, 'link_navigation_failed')
+      }
+    }, { capture: true })
   }
 
   readerTapZone(event, doc) {
@@ -710,6 +743,7 @@ class NavicReaderRuntime {
     for (const content of contents) {
       const doc = content.doc
       if (!doc) continue
+      this.attachLinkNavigation(doc, content.index)
       this.attachScrolledEdgeTurnGestures(doc)
       this.attachCenterTapGesture(doc)
       if (doc.defaultView?.__navicSelectionBridgeAttached) continue
@@ -811,12 +845,21 @@ const readerTypographyCss = settings => settings.publisherStyles === true
   }
 `
 
-const readerContentCss = settings => `
+const readerContentCss = settings => {
+  const palette = readerThemePalette(settings.theme)
+  return `
   ${readerFontFaceCss()}
   html {
+    --reader-background: ${palette.background};
+    --reader-foreground: ${palette.foreground};
+    --reader-accent: ${palette.accent};
     color: var(--reader-foreground) !important;
-    background: var(--reader-background) !important;
+    background-color: var(--reader-background) !important;
     font-size: ${settings.fontSizePercent || 100}%;
+  }
+  html, body {
+    color: var(--reader-foreground) !important;
+    background-color: var(--reader-background) !important;
   }
   ${readerTypographyCss(settings)}
   a:any-link {
@@ -842,6 +885,7 @@ const readerContentCss = settings => `
     border-radius: 3px;
   }
 `
+}
 
 const normalizeSearchResult = (result, startIndex, view) => {
   if (!result || result === 'done' || result.progress != null) return []

@@ -813,6 +813,15 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			selection = readerSettings.orientation ?: ReaderOrientationDefault,
 			onSelect = { orientation -> preferenceManager.readerOrientation = orientation }
 		))
+		add(switchRow(
+			id = "ebooks.fullscreen",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_fullscreen),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_fullscreen),
+			keywords = listOf("reader", "ebook", "EPUB", "PDF", "fullscreen", "immersive", "Komikku", "system bars"),
+			value = preferenceManager.readerFullscreen,
+			onSetValue = { enabled -> preferenceManager.readerFullscreen = enabled }
+		))
 		add(selectionRow(
 			id = "ebooks.direction",
 			path = path(ebooks),

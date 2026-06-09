@@ -143,6 +143,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerTapZone,
 		preferenceManager.readerSmallerTapZone,
 		preferenceManager.readerPublisherStylesEnabled,
+		preferenceManager.readerFullscreen,
 		preferenceManager.readerKeepScreenOn,
 		preferenceManager.readerWebContentsDebuggingEnabled
 	) {
@@ -151,7 +152,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var chromeState by remember(reader.publicationUrl, defaultReaderSettings) {
 		mutableStateOf(ReaderChromeState(settings = defaultReaderSettings))
 	}
-	ReaderOrientationEffect(chromeState.settings.orientation)
 	var chromeVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var optionsVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var tocVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
@@ -170,6 +170,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var searchVisible by remember(reader.publicationUrl) { mutableStateOf(false) }
 	var searchQuery by remember(reader.publicationUrl) { mutableStateOf("") }
 	var searchResults by remember(reader.publicationUrl) { mutableStateOf(emptyList<ReaderSearchResult>()) }
+	val readerSystemBarsVisible = chromeVisible || optionsVisible || tocVisible ||
+		annotationsVisible || bookmarksVisible || searchVisible
+	ReaderOrientationEffect(chromeState.settings.orientation)
+	ReaderSystemBarsEffect(
+		fullscreen = chromeState.settings.fullscreen == true,
+		systemBarsVisible = readerSystemBarsVisible
+	)
 	val explicitStartLocator = remember(reader.startCfi, reader.startHref) {
 		ReaderLocator(
 			cfi = reader.startCfi,
@@ -1349,6 +1356,11 @@ private fun ReaderGeneralOptions(
 			value = readerOrientationShortLabel(state.settings.orientation),
 			onClick = { onSettingsChange(state.toggleOrientation()) }
 		)
+		ReaderToggleRow(
+			label = "Fullscreen",
+			checked = state.settings.fullscreen == true,
+			onCheckedChange = { onSettingsChange(state.toggleFullscreen()) }
+		)
 		ReaderCycleRow(
 			label = "Tap zones",
 			value = readerTapZoneShortLabel(state.settings.tapZone),
@@ -1636,6 +1648,12 @@ expect fun ReaderWebViewHost(
 
 @Composable
 expect fun ReaderOrientationEffect(orientation: String?)
+
+@Composable
+expect fun ReaderSystemBarsEffect(
+	fullscreen: Boolean,
+	systemBarsVisible: Boolean
+)
 
 @Composable
 expect fun ReaderPublicationRuntimeHost(

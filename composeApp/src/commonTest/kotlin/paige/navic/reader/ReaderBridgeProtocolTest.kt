@@ -27,6 +27,7 @@ class ReaderBridgeProtocolTest {
 				tapZone = ReaderTapZoneKindle,
 				smallerTapZone = true,
 				publisherStyles = true,
+				fullscreen = false,
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
 				webContentsDebuggingEnabled = true
@@ -52,6 +53,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"tapZone\":\"kindle\"")
 		assertContains(script, "\"smallerTapZone\":true")
 		assertContains(script, "\"publisherStyles\":true")
+		assertContains(script, "\"fullscreen\":false")
 		assertContains(script, "\"keepScreenOn\":true")
 		assertContains(script, "\"readaloudSyncEnabled\":false")
 		assertContains(script, "\"webContentsDebuggingEnabled\":true")

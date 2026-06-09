@@ -257,6 +257,7 @@ class PreferenceManager(
 	var readerTapZone by preference("default")
 	var readerSmallerTapZone by preference(false)
 	var readerPublisherStylesEnabled by preference(false)
+	var readerFullscreen by preference(true)
 	var readerKeepScreenOn by preference(false)
 	var readerMediaOverlayEnabled by preference(true)
 	var readerReadaloudSyncEnabled by preference(true)

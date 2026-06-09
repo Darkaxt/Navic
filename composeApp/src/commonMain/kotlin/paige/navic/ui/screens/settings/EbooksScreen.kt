@@ -31,6 +31,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_direction_defaul
 import navic.composeapp.generated.resources.option_ebook_reader_direction_ltr
 import navic.composeapp.generated.resources.option_ebook_reader_direction_rtl
 import navic.composeapp.generated.resources.option_ebook_reader_flow
+import navic.composeapp.generated.resources.option_ebook_reader_fullscreen
 import navic.composeapp.generated.resources.option_ebook_reader_line_height
 import navic.composeapp.generated.resources.option_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.option_ebook_reader_margin
@@ -70,6 +71,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
+import navic.composeapp.generated.resources.subtitle_ebook_reader_fullscreen
 import navic.composeapp.generated.resources.subtitle_ebook_reader_line_height
 import navic.composeapp.generated.resources.subtitle_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
@@ -224,6 +226,12 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_orientation),
 						selection = orientation,
 						onSelect = { option -> preferenceManager.readerOrientation = option.orientation }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_fullscreen)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_fullscreen)) },
+						value = preferenceManager.readerFullscreen,
+						onSetValue = { enabled -> preferenceManager.readerFullscreen = enabled }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_direction)) },

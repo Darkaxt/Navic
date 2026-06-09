@@ -64,6 +64,7 @@ data class ReaderSettings(
 	val tapZone: String? = null,
 	val smallerTapZone: Boolean? = null,
 	val publisherStyles: Boolean? = null,
+	val fullscreen: Boolean? = null,
 	val keepScreenOn: Boolean? = null,
 	val readaloudSyncEnabled: Boolean? = null,
 	val volumeKeyPageTurns: Boolean? = null,
@@ -352,6 +353,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		tapZone?.let { put("tapZone", it) }
 		smallerTapZone?.let { put("smallerTapZone", it) }
 		publisherStyles?.let { put("publisherStyles", it) }
+		fullscreen?.let { put("fullscreen", it) }
 		keepScreenOn?.let { put("keepScreenOn", it) }
 		readaloudSyncEnabled?.let { put("readaloudSyncEnabled", it) }
 		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }

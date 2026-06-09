@@ -217,6 +217,7 @@
 	<string name="subtitle_ebook_reader_dim_overlay">Darken the reader surface without changing the book theme.</string>
 	<string name="subtitle_ebook_reader_theme">Default light or dark reader colors.</string>
 	<string name="subtitle_ebook_reader_orientation">Control rotation while the reader is open.</string>
+	<string name="subtitle_ebook_reader_fullscreen">Hide Android system bars while reading; swipe from the edge to reveal them.</string>
 	<string name="subtitle_ebook_reader_direction">Override left-to-right or right-to-left page progression when the publication metadata is wrong.</string>
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
@@ -537,6 +538,7 @@
 	<string name="option_ebook_reader_dim_overlay">Dim overlay</string>
 	<string name="option_ebook_reader_theme">Reader theme</string>
 	<string name="option_ebook_reader_orientation">Orientation</string>
+	<string name="option_ebook_reader_fullscreen">Fullscreen reader</string>
 	<string name="option_ebook_reader_orientation_default">Default</string>
 	<string name="option_ebook_reader_orientation_free">Free</string>
 	<string name="option_ebook_reader_orientation_portrait">Portrait</string>

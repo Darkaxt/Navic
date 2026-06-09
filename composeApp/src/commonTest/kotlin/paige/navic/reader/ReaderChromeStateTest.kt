@@ -116,6 +116,16 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun fullscreenControlDefaultsToKomikkuStyleImmersiveReading() {
+		val initial = ReaderChromeState()
+		val updated = initial.toggleFullscreen()
+
+		assertEquals(true, initial.settings.fullscreen)
+		assertEquals(false, updated.settings.fullscreen)
+		assertEquals(true, updated.toggleFullscreen().settings.fullscreen)
+	}
+
+	@Test
 	fun readaloudChromeOnlyShowsForMediaOverlayReadaloudAndTogglesPlaybackIntent() {
 		assertTrue(readerReadaloudControlsVisible(ReaderPublicationKind.Readaloud, mediaOverlayEnabled = true))
 		assertFalse(readerReadaloudControlsVisible(ReaderPublicationKind.Ebook, mediaOverlayEnabled = true))

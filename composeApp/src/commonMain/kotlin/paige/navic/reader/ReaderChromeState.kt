@@ -265,6 +265,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		tapZone = ReaderTapZoneDefault,
 		smallerTapZone = false,
 		publisherStyles = false,
+		fullscreen = true,
 		keepScreenOn = false,
 		readaloudSyncEnabled = true,
 		volumeKeyPageTurns = false,
@@ -286,6 +287,7 @@ fun normalizedReaderSettings(
 	tapZone: String? = ReaderTapZoneDefault,
 	smallerTapZone: Boolean = false,
 	publisherStyles: Boolean = false,
+	fullscreen: Boolean = true,
 	keepScreenOn: Boolean = false,
 	readaloudSyncEnabled: Boolean = true,
 	volumeKeyPageTurns: Boolean = false,
@@ -316,6 +318,7 @@ fun normalizedReaderSettings(
 		tapZone = normalizedReaderTapZone(tapZone),
 		smallerTapZone = smallerTapZone,
 		publisherStyles = publisherStyles,
+		fullscreen = fullscreen,
 		keepScreenOn = keepScreenOn,
 		readaloudSyncEnabled = readaloudSyncEnabled,
 		volumeKeyPageTurns = volumeKeyPageTurns,
@@ -338,6 +341,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		tapZone = tapZone,
 		smallerTapZone = smallerTapZone ?: false,
 		publisherStyles = publisherStyles ?: false,
+		fullscreen = fullscreen ?: true,
 		keepScreenOn = keepScreenOn ?: false,
 		readaloudSyncEnabled = readaloudSyncEnabled ?: true,
 		volumeKeyPageTurns = volumeKeyPageTurns ?: false,
@@ -463,6 +467,9 @@ data class ReaderChromeState(
 
 	fun togglePublisherStyles(): ReaderChromeState =
 		copy(settings = settings.copy(publisherStyles = settings.publisherStyles != true))
+
+	fun toggleFullscreen(): ReaderChromeState =
+		copy(settings = settings.copy(fullscreen = settings.fullscreen != true))
 
 	fun toggleKeepScreenOn(): ReaderChromeState =
 		copy(settings = settings.copy(keepScreenOn = settings.keepScreenOn != true))

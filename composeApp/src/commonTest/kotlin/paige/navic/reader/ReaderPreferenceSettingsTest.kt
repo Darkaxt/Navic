@@ -65,6 +65,20 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripFullscreen() {
+		val preferences = PreferenceManager(MapSettings())
+
+		assertEquals(true, preferences.readerDefaultSettings().fullscreen)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(fullscreen = false)
+		)
+
+		assertEquals(false, preferences.readerFullscreen)
+		assertEquals(false, preferences.readerDefaultSettings().fullscreen)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripReadaloudSyncEnabled() {
 		val preferences = PreferenceManager(MapSettings())
 
