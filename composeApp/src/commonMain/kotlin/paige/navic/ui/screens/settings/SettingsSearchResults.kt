@@ -784,6 +784,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			value = preferenceManager.readerMediaOverlayEnabled,
 			onSetValue = { enabled -> preferenceManager.readerMediaOverlayEnabled = enabled }
 		))
+		if (isAndroid) {
+			add(switchRow(
+				id = "ebooks.web-debugging",
+				path = path(ebooks),
+				title = stringResource(Res.string.option_ebook_reader_web_debugging),
+				subtitle = stringResource(Res.string.subtitle_ebook_reader_web_debugging),
+				keywords = listOf("reader", "ebook", "EPUB", "WebView", "DevTools", "debugging"),
+				value = preferenceManager.readerWebContentsDebuggingEnabled,
+				onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
+			))
+		}
 
 		if (!isApple) {
 			add(selectionRow(

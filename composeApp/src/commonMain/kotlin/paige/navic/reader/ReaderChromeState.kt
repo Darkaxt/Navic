@@ -23,7 +23,8 @@ fun defaultReaderSettings(): ReaderSettings =
 		lineHeightPercent = (DefaultReaderLineHeight * 100).roundToInt(),
 		marginPercent = DefaultReaderMarginPercent,
 		theme = ReaderLightTheme,
-		paged = true
+		paged = true,
+		webContentsDebuggingEnabled = false
 	)
 
 fun normalizedReaderSettings(
@@ -32,7 +33,8 @@ fun normalizedReaderSettings(
 	lineHeightPercent: Int,
 	marginPercent: Int,
 	theme: String?,
-	paged: Boolean
+	paged: Boolean,
+	webContentsDebuggingEnabled: Boolean = false
 ): ReaderSettings =
 	ReaderSettings(
 		fontFamily = when (fontFamily) {
@@ -49,7 +51,8 @@ fun normalizedReaderSettings(
 			ReaderDarkTheme -> ReaderDarkTheme
 			else -> ReaderLightTheme
 		},
-		paged = paged
+		paged = paged,
+		webContentsDebuggingEnabled = webContentsDebuggingEnabled
 	)
 
 fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
@@ -59,7 +62,8 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
 		marginPercent = marginPercent ?: DefaultReaderMarginPercent,
 		theme = theme,
-		paged = paged ?: true
+		paged = paged ?: true,
+		webContentsDebuggingEnabled = webContentsDebuggingEnabled ?: false
 	)
 
 data class ReaderChromeState(

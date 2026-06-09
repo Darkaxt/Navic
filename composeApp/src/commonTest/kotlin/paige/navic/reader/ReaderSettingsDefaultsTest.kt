@@ -13,7 +13,8 @@ class ReaderSettingsDefaultsTest {
 				lineHeight = 1.2,
 				marginPercent = 24,
 				theme = "light",
-				paged = false
+				paged = false,
+				webContentsDebuggingEnabled = true
 			),
 			normalizedReaderSettings(
 				fontFamily = ReaderSerifFontFamily,
@@ -21,7 +22,8 @@ class ReaderSettingsDefaultsTest {
 				lineHeightPercent = 80,
 				marginPercent = 60,
 				theme = "sepia",
-				paged = false
+				paged = false,
+				webContentsDebuggingEnabled = true
 			)
 		)
 	}
@@ -35,7 +37,8 @@ class ReaderSettingsDefaultsTest {
 				lineHeight = 1.7,
 				marginPercent = 8,
 				theme = "dark",
-				paged = true
+				paged = true,
+				webContentsDebuggingEnabled = false
 			),
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
@@ -43,7 +46,8 @@ class ReaderSettingsDefaultsTest {
 				lineHeightPercent = 170,
 				marginPercent = 8,
 				theme = "dark",
-				paged = true
+				paged = true,
+				webContentsDebuggingEnabled = false
 			)
 		)
 	}

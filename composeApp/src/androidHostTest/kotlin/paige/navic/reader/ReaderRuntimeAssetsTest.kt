@@ -80,6 +80,7 @@ class ReaderRuntimeAssetsTest {
 		assertEquals("https://appassets.androidplatform.net/assets/reader/index.html", ReaderWebRuntime.entrypointUrl)
 		assertEquals("NavicAndroidBridge", ReaderWebRuntime.AndroidBridgeName)
 		assertFalse(ReaderWebRuntime.LocalPublicationFileAccessEnabled)
+		assertFalse(ReaderWebRuntime.WebContentsDebuggingDefaultEnabled)
 	}
 
 	@Test
@@ -93,6 +94,19 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(runtimeText, "loadWithOverviewMode = false")
 		assertContains(runtimeText, "textZoom = 100")
+	}
+
+	@Test
+	fun androidReaderWebViewDebuggingIsControlledByEbookSetting() {
+		val hostText = readerWebViewHostFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(hostText, "enableDebugging = settings.webContentsDebuggingEnabled == true")
+		assertContains(ebooksSettingsText, "readerWebContentsDebuggingEnabled")
+		assertContains(ebooksSettingsText, "option_ebook_reader_web_debugging")
+		assertContains(searchSettingsText, "ebooks.web-debugging")
+		assertContains(searchSettingsText, "readerWebContentsDebuggingEnabled")
 	}
 
 	@Test
@@ -167,4 +181,18 @@ class ReaderRuntimeAssetsTest {
 			File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt")
 		).firstOrNull { it.isFile }
 			?: error("Could not locate Android reader WebView runtime")
+
+	private fun readerWebViewHostFile(): File =
+		listOf(
+			File("src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate Android reader WebView host")
+
+	private fun settingsFile(fileName: String): File =
+		listOf(
+			File("src/commonMain/kotlin/paige/navic/ui/screens/settings/$fileName"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/$fileName")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate settings file $fileName")
 }

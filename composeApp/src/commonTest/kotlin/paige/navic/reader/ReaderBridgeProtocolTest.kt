@@ -19,7 +19,8 @@ class ReaderBridgeProtocolTest {
 				lineHeight = 1.7,
 				marginPercent = 8,
 				theme = "dark",
-				paged = false
+				paged = false,
+				webContentsDebuggingEnabled = true
 			)
 		).toJavaScript()
 
@@ -34,6 +35,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"marginPercent\":8")
 		assertContains(script, "\"theme\":\"dark\"")
 		assertContains(script, "\"paged\":false")
+		assertContains(script, "\"webContentsDebuggingEnabled\":true")
 	}
 
 	@Test

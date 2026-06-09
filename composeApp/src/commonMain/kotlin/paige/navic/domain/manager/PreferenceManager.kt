@@ -250,6 +250,7 @@ class PreferenceManager(
 	var readerTheme by preference("light")
 	var readerPaged by preference(true)
 	var readerMediaOverlayEnabled by preference(true)
+	var readerWebContentsDebuggingEnabled by preference(false)
 	var readerBookmarksJson by preference("")
 	var readerAnnotationsJson by preference("")
 	var autoDownloadStarredSongs by preference(false)

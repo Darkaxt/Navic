@@ -110,7 +110,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerLineHeightPercent,
 		preferenceManager.readerMarginPercent,
 		preferenceManager.readerTheme,
-		preferenceManager.readerPaged
+		preferenceManager.readerPaged,
+		preferenceManager.readerWebContentsDebuggingEnabled
 	) {
 		preferenceManager.readerDefaultSettings()
 	}

@@ -29,6 +29,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_scroll
 import navic.composeapp.generated.resources.option_ebook_reader_theme
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
 import navic.composeapp.generated.resources.option_ebook_reader_theme_light
+import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_line_height
@@ -36,6 +37,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
 import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
+import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.title_ebook_reader
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -52,6 +54,7 @@ import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -136,6 +139,14 @@ fun SettingsEbooksScreen() {
 						value = preferenceManager.readerMediaOverlayEnabled,
 						onSetValue = { enabled -> preferenceManager.readerMediaOverlayEnabled = enabled }
 					)
+					if (platformContext.platformType == PlatformType.Android) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_ebook_reader_web_debugging)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_web_debugging)) },
+							value = preferenceManager.readerWebContentsDebuggingEnabled,
+							onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
+						)
+					}
 				}
 			}
 		}

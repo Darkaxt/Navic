@@ -54,7 +54,8 @@ data class ReaderSettings(
 	val lineHeight: Double? = null,
 	val marginPercent: Int? = null,
 	val theme: String? = null,
-	val paged: Boolean? = null
+	val paged: Boolean? = null,
+	val webContentsDebuggingEnabled: Boolean? = null
 )
 
 enum class ReaderPublicationKind {
@@ -297,6 +298,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		marginPercent?.let { put("marginPercent", it) }
 		theme?.let { put("theme", it) }
 		paged?.let { put("paged", it) }
+		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
 	}
 
 private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {

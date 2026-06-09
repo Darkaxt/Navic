@@ -230,10 +230,15 @@ actual fun ReaderWebViewHost(
 							return true
 						}
 					}
-					ReaderWebRuntime.configure(this, bridge)
+					ReaderWebRuntime.configure(
+						this,
+						bridge,
+						enableDebugging = settings.webContentsDebuggingEnabled == true
+					)
 				}
 			},
 			update = { view ->
+				ReaderWebRuntime.setWebContentsDebuggingEnabled(settings.webContentsDebuggingEnabled == true)
 				if (
 					shouldDispatchReaderCommandsToWebRuntime(
 						runtimeReady = readerRuntimeReady,

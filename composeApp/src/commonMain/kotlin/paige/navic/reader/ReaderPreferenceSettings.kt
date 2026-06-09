@@ -10,7 +10,8 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings =
 		lineHeightPercent = readerLineHeightPercent,
 		marginPercent = readerMarginPercent,
 		theme = readerTheme,
-		paged = readerPaged
+		paged = readerPaged,
+		webContentsDebuggingEnabled = readerWebContentsDebuggingEnabled
 	)
 
 fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
@@ -21,4 +22,5 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerMarginPercent = normalized.marginPercent ?: 0
 	readerTheme = normalized.theme ?: ReaderLightTheme
 	readerPaged = normalized.paged ?: true
+	readerWebContentsDebuggingEnabled = normalized.webContentsDebuggingEnabled ?: false
 }
