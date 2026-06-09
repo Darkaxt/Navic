@@ -2018,6 +2018,44 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun ebookVersionRowsUseRelativePathAsIdentifierWhenPublisherIsMissing() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit"
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-abb-pdf",
+					title = "PDF",
+					type = "application/pdf",
+					kind = "ebook",
+					sizeBytes = 7_340_032,
+					properties = mapOf(
+						"provider" to "AudioBook Bay",
+						"format" to "pdf",
+						"language" to "eng",
+						"relativePath" to "01 - The Hobbit The Hobbit (Illustrated Edition by Alan Lee).pdf"
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3816/resources/ebook-abb-pdf",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "01 - The Hobbit The Hobbit (Illustrated Edition by Alan Lee)",
+					subtitle = "AudioBook Bay / PDF / 7.0 MB"
+				)
+			),
+			binderyBookVersionRows(manifest, resources, "eng")
+		)
+	}
+
+	@Test
 	fun ebookManifestReadingOrderDoesNotCreateFakeAudiobookVersion() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3913",

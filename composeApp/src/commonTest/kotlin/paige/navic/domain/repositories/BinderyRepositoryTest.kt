@@ -673,7 +673,11 @@ class BinderyRepositoryTest {
 			            "targetLanguage": "eng",
 			            "acquisitionStatus": "imported",
 			            "acquisitionScope": "file_selection",
-			            "selectedBytes": 27151009
+			            "selectedBytes": 27151009,
+			            "bookFileId": 765,
+			            "bookFileFormat": "epub",
+			            "bookFileSizeBytes": 27151009,
+			            "sourceCatalogCandidateId": 894
 			          }
 			        ]
 			      },
@@ -711,6 +715,10 @@ class BinderyRepositoryTest {
 		assertEquals("3816", finding.mappings.single().bookId)
 		assertEquals("The Hobbit", finding.mappings.single().bookTitle)
 		assertEquals(100.0, finding.mappings.single().confidence)
+		assertEquals("765", finding.mappings.single().bookFileId)
+		assertEquals("epub", finding.mappings.single().bookFileFormat)
+		assertEquals(27151009L, finding.mappings.single().bookFileSizeBytes)
+		assertEquals("894", finding.mappings.single().sourceCatalogCandidateId)
 		assertNull(catalog.publications.single().properties["files"])
 		assertNull(catalog.publications.single().properties["mappings"])
 	}

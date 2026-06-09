@@ -1135,18 +1135,20 @@ private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(
 
 private fun BinderyBookResource.toEbookVersionRow(
 	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
-): BinderyBookVersionRow =
-	BinderyBookVersionRow(
+): BinderyBookVersionRow {
+	val title = ebookVersionTitle()
+	return BinderyBookVersionRow(
 		id = href,
 		kind = BinderyBookVersionKind.Ebook,
-		title = versionTitle(),
+		title = title,
 		subtitle = listOfNotNull(
 			providerLabel(),
-			displayFormat().takeUnless { it == versionTitle() },
+			displayFormat().takeUnless { it == title },
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
 		finding = bookFileId()?.let(findingByBookFileId::get)
 	)
+}
 
 private fun BinderyBookResource.toReadaloudVersionRow(
 	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
@@ -1317,6 +1319,26 @@ private fun BinderyReadingOrderItem.versionPublisherLabel(): String? =
 private fun BinderyBookResource.versionTitle(): String =
 	versionPublisherLabel() ?: displayFormat() ?: "Ebook"
 
+private fun BinderyBookResource.ebookVersionTitle(): String =
+	versionPublisherLabel()
+		?: identifyingEbookFileLabel()
+		?: displayFormat()
+		?: "Ebook"
+
+private fun BinderyBookResource.identifyingEbookFileLabel(): String? {
+	if (!providerLabel().isAudioBookBayProvider()) return null
+	return properties.firstNonBlankValue("relativePath", "fileName", "filename", "name")
+		?.fileNameStem()
+}
+
+private fun String?.isAudioBookBayProvider(): Boolean {
+	val normalized = this?.trim()?.lowercase() ?: return false
+	return normalized == "abb" ||
+		normalized == "audiobook bay" ||
+		normalized == "audio book bay" ||
+		"audiobookbay" in normalized.replace(" ", "")
+}
+
 private fun BinderyBookResource.versionPublisherLabel(): String? =
 	properties.firstNonBlankValue("publisher")
 		?: displayName().leadingBracketLabel()
@@ -1474,6 +1496,23 @@ private fun String.fileExtension(): String? {
 	return extension
 		.takeIf { it.length in 2..6 && it.all(Char::isLetterOrDigit) }
 		?.uppercase()
+}
+
+private fun String.fileNameStem(): String? {
+	val fileName = substringBefore('?')
+		.substringBefore('#')
+		.substringAfterLast('/')
+		.substringAfterLast('\\')
+		.trim()
+		.takeIf { it.isNotEmpty() }
+		?: return null
+	val extension = fileName.fileExtension()
+	val stem = if (extension != null && fileName.length > extension.length + 1) {
+		fileName.dropLast(extension.length + 1)
+	} else {
+		fileName
+	}
+	return stem.trim().takeIf { it.isNotEmpty() }
 }
 
 private fun String.leadingBracketLabel(): String? {
