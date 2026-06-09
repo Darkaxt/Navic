@@ -813,7 +813,13 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onPlayerError(error: PlaybackException) {
-						Logger.w("MediaPlayer", "Playback error", error)
+						Logger.w(
+							"MediaPlayer",
+							"Playback error mediaId=${currentMediaItem?.mediaId} " +
+								"index=$currentMediaItemIndex " +
+								"code=${error.errorCodeName} message=${error.message}",
+							error
+						)
 						val shouldSkip = shouldSkipMediaAfterPlaybackError(
 							skipMediaOnError = preferenceManager.skipMediaOnError,
 							hasNextMediaItem = hasNextMediaItem()

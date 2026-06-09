@@ -7,6 +7,8 @@ import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -22,6 +24,7 @@ import org.koin.core.component.inject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.ui.components.common.CoilBitmapLoader
+import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
 
 class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
@@ -63,6 +66,18 @@ class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
 					preferenceManager.respectAudioFocus
 				)
 				setMediaNotificationProvider(notificationProvider)
+				addListener(object : Player.Listener {
+					override fun onPlayerError(error: PlaybackException) {
+						Logger.e(
+							ReadaloudPlaybackLogTag,
+							"Readaloud service playback error " +
+								"mediaId=${currentMediaItem?.mediaId} " +
+								"index=$currentMediaItemIndex " +
+								"code=${error.errorCodeName} message=${error.message}",
+							error
+						)
+					}
+				})
 			}
 		exoPlayer = player
 		val mediaSessionBuilder = MediaSession.Builder(this, player)

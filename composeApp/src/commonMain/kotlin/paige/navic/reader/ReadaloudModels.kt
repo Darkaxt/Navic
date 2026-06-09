@@ -2,6 +2,8 @@ package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyReadingOrderItem
+import paige.navic.util.core.AppLogLevel
+import paige.navic.util.core.LoggerEvent
 import kotlin.math.roundToLong
 
 data class ReadaloudAudioSession(
@@ -149,6 +151,33 @@ fun normalizedReadaloudPlaybackSpeed(value: Float): Float =
 	} else {
 		value.coerceIn(0.5f, 3f)
 	}
+
+fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent {
+	val firstItem = mediaItems.firstOrNull()
+	return LoggerEvent(
+		level = AppLogLevel.Info,
+		tag = ReadaloudPlaybackLogTag,
+		message = buildString {
+			append("Loaded readaloud playback plan")
+			sessionId?.let { append(" session=").append(it) }
+			append(" title=").append(title)
+			append(" kind=").append(kind)
+			append(" items=").append(mediaItems.size)
+			append(" startTrack=").append(startTrackIndex)
+			append(" startPositionMs=").append(startPositionMs)
+			append(" speed=").append(playbackSpeed)
+			firstItem?.let { item ->
+				append(" firstMediaId=").append(item.mediaId)
+				item.resourceKey?.let { append(" firstResource=").append(it) }
+				item.sourceProviderLabel?.let { append(" provider=").append(it) }
+				item.codec?.let { append(" codec=").append(it) }
+				item.bitrateKbps?.let { append(" bitrateKbps=").append(it) }
+			}
+		}
+	)
+}
+
+const val ReadaloudPlaybackLogTag = "ReadaloudPlayback"
 
 fun readaloudAudioSessionFromBindery(
 	manifest: BinderyManifest,

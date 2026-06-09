@@ -19,6 +19,7 @@
 	<string name="title_cache_management">Cache &amp; Storage Management</string>
 	<string name="title_danger_zone">Danger Zone</string>
 	<string name="title_developer">Developer Options</string>
+	<string name="title_logs">Logs</string>
 	<string name="title_about">About</string>
 	<string name="title_acknowledgements">Acknowledgements</string>
 	<string name="title_delete_playlist">Delete playlist?</string>
@@ -433,6 +434,8 @@
 	<string name="option_lida_clips_offline_clips">Offline video clips</string>
 	<string name="option_download_queue">Download queue</string>
 	<string name="option_custom_headers">Custom server headers</string>
+	<string name="option_issue_logging">Issue logging</string>
+	<string name="subtitle_issue_logging">Record local diagnostics for playback and app issues.</string>
 	<string name="option_reverse_proxy_basic_auth">Reverse proxy Basic Auth</string>
 	<string name="subtitle_reverse_proxy_basic_auth">For Traefik or another proxy in front of Navidrome</string>
 	<string name="option_reverse_proxy_username">Proxy username</string>
@@ -759,6 +762,7 @@
 	<string name="action_shuffle">Shuffle</string>
 	<string name="action_repeat">Repeat</string>
 	<string name="action_delete">Delete</string>
+	<string name="action_copy_logs">Copy logs</string>
 	<string name="action_cancel">Cancel</string>
 	<string name="action_refresh">Refresh</string>
 	<string name="action_open_aurral_settings">Open Aurral settings</string>
@@ -872,6 +876,7 @@
 	<string name="info_unknown_year">Unknown Year</string>
 	<string name="info_unknown_genre">Unknown Genre</string>
 	<string name="info_not_playing">Not Playing</string>
+	<string name="info_no_logs">No logs</string>
 	<string name="info_no_playlists">You have no playlists.</string>
 	<string name="info_no_other_playlists">You have no playlists other than this one.</string>
 	<string name="info_track_name">Name</string>

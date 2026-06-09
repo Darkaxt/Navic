@@ -26,13 +26,17 @@ import navic.composeapp.generated.resources.action_test_exception_handler
 import navic.composeapp.generated.resources.info_exception_handler
 import navic.composeapp.generated.resources.option_check_for_updates
 import navic.composeapp.generated.resources.option_custom_headers
+import navic.composeapp.generated.resources.option_issue_logging
+import navic.composeapp.generated.resources.subtitle_issue_logging
 import navic.composeapp.generated.resources.subtitle_check_for_updates
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_developer
+import navic.composeapp.generated.resources.title_logs
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
@@ -49,6 +53,7 @@ fun SettingsDeveloperScreen() {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	var exceptionConfirmationShown by rememberSaveable { mutableStateOf(false) }
+	val appLogManager = koinInject<AppLogManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	Scaffold(
@@ -76,6 +81,24 @@ fun SettingsDeveloperScreen() {
 							value = preferenceManager.checkForUpdates,
 							onSetValue = { preferenceManager.checkForUpdates = it }
 						)
+					}
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_issue_logging)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_issue_logging)) },
+						value = preferenceManager.issueLoggingEnabled,
+						onSetValue = appLogManager::setEnabled
+					)
+					FormRow(
+						onClick = dropUnlessResumed {
+							backStack.lastOrNull()?.let {
+								if (it is Screen.Settings.Developer) {
+									backStack.add(Screen.Settings.Logs)
+								}
+							}
+						}
+					) {
+						Text(stringResource(Res.string.title_logs))
+						Icon(Icons.Outlined.ChevronForward, null)
 					}
 					FormRow(
 						onClick = dropUnlessResumed {

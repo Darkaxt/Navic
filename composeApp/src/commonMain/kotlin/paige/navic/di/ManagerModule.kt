@@ -3,6 +3,7 @@ package paige.navic.di
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -22,4 +23,5 @@ val managerModule = module {
 	singleOf(::LidaClipDownloadManager)
 	singleOf(::SessionManager)
 	singleOf(::PreferenceManager)
+	single(createdAtStart = true) { AppLogManager(get()) }
 }

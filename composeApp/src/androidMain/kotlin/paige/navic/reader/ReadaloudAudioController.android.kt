@@ -4,11 +4,13 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import paige.navic.util.core.Logger
 
 class ReadaloudAudioController(
 	private val context: Context,
@@ -36,6 +38,20 @@ class ReadaloudAudioController(
 		}
 
 		override fun onPlaybackStateChanged(playbackState: Int) {
+			publishPosition()
+			positionPulse.update()
+		}
+
+		override fun onPlayerError(error: PlaybackException) {
+			val currentController = controller
+			Logger.e(
+				ReadaloudPlaybackLogTag,
+				"Readaloud controller playback error " +
+					"mediaId=${currentController?.currentMediaItem?.mediaId} " +
+					"index=${currentController?.currentMediaItemIndex} " +
+					"code=${error.errorCodeName} message=${error.message}",
+				error
+			)
 			publishPosition()
 			positionPulse.update()
 		}
@@ -117,21 +133,35 @@ class ReadaloudAudioController(
 		controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
 		controllerFuture?.addListener(
 			{
-				val connectedController = controllerFuture?.get()
-				if (connectedController != null) {
-					controller = connectedController
-					connectedController.addListener(listener)
-					pendingLoad?.let { pending ->
-						pendingLoad = null
-						load(pending.plan, pending.playWhenReady)
+				runCatching {
+					controllerFuture?.get()
+				}.fold(
+					onSuccess = { connectedController ->
+						if (connectedController != null) {
+							controller = connectedController
+							connectedController.addListener(listener)
+							pendingLoad?.let { pending ->
+								pendingLoad = null
+								load(pending.plan, pending.playWhenReady)
+							}
+						}
+					},
+					onFailure = { error ->
+						Logger.e(
+							ReadaloudPlaybackLogTag,
+							"Failed to connect readaloud controller",
+							error
+						)
 					}
-				}
+				)
 			},
 			MoreExecutors.directExecutor()
 		)
 	}
 
 	private fun MediaController.applyPlan(plan: ReadaloudPlaybackPlan, playWhenReady: Boolean) {
+		val event = plan.toReadaloudPlaybackLoadedEvent()
+		Logger.i(event.tag, event.message)
 		val mediaItems = plan.mediaItems.map(ReadaloudMediaItemDescriptor::toReadaloudMediaItem)
 		stop()
 		clearMediaItems()

@@ -245,6 +245,9 @@ sealed interface Screen : NavKey {
 		data object Developer : Settings
 		@Immutable
 		@Serializable
+		data object Logs : Settings
+		@Immutable
+		@Serializable
 		data object BottomAppBar : Settings
 		@Immutable
 		@Serializable

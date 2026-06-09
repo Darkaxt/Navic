@@ -36,6 +36,7 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.StorageManager
@@ -110,6 +111,7 @@ fun SettingsSearchResults(query: String) {
 @Composable
 private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val appLogManager = koinInject<AppLogManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val sessionManager = koinInject<SessionManager>()
 	val storageManager = koinInject<StorageManager>()
@@ -1564,6 +1566,15 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				onSetValue = { preferenceManager.checkForUpdates = it }
 			))
 		}
+		add(switchRow(
+			id = "developer.issue-logging",
+			path = path(developer),
+			title = stringResource(Res.string.option_issue_logging),
+			subtitle = stringResource(Res.string.subtitle_issue_logging),
+			keywords = listOf("logs", "diagnostics", "playback", "errors", "issues"),
+			value = preferenceManager.issueLoggingEnabled,
+			onSetValue = appLogManager::setEnabled
+		))
 		add(switchRow(
 			id = "developer.reverse-proxy-basic-auth",
 			path = path(developer, stringResource(Res.string.title_reverse_proxy_auth)),

@@ -111,6 +111,7 @@ import paige.navic.ui.screens.settings.SettingsDeveloperScreen
 import paige.navic.ui.screens.settings.SettingsEbooksScreen
 import paige.navic.ui.screens.settings.SettingsIntegrationsScreen
 import paige.navic.ui.screens.settings.SettingsLastFmScreen
+import paige.navic.ui.screens.settings.SettingsLogsScreen
 import paige.navic.ui.screens.settings.SettingsLidaClipsScreen
 import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
 import paige.navic.ui.screens.settings.SettingsPlaybackScreen
@@ -453,6 +454,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.Developer>(metadata = detailPane("settings")) {
 			SettingsDeveloperScreen()
+		}
+		entry<Screen.Settings.Logs>(metadata = detailPane("settings")) {
+			SettingsLogsScreen()
 		}
 		entry<Screen.Settings.About>(metadata = detailPane("settings")) {
 			SettingsAboutScreen()

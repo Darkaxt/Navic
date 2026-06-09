@@ -10,14 +10,18 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import org.koin.compose.koinInject
+import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.MiniPlayerStyle
+import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.navigation.Screen
 import paige.navic.util.ui.easedVerticalGradient
 
 @Composable
@@ -29,6 +33,19 @@ fun RootBottomBar(
 	bottomBarWindowInsets: WindowInsets = NavigationBarDefaults.windowInsets,
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
+	val backStack = LocalNavStack.current
+	val player = koinInject<MediaPlayerViewModel>()
+	val playerState by player.uiState.collectAsState()
+	val playbackKind = if (playerState.currentSong != null) {
+		MiniPlayerPlaybackKind.Music
+	} else {
+		MiniPlayerPlaybackKind.None
+	}
+	val shouldShowMiniPlayer = !hideMiniPlayer && shouldShowMiniPlayerForRoute(
+		screen = backStack.lastOrNull() as? Screen,
+		playbackKind = playbackKind,
+		binderyEnabled = preferenceManager.binderyEnabled
+	)
 	val scrolled =
 		scrolled && preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.OnScroll
 	val progress by animateFloatAsState(
@@ -51,7 +68,7 @@ fun RootBottomBar(
 			else Modifier
 		)
 	) {
-		if (!hideMiniPlayer) MiniPlayer(
+		if (shouldShowMiniPlayer) MiniPlayer(
 			modifier = Modifier.graphicsLayer {
 				alpha = progress.coerceIn(0f..1f)
 				translationY = ((1f - progress) * (size.height * 2)).coerceAtLeast(

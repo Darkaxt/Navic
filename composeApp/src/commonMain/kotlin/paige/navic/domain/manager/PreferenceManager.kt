@@ -238,6 +238,8 @@ class PreferenceManager(
 	var queueSwipeEndToStartAction by preference(QueueSwipeAction.RemoveFromQueue)
 	var persistentQueue by preference(true)
 	var resumePlaybackOnStartup by preference(false)
+	var issueLoggingEnabled by preference(false)
+	var issueLogJson by preference("")
 	var checkForUpdates by preference(true)
 	var pauseSearchHistory by preference(false)
 	var searchHistoryEntries by preference("")

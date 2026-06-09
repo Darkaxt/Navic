@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import org.koin.compose.koinInject
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.ReadaloudAudioController
+import paige.navic.reader.ReadaloudPlaybackLogTag
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderPublicationKind
@@ -25,6 +26,7 @@ import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderEvent
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
 
 @Composable
 actual fun ReaderReadaloudRuntimeHost(
@@ -98,6 +100,12 @@ actual fun ReaderReadaloudRuntimeHost(
 				onPublicationReady(loadedRuntime.publicationUrl)
 			},
 			onFailure = { error ->
+				Logger.e(
+					ReadaloudPlaybackLogTag,
+					"Failed to load readaloud publication " +
+						"bookId=${reader.bookId} resource=${reader.resourceHref} title=${reader.title}",
+					error
+				)
 				onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = false))
 				currentOnError(error.message ?: "Unable to load readaloud publication.")
 			}
