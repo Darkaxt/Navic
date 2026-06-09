@@ -395,11 +395,11 @@ class BinderyCatalogDisplayPolicyTest {
 			rows.audiobooks.map { row -> row.id }
 		)
 		assertEquals(
-			listOf("epub", "pdf"),
+			listOf("pdf", "epub"),
 			rows.ebooks.map { row -> row.id }
 		)
 		assertTrue(rows.audiobooks.first().subtitle.orEmpty().contains("Audible"))
-		assertTrue(rows.ebooks.first().subtitle.orEmpty().contains("HarperCollins"))
+		assertTrue(rows.ebooks.first().subtitle.orEmpty().contains("Houghton"))
 	}
 
 	@Test
@@ -1863,12 +1863,29 @@ class BinderyCatalogDisplayPolicyTest {
 					properties = mapOf(
 						"relativePath" to "[ePubLibre] Alcatraz versus the Evil Librarians - Brandon Sanderson.EPUB"
 					)
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-large-pdf",
+					title = "Alcatraz PDF",
+					type = "application/pdf",
+					kind = "ebook",
+					sizeBytes = 6_000_000,
+					properties = mapOf(
+						"relativePath" to "Alcatraz versus the Evil Librarians - Brandon Sanderson.PDF"
+					)
 				)
 			)
 		)
 
 		assertEquals(
 			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-large-pdf",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "PDF",
+					subtitle = "5.72 MB",
+					format = ReaderPublicationFormat.Pdf
+				),
 				BinderyBookVersionRow(
 					id = "/opds/books/3693/resources/ebook-large-publisher",
 					kind = BinderyBookVersionKind.Ebook,

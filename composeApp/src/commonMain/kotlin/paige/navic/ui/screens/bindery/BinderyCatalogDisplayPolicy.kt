@@ -838,8 +838,8 @@ fun binderyBookFindingRows(
 	val ebookRows = rows
 		.filter { row -> row.kind == BinderyBookFindingKind.Ebook }
 		.sortedWith(
-			compareByDescending<BinderyBookFindingRow> { row -> row.card.finding.findingEbookQualityRank() }
-				.thenByDescending { row -> row.card.finding?.sizeBytes ?: 0L }
+			compareByDescending<BinderyBookFindingRow> { row -> row.card.finding?.sizeBytes ?: 0L }
+				.thenByDescending { row -> row.card.finding.findingEbookQualityRank() }
 				.thenBy { row -> row.title.lowercase() }
 		)
 	return BinderyBookFindingGroups(audioRows, ebookRows)
@@ -1064,8 +1064,8 @@ fun binderyBookVersionRows(
 		.map { resource -> resource.toReadaloudVersionRow(findingByBookFileId) }
 	val ebookRows = ebookResources
 		.sortedWith(
-			compareByDescending<BinderyBookResource> { resource -> resource.ebookFormatQualityRank() }
-				.thenByDescending { resource -> resource.sizeBytes ?: 0L }
+			compareByDescending<BinderyBookResource> { resource -> resource.sizeBytes ?: 0L }
+				.thenByDescending { resource -> resource.ebookFormatQualityRank() }
 				.thenBy { resource -> resource.versionTitle().lowercase() }
 		)
 		.map { resource -> resource.toEbookVersionRow(findingByBookFileId) }
