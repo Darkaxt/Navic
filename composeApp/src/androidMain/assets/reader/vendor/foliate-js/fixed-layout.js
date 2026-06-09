@@ -104,11 +104,45 @@ export class FixedLayout extends HTMLElement {
                 break
         }
     }
+    #clearFrames() {
+        const preservedStyles = Array.from(this.#root.querySelectorAll('style'))
+        this.#root.replaceChildren(...preservedStyles)
+    }
     async #createFrame({ index, src: srcOption }) {
         const srcOptionIsString = typeof srcOption === 'string'
         const src = srcOptionIsString ? srcOption : srcOption?.src
         const onZoom = srcOptionIsString ? null : srcOption?.onZoom
+        const inlineImage = !srcOptionIsString && srcOption?.type === 'image'
         const element = document.createElement('div')
+        if (inlineImage) {
+            const image = document.createElement('img')
+            element.append(image)
+            Object.assign(image.style, {
+                border: '0',
+                display: 'none',
+                objectFit: 'fill',
+                transformOrigin: 'top left',
+            })
+            this.#root.append(element)
+            if (!src) return { blank: true, element, image }
+            return new Promise((resolve, reject) => {
+                image.addEventListener('load', () => {
+                    const frameWidth = normalizeFrameSize(srcOption?.width ?? image.naturalWidth)
+                    const frameHeight = normalizeFrameSize(srcOption?.height ?? image.naturalHeight, frameWidth * 1.5)
+                    console.info(`[FoliateFXL] inline-image-loaded index=${index} width=${frameWidth} height=${frameHeight} imageNatural=${image.naturalWidth}x${image.naturalHeight}`)
+                    resolve({
+                        element, image,
+                        width: frameWidth,
+                        height: frameHeight,
+                        inlineImage: true,
+                    })
+                }, { once: true })
+                image.addEventListener('error', () => {
+                    reject(new Error(`Failed to load fixed-layout image for section ${index}`))
+                }, { once: true })
+                image.src = src
+            })
+        }
         const iframe = document.createElement('iframe')
         element.append(iframe)
         Object.assign(iframe.style, {
@@ -185,18 +219,26 @@ export class FixedLayout extends HTMLElement {
         console.debug(`[FoliateFXL] render side=${side} viewport=${viewportWidth}x${viewportHeight} target=${targetWidth}x${targetHeight} scale=${safeScale}`)
 
         const transform = frame => {
-            let { element, iframe, width, height, blank, onZoom } = frame
+            let { element, iframe, image, width, height, blank, onZoom, inlineImage } = frame
             const frameWidth = normalizeFrameSize(width, blankWidth)
             const frameHeight = normalizeFrameSize(height, blankHeight)
-            if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale: safeScale })
-            const iframeScale = onZoom ? safeScale : 1
-            Object.assign(iframe.style, {
-                width: `${frameWidth * iframeScale}px`,
-                height: `${frameHeight * iframeScale}px`,
-                transform: onZoom ? 'none' : `scale(${safeScale})`,
-                transformOrigin: 'top left',
-                display: blank ? 'none' : 'block',
-            })
+            if (inlineImage && image) {
+                Object.assign(image.style, {
+                    width: `${frameWidth * safeScale}px`,
+                    height: `${frameHeight * safeScale}px`,
+                    display: blank ? 'none' : 'block',
+                })
+            } else {
+                if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale: safeScale })
+                const iframeScale = onZoom ? safeScale : 1
+                Object.assign(iframe.style, {
+                    width: `${frameWidth * iframeScale}px`,
+                    height: `${frameHeight * iframeScale}px`,
+                    transform: onZoom ? 'none' : `scale(${safeScale})`,
+                    transformOrigin: 'top left',
+                    display: blank ? 'none' : 'block',
+                })
+            }
             Object.assign(element.style, {
                 width: `${frameWidth * safeScale}px`,
                 height: `${frameHeight * safeScale}px`,
@@ -217,7 +259,7 @@ export class FixedLayout extends HTMLElement {
         }
     }
     async #showSpread({ left, right, center, side }) {
-        this.#root.replaceChildren()
+        this.#clearFrames()
         this.#left = null
         this.#right = null
         this.#center = null

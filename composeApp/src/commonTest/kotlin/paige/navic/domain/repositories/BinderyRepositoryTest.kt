@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -256,6 +257,29 @@ class BinderyRepositoryTest {
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.progressFetchHeaders)
 		assertEquals(listOf("3693"), apiClient.progressFetchBookIds)
 		assertEquals(listOf<String?>("darko"), apiClient.progressFetchAliases)
+	}
+
+	@Test
+	fun progressJsonDefaultsMissingKindToEbookForOlderBinderyResponses() {
+		val progress = Json {
+			ignoreUnknownKeys = true
+			isLenient = true
+		}.decodeFromString(
+			BinderyReadingProgress.serializer(),
+			"""
+			{
+				"bookId": "3816",
+				"resourceHref": "/opds/books/3816/resources/ebook-46bbc0be8508921f8174",
+				"cfi": "epubcfi(/6/2)",
+				"progressFraction": 0.02
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("3816", progress.bookId)
+		assertEquals(BinderyReadingProgressKind.Ebook, progress.kind)
+		assertEquals("/opds/books/3816/resources/ebook-46bbc0be8508921f8174", progress.resourceHref)
+		assertEquals(0.02, progress.progressFraction)
 	}
 
 	@Test
