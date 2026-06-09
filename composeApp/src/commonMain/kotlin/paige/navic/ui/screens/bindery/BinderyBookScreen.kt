@@ -81,7 +81,10 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
 import kotlin.math.roundToLong
+
+private const val BinderyBookScreenTag = "BinderyBookScreen"
 
 @OptIn(
 	ExperimentalMaterial3Api::class,
@@ -116,6 +119,16 @@ fun BinderyBookScreen(
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val versionRows = data?.let { bookData ->
+		binderyBookVersionRows(
+			manifest = bookData.manifest,
+			resourceCatalog = bookData.resources,
+			languageFilter = languageFilter,
+			findingsCatalog = bookData.findings,
+			bookId = bookId
+		)
+	}.orEmpty()
+	val versionGroups = binderyBookVersionGroups(versionRows)
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -128,6 +141,26 @@ fun BinderyBookScreen(
 		} else {
 			viewModel.clearBook()
 		}
+	}
+
+	LaunchedEffect(
+		data?.manifest?.id,
+		data?.manifest?.readingOrder?.size,
+		data?.resources?.resources?.size,
+		data?.findings?.publications?.size,
+		versionRows.size
+	) {
+		val bookData = data ?: return@LaunchedEffect
+		Logger.i(
+			BinderyBookScreenTag,
+			"Bindery book loaded bookId=$bookId " +
+				"readingOrder=${bookData.manifest.readingOrder.size} " +
+				"resources=${bookData.resources.resources.size} " +
+				"findings=${bookData.findings.publications.size} " +
+				"versions=${versionRows.size} " +
+				"audiobookRows=${versionGroups.audiobooks.size} " +
+				"ebookRows=${versionGroups.ebooks.size}"
+		)
 	}
 
 	Scaffold(
@@ -180,16 +213,6 @@ fun BinderyBookScreen(
 							BinderyBookLoadingPlaceholder(titleText)
 						}
 						else -> {
-							val versionRows = binderyBookVersionRows(
-								manifest = data.manifest,
-								resourceCatalog = data.resources,
-								languageFilter = languageFilter,
-								findingsCatalog = data.findings,
-								bookId = bookId
-							)
-							val versionGroups = binderyBookVersionGroups(
-								versionRows
-							)
 							item("bindery-book-hero") {
 								BinderyBookHero(
 									manifest = data.manifest,

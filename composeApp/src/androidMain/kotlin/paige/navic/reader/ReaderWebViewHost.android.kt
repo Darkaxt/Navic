@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import android.webkit.ConsoleMessage
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -10,6 +11,7 @@ import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -87,6 +89,7 @@ actual fun ReaderWebViewHost(
 	val currentCommand by rememberUpdatedState(command)
 	val currentCommandKey by rememberUpdatedState(commandKey)
 	var webView by remember { mutableStateOf<WebView?>(null) }
+	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
 	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
@@ -145,78 +148,104 @@ actual fun ReaderWebViewHost(
 		}
 	}
 
-	AndroidView(
-		modifier = modifier,
-		factory = {
-			WebView(context).apply {
-				webView = this
-				webChromeClient = object : WebChromeClient() {
-					override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-						val logMessage =
-							"Reader console ${message.messageLevel()}: ${message.message()} " +
-								"@ ${message.sourceId()}:${message.lineNumber()}"
-						when (message.messageLevel()) {
-							ConsoleMessage.MessageLevel.ERROR -> Logger.e(ReaderWebViewHostTag, logMessage)
-							ConsoleMessage.MessageLevel.WARNING -> Logger.w(ReaderWebViewHostTag, logMessage)
-							else -> Logger.i(ReaderWebViewHostTag, logMessage)
+	key(webViewGeneration) {
+		AndroidView(
+			modifier = modifier,
+			factory = {
+				WebView(context).apply {
+					webView = this
+					webChromeClient = object : WebChromeClient() {
+						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+							val logMessage =
+								"Reader console ${message.messageLevel()}: ${message.message()} " +
+									"@ ${message.sourceId()}:${message.lineNumber()}"
+							when (message.messageLevel()) {
+								ConsoleMessage.MessageLevel.ERROR -> Logger.e(ReaderWebViewHostTag, logMessage)
+								ConsoleMessage.MessageLevel.WARNING -> Logger.w(ReaderWebViewHostTag, logMessage)
+								else -> Logger.i(ReaderWebViewHostTag, logMessage)
+							}
+							return true
 						}
-						return true
 					}
+					webViewClient = object : WebViewClient() {
+						override fun shouldInterceptRequest(
+							view: WebView,
+							request: WebResourceRequest
+						): WebResourceResponse? =
+							readerAssetLoader.shouldInterceptRequest(request.url)
+								?: super.shouldInterceptRequest(view, request)
+
+						override fun onPageFinished(view: WebView, url: String?) {
+							Logger.i(ReaderWebViewHostTag, "Reader page finished: ${url?.readerUrlLabel().orEmpty()}")
+							view.dispatchReadyReaderCommands()
+						}
+
+						override fun onReceivedError(
+							view: WebView,
+							request: WebResourceRequest,
+							error: WebResourceError
+						) {
+							Logger.e(
+								ReaderWebViewHostTag,
+								"Reader WebView error main=${request.isForMainFrame} " +
+									"url=${request.url.toString().readerUrlLabel()} " +
+									"code=${error.errorCode} description=${error.description}"
+							)
+						}
+
+						override fun onReceivedHttpError(
+							view: WebView,
+							request: WebResourceRequest,
+							errorResponse: WebResourceResponse
+						) {
+							Logger.w(
+								ReaderWebViewHostTag,
+								"Reader WebView HTTP error main=${request.isForMainFrame} " +
+									"url=${request.url.toString().readerUrlLabel()} " +
+									"status=${errorResponse.statusCode} reason=${errorResponse.reasonPhrase}"
+							)
+						}
+
+						override fun onRenderProcessGone(
+							view: WebView,
+							detail: RenderProcessGoneDetail
+						): Boolean {
+							Logger.e(
+								ReaderWebViewHostTag,
+								"Reader WebView render process gone didCrash=${detail.didCrash()} " +
+									"priorityAtExit=${detail.rendererPriorityAtExit()} " +
+									"publication=${currentPublicationKey.hashCode()}"
+							)
+							if (webView === view) webView = null
+							commandDispatchState = ReaderWebCommandDispatchState()
+							readerRuntimeReady = false
+							currentOnEvent(
+								ReaderBridgeEvent.Error(
+									message = "Reader WebView renderer stopped.",
+									code = "webview_render_process_gone"
+								)
+							)
+							view.destroy()
+							webViewGeneration += 1
+							return true
+						}
+					}
+					ReaderWebRuntime.configure(this, bridge)
 				}
-				webViewClient = object : WebViewClient() {
-					override fun shouldInterceptRequest(
-						view: WebView,
-						request: WebResourceRequest
-					): WebResourceResponse? =
-						readerAssetLoader.shouldInterceptRequest(request.url)
-							?: super.shouldInterceptRequest(view, request)
-
-					override fun onPageFinished(view: WebView, url: String?) {
-						Logger.i(ReaderWebViewHostTag, "Reader page finished: ${url?.readerUrlLabel().orEmpty()}")
-						view.dispatchReadyReaderCommands()
-					}
-
-					override fun onReceivedError(
-						view: WebView,
-						request: WebResourceRequest,
-						error: WebResourceError
-					) {
-						Logger.e(
-							ReaderWebViewHostTag,
-							"Reader WebView error main=${request.isForMainFrame} " +
-								"url=${request.url.toString().readerUrlLabel()} " +
-								"code=${error.errorCode} description=${error.description}"
-						)
-					}
-
-					override fun onReceivedHttpError(
-						view: WebView,
-						request: WebResourceRequest,
-						errorResponse: WebResourceResponse
-					) {
-						Logger.w(
-							ReaderWebViewHostTag,
-							"Reader WebView HTTP error main=${request.isForMainFrame} " +
-								"url=${request.url.toString().readerUrlLabel()} " +
-								"status=${errorResponse.statusCode} reason=${errorResponse.reasonPhrase}"
-						)
-					}
+			},
+			update = { view ->
+				if (
+					shouldDispatchReaderCommandsToWebRuntime(
+						runtimeReady = readerRuntimeReady,
+						currentUrl = view.url,
+						entrypointUrl = ReaderWebRuntime.entrypointUrl
+					)
+				) {
+					view.dispatchReadyReaderCommands()
 				}
-				ReaderWebRuntime.configure(this, bridge)
 			}
-		},
-		update = { view ->
-			if (
-				shouldDispatchReaderCommandsToWebRuntime(
-					runtimeReady = readerRuntimeReady,
-					currentUrl = view.url,
-					entrypointUrl = ReaderWebRuntime.entrypointUrl
-				)
-			) {
-				view.dispatchReadyReaderCommands()
-			}
-		}
-	)
+		)
+	}
 }
 
 private fun ReaderBridgeCommand.debugLabel(): String =

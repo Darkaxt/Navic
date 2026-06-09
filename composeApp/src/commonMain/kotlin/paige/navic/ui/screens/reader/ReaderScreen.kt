@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +52,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
 import paige.navic.icons.filled.Star
+import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Star
@@ -80,6 +82,7 @@ import paige.navic.reader.readerReadaloudControlsVisible
 import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
 import paige.navic.reader.toReaderStartLocatorFor
+import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.navigation.Screen
 
@@ -393,14 +396,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 		) {
 			ReaderPublicationRuntimeHost(
 				reader = reader,
-				onPublicationReady = { publicationUrl -> preparedPublicationUrl = publicationUrl },
+				onPublicationReady = { publicationUrl ->
+					lastReaderError = null
+					preparedPublicationUrl = publicationUrl
+				},
 				onError = { message -> lastReaderError = message }
 			)
 			ReaderReadaloudRuntimeHost(
 				reader = reader,
 				readerEvent = lastReaderEvent,
 				readerEventKey = readerEventKey,
-				onPublicationReady = { publicationUrl -> preparedPublicationUrl = publicationUrl },
+				onPublicationReady = { publicationUrl ->
+					lastReaderError = null
+					preparedPublicationUrl = publicationUrl
+				},
 				onReaderCommand = { command, key ->
 					readerCommand = command
 					readerCommandKey = key
@@ -451,6 +460,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 					},
 					modifier = Modifier.fillMaxSize()
 				)
+			}
+			if (!progressResumeLoaded || (preparedPublicationUrl == null && lastReaderError == null)) {
+				CircularProgressIndicator(Modifier.align(Alignment.Center))
+			}
+			if (preparedPublicationUrl == null) {
+				lastReaderError?.let { message ->
+					ContentUnavailable(
+						icon = Icons.Outlined.Book,
+						label = message,
+						modifier = Modifier
+							.align(Alignment.Center)
+							.padding(24.dp)
+					)
+				}
 			}
 		}
 	}

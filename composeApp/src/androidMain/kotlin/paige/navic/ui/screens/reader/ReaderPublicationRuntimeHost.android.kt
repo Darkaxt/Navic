@@ -13,7 +13,11 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
+
+private const val ReaderPublicationRuntimeLogTag = "ReaderPublicationRuntime"
 
 @Composable
 actual fun ReaderPublicationRuntimeHost(
@@ -33,12 +37,35 @@ actual fun ReaderPublicationRuntimeHost(
 			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
 		if (directUrl != null) {
+			Logger.i(
+				ReaderPublicationRuntimeLogTag,
+				"Reader publication uses direct url kind=${reader.kind} " +
+					"url=${readerPublicationResourceLogLabel(directUrl)}"
+			)
 			currentOnPublicationReady(directUrl)
 			return@LaunchedEffect
 		}
+		Logger.i(
+			ReaderPublicationRuntimeLogTag,
+			"Preparing reader publication kind=${reader.kind} bookId=${reader.bookId} " +
+				"resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
+				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
+		)
 		runCatching {
 			BinderyReaderPublicationResolver(
-				fetchResourceBytes = { path -> repository.getResourceBytes(path).getOrThrow() },
+				fetchResourceBytes = { path ->
+					Logger.i(
+						ReaderPublicationRuntimeLogTag,
+						"Fetching reader publication resource path=${readerPublicationResourceLogLabel(path)}"
+					)
+					repository.getResourceBytes(path).getOrThrow().also { bytes ->
+						Logger.i(
+							ReaderPublicationRuntimeLogTag,
+							"Fetched reader publication resource path=${readerPublicationResourceLogLabel(path)} " +
+								"bytes=${bytes.size}"
+						)
+					}
+				},
 				cacheRoot = readerPublicationCacheRoot(context)
 			).resolve(
 				ReaderPublicationResourceRequest(
@@ -51,8 +78,22 @@ actual fun ReaderPublicationRuntimeHost(
 				)
 			).publicationUrl
 		}.fold(
-			onSuccess = currentOnPublicationReady,
-			onFailure = { error -> currentOnError(error.message ?: "Unable to load reader publication.") }
+			onSuccess = { publicationUrl ->
+				Logger.i(
+					ReaderPublicationRuntimeLogTag,
+					"Reader publication prepared url=${readerPublicationResourceLogLabel(publicationUrl)}"
+				)
+				currentOnPublicationReady(publicationUrl)
+			},
+			onFailure = { error ->
+				Logger.e(
+					ReaderPublicationRuntimeLogTag,
+					"Reader publication preparation failed kind=${reader.kind} bookId=${reader.bookId} " +
+						"resource=${readerPublicationResourceLogLabel(reader.resourceHref)}",
+					error
+				)
+				currentOnError(error.message ?: "Unable to load reader publication.")
+			}
 		)
 	}
 }

@@ -25,6 +25,7 @@ import paige.navic.reader.StorytellerReadaloudRuntimeLoader
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderEvent
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -78,9 +79,26 @@ actual fun ReaderReadaloudRuntimeHost(
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.title) {
 		runtime = null
 		syncState = ReaderReadaloudSyncState()
+		Logger.i(
+			ReadaloudPlaybackLogTag,
+			"Preparing readaloud publication bookId=${reader.bookId} " +
+				"resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
+				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
+		)
 		runCatching {
 			StorytellerReadaloudRuntimeLoader(
-				fetchResourceBytes = { path -> repository.getResourceBytes(path).getOrThrow() },
+				fetchResourceBytes = { path ->
+					Logger.i(
+						ReadaloudPlaybackLogTag,
+						"Fetching readaloud resource path=${readerPublicationResourceLogLabel(path)}"
+					)
+					repository.getResourceBytes(path).getOrThrow().also { bytes ->
+						Logger.i(
+							ReadaloudPlaybackLogTag,
+							"Fetched readaloud resource path=${readerPublicationResourceLogLabel(path)} bytes=${bytes.size}"
+						)
+					}
+				},
 				cacheRoot = readerPublicationCacheRoot(context)
 			).load(
 				ReaderPublicationResourceRequest(
@@ -95,6 +113,12 @@ actual fun ReaderReadaloudRuntimeHost(
 		}.fold(
 			onSuccess = { loadedRuntime ->
 				runtime = loadedRuntime
+				Logger.i(
+					ReadaloudPlaybackLogTag,
+					"Readaloud publication prepared url=${readerPublicationResourceLogLabel(loadedRuntime.publicationUrl)} " +
+						"tracks=${loadedRuntime.playbackPlan.mediaItems.size} " +
+						"clips=${loadedRuntime.timeline.clips.size}"
+				)
 				controller.load(loadedRuntime.playbackPlan, playWhenReady = false)
 				onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = true))
 				onPublicationReady(loadedRuntime.publicationUrl)
@@ -103,7 +127,8 @@ actual fun ReaderReadaloudRuntimeHost(
 				Logger.e(
 					ReadaloudPlaybackLogTag,
 					"Failed to load readaloud publication " +
-						"bookId=${reader.bookId} resource=${reader.resourceHref} title=${reader.title}",
+						"bookId=${reader.bookId} resource=${readerPublicationResourceLogLabel(reader.resourceHref)} " +
+						"title=${reader.title}",
 					error
 				)
 				onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = false))

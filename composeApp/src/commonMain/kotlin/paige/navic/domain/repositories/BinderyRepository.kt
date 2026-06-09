@@ -29,6 +29,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
+import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
@@ -168,10 +169,17 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyResourceCatalog>(json) }
 		)
 
-	suspend fun getResourceBytes(path: String): Result<ByteArray> =
-		withConfiguredClient { baseUrl, headers ->
-			apiClient.fetchResourceBytes(baseUrl, headers, path)
+	suspend fun getResourceBytes(path: String): Result<ByteArray> {
+		val label = readerPublicationResourceLogLabel(path)
+		Logger.i(TAG, "Bindery resource request path=$label")
+		return withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchResourceBytes(baseUrl, headers, path).also { bytes ->
+				Logger.i(TAG, "Bindery resource response path=$label bytes=${bytes.size}")
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Bindery resource request failed path=$label", error)
 		}
+	}
 
 	suspend fun getReadingProgress(
 		bookId: String,
@@ -195,11 +203,17 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
 
-	suspend fun performAction(path: String): Result<Unit> =
-		withConfiguredClient { baseUrl, headers ->
+	suspend fun performAction(path: String): Result<Unit> {
+		val label = readerPublicationResourceLogLabel(path)
+		Logger.i(TAG, "Bindery action request path=$label")
+		return withConfiguredClient { baseUrl, headers ->
 			apiClient.performAction(baseUrl, headers, path)
 			metadataCache.clearBaseUrl(baseUrl)
+			Logger.i(TAG, "Bindery action completed path=$label")
+		}.onFailure { error ->
+			Logger.w(TAG, "Bindery action failed path=$label", error)
 		}
+	}
 
 	private suspend fun <T> withConfiguredCachedPayload(
 		payloadType: String,
@@ -236,11 +250,19 @@ class BinderyRepository(
 							updatedAtMillis = currentTimeMillis()
 						)
 					)
+					Logger.i(
+						TAG,
+						"Bindery metadata fetched type=$payloadType path=${readerPublicationResourceLogLabel(cachePath)}"
+					)
 					preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
 					Result.success(live)
 				},
 				onFailure = { error ->
-					Logger.w(TAG, "Bindery OPDS request failed", error)
+					Logger.w(
+						TAG,
+						"Bindery OPDS request failed type=$payloadType path=${readerPublicationResourceLogLabel(cachePath)}",
+						error
+					)
 					preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
 					if (cached != null) {
 						runCatching { decode(cached.payloadJson) }
