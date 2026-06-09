@@ -492,7 +492,7 @@ private fun organicBlobPath(
 	val radius = min(width, height) * radiusFraction
 	val count = 5 + (seed % 4)
 	val points = List(count) { index ->
-		val angle = (Math.PI * 2.0 * index) / count
+		val angle = (PI * 2.0 * index) / count
 		val variance = .7f + ((seed.toLong() * (index + 1) * 11L) % 60L) / 100f
 		val pointRadius = radius * variance
 		Offset(

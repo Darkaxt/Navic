@@ -47,6 +47,7 @@ import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.util.core.PlatformType
 
 @Composable
 fun SettingsDeveloperScreen() {
@@ -74,7 +75,7 @@ fun SettingsDeveloperScreen() {
 					.padding(top = 16.dp, end = 16.dp, start = 16.dp)
 			) {
 				Form {
-					if (!listOf("ios", "ipados").contains(platformContext.name.lowercase())) {
+					if (platformContext.platformType == PlatformType.Android) {
 						SettingSwitchRow(
 							title = { Text(stringResource(Res.string.option_check_for_updates)) },
 							subtitle = { Text(stringResource(Res.string.subtitle_check_for_updates)) },
@@ -111,6 +112,20 @@ fun SettingsDeveloperScreen() {
 					) {
 						Text(stringResource(Res.string.option_custom_headers))
 						Icon(Icons.Outlined.ChevronForward, null)
+					}
+					if (platformContext.platformType == PlatformType.Android) {
+						FormRow(
+							onClick = dropUnlessResumed {
+								backStack.lastOrNull()?.let {
+									if (it is Screen.Settings.Developer) {
+										backStack.add(Screen.Settings.Logs)
+									}
+								}
+							}
+						) {
+							Text(stringResource(Res.string.title_logs))
+							Icon(Icons.Outlined.ChevronForward, null)
+						}
 					}
 				}
 				Form {

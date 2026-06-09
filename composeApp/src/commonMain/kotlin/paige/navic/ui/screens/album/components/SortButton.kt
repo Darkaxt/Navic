@@ -35,6 +35,7 @@ fun AlbumListScreenSortButton(
 			DomainAlbumListType.Highest,
 			DomainAlbumListType.Starred,
 			DomainAlbumListType.Random,
+			DomainAlbumListType.ByYear(),
 			DomainAlbumListType.Downloaded
 		)
 	}

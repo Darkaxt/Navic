@@ -1423,7 +1423,7 @@ private fun aurralLibraryArtistsCacheKey(
 ): String =
 	buildString {
 		append(baseUrl.trimEnd('/'))
-		requestHeaders.toSortedMap().forEach { (key, value) ->
+		requestHeaders.entries.sortedBy { entry -> entry.key }.forEach { (key, value) ->
 			append('|')
 			append(key.lowercase())
 			append('=')

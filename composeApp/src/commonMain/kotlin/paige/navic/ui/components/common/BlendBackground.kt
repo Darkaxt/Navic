@@ -53,7 +53,7 @@ fun BlendBackground(
 	var botRightRotation by remember { mutableStateOf(0f) }
 
 	val colorMatrix = remember {
-		ColorMatrix().apply { setToSaturation(1f) }
+		ColorMatrix().apply { setToSaturation(1.5f) }
 	}
 
 	val coilPlatformContext = LocalCoilPlatformContext.current

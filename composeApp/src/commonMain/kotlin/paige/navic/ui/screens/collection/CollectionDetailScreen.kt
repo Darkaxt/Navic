@@ -320,10 +320,8 @@ fun CollectionDetailScreen(
 										isPlaylist = false,
 										onClick = {
 											if (playerState.currentSong?.id != song.id) {
-												player.clearQueue()
 												player.setPlaybackOrigin(album.toPlaybackOrigin())
-												player.addToQueue(album)
-												player.playAt(album.songs.indexOfFirst { it.id == song.id })
+												player.playCollection(album, song)
 											} else {
 												player.togglePlay()
 											}
@@ -337,6 +335,7 @@ fun CollectionDetailScreen(
 										onAddToQueue = {
 											player.addToQueueSingle(song)
 										},
+										isStarred = if (selection == song) selectedSongIsStarred else song.starredAt != null,
 										download = download,
 										isOffline = !isOnline,
 										inPlaylist = song.id in playlistSongIds,
@@ -375,10 +374,8 @@ fun CollectionDetailScreen(
 									isPlaylist = true,
 									onClick = {
 										if (playerState.currentSong?.id != song.id) {
-											player.clearQueue()
 											player.setPlaybackOrigin(contentCollection.toPlaybackOrigin())
-											player.addToQueue(contentCollection)
-											player.playAt(index)
+											player.playCollection(contentCollection, song)
 										} else {
 											player.togglePlay()
 										}
@@ -392,6 +389,7 @@ fun CollectionDetailScreen(
 									onAddToQueue = {
 										player.addToQueueSingle(song)
 									},
+									isStarred = if (selection == song) selectedSongIsStarred else song.starredAt != null,
 									download = download,
 									isOffline = !isOnline,
 									inPlaylist = song.id in playlistSongIds

@@ -7,6 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.cinterop.ExperimentalForeignApi
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import paige.navic.data.database.dao.PlaylistDao
@@ -45,6 +48,7 @@ import platform.AVFoundation.AVPlayerItem
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
 import platform.AVFoundation.AVURLAsset
 import platform.AVFoundation.addPeriodicTimeObserverForInterval
+import platform.AVFoundation.asset
 import platform.AVFoundation.currentItem
 import platform.AVFoundation.currentTime
 import platform.AVFoundation.duration
@@ -148,6 +152,32 @@ class IOSMediaPlayerViewModel(
 			syncPlayerWithState(state)
 			pendingSyncState = null
 		}
+
+		viewModelScope.launch {
+			combine(
+				connectivityManager.isCellular,
+				snapshotFlow { preferenceManager.streamingQualityWifi },
+				snapshotFlow { preferenceManager.streamingQualityCellular },
+				snapshotFlow { preferenceManager.isAdvancedTranscodingActive },
+				snapshotFlow { preferenceManager.customMaxBitrateWifi },
+				snapshotFlow { preferenceManager.customMaxBitrateCellular }
+			) { it }.collectLatest {
+				val song = _uiState.value.currentSong ?: return@collectLatest
+				val url = getSongUrl(song) ?: return@collectLatest
+
+				if (!url.isFileURL()) {
+					val currentAsset = player.currentItem?.asset as? AVURLAsset
+					if (currentAsset?.URL?.absoluteString != url.absoluteString) {
+						val currentTime = player.currentTime()
+						val isPaused = _uiState.value.isPaused
+
+						player.replaceCurrentItemWithPlayerItem(createAVPlayerItem(url))
+						player.seekToTime(currentTime, toleranceBefore = CMTimeMake(0, 1), toleranceAfter = CMTimeMake(0, 1))
+						if (!isPaused) player.play()
+					}
+				}
+			}
+		}
 	}
 
 	private fun setupAudioSession() {
@@ -228,6 +258,27 @@ class IOSMediaPlayerViewModel(
 		} finally {
 			isTransitioningBetweenTracks = false
 		}
+	}
+
+	override fun playCollection(collection: DomainSongCollection, startSong: DomainSong) {
+		val newCollection = if (collection is DomainAlbum) {
+			collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
+		} else {
+			collection.songs
+		}
+
+		val startIndex = newCollection.indexOfFirst { it.id == startSong.id }.coerceAtLeast(0)
+
+		_uiState.update { state ->
+			state.copy(
+				queue = newCollection,
+				currentIndex = startIndex,
+				currentSong = newCollection.getOrNull(startIndex),
+				isLoading = true
+			)
+		}
+
+		playAt(startIndex)
 	}
 
 	override fun playNextSingle(song: DomainSong) {

@@ -46,66 +46,73 @@ fun ImmutableList<DomainSong>.sortedByListType(
 				.any { it.songId == song.id }
 		}
 		DomainSongListType.Rating -> sortedByDescending { it.userRating ?: 0 }
+		DomainSongListType.Year -> sortedByDescending { it.year }
 	}.toImmutableList()
 }
 
 internal data class AlbumSqlQueryParts(
 	val where: String?,
-	val orderBy: String
+	val orderBy: String,
+	val args: List<Any> = emptyList()
 )
 
 internal fun DomainAlbumListType.toSqlQueryParts(): AlbumSqlQueryParts {
-	val (where, orderBy) = when (this) {
+	return when (this) {
 		DomainAlbumListType.AlphabeticalByArtist ->
-			null to "LOWER(artistName) ASC"
+			AlbumSqlQueryParts(null, "LOWER(artistName) ASC")
 		DomainAlbumListType.AlphabeticalByName ->
-			null to "LOWER(name) ASC"
+			AlbumSqlQueryParts(null, "LOWER(name) ASC")
 		DomainAlbumListType.Year ->
-			null to AlbumYearDescendingOrder
+			AlbumSqlQueryParts(null, AlbumYearDescendingOrder)
 		DomainAlbumListType.Frequent ->
-			"playCount != 0" to "playCount DESC"
+			AlbumSqlQueryParts("playCount != 0", "playCount DESC")
 		DomainAlbumListType.Highest ->
-			null to "userRating DESC"
+			AlbumSqlQueryParts(null, "userRating DESC")
 		DomainAlbumListType.Newest ->
-			null to "createdAt DESC"
+			AlbumSqlQueryParts(null, "createdAt DESC")
 		DomainAlbumListType.Random ->
-			null to "RANDOM()"
+			AlbumSqlQueryParts(null, "RANDOM()")
 		DomainAlbumListType.Downloaded,
 		DomainAlbumListType.Recent ->
-			null to "lastPlayedAt DESC"
+			AlbumSqlQueryParts(null, "lastPlayedAt DESC")
 		DomainAlbumListType.Starred ->
-			"starredAt IS NOT NULL" to "starredAt ASC"
+			AlbumSqlQueryParts("starredAt IS NOT NULL", "starredAt ASC")
 		is DomainAlbumListType.ByGenre ->
-			"(genre = ? OR genres = ? OR genres LIKE ? OR genres LIKE ? OR genres LIKE ?)" to AlbumYearDescendingOrder
-		is DomainAlbumListType.ByYear ->
-			"COALESCE(year, 0) BETWEEN ? AND ?" to "year DESC, LOWER(name) ASC"
+			AlbumSqlQueryParts(
+				where = "(genre = ? OR genres = ? OR genres LIKE ? OR genres LIKE ? OR genres LIKE ?)",
+				orderBy = AlbumYearDescendingOrder,
+				args = listOf(genre, genre, "$genre||%", "%||$genre||%", "%||$genre")
+			)
+		is DomainAlbumListType.ByYear -> when {
+			fromYear != null && toYear != null ->
+				AlbumSqlQueryParts("COALESCE(year, 0) BETWEEN ? AND ?", "year DESC, LOWER(name) ASC", listOf(fromYear, toYear))
+			fromYear != null ->
+				AlbumSqlQueryParts("COALESCE(year, 0) >= ?", "year DESC, LOWER(name) ASC", listOf(fromYear))
+			toYear != null ->
+				AlbumSqlQueryParts("COALESCE(year, 0) <= ?", "year DESC, LOWER(name) ASC", listOf(toYear))
+			else ->
+				AlbumSqlQueryParts(null, AlbumYearDescendingOrder)
+		}
 	}
-	return AlbumSqlQueryParts(where, orderBy)
 }
 
 fun DomainAlbumListType.toSqlQuery(): RoomRawQuery {
-	val (where, orderBy) = toSqlQueryParts()
+	val (where, orderBy, args) = toSqlQueryParts()
 
-	val sql = buildString {
-		append("SELECT * FROM AlbumEntity")
-		if (where != null) append(" WHERE $where")
-		append(" ORDER BY $orderBy")
-	}
+	val whereClause = where?.let { " WHERE $it" } ?: ""
+	val sql = "SELECT * FROM AlbumEntity$whereClause ORDER BY $orderBy"
 
 	return RoomRawQuery(sql) { statement ->
-		when (this) {
-			is DomainAlbumListType.ByGenre -> {
-				statement.bindText(1, genre)
-				statement.bindText(2, genre)
-				statement.bindText(3, "$genre||%")
-				statement.bindText(4, "%||$genre||%")
-				statement.bindText(5, "%||$genre")
+		args.forEachIndexed { index, arg ->
+			val bindIndex = index + 1
+			when (arg) {
+				is String -> statement.bindText(bindIndex, arg)
+				is Int -> statement.bindInt(bindIndex, arg)
+				is Long -> statement.bindLong(bindIndex, arg)
+				is Float -> statement.bindFloat(bindIndex, arg)
+				is Double -> statement.bindDouble(bindIndex, arg)
+				is Boolean -> statement.bindInt(bindIndex, if (arg) 1 else 0)
 			}
-			is DomainAlbumListType.ByYear -> {
-				statement.bindInt(1, fromYear)
-				statement.bindInt(2, toYear)
-			}
-			else -> Unit
 		}
 	}
 }

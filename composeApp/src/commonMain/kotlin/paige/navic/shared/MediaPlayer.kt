@@ -65,6 +65,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun clearQueue()
 	abstract fun setPlaybackOrigin(origin: PlaybackOrigin?)
 	abstract fun playAt(index: Int)
+	abstract fun playCollection(collection: DomainSongCollection, startSong: DomainSong)
 	abstract fun playNextSingle(song: DomainSong)
 	abstract fun playNext(collection: DomainSongCollection)
 	abstract fun startSongRadio(song: DomainSong)

@@ -28,6 +28,8 @@ import platform.Foundation.NSUserDomainMask
 import platform.Foundation.outputStreamToFileAtPath
 import platform.posix.utime
 
+private const val NSDateReferenceDateUnixOffsetSeconds = 978_307_200.0
+
 actual class StorageManager {
 	private val dispatcher = Dispatchers.IO
 
@@ -107,10 +109,10 @@ actual class StorageManager {
 				LidaClipCacheFileInfo(
 					path = path,
 					sizeBytes = (attributes?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L,
-					lastModifiedMillis = ((attributes?.get(NSFileModificationDate) as? NSDate)
-						?.timeIntervalSince1970
-						?.times(1000.0)
-						?.toLong()) ?: 0L
+					lastModifiedMillis = (attributes?.get(NSFileModificationDate) as? NSDate)
+						?.let { date ->
+							((date.timeIntervalSinceReferenceDate + NSDateReferenceDateUnixOffsetSeconds) * 1000.0).toLong()
+						} ?: 0L
 				)
 			}
 	}

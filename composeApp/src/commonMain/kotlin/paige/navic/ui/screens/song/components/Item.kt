@@ -52,6 +52,7 @@ import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.domain.models.songSwipeActionForDirection
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.PlaylistPlay
@@ -222,6 +223,17 @@ fun SongListScreenItem(
 								tint = MaterialTheme.colorScheme.primary
 							)
 							Spacer(Modifier.width(8.dp))
+						}
+						if (starred) {
+							Icon(
+								Icons.Filled.Star,
+								contentDescription = null,
+								modifier = Modifier.size(16.dp),
+								tint = MaterialTheme.colorScheme.primary
+							)
+							if (download != null) {
+								Spacer(Modifier.width(8.dp))
+							}
 						}
 						if (download != null) {
 							when (download.status) {

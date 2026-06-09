@@ -46,6 +46,7 @@ import paige.navic.domain.models.hasStableNavidromeSongId
 import paige.navic.domain.models.shouldShowNowPlayingIndicator
 import paige.navic.domain.models.shouldShowPlaylistIndicator
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Star
 import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.Offline
@@ -157,6 +158,14 @@ fun SongRow(
 		},
 		trailingContent = {
 			Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(83.dp)) {
+				if (starredState) {
+					Icon(
+						Icons.Filled.Star,
+						null,
+						modifier = Modifier.size(16.dp)
+					)
+					Spacer(Modifier.width(8.dp))
+				}
 				if (!canPlay) {
 					Icon(
 						Icons.Outlined.Offline,
