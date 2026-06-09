@@ -108,7 +108,7 @@ function Get-WorkflowRun {
 }
 
 function Get-ReleaseForTag {
-    $json = & gh release view $Tag --repo $Repo --json tagName,url,isLatest,publishedAt,assets 2>&1
+    $json = & gh release view $Tag --repo $Repo --json tagName,url,publishedAt,assets 2>&1
     if ($LASTEXITCODE -ne 0) {
         return $null
     }
