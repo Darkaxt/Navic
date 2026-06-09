@@ -2,6 +2,8 @@ import './vendor/foliate-js/view.js'
 
 const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
+const ScrollEdgeTurnSwipeThreshold = 60
+const ScrollEdgeTurnSlop = 2
 
 const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
 const logError = (label, ...details) => console.error('[NavicReader]', label, ...details)
@@ -234,6 +236,69 @@ class NavicReaderRuntime {
     }
   }
 
+  attachScrolledEdgeTurnGestures(doc) {
+    if (!doc?.defaultView || doc.defaultView.__navicScrolledEdgeTurnGesturesAttached) return
+    doc.defaultView.__navicScrolledEdgeTurnGesturesAttached = true
+    let touchState = null
+    doc.addEventListener('touchstart', event => {
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      touchState = {
+        x: touch.screenX ?? touch.clientX ?? 0,
+        y: touch.screenY ?? touch.clientY ?? 0,
+      }
+    }, { passive: true })
+    doc.addEventListener('touchmove', event => {
+      if (!touchState || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      touchState.lastX = touch.screenX ?? touch.clientX ?? touchState.x
+      touchState.lastY = touch.screenY ?? touch.clientY ?? touchState.y
+    }, { passive: true })
+    doc.addEventListener('touchend', event => {
+      const state = touchState
+      touchState = null
+      if (!state) return
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      const endX = touch.screenX ?? touch.clientX ?? state.lastX ?? state.x
+      const endY = touch.screenY ?? touch.clientY ?? state.lastY ?? state.y
+      const deltaX = endX - state.x
+      const deltaY = endY - state.y
+      const selection = doc.getSelection?.()
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
+      if (Math.abs(deltaY) < ScrollEdgeTurnSwipeThreshold || Math.abs(deltaY) <= Math.abs(deltaX)) return
+      this.turnScrolledEdgePage(deltaY)
+    }, { passive: true })
+    doc.addEventListener('touchcancel', () => {
+      touchState = null
+    }, { passive: true })
+  }
+
+  turnScrolledEdgePage(deltaY) {
+    const renderer = this.view?.renderer
+    if (!renderer || !renderer.scrolled) return false
+    const atStart = renderer.start <= ScrollEdgeTurnSlop
+    const atEnd = renderer.viewSize - renderer.end <= ScrollEdgeTurnSlop
+    if (deltaY > ScrollEdgeTurnSwipeThreshold && atStart) {
+      log('page-turn:edge-swipe', 'previous', `start=${renderer.start}`)
+      void this.previousPage()
+      return true
+    }
+    if (deltaY < -ScrollEdgeTurnSwipeThreshold && atEnd) {
+      log('page-turn:edge-swipe', 'next', `remaining=${renderer.viewSize - renderer.end}`)
+      void this.nextPage()
+      return true
+    }
+    return false
+  }
+
   async applyHighlight({ id, cfi, color = null, note = null }) {
     if (!this.view || !id || !cfi) return
     try {
@@ -331,7 +396,9 @@ class NavicReaderRuntime {
     const contents = this.view?.renderer?.getContents?.() || []
     for (const content of contents) {
       const doc = content.doc
-      if (!doc || doc.defaultView?.__navicSelectionBridgeAttached) continue
+      if (!doc) continue
+      this.attachScrolledEdgeTurnGestures(doc)
+      if (doc.defaultView?.__navicSelectionBridgeAttached) continue
       doc.defaultView.__navicSelectionBridgeAttached = true
       doc.addEventListener('selectionchange', () => {
         const selection = doc.getSelection()

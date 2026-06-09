@@ -203,6 +203,21 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderBridgePortsAnxStyleScrolledEdgePageTurns() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "ScrollEdgeTurnSwipeThreshold")
+		assertContains(bridgeText, "attachScrolledEdgeTurnGestures")
+		assertContains(bridgeText, "doc.addEventListener('touchstart'")
+		assertContains(bridgeText, "doc.addEventListener('touchmove'")
+		assertContains(bridgeText, "doc.addEventListener('touchend'")
+		assertContains(bridgeText, "renderer.scrolled")
+		assertContains(bridgeText, "renderer.viewSize - renderer.end")
+		assertContains(bridgeText, "renderer.start <= ScrollEdgeTurnSlop")
+		assertContains(bridgeText, "page-turn:edge-swipe")
+	}
+
+	@Test
 	fun commonReaderChromeExposesPageTurnControls() {
 		val readerScreenText = readerScreenFile().readText()
 
