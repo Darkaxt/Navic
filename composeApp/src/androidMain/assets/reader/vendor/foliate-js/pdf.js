@@ -545,6 +545,7 @@ const renderPage = async (page, getImageBlob) => {
     canvas.width = pageWidth
     const canvasContext = canvas.getContext('2d')
     await page.render({ canvasContext, viewport }).promise
+    logCanvasBitmap(page.pageNumber, canvas, canvasContext)
     if (getImageBlob) return new Promise(resolve => canvas.toBlob(resolve))
 
     /*
@@ -564,6 +565,32 @@ const renderPage = async (page, getImageBlob) => {
     })
     const src = URL.createObjectURL(blob)
     return { type: 'image', src, width: pageWidth, height: pageHeight }
+}
+
+const logCanvasBitmap = (pageNumber, canvas, canvasContext) => {
+    const sampleColumns = Math.min(32, canvas.width)
+    const sampleRows = Math.min(32, canvas.height)
+    let nonWhite = 0
+    let transparent = 0
+    let samples = 0
+    for (let row = 0; row < sampleRows; row++) {
+        const y = Math.min(canvas.height - 1, Math.floor((row + 0.5) * canvas.height / sampleRows))
+        for (let column = 0; column < sampleColumns; column++) {
+            const x = Math.min(canvas.width - 1, Math.floor((column + 0.5) * canvas.width / sampleColumns))
+            const [red, green, blue, alpha] = canvasContext.getImageData(x, y, 1, 1).data
+            samples++
+            if (alpha === 0) {
+                transparent++
+            } else if (red < 245 || green < 245 || blue < 245) {
+                nonWhite++
+            }
+        }
+    }
+    console.info(
+        `[FoliatePDF] bitmap page=${pageNumber} ` +
+        `canvas=${canvas.width}x${canvas.height} samples=${samples} ` +
+        `nonWhite=${nonWhite} transparent=${transparent}`
+    )
 }
 
 const makeTOCItem = item => ({
