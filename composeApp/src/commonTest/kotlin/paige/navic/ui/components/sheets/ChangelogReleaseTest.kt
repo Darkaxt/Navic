@@ -188,6 +188,17 @@ class ChangelogReleaseTest {
 	}
 
 	@Test
+	fun zetaReleaseOutranksHigherNumberedEpsilonRelease() {
+		assertEquals(
+			true,
+			shouldOfferReleaseUpdate(
+				currentVersion = "v1.0.10-epsilon50",
+				remoteTag = "v1.0.10-zeta1"
+			)
+		)
+	}
+
+	@Test
 	fun patchBridgeReleaseOutranksLegacyAlphaBuilds() {
 		assertEquals(
 			true,

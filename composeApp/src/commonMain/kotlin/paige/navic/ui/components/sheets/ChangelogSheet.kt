@@ -134,11 +134,9 @@ private fun parseAppReleaseVersion(value: String): AppReleaseVersion? {
 	val match = appReleaseVersionPattern.matchEntire(value.trim()) ?: return null
 	val preReleaseLabel = match.groupValues[4].takeIf { it.isNotBlank() }?.lowercase()
 	val preReleaseRank = when (preReleaseLabel) {
-		null -> 4
-		"rc" -> 3
-		"gamma" -> 2
-		"beta" -> 1
-		"alpha" -> 0
+		null -> greekPreReleaseLabels.size + 1
+		"rc" -> greekPreReleaseLabels.size
+		in greekPreReleaseLabels -> greekPreReleaseLabels.indexOf(preReleaseLabel)
 		else -> -1
 	}
 	val preReleaseNumber = match.groupValues[5]
@@ -153,6 +151,33 @@ private fun parseAppReleaseVersion(value: String): AppReleaseVersion? {
 		preReleaseNumber = preReleaseNumber
 	)
 }
+
+private val greekPreReleaseLabels = listOf(
+	"alpha",
+	"beta",
+	"gamma",
+	"delta",
+	"epsilon",
+	"zeta",
+	"eta",
+	"theta",
+	"iota",
+	"kappa",
+	"lambda",
+	"mu",
+	"nu",
+	"xi",
+	"omicron",
+	"pi",
+	"rho",
+	"sigma",
+	"tau",
+	"upsilon",
+	"phi",
+	"chi",
+	"psi",
+	"omega"
+)
 
 internal fun shouldOfferReleaseUpdate(currentVersion: String, remoteTag: String): Boolean {
 	val current = parseAppReleaseVersion(currentVersion) ?: return false
