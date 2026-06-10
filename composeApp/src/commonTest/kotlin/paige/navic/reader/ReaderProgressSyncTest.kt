@@ -7,6 +7,37 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 class ReaderProgressSyncTest {
 	@Test
+	fun progressSaveGateIgnoresStartupRelocationsUntilPublicationReady() {
+		val startupLocator = ReaderLocator(href = "cover.xhtml", progress = 0.0)
+		val resumedLocator = ReaderLocator(href = "chapter-04.xhtml", progress = 0.62)
+		val initial = ReaderProgressSaveGate()
+		val startup = initial.onReaderEvent(ReaderBridgeEvent.LocationChanged(startupLocator))
+		val ready = startup.state.onReaderEvent(ReaderBridgeEvent.PublicationReady)
+		val resumed = ready.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+
+		assertEquals(null, startup.locatorToSave)
+		assertEquals(false, startup.state.publicationReady)
+		assertEquals(null, ready.locatorToSave)
+		assertEquals(true, ready.state.publicationReady)
+		assertEquals(resumedLocator, resumed.locatorToSave)
+		assertEquals(true, resumed.state.publicationReady)
+	}
+
+	@Test
+	fun progressSaveGateResetsForNewPublication() {
+		val gate = ReaderProgressSaveGate(publicationReady = true)
+		val reset = gate.reset()
+
+		assertEquals(false, reset.publicationReady)
+		assertEquals(
+			null,
+			reset.onReaderEvent(
+				ReaderBridgeEvent.LocationChanged(ReaderLocator(href = "cover.xhtml", progress = 0.0))
+			).locatorToSave
+		)
+	}
+
+	@Test
 	fun binderyProgressBuildsReaderStartLocatorWithCfiPreferredOverHrefFragment() {
 		val progress = BinderyReadingProgress(
 			bookId = "3693",

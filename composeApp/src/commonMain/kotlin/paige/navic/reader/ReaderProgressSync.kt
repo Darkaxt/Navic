@@ -64,6 +64,29 @@ data class ReaderReadingProgressState(
 	}
 }
 
+data class ReaderProgressSaveGate(
+	val publicationReady: Boolean = false
+) {
+	fun reset(): ReaderProgressSaveGate = copy(publicationReady = false)
+
+	fun onReaderEvent(event: ReaderBridgeEvent): ReaderProgressSaveDecision =
+		when (event) {
+			ReaderBridgeEvent.PublicationReady -> ReaderProgressSaveDecision(
+				state = copy(publicationReady = true)
+			)
+			is ReaderBridgeEvent.LocationChanged -> ReaderProgressSaveDecision(
+				state = this,
+				locatorToSave = event.locator.takeIf { publicationReady }
+			)
+			else -> ReaderProgressSaveDecision(state = this)
+		}
+}
+
+data class ReaderProgressSaveDecision(
+	val state: ReaderProgressSaveGate,
+	val locatorToSave: ReaderLocator? = null
+)
+
 fun ReaderLocator.toBinderyReadingProgress(
 	bookId: String,
 	resourceHref: String,

@@ -84,6 +84,7 @@ import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOptionsTab
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderProgressSaveGate
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadingProgressState
@@ -124,6 +125,9 @@ import paige.navic.reader.toReaderStartLocatorFor
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
+
+private const val ReaderScreenTag = "ReaderScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -209,6 +213,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	var lastSavedProgress by remember(reader.bookId, reader.resourceHref, reader.kind) {
 		mutableStateOf<BinderyReadingProgress?>(null)
+	}
+	var progressSaveGate by remember(reader.publicationUrl, reader.resourceHref, reader.kind) {
+		mutableStateOf(ReaderProgressSaveGate())
 	}
 	var readaloudCommand by remember(reader.publicationUrl) {
 		mutableStateOf<ReaderReadaloudPlaybackCommand?>(null)
@@ -395,6 +402,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		) ?: return
 		if (progress == lastSavedProgress) return
 		lastSavedProgress = progress
+		Logger.i(
+			ReaderScreenTag,
+			"Reader progress save accepted book=${reader.bookId} kind=${reader.kind} " +
+				"resource=${reader.resourceHref} progress=${progress.progressFraction} " +
+				"href=${progress.textHref.orEmpty()} cfi=${progress.cfi != null}"
+		)
 		val nextProgressState = readingProgressState.upsert(progress)
 		if (nextProgressState != readingProgressState) {
 			readingProgressState = nextProgressState
@@ -598,8 +611,19 @@ fun ReaderScreen(reader: Screen.Reader) {
 					if (event is ReaderBridgeEvent.PublicationReady && currentBookAnnotations.isNotEmpty()) {
 						dispatchReaderCommand(ReaderBridgeCommand.ApplyHighlights(currentBookAnnotations))
 					}
-					if (event is ReaderBridgeEvent.LocationChanged) {
-						saveReaderProgress(event.locator)
+					val progressSaveDecision = progressSaveGate.onReaderEvent(event)
+					progressSaveGate = progressSaveDecision.state
+					if (event is ReaderBridgeEvent.LocationChanged && progressSaveDecision.locatorToSave == null) {
+						Logger.i(
+							ReaderScreenTag,
+							"Reader progress save skipped ready=${progressSaveDecision.state.publicationReady} " +
+								"book=${reader.bookId} kind=${reader.kind} " +
+								"progress=${event.locator.progress} href=${event.locator.href.orEmpty()} " +
+								"cfi=${event.locator.cfi != null}"
+						)
+					}
+					progressSaveDecision.locatorToSave?.let { locator ->
+						saveReaderProgress(locator)
 					}
 					if (event is ReaderBridgeEvent.CenterTap) {
 						toggleReaderChrome()
