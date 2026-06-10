@@ -132,6 +132,9 @@ const closestElement = (target, selector) =>
   target?.parentNode?.closest?.(selector) ||
   null
 
+const readerLinkHasMedia = anchor =>
+  Boolean(anchor?.querySelector?.('img,picture,svg,video,canvas'))
+
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
   left,
@@ -266,7 +269,7 @@ const readerPaperTextureOpacity = settings => {
     case 'dusk':
       return '0.035'
     case ReaderThemeSepia:
-      return '0.045'
+      return '0.08'
     default:
       return '0.035'
   }
@@ -705,13 +708,25 @@ class NavicReaderRuntime {
     }, { capture: true })
   }
 
+  classifyReaderLinks(doc) {
+    if (!doc?.querySelectorAll) return
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      anchor.dataset.navicLinkKind = readerLinkHasMedia(anchor) ? 'media' : 'text'
+    }
+  }
+
   attachSepiaImageOverlayToggle(doc) {
     if (!doc?.defaultView || doc.defaultView.__navicSepiaImageOverlayToggleAttached) return
     doc.defaultView.__navicSepiaImageOverlayToggleAttached = true
     doc.addEventListener('click', event => {
       if (event.defaultPrevented || event.button !== 0) return
       if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return
-      const image = closestElement(event.target, 'img')
+      const anchor = closestElement(event.target, 'a[href]')
+      let mediaAnchorImage = null
+      if (anchor && anchor.dataset.navicLinkKind === 'media') {
+        mediaAnchorImage = anchor.querySelector?.('img')
+      }
+      const image = closestElement(event.target, 'img') || mediaAnchorImage
       if (!image) return
       event.preventDefault()
       event.stopPropagation()
@@ -890,6 +905,7 @@ class NavicReaderRuntime {
         '--reader-foreground': palette.foreground,
         '--reader-accent': palette.accent,
         '--theme-bg-color': palette.background,
+        '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
         '--reader-paper-texture-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
         '--reader-paper-texture-transform': readerPaperTextureTransform(textureVariant),
         '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
@@ -989,6 +1005,7 @@ class NavicReaderRuntime {
     if (!doc) return
     this.applyDocumentDirection(doc, this.readerDirectionModeValue)
     this.applyDocumentTheme(doc, this.readerSettings, index)
+    this.classifyReaderLinks(doc)
     this.attachSepiaImageOverlayToggle(doc)
     this.attachLinkNavigation(doc, index)
     this.attachScrolledEdgeTurnGestures(doc)
@@ -1060,6 +1077,15 @@ class NavicReaderRuntime {
       const htmlRect = doc.documentElement?.getBoundingClientRect?.()
       const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
       const htmlStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+      const paragraphSpacing = bodyStyle.getPropertyValue('--reader-paragraph-spacing') ||
+        htmlStyle.getPropertyValue('--reader-paragraph-spacing') ||
+        'unset'
+      const paperTextureOpacity = bodyStyle.getPropertyValue('--reader-paper-texture-opacity') ||
+        htmlStyle.getPropertyValue('--reader-paper-texture-opacity') ||
+        'unset'
+      const paperTextureImage = bodyStyle.getPropertyValue('--reader-paper-texture-image') ||
+        htmlStyle.getPropertyValue('--reader-paper-texture-image') ||
+        'unset'
       const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
       log(
         'content-layout',
@@ -1071,7 +1097,10 @@ class NavicReaderRuntime {
         `body=${describeRect(bodyRect)}`,
         `textLength=${textLength}`,
         `color=${bodyStyle.color}`,
-        `background=${bodyStyle.backgroundColor || htmlStyle.backgroundColor}`
+        `background=${bodyStyle.backgroundColor || htmlStyle.backgroundColor}`,
+        `paragraphSpacing=${paragraphSpacing}`,
+        `paperTextureOpacity=${paperTextureOpacity}`,
+        `paperTextureImage=${paperTextureImage === 'none' ? 'none' : 'set'}`
       )
     }
   }
@@ -1116,7 +1145,7 @@ const readerTypographyCss = settings => settings.publisherStyles === true
   }
   p {
     margin-block-start: 0 !important;
-    margin-block-end: var(--reader-paragraph-spacing, 0em) !important;
+    margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
   }
 `
 
@@ -1201,7 +1230,7 @@ const readerContentCss = settings => {
     border-bottom: 0 !important;
     box-shadow: none !important;
   }
-  a:any-link::after {
+  a:any-link[data-navic-link-kind="text"]::after {
     content: ' »';
     font-size: 0.72em;
     font-weight: 700;
@@ -1209,6 +1238,9 @@ const readerContentCss = settings => {
     vertical-align: sub;
     white-space: nowrap;
     opacity: 0.72;
+  }
+  a:any-link[data-navic-link-kind="media"]::after {
+    content: '' !important;
   }
   a:any-link:empty::after {
     content: '';

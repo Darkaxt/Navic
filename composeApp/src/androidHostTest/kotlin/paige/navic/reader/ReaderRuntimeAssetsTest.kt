@@ -311,12 +311,16 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 
 		assertContains(bridgeText, "a:any-link")
+		assertContains(bridgeText, "classifyReaderLinks")
+		assertContains(bridgeText, "data-navic-link-kind")
 		assertContains(bridgeText, "color: inherit !important")
 		assertContains(bridgeText, "text-decoration: none !important")
 		assertFalse(
 			bridgeText.contains("content: ' >>'"),
 			"Hyperlinks must not expose the literal ASCII fast-forward marker."
 		)
+		assertContains(bridgeText, "a:any-link[data-navic-link-kind=\"text\"]::after")
+		assertContains(bridgeText, "a:any-link[data-navic-link-kind=\"media\"]::after")
 		assertContains(bridgeText, "content: ' »'")
 		assertContains(bridgeText, "vertical-align: sub")
 		assertContains(bridgeText, "font-size: 0.72em")
@@ -326,6 +330,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "attachContentDocumentBehaviors")
 		assertContains(bridgeText, "if (detail.doc)")
 		assertContains(bridgeText, "closestElement(event.target, 'a[href]')")
+		assertContains(bridgeText, "anchor.dataset.navicLinkKind === 'media'")
 		assertContains(bridgeText, "event.stopPropagation()")
 		assertContains(bridgeText, "await this.goTo(href)")
 		assertContains(bridgeText, "link:navigate")
@@ -484,8 +489,11 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(bridgeText, "readerParagraphSpacingEm")
 		assertContains(bridgeText, "--reader-paragraph-spacing")
+		assertContains(bridgeText, "'--reader-paragraph-spacing': readerParagraphSpacingEm(settings)")
+		assertContains(bridgeText, "margin-block-end: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
 		assertContains(bridgeText, "settings.publisherStyles === true")
 		assertContains(bridgeText, "paragraphSpacingPercent")
+		assertContains(bridgeText, "paragraphSpacing=\${")
 		assertContains(ebooksSettingsText, "readerParagraphSpacingPercent")
 		assertContains(ebooksSettingsText, "readerPublisherStylesEnabled")
 		assertContains(ebooksSettingsText, "option_ebook_reader_paragraph_spacing")
@@ -522,6 +530,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "rotate(180deg)")
 		assertContains(bridgeText, "pointer-events: none")
 		assertContains(bridgeText, "--reader-paper-texture-image")
+		assertContains(bridgeText, "paperTextureOpacity=\${")
+		assertContains(bridgeText, "paperTextureImage=\${")
+		assertContains(bridgeText, "return '0.08'")
 	}
 
 	@Test
