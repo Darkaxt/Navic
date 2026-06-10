@@ -8,6 +8,7 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 private const val ReaderReadingProgressMaxEntries = 200
 private const val ReaderProgressStartThreshold = 0.005
+private const val ReaderProgressNamedStartThreshold = 0.03
 private const val ReaderProgressAdvanceThreshold = 0.01
 
 private val ReaderReadingProgressJson = Json {
@@ -276,15 +277,18 @@ private fun ReaderLocator.safeProgress(): Double? =
 	progress?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
 
 private fun ReaderLocator.isReaderStartPlaceholder(): Boolean {
-	val progressIsStart = safeProgress()?.let { it <= ReaderProgressStartThreshold } ?: true
-	if (!progressIsStart) return false
 	if (!cfi.isNullOrBlank()) return false
 	val normalizedHref = href?.trim()?.lowercase()
-	return normalizedHref.isNullOrBlank() ||
-		normalizedHref.contains("cover") ||
-		normalizedHref.contains("titlepage") ||
-		normalizedHref.endsWith("/nav.xhtml") ||
-		normalizedHref.endsWith("nav.xhtml")
+	val progress = safeProgress()
+	val progressIsStart = progress?.let { it <= ReaderProgressStartThreshold } ?: true
+	val progressIsNamedStart = progress?.let { it <= ReaderProgressNamedStartThreshold } ?: true
+	val hrefLooksLikeStart =
+		normalizedHref?.contains("cover") == true ||
+			normalizedHref?.contains("titlepage") == true ||
+			normalizedHref?.endsWith("/nav.xhtml") == true ||
+			normalizedHref?.endsWith("nav.xhtml") == true
+	return normalizedHref.isNullOrBlank() && progressIsStart ||
+		hrefLooksLikeStart && progressIsNamedStart
 }
 
 fun canonicalReaderResourceHref(value: String?): String? {

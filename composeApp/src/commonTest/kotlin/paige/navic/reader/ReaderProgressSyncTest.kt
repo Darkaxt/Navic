@@ -44,6 +44,24 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun progressSaveGateTreatsLowProgressCoverHrefAsStartupPlaceholder() {
+		val coverLocator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.012)
+		val resumedLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.62
+		)
+		val ready = ReaderProgressSaveGate()
+			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
+			.state
+		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+		val resumed = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+
+		assertEquals(null, startupCover.locatorToSave)
+		assertEquals(resumedLocator, resumed.locatorToSave)
+	}
+
+	@Test
 	fun progressSaveGateResetsForNewPublication() {
 		val gate = ReaderProgressSaveGate(publicationReady = true)
 		val reset = gate.reset()
