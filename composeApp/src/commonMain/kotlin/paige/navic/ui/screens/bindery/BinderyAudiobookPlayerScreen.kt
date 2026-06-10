@@ -117,6 +117,8 @@ fun BinderyAudiobookPlayerScreen(
 		apiKey = preferenceManager.binderyApiKey
 	)
 	val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+	val findingsState by viewModel.findingsState.collectAsStateWithLifecycle()
+	val findingsCatalog = findingsState.data
 	val chapters = remember(manifest, versionRowId) {
 		manifest?.let { binderyAudiobookChapters(it, versionRowId) }.orEmpty()
 	}
@@ -134,7 +136,15 @@ fun BinderyAudiobookPlayerScreen(
 			)
 		}
 	}
-	val coverUrl = manifest?.coverUrl(preferenceManager.binderyOpdsBaseUrl)
+	val coverHref = remember(manifest, versionRowId, findingsCatalog) {
+		manifest?.let { binderyAudiobookCoverHref(it, versionRowId, findingsCatalog) }
+	}
+	val coverUrl = remember(coverHref, preferenceManager.binderyOpdsBaseUrl) {
+		coverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
+	}
+	val coverCacheKey = remember(manifest?.id, versionRowId, coverUrl) {
+		"bindery-audiobook:${manifest?.id.orEmpty()}:$versionRowId:${coverUrl.orEmpty()}"
+	}
 	var playbackState by remember {
 		mutableStateOf(ReaderReadaloudPlaybackUiState())
 	}
@@ -218,7 +228,7 @@ fun BinderyAudiobookPlayerScreen(
 				BlendBackground(
 					coverArtId = null,
 					imageUrl = coverUrl,
-					imageCacheKey = "bindery-audiobook:${manifest.id}:cover",
+					imageCacheKey = coverCacheKey,
 					imageRequestHeaders = requestHeaders,
 					isPaused = !playbackState.isPlaying,
 					showBottomGradient = true
@@ -257,6 +267,7 @@ fun BinderyAudiobookPlayerScreen(
 						BinderyAudiobookLandscapeLayout(
 							manifest = manifest,
 							coverUrl = coverUrl,
+							coverCacheKey = coverCacheKey,
 							requestHeaders = requestHeaders,
 							playbackState = playbackState,
 							chapters = chapters,
@@ -270,6 +281,7 @@ fun BinderyAudiobookPlayerScreen(
 						BinderyAudiobookPortraitLayout(
 							manifest = manifest,
 							coverUrl = coverUrl,
+							coverCacheKey = coverCacheKey,
 							requestHeaders = requestHeaders,
 							playbackState = playbackState,
 							chapters = chapters,
@@ -322,6 +334,7 @@ fun BinderyAudiobookPlayerScreen(
 private fun BinderyAudiobookPortraitLayout(
 	manifest: BinderyManifest,
 	coverUrl: String?,
+	coverCacheKey: String,
 	requestHeaders: Map<String, String>,
 	playbackState: ReaderReadaloudPlaybackUiState,
 	chapters: List<BinderyAudiobookChapter>,
@@ -339,6 +352,7 @@ private fun BinderyAudiobookPortraitLayout(
 		BinderyAudiobookArtwork(
 			manifest = manifest,
 			coverUrl = coverUrl,
+			coverCacheKey = coverCacheKey,
 			requestHeaders = requestHeaders,
 			modifier = Modifier
 				.widthIn(max = 260.dp)
@@ -365,6 +379,7 @@ private fun BinderyAudiobookPortraitLayout(
 private fun BinderyAudiobookLandscapeLayout(
 	manifest: BinderyManifest,
 	coverUrl: String?,
+	coverCacheKey: String,
 	requestHeaders: Map<String, String>,
 	playbackState: ReaderReadaloudPlaybackUiState,
 	chapters: List<BinderyAudiobookChapter>,
@@ -387,6 +402,7 @@ private fun BinderyAudiobookLandscapeLayout(
 			BinderyAudiobookArtwork(
 				manifest = manifest,
 				coverUrl = coverUrl,
+				coverCacheKey = coverCacheKey,
 				requestHeaders = requestHeaders,
 				modifier = Modifier
 					.fillMaxHeight(.74f)
@@ -452,6 +468,7 @@ private fun BinderyAudiobookControlsLayout(
 private fun BinderyAudiobookArtwork(
 	manifest: BinderyManifest,
 	coverUrl: String?,
+	coverCacheKey: String,
 	requestHeaders: Map<String, String>,
 	modifier: Modifier = Modifier
 ) {
@@ -459,7 +476,7 @@ private fun BinderyAudiobookArtwork(
 	CoverArt(
 		coverArtId = null,
 		imageUrl = coverUrl,
-		imageCacheKey = "bindery-audiobook:${manifest.id}:cover",
+		imageCacheKey = coverCacheKey,
 		imageRequestHeaders = requestHeaders,
 		contentDescription = manifest.title,
 		fallbackKind = "Audiobook",
@@ -872,9 +889,6 @@ private fun BinderyAudiobookChaptersSheet(
 		}
 	}
 }
-
-private fun BinderyManifest.coverUrl(baseUrl: String): String? =
-	images.firstOrNull()?.href?.let { binderyEndpoint(baseUrl, it) }
 
 private fun Long.audiobookTimeLabel(): String {
 	val safeSeconds = (coerceAtLeast(0L) / 1000L)

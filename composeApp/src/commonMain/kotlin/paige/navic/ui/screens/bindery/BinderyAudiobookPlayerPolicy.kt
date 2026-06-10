@@ -5,7 +5,12 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.math.roundToLong
+import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyFindingMapping
+import paige.navic.domain.repositories.BinderyFindingMetadata
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
+import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.reader.ReaderPublicationKind
@@ -84,6 +89,23 @@ fun binderyAudiobookChapters(
 				subtitle = item.audiobookChapterSubtitle()
 			)
 		}
+
+fun binderyAudiobookCoverHref(
+	manifest: BinderyManifest,
+	versionRowId: String,
+	findingsCatalog: BinderyCatalog?
+): String? {
+	val bookFileIds = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
+		.mapNotNull(BinderyReadingOrderItem::bookFileId)
+	return findingsCatalog
+		.associatedAudiobookFindingPublication(
+			bookId = manifest.id,
+			bookFileIds = bookFileIds
+		)
+		?.audiobookFindingCoverHref()
+		?: manifest.images.firstImageHref()
+		?: manifest.properties.firstNonBlankValue("image", "cover")
+}
 
 fun binderyAudiobookPlaybackPlan(
 	manifest: BinderyManifest,
@@ -201,6 +223,69 @@ private fun String.selectedAudiobookBookFileId(): String? =
 
 private fun BinderyReadingOrderItem.bookFileId(): String? =
 	properties.firstNonBlankValue("bookFileId")?.takeIf { it != "0" }
+
+private fun BinderyCatalog?.associatedAudiobookFindingPublication(
+	bookId: String?,
+	bookFileIds: List<String>
+): BinderyPublication? {
+	val normalizedBookId = bookId
+		?.let(::binderyBookRouteId)
+		?.normalizedBindingLookupToken()
+		?: return null
+	val normalizedBookFileIds = bookFileIds
+		.mapNotNull { bookFileId -> bookFileId.normalizedBindingLookupToken() }
+		.distinct()
+	if (normalizedBookFileIds.isEmpty()) return null
+	val publications = this?.publications.orEmpty()
+	return normalizedBookFileIds.firstNotNullOfOrNull { selectedBookFileId ->
+		publications.firstOrNull { publication ->
+			val metadata = publication.finding ?: return@firstOrNull false
+			metadata.mappings.any { mapping ->
+				mapping.matchesAudiobookFinding(
+					metadata = metadata,
+					bookId = normalizedBookId,
+					bookFileId = selectedBookFileId
+				)
+			}
+		}
+	}
+}
+
+private fun BinderyFindingMapping.matchesAudiobookFinding(
+	metadata: BinderyFindingMetadata,
+	bookId: String,
+	bookFileId: String
+): Boolean {
+	val mappingBookId = this.bookId
+		?.let(::binderyBookRouteId)
+		?.normalizedBindingLookupToken()
+	val mappingBookFileId = this.bookFileId.normalizedBindingLookupToken()
+	if (mappingBookId != bookId || mappingBookFileId != bookFileId) return false
+	return mediaType?.isAudiobookMediaLabel() ?: metadata.isAudiobookFinding()
+}
+
+private fun BinderyFindingMetadata.isAudiobookFinding(): Boolean =
+	listOfNotNull(mediaType, format, providerKind)
+		.any(String::isAudiobookMediaLabel)
+
+private fun BinderyPublication.audiobookFindingCoverHref(): String? =
+	finding?.coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+		?: images.firstImageHref()
+		?: properties.firstNonBlankValue("image", "cover")
+
+private fun List<BinderyLink>.firstImageHref(): String? =
+	firstNotNullOfOrNull { image -> image.href.trim().takeIf { it.isNotEmpty() } }
+
+private fun String?.normalizedBindingLookupToken(): String? =
+	this?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it != "0" }
+
+private fun String.isAudiobookMediaLabel(): Boolean {
+	val normalized = trim().lowercase()
+	if (normalized.isEmpty()) return false
+	return "audio" in normalized ||
+		"audiobook" in normalized ||
+		normalized in setOf("mp3", "m4a", "m4b", "aac", "flac", "ogg", "opus", "wav")
+}
 
 private fun BinderyReadingOrderItem.durationMs(): Long? =
 	metadata.durationMs

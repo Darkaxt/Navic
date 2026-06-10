@@ -2,7 +2,12 @@ package paige.navic.ui.screens.bindery
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyFindingMapping
+import paige.navic.domain.repositories.BinderyFindingMetadata
+import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
+import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceMetadata
 import paige.navic.reader.ReadaloudPlaybackPosition
@@ -202,6 +207,118 @@ class BinderyAudiobookPlayerPolicyTest {
 		)
 	}
 
+	@Test
+	fun coverHrefPrefersAssociatedAudiobookFindingCover() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = listOf(audioItem("one-a", "Chapter 1", "file-one"))
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "wrong",
+					bookId = "book-1",
+					bookFileId = "other-file",
+					coverUrl = "/opds/findings/wrong/cover"
+				),
+				findingPublication(
+					findingId = "match",
+					bookId = "/opds/books/book-1",
+					bookFileId = "file-one",
+					coverUrl = "/opds/findings/match/cover"
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/findings/match/cover",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = findings
+			)
+		)
+	}
+
+	@Test
+	fun coverHrefFallsBackToFindingPublicationImageThenBookCover() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = listOf(audioItem("one-a", "Chapter 1", "file-one"))
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "match",
+					bookId = "book-1",
+					bookFileId = "file-one",
+					coverUrl = null,
+					imageHref = "/opds/findings/match/image"
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/findings/match/image",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = findings
+			)
+		)
+		assertEquals(
+			"/opds/books/book-1/cover",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = null
+			)
+		)
+	}
+
+	@Test
+	fun coverHrefIgnoresUnrelatedOrNonAudiobookFindings() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = listOf(audioItem("one-a", "Chapter 1", "file-one"))
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "ebook",
+					bookId = "book-1",
+					bookFileId = "file-one",
+					coverUrl = "/opds/findings/ebook/cover",
+					mediaType = "ebook"
+				),
+				findingPublication(
+					findingId = "other-book",
+					bookId = "book-2",
+					bookFileId = "file-one",
+					coverUrl = "/opds/findings/other-book/cover"
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/books/book-1/cover",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = findings
+			)
+		)
+	}
+
 	private fun audioItem(
 		href: String,
 		title: String,
@@ -214,5 +331,31 @@ class BinderyAudiobookPlayerPolicyTest {
 			durationSeconds = 60.0,
 			properties = mapOf("bookFileId" to bookFileId),
 			metadata = BinderyResourceMetadata(resourceKey = href)
+		)
+
+	private fun findingPublication(
+		findingId: String,
+		bookId: String,
+		bookFileId: String,
+		coverUrl: String?,
+		imageHref: String? = null,
+		mediaType: String = "audiobook"
+	): BinderyPublication =
+		BinderyPublication(
+			id = "urn:bindery:finding:$findingId",
+			title = "Finding $findingId",
+			images = imageHref?.let { listOf(BinderyLink(href = it)) }.orEmpty(),
+			finding = BinderyFindingMetadata(
+				findingId = findingId,
+				mediaType = mediaType,
+				coverUrl = coverUrl,
+				mappings = listOf(
+					BinderyFindingMapping(
+						bookId = bookId,
+						bookFileId = bookFileId,
+						mediaType = mediaType
+					)
+				)
+			)
 		)
 }

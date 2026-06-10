@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.ReadaloudPlaybackPosition
@@ -20,6 +21,8 @@ class BinderyAudiobookPlayerViewModel(
 ) : ViewModel() {
 	private val _manifestState = MutableStateFlow<UiState<BinderyManifest>>(UiState.Loading())
 	val manifestState = _manifestState.asStateFlow()
+	private val _findingsState = MutableStateFlow<UiState<BinderyCatalog>>(UiState.Loading())
+	val findingsState = _findingsState.asStateFlow()
 
 	private var manifestJob: Job? = null
 	private var lastSavedProgress: BinderyAudiobookPlaybackProgress? = null
@@ -31,9 +34,21 @@ class BinderyAudiobookPlayerViewModel(
 			if (fullRefresh || currentData == null) {
 				_manifestState.value = UiState.Loading(currentData)
 			}
+			val currentFindings = _findingsState.value.data
+			if (fullRefresh || currentFindings == null) {
+				_findingsState.value = UiState.Loading(currentFindings)
+			}
 			repository.getManifest(bookId).fold(
 				onSuccess = { manifest ->
 					_manifestState.value = UiState.Success(manifest)
+					repository.getBookFindings(bookId).fold(
+						onSuccess = { findings ->
+							_findingsState.value = UiState.Success(findings)
+						},
+						onFailure = {
+							_findingsState.value = UiState.Success(currentFindings ?: BinderyCatalog(title = "Findings"))
+						}
+					)
 				},
 				onFailure = { error ->
 					_manifestState.value = UiState.Error(
