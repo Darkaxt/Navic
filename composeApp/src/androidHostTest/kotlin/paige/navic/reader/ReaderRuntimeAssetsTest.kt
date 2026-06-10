@@ -632,6 +632,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderUsesSectionIndexFallbackWhenFixedLayoutPageTurnDoesNotMove() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val turnPage = bridgeText
+			.substringAfter("async turnPage(direction) {")
+			.substringBefore("\n  attachScrolledEdgeTurnGestures")
+
+		assertContains(bridgeText, "fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(bridgeText, "fixedLayoutCurrentPageIndex()")
+		assertContains(turnPage, "const beforePageIndex = this.fixedLayoutCurrentPageIndex()")
+		assertContains(turnPage, "const fallbackPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(turnPage, "const afterPageIndex = this.fixedLayoutCurrentPageIndex()")
+		assertContains(turnPage, "if (fallbackPageTarget != null && beforePageIndex === afterPageIndex)")
+		assertContains(turnPage, "await this.view.goTo(fallbackPageTarget)")
+		assertContains(turnPage, "page-turn:fixed-fallback")
+	}
+
+	@Test
 	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()

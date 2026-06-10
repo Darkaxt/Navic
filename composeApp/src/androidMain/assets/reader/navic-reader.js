@@ -510,6 +510,24 @@ class NavicReaderRuntime {
     return Math.min(sectionCount - 1, Math.max(0, index))
   }
 
+  fixedLayoutCurrentPageIndex() {
+    if (this.view?.isFixedLayout !== true) return null
+    const index = Number(this.view?.renderer?.index)
+    return Number.isFinite(index) ? Math.floor(index) : null
+  }
+
+  fixedLayoutAdjacentPageTarget(direction) {
+    if (this.view?.isFixedLayout !== true) return null
+    const current = this.fixedLayoutCurrentPageIndex()
+    const sectionCount = Number(this.view?.book?.sections?.length)
+    if (!Number.isFinite(current) || !Number.isFinite(sectionCount) || sectionCount <= 0) return null
+    const forward = direction === 'next'
+    const rtl = this.effectiveReaderDirection() === ReaderDirectionRtl
+    const delta = forward === rtl ? -1 : 1
+    const target = current + delta
+    return target >= 0 && target < sectionCount ? target : null
+  }
+
   async goToProgress(progress) {
     if (!this.view) return
     const numericProgress = Number(progress)
@@ -552,10 +570,17 @@ class NavicReaderRuntime {
     if (!this.view) return
     try {
       log('page-turn:start', direction)
+      const beforePageIndex = this.fixedLayoutCurrentPageIndex()
+      const fallbackPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
       if (direction === 'next') {
         await this.view?.next?.()
       } else {
         await this.view?.prev?.()
+      }
+      const afterPageIndex = this.fixedLayoutCurrentPageIndex()
+      if (fallbackPageTarget != null && beforePageIndex === afterPageIndex) {
+        log('page-turn:fixed-fallback', direction, fallbackPageTarget)
+        await this.view.goTo(fallbackPageTarget)
       }
       this.applyReaderViewportLayout(`page-turn:${direction}`)
       requestAnimationFrame(() => {
