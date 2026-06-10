@@ -398,7 +398,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
 		assertContains(bridgeText, "dataset.navicPageNumberLayer")
 		assertContains(bridgeText, "readerPageNumberLabel(pagePosition)")
-		assertContains(bridgeText, "return String(pageIndex + 1)")
+		assertContains(bridgeText, "return `${'$'}{currentPage} / ${'$'}{pageCount}`")
 		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
 		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
 		assertFalse(

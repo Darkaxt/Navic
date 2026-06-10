@@ -528,7 +528,12 @@ const readerSurfacePageBorderOverlayOpacity = settings => {
 const readerPageNumberLabel = pagePosition => {
   const pageIndex = pagePosition?.pageIndex
   if (!Number.isFinite(pageIndex) || pageIndex < 0) return ''
-  return String(pageIndex + 1)
+  const currentPage = pageIndex + 1
+  const pageCount = pagePosition?.pageCount
+  if (Number.isFinite(pageCount) && pageCount > 0) {
+    return `${currentPage} / ${pageCount}`
+  }
+  return String(currentPage)
 }
 
 const readerPageNumberBlendMode = settings => {
