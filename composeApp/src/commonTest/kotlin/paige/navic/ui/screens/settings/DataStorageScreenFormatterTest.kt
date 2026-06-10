@@ -33,6 +33,13 @@ class DataStorageScreenFormatterTest {
 	}
 
 	@Test
+	fun readerPublicationCacheStorageSizeTextUsesSharedFormatter() {
+		assertEquals("0 B", readerPublicationCacheStorageSizeText(0))
+		assertEquals("1.5 KB", readerPublicationCacheStorageSizeText(1536))
+		assertEquals("1.5 GB", readerPublicationCacheStorageSizeText(1536L * 1024L * 1024L))
+	}
+
+	@Test
 	fun lidaClipsOfflineStorageTextSummarizesClipsAndSize() {
 		assertEquals("0 clips", lidaClipsOfflineClipCountText(0))
 		assertEquals("1 clip", lidaClipsOfflineClipCountText(1))

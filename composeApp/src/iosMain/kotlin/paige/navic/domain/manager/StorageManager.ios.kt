@@ -95,6 +95,10 @@ actual class StorageManager {
 		return listFiles(lidaClipOfflineDir())
 	}
 
+	actual fun readerPublicationCacheSizeBytes(): Long {
+		return directorySizeBytes(readerPublicationCacheDir())
+	}
+
 	private fun listFiles(directoryUrl: NSURL): List<LidaClipCacheFileInfo> {
 		val manager = NSFileManager.defaultManager
 		val dir = directoryUrl.path ?: return emptyList()
@@ -146,6 +150,10 @@ actual class StorageManager {
 		clearDirectory(lidaClipVideoCacheDir())
 	}
 
+	actual fun clearReaderPublicationCache() {
+		clearDirectory(readerPublicationCacheDir())
+	}
+
 	actual fun clearLidaClipOfflineFiles() {
 		clearDirectory(lidaClipOfflineDir())
 	}
@@ -172,6 +180,9 @@ actual class StorageManager {
 	private fun lidaClipVideoCacheDir(): NSURL =
 		directory(NSCachesDirectory, "lida_clips")
 
+	private fun readerPublicationCacheDir(): NSURL =
+		directory(directory(NSCachesDirectory, "reader"), "reader-publications")
+
 	private fun lidaClipOfflineDir(): NSURL =
 		directory(NSDocumentDirectory, "lida_clips")
 
@@ -183,6 +194,28 @@ actual class StorageManager {
 			manager.createDirectoryAtURL(dir, true, null, null)
 		}
 		return dir
+	}
+
+	private fun directory(parent: NSURL, child: String): NSURL {
+		val manager = NSFileManager.defaultManager
+		val dir = parent.URLByAppendingPathComponent(child)!!
+		if (!manager.fileExistsAtPath(dir.path!!)) {
+			manager.createDirectoryAtURL(dir, true, null, null)
+		}
+		return dir
+	}
+
+	private fun directorySizeBytes(directoryUrl: NSURL): Long {
+		val manager = NSFileManager.defaultManager
+		val dir = directoryUrl.path ?: return 0L
+		return manager.subpathsAtPath(dir)
+			.orEmpty()
+			.mapNotNull { it as? String }
+			.sumOf { relativePath ->
+				val path = directoryUrl.URLByAppendingPathComponent(relativePath)?.path ?: return@sumOf 0L
+				val attributes = manager.attributesOfItemAtPath(path, null)
+				(attributes?.get(NSFileSize) as? NSNumber)?.longValue ?: 0L
+			}
 	}
 
 	private fun clearDirectory(dir: NSURL) {

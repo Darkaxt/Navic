@@ -70,6 +70,7 @@ import navic.composeapp.generated.resources.option_auto_download_starred_songs
 import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_download_queue
 import navic.composeapp.generated.resources.option_downloaded_songs
+import navic.composeapp.generated.resources.option_ebook_cache_size
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
@@ -160,6 +161,7 @@ fun SettingsDataStorageScreen() {
 
 	val calculating = stringResource(Res.string.info_status_calculating)
 	var imageCacheSizeText by remember { mutableStateOf(calculating) }
+	var readerPublicationCacheSizeText by remember { mutableStateOf(calculating) }
 
 	val downloadedSize = remember(downloadSize) { downloadStorageSizeText(downloadSize) }
 	val lidaClipOfflineSize = remember(lidaClipOfflineStorageSize) {
@@ -192,6 +194,10 @@ fun SettingsDataStorageScreen() {
 			DangerZoneAction.ClearLidaClipsVideoCache -> scope.launch(Dispatchers.IO) {
 				storageManager.clearLidaClipVideoCache()
 			}
+			DangerZoneAction.ClearReaderPublicationCache -> scope.launch(Dispatchers.IO) {
+				storageManager.clearReaderPublicationCache()
+				readerPublicationCacheSizeText = readerPublicationCacheStorageSizeText(0)
+			}
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
 			DangerZoneAction.ClearDownloads -> viewModel.clearAllDownloads()
 			DangerZoneAction.RebuildDatabase -> if (isOnline) viewModel.rebuildDatabase()
@@ -213,6 +219,9 @@ fun SettingsDataStorageScreen() {
 		withContext(Dispatchers.IO) {
 			val sizeBytes = imageLoader.diskCache?.size ?: 0L
 			imageCacheSizeText = imageCacheStorageSizeText(sizeBytes)
+			readerPublicationCacheSizeText = readerPublicationCacheStorageSizeText(
+				storageManager.readerPublicationCacheSizeBytes()
+			)
 		}
 	}
 
@@ -430,6 +439,11 @@ fun SettingsDataStorageScreen() {
 					SettingValueRow(
 						title = { Text(stringResource(Res.string.option_image_cache_size)) },
 						value = imageCacheSizeText
+					)
+
+					SettingValueRow(
+						title = { Text(stringResource(Res.string.option_ebook_cache_size)) },
+						value = readerPublicationCacheSizeText
 					)
 
 					SettingValueRow(

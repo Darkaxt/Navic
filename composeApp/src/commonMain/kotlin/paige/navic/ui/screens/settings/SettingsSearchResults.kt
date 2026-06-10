@@ -160,6 +160,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val lidaClipOfflineSize = remember(lidaClipOfflineFiles) {
 		lidaClipOfflineFiles.sumOf { it.sizeBytes.coerceAtLeast(0L) }
 	}
+	val readerPublicationCacheSize = remember { storageManager.readerPublicationCacheSizeBytes() }
 	val platformContext = LocalPlatformContext.current
 	val isAndroid = platformContext.name.lowercase().startsWith("android")
 	val isApple = listOf("ios", "ipados").contains(platformContext.name.lowercase())
@@ -1396,6 +1397,14 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				preferenceManager.musicBrainzArtworkFallbackEnabled = it
 				musicBrainzArtworkRepository.refreshCacheVisibility()
 			}
+		))
+		add(valueRow(
+			id = "data.ebook-cache",
+			path = path(dataStorage, cacheManagement),
+			title = stringResource(Res.string.option_ebook_cache_size),
+			subtitle = stringResource(Res.string.info_clear_ebook_cache_confirmation),
+			keywords = listOf("ebook", "epub", "pdf", "reader", "cache", "bindery", "clear cache"),
+			value = readerPublicationCacheStorageSizeText(readerPublicationCacheSize)
 		))
 		add(valueRow(
 			id = "data.musicbrainz-cache",

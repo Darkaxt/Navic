@@ -10,6 +10,9 @@ fun downloadStorageSizeText(bytes: Long): String =
 fun imageCacheStorageSizeText(bytes: Long): String =
 	storageSizeText(bytes)
 
+fun readerPublicationCacheStorageSizeText(bytes: Long): String =
+	storageSizeText(bytes)
+
 fun lidaClipsOfflineStorageSizeText(bytes: Long): String =
 	storageSizeText(bytes)
 

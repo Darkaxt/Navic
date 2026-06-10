@@ -18,9 +18,11 @@ expect class StorageManager {
 	fun touchFile(path: String): Boolean
 	fun listLidaClipVideoCacheFiles(): List<LidaClipCacheFileInfo>
 	fun listLidaClipOfflineFiles(): List<LidaClipCacheFileInfo>
+	fun readerPublicationCacheSizeBytes(): Long
 	suspend fun saveFile(path: String, channel: ByteReadChannel)
 	fun clearDownloads()
 	fun clearLidaClipVideoCache()
+	fun clearReaderPublicationCache()
 	fun clearLidaClipOfflineFiles()
 	fun clearLidaClipOfflineFilesForSong(songId: String)
 }

@@ -76,6 +76,10 @@ actual class StorageManager(
 		return listFiles(lidaClipOfflineDir())
 	}
 
+	actual fun readerPublicationCacheSizeBytes(): Long {
+		return readerPublicationCacheDir().directorySizeBytes()
+	}
+
 	actual suspend fun saveFile(path: String, channel: ByteReadChannel) {
 		withContext(dispatcher) {
 			File(path).parentFile?.mkdirs()
@@ -91,6 +95,10 @@ actual class StorageManager(
 
 	actual fun clearLidaClipVideoCache() {
 		lidaClipVideoCacheDir().listFiles()?.forEach { it.deleteRecursively() }
+	}
+
+	actual fun clearReaderPublicationCache() {
+		readerPublicationCacheDir().listFiles()?.forEach { it.deleteRecursively() }
 	}
 
 	actual fun clearLidaClipOfflineFiles() {
@@ -118,6 +126,12 @@ actual class StorageManager(
 		return dir
 	}
 
+	private fun readerPublicationCacheDir(): File {
+		val dir = File(context.cacheDir, "reader/reader-publications")
+		if (!dir.exists()) dir.mkdirs()
+		return dir
+	}
+
 	private fun lidaClipOfflineDir(): File {
 		val dir = File(context.filesDir, "lida_clips")
 		if (!dir.exists()) dir.mkdirs()
@@ -136,4 +150,9 @@ actual class StorageManager(
 					lastModifiedMillis = it.lastModified()
 				)
 			}
+
+	private fun File.directorySizeBytes(): Long =
+		walkTopDown()
+			.filter { it.isFile }
+			.sumOf { file -> file.length().coerceAtLeast(0L) }
 }
