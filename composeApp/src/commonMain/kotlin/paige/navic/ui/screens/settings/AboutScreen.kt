@@ -22,7 +22,6 @@ import navic.composeapp.generated.resources.info_app_version
 import navic.composeapp.generated.resources.notice_copied
 import navic.composeapp.generated.resources.title_about
 import navic.composeapp.generated.resources.title_acknowledgements
-import navic.composeapp.generated.resources.title_chat
 import navic.composeapp.generated.resources.title_source
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.LocalPlatformContext
@@ -86,12 +85,6 @@ fun SettingsAboutScreen() {
 					uriHandler.openUri(ABOUT_SOURCE_URL)
 				}) {
 					Text(stringResource(Res.string.title_source))
-					Icon(Icons.Outlined.ChevronForward, null)
-				}
-				FormRow(onClick = {
-					uriHandler.openUri("https://discord.gg/TBcnNX66PH")
-				}) {
-					Text(stringResource(Res.string.title_chat))
 					Icon(Icons.Outlined.ChevronForward, null)
 				}
 				FormRow(onClick = dropUnlessResumed {

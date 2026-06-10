@@ -81,6 +81,7 @@ class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
 			}
 		exoPlayer = player
 		val mediaSessionBuilder = MediaSession.Builder(this, player)
+			.setId(sessionId)
 			.setBitmapLoader(CoilBitmapLoader(this, { binderyApiKeyHeaders(preferenceManager.binderyApiKey) }))
 		sessionPendingIntent()?.let(mediaSessionBuilder::setSessionActivity)
 		mediaSession = mediaSessionBuilder.build()
@@ -122,6 +123,7 @@ class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
 
 	companion object {
 		const val serviceClassName: String = "paige.navic.reader.ReadaloudPlaybackService"
+		const val sessionId: String = "navic-readaloud"
 
 		fun newSessionToken(context: Context): SessionToken =
 			SessionToken(context, ComponentName(context, ReadaloudPlaybackService::class.java))

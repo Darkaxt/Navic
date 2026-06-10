@@ -3,6 +3,7 @@ package paige.navic.reader
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -50,6 +51,14 @@ class ReadaloudAudioControllerTest {
 		)
 	}
 
+	@Test
+	fun readaloudMediaSessionUsesDedicatedSessionId() {
+		val source = readaloudPlaybackServiceSourceFile().readText()
+
+		assertContains(source, "const val sessionId")
+		assertContains(source, ".setId(sessionId)")
+	}
+
 	private fun androidManifestServices() = DocumentBuilderFactory
 		.newInstance()
 		.apply { isNamespaceAware = true }
@@ -63,6 +72,12 @@ class ReadaloudAudioControllerTest {
 		File("../androidApp/src/main/AndroidManifest.xml")
 	).firstOrNull { it.isFile }
 		?: error("Unable to locate androidApp/src/main/AndroidManifest.xml")
+
+	private fun readaloudPlaybackServiceSourceFile(): File = listOf(
+		File("src/androidMain/kotlin/paige/navic/reader/ReadaloudPlaybackService.android.kt"),
+		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReadaloudPlaybackService.android.kt")
+	).firstOrNull { it.isFile }
+		?: error("Unable to locate ReadaloudPlaybackService.android.kt")
 
 	private fun org.w3c.dom.Node.androidAttribute(name: String): String =
 		attributes?.getNamedItemNS(ANDROID_NAMESPACE, name)?.nodeValue.orEmpty()
