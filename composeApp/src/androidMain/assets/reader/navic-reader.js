@@ -9,6 +9,7 @@ const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
+const FixedLayoutSurfaceSwipeThreshold = 56
 const CenterTapMovementSlop = 12
 const CenterTapSyntheticClickDedupeMs = 650
 const ReaderMediaSyntheticClickSuppressMs = 1200
@@ -324,7 +325,17 @@ const komikkuConstantMenuRegion = komikkuNavigationRegion(
 const komikkuRegionContains = (region, x, y) =>
   x >= region.left && x <= region.right && y >= region.top && y <= region.bottom
 
-const komikkuRegionSize = smallerTapZone => smallerTapZone ? 0.25 : 0.33
+const ReaderCenterMenuRegionSize = 0.42
+
+const readerCenterMenuRegion = komikkuNavigationRegion(
+  (1 - ReaderCenterMenuRegionSize) / 2,
+  (1 - ReaderCenterMenuRegionSize) / 2,
+  (1 + ReaderCenterMenuRegionSize) / 2,
+  (1 + ReaderCenterMenuRegionSize) / 2,
+  KomikkuNavigationRegionMenu
+)
+
+const komikkuRegionSize = smallerTapZone => smallerTapZone ? 0.2 : 0.25
 
 const komikkuDefaultNavigationMode = flowMode =>
   flowMode === ReaderFlowPagedVertical ||
@@ -382,9 +393,10 @@ const komikkuTapAction = (
   flowMode = ReaderFlowPaged
 ) => {
   const regions = komikkuNavigationRegions(tapZoneMode, smallerTapZone, flowMode)
+  if (komikkuRegionContains(komikkuConstantMenuRegion, x, y)) return KomikkuNavigationRegionMenu
+  if (komikkuRegionContains(readerCenterMenuRegion, x, y)) return KomikkuNavigationRegionMenu
   const region = regions.find(candidate => komikkuRegionContains(candidate, x, y))
   if (region) return region.type
-  if (komikkuRegionContains(komikkuConstantMenuRegion, x, y)) return KomikkuNavigationRegionMenu
   return KomikkuNavigationRegionMenu
 }
 
@@ -441,6 +453,20 @@ const readerPaperTextureOpacity = settings => {
       return '1'
     default:
       return '0.65'
+  }
+}
+
+const readerSurfacePaperTextureOpacity = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return '0'
+    case ReaderThemeSepia:
+      return '0.16'
+    case 'dark':
+    case 'dusk':
+      return '0.12'
+    default:
+      return '0.1'
   }
 }
 
@@ -619,7 +645,7 @@ const updatePaperTextureLayer = (layer, textureVariant, settings) => {
 
 const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
   if (!layer || !textureVariant?.asset) return
-  updatePaperTextureLayer(layer, textureVariant, settings)
+  const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -628,6 +654,15 @@ const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
     'min-height': '100vh',
     'z-index': '2147483646',
     'pointer-events': 'none',
+    'background-image': textureUrl,
+    'background-size': 'cover',
+    'background-position': 'center',
+    'background-repeat': 'no-repeat',
+    'background-color': 'transparent',
+    opacity: readerSurfacePaperTextureOpacity(settings),
+    'mix-blend-mode': 'multiply',
+    transform: readerPaperTextureTransform(textureVariant),
+    'transform-origin': 'center',
   })
 }
 
@@ -1070,8 +1105,75 @@ class NavicReaderRuntime {
   attachSurfaceTapGesture(element) {
     if (!element || element.__navicSurfaceTapGestureAttached) return
     element.__navicSurfaceTapGestureAttached = true
+    let touchState = null
+    element.addEventListener('touchstart', event => {
+      if (this.view?.isFixedLayout !== true) return
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      touchState = {
+        target: event.target,
+        x: touch.screenX ?? touch.clientX ?? 0,
+        y: touch.screenY ?? touch.clientY ?? 0,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+      }
+    }, { passive: true })
+    element.addEventListener('touchmove', event => {
+      if (this.view?.isFixedLayout !== true || !touchState || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      touchState.lastX = touch.screenX ?? touch.clientX ?? touchState.x
+      touchState.lastY = touch.screenY ?? touch.clientY ?? touchState.y
+    }, { passive: true })
+    element.addEventListener('touchend', async event => {
+      const state = touchState
+      touchState = null
+      if (this.view?.isFixedLayout !== true || !state || event.touches?.length > 0) return
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      const endX = touch.screenX ?? touch.clientX ?? state.lastX ?? state.x
+      const endY = touch.screenY ?? touch.clientY ?? state.lastY ?? state.y
+      const deltaX = endX - state.x
+      const deltaY = endY - state.y
+      if (Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold && Math.abs(deltaX) > Math.abs(deltaY)) {
+        const handled = await this.turnFixedLayoutSwipePage(deltaX)
+        if (handled) {
+          event.preventDefault()
+          event.stopPropagation()
+          element.__navicLastSurfaceTapHandledAt = event.timeStamp || performance.now()
+        }
+        return
+      }
+      if (Math.abs(deltaX) > CenterTapMovementSlop || Math.abs(deltaY) > CenterTapMovementSlop) return
+      const handled = await this.handleReaderTapZone({
+        defaultPrevented: event.defaultPrevented,
+        button: 0,
+        target: state.target || event.target,
+        clientX: touch.clientX ?? state.clientX,
+        clientY: touch.clientY ?? state.clientY,
+        preventDefault: () => event.preventDefault(),
+        stopPropagation: () => event.stopPropagation(),
+      }, document, 'surface-touch')
+      if (handled) element.__navicLastSurfaceTapHandledAt = event.timeStamp || performance.now()
+    }, { passive: false })
+    element.addEventListener('touchcancel', () => {
+      touchState = null
+    }, { passive: true })
     element.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button !== 0) return
+      const timestamp = event.timeStamp || performance.now()
+      const lastTap = Number(element.__navicLastSurfaceTapHandledAt || 0)
+      if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       if (this.view?.isFixedLayout === true) {
         await this.handleReaderTapZone(event, document, 'surface')
       }
@@ -1261,6 +1363,20 @@ class NavicReaderRuntime {
     return false
   }
 
+  async turnFixedLayoutSwipePage(deltaX) {
+    if (this.view?.isFixedLayout !== true) return false
+    if (Math.abs(deltaX) < FixedLayoutSurfaceSwipeThreshold) return false
+    const swipedLeft = deltaX < 0
+    const rtl = this.effectiveReaderDirection() === ReaderDirectionRtl
+    log('page-turn:fixed-swipe', swipedLeft ? 'left' : 'right')
+    if (swipedLeft === rtl) {
+      await this.previousPage()
+    } else {
+      await this.nextPage()
+    }
+    return true
+  }
+
   async applyHighlight({ id, cfi, color = null, note = null }) {
     if (!this.view || !id || !cfi) return
     try {
@@ -1445,6 +1561,13 @@ class NavicReaderRuntime {
   }
 
   updateSurfacePaperTexture(detail = {}) {
+    if (this.view?.isFixedLayout !== true) {
+      this.surfaceTextureLayer?.remove?.()
+      this.surfaceTextureLayer = null
+      delete readerRoot.dataset.navicSurfacePaperTextureKey
+      delete readerRoot.dataset.navicSurfacePaperTextureAsset
+      return
+    }
     const index = this.surfacePaperTextureIndex(detail)
     const section = this.view?.book?.sections?.[index]
     const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)

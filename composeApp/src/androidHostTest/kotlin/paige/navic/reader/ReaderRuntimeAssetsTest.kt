@@ -285,12 +285,24 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidReaderSupportsPdfSurfaceNavigationAndScrolling() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val surfaceGesture = bridgeText
+			.substringAfter("attachSurfaceTapGesture(element) {")
+			.substringBefore("\n  attachLinkNavigation")
 
 		assertContains(bridgeText, "attachSurfaceTapGesture")
 		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
 		assertContains(bridgeText, "this.view?.isFixedLayout === true")
 		assertContains(bridgeText, "overflow: fixedLayout ? 'auto' : 'hidden'")
 		assertContains(bridgeText, "handleReaderTapZone(event, document, 'surface')")
+		assertContains(bridgeText, "FixedLayoutSurfaceSwipeThreshold")
+		assertContains(bridgeText, "turnFixedLayoutSwipePage(deltaX)")
+		assertContains(surfaceGesture, "element.addEventListener('touchstart'")
+		assertContains(surfaceGesture, "element.addEventListener('touchmove'")
+		assertContains(surfaceGesture, "element.addEventListener('touchend'")
+		assertContains(surfaceGesture, "element.addEventListener('touchcancel'")
+		assertContains(surfaceGesture, "Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold")
+		assertContains(surfaceGesture, "await this.turnFixedLayoutSwipePage(deltaX)")
+		assertContains(surfaceGesture, "__navicLastSurfaceTapHandledAt")
 		assertContains(bridgeText, "startLocator?.progress")
 		assertContains(bridgeText, "await this.goToProgress(progress)")
 	}
@@ -575,6 +587,32 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPrioritizesCenterMenuTapZoneOverPageTurns() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val tapAction = bridgeText
+			.substringAfter("const komikkuTapAction = (")
+			.substringBefore("\n\nconst readerAssetUrl")
+
+		assertContains(bridgeText, "ReaderCenterMenuRegionSize")
+		assertContains(bridgeText, "readerCenterMenuRegion")
+		assertContains(bridgeText, "smallerTapZone ? 0.2 : 0.25")
+		assertFalse(
+			bridgeText.contains("smallerTapZone ? 0.25 : 0.33"),
+			"Komikku's one-third tap bands are too large once mapped onto Navic's WebView reader surface."
+		)
+		assertTrue(
+			tapAction.indexOf("readerCenterMenuRegion") <
+				tapAction.indexOf("regions.find"),
+			"Center/menu taps must win before previous/next regions consume the visual page center."
+		)
+		assertTrue(
+			tapAction.indexOf("komikkuConstantMenuRegion") <
+				tapAction.indexOf("regions.find"),
+			"The always-visible menu strip must still be checked before page-turn regions."
+		)
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
@@ -772,6 +810,12 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidReaderMirrorsPaperTextureOnTopLevelSurface() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val surfaceTextureUpdater = bridgeText
+			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringBefore("\n  applyReaderDirection")
+		val surfaceLayerUpdater = bridgeText
+			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) =>")
+			.substringBefore("\n\nconst isReaderPaperTextureLayer")
 		val applySettings = bridgeText
 			.substringAfter("applySettings(settings) {")
 			.substringBefore("\n  applyThemeToLoadedContent")
@@ -787,7 +831,15 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "updateReaderSurfaceTextureLayer")
 		assertContains(bridgeText, "readerRoot.append(layer)")
 		assertContains(bridgeText, "data-navic-surface-paper-texture-layer")
+		assertContains(bridgeText, "readerSurfacePaperTextureOpacity")
 		assertContains(bridgeText, "this.updateSurfacePaperTexture")
+		assertContains(surfaceTextureUpdater, "if (this.view?.isFixedLayout !== true)")
+		assertContains(surfaceTextureUpdater, "this.surfaceTextureLayer?.remove?.()")
+		assertContains(surfaceTextureUpdater, "delete readerRoot.dataset.navicSurfacePaperTextureAsset")
+		assertFalse(
+			surfaceLayerUpdater.contains("readerPaperTextureBackgroundImage(textureVariant, settings)"),
+			"The top-level surface texture must stay subtle and must not reuse the stacked document texture overlay."
+		)
 		assertContains(applySettings, "this.updateSurfacePaperTexture()")
 		assertContains(onLoad, "this.updateSurfacePaperTexture(detail)")
 		assertContains(onRelocate, "this.updateSurfacePaperTexture(detail)")
