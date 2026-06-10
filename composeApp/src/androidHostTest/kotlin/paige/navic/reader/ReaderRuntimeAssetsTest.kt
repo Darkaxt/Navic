@@ -520,6 +520,31 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderSuppressesSyntheticAnchorClicksAfterImageTintToggle() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val suppression = bridgeText
+			.substringAfter("const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) =>")
+			.substringBefore("\n\n// Ported from Komikku")
+		val immediateSuppressBlock = suppression
+			.substringAfter("if (suppressUntil && performance.now() <= suppressUntil) {")
+			.substringBefore("\n  }")
+
+		assertContains(suppression, "const suppressUntil = Number(win.__navicSuppressNextMediaClickUntil || 0)")
+		assertContains(suppression, "if (suppressUntil && performance.now() <= suppressUntil) {")
+		assertContains(immediateSuppressBlock, "win.__navicSuppressNextMediaClickUntil = 0")
+		assertContains(immediateSuppressBlock, "return true")
+		assertTrue(
+			immediateSuppressBlock.indexOf("win.__navicSuppressNextMediaClickUntil = 0") <
+				immediateSuppressBlock.indexOf("return true"),
+			"Any immediate anchor click after an image tint toggle must be consumed before adjacent-link hit testing."
+		)
+		assertFalse(
+			immediateSuppressBlock.contains("readerLastMediaTapRectContainsPoint"),
+			"Immediate synthetic-click suppression must not depend on where the adjacent link reports its hit box."
+		)
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuStyleTapZonePresets() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -628,8 +653,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerParagraphSpacingEm")
 		assertContains(bridgeText, "--reader-paragraph-spacing")
 		assertContains(bridgeText, "'--reader-paragraph-spacing': readerParagraphSpacingEm(settings)")
-		assertContains(bridgeText, "html body p::after")
-		assertContains(bridgeText, "block-size: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
+		assertContains(bridgeText, "margin-block-end: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
+		assertContains(bridgeText, "margin-bottom: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
 		assertContains(bridgeText, "settings.publisherStyles === true")
 		assertContains(bridgeText, "paragraphSpacingPercent")
 		assertContains(bridgeText, "paragraphSpacing=\${")
@@ -731,14 +756,43 @@ class ReaderRuntimeAssetsTest {
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
 		assertContains(paragraphSpacing, "const blocks = Array.from")
 		assertContains(paragraphSpacing, "'display': 'block'")
-		assertContains(paragraphSpacing, "'margin-block-end': '0'")
+		assertContains(paragraphSpacing, "'margin-block-end': spacing")
 		assertContains(paragraphSpacing, "'margin-block-start': '0'")
 		assertContains(paragraphSpacing, "'padding-block-end': '0'")
-		assertContains(paragraphSpacingCss, "html body p::after")
-		assertContains(paragraphSpacingCss, "content: ''")
-		assertContains(paragraphSpacingCss, "display: block")
-		assertContains(paragraphSpacingCss, "block-size: var(--reader-paragraph-spacing")
+		assertContains(paragraphSpacing, "'margin-bottom': spacing")
+		assertContains(paragraphSpacingCss, "margin-block-end: var(--reader-paragraph-spacing")
+		assertContains(paragraphSpacingCss, "margin-bottom: var(--reader-paragraph-spacing")
+		assertFalse(
+			paragraphSpacingCss.contains("html body p::after"),
+			"Paragraph spacing must use real element margins because paginated EPUB layout can ignore pseudo-element spacing."
+		)
 		assertContains(applyDocumentTheme, "applyReaderParagraphSpacing(doc, settings)")
+	}
+
+	@Test
+	fun androidReaderMirrorsPaperTextureOnTopLevelSurface() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val applySettings = bridgeText
+			.substringAfter("applySettings(settings) {")
+			.substringBefore("\n  applyThemeToLoadedContent")
+		val onLoad = bridgeText
+			.substringAfter("onLoad(detail = {}) {")
+			.substringBefore("\n  logContentLayout")
+		val onRelocate = bridgeText
+			.substringAfter("onRelocate(detail) {")
+			.substringBefore("\n  attachContentDocumentBehaviors")
+
+		assertContains(bridgeText, "ReaderSurfacePaperTextureLayerSelector")
+		assertContains(bridgeText, "ensureReaderSurfaceTextureLayer")
+		assertContains(bridgeText, "updateReaderSurfaceTextureLayer")
+		assertContains(bridgeText, "readerRoot.append(layer)")
+		assertContains(bridgeText, "data-navic-surface-paper-texture-layer")
+		assertContains(bridgeText, "this.updateSurfacePaperTexture")
+		assertContains(applySettings, "this.updateSurfacePaperTexture()")
+		assertContains(onLoad, "this.updateSurfacePaperTexture(detail)")
+		assertContains(onRelocate, "this.updateSurfacePaperTexture(detail)")
+		assertContains(bridgeText, "position: 'fixed'")
+		assertContains(bridgeText, "'pointer-events': 'none'")
 	}
 
 	@Test

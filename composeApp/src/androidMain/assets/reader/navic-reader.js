@@ -4,6 +4,7 @@ const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 const ReaderPaperTextureLayerSelector = '[data-navic-paper-texture-layer="true"]'
+const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
@@ -297,22 +298,8 @@ const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) => {
 
   const suppressUntil = Number(win.__navicSuppressNextMediaClickUntil || 0)
   if (suppressUntil && performance.now() <= suppressUntil) {
-    if (readerLastMediaTapRectContainsPoint(doc, event)) return true
-    if (isReaderMediaAnchor(anchor)) return true
-    if (readerMediaTapTargetForEvent(doc, event, anchor)) return true
-    const { clientX, clientY } = readerEventClientPoint(event)
-    const lastX = Number(win.__navicLastMediaTapClientX)
-    const lastY = Number(win.__navicLastMediaTapClientY)
-    if (
-      Number.isFinite(clientX) &&
-      Number.isFinite(clientY) &&
-      Number.isFinite(lastX) &&
-      Number.isFinite(lastY) &&
-      Math.abs(clientX - lastX) <= CenterTapMovementSlop * 2 &&
-      Math.abs(clientY - lastY) <= CenterTapMovementSlop * 2
-    ) {
-      return true
-    }
+    win.__navicSuppressNextMediaClickUntil = 0
+    return true
   }
   return false
 }
@@ -563,9 +550,9 @@ const applyReaderParagraphSpacing = (doc, settings) => {
     setStylesImportant(element, {
       'display': 'block',
       'margin-block-start': '0',
-      'margin-block-end': '0',
+      'margin-block-end': spacing,
       'margin-top': '0',
-      'margin-bottom': '0',
+      'margin-bottom': spacing,
       'padding-block-end': '0',
       'padding-bottom': '0',
     })
@@ -597,6 +584,17 @@ const ensurePaperTextureLayer = doc => {
   return layer
 }
 
+const ensureReaderSurfaceTextureLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderSurfacePaperTextureLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicSurfacePaperTextureLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
 const updatePaperTextureLayer = (layer, textureVariant, settings) => {
   if (!layer || !textureVariant?.asset) return
   setStylesImportant(layer, {
@@ -616,6 +614,20 @@ const updatePaperTextureLayer = (layer, textureVariant, settings) => {
     'mix-blend-mode': 'multiply',
     transform: readerPaperTextureTransform(textureVariant),
     'transform-origin': 'center',
+  })
+}
+
+const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
+  if (!layer || !textureVariant?.asset) return
+  updatePaperTextureLayer(layer, textureVariant, settings)
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: '100vw',
+    height: '100vh',
+    'min-height': '100vh',
+    'z-index': '2147483646',
+    'pointer-events': 'none',
   })
 }
 
@@ -680,6 +692,7 @@ class NavicReaderRuntime {
   smallerTapZone = false
   originalBookDir = null
   publicationUrl = ''
+  surfaceTextureLayer = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -774,6 +787,8 @@ class NavicReaderRuntime {
     this.originalBookDir = null
     this.publicationUrl = ''
     this.readerDirectionModeValue = ReaderDirectionDefault
+    this.surfaceTextureLayer?.remove?.()
+    this.surfaceTextureLayer = null
   }
 
   applyReaderViewportLayout(label = 'unknown') {
@@ -1321,6 +1336,7 @@ class NavicReaderRuntime {
     this.applyReaderViewportLayout('settings')
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
+    this.updateSurfacePaperTexture()
   }
 
   applyThemeToLoadedContent(settings = this.readerSettings) {
@@ -1418,6 +1434,29 @@ class NavicReaderRuntime {
     }
   }
 
+  surfacePaperTextureIndex(detail = {}) {
+    const detailIndex = Number(detail?.index)
+    if (Number.isFinite(detailIndex)) return Math.floor(detailIndex)
+    const fixedLayoutIndex = this.fixedLayoutCurrentPageIndex()
+    if (Number.isFinite(fixedLayoutIndex)) return fixedLayoutIndex
+    const entry = this.contentEntries(detail).find(content => Number.isFinite(Number(content.index)))
+    const entryIndex = Number(entry?.index)
+    return Number.isFinite(entryIndex) ? Math.floor(entryIndex) : 0
+  }
+
+  updateSurfacePaperTexture(detail = {}) {
+    const index = this.surfacePaperTextureIndex(detail)
+    const section = this.view?.book?.sections?.[index]
+    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
+    const textureVariant = readerPaperTextureVariantForPage(textureKey)
+    this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
+      ? this.surfaceTextureLayer
+      : ensureReaderSurfaceTextureLayer()
+    readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
+    readerRoot.dataset.navicSurfacePaperTextureAsset = textureVariant.asset
+    updateReaderSurfaceTextureLayer(this.surfaceTextureLayer, textureVariant, this.readerSettings)
+  }
+
   applyReaderDirection(direction, rerender = true) {
     const normalized = direction === ReaderDirectionLtr || direction === ReaderDirectionRtl
       ? direction
@@ -1472,6 +1511,7 @@ class NavicReaderRuntime {
   onRelocate(detail) {
     const tocItem = detail.tocItem || {}
     const pagePosition = this.fixedLayoutPagePosition(detail)
+    this.updateSurfacePaperTexture(detail)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,
@@ -1521,6 +1561,7 @@ class NavicReaderRuntime {
   onLoad(detail = {}) {
     this.applyReaderViewportLayout('load')
     this.applyReaderDirection(this.readerDirectionModeValue, false)
+    this.updateSurfacePaperTexture(detail)
     if (detail.doc) log('load:event-doc', `index=${detail.index ?? 'unknown'}`)
     for (const content of this.contentEntries(detail)) {
       this.attachContentDocumentBehaviors(content.doc, content.index)
@@ -1647,7 +1688,8 @@ const readerParagraphSpacingCss = settings => `
   html body [data-navic-paragraph-block="true"] {
     display: block !important;
     margin-block-start: 0 !important;
-    margin-block-end: 0 !important;
+    margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
+    margin-bottom: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
     padding-block-end: 0 !important;
   }
   html body p + p,
@@ -1655,13 +1697,6 @@ const readerParagraphSpacingCss = settings => `
   html body p + [data-navic-paragraph-block="true"],
   html body [data-navic-paragraph-block="true"] + p {
     margin-block-start: 0 !important;
-  }
-  html body p::after,
-  html body [data-navic-paragraph-block="true"]::after {
-    content: '';
-    display: block;
-    block-size: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)});
-    min-block-size: 0;
   }
 `
 
