@@ -889,6 +889,7 @@ class NavicReaderRuntime {
   pageNumberLayer = null
   currentPagePosition = null
   lastRelocateDetail = null
+  pageTurnPromise = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -989,6 +990,7 @@ class NavicReaderRuntime {
     this.readerSettings = {}
     this.originalBookDir = null
     this.publicationUrl = ''
+    this.pageTurnPromise = null
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
@@ -1135,6 +1137,20 @@ class NavicReaderRuntime {
   }
 
   async turnPage(direction) {
+    if (this.pageTurnPromise) {
+      log('page-turn:coalesced', direction)
+      return this.pageTurnPromise
+    }
+    const turnPromise = this.performPageTurn(direction)
+    this.pageTurnPromise = turnPromise
+    try {
+      return await turnPromise
+    } finally {
+      if (this.pageTurnPromise === turnPromise) this.pageTurnPromise = null
+    }
+  }
+
+  async performPageTurn(direction) {
     if (!this.view) return
     try {
       log('page-turn:start', direction)

@@ -2,6 +2,8 @@
 
 const pdfjsScriptUrl = new URL('./vendor/pdfjs/pdf.js', import.meta.url).href
 const pdfjsWorkerUrl = new URL('./vendor/pdfjs/pdf.worker.js', import.meta.url).href
+const PdfPageFitWidthRatio = 0.94
+const PdfDiagnosticsEnabled = false
 
 let pdfjsLoadPromise
 
@@ -530,22 +532,27 @@ const annotationLayerBuilderCSS = `
 const renderPage = async (page, getImageBlob) => {
 
     const naturalPdfSize = page.getViewport({ scale: 1 })
-    const naturalPdfRatio = naturalPdfSize.width / naturalPdfSize.height
-    const appRatio = innerWidth / innerHeight
-    const pdfToAppResolutionRatio = appRatio / naturalPdfRatio
+    const layoutWidth = naturalPdfSize.width
+    const layoutHeight = naturalPdfSize.height
+    const viewportWidth = Math.max(1, globalThis.visualViewport?.width || innerWidth || layoutWidth)
+    const renderPixelWidth = viewportWidth * PdfPageFitWidthRatio * devicePixelRatio
 
-    const scale = devicePixelRatio * pdfToAppResolutionRatio
+    const scale = Math.max(devicePixelRatio || 1, renderPixelWidth / layoutWidth)
     const viewport = page.getViewport({ scale })
     const pageWidth = viewport.width
     const pageHeight = viewport.height
-    console.info(`[FoliatePDF] renderPage page=${page.pageNumber} width=${pageWidth} height=${pageHeight} scale=${scale}`)
+    console.info(
+        `[FoliatePDF] renderPage page=${page.pageNumber} ` +
+        `layout=${layoutWidth}x${layoutHeight} ` +
+        `pixels=${pageWidth}x${pageHeight} scale=${scale}`
+    )
 
     const canvas = document.createElement('canvas')
     canvas.height = pageHeight
     canvas.width = pageWidth
     const canvasContext = canvas.getContext('2d')
     await page.render({ canvasContext, viewport }).promise
-    logCanvasBitmap(page.pageNumber, canvas, canvasContext)
+    if (PdfDiagnosticsEnabled) logCanvasBitmap(page.pageNumber, canvas, canvasContext)
     if (getImageBlob) return new Promise(resolve => canvas.toBlob(resolve))
 
     /*
@@ -564,7 +571,15 @@ const renderPage = async (page, getImageBlob) => {
         }, 'image/png')
     })
     const src = URL.createObjectURL(blob)
-    return { type: 'image', src, width: pageWidth, height: pageHeight }
+    return {
+        type: 'image',
+        src,
+        width: layoutWidth,
+        height: layoutHeight,
+        pixelWidth: pageWidth,
+        pixelHeight: pageHeight,
+        fitWidthRatio: PdfPageFitWidthRatio,
+    }
 }
 
 const logCanvasBitmap = (pageNumber, canvas, canvasContext) => {
@@ -616,14 +631,33 @@ export const makePDF = async file => {
     book.toc = outline?.map(makeTOCItem)
 
     const cache = new Map()
+    const loadPdfPage = i => {
+        const cached = cache.get(i)
+        if (cached) return cached
+        const loadPromise = pdf.getPage(i + 1)
+            .then(page => renderPage(page))
+            .catch(error => {
+                cache.delete(i)
+                throw error
+            })
+        cache.set(i, loadPromise)
+        return loadPromise
+    }
+    const prefetchPdfPage = i => {
+        if (i < 0 || i >= pdf.numPages || cache.has(i)) return
+        loadPdfPage(i).catch(error => {
+            console.warn(`[FoliatePDF] prefetch failed page=${i + 1}`, error)
+        })
+    }
     book.sections = Array.from({ length: pdf.numPages }).map((_, i) => ({
         id: i,
         load: async () => {
-            const cached = cache.get(i)
-            if (cached) return cached
-            const url = await renderPage(await pdf.getPage(i + 1))
-            cache.set(i, url)
-            return url
+            const page = await loadPdfPage(i)
+            setTimeout(() => {
+                prefetchPdfPage(i + 1)
+                prefetchPdfPage(i - 1)
+            }, 0)
+            return page
         },
         size: 1000,
     }))

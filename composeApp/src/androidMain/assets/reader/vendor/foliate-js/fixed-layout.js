@@ -53,6 +53,12 @@ const normalizeFrameSize = (size, fallback = 1000) => {
     return Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 1000
 }
 
+const normalizedFitWidthRatio = (value, fallback = 1) => {
+    const ratio = parseFloat(value)
+    if (Number.isFinite(ratio) && ratio > 0 && ratio <= 1) return ratio
+    return fallback
+}
+
 const hostStyles = `:host {
     width: 100%;
     height: 100%;
@@ -152,6 +158,7 @@ export class FixedLayout extends HTMLElement {
                         width: frameWidth,
                         height: frameHeight,
                         inlineImage: true,
+                        fitWidthRatio: srcOption?.fitWidthRatio,
                     })
                 }, { once: true })
                 image.addEventListener('error', () => {
@@ -216,15 +223,17 @@ export class FixedLayout extends HTMLElement {
         const leftHeight = normalizeFrameSize(left.height ?? blankHeight, blankHeight)
         const rightWidth = normalizeFrameSize(right.width ?? blankWidth, blankWidth)
         const rightHeight = normalizeFrameSize(right.height ?? blankHeight, blankHeight)
+        const fitWidthRatio = normalizedFitWidthRatio(target.fitWidthRatio)
+        const viewportFitWidth = viewportWidth * fitWidthRatio
 
         const scale = typeof this.#zoom === 'number' && !isNaN(this.#zoom)
             ? this.#zoom
             : this.#zoom === 'fit-width' ? (portrait || this.#center
-                ? viewportWidth / targetWidth
+                ? viewportFitWidth / targetWidth
                 : viewportWidth / (leftWidth + rightWidth))
             : (portrait || this.#center
                 ? Math.min(
-                    viewportWidth / targetWidth,
+                    viewportFitWidth / targetWidth,
                     viewportHeight / targetHeight)
                 : Math.min(
                     viewportWidth / (leftWidth + rightWidth),

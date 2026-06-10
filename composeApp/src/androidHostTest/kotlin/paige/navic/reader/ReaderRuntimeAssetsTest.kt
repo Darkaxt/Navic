@@ -147,9 +147,12 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(
 			foliatePdfAdapterText,
-			"return { type: 'image', src, width: pageWidth, height: pageHeight }",
-			message = "PDF pages must expose direct image dimensions before fixed-layout paint"
+			"width: layoutWidth",
+			message = "PDF pages must expose natural layout dimensions before fixed-layout paint"
 		)
+		assertContains(foliatePdfAdapterText, "height: layoutHeight")
+		assertContains(foliatePdfAdapterText, "pixelWidth: pageWidth")
+		assertContains(foliatePdfAdapterText, "pixelHeight: pageHeight")
 		assertContains(foliatePdfAdapterText, "[FoliatePDF] renderPage")
 		assertContains(foliatePdfAdapterText, "spread: 'none'")
 		assertContains(foliatePdfAdapterText, "type: 'image'")
@@ -177,6 +180,27 @@ class ReaderRuntimeAssetsTest {
 		assertContains(foliateFixedLayoutText, "visualViewport")
 		assertContains(foliatePdfAdapterText, "[FoliatePDF] bitmap")
 		assertContains(foliatePdfAdapterText, "nonWhite")
+	}
+
+	@Test
+	fun androidPdfRuntimeUsesNaturalLayoutBoxAndPrefetchesAdjacentPages() {
+		val root = readerAssetRoot()
+		val foliateFixedLayoutText = root.resolve("vendor/foliate-js/fixed-layout.js").readText()
+		val foliatePdfAdapterText = root.resolve("vendor/foliate-js/pdf.js").readText()
+
+		assertContains(foliatePdfAdapterText, "const PdfPageFitWidthRatio = 0.94")
+		assertContains(foliatePdfAdapterText, "const layoutWidth = naturalPdfSize.width")
+		assertContains(foliatePdfAdapterText, "const layoutHeight = naturalPdfSize.height")
+		assertContains(foliatePdfAdapterText, "pixelWidth: pageWidth")
+		assertContains(foliatePdfAdapterText, "pixelHeight: pageHeight")
+		assertContains(foliatePdfAdapterText, "fitWidthRatio: PdfPageFitWidthRatio")
+		assertContains(foliatePdfAdapterText, "cache.set(i, loadPromise)")
+		assertContains(foliatePdfAdapterText, "prefetchPdfPage(i + 1)")
+		assertContains(foliatePdfAdapterText, "prefetchPdfPage(i - 1)")
+		assertContains(foliatePdfAdapterText, "if (PdfDiagnosticsEnabled) logCanvasBitmap")
+		assertContains(foliateFixedLayoutText, "fitWidthRatio: srcOption?.fitWidthRatio")
+		assertContains(foliateFixedLayoutText, "const fitWidthRatio = normalizedFitWidthRatio(target.fitWidthRatio)")
+		assertContains(foliateFixedLayoutText, "const viewportFitWidth = viewportWidth * fitWidthRatio")
 	}
 
 	@Test
@@ -1243,6 +1267,32 @@ class ReaderRuntimeAssetsTest {
 		assertContains(turnPage, "if (fallbackPageTarget != null && beforePageIndex === afterPageIndex)")
 		assertContains(turnPage, "await this.view.goTo(fallbackPageTarget)")
 		assertContains(turnPage, "page-turn:fixed-fallback")
+	}
+
+	@Test
+	fun androidReaderSerializesFixedLayoutPageTurnTaps() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val turnPage = bridgeText
+			.substringAfter("async turnPage(direction) {")
+			.substringBefore("\n  async performPageTurn(direction) {")
+		val performPageTurn = bridgeText
+			.substringAfter("async performPageTurn(direction) {")
+			.substringBefore("\n  attachScrolledEdgeTurnGestures")
+
+		assertContains(bridgeText, "this.pageTurnPromise = null")
+		assertContains(turnPage, "if (this.pageTurnPromise)")
+		assertContains(turnPage, "page-turn:coalesced")
+		assertContains(turnPage, "const turnPromise = this.performPageTurn(direction)")
+		assertContains(turnPage, "this.pageTurnPromise = turnPromise")
+		assertContains(turnPage, "if (this.pageTurnPromise === turnPromise)")
+		assertContains(turnPage, "this.pageTurnPromise = null")
+		assertContains(performPageTurn, "const beforePageIndex = this.fixedLayoutCurrentPageIndex()")
+		assertContains(performPageTurn, "await this.view.goTo(fallbackPageTarget)")
+		assertTrue(
+			turnPage.indexOf("if (this.pageTurnPromise)") <
+				turnPage.indexOf("this.pageTurnPromise = turnPromise"),
+			"Duplicated tap/click page-turn events must be coalesced before starting a second fixed-layout turn."
+		)
 	}
 
 	@Test
