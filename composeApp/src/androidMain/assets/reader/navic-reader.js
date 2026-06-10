@@ -1578,12 +1578,30 @@ class NavicReaderRuntime {
   fixedLayoutPagePosition(detail) {
     if (this.view?.isFixedLayout !== true) return null
     const pageCount = Number(this.view?.book?.sections?.length)
-    const pageIndex = Number(detail?.index)
+    const pageIndex = Number(detail?.index ?? this.fixedLayoutCurrentPageIndex())
     if (!Number.isFinite(pageCount) || pageCount <= 0 || !Number.isFinite(pageIndex)) return null
     return {
       pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex))),
       pageCount,
     }
+  }
+
+  reflowablePagePosition() {
+    if (this.view?.isFixedLayout === true) return null
+    const renderer = this.view?.renderer
+    if (!renderer || renderer.scrolled) return null
+    const page = Number(renderer.page)
+    const pages = Number(renderer.pages)
+    if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 2) return null
+    const pageCount = Math.max(1, Math.round(pages) - 2)
+    return {
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1))),
+      pageCount,
+    }
+  }
+
+  readerPagePosition(detail) {
+    return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition()
   }
 
   applySettings(settings) {
@@ -1902,7 +1920,7 @@ class NavicReaderRuntime {
 
   postLocationChanged(detail, reason = 'relocate') {
     const tocItem = detail.tocItem || {}
-    const pagePosition = this.fixedLayoutPagePosition(detail)
+    const pagePosition = this.readerPagePosition(detail)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,

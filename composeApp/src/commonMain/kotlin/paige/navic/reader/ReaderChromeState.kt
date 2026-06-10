@@ -399,6 +399,14 @@ data class ReaderChromeState(
 			?.let(::readerPageProgressLabel)
 			?: readerProgressPercentLabel(currentLocator?.progress)
 
+	val pageNumberLabel: String?
+		get() {
+			val locator = currentLocator ?: return null
+			val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
+			val pageCount = locator.pageCount?.takeIf { it > 0 } ?: return null
+			return "${pageIndex + 1} / $pageCount"
+		}
+
 	fun onReaderEvent(event: ReaderBridgeEvent): ReaderChromeState =
 		when (event) {
 			is ReaderBridgeEvent.LocationChanged -> copy(

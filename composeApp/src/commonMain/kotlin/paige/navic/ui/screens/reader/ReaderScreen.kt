@@ -659,6 +659,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 					dimOverlayPercent = chromeState.settings.dimOverlayPercent ?: 0,
 					modifier = Modifier.matchParentSize()
 				)
+				ReaderPageNumberOverlay(
+					state = chromeState,
+					visible = !chromeVisible,
+					modifier = Modifier
+						.align(Alignment.BottomCenter)
+						.padding(bottom = 16.dp)
+				)
 			}
 			if (!progressResumeLoaded || (preparedPublicationUrl == null && lastReaderError == null)) {
 				CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -709,6 +716,30 @@ private fun ReaderDimOverlay(
 ) {
 	val alpha = (dimOverlayPercent.coerceIn(0, 80) / 100f).takeIf { it > 0f } ?: return
 	Box(modifier.background(Color.Black.copy(alpha = alpha)))
+}
+
+@Composable
+private fun ReaderPageNumberOverlay(
+	state: ReaderChromeState,
+	visible: Boolean,
+	modifier: Modifier = Modifier
+) {
+	val label = state.pageNumberLabel ?: return
+	if (!visible) return
+	Surface(
+		modifier = modifier,
+		shape = MaterialTheme.shapes.small,
+		color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+		contentColor = MaterialTheme.colorScheme.onSurface,
+		tonalElevation = 1.dp
+	) {
+		Text(
+			text = label,
+			style = MaterialTheme.typography.labelSmall,
+			fontWeight = FontWeight.Medium,
+			modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+		)
+	}
 }
 
 @Composable

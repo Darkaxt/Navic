@@ -375,6 +375,27 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderReportsDynamicReflowablePagePositionToChrome() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+
+		assertContains(bridgeText, "reflowablePagePosition()")
+		assertContains(bridgeText, "const renderer = this.view?.renderer")
+		assertContains(bridgeText, "if (!renderer || renderer.scrolled) return null")
+		assertContains(bridgeText, "const page = Number(renderer.page)")
+		assertContains(bridgeText, "const pages = Number(renderer.pages)")
+		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 2)")
+		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
+		assertContains(bridgeText, "readerPagePosition(detail)")
+		assertContains(bridgeText, "this.reflowablePagePosition()")
+		assertContains(readerScreenText, "ReaderPageNumberOverlay(")
+		assertContains(readerScreenText, "visible = !chromeVisible")
+		assertContains(chromeStateText, "val pageNumberLabel: String?")
+		assertContains(chromeStateText, "\"${'$'}{pageIndex + 1} / ${'$'}pageCount\"")
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 
