@@ -717,6 +717,13 @@ const readerViewportSize = () => {
   return { width, height }
 }
 
+const readerStartLocatorHasPosition = startLocator =>
+  Boolean(
+    startLocator?.cfi ||
+    startLocator?.href ||
+    Number.isFinite(Number(startLocator?.progress))
+  )
+
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
@@ -728,6 +735,7 @@ class NavicReaderRuntime {
   originalBookDir = null
   publicationUrl = ''
   surfaceTextureLayer = null
+  lastRelocateDetail = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -780,6 +788,7 @@ class NavicReaderRuntime {
     try {
       this.close()
       this.publicationUrl = url
+      this.lastRelocateDetail = null
       if (settings) this.readerSettings = settings
       this.applyReaderViewportLayout('before-open')
       this.view = document.createElement('foliate-view')
@@ -808,6 +817,9 @@ class NavicReaderRuntime {
       this.logContentLayout('ready')
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
+      if (readerStartLocatorHasPosition(startLocator)) {
+        requestAnimationFrame(() => this.postCurrentLocationSnapshot('initial-resume'))
+      }
     } catch (error) {
       reportError(error, 'open_failed')
     }
@@ -824,6 +836,7 @@ class NavicReaderRuntime {
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
+    this.lastRelocateDetail = null
   }
 
   applyReaderViewportLayout(label = 'unknown') {
@@ -1631,10 +1644,32 @@ class NavicReaderRuntime {
     post({ type: 'toc', items })
   }
 
-  onRelocate(detail) {
+  currentFixedLayoutLocationDetail() {
+    if (this.view?.isFixedLayout !== true) return null
+    const index = this.fixedLayoutCurrentPageIndex()
+    const pageCount = Number(this.view?.book?.sections?.length)
+    if (!Number.isFinite(index) || !Number.isFinite(pageCount) || pageCount <= 0) return null
+    const section = this.view?.book?.sections?.[index]
+    return {
+      index,
+      href: section?.href || section?.id,
+      fraction: pageCount <= 1 ? 0 : index / (pageCount - 1),
+    }
+  }
+
+  postCurrentLocationSnapshot(reason = 'snapshot') {
+    const detail = this.lastRelocateDetail || this.currentFixedLayoutLocationDetail()
+    if (!detail) {
+      log('location-snapshot:missing', reason)
+      return
+    }
+    log('location-snapshot', reason)
+    this.postLocationChanged(detail, reason)
+  }
+
+  postLocationChanged(detail, reason = 'relocate') {
     const tocItem = detail.tocItem || {}
     const pagePosition = this.fixedLayoutPagePosition(detail)
-    this.updateSurfacePaperTexture(detail)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,
@@ -1644,10 +1679,17 @@ class NavicReaderRuntime {
       pageCount: pagePosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
     })
+    log('location-changed:posted', reason)
     if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
     if (tocItem.href || tocItem.label || tocItem.title) {
       post({ type: 'tocItemChanged', href: tocItem.href, title: tocItem.label || tocItem.title })
     }
+  }
+
+  onRelocate(detail) {
+    this.lastRelocateDetail = detail
+    this.updateSurfacePaperTexture(detail)
+    this.postLocationChanged(detail)
   }
 
   attachContentDocumentBehaviors(doc, index) {

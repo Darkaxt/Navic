@@ -320,6 +320,28 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPublishesPostReadyLocationSnapshotAfterResumeSeek() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val openPublication = bridgeText
+			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, startLocator = null, settings = null }) {")
+			.substringBefore("\n  close()")
+		val onRelocate = bridgeText
+			.substringAfter("onRelocate(detail) {")
+			.substringBefore("\n  attachContentDocumentBehaviors")
+
+		assertContains(bridgeText, "lastRelocateDetail = null")
+		assertContains(bridgeText, "postLocationChanged(detail")
+		assertContains(bridgeText, "postCurrentLocationSnapshot('initial-resume')")
+		assertContains(onRelocate, "this.lastRelocateDetail = detail")
+		assertContains(onRelocate, "this.postLocationChanged(detail")
+		assertTrue(
+			openPublication.indexOf("post({ type: 'publicationReady' })") <
+				openPublication.indexOf("this.postCurrentLocationSnapshot('initial-resume')"),
+			"PublicationReady must be sent before the synthetic location snapshot so native progress saving is armed."
+		)
+	}
+
+	@Test
 	fun androidReaderReportsFixedLayoutPagePositionToChrome() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
