@@ -32,6 +32,9 @@ class AndroidAudiobookPlaybackManager(
 	private var activeBookId: String? = null
 	private var activeBookTitle: String? = null
 	private var activeVersionRowId: String? = null
+	private var activeCoverUrl: String? = null
+	private var activeCoverCacheKey: String? = null
+	private var activeImageRequestHeaders: Map<String, String> = emptyMap()
 
 	init {
 		scope.launch {
@@ -54,6 +57,9 @@ class AndroidAudiobookPlaybackManager(
 		bookId: String,
 		bookTitle: String,
 		versionRowId: String,
+		coverUrl: String?,
+		coverCacheKey: String?,
+		imageRequestHeaders: Map<String, String>,
 		playWhenReady: Boolean
 	) {
 		if (playbackPlan == null) {
@@ -62,9 +68,15 @@ class AndroidAudiobookPlaybackManager(
 			activeBookId = null
 			activeBookTitle = null
 			activeVersionRowId = null
+			activeCoverUrl = null
+			activeCoverCacheKey = null
+			activeImageRequestHeaders = emptyMap()
 			return
 		}
 
+		activeCoverUrl = coverUrl
+		activeCoverCacheKey = coverCacheKey
+		activeImageRequestHeaders = imageRequestHeaders
 		if (
 			activeBookId == bookId &&
 			activeVersionRowId == versionRowId &&
@@ -72,7 +84,12 @@ class AndroidAudiobookPlaybackManager(
 			_uiState.value.isAvailable
 		) {
 			activeBookTitle = bookTitle
-			_uiState.value = _uiState.value.copy(bookTitle = bookTitle)
+			_uiState.value = _uiState.value.copy(
+				bookTitle = bookTitle,
+				coverUrl = activeCoverUrl,
+				coverCacheKey = activeCoverCacheKey,
+				imageRequestHeaders = activeImageRequestHeaders
+			)
 			return
 		}
 
@@ -88,6 +105,9 @@ class AndroidAudiobookPlaybackManager(
 			bookId = bookId,
 			bookTitle = bookTitle,
 			versionRowId = versionRowId,
+			coverUrl = activeCoverUrl,
+			coverCacheKey = activeCoverCacheKey,
+			imageRequestHeaders = activeImageRequestHeaders,
 			isPlaying = playWhenReady
 		)
 	}
@@ -120,6 +140,9 @@ class AndroidAudiobookPlaybackManager(
 			bookId = activeBookId,
 			bookTitle = activeBookTitle ?: plan?.title,
 			versionRowId = activeVersionRowId,
+			coverUrl = activeCoverUrl,
+			coverCacheKey = activeCoverCacheKey,
+			imageRequestHeaders = activeImageRequestHeaders,
 			chapterLabel = metadata?.chapterLabel ?: item?.title,
 			sectionLabel = metadata?.sectionLabel ?: item?.subtitle,
 			narratorLabel = metadata?.narratorLabel ?: item?.artist,
@@ -137,6 +160,9 @@ private fun ReadaloudPlaybackPlan.initialUiState(
 	bookId: String,
 	bookTitle: String,
 	versionRowId: String,
+	coverUrl: String?,
+	coverCacheKey: String?,
+	imageRequestHeaders: Map<String, String>,
 	isPlaying: Boolean
 ): AudiobookMiniPlayerUiState {
 	val item = mediaItems.getOrNull(startTrackIndex)
@@ -147,6 +173,9 @@ private fun ReadaloudPlaybackPlan.initialUiState(
 		bookId = bookId,
 		bookTitle = bookTitle,
 		versionRowId = versionRowId,
+		coverUrl = coverUrl,
+		coverCacheKey = coverCacheKey,
+		imageRequestHeaders = imageRequestHeaders,
 		chapterLabel = metadata?.chapterLabel ?: item?.title,
 		sectionLabel = metadata?.sectionLabel ?: item?.subtitle,
 		narratorLabel = metadata?.narratorLabel ?: item?.artist,

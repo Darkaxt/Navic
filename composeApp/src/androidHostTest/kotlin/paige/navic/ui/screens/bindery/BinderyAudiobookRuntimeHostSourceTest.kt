@@ -15,6 +15,15 @@ class BinderyAudiobookRuntimeHostSourceTest {
 	}
 
 	@Test
+	fun binderyAudiobookScreenPassesResolvedCoverToRuntimeHost() {
+		val source = playerScreenSourceFile().readText()
+
+		assertContains(source, "coverUrl = coverUrl")
+		assertContains(source, "coverCacheKey = coverCacheKey")
+		assertContains(source, "imageRequestHeaders = requestHeaders")
+	}
+
+	@Test
 	fun sharedAudiobookManagerUsesReadaloudController() {
 		val source = audiobookManagerSourceFile().readText()
 
@@ -22,6 +31,22 @@ class BinderyAudiobookRuntimeHostSourceTest {
 		assertContains(source, "controller.play()")
 		assertContains(source, "controller.pause()")
 	}
+
+	@Test
+	fun sharedAudiobookManagerPublishesCoverMetadata() {
+		val source = audiobookManagerSourceFile().readText()
+
+		assertContains(source, "activeCoverUrl")
+		assertContains(source, "coverUrl = activeCoverUrl")
+		assertContains(source, "coverCacheKey = activeCoverCacheKey")
+		assertContains(source, "imageRequestHeaders = activeImageRequestHeaders")
+	}
+
+	private fun playerScreenSourceFile(): File = listOf(
+		File("src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyAudiobookPlayerScreen.kt"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyAudiobookPlayerScreen.kt")
+	).firstOrNull { it.isFile }
+		?: error("Unable to locate BinderyAudiobookPlayerScreen.kt")
 
 	private fun runtimeHostSourceFile(): File = listOf(
 		File("src/androidMain/kotlin/paige/navic/ui/screens/bindery/BinderyAudiobookRuntimeHost.android.kt"),

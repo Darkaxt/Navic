@@ -93,13 +93,14 @@ fun binderyAudiobookChapters(
 fun binderyAudiobookCoverHref(
 	manifest: BinderyManifest,
 	versionRowId: String,
-	findingsCatalog: BinderyCatalog?
+	findingsCatalog: BinderyCatalog?,
+	routeBookId: String? = null
 ): String? {
 	val bookFileIds = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
 		.mapNotNull(BinderyReadingOrderItem::bookFileId)
 	return findingsCatalog
 		.associatedAudiobookFindingPublication(
-			bookId = manifest.id,
+			bookId = manifest.id ?: routeBookId,
 			bookFileIds = bookFileIds
 		)
 		?.audiobookFindingCoverHref()

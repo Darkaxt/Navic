@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -86,6 +85,7 @@ import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.PlaybackProgressSlider
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.components.sheets.SleepTimerSheet
@@ -136,8 +136,15 @@ fun BinderyAudiobookPlayerScreen(
 			)
 		}
 	}
-	val coverHref = remember(manifest, versionRowId, findingsCatalog) {
-		manifest?.let { binderyAudiobookCoverHref(it, versionRowId, findingsCatalog) }
+	val coverHref = remember(manifest, bookId, versionRowId, findingsCatalog) {
+		manifest?.let {
+			binderyAudiobookCoverHref(
+				manifest = it,
+				versionRowId = versionRowId,
+				findingsCatalog = findingsCatalog,
+				routeBookId = bookId
+			)
+		}
 	}
 	val coverUrl = remember(coverHref, preferenceManager.binderyOpdsBaseUrl) {
 		coverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
@@ -172,6 +179,9 @@ fun BinderyAudiobookPlayerScreen(
 		bookId = bookId,
 		bookTitle = title,
 		versionRowId = versionRowId,
+		coverUrl = coverUrl,
+		coverCacheKey = coverCacheKey,
+		imageRequestHeaders = requestHeaders,
 		playbackCommand = playbackCommand,
 		playbackCommandKey = playbackCommandKey,
 		onPlaybackState = { playbackState = it },
@@ -183,22 +193,19 @@ fun BinderyAudiobookPlayerScreen(
 		toolbar = { windowInsets ->
 			SheetToolbar(
 				windowInsets = windowInsets,
-				navigationIcon = {
+				navigationIcon = {},
+				actions = {
 					SheetActionButton(
 						icon = Icons.Outlined.KeyboardArrowDown,
 						contentDescription = stringResource(Res.string.action_navigate_back),
 						isStartRounded = true,
-						isEndRounded = true,
 						containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f),
 						contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
 						onClick = dropUnlessResumed { backStack.remove(screen) }
 					)
-				},
-				actions = {
 					SheetActionButton(
 						icon = Icons.Outlined.Speed,
 						contentDescription = stringResource(Res.string.option_playback_speed),
-						isStartRounded = true,
 						containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = .92f),
 						contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
 						onClick = { speedSheetOpen = true }
@@ -559,6 +566,7 @@ private fun BinderyAudiobookProgress(
 	activeChapter: BinderyAudiobookChapter?,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val durationMs = state.durationMs ?: activeChapter?.durationMs
 	val progress = if (durationMs != null && durationMs > 0L) {
 		(state.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
@@ -566,14 +574,17 @@ private fun BinderyAudiobookProgress(
 		0f
 	}
 	Column(Modifier.fillMaxWidth()) {
-		Slider(
+		PlaybackProgressSlider(
 			value = progress,
-			onValueChange = { value ->
+			onValueChange = { progress ->
 				durationMs?.takeIf { it > 0L }?.let { duration ->
-					onCommand(ReaderReadaloudPlaybackCommand.SeekTo((duration * value).roundToLong()))
+					onCommand(ReaderReadaloudPlaybackCommand.SeekTo((duration * progress).roundToLong()))
 				}
 			},
+			isPlaying = state.isPlaying,
 			enabled = state.isAvailable && durationMs != null && durationMs > 0L,
+			sliderStyle = preferenceManager.nowPlayingSliderStyle,
+			progressWidth = preferenceManager.nowPlayingProgressWidth,
 			modifier = Modifier.fillMaxWidth()
 		)
 		Row(

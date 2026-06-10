@@ -15,6 +15,9 @@ interface AudiobookPlaybackManager {
 		bookId: String,
 		bookTitle: String,
 		versionRowId: String,
+		coverUrl: String?,
+		coverCacheKey: String?,
+		imageRequestHeaders: Map<String, String>,
 		playWhenReady: Boolean
 	)
 
@@ -30,6 +33,9 @@ class NoOpAudiobookPlaybackManager : AudiobookPlaybackManager {
 		bookId: String,
 		bookTitle: String,
 		versionRowId: String,
+		coverUrl: String?,
+		coverCacheKey: String?,
+		imageRequestHeaders: Map<String, String>,
 		playWhenReady: Boolean
 	) = Unit
 

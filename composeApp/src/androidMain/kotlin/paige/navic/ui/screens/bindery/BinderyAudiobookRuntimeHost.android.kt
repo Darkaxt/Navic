@@ -21,6 +21,9 @@ actual fun BinderyAudiobookRuntimeHost(
 	bookId: String,
 	bookTitle: String,
 	versionRowId: String,
+	coverUrl: String?,
+	coverCacheKey: String,
+	imageRequestHeaders: Map<String, String>,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,
@@ -33,7 +36,7 @@ actual fun BinderyAudiobookRuntimeHost(
 	val currentOnPlaybackPosition = rememberUpdatedState(onPlaybackPosition)
 	val currentOnError = rememberUpdatedState(onError)
 
-	LaunchedEffect(playbackPlan, bookId, bookTitle, versionRowId) {
+	LaunchedEffect(playbackPlan, bookId, bookTitle, versionRowId, coverUrl, coverCacheKey, imageRequestHeaders) {
 		val plan = playbackPlan
 		if (plan == null) {
 			onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = false))
@@ -45,6 +48,9 @@ actual fun BinderyAudiobookRuntimeHost(
 				bookId = bookId,
 				bookTitle = bookTitle,
 				versionRowId = versionRowId,
+				coverUrl = coverUrl,
+				coverCacheKey = coverCacheKey,
+				imageRequestHeaders = imageRequestHeaders,
 				playWhenReady = true
 			)
 		}.onFailure { error ->

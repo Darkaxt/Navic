@@ -23,15 +23,21 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
+import coil3.compose.AsyncImage
+import coil3.network.httpHeaders
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import com.kyant.capsule.ContinuousRoundedRectangle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play
@@ -52,6 +58,8 @@ import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
+import paige.navic.util.core.toNetworkHeaders
+import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +69,7 @@ fun AudiobookMiniPlayer(
 	enabled: Boolean = true
 ) {
 	val platformContext = LocalPlatformContext.current
+	val coilPlatformContext = LocalCoilPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
 	val playbackManager = koinInject<AudiobookPlaybackManager>()
 	val backStack = LocalNavStack.current
@@ -84,6 +93,22 @@ fun AudiobookMiniPlayer(
 		?: state.sectionLabel
 		?: state.narratorLabel
 		?: stringResource(Res.string.info_not_playing)
+	val hasArtwork = !state.coverUrl.isNullOrBlank()
+	val imageRequestHeaders = state.imageRequestHeaders
+	val artworkModel = remember(state.coverUrl, state.coverCacheKey, imageRequestHeaders) {
+		ImageRequest.Builder(coilPlatformContext)
+			.data(state.coverUrl)
+			.memoryCacheKey(state.coverCacheKey ?: state.coverUrl)
+			.diskCacheKey(state.coverCacheKey ?: state.coverUrl)
+			.diskCachePolicy(CachePolicy.ENABLED)
+			.memoryCachePolicy(CachePolicy.ENABLED)
+			.apply {
+				if (imageRequestHeaders.isNotEmpty()) {
+					httpHeaders(imageRequestHeaders.toNetworkHeaders())
+				}
+			}
+			.build()
+	}
 
 	val openPlayer = dropUnlessResumed {
 		if (destination != null && backStack.lastOrNull() != destination) {
@@ -93,23 +118,25 @@ fun AudiobookMiniPlayer(
 	}
 
 	Box(
-		modifier = modifier
-			.widthIn(max = if (detached) 600.dp else Dp.Unspecified)
-			.padding(
-				bottom = if (detached) outerPadding + navBarPadding else 0.dp,
-				start = outerPadding,
-				end = outerPadding
-			),
+		modifier = modifier.fillMaxWidth(),
 		contentAlignment = Alignment.Center
 	) {
 		ListItem(
-			modifier = Modifier.dropShadow(
-				shape,
-				Shadow(
-					radius = if (detached) 10.dp else 8.dp,
-					alpha = 0.25f
+			modifier = Modifier
+				.widthIn(max = if (detached) 600.dp else Dp.Unspecified)
+				.fillMaxWidth()
+				.padding(
+					bottom = if (detached) outerPadding + navBarPadding else 0.dp,
+					start = outerPadding,
+					end = outerPadding
 				)
-			),
+				.dropShadow(
+					shape,
+					Shadow(
+						radius = if (detached) 10.dp else 8.dp,
+						alpha = 0.25f
+					)
+				),
 			contentPadding = PaddingValues(
 				start = if (detached) 10.dp else 16.dp,
 				end = if (detached) 10.dp else 16.dp,
@@ -132,15 +159,23 @@ fun AudiobookMiniPlayer(
 					modifier = Modifier
 						.size(if (detached) 48.dp else 50.dp)
 						.clip(ContinuousRoundedRectangle(8.dp))
-						.background(MaterialTheme.colorScheme.secondaryContainer),
+						.background(MaterialTheme.colorScheme.surfaceVariant),
 					contentAlignment = Alignment.Center
 				) {
-					Icon(
-						imageVector = Icons.Outlined.Audiobooks,
+					AsyncImage(
+						model = artworkModel,
 						contentDescription = null,
-						tint = MaterialTheme.colorScheme.onSecondaryContainer,
-						modifier = Modifier.size(28.dp)
+						contentScale = ContentScale.Crop,
+						modifier = Modifier.matchParentSize()
 					)
+					if (!hasArtwork) {
+						Icon(
+							imageVector = Icons.Outlined.Audiobooks,
+							contentDescription = null,
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(28.dp)
+						)
+					}
 				}
 			},
 			trailingContent = {
