@@ -132,8 +132,20 @@ const closestElement = (target, selector) =>
   target?.parentNode?.closest?.(selector) ||
   null
 
+const readerMediaSelector = 'img,picture,svg,video,canvas'
+
 const readerLinkHasMedia = anchor =>
-  Boolean(anchor?.querySelector?.('img,picture,svg,video,canvas'))
+  Boolean(anchor?.querySelector?.(readerMediaSelector))
+
+const isReaderMediaAnchor = anchor =>
+  Boolean(anchor && (anchor.dataset?.navicLinkKind === 'media' || readerLinkHasMedia(anchor)))
+
+const isReaderMediaTapTarget = (target, anchor = closestElement(target, 'a[href]')) => {
+  if (!anchor || !isReaderMediaAnchor(anchor)) return false
+  const media = closestElement(target, readerMediaSelector)
+  if (media && anchor.contains?.(media)) return true
+  return target === anchor
+}
 
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
@@ -222,7 +234,7 @@ const komikkuTapAction = (
 const readerAssetUrl = path => new URL(path, document.baseURI).href
 
 const isInteractiveReaderTarget = target =>
-  Boolean(closestElement(target, 'a,button,input,textarea,select,summary,[role="button"]'))
+  Boolean(closestElement(target, `a,button,input,textarea,select,summary,[role="button"],${readerMediaSelector}`))
 
 const stableHash = value => {
   const text = String(value || '')
@@ -688,6 +700,7 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
+      if (isReaderMediaTapTarget(event.target, anchor)) return
       const rawHref = anchor.getAttribute('href')
       if (!rawHref) return
       const section = this.view?.book?.sections?.[index]
@@ -1157,9 +1170,15 @@ const readerTypographyCss = settings => settings.publisherStyles === true
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
-  p {
+`
+
+const readerParagraphSpacingCss = settings => `
+  html body p {
     margin-block-start: 0 !important;
     margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
+  }
+  html body p + p {
+    margin-block-start: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
   }
 `
 
@@ -1186,7 +1205,10 @@ const readerDocumentThemeCss = settings => {
     color: var(--reader-foreground) !important;
     background: var(--reader-background) !important;
     background-color: var(--reader-background) !important;
+    isolation: isolate;
+    position: relative !important;
   }
+  html::before,
   body::before {
     content: '';
     position: fixed;
@@ -1238,6 +1260,7 @@ const readerContentCss = settings => {
     font-size: ${settings.fontSizePercent || 100}%;
   }
   ${readerTypographyCss(settings)}
+  ${readerParagraphSpacingCss(settings)}
   a:any-link {
     color: inherit !important;
     text-decoration: none !important;

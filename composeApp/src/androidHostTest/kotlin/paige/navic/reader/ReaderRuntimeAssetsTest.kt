@@ -399,6 +399,27 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderDoesNotNavigateImageAnchorsWhenTogglingSepiaOverlay() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val interactiveTarget = bridgeText
+			.substringAfter("const isInteractiveReaderTarget = target =>")
+			.substringBefore("\n\nconst stableHash")
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+
+		assertContains(bridgeText, "const isReaderMediaAnchor =")
+		assertContains(bridgeText, "const isReaderMediaTapTarget =")
+		assertContains(interactiveTarget, "readerMediaSelector")
+		assertContains(linkNavigation, "if (isReaderMediaTapTarget(event.target, anchor)) return")
+		assertTrue(
+			linkNavigation.indexOf("if (isReaderMediaTapTarget(event.target, anchor)) return") <
+				linkNavigation.indexOf("const rawHref"),
+			"Reader link navigation must ignore media/image anchors before resolving hrefs."
+		)
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuStyleTapZonePresets() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -520,6 +541,24 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderAppliesParagraphSpacingOutsidePublisherStyleOverride() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val contentCss = bridgeText
+			.substringAfter("const readerContentCss = settings =>")
+			.substringBefore("const normalizeSearchResult")
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(bridgeText, "const readerParagraphSpacingCss = settings =>")
+		assertContains(contentCss, "\${readerParagraphSpacingCss(settings)}")
+		assertFalse(
+			typographyCss.contains("margin-block-end: var(--reader-paragraph-spacing"),
+			"Paragraph spacing must remain active even when publisher typography styles are enabled."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = root.resolve("navic-reader.js").readText()
@@ -550,6 +589,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "paperTextureOpacity=\${")
 		assertContains(bridgeText, "paperTextureImage=\${")
 		assertContains(bridgeText, "return '0.08'")
+	}
+
+	@Test
+	fun androidReaderAppliesPaperTextureAtDocumentRootLayer() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val documentThemeCss = bridgeText
+			.substringAfter("const readerDocumentThemeCss = settings =>")
+			.substringBefore("const readerContentCss = settings =>")
+
+		assertContains(documentThemeCss, "html::before")
+		assertContains(documentThemeCss, "body::before")
+		assertContains(documentThemeCss, "isolation: isolate")
+		assertContains(documentThemeCss, "z-index: 2147483647")
+		assertContains(documentThemeCss, "background-image: var(--reader-paper-texture-image)")
+		assertContains(documentThemeCss, "opacity: var(--reader-paper-texture-opacity, 0)")
 	}
 
 	@Test
