@@ -96,6 +96,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderDarkTheme
@@ -209,7 +210,7 @@ fun SettingsEbooksScreen() {
 						items = readerParagraphSpacingOptions.toImmutableList(),
 						label = { percent -> "$percent%" },
 						description = stringResource(Res.string.subtitle_ebook_reader_paragraph_spacing),
-						selection = settings.paragraphSpacingPercent ?: 0,
+						selection = settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
 						onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
 					)
 					SettingSelectionRow(

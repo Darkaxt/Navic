@@ -74,6 +74,7 @@ import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.DataTable
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Star
+import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderAnnotationState
 import paige.navic.reader.ReaderBookmark
@@ -1419,7 +1420,7 @@ private fun ReaderReadingOptions(
 		)
 		ReaderControlStepper(
 			label = "Paragraph spacing",
-			value = "${state.settings.paragraphSpacingPercent ?: 0}%",
+			value = "${state.settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
 			onDecrease = { onSettingsChange(state.adjustParagraphSpacing(-25)) },
 			onIncrease = { onSettingsChange(state.adjustParagraphSpacing(25)) }
 		)

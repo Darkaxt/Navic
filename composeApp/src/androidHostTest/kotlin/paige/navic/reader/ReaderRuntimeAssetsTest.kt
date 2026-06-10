@@ -419,6 +419,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(linkNavigation, "if (mediaTapTarget) {")
 		assertContains(linkNavigation, "event.preventDefault()")
 		assertContains(linkNavigation, "event.stopImmediatePropagation()")
+		assertFalse(
+			linkNavigation
+				.substringAfter("if (mediaTapTarget) {")
+				.substringBefore("return")
+				.contains("await this.goTo(href)"),
+			"Reader media anchor taps must never fall through to href navigation while toggling image tint."
+		)
 		assertTrue(
 			linkNavigation.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
 				linkNavigation.indexOf("const rawHref"),
@@ -441,10 +448,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(sepiaToggle, "touchstart")
 		assertContains(sepiaToggle, "touchend")
+		assertContains(bridgeText, "markReaderMediaTapHandled(doc, event)")
+		assertContains(bridgeText, "readerShouldSuppressMediaSyntheticClick(doc, event, anchor)")
+		assertContains(bridgeText, "__navicSuppressNextMediaClickUntil")
+		assertContains(bridgeText, "performance.now() <= suppressUntil")
 		assertContains(sepiaToggle, "__navicLastMediaTapHandledAt")
-		assertContains(linkNavigation, "__navicLastMediaTapHandledAt")
 		assertTrue(
-			linkNavigation.indexOf("__navicLastMediaTapHandledAt") <
+			linkNavigation.indexOf("readerShouldSuppressMediaSyntheticClick(doc, event, anchor)") <
 				linkNavigation.indexOf("const rawHref"),
 			"Reader link navigation must suppress synthetic clicks from image tint toggles before resolving hrefs."
 		)
@@ -685,6 +695,7 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
+		assertContains(paragraphSpacing, "const blocks = Array.from")
 		assertContains(paragraphSpacing, "'margin-block-end': spacing")
 		assertContains(paragraphSpacing, "'margin-block-start': '0'")
 		assertContains(applyDocumentTheme, "applyReaderParagraphSpacing(doc, settings)")
@@ -712,6 +723,33 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "layer.dataset.navicPaperTextureLayer = 'true'")
 		assertContains(bridgeText, "'background-image': `url(\"${'$'}{readerAssetUrl(textureVariant.asset)}\")`")
 		assertContains(bridgeText, "pointer-events: none")
+	}
+
+	@Test
+	fun androidReaderContentLayoutLogsComputedParagraphAndTextureState() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val contentLayoutLogger = bridgeText
+			.substringAfter("logContentLayout(label) {")
+			.substringBefore("\n  contentEntries")
+
+		assertContains(contentLayoutLogger, "paragraphBlockCount")
+		assertContains(contentLayoutLogger, "firstParagraphMarginEnd")
+		assertContains(contentLayoutLogger, "paperTextureLayer")
+		assertContains(contentLayoutLogger, "paperTextureAsset")
+	}
+
+	@Test
+	fun commonReaderParagraphSpacingControlsUseReadableDefaultFallback() {
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+
+		assertContains(readerScreenText, "state.settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
+		assertContains(ebooksSettingsText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
+		assertContains(searchSettingsText, "readerSettings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
+		assertFalse(readerScreenText.contains("state.settings.paragraphSpacingPercent ?: 0"))
+		assertFalse(ebooksSettingsText.contains("settings.paragraphSpacingPercent ?: 0"))
+		assertFalse(searchSettingsText.contains("readerSettings.paragraphSpacingPercent ?: 0"))
 	}
 
 	@Test

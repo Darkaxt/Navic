@@ -52,6 +52,7 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.models.settings.*
+import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderDarkTheme
@@ -781,7 +782,7 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keywords = listOf("reader", "ebook", "EPUB", "paragraph", "spacing"),
 			items = readerParagraphSpacingSearchOptions,
 			label = { percent -> "$percent%" },
-			selection = readerSettings.paragraphSpacingPercent ?: 0,
+			selection = readerSettings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
 			onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
 		))
 		add(selectionRow(

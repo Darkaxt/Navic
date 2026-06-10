@@ -10,6 +10,7 @@ const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
 const CenterTapMovementSlop = 12
 const CenterTapSyntheticClickDedupeMs = 650
+const ReaderMediaSyntheticClickSuppressMs = 1200
 const ReaderTapZoneDefault = 'default'
 const ReaderTapZoneEdge = 'edge'
 const ReaderTapZoneKindle = 'kindle'
@@ -222,6 +223,46 @@ const readerMediaTapTargetForEvent = (doc, event, anchor) => {
   return null
 }
 
+const markReaderMediaTapHandled = (doc, event) => {
+  const win = doc?.defaultView
+  if (!win) return
+  win.__navicLastMediaTapHandledAt = event?.timeStamp || performance.now()
+  win.__navicSuppressNextMediaClickUntil = performance.now() + ReaderMediaSyntheticClickSuppressMs
+  const { clientX, clientY } = readerEventClientPoint(event)
+  if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+    win.__navicLastMediaTapClientX = clientX
+    win.__navicLastMediaTapClientY = clientY
+  }
+}
+
+const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) => {
+  const win = doc?.defaultView
+  if (!win) return false
+  const timestamp = Number(event?.timeStamp || performance.now())
+  const lastMediaTap = Number(win.__navicLastMediaTapHandledAt || 0)
+  if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) return true
+
+  const suppressUntil = Number(win.__navicSuppressNextMediaClickUntil || 0)
+  if (suppressUntil && performance.now() <= suppressUntil) {
+    if (isReaderMediaAnchor(anchor)) return true
+    if (readerMediaTapTargetForEvent(doc, event, anchor)) return true
+    const { clientX, clientY } = readerEventClientPoint(event)
+    const lastX = Number(win.__navicLastMediaTapClientX)
+    const lastY = Number(win.__navicLastMediaTapClientY)
+    if (
+      Number.isFinite(clientX) &&
+      Number.isFinite(clientY) &&
+      Number.isFinite(lastX) &&
+      Number.isFinite(lastY) &&
+      Math.abs(clientX - lastX) <= CenterTapMovementSlop * 2 &&
+      Math.abs(clientY - lastY) <= CenterTapMovementSlop * 2
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
   left,
@@ -399,20 +440,25 @@ const readerParagraphSpacingEm = settings => {
 const applyReaderParagraphSpacing = (doc, settings) => {
   const spacing = readerParagraphSpacingEm(settings)
   classifyReaderParagraphBlocks(doc)
-  for (const element of doc?.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || []) {
+  const blocks = Array.from(doc?.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
+  for (const element of blocks) {
     setStylesImportant(element, {
       'margin-block-start': '0',
       'margin-block-end': spacing,
+      'margin-top': '0',
+      'margin-bottom': spacing,
     })
   }
-  for (const element of doc?.querySelectorAll?.(`
+  const adjacentBlocks = Array.from(doc?.querySelectorAll?.(`
     p + p,
     [data-navic-paragraph-block="true"] + [data-navic-paragraph-block="true"],
     p + [data-navic-paragraph-block="true"],
     [data-navic-paragraph-block="true"] + p
-  `) || []) {
+  `) || [])
+  for (const element of adjacentBlocks) {
     setStylesImportant(element, {
       'margin-block-start': spacing,
+      'margin-top': spacing,
     })
   }
 }
@@ -902,9 +948,7 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
-      const lastMediaTap = Number(doc.defaultView?.__navicLastMediaTapHandledAt || 0)
-      const timestamp = event.timeStamp || performance.now()
-      if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) {
+      if (readerShouldSuppressMediaSyntheticClick(doc, event, anchor)) {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation()
@@ -965,9 +1009,7 @@ class NavicReaderRuntime {
     } else {
       image.dataset.navicSepiaOverlay = 'off'
     }
-    if (doc?.defaultView) {
-      doc.defaultView.__navicLastMediaTapHandledAt = event.timeStamp || performance.now()
-    }
+    markReaderMediaTapHandled(doc, event)
     log('image:sepia-overlay', disabled ? 'on' : 'off')
     return true
   }
@@ -1395,6 +1437,11 @@ class NavicReaderRuntime {
       const paperTextureImage = bodyStyle.getPropertyValue('--reader-paper-texture-image') ||
         htmlStyle.getPropertyValue('--reader-paper-texture-image') ||
         'unset'
+      const paragraphBlocks = Array.from(doc.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
+      const firstParagraphStyle = paragraphBlocks[0]
+        ? doc.defaultView.getComputedStyle(paragraphBlocks[0])
+        : null
+      const paperTextureLayer = doc.querySelector?.(ReaderPaperTextureLayerSelector)
       const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
       log(
         'content-layout',
@@ -1408,8 +1455,12 @@ class NavicReaderRuntime {
         `color=${bodyStyle.color}`,
         `background=${bodyStyle.backgroundColor || htmlStyle.backgroundColor}`,
         `paragraphSpacing=${paragraphSpacing}`,
+        `paragraphBlockCount=${paragraphBlocks.length}`,
+        `firstParagraphMarginEnd=${firstParagraphStyle?.marginBlockEnd || firstParagraphStyle?.marginBottom || 'unset'}`,
         `paperTextureOpacity=${paperTextureOpacity}`,
-        `paperTextureImage=${paperTextureImage === 'none' ? 'none' : 'set'}`
+        `paperTextureImage=${paperTextureImage === 'none' ? 'none' : 'set'}`,
+        `paperTextureLayer=${paperTextureLayer ? 'present' : 'missing'}`,
+        `paperTextureAsset=${doc.documentElement?.dataset?.navicPaperTextureAsset || 'unset'}`
       )
     }
   }
