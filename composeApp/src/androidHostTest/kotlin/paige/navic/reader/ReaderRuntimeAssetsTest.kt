@@ -976,6 +976,54 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPaperTextureDoesNotAbortFixedLayoutOpenWhenPageIndexIsUnavailable() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val fixedLayoutIndex = bridgeText
+			.substringAfter("fixedLayoutCurrentPageIndex() {")
+			.substringBefore("\n  fixedLayoutAdjacentPageTarget")
+		val surfaceTextureIndex = bridgeText
+			.substringAfter("surfacePaperTextureIndex(detail = {}) {")
+			.substringBefore("\n  updateSurfacePaperTexture")
+
+		assertContains(
+			fixedLayoutIndex,
+			"try {",
+			message = "Foliate fixed-layout renderer.index can throw before a current spread exists."
+		)
+		assertContains(fixedLayoutIndex, "catch (error)")
+		assertContains(fixedLayoutIndex, "fixed-layout-index:unavailable")
+		assertContains(fixedLayoutIndex, "return null")
+		assertContains(surfaceTextureIndex, "const detailIndex = Number(detail?.index)")
+		assertContains(surfaceTextureIndex, "this.fixedLayoutCurrentPageIndex()")
+		assertContains(surfaceTextureIndex, "return Number.isFinite(entryIndex) ? Math.floor(entryIndex) : 0")
+	}
+
+	@Test
+	fun androidReaderPaperTextureVariesByRenderedPageLocatorInsideSameEpubSection() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val textureKey = bridgeText
+			.substringAfter("const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {}) =>")
+			.substringBefore("\n\nconst readerPaperTextureVariantForPage")
+		val surfaceTextureUpdater = bridgeText
+			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertContains(bridgeText, "readerPaperTexturePageLocator")
+		assertContains(bridgeText, "detail?.cfi")
+		assertContains(bridgeText, "detail?.fraction ?? detail?.progress ?? detail?.totalProgress")
+		assertContains(textureKey, "readerPaperTexturePageLocator(detail)")
+		assertContains(
+			surfaceTextureUpdater,
+			"readerPaperTextureVariantKey(this.publicationUrl, section, index, detail)",
+			message = "Paginated EPUB pages inside the same spine item need distinct deterministic texture variants."
+		)
+		assertFalse(
+			surfaceTextureUpdater.contains("readerPaperTextureVariantKey(this.publicationUrl, section, index)"),
+			"Section-only texture keys reuse the same paper variant for every page in a chapter."
+		)
+	}
+
+	@Test
 	fun androidReaderContentLayoutLogsComputedParagraphAndTextureState() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val contentLayoutLogger = bridgeText

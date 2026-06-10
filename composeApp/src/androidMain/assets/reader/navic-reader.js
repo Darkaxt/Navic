@@ -434,11 +434,21 @@ const stableHash = value => {
   return hash >>> 0
 }
 
-const readerPaperTextureVariantKey = (publicationUrl, section, index) =>
+const readerPaperTexturePageLocator = detail => {
+  const cfi = String(detail?.cfi || '').trim()
+  if (cfi) return `cfi:${cfi}`
+  const progress = Number(detail?.fraction ?? detail?.progress ?? detail?.totalProgress)
+  if (Number.isFinite(progress)) return `progress:${Math.round(Math.min(1, Math.max(0, progress)) * 100000)}`
+  const href = String(detail?.href || detail?.tocItem?.href || '').trim()
+  return href ? `href:${href}` : 'section'
+}
+
+const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {}) =>
   [
     publicationUrl || 'publication',
     Number.isFinite(index) ? index : 'unknown',
     section?.href || section?.id || section?.label || '',
+    readerPaperTexturePageLocator(detail),
   ].join('|')
 
 const readerPaperTextureVariantForPage = key => {
@@ -814,8 +824,13 @@ class NavicReaderRuntime {
 
   fixedLayoutCurrentPageIndex() {
     if (this.view?.isFixedLayout !== true) return null
-    const index = Number(this.view?.renderer?.index)
-    return Number.isFinite(index) ? Math.floor(index) : null
+    try {
+      const index = Number(this.view?.renderer?.index)
+      return Number.isFinite(index) ? Math.floor(index) : null
+    } catch (error) {
+      log('fixed-layout-index:unavailable', error?.message || String(error))
+      return null
+    }
   }
 
   fixedLayoutAdjacentPageTarget(direction) {
@@ -1489,7 +1504,7 @@ class NavicReaderRuntime {
   updateSurfacePaperTexture(detail = {}) {
     const index = this.surfacePaperTextureIndex(detail)
     const section = this.view?.book?.sections?.[index]
-    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
+    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, detail)
     const textureVariant = readerPaperTextureVariantForPage(textureKey)
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
