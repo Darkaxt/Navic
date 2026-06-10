@@ -56,6 +56,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		assertEquals("Andy Serkis", mediaItem.artist)
 		assertEquals("mp3", mediaItem.codec)
 		assertEquals(128, mediaItem.bitrateKbps)
+		assertEquals(44100L, mediaItem.sampleRateHz)
+		assertEquals(2, mediaItem.channels)
 		assertEquals("Studio 128 kbps", mediaItem.qualityLabel)
 		assertEquals("Storyteller", mediaItem.sourceProviderLabel)
 		val labels = runtime.playbackPlan.metadataLabelsForPlaybackPosition(
@@ -74,7 +76,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("Studio 128 kbps", labels?.qualityLabel)
 		assertEquals("Storyteller", labels?.sourceProviderLabel)
-		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
+		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
 		assertEquals(
 			listOf(
 				ReaderBridgeCommand.OpenPublication(
@@ -109,6 +111,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 						<meta property="storyteller:source-provider" refines="#audio1">Storyteller</meta>
 						<meta property="storyteller:codec" refines="#audio1">mp3</meta>
 						<meta property="storyteller:bitrate-kbps" refines="#audio1">128</meta>
+						<meta property="storyteller:sample-rate-hz" refines="#audio1">44100</meta>
+						<meta property="storyteller:channels" refines="#audio1">2</meta>
 					</metadata>
 					<manifest>
 						<item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" media-overlay="mo1"/>

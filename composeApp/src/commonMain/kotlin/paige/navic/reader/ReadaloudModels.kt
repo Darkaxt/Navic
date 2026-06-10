@@ -185,8 +185,27 @@ private fun ReadaloudMediaItemDescriptor.toReadaloudPlaybackMetadataLabels(): Re
 private fun ReadaloudMediaItemDescriptor.audioFormatLabel(): String? =
 	listOfNotNull(
 		codec.trimLabel(),
-		bitrateKbps?.takeIf { it > 0 }?.let { "$it kbps" }
+		bitrateKbps?.takeIf { it > 0 }?.let { "$it kbps" },
+		sampleRateHz?.audioSampleRateLabel(),
+		channels?.audioChannelLayoutLabel()
 	).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+
+private fun Long.audioSampleRateLabel(): String? {
+	if (this <= 0L) return null
+	if (this < 1_000L) return "$this Hz"
+	val tenthsOfKhz = (toDouble() / 100.0).roundToLong()
+	val whole = tenthsOfKhz / 10
+	val decimal = tenthsOfKhz % 10
+	return if (decimal == 0L) "$whole kHz" else "$whole.$decimal kHz"
+}
+
+private fun Int.audioChannelLayoutLabel(): String? =
+	when {
+		this <= 0 -> null
+		this == 1 -> "mono"
+		this == 2 -> "stereo"
+		else -> "$this ch"
+	}
 
 private fun String?.trimLabel(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

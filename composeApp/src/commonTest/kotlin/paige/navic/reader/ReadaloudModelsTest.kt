@@ -175,6 +175,77 @@ class ReadaloudModelsTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("128 kbps", labels?.qualityLabel)
 		assertEquals("AudioBook Bay", labels?.sourceProviderLabel)
-		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
+		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
+	}
+
+	@Test
+	fun playbackMetadataFormatLabelsUseSampleRateAndChannelLayout() {
+		val plan = ReadaloudPlaybackPlan(
+			sessionId = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			kind = ReaderPublicationKind.Readaloud,
+			mediaItems = listOf(
+				ReadaloudMediaItemDescriptor(
+					mediaId = "readaloud:audio-1",
+					uri = "https://bindery.local/opds/books/3816/resources/audio-1",
+					title = "Chapter 1",
+					subtitle = null,
+					artist = null,
+					albumTitle = "The Hobbit",
+					albumArtist = null,
+					trackNumber = 1,
+					discNumber = 1,
+					requestHeaders = emptyMap(),
+					codec = "opus",
+					bitrateKbps = 96,
+					sampleRateHz = 48_000,
+					channels = 1
+				),
+				ReadaloudMediaItemDescriptor(
+					mediaId = "readaloud:audio-2",
+					uri = "https://bindery.local/opds/books/3816/resources/audio-2",
+					title = "Chapter 2",
+					subtitle = null,
+					artist = null,
+					albumTitle = "The Hobbit",
+					albumArtist = null,
+					trackNumber = 2,
+					discNumber = 1,
+					requestHeaders = emptyMap(),
+					codec = "flac",
+					sampleRateHz = 96_000,
+					channels = 6
+				)
+			),
+			startTrackIndex = 0,
+			startPositionMs = 0L,
+			playbackSpeed = 1f
+		)
+
+		val monoLabels = plan.metadataLabelsForPlaybackPosition(
+			ReadaloudPlaybackPosition(
+				sessionId = "urn:bindery:book:3816",
+				trackIndex = 0,
+				mediaId = "readaloud:audio-1",
+				positionMs = 0L,
+				durationMs = null,
+				isPlaying = true,
+				playbackSpeed = 1f
+			)
+		)
+		val surroundLabels = plan.metadataLabelsForPlaybackPosition(
+			ReadaloudPlaybackPosition(
+				sessionId = "urn:bindery:book:3816",
+				trackIndex = 1,
+				mediaId = "readaloud:audio-2",
+				positionMs = 0L,
+				durationMs = null,
+				isPlaying = true,
+				playbackSpeed = 1f
+			)
+		)
+
+		assertEquals("opus / 96 kbps / 48 kHz / mono", monoLabels?.formatLabel)
+		assertEquals("flac / 96 kHz / 6 ch", surroundLabels?.formatLabel)
 	}
 }

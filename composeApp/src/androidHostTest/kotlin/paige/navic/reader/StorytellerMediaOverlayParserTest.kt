@@ -108,7 +108,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("Studio 128 kbps", labels?.qualityLabel)
 		assertEquals("Storyteller", labels?.sourceProviderLabel)
-		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
+		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
 	}
 
 	private fun storytellerEpubFixture(): ByteArray {
