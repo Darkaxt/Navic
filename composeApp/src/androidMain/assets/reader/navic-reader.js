@@ -187,6 +187,36 @@ const readerEventClientPoint = event => {
   return { clientX, clientY }
 }
 
+const readerPointInsideAnchorText = (anchor, event) => {
+  if (!anchor?.ownerDocument) return false
+  const { clientX, clientY } = readerEventClientPoint(event)
+  const x = Number(clientX)
+  const y = Number(clientY)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return true
+  const doc = anchor.ownerDocument
+  const walker = doc.createTreeWalker(anchor, NodeFilter.SHOW_TEXT, {
+    acceptNode: node => node.textContent?.replace(/\s+/g, ' ').trim()
+      ? NodeFilter.FILTER_ACCEPT
+      : NodeFilter.FILTER_REJECT,
+  })
+  let node = walker.nextNode()
+  let hasText = false
+  while (node) {
+    hasText = true
+    const range = doc.createRange()
+    try {
+      range.selectNodeContents(node)
+      for (const rect of range.getClientRects()) {
+        if (readerPointInsideRect(x, y, rect, 6)) return true
+      }
+    } finally {
+      range.detach?.()
+    }
+    node = walker.nextNode()
+  }
+  return false
+}
+
 const readerMediaElementFromCandidate = candidate => {
   if (!candidate) return null
   if (candidate.matches?.(readerMediaSelector)) return candidate
@@ -403,6 +433,27 @@ const readerPaperTextureOpacity = settings => {
   }
 }
 
+const readerPaperTextureLayerCount = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return 0
+    case ReaderThemeSepia:
+      return 12
+    case 'dark':
+    case 'dusk':
+      return 8
+    default:
+      return 6
+  }
+}
+
+const readerPaperTextureBackgroundImage = (textureVariant, settings) => {
+  if (!textureVariant?.asset) return 'none'
+  if (readerPaperTextureLayerCount(settings) <= 0) return 'none'
+  const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
+  return Array.from({ length: readerPaperTextureLayerCount(settings) }, () => textureUrl).join(', ')
+}
+
 const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
   ? `
   @font-face {
@@ -447,6 +498,8 @@ const applyReaderParagraphSpacing = (doc, settings) => {
       'margin-block-end': spacing,
       'margin-top': '0',
       'margin-bottom': spacing,
+      'padding-block-end': spacing,
+      'padding-bottom': spacing,
     })
   }
   const adjacentBlocks = Array.from(doc?.querySelectorAll?.(`
@@ -485,7 +538,7 @@ const updatePaperTextureLayer = (layer, textureVariant, settings) => {
     height: 'auto',
     'z-index': '2147483647',
     'pointer-events': 'none',
-    'background-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+    'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
     'background-position': 'center',
     'background-repeat': 'no-repeat',
     'background-size': 'cover',
@@ -966,6 +1019,13 @@ class NavicReaderRuntime {
         log('link:media-tap', mediaTapTarget.tagName || 'media', describeUrl(anchor.getAttribute('href') || ''))
         return
       }
+      if (!readerPointInsideAnchorText(anchor, event)) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        log('link:text-hit-miss', describeUrl(anchor.getAttribute('href') || ''))
+        return
+      }
       const rawHref = anchor.getAttribute('href')
       if (!rawHref) return
       const section = this.view?.book?.sections?.[index]
@@ -993,11 +1053,13 @@ class NavicReaderRuntime {
     }
   }
 
-  toggleSepiaImageOverlayFromEvent(doc, event) {
+  toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget = null) {
     if (event.defaultPrevented || event.button > 0) return false
     if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return false
-    const anchor = closestElement(event.target, 'a[href]')
-    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    if (!mediaTapTarget) {
+      const anchor = closestElement(event.target, 'a[href]')
+      mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    }
     const image = readerImageFromMediaTarget(mediaTapTarget)
     if (!image) return false
     event.preventDefault?.()
@@ -1024,12 +1086,14 @@ class NavicReaderRuntime {
         touchState = null
         return
       }
+      const anchor = closestElement(event.target, 'a[href]')
       touchState = {
         target: event.target,
         x: touch.screenX ?? touch.clientX ?? 0,
         y: touch.screenY ?? touch.clientY ?? 0,
         clientX: touch.clientX,
         clientY: touch.clientY,
+        mediaTapTarget: readerMediaTapTargetForEvent(doc, event, anchor),
       }
     }, { capture: true, passive: true })
     doc.addEventListener('touchend', event => {
@@ -1052,7 +1116,7 @@ class NavicReaderRuntime {
         stopPropagation: () => event.stopPropagation(),
         stopImmediatePropagation: () => event.stopImmediatePropagation(),
         timeStamp: event.timeStamp,
-      })
+      }, state.mediaTapTarget)
     }, { capture: true, passive: false })
     doc.addEventListener('touchcancel', () => {
       touchState = null
@@ -1249,12 +1313,12 @@ class NavicReaderRuntime {
         '--reader-accent': palette.accent,
         '--theme-bg-color': palette.background,
         '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
-        '--reader-paper-texture-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+        '--reader-paper-texture-image': readerPaperTextureBackgroundImage(textureVariant, settings),
         '--reader-paper-texture-transform': readerPaperTextureTransform(textureVariant),
         '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
         background: palette.background,
         'background-color': palette.background,
-        'background-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+        'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
         'background-position': 'center',
         'background-repeat': 'no-repeat',
         'background-size': 'cover',
@@ -1512,6 +1576,7 @@ const readerParagraphSpacingCss = settings => `
   html body [data-navic-paragraph-block="true"] {
     margin-block-start: 0 !important;
     margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
+    padding-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
   }
   html body p + p,
   html body [data-navic-paragraph-block="true"] + [data-navic-paragraph-block="true"],

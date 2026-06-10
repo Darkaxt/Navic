@@ -452,6 +452,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerShouldSuppressMediaSyntheticClick(doc, event, anchor)")
 		assertContains(bridgeText, "__navicSuppressNextMediaClickUntil")
 		assertContains(bridgeText, "performance.now() <= suppressUntil")
+		assertContains(sepiaToggle, "const anchor = closestElement(event.target, 'a[href]')")
+		assertContains(sepiaToggle, "mediaTapTarget: readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(sepiaToggle, "state.mediaTapTarget")
 		assertContains(sepiaToggle, "__navicLastMediaTapHandledAt")
 		assertTrue(
 			linkNavigation.indexOf("readerShouldSuppressMediaSyntheticClick(doc, event, anchor)") <
@@ -487,6 +490,30 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(bridgeText, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+	}
+
+	@Test
+	fun androidReaderDoesNotLetTextAnchorsConsumeAdjacentImageTaps() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+
+		assertContains(bridgeText, "const readerPointInsideAnchorText = (anchor, event) =>")
+		assertContains(bridgeText, "doc.createTreeWalker(anchor, NodeFilter.SHOW_TEXT")
+		assertContains(bridgeText, "range.getClientRects()")
+		assertContains(linkNavigation, "if (!readerPointInsideAnchorText(anchor, event)) {")
+		assertContains(linkNavigation, "link:text-hit-miss")
+		assertTrue(
+			linkNavigation.indexOf("if (!readerPointInsideAnchorText(anchor, event)) {") <
+				linkNavigation.indexOf("const rawHref"),
+			"Text-link navigation must reject taps outside real text before resolving hrefs."
+		)
+		assertTrue(
+			linkNavigation.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
+				linkNavigation.indexOf("if (!readerPointInsideAnchorText(anchor, event)) {"),
+			"Media hit testing must still run before text-anchor hit testing."
+		)
 	}
 
 	@Test
@@ -698,6 +725,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(paragraphSpacing, "const blocks = Array.from")
 		assertContains(paragraphSpacing, "'margin-block-end': spacing")
 		assertContains(paragraphSpacing, "'margin-block-start': '0'")
+		assertContains(paragraphSpacing, "'padding-block-end': spacing")
+		assertContains(paragraphSpacing, "'padding-bottom': spacing")
 		assertContains(applyDocumentTheme, "applyReaderParagraphSpacing(doc, settings)")
 	}
 
@@ -718,10 +747,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(documentThemeCss, "z-index: 2147483647")
 		assertContains(documentThemeCss, "background-image: var(--reader-paper-texture-image)")
 		assertContains(documentThemeCss, "opacity: var(--reader-paper-texture-opacity, 0)")
+		assertContains(bridgeText, "readerPaperTextureBackgroundImage(textureVariant, settings)")
+		assertContains(bridgeText, "readerPaperTextureLayerCount(settings)")
+		assertContains(bridgeText, "Array.from({ length: readerPaperTextureLayerCount(settings) }")
 		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
 		assertContains(applyDocumentTheme, "updatePaperTextureLayer(layer, textureVariant, settings)")
 		assertContains(bridgeText, "layer.dataset.navicPaperTextureLayer = 'true'")
-		assertContains(bridgeText, "'background-image': `url(\"${'$'}{readerAssetUrl(textureVariant.asset)}\")`")
+		assertContains(bridgeText, "'background-image': readerPaperTextureBackgroundImage(textureVariant, settings)")
 		assertContains(bridgeText, "pointer-events: none")
 	}
 
