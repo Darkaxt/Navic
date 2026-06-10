@@ -118,19 +118,35 @@ fun bestReaderStartLocator(
 }
 
 data class ReaderProgressSaveGate(
-	val publicationReady: Boolean = false
+	val publicationReady: Boolean = false,
+	val firstPostReadyRelocationHandled: Boolean = false
 ) {
-	fun reset(): ReaderProgressSaveGate = copy(publicationReady = false)
+	fun reset(): ReaderProgressSaveGate = copy(
+		publicationReady = false,
+		firstPostReadyRelocationHandled = false
+	)
 
 	fun onReaderEvent(event: ReaderBridgeEvent): ReaderProgressSaveDecision =
 		when (event) {
 			ReaderBridgeEvent.PublicationReady -> ReaderProgressSaveDecision(
-				state = copy(publicationReady = true)
+				state = copy(
+					publicationReady = true,
+					firstPostReadyRelocationHandled = false
+				)
 			)
-			is ReaderBridgeEvent.LocationChanged -> ReaderProgressSaveDecision(
-				state = this,
-				locatorToSave = event.locator.takeIf { publicationReady }
-			)
+			is ReaderBridgeEvent.LocationChanged -> {
+				val shouldSkipStartupPlaceholder = publicationReady &&
+					!firstPostReadyRelocationHandled &&
+					event.locator.isReaderStartPlaceholder()
+				ReaderProgressSaveDecision(
+					state = if (publicationReady) {
+						copy(firstPostReadyRelocationHandled = true)
+					} else {
+						this
+					},
+					locatorToSave = event.locator.takeIf { publicationReady && !shouldSkipStartupPlaceholder }
+				)
+			}
 			else -> ReaderProgressSaveDecision(state = this)
 		}
 }
