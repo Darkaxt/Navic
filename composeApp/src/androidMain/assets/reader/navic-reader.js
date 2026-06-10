@@ -148,6 +148,50 @@ const isReaderMediaTapTarget = (target, anchor = closestElement(target, 'a[href]
   return target === anchor
 }
 
+const readerPointInsideRect = (x, y, rect, slop = 3) =>
+  Number.isFinite(x) &&
+  Number.isFinite(y) &&
+  Boolean(rect) &&
+  x >= rect.left - slop &&
+  x <= rect.right + slop &&
+  y >= rect.top - slop &&
+  y <= rect.bottom + slop
+
+const readerMediaElementFromCandidate = candidate => {
+  if (!candidate) return null
+  if (candidate.matches?.(readerMediaSelector)) return candidate
+  return candidate.querySelector?.(readerMediaSelector) || null
+}
+
+const readerImageFromMediaTarget = mediaTarget => {
+  if (!mediaTarget) return null
+  if (mediaTarget.matches?.('img')) return mediaTarget
+  return mediaTarget.querySelector?.('img') || null
+}
+
+const readerMediaTapTargetForEvent = (doc, event, anchor) => {
+  const target = event?.target
+  const directMedia = closestElement(target, readerMediaSelector)
+  if (directMedia) return directMedia
+  if (anchor && isReaderMediaTapTarget(target, anchor)) {
+    return readerMediaElementFromCandidate(anchor)
+  }
+
+  const x = Number(event?.clientX)
+  const y = Number(event?.clientY)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  for (const candidate of doc?.elementsFromPoint?.(event.clientX, event.clientY) || []) {
+    const media = readerMediaElementFromCandidate(candidate)
+    if (readerPointInsideRect(x, y, media?.getBoundingClientRect?.())) return media
+  }
+
+  for (const media of doc?.querySelectorAll?.(readerMediaSelector) || []) {
+    if (readerPointInsideRect(x, y, media?.getBoundingClientRect?.())) return media
+  }
+  return null
+}
+
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
   left,
@@ -805,11 +849,12 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
-      if (isReaderMediaTapTarget(event.target, anchor)) {
+      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+      if (mediaTapTarget) {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation()
-        log('link:media-tap', describeUrl(anchor.getAttribute('href') || ''))
+        log('link:media-tap', mediaTapTarget.tagName || 'media', describeUrl(anchor.getAttribute('href') || ''))
         return
       }
       const rawHref = anchor.getAttribute('href')
@@ -846,12 +891,8 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button !== 0) return
       if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return
       const anchor = closestElement(event.target, 'a[href]')
-      const mediaTarget = closestElement(event.target, readerMediaSelector) ||
-        (anchor && isReaderMediaTapTarget(event.target, anchor)
-          ? anchor.querySelector?.(readerMediaSelector)
-          : null)
-      const image = closestElement(event.target, 'img') ||
-        (mediaTarget?.matches?.('img') ? mediaTarget : mediaTarget?.querySelector?.('img'))
+      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+      const image = readerImageFromMediaTarget(mediaTapTarget)
       if (!image) return
       event.preventDefault()
       event.stopPropagation()

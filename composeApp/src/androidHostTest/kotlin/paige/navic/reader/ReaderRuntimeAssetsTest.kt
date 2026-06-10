@@ -347,7 +347,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "attachContentDocumentBehaviors")
 		assertContains(bridgeText, "if (detail.doc)")
 		assertContains(bridgeText, "closestElement(event.target, 'a[href]')")
-		assertContains(bridgeText, "isReaderMediaTapTarget(event.target, anchor)")
+		assertContains(bridgeText, "readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(bridgeText, "event.stopPropagation()")
 		assertContains(bridgeText, "await this.goTo(href)")
 		assertContains(bridgeText, "link:navigate")
@@ -383,7 +383,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "ReaderThemeSepia")
 		assertContains(bridgeText, "readerThemeKey(settings?.theme)")
 		assertContains(bridgeText, "attachSepiaImageOverlayToggle")
-		assertContains(bridgeText, "closestElement(event.target, 'img')")
+		assertContains(bridgeText, "readerImageFromMediaTarget")
 		assertContains(bridgeText, "data-navic-sepia-overlay")
 		assertContains(bridgeText, "img:not([data-navic-sepia-overlay=\"off\"])")
 		assertContains(bridgeText, "mix-blend-mode: multiply")
@@ -414,16 +414,45 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "const isReaderMediaAnchor =")
 		assertContains(bridgeText, "const isReaderMediaTapTarget =")
 		assertContains(interactiveTarget, "readerMediaSelector")
-		assertContains(linkNavigation, "if (isReaderMediaTapTarget(event.target, anchor)) {")
+		assertContains(linkNavigation, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(linkNavigation, "if (mediaTapTarget) {")
 		assertContains(linkNavigation, "event.preventDefault()")
 		assertContains(linkNavigation, "event.stopImmediatePropagation()")
 		assertTrue(
-			linkNavigation.indexOf("if (isReaderMediaTapTarget(event.target, anchor)) {") <
+			linkNavigation.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
 				linkNavigation.indexOf("const rawHref"),
 			"Reader link navigation must ignore media/image anchors before resolving hrefs."
 		)
-		assertContains(sepiaToggle, "isReaderMediaTapTarget(event.target, anchor)")
-		assertContains(sepiaToggle, "anchor.querySelector?.(readerMediaSelector)")
+		assertContains(sepiaToggle, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(sepiaToggle, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+	}
+
+	@Test
+	fun androidReaderGivesMediaHitTestingPriorityOverAdjacentLinks() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val mediaHitTesting = bridgeText
+			.substringAfter("const readerMediaTapTargetForEvent = (doc, event, anchor) =>")
+			.substringBefore("\n\n// Ported from Komikku")
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  readerTapZone")
+
+		assertContains(mediaHitTesting, "doc?.elementsFromPoint?.(event.clientX, event.clientY)")
+		assertContains(mediaHitTesting, "getBoundingClientRect")
+		assertContains(mediaHitTesting, "readerPointInsideRect")
+		assertContains(mediaHitTesting, "readerMediaElementFromCandidate")
+		assertContains(linkNavigation, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(linkNavigation, "if (mediaTapTarget) {")
+		assertTrue(
+			linkNavigation.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
+				linkNavigation.indexOf("const rawHref"),
+			"Reader link navigation must let media/image hit testing consume the tap before href resolution."
+		)
+		assertContains(sepiaToggle, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(sepiaToggle, "const image = readerImageFromMediaTarget(mediaTapTarget)")
 	}
 
 	@Test
