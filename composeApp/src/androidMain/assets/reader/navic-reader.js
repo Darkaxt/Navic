@@ -324,11 +324,11 @@ const readerPaperTextureOpacity = settings => {
       return '0'
     case 'dark':
     case 'dusk':
-      return '0.035'
+      return '0.4'
     case ReaderThemeSepia:
-      return '0.08'
+      return '1'
     default:
-      return '0.035'
+      return '0.65'
   }
 }
 
@@ -362,6 +362,27 @@ const readerParagraphSpacingEm = settings => {
     ? Math.min(200, Math.max(0, percent))
     : 100
   return `${normalized / 100}em`
+}
+
+const applyReaderParagraphSpacing = (doc, settings) => {
+  const spacing = readerParagraphSpacingEm(settings)
+  classifyReaderParagraphBlocks(doc)
+  for (const element of doc?.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || []) {
+    setStylesImportant(element, {
+      'margin-block-start': '0',
+      'margin-block-end': spacing,
+    })
+  }
+  for (const element of doc?.querySelectorAll?.(`
+    p + p,
+    [data-navic-paragraph-block="true"] + [data-navic-paragraph-block="true"],
+    p + [data-navic-paragraph-block="true"],
+    [data-navic-paragraph-block="true"] + p
+  `) || []) {
+    setStylesImportant(element, {
+      'margin-block-start': spacing,
+    })
+  }
 }
 
 const ensurePaperTextureLayer = doc => {
@@ -1066,7 +1087,7 @@ class NavicReaderRuntime {
     const section = this.view?.book?.sections?.[index]
     const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
     const textureVariant = readerPaperTextureVariantForPage(textureKey)
-    classifyReaderParagraphBlocks(doc)
+    applyReaderParagraphSpacing(doc, settings)
     const layer = ensurePaperTextureLayer(doc)
     root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
     root.dataset.navicPaperTextureKey = textureKey

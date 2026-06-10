@@ -621,9 +621,12 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(texture1.isFile, "Reader paper texture 1 must be packaged")
 		assertTrue(texture2.isFile, "Reader paper texture 2 must be packaged")
 		assertTrue(texture3.isFile, "Reader paper texture 3 must be packaged")
-		assertTrue(texture1.length() > 100_000, "Reader paper texture 1 should be a real image")
-		assertTrue(texture2.length() > 100_000, "Reader paper texture 2 should be a real image")
-		assertTrue(texture3.length() > 100_000, "Reader paper texture 3 should be a real image")
+		assertTrue(texture1.length() > 1_000, "Reader paper texture 1 should be a real image")
+		assertTrue(texture2.length() > 1_000, "Reader paper texture 2 should be a real image")
+		assertTrue(texture3.length() > 1_000, "Reader paper texture 3 should be a real image")
+		assertTrue(texture1.hasPngAlphaChannel(), "Reader paper texture 1 must be transparent")
+		assertTrue(texture2.hasPngAlphaChannel(), "Reader paper texture 2 must be transparent")
+		assertTrue(texture3.hasPngAlphaChannel(), "Reader paper texture 3 must be transparent")
 		assertContains(bridgeText, "ReaderPaperTextureAssets")
 		assertContains(bridgeText, "paper-textures/paper-texture-1.png")
 		assertContains(bridgeText, "paper-textures/paper-texture-2.png")
@@ -640,7 +643,24 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "--reader-paper-texture-image")
 		assertContains(bridgeText, "paperTextureOpacity=\${")
 		assertContains(bridgeText, "paperTextureImage=\${")
-		assertContains(bridgeText, "return '0.08'")
+		assertContains(bridgeText, "return '1'")
+	}
+
+	@Test
+	fun androidReaderAppliesParagraphSpacingAsElementStyles() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val paragraphSpacing = bridgeText
+			.substringAfter("const applyReaderParagraphSpacing = (doc, settings) =>")
+			.substringBefore("\n\nconst ensurePaperTextureLayer")
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
+		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
+		assertContains(paragraphSpacing, "'margin-block-end': spacing")
+		assertContains(paragraphSpacing, "'margin-block-start': '0'")
+		assertContains(applyDocumentTheme, "applyReaderParagraphSpacing(doc, settings)")
 	}
 
 	@Test
@@ -964,4 +984,13 @@ class ReaderRuntimeAssetsTest {
 			File("composeApp/src/commonMain/kotlin/paige/navic/reader/$fileName")
 		).firstOrNull { it.isFile }
 			?: error("Could not locate common reader file $fileName")
+
+	private fun File.hasPngAlphaChannel(): Boolean {
+		val bytes = readBytes()
+		require(bytes.size > 25) { "PNG file is too small: $this" }
+		val pngSignature = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
+		require(bytes.take(8).toByteArray().contentEquals(pngSignature)) { "Not a PNG file: $this" }
+		val colorType = bytes[25].toInt() and 0xff
+		return colorType == 4 || colorType == 6
+	}
 }
