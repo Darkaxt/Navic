@@ -347,7 +347,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "attachContentDocumentBehaviors")
 		assertContains(bridgeText, "if (detail.doc)")
 		assertContains(bridgeText, "closestElement(event.target, 'a[href]')")
-		assertContains(bridgeText, "anchor.dataset.navicLinkKind === 'media'")
+		assertContains(bridgeText, "isReaderMediaTapTarget(event.target, anchor)")
 		assertContains(bridgeText, "event.stopPropagation()")
 		assertContains(bridgeText, "await this.goTo(href)")
 		assertContains(bridgeText, "link:navigate")
@@ -407,16 +407,23 @@ class ReaderRuntimeAssetsTest {
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  readerTapZone")
 
 		assertContains(bridgeText, "const isReaderMediaAnchor =")
 		assertContains(bridgeText, "const isReaderMediaTapTarget =")
 		assertContains(interactiveTarget, "readerMediaSelector")
-		assertContains(linkNavigation, "if (isReaderMediaTapTarget(event.target, anchor)) return")
+		assertContains(linkNavigation, "if (isReaderMediaTapTarget(event.target, anchor)) {")
+		assertContains(linkNavigation, "event.preventDefault()")
+		assertContains(linkNavigation, "event.stopImmediatePropagation()")
 		assertTrue(
-			linkNavigation.indexOf("if (isReaderMediaTapTarget(event.target, anchor)) return") <
+			linkNavigation.indexOf("if (isReaderMediaTapTarget(event.target, anchor)) {") <
 				linkNavigation.indexOf("const rawHref"),
 			"Reader link navigation must ignore media/image anchors before resolving hrefs."
 		)
+		assertContains(sepiaToggle, "isReaderMediaTapTarget(event.target, anchor)")
+		assertContains(sepiaToggle, "anchor.querySelector?.(readerMediaSelector)")
 	}
 
 	@Test
@@ -559,6 +566,22 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertContains(applyDocumentTheme, "themeStyle.textContent = readerContentCss(settings)")
+		assertFalse(
+			applyDocumentTheme.contains("themeStyle.textContent = readerDocumentThemeCss(settings)"),
+			"Loaded publication documents need the full reader stylesheet, not only theme colors."
+		)
+		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
+		assertContains(applyDocumentTheme, "updatePaperTextureLayer")
+	}
+
+	@Test
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = root.resolve("navic-reader.js").readText()
@@ -597,13 +620,22 @@ class ReaderRuntimeAssetsTest {
 		val documentThemeCss = bridgeText
 			.substringAfter("const readerDocumentThemeCss = settings =>")
 			.substringBefore("const readerContentCss = settings =>")
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
 
 		assertContains(documentThemeCss, "html::before")
 		assertContains(documentThemeCss, "body::before")
+		assertContains(documentThemeCss, "[data-navic-paper-texture-layer=\"true\"]")
 		assertContains(documentThemeCss, "isolation: isolate")
 		assertContains(documentThemeCss, "z-index: 2147483647")
 		assertContains(documentThemeCss, "background-image: var(--reader-paper-texture-image)")
 		assertContains(documentThemeCss, "opacity: var(--reader-paper-texture-opacity, 0)")
+		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
+		assertContains(applyDocumentTheme, "updatePaperTextureLayer(layer, textureVariant, settings)")
+		assertContains(bridgeText, "layer.dataset.navicPaperTextureLayer = 'true'")
+		assertContains(bridgeText, "'background-image': `url(\"${'$'}{readerAssetUrl(textureVariant.asset)}\")`")
+		assertContains(bridgeText, "pointer-events: none")
 	}
 
 	@Test

@@ -3,6 +3,7 @@ import './vendor/foliate-js/view.js'
 const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
+const ReaderPaperTextureLayerSelector = '[data-navic-paper-texture-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
@@ -317,6 +318,71 @@ const readerParagraphSpacingEm = settings => {
     ? Math.min(200, Math.max(0, percent))
     : 100
   return `${normalized / 100}em`
+}
+
+const ensurePaperTextureLayer = doc => {
+  const body = doc?.body
+  if (!body) return null
+  let layer = body.querySelector?.(ReaderPaperTextureLayerSelector)
+  if (!layer) {
+    layer = doc.createElement('div')
+    layer.dataset.navicPaperTextureLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    body.append(layer)
+  }
+  return layer
+}
+
+const updatePaperTextureLayer = (layer, textureVariant, settings) => {
+  if (!layer || !textureVariant?.asset) return
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '-1px',
+    width: 'auto',
+    height: 'auto',
+    'z-index': '2147483647',
+    'pointer-events': 'none',
+    'background-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+    'background-position': 'center',
+    'background-repeat': 'no-repeat',
+    'background-size': 'cover',
+    'background-color': 'transparent',
+    opacity: readerPaperTextureOpacity(settings),
+    'mix-blend-mode': 'multiply',
+    transform: readerPaperTextureTransform(textureVariant),
+    'transform-origin': 'center',
+  })
+}
+
+const isReaderPaperTextureLayer = element =>
+  element?.dataset?.navicPaperTextureLayer === 'true'
+
+const isParagraphCandidate = element =>
+  Boolean(element?.matches?.('p,[role="doc-p"],div'))
+
+const isReaderParagraphBlock = element => {
+  if (!isParagraphCandidate(element) || isReaderPaperTextureLayer(element)) return false
+  if (element.matches?.('figure,figcaption,blockquote,pre,code,nav,ol,ul,li,table,thead,tbody,tfoot,tr,td,th,h1,h2,h3,h4,h5,h6')) {
+    return false
+  }
+  if (element.querySelector?.(readerMediaSelector)) return false
+  const text = element.textContent?.replace(/\s+/g, ' ').trim() || ''
+  if (text.length < 2) return false
+  for (const child of element.children || []) {
+    if (isParagraphCandidate(child) && (child.textContent?.trim()?.length || 0) > 0) return false
+  }
+  return true
+}
+
+const classifyReaderParagraphBlocks = doc => {
+  if (!doc?.querySelectorAll) return
+  for (const element of doc.querySelectorAll('p,[role="doc-p"],div')) {
+    if (isReaderParagraphBlock(element)) {
+      element.dataset.navicParagraphBlock = 'true'
+    } else if (element.dataset?.navicParagraphBlock === 'true') {
+      delete element.dataset.navicParagraphBlock
+    }
+  }
 }
 
 const setStylesImportant = (element, styles) => {
@@ -739,7 +805,13 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
-      if (isReaderMediaTapTarget(event.target, anchor)) return
+      if (isReaderMediaTapTarget(event.target, anchor)) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        log('link:media-tap', describeUrl(anchor.getAttribute('href') || ''))
+        return
+      }
       const rawHref = anchor.getAttribute('href')
       if (!rawHref) return
       const section = this.view?.book?.sections?.[index]
@@ -774,11 +846,12 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button !== 0) return
       if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return
       const anchor = closestElement(event.target, 'a[href]')
-      let mediaAnchorImage = null
-      if (anchor && anchor.dataset.navicLinkKind === 'media') {
-        mediaAnchorImage = anchor.querySelector?.('img')
-      }
-      const image = closestElement(event.target, 'img') || mediaAnchorImage
+      const mediaTarget = closestElement(event.target, readerMediaSelector) ||
+        (anchor && isReaderMediaTapTarget(event.target, anchor)
+          ? anchor.querySelector?.(readerMediaSelector)
+          : null)
+      const image = closestElement(event.target, 'img') ||
+        (mediaTarget?.matches?.('img') ? mediaTarget : mediaTarget?.querySelector?.('img'))
       if (!image) return
       event.preventDefault()
       event.stopPropagation()
@@ -952,6 +1025,8 @@ class NavicReaderRuntime {
     const section = this.view?.book?.sections?.[index]
     const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
     const textureVariant = readerPaperTextureVariantForPage(textureKey)
+    classifyReaderParagraphBlocks(doc)
+    const layer = ensurePaperTextureLayer(doc)
     root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
     root.dataset.navicPaperTextureKey = textureKey
     root.dataset.navicPaperTextureAsset = textureVariant.asset
@@ -961,7 +1036,8 @@ class NavicReaderRuntime {
       themeStyle.id = ReaderDocumentThemeStyleId
       styleHost.append(themeStyle)
     }
-    themeStyle.textContent = readerDocumentThemeCss(settings)
+    themeStyle.textContent = readerContentCss(settings)
+    updatePaperTextureLayer(layer, textureVariant, settings)
     for (const element of [root, body].filter(Boolean)) {
       setStylesImportant(element, {
         '--reader-background': palette.background,
@@ -978,7 +1054,7 @@ class NavicReaderRuntime {
       })
     }
     for (const element of doc.querySelectorAll('[style*="background"], [bgcolor]')) {
-      if (!element || element === root || element === body || isThemeBackgroundMediaElement(element)) continue
+      if (!element || element === root || element === body || isReaderPaperTextureLayer(element) || isThemeBackgroundMediaElement(element)) continue
       if (element.hasAttribute('bgcolor')) {
         if (element.dataset.navicOriginalBgcolor === undefined) {
           element.dataset.navicOriginalBgcolor = element.getAttribute('bgcolor') || ''
@@ -1212,11 +1288,15 @@ const readerTypographyCss = settings => settings.publisherStyles === true
 `
 
 const readerParagraphSpacingCss = settings => `
-  html body p {
+  html body p,
+  html body [data-navic-paragraph-block="true"] {
     margin-block-start: 0 !important;
     margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
   }
-  html body p + p {
+  html body p + p,
+  html body [data-navic-paragraph-block="true"] + [data-navic-paragraph-block="true"],
+  html body p + [data-navic-paragraph-block="true"],
+  html body [data-navic-paragraph-block="true"] + p {
     margin-block-start: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
   }
 `
@@ -1248,7 +1328,8 @@ const readerDocumentThemeCss = settings => {
     position: relative !important;
   }
   html::before,
-  body::before {
+  body::before,
+  [data-navic-paper-texture-layer="true"] {
     content: '';
     position: fixed;
     inset: -1px;
@@ -1263,11 +1344,11 @@ const readerDocumentThemeCss = settings => {
     transform-origin: center;
     z-index: 2147483647;
   }
-  body :not(img):not(picture):not(video):not(canvas):not(svg) {
+  body :not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]) {
     background-color: transparent !important;
   }
-  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg),
-  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg) {
+  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]),
+  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]) {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
