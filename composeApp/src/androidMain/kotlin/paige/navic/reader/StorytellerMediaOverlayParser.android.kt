@@ -32,6 +32,8 @@ object StorytellerMediaOverlayParser {
 			}
 		val manifestById = manifestItems.associateBy(OpfManifestItem::id)
 		val durationMsByRef = opf.mediaDurationMsByRef()
+		val packageAudioMetadata = opf.audioMetadata()
+		val audioMetadataByRef = opf.audioMetadataByRef()
 		val textDocuments = entries.textDocuments()
 		val referencedSmilIds = manifestItems.mapNotNull(OpfManifestItem::mediaOverlay).toSet()
 		val smilItems = if (referencedSmilIds.isNotEmpty()) {
@@ -63,6 +65,7 @@ object StorytellerMediaOverlayParser {
 		val audioResources = manifestItems
 			.filter { item -> item.mediaType?.startsWith("audio/", ignoreCase = true) == true }
 			.map { item ->
+				val metadata = packageAudioMetadata.mergedWith(audioMetadataByRef[item.id])
 				StorytellerAudioResource(
 					id = item.id,
 					href = item.href,
@@ -71,7 +74,20 @@ object StorytellerMediaOverlayParser {
 					label = textDocuments.audioResourceLabel(
 						audioResource = item.href,
 						clips = clips
-					)
+					),
+					chapterLabel = metadata.chapterLabel,
+					sectionLabel = metadata.sectionLabel,
+					narrator = metadata.narrator,
+					author = metadata.author,
+					trackNumber = metadata.trackNumber,
+					discNumber = metadata.discNumber,
+					codec = metadata.codec,
+					bitrateKbps = metadata.bitrateKbps,
+					sampleRateHz = metadata.sampleRateHz,
+					channels = metadata.channels,
+					qualityLabel = metadata.qualityLabel,
+					sourceProviderLabel = metadata.sourceProviderLabel,
+					sourceUrl = metadata.sourceUrl
 				)
 			}
 		return StorytellerReadaloudPackage(
@@ -247,6 +263,46 @@ object StorytellerMediaOverlayParser {
 			}
 			.toMap()
 
+	private fun Document.audioMetadata(): StorytellerOpfAudioMetadata =
+		elements("meta")
+			.filter { meta -> meta.attr("refines") == null }
+			.fold(StorytellerOpfAudioMetadata()) { metadata, meta ->
+				metadata.withMetaValue(
+					property = meta.metadataProperty() ?: return@fold metadata,
+					value = meta.metadataValue() ?: return@fold metadata
+				)
+			}
+
+	private fun Document.audioMetadataByRef(): Map<String, StorytellerOpfAudioMetadata> =
+		elements("meta")
+			.mapNotNull { meta ->
+				val ref = meta.attr("refines")
+					?.removePrefix("#")
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
+					?: return@mapNotNull null
+				val property = meta.metadataProperty() ?: return@mapNotNull null
+				val value = meta.metadataValue() ?: return@mapNotNull null
+				ref to (property to value)
+			}
+			.groupBy({ it.first }, { it.second })
+			.mapValues { (_, values) ->
+				values.fold(StorytellerOpfAudioMetadata()) { metadata, (property, value) ->
+					metadata.withMetaValue(property, value)
+				}
+			}
+
+	private fun Element.metadataProperty(): String? =
+		(attr("property") ?: attr("name"))
+			?.substringAfter(':')
+			?.replace(Regex("[^A-Za-z0-9]"), "")
+			?.lowercase()
+			?.takeIf { it.isNotEmpty() }
+
+	private fun Element.metadataValue(): String? =
+		(attr("content") ?: textContent)
+			.normalizedLabelText()
+
 	private fun List<MediaOverlayClip>.durationMsForAudioResource(audioResource: String): Long? {
 		val normalizedAudioResource = normalizedMediaOverlayResource(audioResource)
 		return filter { clip -> normalizedMediaOverlayResource(clip.audioResource) == normalizedAudioResource }
@@ -282,6 +338,76 @@ object StorytellerMediaOverlayParser {
 		val mediaType: String?,
 		val mediaOverlay: String?
 	)
+
+	private data class StorytellerOpfAudioMetadata(
+		val chapterLabel: String? = null,
+		val sectionLabel: String? = null,
+		val narrator: String? = null,
+		val author: String? = null,
+		val trackNumber: Int? = null,
+		val discNumber: Int? = null,
+		val codec: String? = null,
+		val bitrateKbps: Int? = null,
+		val sampleRateHz: Long? = null,
+		val channels: Int? = null,
+		val qualityLabel: String? = null,
+		val sourceProviderLabel: String? = null,
+		val sourceUrl: String? = null
+	) {
+		fun mergedWith(override: StorytellerOpfAudioMetadata?): StorytellerOpfAudioMetadata =
+			if (override == null) {
+				this
+			} else {
+				StorytellerOpfAudioMetadata(
+					chapterLabel = override.chapterLabel ?: chapterLabel,
+					sectionLabel = override.sectionLabel ?: sectionLabel,
+					narrator = override.narrator ?: narrator,
+					author = override.author ?: author,
+					trackNumber = override.trackNumber ?: trackNumber,
+					discNumber = override.discNumber ?: discNumber,
+					codec = override.codec ?: codec,
+					bitrateKbps = override.bitrateKbps ?: bitrateKbps,
+					sampleRateHz = override.sampleRateHz ?: sampleRateHz,
+					channels = override.channels ?: channels,
+					qualityLabel = override.qualityLabel ?: qualityLabel,
+					sourceProviderLabel = override.sourceProviderLabel ?: sourceProviderLabel,
+					sourceUrl = override.sourceUrl ?: sourceUrl
+				)
+			}
+
+		fun withMetaValue(property: String, value: String): StorytellerOpfAudioMetadata =
+			when (property) {
+				"chapterlabel", "chapter", "tracktitle" -> copy(chapterLabel = value)
+				"sectionlabel", "section" -> copy(sectionLabel = value)
+				"narrator", "readby", "reader" -> copy(narrator = value)
+				"author", "creator" -> copy(author = value)
+				"tracknumber", "track" -> copy(trackNumber = value.toIntOrNull())
+				"discnumber", "disknumber", "disc", "disk" -> copy(discNumber = value.toIntOrNull())
+				"codec", "audiocodec" -> copy(codec = value)
+				"bitratekbps" -> copy(bitrateKbps = value.toIntOrNull())
+				"bitrate" -> copy(bitrateKbps = value.bitrateKbpsValue())
+				"sampleratehz" -> copy(sampleRateHz = value.toLongOrNull())
+				"samplerate" -> copy(sampleRateHz = value.sampleRateHzValue())
+				"channels", "channelcount" -> copy(channels = value.toIntOrNull())
+				"qualitylabel", "quality" -> copy(qualityLabel = value)
+				"sourceprovider", "provider" -> copy(sourceProviderLabel = value)
+				"sourceurl", "source" -> copy(sourceUrl = value)
+				else -> this
+			}
+
+		private fun String.bitrateKbpsValue(): Int? {
+			val number = Regex("""\d+""").find(this)?.value?.toIntOrNull() ?: return null
+			return if (contains("mbps", ignoreCase = true)) number * 1000 else number
+		}
+
+		private fun String.sampleRateHzValue(): Long? {
+			val number = Regex("""\d+(?:\.\d+)?""").find(this)?.value?.toDoubleOrNull() ?: return null
+			return when {
+				contains("khz", ignoreCase = true) -> (number * 1000.0).roundToLong()
+				else -> number.roundToLong()
+			}
+		}
+	}
 }
 
 internal fun parseClockSeconds(raw: String): Double? {

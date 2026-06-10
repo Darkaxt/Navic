@@ -115,10 +115,10 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Basic typography settings | Supported | Current set is font family, font size, line height, margin, light/dark theme, paged/scroll. |
 | Immersive reader chrome | Supported in `v1.0.10-epsilon7` work | Reader removes the global top bar, hides controls by default, and toggles reader controls through center tap. |
 | Left/right tap page turns | Supported in `v1.0.10-epsilon7` work | Keep page-zone behavior in the WebView bridge so it works inside EPUB iframe documents. |
-| Storyteller EPUB Media Overlay parsing | Supported in tests, partial on device | Requires signed-release smoke tests with real Storyteller-generated EPUB bundles. |
+| Storyteller EPUB Media Overlay parsing | Supported in tests, partial on device | Parser now preserves OPF media-overlay, SMIL clips, embedded audio resources, duration, and Storyteller audio metadata labels; still requires signed-release smoke tests with real Storyteller-generated EPUB bundles. |
 | Media3 readaloud playback | Supported in tests, partial on device | Use Media3 for audio. Do not play embedded audio through WebView. |
 | Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
-| Audio metadata labels | Partial | Preserve labels in models and Media3 metadata; still need reader UI display for chapter, section, narrator, quality, and source labels. |
+| Audio metadata labels | Supported in models/playback, partial on device | Bindery and Storyteller OPF labels now flow into readaloud tracks, Media3 item descriptors, playback logs, and reader chrome metadata; still requires signed-release smoke tests with real synced packages. |
 | Custom/downloaded/book fonts | Missing | Adapt Anx-style custom font model, but expose it through Navic settings and reader chrome. |
 | Rich themes/background images | Missing | Add named reader themes with foreground/background/accent and optional background image. |
 | Paragraph spacing and publisher style override | Missing | Extend `ReaderSettings` and JS `applySettings`; include "follow book styles" vs "override" toggle. |
@@ -260,6 +260,7 @@ Proposed reader-settings tabs:
 
 - [x] Parse Storyteller-generated EPUB 3 Media Overlay data: OPF `media-overlay`, SMIL resources, `clipBegin`, `clipEnd`, text fragments, embedded audio resources, and `media:duration`.
 - [x] Extract Storyteller EPUB package-level audio resources and convert them into the same readaloud audio session model used by Media3.
+- [x] Preserve Storyteller OPF audio metadata labels such as chapter, section, narrator, quality, source, codec, bitrate, sample rate, channel count, and track/disc numbers.
 - [x] Build clip mappings from audio position to text fragment.
 - [x] Build reverse mappings from text locator/fragment to audio position.
 - [x] Add a tested common sync policy that converts Media3 playback positions to foliate overlay commands and reader navigation events to Media3 seek targets.

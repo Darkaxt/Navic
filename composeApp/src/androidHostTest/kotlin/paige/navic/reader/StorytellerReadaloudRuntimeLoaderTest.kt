@@ -51,8 +51,30 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		val mediaItem = runtime.playbackPlan.mediaItems.single()
 		assertTrue(mediaItem.uri.startsWith("file:"))
 		assertEquals(emptyMap(), mediaItem.requestHeaders)
-		assertEquals("chapter1.mp3", mediaItem.title)
-		assertEquals("mpeg", mediaItem.codec)
+		assertEquals("Storyteller Chapter 1", mediaItem.title)
+		assertEquals("An Unexpected Party", mediaItem.subtitle)
+		assertEquals("Andy Serkis", mediaItem.artist)
+		assertEquals("mp3", mediaItem.codec)
+		assertEquals(128, mediaItem.bitrateKbps)
+		assertEquals("Studio 128 kbps", mediaItem.qualityLabel)
+		assertEquals("Storyteller", mediaItem.sourceProviderLabel)
+		val labels = runtime.playbackPlan.metadataLabelsForPlaybackPosition(
+			ReadaloudPlaybackPosition(
+				sessionId = "3693",
+				trackIndex = 0,
+				mediaId = mediaItem.mediaId,
+				positionMs = 1_500,
+				durationMs = mediaItem.durationMs,
+				isPlaying = true,
+				playbackSpeed = 1f
+			)
+		)
+		assertEquals("Storyteller Chapter 1", labels?.chapterLabel)
+		assertEquals("An Unexpected Party", labels?.sectionLabel)
+		assertEquals("Andy Serkis", labels?.narratorLabel)
+		assertEquals("Studio 128 kbps", labels?.qualityLabel)
+		assertEquals("Storyteller", labels?.sourceProviderLabel)
+		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
 		assertEquals(
 			listOf(
 				ReaderBridgeCommand.OpenPublication(
@@ -80,6 +102,13 @@ class StorytellerReadaloudRuntimeLoaderTest {
 					<metadata>
 						<meta property="media:duration">0:00:10.000</meta>
 						<meta property="media:duration" refines="#audio1">0:00:08.000</meta>
+						<meta property="storyteller:chapter-label" refines="#audio1">Storyteller Chapter 1</meta>
+						<meta property="storyteller:section-label" refines="#audio1">An Unexpected Party</meta>
+						<meta property="storyteller:narrator" refines="#audio1">Andy Serkis</meta>
+						<meta property="storyteller:quality-label" refines="#audio1">Studio 128 kbps</meta>
+						<meta property="storyteller:source-provider" refines="#audio1">Storyteller</meta>
+						<meta property="storyteller:codec" refines="#audio1">mp3</meta>
+						<meta property="storyteller:bitrate-kbps" refines="#audio1">128</meta>
 					</metadata>
 					<manifest>
 						<item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" media-overlay="mo1"/>

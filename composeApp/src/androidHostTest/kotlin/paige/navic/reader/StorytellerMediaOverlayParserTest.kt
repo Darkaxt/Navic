@@ -77,12 +77,38 @@ class StorytellerMediaOverlayParserTest {
 		val track = session.tracks.single()
 		assertEquals("audio1", track.resourceKey)
 		assertEquals("file:///cache/EPUB/Audio/chapter1.mp3", track.href)
-		assertEquals("Chapter 1: A Beginning", track.displayTitle)
-		assertEquals("Chapter 1: A Beginning", track.sectionLabel)
-		assertEquals("Narrator", track.narrator)
+		assertEquals("Storyteller Chapter 1", track.displayTitle)
+		assertEquals("An Unexpected Party", track.sectionLabel)
+		assertEquals("Andy Serkis", track.narrator)
 		assertEquals("Author", track.author)
 		assertEquals(8_000L, track.durationMs)
-		assertEquals(1, track.trackNumber)
+		assertEquals("mp3", track.codec)
+		assertEquals(128, track.bitrateKbps)
+		assertEquals(44_100L, track.sampleRateHz)
+		assertEquals(2, track.channels)
+		assertEquals("Studio 128 kbps", track.qualityLabel)
+		assertEquals("Storyteller", track.sourceProviderLabel)
+		assertEquals("https://storyteller.local/releases/hobbit", track.sourceUrl)
+		assertEquals(7, track.trackNumber)
+		assertEquals(1, track.discNumber)
+
+		val labels = session.toReadaloudPlaybackPlan().metadataLabelsForPlaybackPosition(
+			ReadaloudPlaybackPosition(
+				sessionId = "book-1",
+				trackIndex = 0,
+				mediaId = "readaloud:audio1",
+				positionMs = 1_500,
+				durationMs = 8_000L,
+				isPlaying = true,
+				playbackSpeed = 1f
+			)
+		)
+		assertEquals("Storyteller Chapter 1", labels?.chapterLabel)
+		assertEquals("An Unexpected Party", labels?.sectionLabel)
+		assertEquals("Andy Serkis", labels?.narratorLabel)
+		assertEquals("Studio 128 kbps", labels?.qualityLabel)
+		assertEquals("Storyteller", labels?.sourceProviderLabel)
+		assertEquals("mp3 / 128 kbps", labels?.formatLabel)
 	}
 
 	private fun storytellerEpubFixture(): ByteArray {
@@ -101,6 +127,18 @@ class StorytellerMediaOverlayParserTest {
 					<metadata>
 						<meta property="media:duration">0:00:10.000</meta>
 						<meta property="media:duration" refines="#audio1">0:00:08.000</meta>
+						<meta property="storyteller:chapter-label" refines="#audio1">Storyteller Chapter 1</meta>
+						<meta property="navic:section-label" refines="#audio1">An Unexpected Party</meta>
+						<meta property="storyteller:narrator" refines="#audio1">Andy Serkis</meta>
+						<meta property="storyteller:quality-label" refines="#audio1">Studio 128 kbps</meta>
+						<meta property="storyteller:source-provider" refines="#audio1">Storyteller</meta>
+						<meta property="storyteller:source-url" refines="#audio1">https://storyteller.local/releases/hobbit</meta>
+						<meta property="storyteller:codec" refines="#audio1">mp3</meta>
+						<meta property="storyteller:bitrate-kbps" refines="#audio1">128</meta>
+						<meta property="storyteller:sample-rate-hz" refines="#audio1">44100</meta>
+						<meta property="storyteller:channels" refines="#audio1">2</meta>
+						<meta property="storyteller:track-number" refines="#audio1">7</meta>
+						<meta property="storyteller:disc-number" refines="#audio1">1</meta>
 					</metadata>
 					<manifest>
 						<item id="chapter1" href="Text/chapter1.xhtml" media-type="application/xhtml+xml" media-overlay="mo1"/>

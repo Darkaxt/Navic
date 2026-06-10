@@ -35,7 +35,20 @@ data class StorytellerAudioResource(
 	val href: String,
 	val mediaType: String? = null,
 	val durationMs: Long? = null,
-	val label: String? = null
+	val label: String? = null,
+	val chapterLabel: String? = null,
+	val sectionLabel: String? = null,
+	val narrator: String? = null,
+	val author: String? = null,
+	val trackNumber: Int? = null,
+	val discNumber: Int? = null,
+	val codec: String? = null,
+	val bitrateKbps: Int? = null,
+	val sampleRateHz: Long? = null,
+	val channels: Int? = null,
+	val qualityLabel: String? = null,
+	val sourceProviderLabel: String? = null,
+	val sourceUrl: String? = null
 )
 
 data class StorytellerReadaloudPackage(
@@ -115,7 +128,8 @@ fun StorytellerReadaloudPackage.toReadaloudAudioSession(
 		kind = ReaderPublicationKind.Readaloud,
 		tracks = resolvedAudioResources().mapIndexed { index, resource ->
 			val resourceKey = resource.id ?: normalizedMediaOverlayResource(resource.href)
-			val displayTitle = resource.label
+			val displayTitle = resource.chapterLabel
+				?: resource.label
 				?: resource.href.substringAfterLast('/').takeIf { it.isNotBlank() }
 				?: resourceKey
 			ReadaloudAudioTrack(
@@ -124,12 +138,19 @@ fun StorytellerReadaloudPackage.toReadaloudAudioSession(
 				href = audioHrefResolver(resource.href),
 				title = displayTitle,
 				displayTitle = displayTitle,
-				sectionLabel = resource.label,
-				trackNumber = index + 1,
-				narrator = narrator,
-				author = author,
+				sectionLabel = resource.sectionLabel ?: resource.label,
+				trackNumber = resource.trackNumber ?: index + 1,
+				discNumber = resource.discNumber,
+				narrator = resource.narrator ?: narrator,
+				author = resource.author ?: author,
 				durationMs = resource.durationMs ?: timeline.durationMsForAudioResource(resource.href),
-				codec = resource.mediaType?.audioCodecLabel()
+				codec = resource.codec ?: resource.mediaType?.audioCodecLabel(),
+				bitrateKbps = resource.bitrateKbps,
+				sampleRateHz = resource.sampleRateHz,
+				channels = resource.channels,
+				qualityLabel = resource.qualityLabel,
+				sourceProviderLabel = resource.sourceProviderLabel,
+				sourceUrl = resource.sourceUrl
 			)
 		}
 	)
