@@ -101,6 +101,7 @@ import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.bestReaderStartLocator
 import paige.navic.reader.decodeReaderAnnotations
 import paige.navic.reader.decodeReaderBookmarks
 import paige.navic.reader.decodeReaderReadingProgress
@@ -269,7 +270,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
 			)
-		resumeStartLocator = remoteStartLocator ?: localStartLocator
+		resumeStartLocator = bestReaderStartLocator(
+			remoteStartLocator = remoteStartLocator,
+			localStartLocator = localStartLocator
+		)
+		Logger.i(
+			ReaderScreenTag,
+			"Reader resume locator selected book=${reader.bookId} kind=${reader.kind} " +
+				"remoteProgress=${remoteStartLocator?.progress} localProgress=${localStartLocator?.progress} " +
+				"selectedProgress=${resumeStartLocator?.progress} " +
+				"selectedHref=${resumeStartLocator?.href.orEmpty()} selectedCfi=${resumeStartLocator?.cfi != null}"
+		)
 		progressResumeLoaded = true
 	}
 

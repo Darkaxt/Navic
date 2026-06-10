@@ -299,6 +299,64 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun bestReaderStartLocatorPrefersLocalProgressOverRemoteCoverPlaceholder() {
+		val remote = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0)
+		val local = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.42
+		)
+
+		assertEquals(local, bestReaderStartLocator(remoteStartLocator = remote, localStartLocator = local))
+	}
+
+	@Test
+	fun bestReaderStartLocatorPrefersLocalProgressWhenItIsClearlyAheadOfRemote() {
+		val remote = ReaderLocator(
+			href = "EPUB/Text/chapter-02.xhtml",
+			cfi = "epubcfi(/6/6!/4/3:12)",
+			progress = 0.21
+		)
+		val local = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.42
+		)
+
+		assertEquals(local, bestReaderStartLocator(remoteStartLocator = remote, localStartLocator = local))
+	}
+
+	@Test
+	fun bestReaderStartLocatorKeepsRemoteWhenItIsAsRecentAsLocalProgress() {
+		val remote = ReaderLocator(
+			href = "EPUB/Text/chapter-06.xhtml",
+			cfi = "epubcfi(/6/14!/4/3:12)",
+			progress = 0.64
+		)
+		val local = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.42
+		)
+
+		assertEquals(remote, bestReaderStartLocator(remoteStartLocator = remote, localStartLocator = local))
+	}
+
+	@Test
+	fun bestReaderStartLocatorKeepsPreciseRemoteLocatorWithoutProgressWhenItIsNotCoverLike() {
+		val remote = ReaderLocator(
+			href = "EPUB/Text/chapter-06.xhtml",
+			cfi = "epubcfi(/6/14!/4/3:12)"
+		)
+		val local = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			progress = 0.42
+		)
+
+		assertEquals(remote, bestReaderStartLocator(remoteStartLocator = remote, localStartLocator = local))
+	}
+
+	@Test
 	fun localReadingProgressStateFallsBackToSameBookProgressOnlyWithoutOldHrefCfi() {
 		val state = ReaderReadingProgressState(
 			listOf(

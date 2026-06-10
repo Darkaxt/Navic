@@ -7,6 +7,8 @@ import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyReadingProgressKind
 
 private const val ReaderReadingProgressMaxEntries = 200
+private const val ReaderProgressStartThreshold = 0.005
+private const val ReaderProgressAdvanceThreshold = 0.01
 
 private val ReaderReadingProgressJson = Json {
 	ignoreUnknownKeys = true
@@ -92,6 +94,27 @@ data class ReaderReadingProgressState(
 				.take(ReaderReadingProgressMaxEntries)
 		)
 	}
+}
+
+fun bestReaderStartLocator(
+	remoteStartLocator: ReaderLocator?,
+	localStartLocator: ReaderLocator?
+): ReaderLocator? {
+	if (remoteStartLocator == null) return localStartLocator
+	if (localStartLocator == null) return remoteStartLocator
+
+	val localProgress = localStartLocator.safeProgress()
+	val remoteProgress = remoteStartLocator.safeProgress()
+	if (localProgress != null && localProgress > ReaderProgressStartThreshold) {
+		if (remoteStartLocator.isReaderStartPlaceholder()) return localStartLocator
+		if (
+			remoteProgress != null &&
+			localProgress > remoteProgress + ReaderProgressAdvanceThreshold
+		) {
+			return localStartLocator
+		}
+	}
+	return remoteStartLocator
 }
 
 data class ReaderProgressSaveGate(
@@ -231,6 +254,21 @@ private fun BinderyReadingProgress.toReaderProgressOnlyStartLocatorFor(
 	if (!matchesReaderBookKind(bookId = bookId, kind = kind)) return null
 	val safeProgress = progressFraction?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: return null
 	return ReaderLocator(progress = safeProgress)
+}
+
+private fun ReaderLocator.safeProgress(): Double? =
+	progress?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
+
+private fun ReaderLocator.isReaderStartPlaceholder(): Boolean {
+	val progressIsStart = safeProgress()?.let { it <= ReaderProgressStartThreshold } ?: true
+	if (!progressIsStart) return false
+	if (!cfi.isNullOrBlank()) return false
+	val normalizedHref = href?.trim()?.lowercase()
+	return normalizedHref.isNullOrBlank() ||
+		normalizedHref.contains("cover") ||
+		normalizedHref.contains("titlepage") ||
+		normalizedHref.endsWith("/nav.xhtml") ||
+		normalizedHref.endsWith("nav.xhtml")
 }
 
 fun canonicalReaderResourceHref(value: String?): String? {
