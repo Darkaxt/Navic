@@ -36,6 +36,8 @@ const ReaderDirectionRtl = 'rtl'
 const ReaderFontSourceNavic = 'navic'
 const ReaderFontSourceSystem = 'system'
 const ReaderFontSourcePublisher = 'publisher'
+const ReaderReflowableReadableUnitsPerSyntheticPage = 1500
+const ReaderReflowableRepresentativeSectionMinimumShare = 0.015
 const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-1.png',
   'paper-textures/paper-texture-2.png',
@@ -907,6 +909,24 @@ const readerStartLocatorHasPosition = startLocator =>
     Number.isFinite(Number(startLocator?.progress))
   )
 
+const flattenReaderNavigationItems = items => {
+  const results = []
+  const append = item => {
+    if (!item) return
+    results.push(item)
+    for (const subitem of item.subitems || []) append(subitem)
+  }
+  for (const item of items || []) append(item)
+  return results
+}
+
+const readerNavigationItemMatches = (left, right) => {
+  if (!left || !right) return false
+  if (left === right) return true
+  if (left.id != null && right.id != null && left.id === right.id) return true
+  return Boolean(left.href && right.href && left.href === right.href && left.label === right.label)
+}
+
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
@@ -928,6 +948,7 @@ class NavicReaderRuntime {
   tapZoneOverlayLayer = null
   pageNumberLayer = null
   currentPagePosition = null
+  reflowableBookPageModel = null
   lastRelocateDetail = null
   pageTurnPromise = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
@@ -1041,6 +1062,7 @@ class NavicReaderRuntime {
     this.pageNumberLayer?.remove?.()
     this.pageNumberLayer = null
     this.currentPagePosition = null
+    this.reflowableBookPageModel = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
     this.surfacePaperTextureBaseOffset = 0
@@ -1702,8 +1724,22 @@ class NavicReaderRuntime {
     if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 2) return null
     const pageCount = Math.max(1, Math.round(pages) - 2)
     return {
-      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1))),
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2))),
       pageCount,
+    }
+  }
+
+  readerPageListPosition(detail) {
+    if (this.view?.isFixedLayout === true) return null
+    const pageItem = detail?.pageItem
+    if (!pageItem) return null
+    const pageListItems = flattenReaderNavigationItems(this.view?.book?.pageList || [])
+    if (!pageListItems.length) return null
+    const pageIndex = pageListItems.findIndex(item => readerNavigationItemMatches(item, pageItem))
+    if (pageIndex < 0) return null
+    return {
+      pageIndex,
+      pageCount: pageListItems.length,
     }
   }
 
@@ -1714,35 +1750,69 @@ class NavicReaderRuntime {
     })
   }
 
+  reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes) {
+    const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
+    if (!Number.isFinite(totalReadableSize) || totalReadableSize <= 0) return null
+    const currentSectionSize = sectionSizes[sectionIndex]
+    const renderedPageCount = Math.max(1, Number(sectionPosition?.pageCount) || 0)
+    const currentSectionShare = currentSectionSize / totalReadableSize
+    const canUseRenderedSection =
+      Number.isFinite(currentSectionSize) &&
+      currentSectionSize > 0 &&
+      renderedPageCount > 1 &&
+      Number.isFinite(currentSectionShare) &&
+      currentSectionShare >= ReaderReflowableRepresentativeSectionMinimumShare
+    const shouldSetModel =
+      !this.reflowableBookPageModel ||
+      this.reflowableBookPageModel.totalReadableSize !== totalReadableSize ||
+      (this.reflowableBookPageModel.source !== 'rendered-section' && canUseRenderedSection)
+    if (shouldSetModel) {
+      const renderedReadableUnitsPerPage = currentSectionSize / renderedPageCount
+      const readableUnitsPerPage = canUseRenderedSection && Number.isFinite(renderedReadableUnitsPerPage)
+        ? renderedReadableUnitsPerPage
+        : ReaderReflowableReadableUnitsPerSyntheticPage
+      const pageCount = Math.max(
+        1,
+        Math.ceil(totalReadableSize / Math.max(1, readableUnitsPerPage))
+      )
+      this.reflowableBookPageModel = {
+        source: canUseRenderedSection ? 'rendered-section' : 'synthetic-location',
+        sectionIndex,
+        totalReadableSize,
+        readableUnitsPerPage,
+        pageCount,
+      }
+      log(
+        'reflowable-page-model:set',
+        this.reflowableBookPageModel.source,
+        `section=${sectionIndex}`,
+        `pages=${pageCount}`,
+        `unitsPerPage=${Math.round(readableUnitsPerPage)}`
+      )
+    }
+    return this.reflowableBookPageModel
+  }
+
   reflowableWholeBookPagePosition(detail) {
     detail = detail || this.lastRelocateDetail || {}
     const sectionPosition = this.reflowableSectionPagePosition()
     if (!sectionPosition) return null
     const sectionIndex = Number(detail?.section?.current ?? detail?.index)
     const sectionSizes = this.reflowableSectionSizes()
-    const currentSectionSize = sectionSizes[sectionIndex]
-    const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
-    if (
-      !Number.isFinite(sectionIndex) ||
-      !Number.isFinite(currentSectionSize) ||
-      currentSectionSize <= 0 ||
-      totalReadableSize <= 0
-    ) return null
-    const readableUnitsPerPage = currentSectionSize / sectionPosition.pageCount
-    if (!Number.isFinite(readableUnitsPerPage) || readableUnitsPerPage <= 0) return null
+    if (!Number.isFinite(sectionIndex)) return null
+    const normalizedSectionIndex = Math.max(0, Math.floor(sectionIndex))
+    const model = this.reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes)
+    if (!model || !Number.isFinite(model.readableUnitsPerPage) || model.readableUnitsPerPage <= 0) return null
+    const readableUnitsBeforeCurrentSection = sectionSizes
+      .slice(0, normalizedSectionIndex)
+      .reduce((sum, size) => sum + size, 0)
     const estimatedGlobalPageCount = Math.max(
       sectionPosition.pageCount,
-      Math.ceil(totalReadableSize / readableUnitsPerPage)
+      model.pageCount,
+      Math.ceil(model.totalReadableSize / model.readableUnitsPerPage)
     )
-    const progress = Number(detail?.fraction ?? detail?.progress ?? detail?.totalProgress)
-    const readableUnitsBeforeCurrentSection = sectionSizes
-      .slice(0, Math.max(0, Math.floor(sectionIndex)))
-      .reduce((sum, size) => sum + size, 0)
-    const estimatedGlobalPageIndex = Math.floor(
-      Number.isFinite(progress)
-        ? Math.min(1, Math.max(0, progress)) * estimatedGlobalPageCount
-        : (readableUnitsBeforeCurrentSection / readableUnitsPerPage) + sectionPosition.pageIndex
-    )
+    const estimatedGlobalPageIndex = Math.floor(readableUnitsBeforeCurrentSection / model.readableUnitsPerPage) +
+      sectionPosition.pageIndex
     return {
       pageIndex: Math.min(
         estimatedGlobalPageCount - 1,
@@ -1753,7 +1823,7 @@ class NavicReaderRuntime {
   }
 
   reflowablePagePosition(detail) {
-    return this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()
+    return this.readerPageListPosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()
   }
 
   readerPagePosition(detail) {
@@ -1814,6 +1884,7 @@ class NavicReaderRuntime {
   applySettings(settings) {
     settings = { ...this.readerSettings, ...settings }
     this.readerSettings = settings
+    this.reflowableBookPageModel = null
     const rootStyle = document.documentElement.style
     if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
     this.smallerTapZone = settings.smallerTapZone === true
@@ -1836,7 +1907,7 @@ class NavicReaderRuntime {
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
     this.updateSurfacePaperTexture()
-    this.updateReaderPageNumberLayer()
+    this.updateReaderPageNumberLayer(this.readerPagePosition(this.lastRelocateDetail) || this.currentPagePosition)
     this.updateTapZoneOverlay()
   }
 

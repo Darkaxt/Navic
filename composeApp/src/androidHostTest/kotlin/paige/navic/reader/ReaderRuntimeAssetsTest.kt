@@ -448,12 +448,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "const page = Number(renderer.page)")
 		assertContains(bridgeText, "const pages = Number(renderer.pages)")
 		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 2)")
-		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
+		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
-		assertContains(bridgeText, "const currentSectionSize = sectionSizes[sectionIndex]")
-		assertContains(bridgeText, "const estimatedGlobalPageCount = Math.max(")
-		assertContains(bridgeText, "Math.ceil(totalReadableSize / readableUnitsPerPage)")
-		assertContains(bridgeText, "const estimatedGlobalPageIndex = Math.floor(")
+		assertContains(bridgeText, "reflowableBookPageModel")
+		assertContains(bridgeText, "reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes)")
+		assertContains(bridgeText, "Math.ceil(model.totalReadableSize / model.readableUnitsPerPage)")
+		assertContains(bridgeText, "this.reflowableBookPageModel = null")
+		assertContains(bridgeText, "reflowable-page-model:set")
+		assertFalse(
+			bridgeText.contains("currentSectionSize / sectionPosition.pageCount"),
+			"Reflowable EPUB totals must not be estimated from the current section only, because that makes # / # change between chapters."
+		)
+		assertFalse(
+			bridgeText.contains("Math.floor(page - 1)"),
+			"The first visible reflowable EPUB page must map to page 1, not page 2."
+		)
 		assertContains(bridgeText, "readerPagePosition(detail)")
 		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()")
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
