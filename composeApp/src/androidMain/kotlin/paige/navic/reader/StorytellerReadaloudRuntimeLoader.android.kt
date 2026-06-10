@@ -5,7 +5,9 @@ import java.io.File
 data class StorytellerReadaloudRuntime(
 	val publicationUrl: String,
 	val playbackPlan: ReadaloudPlaybackPlan,
-	val timeline: MediaOverlayTimeline
+	val timeline: MediaOverlayTimeline,
+	val cacheKey: String,
+	val fromCache: Boolean
 )
 
 class StorytellerReadaloudRuntimeLoader(
@@ -16,10 +18,14 @@ class StorytellerReadaloudRuntimeLoader(
 		require(request.kind == ReaderPublicationKind.Readaloud) {
 			"Storyteller readaloud runtime requires a readaloud publication."
 		}
-		val epubBytes = fetchResourceBytes(request.safeResourceHref())
+		val resolved = BinderyReaderPublicationResolver(
+			fetchResourceBytes = fetchResourceBytes,
+			cacheRoot = cacheRoot
+		).resolve(request)
+		val epubBytes = resolved.publicationFile.readBytes()
 		val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(epubBytes)
 		val cache = StorytellerReadaloudAudioCache.materialize(
-			sessionId = request.readerPublicationCacheKey(),
+			sessionId = resolved.cacheKey,
 			epubBytes = epubBytes,
 			readaloudPackage = readaloudPackage,
 			cacheRoot = cacheRoot
@@ -32,7 +38,9 @@ class StorytellerReadaloudRuntimeLoader(
 		return StorytellerReadaloudRuntime(
 			publicationUrl = cache.publicationUrl,
 			playbackPlan = session.toReadaloudPlaybackPlan(),
-			timeline = readaloudPackage.timeline
+			timeline = readaloudPackage.timeline,
+			cacheKey = resolved.cacheKey,
+			fromCache = resolved.fromCache
 		)
 	}
 }

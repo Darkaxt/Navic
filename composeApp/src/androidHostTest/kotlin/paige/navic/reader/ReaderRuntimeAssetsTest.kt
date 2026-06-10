@@ -1267,11 +1267,14 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidReaderPublicationRuntimeLogsCacheHitMissState() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val readaloudHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 
 		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
 		assertContains(runtimeHostText, "cache=${'$'}{if (resolved.fromCache) \"hit\" else \"miss\"}")
 		assertContains(runtimeHostText, "cacheKey=${'$'}{resolved.cacheKey}")
 		assertContains(runtimeHostText, "fileBytes=${'$'}{resolved.publicationFile.length()}")
+		assertContains(readaloudHostText, "cache=${'$'}{if (loadedRuntime.fromCache) \"hit\" else \"miss\"}")
+		assertContains(readaloudHostText, "cacheKey=${'$'}{loadedRuntime.cacheKey}")
 	}
 
 	@Test

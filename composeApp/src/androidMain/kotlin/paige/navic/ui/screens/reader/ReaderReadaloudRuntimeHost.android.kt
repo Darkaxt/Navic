@@ -135,6 +135,8 @@ actual fun ReaderReadaloudRuntimeHost(
 				Logger.i(
 					ReadaloudPlaybackLogTag,
 					"Readaloud publication prepared url=${readerPublicationResourceLogLabel(loadedRuntime.publicationUrl)} " +
+						"cache=${if (loadedRuntime.fromCache) "hit" else "miss"} " +
+						"cacheKey=${loadedRuntime.cacheKey} " +
 						"tracks=${loadedRuntime.playbackPlan.mediaItems.size} " +
 						"clips=${loadedRuntime.timeline.clips.size}"
 				)

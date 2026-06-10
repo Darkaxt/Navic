@@ -92,6 +92,39 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		)
 	}
 
+	@Test
+	fun reusesCachedStorytellerReadaloudPackageWithoutFetchingAgain() = runBlocking {
+		var fetchCount = 0
+		val epubBytes = storytellerEpubWithSyncedAudioFixture()
+		val loader = StorytellerReadaloudRuntimeLoader(
+			fetchResourceBytes = {
+				fetchCount += 1
+				epubBytes
+			},
+			cacheRoot = createTempDirectory("navic-storyteller-cache").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3693",
+			title = "Alcatraz",
+			resourceHref = "/opds/books/3693/resources/readaloud-1",
+			sourceUrl = "https://bindery.local/opds/books/3693/resources/readaloud-1",
+			kind = ReaderPublicationKind.Readaloud,
+			mediaOverlayEnabled = true
+		)
+
+		val first = loader.load(request)
+		val second = loader.load(request)
+
+		assertEquals(1, fetchCount)
+		assertEquals(false, first.fromCache)
+		assertEquals(true, second.fromCache)
+		assertEquals(first.publicationUrl, second.publicationUrl)
+		assertEquals(
+			first.playbackPlan.mediaItems.single().uri,
+			second.playbackPlan.mediaItems.single().uri
+		)
+	}
+
 	private fun storytellerEpubWithSyncedAudioFixture(): ByteArray {
 		val entries = mapOf(
 			"META-INF/container.xml" to """
