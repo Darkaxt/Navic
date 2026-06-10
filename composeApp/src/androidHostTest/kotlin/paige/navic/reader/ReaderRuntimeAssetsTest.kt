@@ -607,6 +607,16 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPublicationRuntimeLogsCacheHitMissState() {
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+
+		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
+		assertContains(runtimeHostText, "cache=${'$'}{if (resolved.fromCache) \"hit\" else \"miss\"}")
+		assertContains(runtimeHostText, "cacheKey=${'$'}{resolved.cacheKey}")
+		assertContains(runtimeHostText, "fileBytes=${'$'}{resolved.publicationFile.length()}")
+	}
+
+	@Test
 	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()

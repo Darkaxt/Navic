@@ -52,7 +52,7 @@ actual fun ReaderPublicationRuntimeHost(
 				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
 		)
 		runCatching {
-			BinderyReaderPublicationResolver(
+			val resolved = BinderyReaderPublicationResolver(
 				fetchResourceBytes = { path ->
 					Logger.i(
 						ReaderPublicationRuntimeLogTag,
@@ -77,13 +77,17 @@ actual fun ReaderPublicationRuntimeHost(
 					format = reader.publicationFormat,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled
 				)
-			).publicationUrl
+			)
+			Logger.i(
+				ReaderPublicationRuntimeLogTag,
+				"Reader publication prepared url=${readerPublicationResourceLogLabel(resolved.publicationUrl)} " +
+					"cache=${if (resolved.fromCache) "hit" else "miss"} " +
+					"cacheKey=${resolved.cacheKey} " +
+					"fileBytes=${resolved.publicationFile.length()}"
+			)
+			resolved.publicationUrl
 		}.fold(
 			onSuccess = { publicationUrl ->
-				Logger.i(
-					ReaderPublicationRuntimeLogTag,
-					"Reader publication prepared url=${readerPublicationResourceLogLabel(publicationUrl)}"
-				)
 				currentOnPublicationReady(publicationUrl)
 			},
 			onFailure = { error ->

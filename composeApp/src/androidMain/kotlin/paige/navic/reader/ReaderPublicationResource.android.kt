@@ -24,6 +24,7 @@ data class ReaderResolvedPublicationResource(
 	val resourceHref: String,
 	val sourceUrl: String,
 	val cacheKey: String,
+	val fromCache: Boolean,
 	val requestHeaders: Map<String, String> = emptyMap()
 )
 
@@ -44,6 +45,7 @@ class BinderyReaderPublicationResolver(
 				publicationFile = publicationFile,
 				resourceHref = resourceHref,
 				cacheKey = cacheKey,
+				fromCache = true,
 				publicationExtension = publicationExtension
 			)
 		}
@@ -54,6 +56,7 @@ class BinderyReaderPublicationResolver(
 			publicationFile = publicationFile,
 			resourceHref = resourceHref,
 			cacheKey = cacheKey,
+			fromCache = false,
 			publicationExtension = publicationExtension
 		)
 	}
@@ -94,6 +97,7 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 	publicationFile: File,
 	resourceHref: String,
 	cacheKey: String,
+	fromCache: Boolean,
 	publicationExtension: String
 ): ReaderResolvedPublicationResource =
 	ReaderResolvedPublicationResource(
@@ -104,6 +108,7 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 		resourceHref = resourceHref,
 		sourceUrl = sourceUrl,
 		cacheKey = cacheKey,
+		fromCache = fromCache,
 		requestHeaders = emptyMap()
 	)
 

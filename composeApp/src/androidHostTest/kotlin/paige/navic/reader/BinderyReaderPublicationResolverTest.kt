@@ -36,6 +36,7 @@ class BinderyReaderPublicationResolverTest {
 		)
 		assertNotEquals(request.sourceUrl, resolved.publicationUrl)
 		assertEquals(emptyMap(), resolved.requestHeaders)
+		assertEquals(false, resolved.fromCache)
 		assertTrue(resolved.publicationFile.exists())
 		assertEquals("EPUB_BYTES", resolved.publicationFile.readText())
 	}
@@ -64,6 +65,8 @@ class BinderyReaderPublicationResolverTest {
 		val second = resolver.resolve(request)
 
 		assertEquals(1, fetchCount)
+		assertEquals(false, first.fromCache)
+		assertEquals(true, second.fromCache)
 		assertEquals(first.publicationUrl, second.publicationUrl)
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
 		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
@@ -121,6 +124,8 @@ class BinderyReaderPublicationResolverTest {
 		)
 
 		assertEquals(first.cacheKey, second.cacheKey)
+		assertEquals(false, first.fromCache)
+		assertEquals(true, second.fromCache)
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
 		assertTrue(first.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/"))
 	}
@@ -159,6 +164,8 @@ class BinderyReaderPublicationResolverTest {
 
 		assertEquals(1, fetchCount)
 		assertEquals(first.cacheKey, second.cacheKey)
+		assertEquals(false, first.fromCache)
+		assertEquals(true, second.fromCache)
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
 		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
 	}
