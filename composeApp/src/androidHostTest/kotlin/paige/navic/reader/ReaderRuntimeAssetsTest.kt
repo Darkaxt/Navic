@@ -962,8 +962,14 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(applyDocumentTheme.contains("'background-image': readerPaperTextureBackgroundImage"))
 		assertContains(surfaceTextureUpdater, "ensureReaderSurfaceTextureLayer()")
 		assertContains(surfaceLayerUpdater, "position: 'fixed'")
-		assertContains(surfaceLayerUpdater, "width: '100vw'")
-		assertContains(surfaceLayerUpdater, "height: '100vh'")
+		assertContains(surfaceLayerUpdater, "const { width, height } = readerViewportSize()")
+		assertContains(surfaceLayerUpdater, "width: widthPx")
+		assertContains(surfaceLayerUpdater, "height: heightPx")
+		assertContains(surfaceLayerUpdater, "'min-height': heightPx")
+		assertFalse(
+			surfaceLayerUpdater.contains("height: '100vh'"),
+			"Android WebView resolved 100vh to a zero-height fixed texture layer in the reader."
+		)
 		assertContains(surfaceLayerUpdater, "'background-image': textureUrl")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")

@@ -466,12 +466,12 @@ const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.055'
+      return '0.14'
     case 'dark':
     case 'dusk':
-      return '0.035'
+      return '0.08'
     default:
-      return '0.045'
+      return '0.1'
   }
 }
 
@@ -551,13 +551,17 @@ const ensureReaderSurfaceTextureLayer = () => {
 
 const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
   if (!layer || !textureVariant?.asset) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
   const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
-    width: '100vw',
-    height: '100vh',
-    'min-height': '100vh',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
     'z-index': '2147483646',
     'pointer-events': 'none',
     'background-image': textureUrl,
