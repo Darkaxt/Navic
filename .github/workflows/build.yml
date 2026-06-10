@@ -242,7 +242,7 @@ jobs:
       - name: Create GitHub Release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob globstar
 
@@ -268,7 +268,7 @@ jobs:
         if: steps.download_ipa.outcome == 'success'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob globstar
 
