@@ -98,6 +98,22 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderWebViewRuntimeBypassesCachedBundledAssets() {
+		val runtimeText = readerWebRuntimeFile().readText()
+
+		assertContains(
+			runtimeText,
+			"cacheMode = WebSettings.LOAD_NO_CACHE",
+			message = "Reader WebView must not keep serving stale appassets reader JS after APK updates."
+		)
+		assertContains(
+			runtimeText,
+			"webView.clearCache(true)",
+			message = "Reader WebView should clear its HTTP cache before loading the bundled runtime."
+		)
+	}
+
+	@Test
 	fun androidReaderWebViewDebuggingIsControlledByEbookSetting() {
 		val hostText = readerWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -782,8 +798,14 @@ class ReaderRuntimeAssetsTest {
 			applyDocumentTheme.contains("themeStyle.textContent = readerDocumentThemeCss(settings)"),
 			"Loaded publication documents need the full reader stylesheet, not only theme colors."
 		)
-		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
-		assertContains(applyDocumentTheme, "updatePaperTextureLayer")
+		assertFalse(
+			applyDocumentTheme.contains("ensurePaperTextureLayer(doc)"),
+			"Paper texture must be a single reader-window layer, not injected into each publication document."
+		)
+		assertFalse(
+			applyDocumentTheme.contains("updatePaperTextureLayer"),
+			"Paper texture must not be applied to rendered EPUB elements."
+		)
 	}
 
 	@Test
@@ -818,11 +840,15 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "mirrored")
 		assertContains(bridgeText, "scaleX(-1)")
 		assertContains(bridgeText, "rotate(180deg)")
-		assertContains(bridgeText, "pointer-events: none")
-		assertContains(bridgeText, "--reader-paper-texture-image")
-		assertContains(bridgeText, "paperTextureOpacity=\${")
-		assertContains(bridgeText, "paperTextureImage=\${")
-		assertContains(bridgeText, "return '1'")
+		assertContains(bridgeText, "'pointer-events': 'none'")
+		assertContains(bridgeText, "ReaderSurfacePaperTextureLayerSelector")
+		assertContains(bridgeText, "readerSurfacePaperTextureOpacity")
+		assertContains(bridgeText, "surfaceTextureOpacity=\${")
+		assertContains(bridgeText, "surfaceTextureImage=\${")
+		assertFalse(
+			bridgeText.contains("ReaderPaperTextureLayerSelector = '[data-navic-paper-texture-layer=\"true\"]'"),
+			"Document-scoped texture layers cause opacity stacking across rendered elements."
+		)
 	}
 
 	@Test
@@ -830,7 +856,7 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val paragraphSpacing = bridgeText
 			.substringAfter("const applyReaderParagraphSpacing = (doc, settings) =>")
-			.substringBefore("\n\nconst ensurePaperTextureLayer")
+			.substringBefore("\n\nconst ensureReaderSurfaceTextureLayer")
 		val paragraphSpacingCss = bridgeText
 			.substringAfter("const readerParagraphSpacingCss = settings =>")
 			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
@@ -863,7 +889,7 @@ class ReaderRuntimeAssetsTest {
 			.substringBefore("\n  applyReaderDirection")
 		val surfaceLayerUpdater = bridgeText
 			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) =>")
-			.substringBefore("\n\nconst isReaderPaperTextureLayer")
+			.substringBefore("\n\nconst isParagraphCandidate")
 		val applySettings = bridgeText
 			.substringAfter("applySettings(settings) {")
 			.substringBefore("\n  applyThemeToLoadedContent")
@@ -881,9 +907,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "data-navic-surface-paper-texture-layer")
 		assertContains(bridgeText, "readerSurfacePaperTextureOpacity")
 		assertContains(bridgeText, "this.updateSurfacePaperTexture")
-		assertContains(surfaceTextureUpdater, "if (this.view?.isFixedLayout !== true)")
-		assertContains(surfaceTextureUpdater, "this.surfaceTextureLayer?.remove?.()")
-		assertContains(surfaceTextureUpdater, "delete readerRoot.dataset.navicSurfacePaperTextureAsset")
+		assertFalse(
+			surfaceTextureUpdater.contains("if (this.view?.isFixedLayout !== true)"),
+			"The paper texture must cover the reader window for EPUB and fixed-layout content."
+		)
+		assertContains(surfaceTextureUpdater, "readerRoot.dataset.navicSurfacePaperTextureAsset")
 		assertFalse(
 			surfaceLayerUpdater.contains("readerPaperTextureBackgroundImage(textureVariant, settings)"),
 			"The top-level surface texture must stay subtle and must not reuse the stacked document texture overlay."
@@ -896,7 +924,7 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderAppliesPaperTextureAtDocumentRootLayer() {
+	fun androidReaderKeepsPaperTextureAtReaderWindowSurfaceOnly() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val documentThemeCss = bridgeText
 			.substringAfter("const readerDocumentThemeCss = settings =>")
@@ -904,32 +932,41 @@ class ReaderRuntimeAssetsTest {
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
+		val surfaceTextureUpdater = bridgeText
+			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringBefore("\n  applyReaderDirection")
+		val surfaceLayerUpdater = bridgeText
+			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) =>")
+			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
 
-		assertContains(documentThemeCss, "html::before")
-		assertContains(documentThemeCss, "body::before")
-		assertContains(documentThemeCss, "[data-navic-paper-texture-layer=\"true\"]")
-		assertContains(documentThemeCss, "isolation: isolate")
-		assertContains(documentThemeCss, "z-index: 2147483647")
-		assertContains(documentThemeCss, "background-image: var(--reader-paper-texture-image)")
-		assertContains(documentThemeCss, "background-size: var(--reader-paper-texture-size")
-		assertContains(documentThemeCss, "background-repeat: var(--reader-paper-texture-repeat")
-		assertContains(documentThemeCss, "opacity: var(--reader-paper-texture-opacity, 0)")
-		assertContains(bridgeText, "readerPaperTextureBackgroundImage(textureVariant, settings)")
-		assertContains(bridgeText, "readerPaperTextureBackgroundSize(textureVariant, settings)")
-		assertContains(bridgeText, "readerPaperTextureBackgroundRepeat(textureVariant, settings)")
-		assertContains(bridgeText, "readerPaperTextureFallbackLayers(settings)")
-		assertContains(bridgeText, "readerPaperTextureLayerCount(settings)")
-		assertContains(bridgeText, "Array.from({ length: readerPaperTextureLayerCount(settings) }")
-		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
-		assertContains(applyDocumentTheme, "updatePaperTextureLayer(layer, textureVariant, settings)")
-		assertContains(bridgeText, "layer.dataset.navicPaperTextureLayer = 'true'")
-		assertContains(bridgeText, "body.prepend(layer)")
-		assertContains(bridgeText, "position: 'absolute'")
-		assertContains(bridgeText, "'min-height': 'max(100%, 100vh)'")
-		assertContains(bridgeText, "'background-image': readerPaperTextureBackgroundImage(textureVariant, settings)")
-		assertContains(bridgeText, "'background-size': readerPaperTextureBackgroundSize(textureVariant, settings)")
-		assertContains(bridgeText, "'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings)")
-		assertContains(bridgeText, "pointer-events: none")
+		assertFalse(documentThemeCss.contains("html::before"), "Document pseudo-elements must not carry paper texture.")
+		assertFalse(documentThemeCss.contains("body::before"), "Document pseudo-elements must not carry paper texture.")
+		assertFalse(
+			documentThemeCss.contains("[data-navic-paper-texture-layer=\"true\"]"),
+			"Texture must not be injected into individual EPUB documents."
+		)
+		assertFalse(
+			documentThemeCss.contains("background-image: var(--reader-paper-texture-image)"),
+			"Document backgrounds should stay solid theme colors; texture belongs to the reader window."
+		)
+		assertFalse(
+			bridgeText.contains("readerPaperTextureLayerCount(settings)"),
+			"Stacking the same texture many times creates the sepia opacity mess."
+		)
+		assertFalse(
+			bridgeText.contains("Array.from({ length: readerPaperTextureLayerCount(settings) }"),
+			"Texture must be one window layer, not a repeated background stack."
+		)
+		assertFalse(applyDocumentTheme.contains("ensurePaperTextureLayer(doc)"))
+		assertFalse(applyDocumentTheme.contains("updatePaperTextureLayer"))
+		assertFalse(applyDocumentTheme.contains("'background-image': readerPaperTextureBackgroundImage"))
+		assertContains(surfaceTextureUpdater, "ensureReaderSurfaceTextureLayer()")
+		assertContains(surfaceLayerUpdater, "position: 'fixed'")
+		assertContains(surfaceLayerUpdater, "width: '100vw'")
+		assertContains(surfaceLayerUpdater, "height: '100vh'")
+		assertContains(surfaceLayerUpdater, "'background-image': textureUrl")
+		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
+		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
 	}
 
 	@Test
@@ -941,8 +978,8 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(contentLayoutLogger, "paragraphBlockCount")
 		assertContains(contentLayoutLogger, "firstParagraphMarginEnd")
-		assertContains(contentLayoutLogger, "paperTextureLayer")
-		assertContains(contentLayoutLogger, "paperTextureAsset")
+		assertContains(contentLayoutLogger, "surfaceTextureLayer")
+		assertContains(contentLayoutLogger, "surfaceTextureAsset")
 	}
 
 	@Test

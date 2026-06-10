@@ -3,7 +3,6 @@ import './vendor/foliate-js/view.js'
 const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
-const ReaderPaperTextureLayerSelector = '[data-navic-paper-texture-layer="true"]'
 const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
@@ -462,96 +461,18 @@ const readerPaperTextureTransform = variant => {
   return transforms.length ? transforms.join(' ') : 'none'
 }
 
-const readerPaperTextureOpacity = settings => {
-  switch (readerThemeKey(settings?.theme)) {
-    case 'black':
-      return '0'
-    case 'dark':
-    case 'dusk':
-      return '0.4'
-    case ReaderThemeSepia:
-      return '1'
-    default:
-      return '0.65'
-  }
-}
-
 const readerSurfacePaperTextureOpacity = settings => {
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.16'
+      return '0.055'
     case 'dark':
     case 'dusk':
-      return '0.12'
+      return '0.035'
     default:
-      return '0.1'
+      return '0.045'
   }
-}
-
-const readerPaperTextureLayerCount = settings => {
-  switch (readerThemeKey(settings?.theme)) {
-    case 'black':
-      return 0
-    case ReaderThemeSepia:
-      return 16
-    case 'dark':
-    case 'dusk':
-      return 8
-    default:
-      return 6
-  }
-}
-
-const readerPaperTextureFallbackLayers = settings => {
-  if (readerPaperTextureLayerCount(settings) <= 0) return []
-  const theme = readerThemeKey(settings?.theme)
-  const speckle = theme === ReaderThemeSepia
-    ? 'rgba(92, 62, 28, 0.085)'
-    : theme === ReaderThemeLight
-      ? 'rgba(31, 28, 22, 0.055)'
-      : 'rgba(255, 255, 255, 0.06)'
-  const fiber = theme === ReaderThemeSepia
-    ? 'rgba(117, 83, 42, 0.045)'
-    : theme === ReaderThemeLight
-      ? 'rgba(31, 28, 22, 0.032)'
-      : 'rgba(255, 255, 255, 0.035)'
-  return [
-    `radial-gradient(circle at 17% 29%, ${speckle} 0 0.7px, transparent 1.1px)`,
-    `radial-gradient(circle at 73% 61%, ${fiber} 0 0.85px, transparent 1.25px)`,
-    `linear-gradient(105deg, transparent 0 48%, ${fiber} 49%, transparent 50% 100%)`,
-  ]
-}
-
-const readerPaperTextureBackgroundImage = (textureVariant, settings) => {
-  if (!textureVariant?.asset) return 'none'
-  if (readerPaperTextureLayerCount(settings) <= 0) return 'none'
-  const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
-  return [
-    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => textureUrl),
-    ...readerPaperTextureFallbackLayers(settings),
-  ].join(', ')
-}
-
-const readerPaperTextureBackgroundSize = (textureVariant, settings) => {
-  if (!textureVariant?.asset || readerPaperTextureLayerCount(settings) <= 0) return 'auto'
-  return [
-    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => 'cover'),
-    '180px 180px',
-    '260px 260px',
-    '360px 360px',
-  ].join(', ')
-}
-
-const readerPaperTextureBackgroundRepeat = (textureVariant, settings) => {
-  if (!textureVariant?.asset || readerPaperTextureLayerCount(settings) <= 0) return 'no-repeat'
-  return [
-    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => 'no-repeat'),
-    'repeat',
-    'repeat',
-    'repeat',
-  ].join(', ')
 }
 
 const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
@@ -617,19 +538,6 @@ const applyReaderParagraphSpacing = (doc, settings) => {
   }
 }
 
-const ensurePaperTextureLayer = doc => {
-  const body = doc?.body
-  if (!body) return null
-  let layer = body.querySelector?.(ReaderPaperTextureLayerSelector)
-  if (!layer) {
-    layer = doc.createElement('div')
-    layer.dataset.navicPaperTextureLayer = 'true'
-    layer.setAttribute('aria-hidden', 'true')
-    body.prepend(layer)
-  }
-  return layer
-}
-
 const ensureReaderSurfaceTextureLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderSurfacePaperTextureLayerSelector)
   if (!layer) {
@@ -639,28 +547,6 @@ const ensureReaderSurfaceTextureLayer = () => {
     readerRoot.append(layer)
   }
   return layer
-}
-
-const updatePaperTextureLayer = (layer, textureVariant, settings) => {
-  if (!layer || !textureVariant?.asset) return
-  setStylesImportant(layer, {
-    position: 'absolute',
-    inset: '0px',
-    width: 'auto',
-    height: '100%',
-    'min-height': 'max(100%, 100vh)',
-    'z-index': '2147483647',
-    'pointer-events': 'none',
-    'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
-    'background-size': readerPaperTextureBackgroundSize(textureVariant, settings),
-    'background-position': 'center',
-    'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
-    'background-color': 'transparent',
-    opacity: readerPaperTextureOpacity(settings),
-    'mix-blend-mode': 'multiply',
-    transform: readerPaperTextureTransform(textureVariant),
-    'transform-origin': 'center',
-  })
 }
 
 const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
@@ -686,14 +572,11 @@ const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
   })
 }
 
-const isReaderPaperTextureLayer = element =>
-  element?.dataset?.navicPaperTextureLayer === 'true'
-
 const isParagraphCandidate = element =>
   Boolean(element?.matches?.('p,[role="doc-p"],div'))
 
 const isReaderParagraphBlock = element => {
-  if (!isParagraphCandidate(element) || isReaderPaperTextureLayer(element)) return false
+  if (!isParagraphCandidate(element)) return false
   if (element.matches?.('figure,figcaption,blockquote,pre,code,nav,ol,ul,li,table,thead,tbody,tfoot,tr,td,th,h1,h2,h3,h4,h5,h6')) {
     return false
   }
@@ -832,6 +715,7 @@ class NavicReaderRuntime {
         await this.view.init?.({ showTextStart: true })
       }
       this.attachSurfaceTapGesture(this.view)
+      this.updateSurfacePaperTexture(this.lastRelocateDetail || {})
       log('openPublication:ready', describeUrl(url))
       this.applyReaderViewportLayout('ready')
       this.logContentLayout('ready')
@@ -1543,14 +1427,10 @@ class NavicReaderRuntime {
     const root = doc.documentElement
     const body = doc.body
     const styleHost = doc.head || root
-    const section = this.view?.book?.sections?.[index]
-    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
-    const textureVariant = readerPaperTextureVariantForPage(textureKey)
     applyReaderParagraphSpacing(doc, settings)
-    const layer = ensurePaperTextureLayer(doc)
     root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
-    root.dataset.navicPaperTextureKey = textureKey
-    root.dataset.navicPaperTextureAsset = textureVariant.asset
+    delete root.dataset.navicPaperTextureKey
+    delete root.dataset.navicPaperTextureAsset
     let themeStyle = doc.getElementById(ReaderDocumentThemeStyleId)
     if (!themeStyle) {
       themeStyle = doc.createElement('style')
@@ -1558,7 +1438,6 @@ class NavicReaderRuntime {
       styleHost.append(themeStyle)
     }
     themeStyle.textContent = readerContentCss(settings)
-    updatePaperTextureLayer(layer, textureVariant, settings)
     for (const element of [root, body].filter(Boolean)) {
       setStylesImportant(element, {
         '--reader-background': palette.background,
@@ -1566,23 +1445,14 @@ class NavicReaderRuntime {
         '--reader-accent': palette.accent,
         '--theme-bg-color': palette.background,
         '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
-        '--reader-paper-texture-image': readerPaperTextureBackgroundImage(textureVariant, settings),
-        '--reader-paper-texture-size': readerPaperTextureBackgroundSize(textureVariant, settings),
-        '--reader-paper-texture-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
-        '--reader-paper-texture-transform': readerPaperTextureTransform(textureVariant),
-        '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
         background: palette.background,
         'background-color': palette.background,
-        'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
-        'background-position': 'center',
-        'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
-        'background-size': readerPaperTextureBackgroundSize(textureVariant, settings),
-        'background-blend-mode': 'multiply',
+        'background-image': 'none',
         color: palette.foreground,
       })
     }
     for (const element of doc.querySelectorAll('[style*="background"], [bgcolor]')) {
-      if (!element || element === root || element === body || isReaderPaperTextureLayer(element) || isThemeBackgroundMediaElement(element)) continue
+      if (!element || element === root || element === body || isThemeBackgroundMediaElement(element)) continue
       if (element.hasAttribute('bgcolor')) {
         if (element.dataset.navicOriginalBgcolor === undefined) {
           element.dataset.navicOriginalBgcolor = element.getAttribute('bgcolor') || ''
@@ -1613,13 +1483,6 @@ class NavicReaderRuntime {
   }
 
   updateSurfacePaperTexture(detail = {}) {
-    if (this.view?.isFixedLayout !== true) {
-      this.surfaceTextureLayer?.remove?.()
-      this.surfaceTextureLayer = null
-      delete readerRoot.dataset.navicSurfacePaperTextureKey
-      delete readerRoot.dataset.navicSurfacePaperTextureAsset
-      return
-    }
     const index = this.surfacePaperTextureIndex(detail)
     const section = this.view?.book?.sections?.[index]
     const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
@@ -1811,17 +1674,13 @@ class NavicReaderRuntime {
       const paragraphSpacing = bodyStyle.getPropertyValue('--reader-paragraph-spacing') ||
         htmlStyle.getPropertyValue('--reader-paragraph-spacing') ||
         'unset'
-      const paperTextureOpacity = bodyStyle.getPropertyValue('--reader-paper-texture-opacity') ||
-        htmlStyle.getPropertyValue('--reader-paper-texture-opacity') ||
-        'unset'
-      const paperTextureImage = bodyStyle.getPropertyValue('--reader-paper-texture-image') ||
-        htmlStyle.getPropertyValue('--reader-paper-texture-image') ||
-        'unset'
+      const surfaceTextureStyle = this.surfaceTextureLayer
+        ? window.getComputedStyle(this.surfaceTextureLayer)
+        : null
       const paragraphBlocks = Array.from(doc.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
       const firstParagraphStyle = paragraphBlocks[0]
         ? doc.defaultView.getComputedStyle(paragraphBlocks[0])
         : null
-      const paperTextureLayer = doc.querySelector?.(ReaderPaperTextureLayerSelector)
       const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
       log(
         'content-layout',
@@ -1837,10 +1696,10 @@ class NavicReaderRuntime {
         `paragraphSpacing=${paragraphSpacing}`,
         `paragraphBlockCount=${paragraphBlocks.length}`,
         `firstParagraphMarginEnd=${firstParagraphStyle?.marginBlockEnd || firstParagraphStyle?.marginBottom || 'unset'}`,
-        `paperTextureOpacity=${paperTextureOpacity}`,
-        `paperTextureImage=${paperTextureImage === 'none' ? 'none' : 'set'}`,
-        `paperTextureLayer=${paperTextureLayer ? 'present' : 'missing'}`,
-        `paperTextureAsset=${doc.documentElement?.dataset?.navicPaperTextureAsset || 'unset'}`
+        `surfaceTextureOpacity=${surfaceTextureStyle?.opacity || 'unset'}`,
+        `surfaceTextureImage=${surfaceTextureStyle?.backgroundImage === 'none' ? 'none' : surfaceTextureStyle ? 'set' : 'unset'}`,
+        `surfaceTextureLayer=${this.surfaceTextureLayer ? 'present' : 'missing'}`,
+        `surfaceTextureAsset=${readerRoot.dataset.navicSurfacePaperTextureAsset || 'unset'}`
       )
     }
   }
@@ -1916,11 +1775,6 @@ const readerDocumentThemeCss = settings => {
     --reader-foreground: ${palette.foreground};
     --reader-accent: ${palette.accent};
     --theme-bg-color: ${palette.background};
-    --reader-paper-texture-image: none;
-    --reader-paper-texture-size: auto;
-    --reader-paper-texture-repeat: no-repeat;
-    --reader-paper-texture-transform: none;
-    --reader-paper-texture-opacity: 0;
     color-scheme: ${palette.background === '#fbfaf8' || palette.background === '#f3ead7' ? 'light' : 'dark'};
     color: var(--reader-foreground) !important;
     background: var(--reader-background) !important;
@@ -1929,36 +1783,14 @@ const readerDocumentThemeCss = settings => {
   html, body {
     color: var(--reader-foreground) !important;
     background-color: var(--reader-background) !important;
-    background-image: var(--reader-paper-texture-image) !important;
-    background-position: center !important;
-    background-repeat: var(--reader-paper-texture-repeat, no-repeat) !important;
-    background-size: var(--reader-paper-texture-size, cover) !important;
-    background-blend-mode: multiply !important;
-    isolation: isolate;
+    background-image: none !important;
     position: relative !important;
   }
-  html::before,
-  body::before,
-  [data-navic-paper-texture-layer="true"] {
-    content: '';
-    position: fixed;
-    inset: -1px;
-    pointer-events: none;
-    background-image: var(--reader-paper-texture-image);
-    background-position: center;
-    background-repeat: var(--reader-paper-texture-repeat, no-repeat);
-    background-size: var(--reader-paper-texture-size, cover);
-    opacity: var(--reader-paper-texture-opacity, 0);
-    mix-blend-mode: multiply;
-    transform: var(--reader-paper-texture-transform, none);
-    transform-origin: center;
-    z-index: 2147483647;
-  }
-  body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]) {
+  body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]) {
     background-color: transparent !important;
   }
-  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]),
-  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]) {
+  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]),
+  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]) {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
