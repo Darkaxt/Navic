@@ -28,6 +28,9 @@ const val ReaderPublisherFontFamily = "inherit"
 private const val LegacyReaderBookFontFamily = "Literata, Bookerly, Georgia, serif"
 private const val LegacyReaderHumanistFontFamily = "Atkinson Hyperlegible, Lexend, system-ui, sans-serif"
 private const val LegacyReaderDyslexicFontFamily = "OpenDyslexic, Atkinson Hyperlegible, Lexend, system-ui, sans-serif"
+const val ReaderFontSourceNavic = "navic"
+const val ReaderFontSourceSystem = "system"
+const val ReaderFontSourcePublisher = "publisher"
 const val ReaderLightTheme = "light"
 const val ReaderSepiaTheme = "sepia"
 const val ReaderDuskTheme = "dusk"
@@ -62,6 +65,12 @@ val ReaderSupportedFontFamilies: List<String> = listOf(
 	ReaderDyslexicFontFamily,
 	ReaderMonoFontFamily,
 	ReaderPublisherFontFamily
+)
+
+val ReaderSupportedFontSources: List<String> = listOf(
+	ReaderFontSourceNavic,
+	ReaderFontSourceSystem,
+	ReaderFontSourcePublisher
 )
 
 val ReaderSupportedTapZones: List<String> = listOf(
@@ -111,6 +120,9 @@ fun normalizedReaderFontFamily(fontFamily: String?): String =
 		LegacyReaderDyslexicFontFamily -> ReaderDyslexicFontFamily
 		else -> ReaderSupportedFontFamilies.firstOrNull { supported -> supported == fontFamily } ?: ReaderSansFontFamily
 	}
+
+fun normalizedReaderFontSource(fontSource: String?): String =
+	ReaderSupportedFontSources.firstOrNull { supported -> supported == fontSource } ?: ReaderFontSourceNavic
 
 fun normalizedReaderTheme(theme: String?): String =
 	ReaderSupportedThemes.firstOrNull { supported -> supported == theme } ?: ReaderLightTheme
@@ -170,6 +182,12 @@ fun nextReaderFontFamily(fontFamily: String?): String {
 	return ReaderSupportedFontFamilies[(index + 1) % ReaderSupportedFontFamilies.size]
 }
 
+fun nextReaderFontSource(fontSource: String?): String {
+	val normalized = normalizedReaderFontSource(fontSource)
+	val index = ReaderSupportedFontSources.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedFontSources[(index + 1) % ReaderSupportedFontSources.size]
+}
+
 fun nextReaderFlowMode(flowMode: String?, paged: Boolean?): String {
 	val normalized = normalizedReaderFlowMode(flowMode, paged)
 	val index = ReaderSupportedFlowModes.indexOf(normalized).takeIf { it >= 0 } ?: 0
@@ -203,6 +221,13 @@ fun readerFontFamilyShortLabel(fontFamily: String?): String =
 		ReaderMonoFontFamily -> "Mono"
 		ReaderPublisherFontFamily -> "Pub"
 		else -> "Sans"
+	}
+
+fun readerFontSourceShortLabel(fontSource: String?): String =
+	when (normalizedReaderFontSource(fontSource)) {
+		ReaderFontSourceSystem -> "System"
+		ReaderFontSourcePublisher -> "Book"
+		else -> "Navic"
 	}
 
 fun readerThemeShortLabel(theme: String?): String =
@@ -253,6 +278,7 @@ fun readerDirectionShortLabel(direction: String?): String =
 fun defaultReaderSettings(): ReaderSettings =
 	normalizedReaderSettings(
 		fontFamily = ReaderSansFontFamily,
+		fontSource = ReaderFontSourceNavic,
 		fontSizePercent = DefaultReaderFontSizePercent,
 		lineHeightPercent = (DefaultReaderLineHeight * 100).roundToInt(),
 		paragraphSpacingPercent = DefaultReaderParagraphSpacingPercent,
@@ -275,6 +301,7 @@ fun defaultReaderSettings(): ReaderSettings =
 
 fun normalizedReaderSettings(
 	fontFamily: String?,
+	fontSource: String? = ReaderFontSourceNavic,
 	fontSizePercent: Int,
 	lineHeightPercent: Int,
 	paragraphSpacingPercent: Int = DefaultReaderParagraphSpacingPercent,
@@ -296,6 +323,7 @@ fun normalizedReaderSettings(
 ): ReaderSettings =
 	ReaderSettings(
 		fontFamily = normalizedReaderFontFamily(fontFamily),
+		fontSource = normalizedReaderFontSource(fontSource),
 		fontSizePercent = fontSizePercent.coerceIn(MinReaderFontSizePercent, MaxReaderFontSizePercent),
 		lineHeight = (lineHeightPercent.coerceIn(
 			(MinReaderLineHeight * 100).roundToInt(),
@@ -329,6 +357,7 @@ fun normalizedReaderSettings(
 fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 	normalizedReaderSettings(
 		fontFamily = fontFamily,
+		fontSource = fontSource,
 		fontSizePercent = fontSizePercent ?: DefaultReaderFontSizePercent,
 		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
 		paragraphSpacingPercent = paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
@@ -393,6 +422,13 @@ data class ReaderChromeState(
 		copy(
 			settings = settings.copy(
 				fontFamily = nextReaderFontFamily(settings.fontFamily)
+			)
+		)
+
+	fun toggleFontSource(): ReaderChromeState =
+		copy(
+			settings = settings.copy(
+				fontSource = nextReaderFontSource(settings.fontSource)
 			)
 		)
 

@@ -14,6 +14,7 @@ class ReaderSettingsDefaultsTest {
 		assertEquals(
 			ReaderSettings(
 				fontFamily = ReaderSerifFontFamily,
+				fontSource = ReaderFontSourceNavic,
 				fontSizePercent = 180,
 				lineHeight = 1.2,
 				paragraphSpacingPercent = 200,
@@ -61,6 +62,7 @@ class ReaderSettingsDefaultsTest {
 		assertEquals(
 			ReaderSettings(
 				fontFamily = ReaderSansFontFamily,
+				fontSource = ReaderFontSourceNavic,
 				fontSizePercent = 112,
 				lineHeight = 1.7,
 				paragraphSpacingPercent = 75,
@@ -105,6 +107,14 @@ class ReaderSettingsDefaultsTest {
 
 	@Test
 	fun readerSettingsDefaultsKeepExpandedFontSources() {
+		assertEquals(ReaderFontSourceNavic, defaultReaderSettings().fontSource)
+		assertEquals(
+			listOf(ReaderFontSourceNavic, ReaderFontSourceSystem, ReaderFontSourcePublisher),
+			ReaderSupportedFontSources
+		)
+		assertEquals(ReaderFontSourceNavic, normalizedReaderFontSource("missing"))
+		assertEquals(ReaderFontSourceSystem, normalizedReaderFontSource(ReaderFontSourceSystem))
+		assertEquals(ReaderFontSourcePublisher, normalizedReaderFontSource(ReaderFontSourcePublisher))
 		assertEquals("\"Navic Literata\", Literata, Bookerly, Georgia, serif", ReaderBookFontFamily)
 		assertEquals(
 			"\"Navic Atkinson Hyperlegible\", \"Atkinson Hyperlegible\", Lexend, system-ui, sans-serif",
@@ -118,12 +128,25 @@ class ReaderSettingsDefaultsTest {
 			ReaderBookFontFamily,
 			normalizedReaderSettings(
 				fontFamily = ReaderBookFontFamily,
+				fontSource = ReaderFontSourceSystem,
 				fontSizePercent = 100,
 				lineHeightPercent = 155,
 				marginPercent = 0,
 				theme = "light",
 				paged = true
 			).fontFamily
+		)
+		assertEquals(
+			ReaderFontSourceSystem,
+			normalizedReaderSettings(
+				fontFamily = ReaderBookFontFamily,
+				fontSource = ReaderFontSourceSystem,
+				fontSizePercent = 100,
+				lineHeightPercent = 155,
+				marginPercent = 0,
+				theme = "light",
+				paged = true
+			).fontSource
 		)
 		assertEquals(
 			ReaderPublisherFontFamily,

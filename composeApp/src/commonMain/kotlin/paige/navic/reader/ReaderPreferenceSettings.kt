@@ -21,6 +21,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 
 	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
+		fontSource = readerFontSource,
 		fontSizePercent = readerFontSizePercent,
 		lineHeightPercent = readerLineHeightPercent,
 		paragraphSpacingPercent = paragraphSpacingPercent,
@@ -45,6 +46,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	val normalized = settings.normalizedReaderSettings()
 	readerFontFamily = normalized.fontFamily ?: ReaderSansFontFamily
+	readerFontSource = normalized.fontSource ?: ReaderFontSourceNavic
 	readerFontSizePercent = normalized.fontSizePercent ?: 100
 	readerLineHeightPercent = (((normalized.lineHeight ?: 1.55) * 100.0).roundToInt())
 	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent

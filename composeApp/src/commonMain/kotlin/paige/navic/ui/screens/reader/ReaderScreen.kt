@@ -93,6 +93,7 @@ import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSupportedDirections
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
+import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
@@ -109,6 +110,7 @@ import paige.navic.reader.normalizedReaderOptionsTab
 import paige.navic.reader.normalizedReaderSettings
 import paige.navic.reader.readerFlowShortLabel
 import paige.navic.reader.readerFontFamilyShortLabel
+import paige.navic.reader.readerFontSourceShortLabel
 import paige.navic.reader.readerOptionsTabLabel
 import paige.navic.reader.readerOptionsTabs
 import paige.navic.reader.readerOrientationShortLabel
@@ -148,6 +150,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val defaultReaderSettings = remember(
 		reader.publicationUrl,
 		preferenceManager.readerFontFamily,
+		preferenceManager.readerFontSource,
 		preferenceManager.readerFontSizePercent,
 		preferenceManager.readerLineHeightPercent,
 		preferenceManager.readerParagraphSpacingPercent,
@@ -1390,6 +1393,15 @@ private fun ReaderReadingOptions(
 					label = readerFontFamilyShortLabel(fontFamily),
 					selected = state.settings.fontFamily == fontFamily,
 					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(fontFamily = fontFamily))) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("Font source") {
+			ReaderSupportedFontSources.forEach { fontSource ->
+				ReaderOptionChip(
+					label = readerFontSourceShortLabel(fontSource),
+					selected = state.settings.fontSource == fontSource,
+					onClick = { onSettingsChange(state.copy(settings = state.settings.copy(fontSource = fontSource))) }
 				)
 			}
 		}

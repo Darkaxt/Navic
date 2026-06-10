@@ -24,6 +24,10 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_family_mono
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_sans
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_serif
+import navic.composeapp.generated.resources.option_ebook_reader_font_source
+import navic.composeapp.generated.resources.option_ebook_reader_font_source_navic
+import navic.composeapp.generated.resources.option_ebook_reader_font_source_publisher
+import navic.composeapp.generated.resources.option_ebook_reader_font_source_system
 import navic.composeapp.generated.resources.option_ebook_reader_font_size
 import navic.composeapp.generated.resources.option_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.option_ebook_reader_direction
@@ -68,6 +72,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
+import navic.composeapp.generated.resources.subtitle_ebook_reader_font_source
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
@@ -103,6 +108,9 @@ import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderFontSourceNavic
+import paige.navic.reader.ReaderFontSourcePublisher
+import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
 import paige.navic.reader.ReaderMonoFontFamily
@@ -139,6 +147,7 @@ fun SettingsEbooksScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val settings = preferenceManager.readerDefaultSettings()
 	val fontFamily = ReaderFontFamilyOption.forFontFamily(settings.fontFamily)
+	val fontSource = ReaderFontSourceOption.forFontSource(settings.fontSource)
 	val theme = ReaderThemeOption.forTheme(settings.theme)
 	val direction = ReaderDirectionOption.forDirection(settings.direction)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
@@ -170,6 +179,14 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_font_family),
 						selection = fontFamily,
 						onSelect = { option -> preferenceManager.readerFontFamily = option.fontFamily }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_font_source)) },
+						items = ReaderFontSourceOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_font_source),
+						selection = fontSource,
+						onSelect = { option -> preferenceManager.readerFontSource = option.fontSource }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_font_size)) },
@@ -319,6 +336,20 @@ private enum class ReaderFontFamilyOption(
 	companion object {
 		fun forFontFamily(fontFamily: String?): ReaderFontFamilyOption =
 			entries.firstOrNull { option -> option.fontFamily == fontFamily } ?: Sans
+	}
+}
+
+private enum class ReaderFontSourceOption(
+	val fontSource: String,
+	val title: StringResource
+) {
+	Navic(ReaderFontSourceNavic, Res.string.option_ebook_reader_font_source_navic),
+	System(ReaderFontSourceSystem, Res.string.option_ebook_reader_font_source_system),
+	Publisher(ReaderFontSourcePublisher, Res.string.option_ebook_reader_font_source_publisher);
+
+	companion object {
+		fun forFontSource(fontSource: String?): ReaderFontSourceOption =
+			entries.firstOrNull { option -> option.fontSource == fontSource } ?: Navic
 	}
 }
 

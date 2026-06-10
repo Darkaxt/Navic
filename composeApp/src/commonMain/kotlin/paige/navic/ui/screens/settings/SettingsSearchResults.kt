@@ -64,6 +64,9 @@ import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderFontSourceNavic
+import paige.navic.reader.ReaderFontSourcePublisher
+import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
 import paige.navic.reader.ReaderMonoFontFamily
@@ -80,6 +83,7 @@ import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
+import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedDirections
 import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedTapZones
@@ -735,6 +739,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			label = { fontFamily -> readerFontFamilySearchLabel(fontFamily) },
 			selection = readerSettings.fontFamily ?: ReaderSansFontFamily,
 			onSelect = { fontFamily -> preferenceManager.readerFontFamily = fontFamily }
+		))
+		add(selectionRow(
+			id = "ebooks.font-source",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_font_source),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_font_source),
+			keywords = listOf("reader", "ebook", "EPUB", "typeface", "publisher", "book fonts"),
+			items = readerFontSourceSearchOptions,
+			label = { fontSource -> readerFontSourceSearchLabel(fontSource) },
+			selection = readerSettings.fontSource ?: ReaderFontSourceNavic,
+			onSelect = { fontSource -> preferenceManager.readerFontSource = fontSource }
 		))
 		add(selectionRow(
 			id = "ebooks.font-size",
@@ -1944,6 +1959,7 @@ private val autoFillQueueTargetSizeSearchOptions = listOf(10, 25, 50, 100)
 private val downloadConcurrencySearchOptions = listOf(1, 2, 3, 5, 10)
 private val binderyBookGridColumnSearchOptions = (BinderyMinBookGridColumns..BinderyMaxBookGridColumns).toList()
 private val readerFontFamilySearchOptions = ReaderSupportedFontFamilies
+private val readerFontSourceSearchOptions = ReaderSupportedFontSources
 private val readerFontSizeSearchOptions = listOf(90, 100, 112, 125, 140, 160, 180)
 private val readerLineHeightSearchOptions = listOf(120, 135, 155, 170, 190, 220)
 private val readerParagraphSpacingSearchOptions = listOf(0, 25, 50, 75, 100, 150, 200)
@@ -1965,6 +1981,14 @@ private fun readerFontFamilySearchLabel(fontFamily: String): String =
 		ReaderMonoFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_mono)
 		ReaderPublisherFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_publisher)
 		else -> stringResource(Res.string.option_ebook_reader_font_family_sans)
+	}
+
+@Composable
+private fun readerFontSourceSearchLabel(fontSource: String): String =
+	when (fontSource) {
+		ReaderFontSourceSystem -> stringResource(Res.string.option_ebook_reader_font_source_system)
+		ReaderFontSourcePublisher -> stringResource(Res.string.option_ebook_reader_font_source_publisher)
+		else -> stringResource(Res.string.option_ebook_reader_font_source_navic)
 	}
 
 @Composable

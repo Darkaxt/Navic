@@ -119,7 +119,7 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Media3 readaloud playback | Supported in tests, partial on device | Use Media3 for audio. Do not play embedded audio through WebView. |
 | Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
 | Audio metadata labels | Supported in models/playback, partial on device | Bindery and Storyteller OPF labels now flow into readaloud tracks, Media3 item descriptors, playback logs, and reader chrome metadata; still requires signed-release smoke tests with real synced packages. |
-| Custom/downloaded/book fonts | Missing | Adapt Anx-style custom font model, but expose it through Navic settings and reader chrome. |
+| Custom/downloaded/book fonts | Partial | Reader now separates font family from font source: Navic bundled fonts, Android system fallbacks, and publication-provided book fonts are exposed in reader chrome and Settings > Ebooks. Downloaded/imported custom font files remain pending. |
 | Rich themes/background images | Missing | Add named reader themes with foreground/background/accent and optional background image. |
 | Paragraph spacing and publisher style override | Missing | Extend `ReaderSettings` and JS `applySettings`; include "follow book styles" vs "override" toggle. |
 | Custom CSS editor | Missing | Adapt Anx's custom CSS concept only after sanitizing/injection boundaries in the Foliate runtime. |

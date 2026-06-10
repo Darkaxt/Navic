@@ -210,6 +210,7 @@
 	<string name="subtitle_bindery_book_grid_columns">Minimum columns used by Bindery book and collection grids.</string>
 	<string name="subtitle_ebook_reader">Reader fonts, layout, and Storyteller media overlay defaults</string>
 	<string name="subtitle_ebook_reader_font_family">Default font source used inside EPUB publications.</string>
+	<string name="subtitle_ebook_reader_font_source">Choose whether EPUB text uses bundled reader fonts, Android system fonts, or publication-provided fonts.</string>
 	<string name="subtitle_ebook_reader_font_size">Default text scale for EPUB content.</string>
 	<string name="subtitle_ebook_reader_line_height">Default spacing between lines in the reader.</string>
 	<string name="subtitle_ebook_reader_paragraph_spacing">Extra space after EPUB paragraphs.</string>
@@ -531,6 +532,10 @@
 	<string name="option_ebook_reader_font_family_dyslexic">Dyslexic readable</string>
 	<string name="option_ebook_reader_font_family_mono">Monospace</string>
 	<string name="option_ebook_reader_font_family_publisher">Publisher</string>
+	<string name="option_ebook_reader_font_source">Font source</string>
+	<string name="option_ebook_reader_font_source_navic">Navic bundled</string>
+	<string name="option_ebook_reader_font_source_system">System</string>
+	<string name="option_ebook_reader_font_source_publisher">Book fonts</string>
 	<string name="option_ebook_reader_font_size">Font size</string>
 	<string name="option_ebook_reader_line_height">Line height</string>
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>

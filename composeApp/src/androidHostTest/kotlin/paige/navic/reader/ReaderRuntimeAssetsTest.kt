@@ -799,6 +799,9 @@ class ReaderRuntimeAssetsTest {
 	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
 		val root = readerAssetRoot()
 		val bridgeText = root.resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 		val literata = root.resolve("fonts/navic-literata-regular.ttf")
 		val atkinson = root.resolve("fonts/navic-atkinson-hyperlegible-regular.otf")
 		val openDyslexic = root.resolve("fonts/navic-opendyslexic-regular.otf")
@@ -817,6 +820,18 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "fonts/navic-literata-regular.ttf")
 		assertContains(bridgeText, "fonts/navic-atkinson-hyperlegible-regular.otf")
 		assertContains(bridgeText, "fonts/navic-opendyslexic-regular.otf")
+		assertContains(bridgeText, "ReaderFontSourceNavic")
+		assertContains(bridgeText, "ReaderFontSourceSystem")
+		assertContains(bridgeText, "ReaderFontSourcePublisher")
+		assertContains(bridgeText, "readerFontFaceCss(settings)")
+		assertContains(bridgeText, "readerEffectiveFontFamily(settings)")
+		assertContains(bridgeText, "settings?.fontSource")
+		assertContains(readerScreenText, "Font source")
+		assertContains(readerScreenText, "ReaderSupportedFontSources")
+		assertContains(ebooksSettingsText, "readerFontSource")
+		assertContains(ebooksSettingsText, "ReaderFontSourceOption")
+		assertContains(searchSettingsText, "ebooks.font-source")
+		assertContains(searchSettingsText, "ReaderSupportedFontSources")
 	}
 
 	@Test

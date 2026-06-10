@@ -15,6 +15,7 @@ class ReaderBridgeProtocolTest {
 			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)"),
 			settings = ReaderSettings(
 				fontFamily = ReaderBookFontFamily,
+				fontSource = ReaderFontSourceSystem,
 				fontSizePercent = 112,
 				lineHeight = 1.7,
 				paragraphSpacingPercent = 75,
@@ -41,6 +42,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"mediaOverlayEnabled\":true")
 		assertContains(script, "Navic Literata")
 		assertContains(script, "Bookerly, Georgia, serif")
+		assertContains(script, "\"fontSource\":\"system\"")
 		assertContains(script, "\"fontSizePercent\":112")
 		assertContains(script, "\"lineHeight\":1.7")
 		assertContains(script, "\"paragraphSpacingPercent\":75")

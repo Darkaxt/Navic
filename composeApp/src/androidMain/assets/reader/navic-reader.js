@@ -28,6 +28,9 @@ const ReaderFlowScrolledGaps = 'scrolled-gaps'
 const ReaderDirectionDefault = 'default'
 const ReaderDirectionLtr = 'ltr'
 const ReaderDirectionRtl = 'rtl'
+const ReaderFontSourceNavic = 'navic'
+const ReaderFontSourceSystem = 'system'
+const ReaderFontSourcePublisher = 'publisher'
 const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-1.png',
   'paper-textures/paper-texture-2.png',
@@ -125,6 +128,25 @@ const readerDirectionMode = settings => {
   if (settings?.direction === ReaderDirectionLtr) return ReaderDirectionLtr
   if (settings?.direction === ReaderDirectionRtl) return ReaderDirectionRtl
   return ReaderDirectionDefault
+}
+
+const readerFontSource = settings => {
+  if (settings?.fontSource === ReaderFontSourceSystem) return ReaderFontSourceSystem
+  if (settings?.fontSource === ReaderFontSourcePublisher) return ReaderFontSourcePublisher
+  return ReaderFontSourceNavic
+}
+
+const readerEffectiveFontFamily = settings => {
+  const fontFamily = settings?.fontFamily || 'system-ui, sans-serif'
+  if (readerFontSource(settings) === ReaderFontSourcePublisher || fontFamily === 'inherit') return ''
+  if (readerFontSource(settings) !== ReaderFontSourceSystem) return fontFamily
+  if (fontFamily.includes('ui-monospace') || fontFamily.includes('Consolas')) {
+    return 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+  }
+  if (fontFamily.includes('Georgia') || fontFamily.includes('Literata') || fontFamily.includes('Bookerly')) {
+    return 'Georgia, serif'
+  }
+  return 'system-ui, sans-serif'
 }
 
 const closestElement = (target, selector) =>
@@ -340,7 +362,8 @@ const readerPaperTextureOpacity = settings => {
   }
 }
 
-const readerFontFaceCss = () => `
+const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
+  ? `
   @font-face {
     font-family: 'Navic Literata';
     src: url('${readerAssetUrl('fonts/navic-literata-regular.ttf')}') format('truetype');
@@ -363,6 +386,7 @@ const readerFontFaceCss = () => `
     font-display: swap;
   }
 `
+  : ''
 
 const readerParagraphSpacingEm = settings => {
   const percent = Number(settings.paragraphSpacingPercent)
@@ -1414,9 +1438,10 @@ class NavicReaderRuntime {
   }
 }
 
-const readerTypographyCss = settings => settings.publisherStyles === true
-  ? ''
-  : `
+const readerTypographyCss = settings => {
+  if (settings.publisherStyles === true) return ''
+  const fontFamily = readerEffectiveFontFamily(settings)
+  return `
   ${readerFlowMode(settings) === ReaderFlowPagedVertical ? `
   html, body {
     writing-mode: vertical-rl !important;
@@ -1424,11 +1449,12 @@ const readerTypographyCss = settings => settings.publisherStyles === true
   ` : ''}
   body {
     line-height: ${settings.lineHeight || 1.55} !important;
-    font-family: ${settings.fontFamily || 'system-ui, sans-serif'} !important;
+    ${fontFamily ? `font-family: ${fontFamily} !important;` : ''}
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
 `
+}
 
 const readerParagraphSpacingCss = settings => `
   html body p,
@@ -1522,7 +1548,7 @@ const readerDocumentThemeCss = settings => {
 
 const readerContentCss = settings => {
   return `
-  ${readerFontFaceCss()}
+  ${readerFontFaceCss(settings)}
   ${readerDocumentThemeCss(settings)}
   html {
     font-size: ${settings.fontSizePercent || 100}%;

@@ -244,6 +244,7 @@ class PreferenceManager(
 	var pauseSearchHistory by preference(false)
 	var searchHistoryEntries by preference("")
 	var readerFontFamily by preference("system-ui, sans-serif")
+	var readerFontSource by preference("navic")
 	var readerFontSizePercent by preference(100)
 	var readerLineHeightPercent by preference(155)
 	var readerParagraphSpacingPercent by preference(100)

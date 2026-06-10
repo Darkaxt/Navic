@@ -7,6 +7,21 @@ import kotlin.test.assertEquals
 
 class ReaderPreferenceSettingsTest {
 	@Test
+	fun readerDefaultSettingsRoundTripFontSourcePreference() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerFontSource = ReaderFontSourceSystem
+
+		assertEquals(ReaderFontSourceSystem, preferences.readerDefaultSettings().fontSource)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(fontSource = ReaderFontSourcePublisher)
+		)
+
+		assertEquals(ReaderFontSourcePublisher, preferences.readerFontSource)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripTapZonePreference() {
 		val preferences = PreferenceManager(MapSettings())
 
