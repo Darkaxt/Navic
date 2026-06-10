@@ -1586,7 +1586,7 @@ class NavicReaderRuntime {
     }
   }
 
-  reflowablePagePosition() {
+  reflowableSectionPagePosition() {
     if (this.view?.isFixedLayout === true) return null
     const renderer = this.view?.renderer
     if (!renderer || renderer.scrolled) return null
@@ -1600,8 +1600,57 @@ class NavicReaderRuntime {
     }
   }
 
+  reflowableSectionSizes() {
+    return Array.from(this.view?.book?.sections || []).map(section => {
+      const size = section?.linear === 'no' ? 0 : Number(section?.size)
+      return Number.isFinite(size) && size > 0 ? size : 0
+    })
+  }
+
+  reflowableWholeBookPagePosition(detail) {
+    detail = detail || this.lastRelocateDetail || {}
+    const sectionPosition = this.reflowableSectionPagePosition()
+    if (!sectionPosition) return null
+    const sectionIndex = Number(detail?.section?.current ?? detail?.index)
+    const sectionSizes = this.reflowableSectionSizes()
+    const currentSectionSize = sectionSizes[sectionIndex]
+    const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
+    if (
+      !Number.isFinite(sectionIndex) ||
+      !Number.isFinite(currentSectionSize) ||
+      currentSectionSize <= 0 ||
+      totalReadableSize <= 0
+    ) return null
+    const readableUnitsPerPage = currentSectionSize / sectionPosition.pageCount
+    if (!Number.isFinite(readableUnitsPerPage) || readableUnitsPerPage <= 0) return null
+    const estimatedGlobalPageCount = Math.max(
+      sectionPosition.pageCount,
+      Math.ceil(totalReadableSize / readableUnitsPerPage)
+    )
+    const progress = Number(detail?.fraction ?? detail?.progress ?? detail?.totalProgress)
+    const readableUnitsBeforeCurrentSection = sectionSizes
+      .slice(0, Math.max(0, Math.floor(sectionIndex)))
+      .reduce((sum, size) => sum + size, 0)
+    const estimatedGlobalPageIndex = Math.floor(
+      Number.isFinite(progress)
+        ? Math.min(1, Math.max(0, progress)) * estimatedGlobalPageCount
+        : (readableUnitsBeforeCurrentSection / readableUnitsPerPage) + sectionPosition.pageIndex
+    )
+    return {
+      pageIndex: Math.min(
+        estimatedGlobalPageCount - 1,
+        Math.max(0, estimatedGlobalPageIndex)
+      ),
+      pageCount: estimatedGlobalPageCount,
+    }
+  }
+
+  reflowablePagePosition(detail) {
+    return this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()
+  }
+
   readerPagePosition(detail) {
-    return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition()
+    return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition(detail)
   }
 
   applySettings(settings) {
