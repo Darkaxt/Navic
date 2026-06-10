@@ -4,6 +4,8 @@ const readerRoot = document.body
 const overlayClass = 'navic-active-overlay-fragment'
 const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
+const ReaderSurfacePageBorderOverlayLayerSelector = '[data-navic-surface-page-border-overlay-layer="true"]'
+const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
@@ -39,6 +41,13 @@ const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-3.png',
 ]
 const ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2
+const ReaderPageBorderOverlayAssets = [
+  'paper-textures/page-border-overlay-1.png',
+  'paper-textures/page-border-overlay-2.png',
+  'paper-textures/page-border-overlay-3.png',
+  'paper-textures/page-border-overlay-4.png',
+]
+const ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2
 const ReaderThemePalettes = {
   light: {
     background: '#fbfaf8',
@@ -451,24 +460,42 @@ const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {
     readerPaperTexturePageLocator(detail),
   ].join('|')
 
-const readerPaperTextureVariantForPage = key => {
-  const variant = stableHash(key) % ReaderPaperTextureVariantCount
-  const textureIndex = variant % ReaderPaperTextureAssets.length
-  const rotate180 = Math.floor(variant / ReaderPaperTextureAssets.length) % 2 === 1
-  const mirrored = Math.floor(variant / (ReaderPaperTextureAssets.length * 2)) % 2 === 1
+const readerSurfaceTextureVariantForPage = (key, assets, variantCount) => {
+  const variant = stableHash(key) % variantCount
+  const textureIndex = variant % assets.length
+  const rotate180 = Math.floor(variant / assets.length) % 2 === 1
+  const mirrored = Math.floor(variant / (assets.length * 2)) % 2 === 1
   return {
     textureIndex,
-    asset: ReaderPaperTextureAssets[textureIndex],
+    asset: assets[textureIndex],
     rotate180,
     mirrored,
   }
 }
+
+const readerPaperTextureVariantForPage = key =>
+  readerSurfaceTextureVariantForPage(key, ReaderPaperTextureAssets, ReaderPaperTextureVariantCount)
+
+const readerPageBorderOverlayVariantForPage = key =>
+  readerSurfaceTextureVariantForPage(
+    `${key}|page-border-overlay`,
+    ReaderPageBorderOverlayAssets,
+    ReaderPageBorderOverlayVariantCount
+  )
 
 const readerPaperTextureTransform = variant => {
   const transforms = []
   if (variant?.mirrored) transforms.push('scaleX(-1)')
   if (variant?.rotate180) transforms.push('rotate(180deg)')
   return transforms.length ? transforms.join(' ') : 'none'
+}
+
+const readerPaperTextureBackgroundPosition = scrollOffset => {
+  const x = Number(scrollOffset?.x)
+  const y = Number(scrollOffset?.y)
+  const xPx = Number.isFinite(x) ? Math.round(x) : 0
+  const yPx = Number.isFinite(y) ? Math.round(y) : 0
+  return `calc(50% + ${xPx}px) calc(50% + ${yPx}px)`
 }
 
 const readerSurfacePaperTextureOpacity = settings => {
@@ -482,6 +509,18 @@ const readerSurfacePaperTextureOpacity = settings => {
       return '0.08'
     default:
       return '0.1'
+  }
+}
+
+const readerSurfacePageBorderOverlayOpacity = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return '0'
+    case 'dark':
+    case 'dusk':
+      return '0.55'
+    default:
+      return '1'
   }
 }
 
@@ -559,7 +598,45 @@ const ensureReaderSurfaceTextureLayer = () => {
   return layer
 }
 
-const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
+const ensureReaderSurfaceBorderOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderSurfacePageBorderOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicSurfacePageBorderOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) => {
+  if (!layer || !textureVariant?.asset) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    'z-index': '2147483645',
+    'pointer-events': 'none',
+    'background-image': textureUrl,
+    'background-size': 'cover',
+    'background-position': readerPaperTextureBackgroundPosition(scrollOffset),
+    'background-repeat': 'no-repeat',
+    'background-color': 'transparent',
+    opacity: readerSurfacePaperTextureOpacity(settings),
+    'mix-blend-mode': 'multiply',
+    transform: readerPaperTextureTransform(textureVariant),
+    'transform-origin': 'center',
+  })
+}
+
+const updateReaderSurfaceBorderOverlayLayer = (layer, textureVariant, settings, scrollOffset = null) => {
   if (!layer || !textureVariant?.asset) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
@@ -576,14 +653,118 @@ const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) => {
     'pointer-events': 'none',
     'background-image': textureUrl,
     'background-size': 'cover',
-    'background-position': 'center',
+    'background-position': readerPaperTextureBackgroundPosition(scrollOffset),
     'background-repeat': 'no-repeat',
     'background-color': 'transparent',
-    opacity: readerSurfacePaperTextureOpacity(settings),
+    opacity: readerSurfacePageBorderOverlayOpacity(settings),
     'mix-blend-mode': 'multiply',
     transform: readerPaperTextureTransform(textureVariant),
     'transform-origin': 'center',
   })
+}
+
+const readerTapZoneOverlayLabel = type => {
+  switch (type) {
+    case KomikkuNavigationRegionPrevious:
+      return 'Previous'
+    case KomikkuNavigationRegionNext:
+      return 'Next'
+    case KomikkuNavigationRegionLeft:
+      return 'Left'
+    case KomikkuNavigationRegionRight:
+      return 'Right'
+    default:
+      return 'Menu'
+  }
+}
+
+const readerTapZoneOverlayColor = type => {
+  switch (type) {
+    case KomikkuNavigationRegionPrevious:
+    case KomikkuNavigationRegionLeft:
+      return 'rgba(255, 128, 128, 0.24)'
+    case KomikkuNavigationRegionNext:
+    case KomikkuNavigationRegionRight:
+      return 'rgba(96, 165, 250, 0.24)'
+    default:
+      return 'rgba(250, 204, 21, 0.24)'
+  }
+}
+
+const readerTapZoneOverlayRegions = (tapZoneMode, smallerTapZone, flowMode) => [
+  ...komikkuNavigationRegions(tapZoneMode, smallerTapZone, flowMode),
+  komikkuConstantMenuRegion,
+  readerCenterMenuRegion,
+]
+
+const ensureTapZoneOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderTapZoneOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicTapZoneOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+const updateTapZoneOverlayLayer = (
+  layer,
+  settings = {},
+  tapZoneMode,
+  smallerTapZone,
+  flowMode,
+  surfaceRect
+) => {
+  if (!layer) return
+  const showTapZones = settings.showTapZones === true
+  if (!showTapZones) {
+    layer.remove()
+    return
+  }
+  const rect = surfaceRect || {
+    left: 0,
+    top: 0,
+    width: window.innerWidth || 1,
+    height: window.innerHeight || 1,
+  }
+  setStylesImportant(layer, {
+    position: 'fixed',
+    left: `${Math.round(rect.left)}px`,
+    top: `${Math.round(rect.top)}px`,
+    width: `${Math.max(1, Math.round(rect.width))}px`,
+    height: `${Math.max(1, Math.round(rect.height))}px`,
+    'z-index': '2147483647',
+    'pointer-events': 'none',
+    overflow: 'hidden',
+    contain: 'layout paint',
+  })
+  const children = readerTapZoneOverlayRegions(tapZoneMode, smallerTapZone, flowMode).map(region => {
+    const element = document.createElement('div')
+    element.textContent = readerTapZoneOverlayLabel(region.type)
+    setStylesImportant(element, {
+      position: 'absolute',
+      left: `${Math.max(0, region.left * 100)}%`,
+      top: `${Math.max(0, region.top * 100)}%`,
+      width: `${Math.max(0, (region.right - region.left) * 100)}%`,
+      height: `${Math.max(0, (region.bottom - region.top) * 100)}%`,
+      display: 'grid',
+      'place-items': 'center',
+      'box-sizing': 'border-box',
+      border: '1px solid rgba(255, 255, 255, 0.72)',
+      background: readerTapZoneOverlayColor(region.type),
+      color: '#ffffff',
+      'font-family': 'system-ui, sans-serif',
+      'font-size': '12px',
+      'font-weight': '700',
+      'text-shadow': '0 1px 2px rgba(0, 0, 0, 0.8)',
+      'text-transform': 'uppercase',
+      'letter-spacing': '0',
+      'pointer-events': 'none',
+    })
+    return element
+  })
+  layer.replaceChildren(...children)
 }
 
 const isParagraphCandidate = element =>
@@ -652,6 +833,14 @@ class NavicReaderRuntime {
   originalBookDir = null
   publicationUrl = ''
   surfaceTextureLayer = null
+  surfaceBorderOverlayLayer = null
+  surfaceTextureVariant = null
+  surfaceBorderOverlayVariant = null
+  surfacePaperTextureBaseOffset = 0
+  surfaceTextureScrollOffset = { x: 0, y: 0 }
+  surfacePaperTextureScrollRenderer = null
+  surfacePaperTextureScrollListener = null
+  tapZoneOverlayLayer = null
   lastRelocateDetail = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
@@ -715,6 +904,7 @@ class NavicReaderRuntime {
       readerRoot.replaceChildren(this.view)
       this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
+      this.attachSurfacePaperTextureScrollSync()
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
@@ -745,6 +935,7 @@ class NavicReaderRuntime {
 
   close() {
     this.clearOverlay()
+    this.detachSurfacePaperTextureScrollSync()
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null
@@ -754,6 +945,14 @@ class NavicReaderRuntime {
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
+    this.surfaceBorderOverlayLayer?.remove?.()
+    this.surfaceBorderOverlayLayer = null
+    this.tapZoneOverlayLayer?.remove?.()
+    this.tapZoneOverlayLayer = null
+    this.surfaceTextureVariant = null
+    this.surfaceBorderOverlayVariant = null
+    this.surfacePaperTextureBaseOffset = 0
+    this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.lastRelocateDetail = null
   }
 
@@ -802,6 +1001,8 @@ class NavicReaderRuntime {
       overflow: fixedLayout ? 'auto' : 'hidden',
     })
     if (renderer) requestAnimationFrame(() => renderer?.render?.())
+    this.renderSurfacePaperTextureLayers()
+    this.updateTapZoneOverlay()
     log('viewport-layout', `label=${label}`, `${width}x${height}`)
   }
 
@@ -1043,7 +1244,6 @@ class NavicReaderRuntime {
     element.__navicSurfaceTapGestureAttached = true
     let touchState = null
     element.addEventListener('touchstart', event => {
-      if (this.view?.isFixedLayout !== true) return
       const touch = event.changedTouches?.[0]
       if (!touch || event.touches?.length > 1) {
         touchState = null
@@ -1058,7 +1258,7 @@ class NavicReaderRuntime {
       }
     }, { passive: true })
     element.addEventListener('touchmove', event => {
-      if (this.view?.isFixedLayout !== true || !touchState || event.touches?.length > 1) {
+      if (!touchState || event.touches?.length > 1) {
         touchState = null
         return
       }
@@ -1070,14 +1270,18 @@ class NavicReaderRuntime {
     element.addEventListener('touchend', async event => {
       const state = touchState
       touchState = null
-      if (this.view?.isFixedLayout !== true || !state || event.touches?.length > 0) return
+      if (!state || event.touches?.length > 0) return
       const touch = event.changedTouches?.[0]
       if (!touch) return
       const endX = touch.screenX ?? touch.clientX ?? state.lastX ?? state.x
       const endY = touch.screenY ?? touch.clientY ?? state.lastY ?? state.y
       const deltaX = endX - state.x
       const deltaY = endY - state.y
-      if (Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (
+        this.view?.isFixedLayout === true &&
+        Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold &&
+        Math.abs(deltaX) > Math.abs(deltaY)
+      ) {
         const handled = await this.turnFixedLayoutSwipePage(deltaX)
         if (handled) {
           event.preventDefault()
@@ -1110,9 +1314,7 @@ class NavicReaderRuntime {
         event.stopPropagation()
         return
       }
-      if (this.view?.isFixedLayout === true) {
-        await this.handleReaderTapZone(event, document, 'surface')
-      }
+      await this.handleReaderTapZone(event, document, 'surface')
     }, { passive: false })
   }
 
@@ -1408,6 +1610,26 @@ class NavicReaderRuntime {
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
     this.updateSurfacePaperTexture()
+    this.updateTapZoneOverlay()
+  }
+
+  updateTapZoneOverlay() {
+    if (this.readerSettings?.showTapZones !== true) {
+      this.tapZoneOverlayLayer?.remove?.()
+      this.tapZoneOverlayLayer = null
+      return
+    }
+    this.tapZoneOverlayLayer = this.tapZoneOverlayLayer && readerRoot.contains(this.tapZoneOverlayLayer)
+      ? this.tapZoneOverlayLayer
+      : ensureTapZoneOverlayLayer()
+    updateTapZoneOverlayLayer(
+      this.tapZoneOverlayLayer,
+      this.readerSettings,
+      this.readerTapZoneMode,
+      this.smallerTapZone,
+      this.readerFlowModeValue,
+      this.readerTapSurfaceRect()
+    )
   }
 
   applyThemeToLoadedContent(settings = this.readerSettings) {
@@ -1491,6 +1713,86 @@ class NavicReaderRuntime {
     }
   }
 
+  currentRendererContainerPosition() {
+    const renderer = this.view?.renderer
+    const position = Number(renderer?.containerPosition)
+    return Number.isFinite(position) ? position : 0
+  }
+
+  surfacePaperTextureScrollOffset() {
+    const renderer = this.view?.renderer
+    if (!renderer) {
+      this.surfaceTextureScrollOffset = { x: 0, y: 0 }
+      return this.surfaceTextureScrollOffset
+    }
+    const position = Number(renderer.containerPosition)
+    if (renderer.scrolled || !Number.isFinite(position)) {
+      this.surfaceTextureScrollOffset = { x: 0, y: 0 }
+      return this.surfaceTextureScrollOffset
+    }
+    const delta = position - this.surfacePaperTextureBaseOffset
+    const { width, height } = readerViewportSize()
+    const maxOffset = this.readerFlowModeValue === ReaderFlowPagedVertical ? height : width
+    const bounded = Math.max(-maxOffset, Math.min(maxOffset, delta))
+    this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
+      ? { x: 0, y: -bounded }
+      : { x: -bounded, y: 0 }
+    return this.surfaceTextureScrollOffset
+  }
+
+  attachSurfacePaperTextureScrollSync() {
+    const renderer = this.view?.renderer
+    if (!renderer || renderer === this.surfacePaperTextureScrollRenderer) return
+    this.detachSurfacePaperTextureScrollSync()
+    this.surfacePaperTextureScrollRenderer = renderer
+    this.surfacePaperTextureScrollListener = () => this.syncSurfacePaperTextureScrollOffset('scroll')
+    renderer.addEventListener('scroll', this.surfacePaperTextureScrollListener, { passive: true })
+  }
+
+  detachSurfacePaperTextureScrollSync() {
+    if (this.surfacePaperTextureScrollRenderer && this.surfacePaperTextureScrollListener) {
+      this.surfacePaperTextureScrollRenderer.removeEventListener('scroll', this.surfacePaperTextureScrollListener)
+    }
+    this.surfacePaperTextureScrollRenderer = null
+    this.surfacePaperTextureScrollListener = null
+  }
+
+  syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
+    if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+    this.renderSurfacePaperTextureLayers()
+    const offset = this.surfaceTextureScrollOffset
+    if (Math.abs(offset.x || 0) > 1 || Math.abs(offset.y || 0) > 1) {
+      log('surface-texture-scroll', reason, `x=${Math.round(offset.x || 0)}`, `y=${Math.round(offset.y || 0)}`)
+    }
+  }
+
+  renderSurfacePaperTextureLayers() {
+    if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+    const scrollOffset = this.surfacePaperTextureScrollOffset()
+    if (this.surfaceTextureVariant) {
+      this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
+        ? this.surfaceTextureLayer
+        : ensureReaderSurfaceTextureLayer()
+      updateReaderSurfaceTextureLayer(
+        this.surfaceTextureLayer,
+        this.surfaceTextureVariant,
+        this.readerSettings,
+        scrollOffset
+      )
+    }
+    if (this.surfaceBorderOverlayVariant) {
+      this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
+        ? this.surfaceBorderOverlayLayer
+        : ensureReaderSurfaceBorderOverlayLayer()
+      updateReaderSurfaceBorderOverlayLayer(
+        this.surfaceBorderOverlayLayer,
+        this.surfaceBorderOverlayVariant,
+        this.readerSettings,
+        scrollOffset
+      )
+    }
+  }
+
   surfacePaperTextureIndex(detail = {}) {
     const detailIndex = Number(detail?.index)
     if (Number.isFinite(detailIndex)) return Math.floor(detailIndex)
@@ -1506,12 +1808,22 @@ class NavicReaderRuntime {
     const section = this.view?.book?.sections?.[index]
     const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, detail)
     const textureVariant = readerPaperTextureVariantForPage(textureKey)
+    const borderOverlayVariant = readerPageBorderOverlayVariantForPage(textureKey)
+    this.surfaceTextureVariant = textureVariant
+    this.surfaceBorderOverlayVariant = borderOverlayVariant
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
       : ensureReaderSurfaceTextureLayer()
+    this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
+      ? this.surfaceBorderOverlayLayer
+      : ensureReaderSurfaceBorderOverlayLayer()
+    this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
+    this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
     readerRoot.dataset.navicSurfacePaperTextureAsset = textureVariant.asset
-    updateReaderSurfaceTextureLayer(this.surfaceTextureLayer, textureVariant, this.readerSettings)
+    readerRoot.dataset.navicSurfacePageBorderOverlayAsset = borderOverlayVariant.asset
+    readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
+    this.renderSurfacePaperTextureLayers()
   }
 
   applyReaderDirection(direction, rerender = true) {
@@ -1696,6 +2008,9 @@ class NavicReaderRuntime {
       const surfaceTextureStyle = this.surfaceTextureLayer
         ? window.getComputedStyle(this.surfaceTextureLayer)
         : null
+      const surfaceBorderOverlayStyle = this.surfaceBorderOverlayLayer
+        ? window.getComputedStyle(this.surfaceBorderOverlayLayer)
+        : null
       const paragraphBlocks = Array.from(doc.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
       const firstParagraphStyle = paragraphBlocks[0]
         ? doc.defaultView.getComputedStyle(paragraphBlocks[0])
@@ -1717,8 +2032,11 @@ class NavicReaderRuntime {
         `firstParagraphMarginEnd=${firstParagraphStyle?.marginBlockEnd || firstParagraphStyle?.marginBottom || 'unset'}`,
         `surfaceTextureOpacity=${surfaceTextureStyle?.opacity || 'unset'}`,
         `surfaceTextureImage=${surfaceTextureStyle?.backgroundImage === 'none' ? 'none' : surfaceTextureStyle ? 'set' : 'unset'}`,
+        `surfaceBorderOverlayOpacity=${surfaceBorderOverlayStyle?.opacity || 'unset'}`,
+        `surfaceBorderOverlayImage=${surfaceBorderOverlayStyle?.backgroundImage === 'none' ? 'none' : surfaceBorderOverlayStyle ? 'set' : 'unset'}`,
         `surfaceTextureLayer=${this.surfaceTextureLayer ? 'present' : 'missing'}`,
-        `surfaceTextureAsset=${readerRoot.dataset.navicSurfacePaperTextureAsset || 'unset'}`
+        `surfaceTextureAsset=${readerRoot.dataset.navicSurfacePaperTextureAsset || 'unset'}`,
+        `surfaceBorderOverlayAsset=${readerRoot.dataset.navicSurfaceBorderOverlayAsset || 'unset'}`
       )
     }
   }

@@ -699,6 +699,33 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderExposesVisibleTapZoneOverlayControl() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
+		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+
+		assertContains(bridgeText, "ReaderTapZoneOverlayLayerSelector")
+		assertContains(bridgeText, "updateTapZoneOverlayLayer")
+		assertContains(bridgeText, "settings.showTapZones === true")
+		assertContains(bridgeText, "komikkuNavigationRegions(")
+		assertContains(bridgeText, "pointer-events': 'none'")
+		assertContains(readerScreenText, "Show tap zones")
+		assertContains(readerScreenText, "toggleShowTapZones()")
+		assertContains(ebooksSettingsText, "readerShowTapZones")
+		assertContains(ebooksSettingsText, "option_ebook_reader_show_tap_zones")
+		assertContains(searchSettingsText, "ebooks.show-tap-zones")
+		assertContains(searchSettingsText, "readerShowTapZones")
+		assertContains(preferenceText, "showTapZones = readerShowTapZones")
+		assertContains(chromeStateText, "showTapZones = false")
+		assertContains(bridgeProtocolText, "val showTapZones: Boolean? = null")
+		assertContains(bridgeProtocolText, "showTapZones?.let { put(\"showTapZones\", it) }")
+	}
+
+	@Test
 	fun androidReaderPortsKomikkuFullscreenSystemBars() {
 		val systemBarsEffect = listOf(
 			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderSystemBarsEffect.android.kt"),
@@ -852,6 +879,44 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPackagesDeterministicPaperBorderOverlayVariants() {
+		val root = readerAssetRoot()
+		val bridgeText = root.resolve("navic-reader.js").readText()
+		val overlay1 = root.resolve("paper-textures/page-border-overlay-1.png")
+		val overlay2 = root.resolve("paper-textures/page-border-overlay-2.png")
+		val overlay3 = root.resolve("paper-textures/page-border-overlay-3.png")
+		val overlay4 = root.resolve("paper-textures/page-border-overlay-4.png")
+
+		assertTrue(overlay1.isFile, "Reader page border overlay 1 must be packaged")
+		assertTrue(overlay2.isFile, "Reader page border overlay 2 must be packaged")
+		assertTrue(overlay3.isFile, "Reader page border overlay 3 must be packaged")
+		assertTrue(overlay4.isFile, "Reader page border overlay 4 must be packaged")
+		assertTrue(overlay1.length() > 1_000, "Reader page border overlay 1 should be a real image")
+		assertTrue(overlay2.length() > 1_000, "Reader page border overlay 2 should be a real image")
+		assertTrue(overlay3.length() > 1_000, "Reader page border overlay 3 should be a real image")
+		assertTrue(overlay4.length() > 1_000, "Reader page border overlay 4 should be a real image")
+		assertTrue(overlay1.hasPngAlphaChannel(), "Reader page border overlay 1 must be transparent")
+		assertTrue(overlay2.hasPngAlphaChannel(), "Reader page border overlay 2 must be transparent")
+		assertTrue(overlay3.hasPngAlphaChannel(), "Reader page border overlay 3 must be transparent")
+		assertTrue(overlay4.hasPngAlphaChannel(), "Reader page border overlay 4 must be transparent")
+		assertTrue(overlay1.averagePngAlpha() >= 2.0, "Reader page border overlay 1 must be visible at runtime")
+		assertTrue(overlay2.averagePngAlpha() >= 2.0, "Reader page border overlay 2 must be visible at runtime")
+		assertTrue(overlay3.averagePngAlpha() >= 2.0, "Reader page border overlay 3 must be visible at runtime")
+		assertTrue(overlay4.averagePngAlpha() >= 2.0, "Reader page border overlay 4 must be visible at runtime")
+		assertContains(bridgeText, "ReaderPageBorderOverlayAssets")
+		assertContains(bridgeText, "paper-textures/page-border-overlay-1.png")
+		assertContains(bridgeText, "paper-textures/page-border-overlay-2.png")
+		assertContains(bridgeText, "paper-textures/page-border-overlay-3.png")
+		assertContains(bridgeText, "paper-textures/page-border-overlay-4.png")
+		assertContains(bridgeText, "ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2")
+		assertContains(bridgeText, "readerPageBorderOverlayVariantForPage")
+		assertContains(bridgeText, "ReaderSurfacePageBorderOverlayLayerSelector")
+		assertContains(bridgeText, "ensureReaderSurfaceBorderOverlayLayer")
+		assertContains(bridgeText, "updateReaderSurfaceBorderOverlayLayer")
+		assertContains(bridgeText, "surfaceBorderOverlayAsset")
+	}
+
+	@Test
 	fun androidReaderAppliesParagraphSpacingAsElementStyles() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val paragraphSpacing = bridgeText
@@ -973,6 +1038,46 @@ class ReaderRuntimeAssetsTest {
 		assertContains(surfaceLayerUpdater, "'background-image': textureUrl")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
+	}
+
+	@Test
+	fun androidReaderSurfaceTapGesturesHandleEpubBorderTaps() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val surfaceGesture = bridgeText
+			.substringAfter("attachSurfaceTapGesture(element) {")
+			.substringBefore("\n  attachLinkNavigation")
+
+		assertContains(surfaceGesture, "await this.handleReaderTapZone(event, document, 'surface')")
+		assertContains(surfaceGesture, "await this.handleReaderTapZone({")
+		assertContains(surfaceGesture, "surface-touch")
+		assertFalse(
+			surfaceGesture.contains("if (this.view?.isFixedLayout !== true) return\n      const touch"),
+			"EPUB border taps must use the same Komikku tap-zone surface path as fixed-layout content."
+		)
+		assertFalse(
+			surfaceGesture.contains("if (this.view?.isFixedLayout === true) {\n        await this.handleReaderTapZone(event, document, 'surface')"),
+			"Click-based surface taps must not be restricted to fixed-layout/PDF rendering."
+		)
+	}
+
+	@Test
+	fun androidReaderSyncsSurfaceTextureWithPaginatorScrollDrags() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val surfaceLayerUpdater = bridgeText
+			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings")
+			.substringBefore("\n\nconst isParagraphCandidate")
+		val runtimeFields = bridgeText
+			.substringAfter("class NavicReaderRuntime {")
+			.substringBefore("\n  constructor()")
+
+		assertContains(bridgeText, "attachSurfacePaperTextureScrollSync")
+		assertContains(bridgeText, "syncSurfacePaperTextureScrollOffset")
+		assertContains(bridgeText, "surfacePaperTextureScrollOffset")
+		assertContains(bridgeText, "renderer.containerPosition")
+		assertContains(bridgeText, "renderer.addEventListener('scroll'")
+		assertContains(runtimeFields, "surfacePaperTextureBaseOffset")
+		assertContains(runtimeFields, "surfaceTextureScrollOffset")
+		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
 	}
 
 	@Test

@@ -1486,6 +1486,11 @@ private fun ReaderGeneralOptions(
 				onClick = { onSettingsChange(state.toggleSmallerTapZone()) }
 			)
 			ReaderToggleChip(
+				label = "Show tap zones",
+				checked = state.settings.showTapZones == true,
+				onClick = { onSettingsChange(state.toggleShowTapZones()) }
+			)
+			ReaderToggleChip(
 				label = "Publisher styles",
 				checked = state.settings.publisherStyles == true,
 				onClick = { onSettingsChange(state.togglePublisherStyles()) }

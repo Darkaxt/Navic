@@ -223,6 +223,7 @@
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
 	<string name="subtitle_ebook_reader_smaller_tap_zones">Shrink page-turn regions so the center menu area is easier to reach.</string>
+	<string name="subtitle_ebook_reader_show_tap_zones">Draw the active reader tap regions over the page for gesture debugging.</string>
 	<string name="subtitle_ebook_reader_publisher_styles">Prefer EPUB-provided typography and spacing instead of forcing Navic reader typography.</string>
 	<string name="subtitle_ebook_reader_keep_screen_on">Prevent the display from sleeping while the reader is open.</string>
 	<string name="subtitle_ebook_reader_volume_keys">Use volume up and down to turn reader pages without changing system volume.</string>
@@ -573,6 +574,7 @@
 	<string name="option_ebook_reader_tap_zone_right_left">Right and left</string>
 	<string name="option_ebook_reader_tap_zone_disabled">Disabled</string>
 	<string name="option_ebook_reader_smaller_tap_zones">Smaller tap zones</string>
+	<string name="option_ebook_reader_show_tap_zones">Show tap zones</string>
 	<string name="option_ebook_reader_publisher_styles">Publisher styles</string>
 	<string name="option_ebook_reader_keep_screen_on">Keep screen on</string>
 	<string name="option_ebook_reader_volume_keys">Volume key page turns</string>

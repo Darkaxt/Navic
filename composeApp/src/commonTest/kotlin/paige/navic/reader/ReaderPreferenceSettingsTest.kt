@@ -27,19 +27,23 @@ class ReaderPreferenceSettingsTest {
 
 		preferences.readerTapZone = ReaderTapZoneEdge
 		preferences.readerSmallerTapZone = true
+		preferences.readerShowTapZones = true
 
 		assertEquals(ReaderTapZoneEdge, preferences.readerDefaultSettings().tapZone)
 		assertEquals(true, preferences.readerDefaultSettings().smallerTapZone)
+		assertEquals(true, preferences.readerDefaultSettings().showTapZones)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(
 				tapZone = ReaderTapZoneDisabled,
-				smallerTapZone = false
+				smallerTapZone = false,
+				showTapZones = false
 			)
 		)
 
 		assertEquals(ReaderTapZoneDisabled, preferences.readerTapZone)
 		assertEquals(false, preferences.readerSmallerTapZone)
+		assertEquals(false, preferences.readerShowTapZones)
 	}
 
 	@Test
