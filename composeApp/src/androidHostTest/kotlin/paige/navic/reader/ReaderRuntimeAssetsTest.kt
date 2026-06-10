@@ -342,9 +342,46 @@ class ReaderRuntimeAssetsTest {
 		assertContains(surfaceGesture, "element.addEventListener('touchcancel'")
 		assertContains(surfaceGesture, "Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold")
 		assertContains(surfaceGesture, "await this.turnFixedLayoutSwipePage(deltaX)")
-		assertContains(surfaceGesture, "__navicLastSurfaceTapHandledAt")
+		assertContains(surfaceGesture, "markReaderSurfaceTapHandled(element, event)")
 		assertContains(bridgeText, "startLocator?.progress")
 		assertContains(bridgeText, "await this.goToProgress(progress)")
+	}
+
+	@Test
+	fun androidReaderMarksTapHandledBeforeAwaitingPageTurnNavigation() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val handleTapZone = bridgeText
+			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
+			.substringBefore("\n  attachCenterTapGesture")
+		val centerTouchEnd = bridgeText
+			.substringAfter("doc.addEventListener('touchend', async event => {")
+			.substringBefore("\n    }, { passive: false })")
+		val surfaceTouchEnd = bridgeText
+			.substringAfter("element.addEventListener('touchend', async event => {")
+			.substringBefore("\n    }, { passive: false })")
+		val surfaceClick = bridgeText
+			.substringAfter("element.addEventListener('click', async event => {")
+			.substringBefore("\n    }, { passive: false })")
+
+		assertContains(bridgeText, "markReaderDocumentTapHandled")
+		assertContains(bridgeText, "markReaderSurfaceTapHandled")
+		assertContains(bridgeText, "__navicSuppressNextTapClickUntil")
+		assertContains(bridgeText, "__navicSuppressNextSurfaceClickUntil")
+		assertContains(handleTapZone, "event.markHandled?.()")
+		assertTrue(
+			handleTapZone.indexOf("event.markHandled?.()") <
+				handleTapZone.indexOf("await this.previousPage()"),
+			"Touch handlers must mark a page tap as handled before awaiting navigation so Android WebView synthetic clicks cannot turn a second page."
+		)
+		assertTrue(
+			handleTapZone.indexOf("event.markHandled?.()") <
+				handleTapZone.indexOf("await this.nextPage()"),
+			"Touch handlers must mark a page tap as handled before awaiting navigation so Android WebView synthetic clicks cannot turn a second page."
+		)
+		assertContains(centerTouchEnd, "markHandled: () => markReaderDocumentTapHandled(win, event)")
+		assertContains(surfaceTouchEnd, "markHandled: () => markReaderSurfaceTapHandled(element, event)")
+		assertContains(surfaceClick, "shouldSuppressReaderSurfaceClick(element, event)")
+		assertContains(surfaceClick, "event.preventDefault()")
 	}
 
 	@Test

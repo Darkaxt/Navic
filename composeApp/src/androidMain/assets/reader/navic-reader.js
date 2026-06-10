@@ -334,6 +334,46 @@ const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) => {
   return false
 }
 
+const markReaderDocumentTapHandled = (win, event) => {
+  if (!win) return
+  win.__navicLastTapHandledAt = event?.timeStamp || performance.now()
+  win.__navicSuppressNextTapClickUntil = performance.now() + CenterTapSyntheticClickDedupeMs
+}
+
+const shouldSuppressReaderDocumentClick = (win, event) => {
+  if (!win) return false
+  const timestamp = Number(event?.timeStamp || performance.now())
+  const lastTap = Number(win.__navicLastTapHandledAt || 0)
+  if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) return true
+
+  const suppressUntil = Number(win.__navicSuppressNextTapClickUntil || 0)
+  if (suppressUntil && performance.now() <= suppressUntil) {
+    win.__navicSuppressNextTapClickUntil = 0
+    return true
+  }
+  return false
+}
+
+const markReaderSurfaceTapHandled = (element, event) => {
+  if (!element) return
+  element.__navicLastSurfaceTapHandledAt = event?.timeStamp || performance.now()
+  element.__navicSuppressNextSurfaceClickUntil = performance.now() + CenterTapSyntheticClickDedupeMs
+}
+
+const shouldSuppressReaderSurfaceClick = (element, event) => {
+  if (!element) return false
+  const timestamp = Number(event?.timeStamp || performance.now())
+  const lastTap = Number(element.__navicLastSurfaceTapHandledAt || 0)
+  if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) return true
+
+  const suppressUntil = Number(element.__navicSuppressNextSurfaceClickUntil || 0)
+  if (suppressUntil && performance.now() <= suppressUntil) {
+    element.__navicSuppressNextSurfaceClickUntil = 0
+    return true
+  }
+  return false
+}
+
 // Ported from Komikku's ViewerNavigation plus L/Kindlish/Edge/RightAndLeft region classes.
 const komikkuNavigationRegion = (left, top, right, bottom, type) => ({
   left,
@@ -1230,6 +1270,7 @@ class NavicReaderRuntime {
     if (!tapZone) return false
     event.preventDefault?.()
     event.stopPropagation?.()
+    event.markHandled?.()
     log(`${source}-tap`, tapZone)
     if (tapZone === 'previous') {
       await this.previousPage()
@@ -1291,16 +1332,19 @@ class NavicReaderRuntime {
         clientY: touch.clientY ?? state.clientY,
         preventDefault: () => event.preventDefault(),
         stopPropagation: () => event.stopPropagation(),
+        markHandled: () => markReaderDocumentTapHandled(win, event),
       }, doc, 'touch')
-      if (handled) win.__navicLastTapHandledAt = event.timeStamp || performance.now()
+      if (handled) markReaderDocumentTapHandled(win, event)
     }, { passive: false })
     doc.addEventListener('touchcancel', () => {
       touchState = null
     }, { passive: true })
     doc.addEventListener('click', async event => {
-      const timestamp = event.timeStamp || performance.now()
-      const lastTap = Number(win.__navicLastTapHandledAt || 0)
-      if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) return
+      if (shouldSuppressReaderDocumentClick(win, event)) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       await this.handleReaderTapZone(event, doc, 'center')
     }, { passive: false })
   }
@@ -1348,11 +1392,12 @@ class NavicReaderRuntime {
         Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold &&
         Math.abs(deltaX) > Math.abs(deltaY)
       ) {
+        markReaderSurfaceTapHandled(element, event)
         const handled = await this.turnFixedLayoutSwipePage(deltaX)
         if (handled) {
           event.preventDefault()
           event.stopPropagation()
-          element.__navicLastSurfaceTapHandledAt = event.timeStamp || performance.now()
+          markReaderSurfaceTapHandled(element, event)
         }
         return
       }
@@ -1365,17 +1410,16 @@ class NavicReaderRuntime {
         clientY: touch.clientY ?? state.clientY,
         preventDefault: () => event.preventDefault(),
         stopPropagation: () => event.stopPropagation(),
+        markHandled: () => markReaderSurfaceTapHandled(element, event),
       }, document, 'surface-touch')
-      if (handled) element.__navicLastSurfaceTapHandledAt = event.timeStamp || performance.now()
+      if (handled) markReaderSurfaceTapHandled(element, event)
     }, { passive: false })
     element.addEventListener('touchcancel', () => {
       touchState = null
     }, { passive: true })
     element.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button !== 0) return
-      const timestamp = event.timeStamp || performance.now()
-      const lastTap = Number(element.__navicLastSurfaceTapHandledAt || 0)
-      if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) {
+      if (shouldSuppressReaderSurfaceClick(element, event)) {
         event.preventDefault()
         event.stopPropagation()
         return
