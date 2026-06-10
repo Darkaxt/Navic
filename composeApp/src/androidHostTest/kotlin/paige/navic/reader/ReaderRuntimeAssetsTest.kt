@@ -448,7 +448,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(sepiaToggle, "touchstart")
 		assertContains(sepiaToggle, "touchend")
-		assertContains(bridgeText, "markReaderMediaTapHandled(doc, event)")
+		assertContains(bridgeText, "markReaderMediaTapHandled(doc, event, image || mediaTapTarget)")
 		assertContains(bridgeText, "readerShouldSuppressMediaSyntheticClick(doc, event, anchor)")
 		assertContains(bridgeText, "__navicSuppressNextMediaClickUntil")
 		assertContains(bridgeText, "performance.now() <= suppressUntil")
@@ -456,6 +456,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(sepiaToggle, "mediaTapTarget: readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(sepiaToggle, "state.mediaTapTarget")
 		assertContains(sepiaToggle, "__navicLastMediaTapHandledAt")
+		assertContains(bridgeText, "readerLastMediaTapRectContainsPoint")
+		assertContains(bridgeText, "__navicLastMediaTapRect")
+		assertContains(bridgeText, "markReaderMediaTapHandled(doc, event, image || mediaTapTarget)")
 		assertTrue(
 			linkNavigation.indexOf("readerShouldSuppressMediaSyntheticClick(doc, event, anchor)") <
 				linkNavigation.indexOf("const rawHref"),
@@ -625,7 +628,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerParagraphSpacingEm")
 		assertContains(bridgeText, "--reader-paragraph-spacing")
 		assertContains(bridgeText, "'--reader-paragraph-spacing': readerParagraphSpacingEm(settings)")
-		assertContains(bridgeText, "margin-block-end: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
+		assertContains(bridgeText, "html body p::after")
+		assertContains(bridgeText, "block-size: var(--reader-paragraph-spacing, \${readerParagraphSpacingEm(settings)})")
 		assertContains(bridgeText, "settings.publisherStyles === true")
 		assertContains(bridgeText, "paragraphSpacingPercent")
 		assertContains(bridgeText, "paragraphSpacing=\${")
@@ -716,6 +720,9 @@ class ReaderRuntimeAssetsTest {
 		val paragraphSpacing = bridgeText
 			.substringAfter("const applyReaderParagraphSpacing = (doc, settings) =>")
 			.substringBefore("\n\nconst ensurePaperTextureLayer")
+		val paragraphSpacingCss = bridgeText
+			.substringAfter("const readerParagraphSpacingCss = settings =>")
+			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
@@ -723,10 +730,14 @@ class ReaderRuntimeAssetsTest {
 		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
 		assertContains(paragraphSpacing, "const blocks = Array.from")
-		assertContains(paragraphSpacing, "'margin-block-end': spacing")
+		assertContains(paragraphSpacing, "'display': 'block'")
+		assertContains(paragraphSpacing, "'margin-block-end': '0'")
 		assertContains(paragraphSpacing, "'margin-block-start': '0'")
-		assertContains(paragraphSpacing, "'padding-block-end': spacing")
-		assertContains(paragraphSpacing, "'padding-bottom': spacing")
+		assertContains(paragraphSpacing, "'padding-block-end': '0'")
+		assertContains(paragraphSpacingCss, "html body p::after")
+		assertContains(paragraphSpacingCss, "content: ''")
+		assertContains(paragraphSpacingCss, "display: block")
+		assertContains(paragraphSpacingCss, "block-size: var(--reader-paragraph-spacing")
 		assertContains(applyDocumentTheme, "applyReaderParagraphSpacing(doc, settings)")
 	}
 
@@ -746,14 +757,24 @@ class ReaderRuntimeAssetsTest {
 		assertContains(documentThemeCss, "isolation: isolate")
 		assertContains(documentThemeCss, "z-index: 2147483647")
 		assertContains(documentThemeCss, "background-image: var(--reader-paper-texture-image)")
+		assertContains(documentThemeCss, "background-size: var(--reader-paper-texture-size")
+		assertContains(documentThemeCss, "background-repeat: var(--reader-paper-texture-repeat")
 		assertContains(documentThemeCss, "opacity: var(--reader-paper-texture-opacity, 0)")
 		assertContains(bridgeText, "readerPaperTextureBackgroundImage(textureVariant, settings)")
+		assertContains(bridgeText, "readerPaperTextureBackgroundSize(textureVariant, settings)")
+		assertContains(bridgeText, "readerPaperTextureBackgroundRepeat(textureVariant, settings)")
+		assertContains(bridgeText, "readerPaperTextureFallbackLayers(settings)")
 		assertContains(bridgeText, "readerPaperTextureLayerCount(settings)")
 		assertContains(bridgeText, "Array.from({ length: readerPaperTextureLayerCount(settings) }")
 		assertContains(applyDocumentTheme, "ensurePaperTextureLayer(doc)")
 		assertContains(applyDocumentTheme, "updatePaperTextureLayer(layer, textureVariant, settings)")
 		assertContains(bridgeText, "layer.dataset.navicPaperTextureLayer = 'true'")
+		assertContains(bridgeText, "body.prepend(layer)")
+		assertContains(bridgeText, "position: 'absolute'")
+		assertContains(bridgeText, "'min-height': 'max(100%, 100vh)'")
 		assertContains(bridgeText, "'background-image': readerPaperTextureBackgroundImage(textureVariant, settings)")
+		assertContains(bridgeText, "'background-size': readerPaperTextureBackgroundSize(textureVariant, settings)")
+		assertContains(bridgeText, "'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings)")
 		assertContains(bridgeText, "pointer-events: none")
 	}
 

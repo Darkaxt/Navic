@@ -253,16 +253,39 @@ const readerMediaTapTargetForEvent = (doc, event, anchor) => {
   return null
 }
 
-const markReaderMediaTapHandled = (doc, event) => {
+const readerRectSnapshot = element => {
+  const rect = element?.getBoundingClientRect?.()
+  if (!rect) return null
+  return {
+    left: Number(rect.left),
+    top: Number(rect.top),
+    right: Number(rect.right),
+    bottom: Number(rect.bottom),
+  }
+}
+
+const markReaderMediaTapHandled = (doc, event, mediaTarget = null) => {
   const win = doc?.defaultView
   if (!win) return
   win.__navicLastMediaTapHandledAt = event?.timeStamp || performance.now()
   win.__navicSuppressNextMediaClickUntil = performance.now() + ReaderMediaSyntheticClickSuppressMs
+  const mediaRect = readerRectSnapshot(mediaTarget)
+  if (mediaRect) win.__navicLastMediaTapRect = mediaRect
   const { clientX, clientY } = readerEventClientPoint(event)
   if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
     win.__navicLastMediaTapClientX = clientX
     win.__navicLastMediaTapClientY = clientY
   }
+}
+
+const readerLastMediaTapRectContainsPoint = (doc, event) => {
+  const rect = doc?.defaultView?.__navicLastMediaTapRect
+  if (!rect) return false
+  const { clientX, clientY } = readerEventClientPoint(event)
+  const x = Number(clientX)
+  const y = Number(clientY)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false
+  return readerPointInsideRect(x, y, rect, CenterTapMovementSlop * 2)
 }
 
 const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) => {
@@ -274,6 +297,7 @@ const readerShouldSuppressMediaSyntheticClick = (doc, event, anchor) => {
 
   const suppressUntil = Number(win.__navicSuppressNextMediaClickUntil || 0)
   if (suppressUntil && performance.now() <= suppressUntil) {
+    if (readerLastMediaTapRectContainsPoint(doc, event)) return true
     if (isReaderMediaAnchor(anchor)) return true
     if (readerMediaTapTargetForEvent(doc, event, anchor)) return true
     const { clientX, clientY } = readerEventClientPoint(event)
@@ -438,7 +462,7 @@ const readerPaperTextureLayerCount = settings => {
     case 'black':
       return 0
     case ReaderThemeSepia:
-      return 12
+      return 16
     case 'dark':
     case 'dusk':
       return 8
@@ -447,11 +471,54 @@ const readerPaperTextureLayerCount = settings => {
   }
 }
 
+const readerPaperTextureFallbackLayers = settings => {
+  if (readerPaperTextureLayerCount(settings) <= 0) return []
+  const theme = readerThemeKey(settings?.theme)
+  const speckle = theme === ReaderThemeSepia
+    ? 'rgba(92, 62, 28, 0.085)'
+    : theme === ReaderThemeLight
+      ? 'rgba(31, 28, 22, 0.055)'
+      : 'rgba(255, 255, 255, 0.06)'
+  const fiber = theme === ReaderThemeSepia
+    ? 'rgba(117, 83, 42, 0.045)'
+    : theme === ReaderThemeLight
+      ? 'rgba(31, 28, 22, 0.032)'
+      : 'rgba(255, 255, 255, 0.035)'
+  return [
+    `radial-gradient(circle at 17% 29%, ${speckle} 0 0.7px, transparent 1.1px)`,
+    `radial-gradient(circle at 73% 61%, ${fiber} 0 0.85px, transparent 1.25px)`,
+    `linear-gradient(105deg, transparent 0 48%, ${fiber} 49%, transparent 50% 100%)`,
+  ]
+}
+
 const readerPaperTextureBackgroundImage = (textureVariant, settings) => {
   if (!textureVariant?.asset) return 'none'
   if (readerPaperTextureLayerCount(settings) <= 0) return 'none'
   const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
-  return Array.from({ length: readerPaperTextureLayerCount(settings) }, () => textureUrl).join(', ')
+  return [
+    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => textureUrl),
+    ...readerPaperTextureFallbackLayers(settings),
+  ].join(', ')
+}
+
+const readerPaperTextureBackgroundSize = (textureVariant, settings) => {
+  if (!textureVariant?.asset || readerPaperTextureLayerCount(settings) <= 0) return 'auto'
+  return [
+    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => 'cover'),
+    '180px 180px',
+    '260px 260px',
+    '360px 360px',
+  ].join(', ')
+}
+
+const readerPaperTextureBackgroundRepeat = (textureVariant, settings) => {
+  if (!textureVariant?.asset || readerPaperTextureLayerCount(settings) <= 0) return 'no-repeat'
+  return [
+    ...Array.from({ length: readerPaperTextureLayerCount(settings) }, () => 'no-repeat'),
+    'repeat',
+    'repeat',
+    'repeat',
+  ].join(', ')
 }
 
 const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
@@ -494,12 +561,13 @@ const applyReaderParagraphSpacing = (doc, settings) => {
   const blocks = Array.from(doc?.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
   for (const element of blocks) {
     setStylesImportant(element, {
+      'display': 'block',
       'margin-block-start': '0',
-      'margin-block-end': spacing,
+      'margin-block-end': '0',
       'margin-top': '0',
-      'margin-bottom': spacing,
-      'padding-block-end': spacing,
-      'padding-bottom': spacing,
+      'margin-bottom': '0',
+      'padding-block-end': '0',
+      'padding-bottom': '0',
     })
   }
   const adjacentBlocks = Array.from(doc?.querySelectorAll?.(`
@@ -510,8 +578,8 @@ const applyReaderParagraphSpacing = (doc, settings) => {
   `) || [])
   for (const element of adjacentBlocks) {
     setStylesImportant(element, {
-      'margin-block-start': spacing,
-      'margin-top': spacing,
+      'margin-block-start': '0',
+      'margin-top': '0',
     })
   }
 }
@@ -524,7 +592,7 @@ const ensurePaperTextureLayer = doc => {
     layer = doc.createElement('div')
     layer.dataset.navicPaperTextureLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
-    body.append(layer)
+    body.prepend(layer)
   }
   return layer
 }
@@ -532,16 +600,17 @@ const ensurePaperTextureLayer = doc => {
 const updatePaperTextureLayer = (layer, textureVariant, settings) => {
   if (!layer || !textureVariant?.asset) return
   setStylesImportant(layer, {
-    position: 'fixed',
-    inset: '-1px',
+    position: 'absolute',
+    inset: '0px',
     width: 'auto',
-    height: 'auto',
+    height: '100%',
+    'min-height': 'max(100%, 100vh)',
     'z-index': '2147483647',
     'pointer-events': 'none',
     'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
+    'background-size': readerPaperTextureBackgroundSize(textureVariant, settings),
     'background-position': 'center',
-    'background-repeat': 'no-repeat',
-    'background-size': 'cover',
+    'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
     'background-color': 'transparent',
     opacity: readerPaperTextureOpacity(settings),
     'mix-blend-mode': 'multiply',
@@ -1071,7 +1140,7 @@ class NavicReaderRuntime {
     } else {
       image.dataset.navicSepiaOverlay = 'off'
     }
-    markReaderMediaTapHandled(doc, event)
+    markReaderMediaTapHandled(doc, event, image || mediaTapTarget)
     log('image:sepia-overlay', disabled ? 'on' : 'off')
     return true
   }
@@ -1314,14 +1383,16 @@ class NavicReaderRuntime {
         '--theme-bg-color': palette.background,
         '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
         '--reader-paper-texture-image': readerPaperTextureBackgroundImage(textureVariant, settings),
+        '--reader-paper-texture-size': readerPaperTextureBackgroundSize(textureVariant, settings),
+        '--reader-paper-texture-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
         '--reader-paper-texture-transform': readerPaperTextureTransform(textureVariant),
         '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
         background: palette.background,
         'background-color': palette.background,
         'background-image': readerPaperTextureBackgroundImage(textureVariant, settings),
         'background-position': 'center',
-        'background-repeat': 'no-repeat',
-        'background-size': 'cover',
+        'background-repeat': readerPaperTextureBackgroundRepeat(textureVariant, settings),
+        'background-size': readerPaperTextureBackgroundSize(textureVariant, settings),
         'background-blend-mode': 'multiply',
         color: palette.foreground,
       })
@@ -1574,15 +1645,23 @@ const readerTypographyCss = settings => {
 const readerParagraphSpacingCss = settings => `
   html body p,
   html body [data-navic-paragraph-block="true"] {
+    display: block !important;
     margin-block-start: 0 !important;
-    margin-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
-    padding-block-end: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
+    margin-block-end: 0 !important;
+    padding-block-end: 0 !important;
   }
   html body p + p,
   html body [data-navic-paragraph-block="true"] + [data-navic-paragraph-block="true"],
   html body p + [data-navic-paragraph-block="true"],
   html body [data-navic-paragraph-block="true"] + p {
-    margin-block-start: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)}) !important;
+    margin-block-start: 0 !important;
+  }
+  html body p::after,
+  html body [data-navic-paragraph-block="true"]::after {
+    content: '';
+    display: block;
+    block-size: var(--reader-paragraph-spacing, ${readerParagraphSpacingEm(settings)});
+    min-block-size: 0;
   }
 `
 
@@ -1599,6 +1678,8 @@ const readerDocumentThemeCss = settings => {
     --reader-accent: ${palette.accent};
     --theme-bg-color: ${palette.background};
     --reader-paper-texture-image: none;
+    --reader-paper-texture-size: auto;
+    --reader-paper-texture-repeat: no-repeat;
     --reader-paper-texture-transform: none;
     --reader-paper-texture-opacity: 0;
     color-scheme: ${palette.background === '#fbfaf8' || palette.background === '#f3ead7' ? 'light' : 'dark'};
@@ -1611,8 +1692,8 @@ const readerDocumentThemeCss = settings => {
     background-color: var(--reader-background) !important;
     background-image: var(--reader-paper-texture-image) !important;
     background-position: center !important;
-    background-repeat: no-repeat !important;
-    background-size: cover !important;
+    background-repeat: var(--reader-paper-texture-repeat, no-repeat) !important;
+    background-size: var(--reader-paper-texture-size, cover) !important;
     background-blend-mode: multiply !important;
     isolation: isolate;
     position: relative !important;
@@ -1626,8 +1707,8 @@ const readerDocumentThemeCss = settings => {
     pointer-events: none;
     background-image: var(--reader-paper-texture-image);
     background-position: center;
-    background-repeat: no-repeat;
-    background-size: cover;
+    background-repeat: var(--reader-paper-texture-repeat, no-repeat);
+    background-size: var(--reader-paper-texture-size, cover);
     opacity: var(--reader-paper-texture-opacity, 0);
     mix-blend-mode: multiply;
     transform: var(--reader-paper-texture-transform, none);
