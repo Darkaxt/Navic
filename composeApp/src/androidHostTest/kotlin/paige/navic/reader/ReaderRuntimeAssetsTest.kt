@@ -1293,7 +1293,7 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderUsesSectionIndexFallbackWhenFixedLayoutPageTurnDoesNotMove() {
+	fun androidReaderUsesSectionIndexTargetForFixedLayoutPageTurns() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turnPage = bridgeText
 			.substringAfter("async turnPage(direction) {")
@@ -1301,12 +1301,14 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(bridgeText, "fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(bridgeText, "fixedLayoutCurrentPageIndex()")
-		assertContains(turnPage, "const beforePageIndex = this.fixedLayoutCurrentPageIndex()")
-		assertContains(turnPage, "const fallbackPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
-		assertContains(turnPage, "const afterPageIndex = this.fixedLayoutCurrentPageIndex()")
-		assertContains(turnPage, "if (fallbackPageTarget != null && beforePageIndex === afterPageIndex)")
-		assertContains(turnPage, "await this.view.goTo(fallbackPageTarget)")
-		assertContains(turnPage, "page-turn:fixed-fallback")
+		assertContains(turnPage, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(turnPage, "if (directFixedLayoutPageTarget != null)")
+		assertContains(turnPage, "await this.view.goTo(directFixedLayoutPageTarget)")
+		assertContains(turnPage, "page-turn:fixed-direct")
+		assertFalse(
+			turnPage.contains("page-turn:fixed-fallback"),
+			"Fixed-layout/PDF taps should navigate by direct adjacent section target, not by slow fallback after next/prev."
+		)
 	}
 
 	@Test
@@ -1326,12 +1328,34 @@ class ReaderRuntimeAssetsTest {
 		assertContains(turnPage, "this.pageTurnPromise = turnPromise")
 		assertContains(turnPage, "if (this.pageTurnPromise === turnPromise)")
 		assertContains(turnPage, "this.pageTurnPromise = null")
-		assertContains(performPageTurn, "const beforePageIndex = this.fixedLayoutCurrentPageIndex()")
-		assertContains(performPageTurn, "await this.view.goTo(fallbackPageTarget)")
+		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(performPageTurn, "await this.view.goTo(directFixedLayoutPageTarget)")
 		assertTrue(
 			turnPage.indexOf("if (this.pageTurnPromise)") <
 				turnPage.indexOf("this.pageTurnPromise = turnPromise"),
 			"Duplicated tap/click page-turn events must be coalesced before starting a second fixed-layout turn."
+		)
+	}
+
+	@Test
+	fun androidReaderUsesDirectFixedLayoutTargetsForTapPageTurns() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val performPageTurn = bridgeText
+			.substringAfter("async performPageTurn(direction) {")
+			.substringBefore("\n  attachScrolledEdgeTurnGestures")
+
+		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(performPageTurn, "if (directFixedLayoutPageTarget != null)")
+		assertContains(performPageTurn, "page-turn:fixed-direct")
+		assertContains(performPageTurn, "await this.view.goTo(directFixedLayoutPageTarget)")
+		assertTrue(
+			performPageTurn.indexOf("await this.view.goTo(directFixedLayoutPageTarget)") <
+				performPageTurn.indexOf("await this.view?.next?.()"),
+			"Fixed-layout/PDF tap navigation should go directly to the indexed adjacent page instead of waiting for next/prev to fail."
+		)
+		assertFalse(
+			performPageTurn.contains("beforePageIndex === afterPageIndex"),
+			"Fixed-layout tap navigation should not need a try-next/then-fallback path."
 		)
 	}
 

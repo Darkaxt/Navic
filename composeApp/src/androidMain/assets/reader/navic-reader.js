@@ -1194,17 +1194,14 @@ class NavicReaderRuntime {
     if (!this.view) return
     try {
       log('page-turn:start', direction)
-      const beforePageIndex = this.fixedLayoutCurrentPageIndex()
-      const fallbackPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
-      if (direction === 'next') {
+      const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
+      if (directFixedLayoutPageTarget != null) {
+        log('page-turn:fixed-direct', direction, directFixedLayoutPageTarget)
+        await this.view.goTo(directFixedLayoutPageTarget)
+      } else if (direction === 'next') {
         await this.view?.next?.()
       } else {
         await this.view?.prev?.()
-      }
-      const afterPageIndex = this.fixedLayoutCurrentPageIndex()
-      if (fallbackPageTarget != null && beforePageIndex === afterPageIndex) {
-        log('page-turn:fixed-fallback', direction, fallbackPageTarget)
-        await this.view.goTo(fallbackPageTarget)
       }
       this.applyReaderViewportLayout(`page-turn:${direction}`)
       requestAnimationFrame(() => {
