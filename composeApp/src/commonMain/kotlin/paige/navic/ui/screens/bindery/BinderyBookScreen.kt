@@ -259,6 +259,10 @@ fun BinderyBookScreen(
 											platformContext.clickSound()
 											backStack.add(destination)
 										},
+										onOpenAudiobook = { destination ->
+											platformContext.clickSound()
+											backStack.add(destination)
+										},
 										onOpenFinding = { finding ->
 											platformContext.clickSound()
 											backStack.add(binderyDestinationForCard(finding))
@@ -281,6 +285,10 @@ fun BinderyBookScreen(
 										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 										readaloudMediaOverlayEnabled = preferenceManager.readerMediaOverlayEnabled,
 										onOpenReader = { destination ->
+											platformContext.clickSound()
+											backStack.add(destination)
+										},
+										onOpenAudiobook = { destination ->
 											platformContext.clickSound()
 											backStack.add(destination)
 										},
@@ -463,6 +471,7 @@ private fun BinderyBookVersionListItem(
 	opdsBaseUrl: String,
 	readaloudMediaOverlayEnabled: Boolean,
 	onOpenReader: (Screen.Reader) -> Unit,
+	onOpenAudiobook: (Screen.BinderyAudiobookPlayer) -> Unit,
 	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
 ) {
 	val readerDestination = binderyReaderDestinationForVersionRow(
@@ -472,6 +481,15 @@ private fun BinderyBookVersionListItem(
 		opdsBaseUrl = opdsBaseUrl,
 		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled
 	)
+	val audiobookDestination = if (row.routingAction() == BinderyBookVersionRoutingAction.OpenAudiobook) {
+		Screen.BinderyAudiobookPlayer(
+			bookId = bookId,
+			title = bookTitle,
+			versionRowId = row.id
+		)
+	} else {
+		null
+	}
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = RoundedCornerShape(8.dp),
@@ -523,9 +541,12 @@ private fun BinderyBookVersionListItem(
 			}
 			IconButton(
 				onClick = {
-					readerDestination?.let(onOpenReader)
+					when {
+						audiobookDestination != null -> onOpenAudiobook(audiobookDestination)
+						readerDestination != null -> onOpenReader(readerDestination)
+					}
 				},
-				enabled = readerDestination != null
+				enabled = audiobookDestination != null || readerDestination != null
 			) {
 				Icon(
 					imageVector = Icons.Filled.Play,

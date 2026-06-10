@@ -551,6 +551,7 @@ private fun readerProgressPercentLabel(progress: Double?): String =
 data class ReaderReadaloudPlaybackUiState(
 	val isAvailable: Boolean = false,
 	val isPlaying: Boolean = false,
+	val trackIndex: Int = 0,
 	val positionMs: Long = 0L,
 	val durationMs: Long? = null,
 	val playbackSpeed: Float = 1f,
@@ -588,6 +589,8 @@ data class ReaderReadaloudPlaybackUiState(
 sealed interface ReaderReadaloudPlaybackCommand {
 	data object Play : ReaderReadaloudPlaybackCommand
 	data object Pause : ReaderReadaloudPlaybackCommand
+	data class SeekTo(val positionMs: Long) : ReaderReadaloudPlaybackCommand
+	data class SeekToTrack(val trackIndex: Int, val positionMs: Long = 0L) : ReaderReadaloudPlaybackCommand
 	data class SetSpeed(val speed: Float) : ReaderReadaloudPlaybackCommand
 	data class SetSyncEnabled(val enabled: Boolean) : ReaderReadaloudPlaybackCommand
 }

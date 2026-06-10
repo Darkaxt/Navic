@@ -101,11 +101,14 @@ Confirmed player design decisions:
   - LidaClips/music-video actions.
 - Replace `Up next` with a chapter explorer backed by the OPDS `readingOrder`.
 - Use audiobook-oriented transport controls:
-  - Previous chapter.
+  - Seek backward 30 seconds.
+  - Seek backward 10 seconds.
   - Play/pause.
-  - Next chapter.
-  - Configurable skip-back/skip-forward controls.
-- Seek controls should be configurable in Settings. The user can choose which skip ranges are shown at the same time, and Navic renders those ranges as ordered visible actions in the audiobook UI.
+  - Seek forward 10 seconds.
+  - Seek forward 30 seconds.
+- Chapter navigation belongs in the chapter index/explorer, not in the main transport row.
+- Playback speed should be a visible audiobook player control, following the Audible-style speed toggle pattern instead of being hidden behind music-player controls.
+- Future settings may make seek ranges configurable, but the first standalone player should render the ordered `-30 / -10 / play / +10 / +30` actions directly.
 - The first-pass Info action should render Bindery/OpenLibrary metadata first. Other sources such as Google Books, Audible public data, Goodreads-like data, Hardcover, or `pennydreadful/bookshelf` are Navic-side enrichment candidates and must not be required for playback.
 - The ebook-related action should be a bridge to ebook candidates or another client for the first pass, not a full ebook reader integration.
 

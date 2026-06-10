@@ -165,6 +165,9 @@ actual fun ReaderReadaloudRuntimeHost(
 		when (playbackCommand) {
 			ReaderReadaloudPlaybackCommand.Play -> controller.play()
 			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
+			is ReaderReadaloudPlaybackCommand.SeekTo -> controller.seekTo(playbackCommand.positionMs)
+			is ReaderReadaloudPlaybackCommand.SeekToTrack ->
+				controller.seekTo(playbackCommand.trackIndex, playbackCommand.positionMs)
 			is ReaderReadaloudPlaybackCommand.SetSpeed -> controller.setPlaybackSpeed(playbackCommand.speed)
 			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
 				val nextState = syncState.setSyncEnabled(playbackCommand.enabled)
@@ -208,6 +211,7 @@ private fun paige.navic.reader.ReadaloudPlaybackPosition.toReaderReadaloudPlayba
 	ReaderReadaloudPlaybackUiState(
 		isAvailable = isAvailable,
 		isPlaying = isPlaying,
+		trackIndex = trackIndex,
 		positionMs = positionMs,
 		durationMs = durationMs,
 		playbackSpeed = playbackSpeed,

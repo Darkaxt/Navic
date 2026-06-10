@@ -44,6 +44,7 @@ fun BlendBackground(
 	coverArtId: String?,
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	modifier: Modifier = Modifier,
 	isPaused: Boolean = false,
 	showBottomGradient: Boolean = false
@@ -69,8 +70,9 @@ fun BlendBackground(
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
-	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, imageRequestHeaders, serverRequestHeaders) {
 		val usesServerCoverArt = resolvedImageUrl == null
+		val requestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(resolvedImageCacheKey?.let { "${it}_static" })
@@ -78,8 +80,8 @@ fun BlendBackground(
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.apply {
-				if (usesServerCoverArt) {
-					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				if (requestHeaders.isNotEmpty()) {
+					httpHeaders(requestHeaders.toNetworkHeaders())
 				}
 			}
 			.build()

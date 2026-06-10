@@ -43,6 +43,8 @@
 	<string name="title_bindery_files">Files</string>
 	<string name="title_bindery_provider_notes">Provider notes</string>
 	<string name="title_audiobook_subjects">Subjects</string>
+	<string name="title_chapters">Chapters</string>
+	<string name="title_current_chapter">Current chapter</string>
 	<string name="title_audiobook_recently_added">Recently added</string>
 	<string name="title_audiobook_wanted">Wanted</string>
 	<string name="title_audiobook_last_read">Last read</string>
@@ -674,6 +676,7 @@
 	<string name="info_bindery_service_status_loading">Loading Bindery status...</string>
 	<string name="info_bindery_service_status_unavailable">Bindery status not loaded</string>
 	<string name="info_bindery_no_versions">No audiobook or ebook versions listed</string>
+	<string name="info_bindery_audiobook_unavailable">No playable audiobook chapters found</string>
 	<string name="info_bindery_version_available">Available</string>
 	<string name="info_bindery_service_status_failed">Bindery status failed: %1$s</string>
 	<string name="info_bindery_configured">Configured</string>
