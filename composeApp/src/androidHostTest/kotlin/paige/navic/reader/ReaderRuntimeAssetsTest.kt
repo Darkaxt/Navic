@@ -1519,10 +1519,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(readerScreenText, "Narrator")
 		assertContains(readerScreenText, "Quality")
 		assertContains(readerScreenText, "Source")
+		assertContains(readerScreenText, "Release")
+		assertContains(readerScreenText, "Source URL")
 		assertContains(runtimeHostText, "activeAudioLabel =")
 		assertContains(runtimeHostText, "activeLabelForPlaybackPosition")
 		assertContains(runtimeHostText, "activeAudioMetadata =")
 		assertContains(runtimeHostText, "metadataLabelsForPlaybackPosition")
+	}
+
+	@Test
+	fun androidReadaloudMediaItemsPreserveSourceReleaseMetadataInMedia3Extras() {
+		val mediaItemsText = readerAndroidPackageFile("ReadaloudMediaItems.android.kt").readText()
+
+		assertContains(mediaItemsText, "putString(\"sourceProvider\", descriptor.sourceProviderLabel)")
+		assertContains(mediaItemsText, "putString(\"sourceRelease\", descriptor.sourceReleaseLabel)")
+		assertContains(mediaItemsText, "putString(\"sourceUrl\", descriptor.sourceUrl)")
 	}
 
 	@Test
@@ -1595,6 +1606,13 @@ class ReaderRuntimeAssetsTest {
 			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName")
 		).firstOrNull { it.isFile }
 			?: error("Could not locate Android reader file $fileName")
+
+	private fun readerAndroidPackageFile(fileName: String): File =
+		listOf(
+			File("src/androidMain/kotlin/paige/navic/reader/$fileName"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/reader/$fileName")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate Android reader package file $fileName")
 
 	private fun readerCommonFile(fileName: String): File =
 		listOf(

@@ -60,6 +60,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		assertEquals(2, mediaItem.channels)
 		assertEquals("Studio 128 kbps", mediaItem.qualityLabel)
 		assertEquals("Storyteller", mediaItem.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", mediaItem.sourceReleaseLabel)
+		assertEquals("https://storyteller.local/releases/alcatraz", mediaItem.sourceUrl)
 		val labels = runtime.playbackPlan.metadataLabelsForPlaybackPosition(
 			ReadaloudPlaybackPosition(
 				sessionId = "3693",
@@ -76,6 +78,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("Studio 128 kbps", labels?.qualityLabel)
 		assertEquals("Storyteller", labels?.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", labels?.sourceReleaseLabel)
+		assertEquals("https://storyteller.local/releases/alcatraz", labels?.sourceUrlLabel)
 		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
 		assertEquals(
 			listOf(
@@ -109,6 +113,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 						<meta property="storyteller:narrator" refines="#audio1">Andy Serkis</meta>
 						<meta property="storyteller:quality-label" refines="#audio1">Studio 128 kbps</meta>
 						<meta property="storyteller:source-provider" refines="#audio1">Storyteller</meta>
+						<meta property="storyteller:source-release" refines="#audio1">Unabridged / MP3</meta>
+						<meta property="storyteller:source-url" refines="#audio1">https://storyteller.local/releases/alcatraz</meta>
 						<meta property="storyteller:codec" refines="#audio1">mp3</meta>
 						<meta property="storyteller:bitrate-kbps" refines="#audio1">128</meta>
 						<meta property="storyteller:sample-rate-hz" refines="#audio1">44100</meta>

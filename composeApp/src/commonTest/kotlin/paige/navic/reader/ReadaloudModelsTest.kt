@@ -77,6 +77,8 @@ class ReadaloudModelsTest {
 		assertEquals(2, track.channels)
 		assertEquals("High", track.qualityLabel)
 		assertEquals("Audible", track.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", track.sourceReleaseLabel)
+		assertEquals("https://example.com/audible/alcatraz", track.sourceUrl)
 		assertEquals("Michael Kramer / High / Audible", track.subtitleLabel)
 	}
 
@@ -146,6 +148,8 @@ class ReadaloudModelsTest {
 					resourceKey = "audio-1",
 					qualityLabel = "128 kbps",
 					sourceProviderLabel = "AudioBook Bay",
+					sourceReleaseLabel = "Unabridged / MP3",
+					sourceUrl = "https://example.com/audiobook-bay/hobbit",
 					codec = "mp3",
 					bitrateKbps = 128,
 					sampleRateHz = 44100,
@@ -175,6 +179,8 @@ class ReadaloudModelsTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("128 kbps", labels?.qualityLabel)
 		assertEquals("AudioBook Bay", labels?.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", labels?.sourceReleaseLabel)
+		assertEquals("https://example.com/audiobook-bay/hobbit", labels?.sourceUrlLabel)
 		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
 	}
 

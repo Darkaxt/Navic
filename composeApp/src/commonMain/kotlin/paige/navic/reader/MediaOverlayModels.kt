@@ -48,6 +48,7 @@ data class StorytellerAudioResource(
 	val channels: Int? = null,
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
+	val sourceReleaseLabel: String? = null,
 	val sourceUrl: String? = null
 )
 
@@ -150,6 +151,7 @@ fun StorytellerReadaloudPackage.toReadaloudAudioSession(
 				channels = resource.channels,
 				qualityLabel = resource.qualityLabel,
 				sourceProviderLabel = resource.sourceProviderLabel,
+				sourceReleaseLabel = resource.sourceReleaseLabel,
 				sourceUrl = resource.sourceUrl
 			)
 		}

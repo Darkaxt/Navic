@@ -52,6 +52,8 @@ private fun Bundle.putReadaloudMediaExtras(descriptor: ReadaloudMediaItemDescrip
 	putString("resourceKey", descriptor.resourceKey)
 	putString("qualityLabel", descriptor.qualityLabel)
 	putString("sourceProvider", descriptor.sourceProviderLabel)
+	putString("sourceRelease", descriptor.sourceReleaseLabel)
+	putString("sourceUrl", descriptor.sourceUrl)
 	putString("codec", descriptor.codec)
 	descriptor.bitrateKbps?.let { putInt("bitrateKbps", it) }
 	descriptor.sampleRateHz?.let { putLong("sampleRateHz", it) }

@@ -1584,6 +1584,8 @@ private fun ReaderReadaloudMetadataRows(metadata: paige.navic.reader.ReadaloudPl
 	ReaderOptionalValueRow("Narrator", metadata.narratorLabel)
 	ReaderOptionalValueRow("Quality", metadata.qualityLabel)
 	ReaderOptionalValueRow("Source", metadata.sourceProviderLabel)
+	ReaderOptionalValueRow("Release", metadata.sourceReleaseLabel)
+	ReaderOptionalValueRow("Source URL", metadata.sourceUrlLabel)
 	ReaderOptionalValueRow("Format", metadata.formatLabel)
 }
 

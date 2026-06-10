@@ -23,7 +23,9 @@ class ReadaloudMediaItemTest {
 			sampleRateHz = 44100,
 			channels = 2,
 			qualityLabel = "High",
-			sourceProviderLabel = "Audible"
+			sourceProviderLabel = "Audible",
+			sourceReleaseLabel = "Unabridged / MP3",
+			sourceUrl = "https://example.com/audible/alcatraz"
 		)
 
 		val descriptor = track.toReadaloudMediaItemDescriptor(
@@ -43,6 +45,8 @@ class ReadaloudMediaItemTest {
 		assertEquals("Opening", descriptor.subtitle)
 		assertEquals(1, descriptor.trackNumber)
 		assertEquals(1, descriptor.discNumber)
+		assertEquals("Unabridged / MP3", descriptor.sourceReleaseLabel)
+		assertEquals("https://example.com/audible/alcatraz", descriptor.sourceUrl)
 	}
 
 	@Test
@@ -71,7 +75,9 @@ class ReadaloudMediaItemTest {
 					sampleRateHz = 44100,
 					channels = 2,
 					qualityLabel = "High",
-					sourceProviderLabel = "Audible"
+					sourceProviderLabel = "Audible",
+					sourceReleaseLabel = "Unabridged / MP3",
+					sourceUrl = "https://example.com/audible/alcatraz"
 				)
 			)
 		)
@@ -88,6 +94,8 @@ class ReadaloudMediaItemTest {
 		assertEquals("audio-001", descriptor.resourceKey)
 		assertEquals("High", descriptor.qualityLabel)
 		assertEquals("Audible", descriptor.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", descriptor.sourceReleaseLabel)
+		assertEquals("https://example.com/audible/alcatraz", descriptor.sourceUrl)
 		assertEquals("mp3", descriptor.codec)
 		assertEquals(128, descriptor.bitrateKbps)
 		assertEquals(44100L, descriptor.sampleRateHz)

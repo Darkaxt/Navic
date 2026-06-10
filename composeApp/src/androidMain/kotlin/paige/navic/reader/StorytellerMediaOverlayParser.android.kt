@@ -87,6 +87,7 @@ object StorytellerMediaOverlayParser {
 					channels = metadata.channels,
 					qualityLabel = metadata.qualityLabel,
 					sourceProviderLabel = metadata.sourceProviderLabel,
+					sourceReleaseLabel = metadata.sourceReleaseLabel,
 					sourceUrl = metadata.sourceUrl
 				)
 			}
@@ -352,6 +353,7 @@ object StorytellerMediaOverlayParser {
 		val channels: Int? = null,
 		val qualityLabel: String? = null,
 		val sourceProviderLabel: String? = null,
+		val sourceReleaseLabel: String? = null,
 		val sourceUrl: String? = null
 	) {
 		fun mergedWith(override: StorytellerOpfAudioMetadata?): StorytellerOpfAudioMetadata =
@@ -371,6 +373,7 @@ object StorytellerMediaOverlayParser {
 					channels = override.channels ?: channels,
 					qualityLabel = override.qualityLabel ?: qualityLabel,
 					sourceProviderLabel = override.sourceProviderLabel ?: sourceProviderLabel,
+					sourceReleaseLabel = override.sourceReleaseLabel ?: sourceReleaseLabel,
 					sourceUrl = override.sourceUrl ?: sourceUrl
 				)
 			}
@@ -391,6 +394,7 @@ object StorytellerMediaOverlayParser {
 				"channels", "channelcount" -> copy(channels = value.toIntOrNull())
 				"qualitylabel", "quality" -> copy(qualityLabel = value)
 				"sourceprovider", "provider" -> copy(sourceProviderLabel = value)
+				"sourcerelease", "release" -> copy(sourceReleaseLabel = value)
 				"sourceurl", "source" -> copy(sourceUrl = value)
 				else -> this
 			}

@@ -2,6 +2,7 @@ package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyReadingOrderItem
+import paige.navic.domain.repositories.BinderySourceReleaseMetadata
 import paige.navic.util.core.AppLogLevel
 import paige.navic.util.core.LoggerEvent
 import kotlin.math.roundToLong
@@ -33,6 +34,7 @@ data class ReadaloudAudioTrack(
 	val channels: Int? = null,
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
+	val sourceReleaseLabel: String? = null,
 	val sourceUrl: String? = null
 ) {
 	val subtitleLabel: String?
@@ -57,6 +59,8 @@ data class ReadaloudMediaItemDescriptor(
 	val resourceKey: String? = null,
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
+	val sourceReleaseLabel: String? = null,
+	val sourceUrl: String? = null,
 	val codec: String? = null,
 	val bitrateKbps: Int? = null,
 	val sampleRateHz: Long? = null,
@@ -70,6 +74,8 @@ data class ReadaloudPlaybackMetadataLabels(
 	val narratorLabel: String? = null,
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
+	val sourceReleaseLabel: String? = null,
+	val sourceUrlLabel: String? = null,
 	val formatLabel: String? = null
 )
 
@@ -113,6 +119,8 @@ fun ReadaloudAudioTrack.toReadaloudMediaItemDescriptor(
 		resourceKey = resourceKey ?: id,
 		qualityLabel = qualityLabel,
 		sourceProviderLabel = sourceProviderLabel,
+		sourceReleaseLabel = sourceReleaseLabel,
+		sourceUrl = sourceUrl,
 		codec = codec,
 		bitrateKbps = bitrateKbps,
 		sampleRateHz = sampleRateHz,
@@ -172,13 +180,15 @@ private fun ReadaloudPlaybackPlan.mediaItemFor(
 	mediaItems.getOrNull(position.trackIndex)
 		?: position.mediaId?.let { mediaId -> mediaItems.firstOrNull { item -> item.mediaId == mediaId } }
 
-private fun ReadaloudMediaItemDescriptor.toReadaloudPlaybackMetadataLabels(): ReadaloudPlaybackMetadataLabels =
+fun ReadaloudMediaItemDescriptor.toReadaloudPlaybackMetadataLabels(): ReadaloudPlaybackMetadataLabels =
 	ReadaloudPlaybackMetadataLabels(
 		chapterLabel = title.trimLabel(),
 		sectionLabel = subtitle.trimLabel(),
 		narratorLabel = artist.trimLabel(),
 		qualityLabel = qualityLabel.trimLabel(),
 		sourceProviderLabel = sourceProviderLabel.trimLabel(),
+		sourceReleaseLabel = sourceReleaseLabel.trimLabel(),
+		sourceUrlLabel = sourceUrl.trimLabel(),
 		formatLabel = audioFormatLabel()
 	)
 
@@ -228,6 +238,8 @@ fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent {
 				append(" firstMediaId=").append(item.mediaId)
 				item.resourceKey?.let { append(" firstResource=").append(it) }
 				item.sourceProviderLabel?.let { append(" provider=").append(it) }
+				item.sourceReleaseLabel?.let { append(" release=").append(it) }
+				item.sourceUrl?.let { append(" sourceUrl=").append(it) }
 				item.codec?.let { append(" codec=").append(it) }
 				item.bitrateKbps?.let { append(" bitrateKbps=").append(it) }
 			}
@@ -283,6 +295,16 @@ private fun BinderyReadingOrderItem.toReadaloudAudioTrack(index: Int): Readaloud
 		channels = audio?.channels,
 		qualityLabel = audio?.qualityLabel,
 		sourceProviderLabel = sourceRelease?.provider ?: metadata.sourceProvider,
+		sourceReleaseLabel = sourceRelease.sourceReleaseLabel(metadata.editionSuffix),
 		sourceUrl = sourceRelease?.sourceUrl
 	)
 }
+
+private fun BinderySourceReleaseMetadata?.sourceReleaseLabel(editionSuffix: String?): String? =
+	listOfNotNull(
+		this?.edition.trimLabel() ?: editionSuffix.trimLabel(),
+		this?.format.trimLabel()
+	)
+		.distinct()
+		.joinToString(separator = " / ")
+		.takeIf { it.isNotBlank() }

@@ -101,6 +101,8 @@ private fun paige.navic.reader.ReadaloudMediaItemDescriptor.toReadaloudPlaybackM
 		narratorLabel = artist.trimLabel(),
 		qualityLabel = qualityLabel.trimLabel(),
 		sourceProviderLabel = sourceProviderLabel.trimLabel(),
+		sourceReleaseLabel = sourceReleaseLabel.trimLabel(),
+		sourceUrlLabel = sourceUrl.trimLabel(),
 		formatLabel = listOfNotNull(
 			codec.trimLabel(),
 			bitrateKbps?.takeIf { it > 0 }?.let { "$it kbps" }

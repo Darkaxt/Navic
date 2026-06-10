@@ -88,6 +88,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals(2, track.channels)
 		assertEquals("Studio 128 kbps", track.qualityLabel)
 		assertEquals("Storyteller", track.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", track.sourceReleaseLabel)
 		assertEquals("https://storyteller.local/releases/hobbit", track.sourceUrl)
 		assertEquals(7, track.trackNumber)
 		assertEquals(1, track.discNumber)
@@ -108,6 +109,8 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("Andy Serkis", labels?.narratorLabel)
 		assertEquals("Studio 128 kbps", labels?.qualityLabel)
 		assertEquals("Storyteller", labels?.sourceProviderLabel)
+		assertEquals("Unabridged / MP3", labels?.sourceReleaseLabel)
+		assertEquals("https://storyteller.local/releases/hobbit", labels?.sourceUrlLabel)
 		assertEquals("mp3 / 128 kbps / 44.1 kHz / stereo", labels?.formatLabel)
 	}
 
@@ -132,6 +135,7 @@ class StorytellerMediaOverlayParserTest {
 						<meta property="storyteller:narrator" refines="#audio1">Andy Serkis</meta>
 						<meta property="storyteller:quality-label" refines="#audio1">Studio 128 kbps</meta>
 						<meta property="storyteller:source-provider" refines="#audio1">Storyteller</meta>
+						<meta property="storyteller:source-release" refines="#audio1">Unabridged / MP3</meta>
 						<meta property="storyteller:source-url" refines="#audio1">https://storyteller.local/releases/hobbit</meta>
 						<meta property="storyteller:codec" refines="#audio1">mp3</meta>
 						<meta property="storyteller:bitrate-kbps" refines="#audio1">128</meta>
