@@ -60,6 +60,17 @@
 			</intent-filter>
 		</service>
 
+		<service
+			android:name="paige.navic.reader.ReadaloudPlaybackService"
+			android:enabled="true"
+			android:exported="true"
+			android:foregroundServiceType="mediaPlayback"
+			android:permission="${applicationId}.permission.PLAYBACK_SERVICE">
+			<intent-filter>
+				<action android:name="androidx.media3.session.MediaSessionService" />
+			</intent-filter>
+		</service>
+
 		<!-- miniplayer receiver -->
 		<receiver
 			android:name=".widgets.miniplayer.MiniPlayerReceiver"
