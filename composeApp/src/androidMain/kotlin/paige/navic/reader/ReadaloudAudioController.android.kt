@@ -118,6 +118,7 @@ class ReadaloudAudioController(
 	}
 
 	fun release() {
+		publishPosition()
 		positionPulse.stop()
 		controller?.removeListener(listener)
 		controller = null

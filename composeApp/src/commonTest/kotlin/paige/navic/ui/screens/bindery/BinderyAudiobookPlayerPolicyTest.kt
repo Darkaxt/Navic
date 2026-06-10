@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceMetadata
+import paige.navic.reader.ReadaloudPlaybackPosition
 
 class BinderyAudiobookPlayerPolicyTest {
 	@Test
@@ -65,6 +66,140 @@ class BinderyAudiobookPlayerPolicyTest {
 		)
 
 		assertEquals(listOf("Chapter 1", "Chapter 2"), chapters.map { it.title })
+	}
+
+	@Test
+	fun playbackPlanUsesRememberedPositionForSelectedEdition() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Book One - Chapter 1", "file-one"),
+				audioItem("one-b", "Book One - Chapter 2", "file-one"),
+				audioItem("two-a", "Book Two - Chapter 1", "file-two")
+			)
+		)
+
+		val plan = binderyAudiobookPlaybackPlan(
+			manifest = manifest,
+			versionRowId = "audiobook:file-one",
+			opdsBaseUrl = "https://bindery.test/opds",
+			requestHeaders = emptyMap(),
+			resumeProgress = BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "audiobook:file-one",
+				trackIndex = 1,
+				mediaId = "readaloud:one-b",
+				positionMs = 42_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 100L
+			)
+		)
+
+		assertEquals(1, plan.startTrackIndex)
+		assertEquals(42_000L, plan.startPositionMs)
+	}
+
+	@Test
+	fun progressStoreKeepsIndependentPositionsPerEdition() {
+		val first = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "audiobook:file-one",
+			trackIndex = 0,
+			mediaId = "readaloud:one-a",
+			positionMs = 5_000L,
+			durationMs = 60_000L,
+			updatedAtMs = 100L
+		)
+		val updatedFirst = first.copy(positionMs = 15_000L, updatedAtMs = 200L)
+		val second = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "audiobook:file-two",
+			trackIndex = 0,
+			mediaId = "readaloud:two-a",
+			positionMs = 25_000L,
+			durationMs = 60_000L,
+			updatedAtMs = 300L
+		)
+
+		val stored = binderyAudiobookProgressJsonWithUpdate(
+			binderyAudiobookProgressJsonWithUpdate(
+				binderyAudiobookProgressJsonWithUpdate("", first),
+				second
+			),
+			updatedFirst
+		)
+
+		assertEquals(
+			updatedFirst,
+			binderyAudiobookSavedProgress(stored, "book-1", "audiobook:file-one")
+		)
+		assertEquals(
+			second,
+			binderyAudiobookSavedProgress(stored, "book-1", "audiobook:file-two")
+		)
+	}
+
+	@Test
+	fun finalTrackFinishedPositionRestartsAudiobook() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Book One - Chapter 1", "file-one"),
+				audioItem("one-b", "Book One - Chapter 2", "file-one")
+			)
+		)
+
+		val plan = binderyAudiobookPlaybackPlan(
+			manifest = manifest,
+			versionRowId = "audiobook:file-one",
+			opdsBaseUrl = "https://bindery.test/opds",
+			requestHeaders = emptyMap(),
+			resumeProgress = BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "audiobook:file-one",
+				trackIndex = 1,
+				mediaId = "readaloud:one-b",
+				positionMs = 59_500L,
+				durationMs = 60_000L,
+				updatedAtMs = 100L
+			)
+		)
+
+		assertEquals(0, plan.startTrackIndex)
+		assertEquals(0L, plan.startPositionMs)
+	}
+
+	@Test
+	fun playbackPositionBecomesEditionProgress() {
+		val progress = binderyAudiobookProgressForPosition(
+			bookId = "book-1",
+			versionRowId = "audiobook:file-one",
+			position = ReadaloudPlaybackPosition(
+				sessionId = "book-1",
+				trackIndex = 2,
+				mediaId = "readaloud:chapter-3",
+				positionMs = 12_345L,
+				durationMs = 60_000L,
+				isPlaying = true,
+				playbackSpeed = 1.25f
+			),
+			updatedAtMs = 500L
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "audiobook:file-one",
+				trackIndex = 2,
+				mediaId = "readaloud:chapter-3",
+				positionMs = 12_345L,
+				durationMs = 60_000L,
+				updatedAtMs = 500L
+			),
+			progress
+		)
 	}
 
 	private fun audioItem(

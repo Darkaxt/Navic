@@ -59,6 +59,14 @@ class ReadaloudAudioControllerTest {
 		assertContains(source, ".setId(sessionId)")
 	}
 
+	@Test
+	fun readaloudControllerPublishesPositionBeforeRelease() {
+		val source = readaloudAudioControllerSourceFile().readText()
+		val releaseBody = source.substringAfter("fun release()").substringBefore("\n\t}")
+
+		assertContains(releaseBody, "publishPosition()")
+	}
+
 	private fun androidManifestServices() = DocumentBuilderFactory
 		.newInstance()
 		.apply { isNamespaceAware = true }
@@ -78,6 +86,12 @@ class ReadaloudAudioControllerTest {
 		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReadaloudPlaybackService.android.kt")
 	).firstOrNull { it.isFile }
 		?: error("Unable to locate ReadaloudPlaybackService.android.kt")
+
+	private fun readaloudAudioControllerSourceFile(): File = listOf(
+		File("src/androidMain/kotlin/paige/navic/reader/ReadaloudAudioController.android.kt"),
+		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReadaloudAudioController.android.kt")
+	).firstOrNull { it.isFile }
+		?: error("Unable to locate ReadaloudAudioController.android.kt")
 
 	private fun org.w3c.dom.Node.androidAttribute(name: String): String =
 		attributes?.getNamedItemNS(ANDROID_NAMESPACE, name)?.nodeValue.orEmpty()

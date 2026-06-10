@@ -111,7 +111,8 @@ val viewModelModule = module {
 	viewModel { params ->
 		BinderyAudiobookPlayerViewModel(
 			bookId = params.get(),
-			repository = get()
+			repository = get(),
+			preferenceManager = get()
 		)
 	}
 	viewModelOf(::BinderyHubViewModel)

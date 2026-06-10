@@ -120,13 +120,17 @@ fun BinderyAudiobookPlayerScreen(
 	val chapters = remember(manifest, versionRowId) {
 		manifest?.let { binderyAudiobookChapters(it, versionRowId) }.orEmpty()
 	}
-	val playbackPlan = remember(manifest, versionRowId, preferenceManager.binderyOpdsBaseUrl, requestHeaders) {
+	val resumeProgress = remember(bookId, versionRowId) {
+		viewModel.rememberedProgress(versionRowId)
+	}
+	val playbackPlan = remember(manifest, versionRowId, preferenceManager.binderyOpdsBaseUrl, requestHeaders, resumeProgress) {
 		manifest?.takeIf { chapters.isNotEmpty() }?.let {
 			binderyAudiobookPlaybackPlan(
 				manifest = it,
 				versionRowId = versionRowId,
 				opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-				requestHeaders = requestHeaders
+				requestHeaders = requestHeaders,
+				resumeProgress = resumeProgress
 			)
 		}
 	}
@@ -158,6 +162,7 @@ fun BinderyAudiobookPlayerScreen(
 		playbackCommand = playbackCommand,
 		playbackCommandKey = playbackCommandKey,
 		onPlaybackState = { playbackState = it },
+		onPlaybackPosition = { position -> viewModel.savePlaybackProgress(versionRowId, position) },
 		onError = { runtimeError = it }
 	)
 

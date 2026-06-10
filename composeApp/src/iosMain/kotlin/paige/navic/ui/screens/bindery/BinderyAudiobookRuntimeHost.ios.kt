@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReadaloudPlaybackPlan
+import paige.navic.reader.ReadaloudPlaybackPosition
 
 @Composable
 actual fun BinderyAudiobookRuntimeHost(
@@ -12,6 +13,7 @@ actual fun BinderyAudiobookRuntimeHost(
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,
+	onPlaybackPosition: (ReadaloudPlaybackPosition) -> Unit,
 	onError: (String) -> Unit
 ) {
 	LaunchedEffect(playbackPlan) {

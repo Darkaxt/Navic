@@ -19,14 +19,17 @@ actual fun BinderyAudiobookRuntimeHost(
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,
+	onPlaybackPosition: (paige.navic.reader.ReadaloudPlaybackPosition) -> Unit,
 	onError: (String) -> Unit
 ) {
 	val context = LocalContext.current
 	val currentOnPlaybackState = rememberUpdatedState(onPlaybackState)
+	val currentOnPlaybackPosition = rememberUpdatedState(onPlaybackPosition)
 	val currentOnError = rememberUpdatedState(onError)
 	val currentPlaybackPlan = rememberUpdatedState(playbackPlan)
 	val controller = remember(context) {
 		ReadaloudAudioController(context) { position ->
+			currentOnPlaybackPosition.value(position)
 			currentOnPlaybackState.value(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = true,
@@ -54,7 +57,7 @@ actual fun BinderyAudiobookRuntimeHost(
 			return@LaunchedEffect
 		}
 		runCatching {
-			controller.load(plan, playWhenReady = false)
+			controller.load(plan, playWhenReady = true)
 			onPlaybackState(
 				ReaderReadaloudPlaybackUiState(
 					isAvailable = plan.mediaItems.isNotEmpty(),

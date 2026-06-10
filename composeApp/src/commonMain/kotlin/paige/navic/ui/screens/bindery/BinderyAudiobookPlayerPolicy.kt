@@ -1,13 +1,28 @@
 package paige.navic.ui.screens.bindery
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.math.roundToLong
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReadaloudMediaItemDescriptor
+import paige.navic.reader.ReadaloudPlaybackPosition
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.readaloudAudioSessionFromBindery
 import paige.navic.reader.toReadaloudPlaybackPlan
+
+private const val FinishedFinalTrackToleranceMs = 1_000L
+private const val AutosavePositionDeltaMs = 2_000L
+private const val MaxStoredAudiobookProgressEntries = 80
+
+private val BinderyAudiobookProgressJson = Json {
+	ignoreUnknownKeys = true
+	encodeDefaults = true
+}
 
 enum class BinderyAudiobookTransportControl {
 	SeekBackward30,
@@ -23,6 +38,27 @@ data class BinderyAudiobookChapter(
 	val title: String,
 	val durationMs: Long?,
 	val subtitle: String? = null
+)
+
+@Serializable
+data class BinderyAudiobookPlaybackProgress(
+	val bookId: String,
+	val versionRowId: String,
+	val trackIndex: Int,
+	val mediaId: String? = null,
+	val positionMs: Long,
+	val durationMs: Long? = null,
+	val updatedAtMs: Long
+)
+
+private data class BinderyAudiobookStartPosition(
+	val trackIndex: Int,
+	val positionMs: Long
+)
+
+@Serializable
+private data class BinderyAudiobookPlaybackProgressStore(
+	val entries: List<BinderyAudiobookPlaybackProgress> = emptyList()
 )
 
 fun binderyAudiobookTransportControls(): List<BinderyAudiobookTransportControl> =
@@ -54,11 +90,12 @@ fun binderyAudiobookPlaybackPlan(
 	versionRowId: String,
 	opdsBaseUrl: String,
 	requestHeaders: Map<String, String>,
-	playbackSpeed: Float = 1f
+	playbackSpeed: Float = 1f,
+	resumeProgress: BinderyAudiobookPlaybackProgress? = null
 ): ReadaloudPlaybackPlan {
 	val absoluteReadingOrder = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
 		.map { item -> item.copy(href = binderyEndpoint(opdsBaseUrl, item.href)) }
-	return readaloudAudioSessionFromBindery(
+	val basePlan = readaloudAudioSessionFromBindery(
 		manifest = manifest,
 		readingOrder = absoluteReadingOrder,
 		kind = ReaderPublicationKind.Readaloud
@@ -66,6 +103,15 @@ fun binderyAudiobookPlaybackPlan(
 		requestHeaders = requestHeaders,
 		playbackSpeed = playbackSpeed
 	)
+	val start = resumeProgress
+		?.takeIf { progress -> progress.bookId == manifest.id && progress.versionRowId == versionRowId }
+		?.let { progress -> binderyAudiobookStartPosition(progress, basePlan.mediaItems) }
+	return start?.let { target ->
+		basePlan.copy(
+			startTrackIndex = target.trackIndex,
+			startPositionMs = target.positionMs
+		)
+	} ?: basePlan
 }
 
 fun selectedBinderyAudiobookReadingOrder(
@@ -78,6 +124,69 @@ fun selectedBinderyAudiobookReadingOrder(
 		audioItems.filter { item -> item.bookFileId().equals(bookFileId, ignoreCase = true) }
 	}.orEmpty()
 	return selectedItems.ifEmpty { audioItems }
+}
+
+fun binderyAudiobookSavedProgress(
+	json: String,
+	bookId: String,
+	versionRowId: String
+): BinderyAudiobookPlaybackProgress? =
+	decodeBinderyAudiobookProgressStore(json)
+		.entries
+		.filter { progress -> progress.bookId == bookId && progress.versionRowId == versionRowId }
+		.maxByOrNull(BinderyAudiobookPlaybackProgress::updatedAtMs)
+
+fun binderyAudiobookProgressJsonWithUpdate(
+	json: String,
+	progress: BinderyAudiobookPlaybackProgress,
+	maxEntries: Int = MaxStoredAudiobookProgressEntries
+): String {
+	val normalized = progress.copy(
+		trackIndex = progress.trackIndex.coerceAtLeast(0),
+		mediaId = progress.mediaId?.trim()?.takeIf { it.isNotEmpty() },
+		positionMs = progress.positionMs.coerceAtLeast(0L),
+		durationMs = progress.durationMs?.takeIf { it > 0L },
+		updatedAtMs = progress.updatedAtMs.coerceAtLeast(0L)
+	)
+	val entries = decodeBinderyAudiobookProgressStore(json)
+		.entries
+		.filterNot { entry -> entry.bookId == normalized.bookId && entry.versionRowId == normalized.versionRowId }
+		.plus(normalized)
+		.sortedByDescending(BinderyAudiobookPlaybackProgress::updatedAtMs)
+		.take(maxEntries.coerceAtLeast(1))
+	return BinderyAudiobookProgressJson.encodeToString(
+		BinderyAudiobookPlaybackProgressStore(entries = entries)
+	)
+}
+
+fun binderyAudiobookProgressForPosition(
+	bookId: String,
+	versionRowId: String,
+	position: ReadaloudPlaybackPosition,
+	updatedAtMs: Long
+): BinderyAudiobookPlaybackProgress? {
+	if (bookId.isBlank() || versionRowId.isBlank()) return null
+	if (position.sessionId != null && position.sessionId != bookId) return null
+	return BinderyAudiobookPlaybackProgress(
+		bookId = bookId,
+		versionRowId = versionRowId,
+		trackIndex = position.trackIndex.coerceAtLeast(0),
+		mediaId = position.mediaId?.trim()?.takeIf { it.isNotEmpty() },
+		positionMs = position.positionMs.coerceAtLeast(0L),
+		durationMs = position.durationMs?.takeIf { it > 0L },
+		updatedAtMs = updatedAtMs.coerceAtLeast(0L)
+	)
+}
+
+fun shouldAutosaveBinderyAudiobookProgress(
+	previous: BinderyAudiobookPlaybackProgress?,
+	next: BinderyAudiobookPlaybackProgress
+): Boolean {
+	if (previous == null) return true
+	if (previous.bookId != next.bookId || previous.versionRowId != next.versionRowId) return true
+	if (previous.trackIndex != next.trackIndex || previous.mediaId != next.mediaId) return true
+	if (previous.durationMs != next.durationMs) return true
+	return kotlin.math.abs(previous.positionMs - next.positionMs) >= AutosavePositionDeltaMs
 }
 
 private fun BinderyReadingOrderItem.isAudiobookAudio(): Boolean =
@@ -115,6 +224,42 @@ private fun BinderyReadingOrderItem.audiobookChapterSubtitle(): String? =
 		.filter { it.isNotEmpty() }
 		.joinToString(separator = " / ")
 		.takeIf { it.isNotBlank() }
+
+private fun binderyAudiobookStartPosition(
+	progress: BinderyAudiobookPlaybackProgress,
+	mediaItems: List<ReadaloudMediaItemDescriptor>
+): BinderyAudiobookStartPosition? {
+	if (mediaItems.isEmpty()) return null
+	val trackIndex = progress.mediaId
+		?.let { mediaId -> mediaItems.indexOfFirst { item -> item.mediaId == mediaId } }
+		?.takeIf { it >= 0 }
+		?: progress.trackIndex.takeIf { it in mediaItems.indices }
+		?: return null
+	val itemDurationMs = mediaItems[trackIndex].durationMs ?: progress.durationMs
+	val positionMs = itemDurationMs
+		?.let { duration -> progress.positionMs.coerceIn(0L, duration) }
+		?: progress.positionMs.coerceAtLeast(0L)
+	if (
+		trackIndex == mediaItems.lastIndex &&
+		itemDurationMs != null &&
+		itemDurationMs - positionMs <= FinishedFinalTrackToleranceMs
+	) {
+		return BinderyAudiobookStartPosition(trackIndex = 0, positionMs = 0L)
+	}
+	return BinderyAudiobookStartPosition(
+		trackIndex = trackIndex,
+		positionMs = positionMs
+	)
+}
+
+private fun decodeBinderyAudiobookProgressStore(json: String): BinderyAudiobookPlaybackProgressStore =
+	if (json.isBlank()) {
+		BinderyAudiobookPlaybackProgressStore()
+	} else {
+		runCatching {
+			BinderyAudiobookProgressJson.decodeFromString<BinderyAudiobookPlaybackProgressStore>(json)
+		}.getOrDefault(BinderyAudiobookPlaybackProgressStore())
+	}
 
 private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
 	keys.firstNotNullOfOrNull { key ->
