@@ -20,6 +20,7 @@ actual fun ReaderWebViewHost(
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
+	startProgress: Double?,
 	command: ReaderBridgeCommand?,
 	commandKey: Long,
 	onEvent: (ReaderBridgeEvent) -> Unit,

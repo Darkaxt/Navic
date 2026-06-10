@@ -290,6 +290,18 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
+		val readerScreenText = readerScreenFile().readText()
+		val webViewHostText = readerWebViewHostFile().readText()
+
+		assertContains(readerScreenText, "startProgress = resumeStartLocator?.progress")
+		assertContains(webViewHostText, "startProgress: Double?")
+		assertContains(webViewHostText, "startProgress?.toString().orEmpty()")
+		assertContains(webViewHostText, "progress = startProgress")
+		assertContains(webViewHostText, "it.cfi != null || it.href != null || it.progress != null")
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

@@ -45,6 +45,7 @@ actual fun ReaderWebViewHost(
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
+	startProgress: Double?,
 	command: ReaderBridgeCommand?,
 	commandKey: Long,
 	onEvent: (ReaderBridgeEvent) -> Unit,
@@ -65,22 +66,24 @@ actual fun ReaderWebViewHost(
 			.build()
 	}
 	val currentOnEvent by rememberUpdatedState(onEvent)
-	val publicationKey = remember(publicationUrl, mediaOverlayEnabled, startCfi, startHref) {
+	val publicationKey = remember(publicationUrl, mediaOverlayEnabled, startCfi, startHref, startProgress) {
 		listOf(
 			publicationUrl,
 			mediaOverlayEnabled.toString(),
 			startCfi.orEmpty(),
-			startHref.orEmpty()
+			startHref.orEmpty(),
+			startProgress?.toString().orEmpty()
 		).joinToString("|")
 	}
-	val openCommand = remember(publicationUrl, mediaOverlayEnabled, settings, startCfi, startHref) {
+	val openCommand = remember(publicationUrl, mediaOverlayEnabled, settings, startCfi, startHref, startProgress) {
 		ReaderBridgeCommand.OpenPublication(
 			url = publicationUrl,
 			mediaOverlayEnabled = mediaOverlayEnabled,
 			startLocator = ReaderLocator(
 				cfi = startCfi,
-				href = startHref
-			).takeIf { it.cfi != null || it.href != null },
+				href = startHref,
+				progress = startProgress
+			).takeIf { it.cfi != null || it.href != null || it.progress != null },
 			settings = settings
 		)
 	}
