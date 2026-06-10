@@ -10,6 +10,9 @@ import paige.navic.reader.ReadaloudPlaybackPosition
 @Composable
 actual fun BinderyAudiobookRuntimeHost(
 	playbackPlan: ReadaloudPlaybackPlan?,
+	bookId: String,
+	bookTitle: String,
+	versionRowId: String,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,

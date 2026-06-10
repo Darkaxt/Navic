@@ -13,8 +13,10 @@ import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.IOSMediaPlayerViewModel
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.shared.NoOpAudiobookPlaybackManager
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
@@ -53,6 +55,8 @@ actual val platformModule = module {
 		}
 		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
 	}
+
+	single<AudiobookPlaybackManager> { NoOpAudiobookPlaybackManager() }
 
 	viewModel<MediaPlayerViewModel> {
 		IOSMediaPlayerViewModel(

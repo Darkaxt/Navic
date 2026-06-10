@@ -2,6 +2,7 @@ package paige.navic.di
 
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
+import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.LidaClipCacheManager
@@ -12,6 +13,7 @@ import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SyncManager
 
 val managerModule = module {
+	singleOf(::AudioPlaybackArbitrator)
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
 		SyncManager(get(), get(), get(), get(), get(), get()).apply {

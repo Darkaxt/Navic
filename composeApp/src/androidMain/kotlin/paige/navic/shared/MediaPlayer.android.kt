@@ -70,6 +70,7 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
+import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PlaybackOriginCredit
@@ -78,6 +79,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AurralFlowSongIdPrefix
+import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
@@ -110,6 +112,7 @@ import paige.navic.domain.models.shouldAutoFillQueue
 import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
+import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
@@ -716,6 +719,7 @@ class AndroidMediaPlayerViewModel(
 	private val songRepository: SongRepository,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
+	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
 	private val preferenceManager: PreferenceManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
@@ -743,6 +747,28 @@ class AndroidMediaPlayerViewModel(
 
 	init {
 		connectToService()
+		observeAudioPlaybackClaims()
+	}
+
+	private fun observeAudioPlaybackClaims() {
+		viewModelScope.launch {
+			audioPlaybackArbitrator.claims.collectLatest { claimedOwner ->
+				val player = controller ?: return@collectLatest
+				if (
+					shouldPauseForAudioPlaybackClaim(
+						currentOwner = AudioPlaybackOwner.Music,
+						claimedOwner = claimedOwner,
+						isPlaying = player.isPlaying
+					)
+				) {
+					pause()
+				}
+			}
+		}
+	}
+
+	private fun claimMusicPlayback() {
+		audioPlaybackArbitrator.claim(AudioPlaybackOwner.Music)
 	}
 
 	private fun connectToService() {
@@ -1210,6 +1236,7 @@ class AndroidMediaPlayerViewModel(
 			player.seekTo(index, position)
 			player.prepare()
 			if (!state.isPaused) {
+				claimMusicPlayback()
 				player.play()
 			}
 		}
@@ -1521,6 +1548,7 @@ class AndroidMediaPlayerViewModel(
 		if (index !in 0 until player.mediaItemCount) return false
 
 		player.seekTo(index, 0L)
+		claimMusicPlayback()
 		player.play()
 		return true
 	}
@@ -1548,6 +1576,7 @@ class AndroidMediaPlayerViewModel(
 			controller?.let { player ->
 				player.setMediaItems(items, startIndex, 0L)
 				player.prepare()
+				claimMusicPlayback()
 				player.play()
 			}
 
@@ -1640,6 +1669,7 @@ class AndroidMediaPlayerViewModel(
 					player.shuffleModeEnabled = false
 					player.setMediaItems(mediaItems, 0, 0L)
 					player.prepare()
+					claimMusicPlayback()
 					player.play()
 				}
 
@@ -1731,6 +1761,7 @@ class AndroidMediaPlayerViewModel(
 				player.clearMediaItems()
 				player.setMediaItem(mediaItem)
 				player.prepare()
+				claimMusicPlayback()
 				player.play()
 			}
 
@@ -1760,6 +1791,7 @@ class AndroidMediaPlayerViewModel(
 				player.shuffleModeEnabled = plan.enablePlayerShuffle
 				player.setMediaItems(mediaItems, 0, 0L)
 				player.prepare()
+				claimMusicPlayback()
 				player.play()
 			}
 
@@ -1815,6 +1847,7 @@ class AndroidMediaPlayerViewModel(
 					alreadyInTargetState = player.isPlaying
 				)
 			) {
+				claimMusicPlayback()
 				player.play()
 				return@launch
 			}
@@ -1835,6 +1868,7 @@ class AndroidMediaPlayerViewModel(
 				durationMs = audioFadeDurationMs(fadeDurationMs),
 				restoreVolumeOnCancel = targetVolume,
 				onStart = {
+					claimMusicPlayback()
 					player.volume = 0f
 					player.play()
 				}

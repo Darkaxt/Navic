@@ -169,6 +169,9 @@ fun BinderyAudiobookPlayerScreen(
 
 	BinderyAudiobookRuntimeHost(
 		playbackPlan = playbackPlan,
+		bookId = bookId,
+		bookTitle = title,
+		versionRowId = versionRowId,
 		playbackCommand = playbackCommand,
 		playbackCommandKey = playbackCommandKey,
 		onPlaybackState = { playbackState = it },

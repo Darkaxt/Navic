@@ -12,7 +12,9 @@ import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.shared.AndroidAudiobookPlaybackManager
 import paige.navic.shared.AndroidMediaPlayerViewModel
+import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
@@ -46,6 +48,13 @@ actual val platformModule = module {
 		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
 	}
 
+	single<AudiobookPlaybackManager> {
+		AndroidAudiobookPlaybackManager(
+			application = androidApplication(),
+			audioPlaybackArbitrator = get()
+		)
+	}
+
 	single<MediaPlayerViewModel> {
 		AndroidMediaPlayerViewModel(
 			application = androidApplication(),
@@ -59,6 +68,7 @@ actual val platformModule = module {
 			songRepository = get(),
 			musicBrainzArtworkRepository = get(),
 			playbackOriginRepository = get(),
+			audioPlaybackArbitrator = get(),
 			preferenceManager = get()
 		)
 	}

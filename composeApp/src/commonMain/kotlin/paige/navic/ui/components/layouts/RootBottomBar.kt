@@ -20,6 +20,7 @@ import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.MiniPlayerStyle
+import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.ui.easedVerticalGradient
@@ -34,18 +35,19 @@ fun RootBottomBar(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
+	val screen = backStack.lastOrNull() as? Screen
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsState()
-	val playbackKind = if (playerState.currentSong != null) {
-		MiniPlayerPlaybackKind.Music
-	} else {
-		MiniPlayerPlaybackKind.None
-	}
-	val shouldShowMiniPlayer = !hideMiniPlayer && shouldShowMiniPlayerForRoute(
-		screen = backStack.lastOrNull() as? Screen,
-		playbackKind = playbackKind,
+	val audiobookPlayer = koinInject<AudiobookPlaybackManager>()
+	val audiobookState by audiobookPlayer.uiState.collectAsState()
+	val playbackKind = rootMiniPlayerPlaybackKind(
+		screen = screen,
+		hasMusicPlayback = playerState.currentSong != null,
+		audiobookAvailable = audiobookState.isAvailable,
+		audiobookPlaying = audiobookState.isPlaying,
 		binderyEnabled = preferenceManager.binderyEnabled
 	)
+	val shouldShowMiniPlayer = !hideMiniPlayer && playbackKind != MiniPlayerPlaybackKind.None
 	val scrolled =
 		scrolled && preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.OnScroll
 	val progress by animateFloatAsState(
@@ -68,15 +70,26 @@ fun RootBottomBar(
 			else Modifier
 		)
 	) {
-		if (shouldShowMiniPlayer) MiniPlayer(
-			modifier = Modifier.graphicsLayer {
+		val miniPlayerModifier = Modifier.graphicsLayer {
 				alpha = progress.coerceIn(0f..1f)
 				translationY = ((1f - progress) * (size.height * 2)).coerceAtLeast(
 					if (preferenceManager.miniPlayerStyle == MiniPlayerStyle.Detached) -2048f else 0f
 				)
-			},
-			enabled = !scrolled
-		)
+			}
+		if (shouldShowMiniPlayer) {
+			when (playbackKind) {
+				MiniPlayerPlaybackKind.Music -> MiniPlayer(
+					modifier = miniPlayerModifier,
+					enabled = !scrolled
+				)
+				MiniPlayerPlaybackKind.Audiobook -> AudiobookMiniPlayer(
+					state = audiobookState,
+					modifier = miniPlayerModifier,
+					enabled = !scrolled
+				)
+				MiniPlayerPlaybackKind.None -> Unit
+			}
+		}
 		BottomBar(
 			containerColor = if (preferenceManager.miniPlayerStyle == MiniPlayerStyle.Detached)
 				NavigationBarDefaults.containerColor.copy(alpha = 0f)

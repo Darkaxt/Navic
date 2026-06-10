@@ -1,74 +1,51 @@
 package paige.navic.ui.screens.bindery
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.platform.LocalContext
-import paige.navic.reader.ReadaloudAudioController
+import org.koin.compose.koinInject
+import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.ReadaloudPlaybackLogTag
+import paige.navic.reader.ReadaloudPlaybackPosition
+import paige.navic.ui.core.AudiobookMiniPlayerUiState
 import paige.navic.util.core.Logger
 
 @Composable
 actual fun BinderyAudiobookRuntimeHost(
 	playbackPlan: ReadaloudPlaybackPlan?,
+	bookId: String,
+	bookTitle: String,
+	versionRowId: String,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,
 	onPlaybackPosition: (paige.navic.reader.ReadaloudPlaybackPosition) -> Unit,
 	onError: (String) -> Unit
 ) {
-	val context = LocalContext.current
+	val playbackManager = koinInject<AudiobookPlaybackManager>()
+	val miniPlayerState by playbackManager.uiState.collectAsState()
 	val currentOnPlaybackState = rememberUpdatedState(onPlaybackState)
 	val currentOnPlaybackPosition = rememberUpdatedState(onPlaybackPosition)
 	val currentOnError = rememberUpdatedState(onError)
-	val currentPlaybackPlan = rememberUpdatedState(playbackPlan)
-	val controller = remember(context) {
-		ReadaloudAudioController(context) { position ->
-			currentOnPlaybackPosition.value(position)
-			currentOnPlaybackState.value(
-				ReaderReadaloudPlaybackUiState(
-					isAvailable = true,
-					isPlaying = position.isPlaying,
-					trackIndex = position.trackIndex,
-					positionMs = position.positionMs,
-					durationMs = position.durationMs,
-					playbackSpeed = position.playbackSpeed,
-					activeAudioMetadata = currentPlaybackPlan.value?.metadataLabelsForPosition(position)
-				)
-			)
-		}
-	}
 
-	DisposableEffect(controller) {
-		onDispose {
-			controller.release()
-		}
-	}
-
-	LaunchedEffect(playbackPlan) {
+	LaunchedEffect(playbackPlan, bookId, bookTitle, versionRowId) {
 		val plan = playbackPlan
 		if (plan == null) {
 			onPlaybackState(ReaderReadaloudPlaybackUiState(isAvailable = false))
 			return@LaunchedEffect
 		}
 		runCatching {
-			controller.load(plan, playWhenReady = true)
-			onPlaybackState(
-				ReaderReadaloudPlaybackUiState(
-					isAvailable = plan.mediaItems.isNotEmpty(),
-					trackIndex = plan.startTrackIndex,
-					positionMs = plan.startPositionMs,
-					durationMs = plan.mediaItems.getOrNull(plan.startTrackIndex)?.durationMs,
-					playbackSpeed = plan.playbackSpeed,
-					activeAudioMetadata = plan.mediaItems
-						.getOrNull(plan.startTrackIndex)
-						?.toReadaloudPlaybackMetadataLabels()
-				)
+			playbackManager.load(
+				playbackPlan = plan,
+				bookId = bookId,
+				bookTitle = bookTitle,
+				versionRowId = versionRowId,
+				playWhenReady = true
 			)
 		}.onFailure { error ->
 			Logger.e(ReadaloudPlaybackLogTag, "Failed to load Bindery audiobook playback plan", error)
@@ -78,36 +55,37 @@ actual fun BinderyAudiobookRuntimeHost(
 	}
 
 	LaunchedEffect(playbackCommandKey) {
-		when (val command = playbackCommand) {
-			ReaderReadaloudPlaybackCommand.Play -> controller.play()
-			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
-			is ReaderReadaloudPlaybackCommand.SeekTo -> controller.seekTo(command.positionMs)
-			is ReaderReadaloudPlaybackCommand.SeekToTrack -> controller.seekTo(command.trackIndex, command.positionMs)
-			is ReaderReadaloudPlaybackCommand.SetSpeed -> controller.setPlaybackSpeed(command.speed)
-			is ReaderReadaloudPlaybackCommand.SetSyncEnabled,
-			null -> Unit
+		playbackCommand?.let { command ->
+			playbackManager.dispatch(command)
+		}
+	}
+
+	LaunchedEffect(miniPlayerState) {
+		currentOnPlaybackState.value(miniPlayerState.toReaderReadaloudPlaybackUiState())
+		if (miniPlayerState.isAvailable) {
+			currentOnPlaybackPosition.value(miniPlayerState.toReadaloudPlaybackPosition())
 		}
 	}
 }
 
-private fun ReadaloudPlaybackPlan.metadataLabelsForPosition(
-	position: paige.navic.reader.ReadaloudPlaybackPosition
-) = mediaItems.getOrNull(position.trackIndex)?.toReadaloudPlaybackMetadataLabels()
-
-private fun paige.navic.reader.ReadaloudMediaItemDescriptor.toReadaloudPlaybackMetadataLabels() =
-	paige.navic.reader.ReadaloudPlaybackMetadataLabels(
-		chapterLabel = title.trimLabel(),
-		sectionLabel = subtitle.trimLabel(),
-		narratorLabel = artist.trimLabel(),
-		qualityLabel = qualityLabel.trimLabel(),
-		sourceProviderLabel = sourceProviderLabel.trimLabel(),
-		sourceReleaseLabel = sourceReleaseLabel.trimLabel(),
-		sourceUrlLabel = sourceUrl.trimLabel(),
-		formatLabel = listOfNotNull(
-			codec.trimLabel(),
-			bitrateKbps?.takeIf { it > 0 }?.let { "$it kbps" }
-		).joinToString(separator = " / ").takeIf { it.isNotBlank() }
+private fun AudiobookMiniPlayerUiState.toReaderReadaloudPlaybackUiState(): ReaderReadaloudPlaybackUiState =
+	ReaderReadaloudPlaybackUiState(
+		isAvailable = isAvailable,
+		isPlaying = isPlaying,
+		trackIndex = trackIndex,
+		positionMs = positionMs,
+		durationMs = durationMs,
+		playbackSpeed = playbackSpeed,
+		activeAudioMetadata = activeAudioMetadata
 	)
 
-private fun String?.trimLabel(): String? =
-	this?.trim()?.takeIf { it.isNotEmpty() }
+private fun AudiobookMiniPlayerUiState.toReadaloudPlaybackPosition(): ReadaloudPlaybackPosition =
+	ReadaloudPlaybackPosition(
+		sessionId = bookId,
+		trackIndex = trackIndex,
+		mediaId = mediaId,
+		positionMs = positionMs,
+		durationMs = durationMs,
+		isPlaying = isPlaying,
+		playbackSpeed = playbackSpeed
+	)
