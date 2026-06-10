@@ -189,6 +189,26 @@ const readerEventClientPoint = event => {
   return { clientX, clientY }
 }
 
+const readerRootTapPoint = (event, doc) => {
+  const { clientX, clientY } = readerEventClientPoint(event)
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null
+  const win = doc?.defaultView
+  const frameElement = win?.frameElement
+  const frameRect = frameElement?.getBoundingClientRect?.()
+  if (frameRect) {
+    return {
+      x: frameRect.left + clientX,
+      y: frameRect.top + clientY,
+      source: 'frame',
+    }
+  }
+  return {
+    x: clientX,
+    y: clientY,
+    source: doc === document ? 'surface' : 'document',
+  }
+}
+
 const readerPointInsideAnchorText = (anchor, event) => {
   if (!anchor?.ownerDocument) return false
   const { clientX, clientY } = readerEventClientPoint(event)
@@ -1333,22 +1353,41 @@ class NavicReaderRuntime {
     }, { capture: true, passive: false })
   }
 
+  readerTapSurfaceRect() {
+    const rect = this.view?.getBoundingClientRect?.() || readerRoot?.getBoundingClientRect?.()
+    const fallbackWidth = window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 1
+    const fallbackHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 1
+    const left = Number.isFinite(rect?.left) ? rect.left : 0
+    const top = Number.isFinite(rect?.top) ? rect.top : 0
+    const width = Math.max(1, Number.isFinite(rect?.width) ? rect.width : fallbackWidth)
+    const height = Math.max(1, Number.isFinite(rect?.height) ? rect.height : fallbackHeight)
+    return { left, top, width, height }
+  }
+
   readerTapZone(event, doc) {
-    const win = doc?.defaultView || window
-    const width = Math.max(1, win.innerWidth || doc?.documentElement?.clientWidth || 0)
-    const height = Math.max(1, win.innerHeight || doc?.documentElement?.clientHeight || 0)
-    const x = event.clientX
-    const y = event.clientY
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
-    const xFraction = x / width
-    const yFraction = y / height
-    return komikkuTapAction(
+    const point = readerRootTapPoint(event, doc)
+    const surfaceRect = this.readerTapSurfaceRect()
+    if (!point) return null
+    const xFraction = (point.x - surfaceRect.left) / surfaceRect.width
+    const yFraction = (point.y - surfaceRect.top) / surfaceRect.height
+    const tapZone = komikkuTapAction(
       this.readerTapZoneMode,
       xFraction,
       yFraction,
       this.smallerTapZone,
       this.readerFlowModeValue
     )
+    log(
+      'tap-zone',
+      `source=${point.source}`,
+      `doc=${doc === document ? 'surface' : 'content'}`,
+      `x=${xFraction.toFixed(3)}`,
+      `y=${yFraction.toFixed(3)}`,
+      `zone=${tapZone}`,
+      `mode=${this.readerTapZoneMode || ReaderTapZoneDefault}`,
+      `flow=${this.readerFlowModeValue || ReaderFlowPaged}`
+    )
+    return tapZone
   }
 
   effectiveReaderDirection() {

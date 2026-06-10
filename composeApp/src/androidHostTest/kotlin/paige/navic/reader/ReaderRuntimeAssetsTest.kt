@@ -635,6 +635,32 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderNormalizesTapZonesAgainstRootReaderSurfaceLikeKomikku() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerTapZone = bridgeText
+			.substringAfter("readerTapZone(event, doc) {")
+			.substringBefore("\n  effectiveReaderDirection")
+
+		assertContains(bridgeText, "readerRootTapPoint")
+		assertContains(bridgeText, "const frameElement = win?.frameElement")
+		assertContains(bridgeText, "const frameRect = frameElement?.getBoundingClientRect?.()")
+		assertContains(bridgeText, "const surfaceRect = this.readerTapSurfaceRect()")
+		assertContains(readerTapZone, "const point = readerRootTapPoint(event, doc)")
+		assertContains(readerTapZone, "const surfaceRect = this.readerTapSurfaceRect()")
+		assertContains(readerTapZone, "(point.x - surfaceRect.left) / surfaceRect.width")
+		assertContains(readerTapZone, "(point.y - surfaceRect.top) / surfaceRect.height")
+		assertContains(readerTapZone, "tap-zone")
+		assertFalse(
+			readerTapZone.contains("win.innerWidth") || readerTapZone.contains("doc?.documentElement?.clientWidth"),
+			"Tap-zone dispatch must normalize against the root reader surface, not a Foliate iframe document viewport."
+		)
+		assertFalse(
+			readerTapZone.contains("const x = event.clientX") || readerTapZone.contains("const y = event.clientY"),
+			"Iframe taps must be translated through their frame rect before navigation regions are evaluated."
+		)
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
