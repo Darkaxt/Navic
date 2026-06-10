@@ -525,15 +525,27 @@ const readerSurfacePageBorderOverlayOpacity = settings => {
   }
 }
 
+const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
+  const pageCount = pagePosition?.pageCount
+  if (Number.isFinite(pageCount) && pageCount > 0) return Math.floor(pageCount)
+  if (Number.isFinite(fallbackPageCount) && fallbackPageCount > 0) return Math.floor(fallbackPageCount)
+  return null
+}
+
+const readerPageNumberPositionWithPageCount = (pagePosition, fallbackPageCount = null) => {
+  if (!pagePosition) return null
+  const pageCount = readerPageNumberPageCount(pagePosition, fallbackPageCount)
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return pagePosition
+  return { ...pagePosition, pageCount }
+}
+
 const readerPageNumberLabel = pagePosition => {
   const pageIndex = pagePosition?.pageIndex
   if (!Number.isFinite(pageIndex) || pageIndex < 0) return ''
   const currentPage = pageIndex + 1
-  const pageCount = pagePosition?.pageCount
-  if (Number.isFinite(pageCount) && pageCount > 0) {
-    return `${currentPage} / ${pageCount}`
-  }
-  return String(currentPage)
+  const pageCount = readerPageNumberPageCount(pagePosition)
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return ''
+  return `${currentPage} / ${pageCount}`
 }
 
 const readerPageNumberBlendMode = settings => {
@@ -1702,8 +1714,9 @@ class NavicReaderRuntime {
   }
 
   updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
-    this.currentPagePosition = pagePosition || null
-    const label = readerPageNumberLabel(pagePosition)
+    const pageNumberPosition = readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)
+    this.currentPagePosition = pageNumberPosition || null
+    const label = readerPageNumberLabel(pageNumberPosition)
     if (!label) {
       this.pageNumberLayer?.remove?.()
       this.pageNumberLayer = null
@@ -1715,7 +1728,7 @@ class NavicReaderRuntime {
     const fontFamily = this.readerPageNumberFontFamily()
     document.documentElement.style.setProperty('--reader-page-number-font-family', fontFamily)
     this.pageNumberLayer.textContent = label
-    this.pageNumberLayer.dataset.navicPageNumberTotal = String(pagePosition.pageCount || '')
+    this.pageNumberLayer.dataset.navicPageNumberTotal = String(pageNumberPosition.pageCount || '')
     setStylesImportant(this.pageNumberLayer, {
       position: 'fixed',
       left: '50%',

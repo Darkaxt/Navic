@@ -397,8 +397,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()")
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
 		assertContains(bridgeText, "dataset.navicPageNumberLayer")
-		assertContains(bridgeText, "readerPageNumberLabel(pagePosition)")
 		assertContains(bridgeText, "return `${'$'}{currentPage} / ${'$'}{pageCount}`")
+		assertContains(bridgeText, "readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)")
+		assertContains(bridgeText, "readerPageNumberLabel(pageNumberPosition)")
+		assertFalse(
+			bridgeText.contains("return String(currentPage)"),
+			"Page number labels must keep the # / # design instead of falling back to a bare current page."
+		)
 		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
 		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
 		assertFalse(
