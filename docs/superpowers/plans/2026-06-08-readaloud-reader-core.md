@@ -91,7 +91,7 @@ These labels must be available to UI, playback metadata, progress sync, and test
 
 ---
 
-## Current Support Audit - 2026-06-09
+## Current Support Audit - 2026-06-10
 
 Reference snapshots inspected:
 
@@ -106,13 +106,13 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | --- | --- | --- |
 | Foliate-style EPUB runtime | Supported | Keep this as the EPUB/readaloud reader surface. Do not replace it with the Storyteller client. |
 | Bindery EPUB/readaloud routing | Supported | Keep ebook/readaloud routing separate from audiobook-only playback. |
-| PDF.js-backed PDF opening | Partial | PDF.js assets are present through foliate-js, but signed-release phone smoke tests must prove real Bindery PDFs render. |
+| PDF.js-backed PDF opening | Supported in `v1.0.11-zeta6`, phone smoke pending | PDF.js assets are packaged through foliate-js. `v1.0.11-zeta6` adds tap-turn coalescing, adjacent-page prefetch, natural PDF layout dimensions, and centered fit-width gutters; run signed-release adb smoke when a device is connected. |
 | TOC navigation | Supported | Hide reader chrome after TOC navigation so content stays immersive. |
 | Search and result navigation | Supported | Keep as core reader chrome, not the global app search bar. |
 | CFI/location progress and resume | Supported | Continue syncing Bindery progress by locator/CFI where available. |
 | Bookmarks | Supported | Keep CFI-backed and hide chrome after navigation. |
 | Annotations/highlights | Supported | Keep CFI-backed, and add export/share later only after renderer stability is settled. |
-| Basic typography settings | Supported | Current set is font family, font size, line height, margin, light/dark theme, paged/scroll. |
+| Basic typography settings | Supported | Current set includes font family/source, font size, line height, paragraph spacing, margins, publisher-style override, theme palette, dim overlay, paged/scroll, direction, and orientation controls. |
 | Immersive reader chrome | Supported in `v1.0.10-epsilon7` work | Reader removes the global top bar, hides controls by default, and toggles reader controls through center tap. |
 | Left/right tap page turns | Supported in `v1.0.10-epsilon7` work | Keep page-zone behavior in the WebView bridge so it works inside EPUB iframe documents. |
 | Storyteller EPUB Media Overlay parsing | Supported in tests, partial on device | Parser now preserves OPF media-overlay, SMIL clips, embedded audio resources, duration, and Storyteller audio metadata labels; still requires signed-release smoke tests with real Storyteller-generated EPUB bundles. |
@@ -120,13 +120,13 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
 | Audio metadata labels | Supported in models/playback, partial on device | Bindery and Storyteller OPF labels now flow into readaloud tracks, Media3 item descriptors, playback logs, and reader chrome metadata; still requires signed-release smoke tests with real synced packages. |
 | Custom/downloaded/book fonts | Partial | Reader now separates font family from font source: Navic bundled fonts, Android system fallbacks, and publication-provided book fonts are exposed in reader chrome and Settings > Ebooks. Downloaded/imported custom font files remain pending. |
-| Rich themes/background images | Missing | Add named reader themes with foreground/background/accent and optional background image. |
-| Paragraph spacing and publisher style override | Missing | Extend `ReaderSettings` and JS `applySettings`; include "follow book styles" vs "override" toggle. |
+| Rich themes/background images | Partial | Named reader palettes, dim overlay, sepia image tint toggle, paper texture, and border overlays exist. User-imported/background-image themes remain pending. |
+| Paragraph spacing and publisher style override | Supported in code/tests | `ReaderSettings`, Settings > Ebooks, search, and the JS runtime apply paragraph spacing and publisher-style override. Continue validating on real EPUBs because publisher CSS can still be hostile. |
 | Custom CSS editor | Missing | Adapt Anx's custom CSS concept only after sanitizing/injection boundaries in the Foliate runtime. |
-| Screen awake/fullscreen controls | Missing | Add keep-screen-on and system bar/fullscreen preferences. |
-| Volume-key page turn | Missing | Add Android key handling in the reader host. |
-| Custom tap-zone editor | Missing | Adapt Anx's simple/custom page-turn mode and 3x3 zone editor. |
-| Header/footer reading info customization | Missing | Add configurable chapter title, book progress, section progress, battery/time slots. |
+| Screen awake/fullscreen controls | Supported in code/tests | Settings > Ebooks exposes fullscreen and keep-screen-on controls; Android WebView host applies keep-screen-on and reader system bar effects. |
+| Volume-key page turn | Supported in code/tests, phone smoke pending | Reader screen handles volume-key page turns behind a persisted Settings > Ebooks switch. Validate with signed APK on device because OEM key routing can vary. |
+| Custom tap-zone editor | Partial | Komikku-style presets, smaller zones, and visible tap-zone overlay exist. A true custom 3x3 editor remains pending. |
+| Header/footer reading info customization | Partial | Organic page number overlay exists, including `current / total`. Configurable chapter/book/section/battery/time slots remain pending. |
 | TTS service/rate/pitch/volume | Not prioritized | Storyteller synced audio is the primary path. Generic TTS is fallback work, not the core experience. |
 
 ### Komikku Options To Adapt
@@ -167,12 +167,18 @@ Proposed reader-settings tabs:
 
 ### Required Next Steps
 
-1. Stabilize the signed-release phone test loop: build in CI, install the signed APK over the existing release package, and run an adb smoke script for EPUB, PDF, and readaloud EPUB.
-2. Promote reader navigation settings from hard-coded behavior to persisted preferences: tap zones, center-menu zone, swap zones, disable tap turns, RTL/LTR direction, and volume-key turns.
-3. Expand `ReaderSettings` and the Settings > Ebooks page with Anx-class controls: custom fonts, paragraph spacing, theme palettes, publisher-style override, fullscreen/awake settings, and optional custom CSS.
-4. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
-5. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
-6. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
+1. Stabilize the signed-release phone test loop: build in CI, install the signed APK over the existing release package, and run an adb smoke script for EPUB, PDF, and readaloud EPUB. `scripts/adb-reader-smoke.ps1` exists, but live validation still depends on an attached device.
+2. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
+3. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
+4. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
+5. Add per-book/per-series reader preferences, using Komikku's "For this series" model as Navic's "For this book" override layer.
+6. Add imported/downloaded custom font files and a sanitized custom CSS path after renderer stability is proven on real EPUB/PDF/readaloud packages.
+
+### Recent Release Checkpoints
+
+- `v1.0.11-zeta6` / commit `9abfa4b9`: stabilizes PDF page navigation by serializing duplicate tap/click page-turn events, rendering PDFs with natural layout dimensions, centering PDF pages with fit-width gutters, prefetching adjacent PDF pages, and disabling normal-path bitmap diagnostics. CI built the release APK, verified signing, skipped iOS, and created the GitHub release. ADB phone smoke is still pending because no device was attached during the follow-up audit.
+- `v1.0.11-zeta5` / commit `3755a1a8`: fixes release workflow token handling so GitHub release creation succeeds.
+- `v1.0.11-zeta4` / commit `cc7d5309`: isolates readaloud playback into the dedicated readaloud media session/service path.
 
 ---
 
