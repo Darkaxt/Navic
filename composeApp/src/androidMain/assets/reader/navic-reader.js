@@ -503,6 +503,13 @@ class NavicReaderRuntime {
     }
   }
 
+  progressTargetForSections(fraction) {
+    const sectionCount = Number(this.view?.book?.sections?.length)
+    if (!Number.isFinite(sectionCount) || sectionCount <= 0) return null
+    const index = Math.floor(Math.min(1, Math.max(0, fraction)) * sectionCount)
+    return Math.min(sectionCount - 1, Math.max(0, index))
+  }
+
   async goToProgress(progress) {
     if (!this.view) return
     const numericProgress = Number(progress)
@@ -511,8 +518,15 @@ class NavicReaderRuntime {
       : 0
     try {
       log('progress-seek:start', fraction)
-      if (typeof this.view?.goToFraction === 'function') {
+      const canUseFraction = typeof this.view?.goToFraction === 'function' &&
+        this.view?.book?.splitTOCHref &&
+        this.view?.book?.getTOCFragment
+      const progressTarget = this.progressTargetForSections(fraction)
+      if (canUseFraction) {
         await this.view.goToFraction(fraction)
+      } else if (progressTarget != null) {
+        log('progress-seek:fallback-section', progressTarget)
+        await this.view.goTo(progressTarget)
       } else {
         await this.view.goTo({ fraction })
       }

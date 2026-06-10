@@ -617,6 +617,21 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderUsesSectionIndexFallbackForProgressOnlyFixedLayoutResume() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val goToProgress = bridgeText
+			.substringAfter("async goToProgress(progress) {")
+			.substringBefore("\n  async nextPage()")
+
+		assertContains(bridgeText, "progressTargetForSections")
+		assertContains(goToProgress, "const progressTarget = this.progressTargetForSections(fraction)")
+		assertContains(goToProgress, "if (progressTarget != null)")
+		assertContains(goToProgress, "await this.view.goTo(progressTarget)")
+		assertContains(goToProgress, "await this.view.goToFraction(fraction)")
+		assertContains(bridgeText, "this.view?.book?.sections?.length")
+	}
+
+	@Test
 	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
