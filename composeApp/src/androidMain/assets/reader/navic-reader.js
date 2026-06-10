@@ -825,6 +825,17 @@ class NavicReaderRuntime {
     }
   }
 
+  fixedLayoutPagePosition(detail) {
+    if (this.view?.isFixedLayout !== true) return null
+    const pageCount = Number(this.view?.book?.sections?.length)
+    const pageIndex = Number(detail?.index)
+    if (!Number.isFinite(pageCount) || pageCount <= 0 || !Number.isFinite(pageIndex)) return null
+    return {
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex))),
+      pageCount,
+    }
+  }
+
   applySettings(settings) {
     settings = { ...this.readerSettings, ...settings }
     this.readerSettings = settings
@@ -988,11 +999,14 @@ class NavicReaderRuntime {
 
   onRelocate(detail) {
     const tocItem = detail.tocItem || {}
+    const pagePosition = this.fixedLayoutPagePosition(detail)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,
       cfi: detail.cfi,
       progress: optionalNumber(detail.fraction ?? detail.progress ?? detail.totalProgress),
+      pageIndex: pagePosition?.pageIndex,
+      pageCount: pagePosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
     })
     if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })

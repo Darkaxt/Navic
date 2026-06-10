@@ -307,6 +307,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderReportsFixedLayoutPagePositionToChrome() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+
+		assertContains(bridgeText, "fixedLayoutPagePosition(detail)")
+		assertContains(bridgeText, "this.view?.isFixedLayout === true")
+		assertContains(bridgeText, "this.view?.book?.sections?.length")
+		assertContains(bridgeText, "pageIndex: pagePosition?.pageIndex")
+		assertContains(bridgeText, "pageCount: pagePosition?.pageCount")
+		assertContains(bridgeProtocolText, "val pageIndex: Int? = null")
+		assertContains(bridgeProtocolText, "val pageCount: Int? = null")
+		assertContains(chromeStateText, "readerPageProgressLabel")
+		assertContains(chromeStateText, "\"Page ${'$'}{pageIndex + 1} of ${'$'}pageCount\"")
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

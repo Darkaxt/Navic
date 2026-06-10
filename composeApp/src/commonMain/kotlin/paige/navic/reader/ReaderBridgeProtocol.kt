@@ -22,7 +22,9 @@ private val ReaderBridgeJson = Json {
 data class ReaderLocator(
 	val href: String? = null,
 	val cfi: String? = null,
-	val progress: Double? = null
+	val progress: Double? = null,
+	val pageIndex: Int? = null,
+	val pageCount: Int? = null
 )
 
 data class ReaderOverlayFragment(
@@ -274,7 +276,9 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				locator = ReaderLocator(
 					href = json.stringValue("href"),
 					cfi = json.stringValue("cfi"),
-					progress = json.doubleValue("progress")
+					progress = json.doubleValue("progress"),
+					pageIndex = json.intValue("pageIndex"),
+					pageCount = json.intValue("pageCount")
 				),
 				tocTitle = json.stringValue("tocTitle")
 			)
@@ -317,6 +321,8 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 		href?.let { put("href", it) }
 		cfi?.let { put("cfi", it) }
 		progress?.let { put("progress", it) }
+		pageIndex?.let { put("pageIndex", it) }
+		pageCount?.let { put("pageCount", it) }
 	}
 
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =

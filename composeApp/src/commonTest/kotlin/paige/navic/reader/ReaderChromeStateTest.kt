@@ -42,6 +42,22 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun fixedLayoutLocationsUsePageAwareProgressLabels() {
+		val state = ReaderChromeState().onReaderEvent(
+			ReaderBridgeEvent.LocationChanged(
+				ReaderLocator(
+					progress = 0.05,
+					pageIndex = 6,
+					pageCount = 120
+				)
+			)
+		)
+
+		assertEquals(0.05f, state.progressFraction)
+		assertEquals("Page 7 of 120 • 5%", state.progressLabel)
+	}
+
+	@Test
 	fun typographyControlsCreateReaderSettingsCommands() {
 		val larger = ReaderChromeState().adjustFontSize(12)
 		val sepia = larger.toggleTheme()

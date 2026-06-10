@@ -174,6 +174,30 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeFixedLayoutPagePosition() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "locationChanged",
+			  "progress": 0.05,
+			  "pageIndex": 6,
+			  "pageCount": 120
+			}
+			""".trimIndent()
+		)
+
+		val locationChanged = assertIs<ReaderBridgeEvent.LocationChanged>(event)
+		assertEquals(
+			ReaderLocator(
+				progress = 0.05,
+				pageIndex = 6,
+				pageCount = 120
+			),
+			locationChanged.locator
+		)
+	}
+
+	@Test
 	fun bridgeEventsDecodeSearchResultsWithCfiHrefAndExcerpt() {
 		val event = decodeReaderBridgeEvent(
 			"""

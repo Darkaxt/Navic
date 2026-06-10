@@ -362,9 +362,9 @@ data class ReaderChromeState(
 			?.toFloat()
 
 	val progressLabel: String
-		get() = progressFraction
-			?.let { fraction -> "${(fraction * 100).roundToInt().coerceIn(0, 100)}%" }
-			?: "Progress unavailable"
+		get() = currentLocator
+			?.let(::readerPageProgressLabel)
+			?: readerProgressPercentLabel(currentLocator?.progress)
 
 	fun onReaderEvent(event: ReaderBridgeEvent): ReaderChromeState =
 		when (event) {
@@ -481,6 +481,21 @@ data class ReaderChromeState(
 	fun toSettingsCommand(): ReaderBridgeCommand.ApplySettings =
 		ReaderBridgeCommand.ApplySettings(settings)
 }
+
+private fun readerPageProgressLabel(locator: ReaderLocator): String? {
+	val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
+	val pageCount = locator.pageCount?.takeIf { it > 0 } ?: return null
+	val pageLabel = "Page ${pageIndex + 1} of $pageCount"
+	val progressLabel = readerProgressPercentLabel(locator.progress)
+	return if (progressLabel == "Progress unavailable") pageLabel else "$pageLabel • $progressLabel"
+}
+
+private fun readerProgressPercentLabel(progress: Double?): String =
+	progress
+		?.takeIf(Double::isFinite)
+		?.coerceIn(0.0, 1.0)
+		?.let { fraction -> "${(fraction * 100).roundToInt().coerceIn(0, 100)}%" }
+		?: "Progress unavailable"
 
 data class ReaderReadaloudPlaybackUiState(
 	val isAvailable: Boolean = false,
