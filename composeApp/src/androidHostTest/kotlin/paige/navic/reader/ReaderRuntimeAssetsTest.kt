@@ -903,6 +903,16 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(overlay2.averagePngAlpha() >= 2.0, "Reader page border overlay 2 must be visible at runtime")
 		assertTrue(overlay3.averagePngAlpha() >= 2.0, "Reader page border overlay 3 must be visible at runtime")
 		assertTrue(overlay4.averagePngAlpha() >= 2.0, "Reader page border overlay 4 must be visible at runtime")
+		listOf(overlay1, overlay2, overlay3, overlay4).forEachIndexed { index, overlay ->
+			assertTrue(
+				overlay.outerEdgeAlphaHighFrequencyPercent() <= 0.5,
+				"Reader page border overlay ${index + 1} must not contain baked checkerboard artifacts"
+			)
+			assertTrue(
+				overlay.maxPngAlpha() <= 70,
+				"Reader page border overlay ${index + 1} should be subtle page-edge degradation"
+			)
+		}
 		assertContains(bridgeText, "ReaderPageBorderOverlayAssets")
 		assertContains(bridgeText, "paper-textures/page-border-overlay-1.png")
 		assertContains(bridgeText, "paper-textures/page-border-overlay-2.png")
@@ -1486,5 +1496,44 @@ class ReaderRuntimeAssetsTest {
 			}
 		}
 		return total.toDouble() / (image.width * image.height).toDouble()
+	}
+
+	private fun File.maxPngAlpha(): Int {
+		val image = ImageIO.read(this) ?: error("Could not read PNG file: $this")
+		var max = 0
+		for (y in 0 until image.height) {
+			for (x in 0 until image.width) {
+				max = maxOf(max, (image.getRGB(x, y) ushr 24) and 0xff)
+			}
+		}
+		return max
+	}
+
+	private fun File.outerEdgeAlphaHighFrequencyPercent(): Double {
+		val image = ImageIO.read(this) ?: error("Could not read PNG file: $this")
+		val edge = (minOf(image.width, image.height) * 0.18).toInt()
+		var comparisons = 0
+		var highFrequencyComparisons = 0
+
+		fun isOuterEdge(x: Int, y: Int): Boolean =
+			x < edge || x >= image.width - edge || y < edge || y >= image.height - edge
+
+		fun alphaAt(x: Int, y: Int): Int = (image.getRGB(x, y) ushr 24) and 0xff
+
+		for (y in 0 until image.height step 4) {
+			for (x in 0 until image.width step 4) {
+				if (!isOuterEdge(x, y)) continue
+				val alpha = alphaAt(x, y)
+				if (x + 4 < image.width && isOuterEdge(x + 4, y)) {
+					comparisons++
+					if (kotlin.math.abs(alpha - alphaAt(x + 4, y)) >= 12) highFrequencyComparisons++
+				}
+				if (y + 4 < image.height && isOuterEdge(x, y + 4)) {
+					comparisons++
+					if (kotlin.math.abs(alpha - alphaAt(x, y + 4)) >= 12) highFrequencyComparisons++
+				}
+			}
+		}
+		return if (comparisons == 0) 0.0 else highFrequencyComparisons.toDouble() * 100.0 / comparisons
 	}
 }
