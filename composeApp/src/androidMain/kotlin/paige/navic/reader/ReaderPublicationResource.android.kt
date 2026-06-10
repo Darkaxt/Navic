@@ -72,12 +72,13 @@ internal fun ReaderPublicationResourceRequest.safeResourceHref(): String =
 		?: throw IllegalStateException("Reader publication resource href is required.")
 
 internal fun ReaderPublicationResourceRequest.readerPublicationCacheKey(): String {
+	val resourceIdentity = canonicalReaderResourceHref(resourceHref) ?: safeResourceHref()
 	val identity = listOf(
 		bookId.trim().takeIf { it.isNotEmpty() } ?: "anonymous",
 		kind.name,
 		format.name,
 		mediaOverlayEnabled.toString(),
-		safeResourceHref()
+		resourceIdentity
 	).joinToString(separator = "|")
 	return "reader-${identity.sha256Hex().take(24)}"
 }

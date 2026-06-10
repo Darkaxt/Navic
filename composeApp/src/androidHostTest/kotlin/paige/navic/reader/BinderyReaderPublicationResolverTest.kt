@@ -124,4 +124,42 @@ class BinderyReaderPublicationResolverTest {
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
 		assertTrue(first.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/"))
 	}
+
+	@Test
+	fun localCacheContractIsStableAcrossAbsoluteAndRelativeResourceUrls() = runBlocking {
+		var fetchCount = 0
+		val cacheRoot = createTempDirectory("navic-reader-publication-url-forms").toFile()
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = {
+				fetchCount += 1
+				"EPUB_BYTES_$fetchCount".encodeToByteArray()
+			},
+			cacheRoot = cacheRoot
+		)
+		val first = resolver.resolve(
+			ReaderPublicationResourceRequest(
+				bookId = "3693",
+				title = "Alcatraz",
+				resourceHref = "https://bindery.local/opds/books/3693/resources/ebook-1?download=1#ignored",
+				sourceUrl = "https://bindery.local/opds/books/3693/resources/ebook-1?download=1#ignored",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false
+			)
+		)
+		val second = resolver.resolve(
+			ReaderPublicationResourceRequest(
+				bookId = "3693",
+				title = "Alcatraz",
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				sourceUrl = "https://mirror.local/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false
+			)
+		)
+
+		assertEquals(1, fetchCount)
+		assertEquals(first.cacheKey, second.cacheKey)
+		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
+		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
+	}
 }

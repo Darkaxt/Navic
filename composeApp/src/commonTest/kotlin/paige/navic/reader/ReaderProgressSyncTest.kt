@@ -56,6 +56,25 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun binderyProgressMatchesAbsoluteAndRelativeResourceHrefsByCanonicalPath() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "https://bindery.local/opds/books/3693/resources/ebook-1?download=1#ignored",
+			cfi = "epubcfi(/6/8!/4/1:0)",
+			progressFraction = 0.34
+		)
+
+		assertEquals(
+			ReaderLocator(cfi = "epubcfi(/6/8!/4/1:0)", progress = 0.34),
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
 	fun progressOnlyLocatorCanResumeFixedLayoutPublications() {
 		val progress = BinderyReadingProgress(
 			bookId = "3816",
@@ -148,6 +167,30 @@ class ReaderProgressSyncTest {
 				cfi = "epubcfi(/6/10!/4/3:12)",
 				progress = 0.62
 			),
+			state.progressFor(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)?.toReaderStartLocator()
+		)
+	}
+
+	@Test
+	fun localReadingProgressStateMatchesEquivalentResourceUrlForms() {
+		val state = ReaderReadingProgressState(
+			listOf(
+				BinderyReadingProgress(
+					bookId = "3693",
+					kind = BinderyReadingProgressKind.Ebook,
+					resourceHref = "https://bindery.local/opds/books/3693/resources/ebook-1?download=1",
+					cfi = "epubcfi(/6/8!/4/1:0)",
+					progressFraction = 0.34
+				)
+			)
+		)
+
+		assertEquals(
+			ReaderLocator(cfi = "epubcfi(/6/8!/4/1:0)", progress = 0.34),
 			state.progressFor(
 				bookId = "3693",
 				resourceHref = "/opds/books/3693/resources/ebook-1",

@@ -28,8 +28,8 @@ fun BinderyReadingProgress.toReaderStartLocatorFor(
 	resourceHref: String,
 	kind: ReaderPublicationKind
 ): ReaderLocator? {
-	val safeResourceHref = resourceHref.trim().takeIf { it.isNotEmpty() } ?: return null
-	val progressResourceHref = this.resourceHref?.trim()?.takeIf { it.isNotEmpty() }
+	val safeResourceHref = canonicalReaderResourceHref(resourceHref) ?: return null
+	val progressResourceHref = canonicalReaderResourceHref(this.resourceHref)
 	val matchesResource = progressResourceHref == null || progressResourceHref == safeResourceHref
 	val matchesKind = this.kind == kind.toBinderyReadingProgressKind()
 	return if (matchesResource && matchesKind) {
@@ -71,7 +71,7 @@ fun ReaderLocator.toBinderyReadingProgress(
 	alias: String? = null
 ): BinderyReadingProgress? {
 	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() } ?: return null
-	val safeResourceHref = resourceHref.trim().takeIf { it.isNotEmpty() } ?: return null
+	val safeResourceHref = canonicalReaderResourceHref(resourceHref) ?: return null
 	val hrefParts = href.splitReaderHref()
 	val safeCfi = cfi?.trim()?.takeIf { it.isNotEmpty() }
 	val safeProgress = progress?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
@@ -118,7 +118,7 @@ private data class ReaderReadingProgressKey(
 			kind: BinderyReadingProgressKind?
 		): ReaderReadingProgressKey? {
 			val safeBookId = bookId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-			val safeResourceHref = resourceHref?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+			val safeResourceHref = canonicalReaderResourceHref(resourceHref) ?: return null
 			return ReaderReadingProgressKey(
 				bookId = safeBookId,
 				resourceHref = safeResourceHref,
@@ -162,3 +162,19 @@ private fun ReaderPublicationKind.toBinderyReadingProgressKind(): BinderyReading
 		ReaderPublicationKind.Ebook -> BinderyReadingProgressKind.Ebook
 		ReaderPublicationKind.Readaloud -> BinderyReadingProgressKind.Readaloud
 	}
+
+fun canonicalReaderResourceHref(value: String?): String? {
+	val safeValue = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val withoutFragment = safeValue.substringBefore("#")
+	val withoutQuery = withoutFragment.substringBefore("?")
+	val path = if (withoutQuery.contains("://")) {
+		val afterScheme = withoutQuery.substringAfter("://")
+		afterScheme.substringAfter("/", missingDelimiterValue = "")
+			.takeIf { it.isNotEmpty() }
+			?.let { "/$it" }
+			?: withoutQuery
+	} else {
+		withoutQuery
+	}
+	return path.trim().trimEnd('/').takeIf { it.isNotEmpty() }
+}
