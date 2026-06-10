@@ -4,15 +4,19 @@ import paige.navic.domain.manager.PreferenceManager
 import kotlin.math.roundToInt
 
 fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
-	val paragraphSpacingPercent = if (!readerParagraphSpacingDefaultMigrated &&
-		readerParagraphSpacingPercent == LegacyReaderParagraphSpacingPercent
-	) {
-		readerParagraphSpacingPercent = DefaultReaderParagraphSpacingPercent
-		readerParagraphSpacingDefaultMigrated = true
-		DefaultReaderParagraphSpacingPercent
-	} else {
-		if (!readerParagraphSpacingDefaultMigrated) readerParagraphSpacingDefaultMigrated = true
-		readerParagraphSpacingPercent
+	val paragraphSpacingPercent = when {
+		readerParagraphSpacingPercent == LegacyReaderParagraphSpacingPercent &&
+			(!readerParagraphSpacingDefaultMigrated || !readerParagraphSpacingReadableDefaultMigrated) -> {
+			readerParagraphSpacingPercent = DefaultReaderParagraphSpacingPercent
+			readerParagraphSpacingDefaultMigrated = true
+			readerParagraphSpacingReadableDefaultMigrated = true
+			DefaultReaderParagraphSpacingPercent
+		}
+		else -> {
+			if (!readerParagraphSpacingDefaultMigrated) readerParagraphSpacingDefaultMigrated = true
+			if (!readerParagraphSpacingReadableDefaultMigrated) readerParagraphSpacingReadableDefaultMigrated = true
+			readerParagraphSpacingPercent
+		}
 	}
 
 	return normalizedReaderSettings(
@@ -45,6 +49,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerLineHeightPercent = (((normalized.lineHeight ?: 1.55) * 100.0).roundToInt())
 	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent
 	readerParagraphSpacingDefaultMigrated = true
+	readerParagraphSpacingReadableDefaultMigrated = true
 	readerMarginPercent = normalized.marginPercent ?: 0
 	readerDimOverlayPercent = normalized.dimOverlayPercent ?: 0
 	readerOrientation = normalized.orientation ?: ReaderOrientationDefault

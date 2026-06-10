@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import java.io.File
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -423,8 +424,30 @@ class ReaderRuntimeAssetsTest {
 				linkNavigation.indexOf("const rawHref"),
 			"Reader link navigation must ignore media/image anchors before resolving hrefs."
 		)
-		assertContains(sepiaToggle, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
-		assertContains(sepiaToggle, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
+		assertContains(bridgeText, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+	}
+
+	@Test
+	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  readerTapZone")
+
+		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
+		assertContains(sepiaToggle, "touchstart")
+		assertContains(sepiaToggle, "touchend")
+		assertContains(sepiaToggle, "__navicLastMediaTapHandledAt")
+		assertContains(linkNavigation, "__navicLastMediaTapHandledAt")
+		assertTrue(
+			linkNavigation.indexOf("__navicLastMediaTapHandledAt") <
+				linkNavigation.indexOf("const rawHref"),
+			"Reader link navigation must suppress synthetic clicks from image tint toggles before resolving hrefs."
+		)
 	}
 
 	@Test
@@ -440,7 +463,8 @@ class ReaderRuntimeAssetsTest {
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
 			.substringBefore("\n  readerTapZone")
 
-		assertContains(mediaHitTesting, "doc?.elementsFromPoint?.(event.clientX, event.clientY)")
+		assertContains(mediaHitTesting, "const { clientX, clientY } = readerEventClientPoint(event)")
+		assertContains(mediaHitTesting, "doc?.elementsFromPoint?.(clientX, clientY)")
 		assertContains(mediaHitTesting, "getBoundingClientRect")
 		assertContains(mediaHitTesting, "readerPointInsideRect")
 		assertContains(mediaHitTesting, "readerMediaElementFromCandidate")
@@ -451,8 +475,8 @@ class ReaderRuntimeAssetsTest {
 				linkNavigation.indexOf("const rawHref"),
 			"Reader link navigation must let media/image hit testing consume the tap before href resolution."
 		)
-		assertContains(sepiaToggle, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
-		assertContains(sepiaToggle, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
+		assertContains(bridgeText, "const image = readerImageFromMediaTarget(mediaTapTarget)")
 	}
 
 	@Test
@@ -627,6 +651,9 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(texture1.hasPngAlphaChannel(), "Reader paper texture 1 must be transparent")
 		assertTrue(texture2.hasPngAlphaChannel(), "Reader paper texture 2 must be transparent")
 		assertTrue(texture3.hasPngAlphaChannel(), "Reader paper texture 3 must be transparent")
+		assertTrue(texture1.averagePngAlpha() >= 2.0, "Reader paper texture 1 must be visible at runtime")
+		assertTrue(texture2.averagePngAlpha() >= 2.0, "Reader paper texture 2 must be visible at runtime")
+		assertTrue(texture3.averagePngAlpha() >= 2.0, "Reader paper texture 3 must be visible at runtime")
 		assertContains(bridgeText, "ReaderPaperTextureAssets")
 		assertContains(bridgeText, "paper-textures/paper-texture-1.png")
 		assertContains(bridgeText, "paper-textures/paper-texture-2.png")
@@ -992,5 +1019,16 @@ class ReaderRuntimeAssetsTest {
 		require(bytes.take(8).toByteArray().contentEquals(pngSignature)) { "Not a PNG file: $this" }
 		val colorType = bytes[25].toInt() and 0xff
 		return colorType == 4 || colorType == 6
+	}
+
+	private fun File.averagePngAlpha(): Double {
+		val image = ImageIO.read(this) ?: error("Could not read PNG file: $this")
+		var total = 0L
+		for (y in 0 until image.height) {
+			for (x in 0 until image.width) {
+				total += (image.getRGB(x, y) ushr 24) and 0xff
+			}
+		}
+		return total.toDouble() / (image.width * image.height).toDouble()
 	}
 }

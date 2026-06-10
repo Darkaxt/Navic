@@ -248,6 +248,7 @@ class PreferenceManager(
 	var readerLineHeightPercent by preference(155)
 	var readerParagraphSpacingPercent by preference(100)
 	var readerParagraphSpacingDefaultMigrated by preference(false)
+	var readerParagraphSpacingReadableDefaultMigrated by preference(false)
 	var readerMarginPercent by preference(0)
 	var readerDimOverlayPercent by preference(0)
 	var readerOrientation by preference("default")

@@ -133,7 +133,7 @@ const closestElement = (target, selector) =>
   target?.parentNode?.closest?.(selector) ||
   null
 
-const readerMediaSelector = 'img,picture,svg,video,canvas'
+const readerMediaSelector = 'img,picture,svg,video,canvas,object,embed,[role="img"]'
 
 const readerLinkHasMedia = anchor =>
   Boolean(anchor?.querySelector?.(readerMediaSelector))
@@ -157,6 +157,13 @@ const readerPointInsideRect = (x, y, rect, slop = 3) =>
   y >= rect.top - slop &&
   y <= rect.bottom + slop
 
+const readerEventClientPoint = event => {
+  const touch = event?.changedTouches?.[0] || event?.touches?.[0]
+  const clientX = Number(touch?.clientX ?? event?.clientX)
+  const clientY = Number(touch?.clientY ?? event?.clientY)
+  return { clientX, clientY }
+}
+
 const readerMediaElementFromCandidate = candidate => {
   if (!candidate) return null
   if (candidate.matches?.(readerMediaSelector)) return candidate
@@ -177,11 +184,12 @@ const readerMediaTapTargetForEvent = (doc, event, anchor) => {
     return readerMediaElementFromCandidate(anchor)
   }
 
-  const x = Number(event?.clientX)
-  const y = Number(event?.clientY)
+  const { clientX, clientY } = readerEventClientPoint(event)
+  const x = Number(clientX)
+  const y = Number(clientY)
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
 
-  for (const candidate of doc?.elementsFromPoint?.(event.clientX, event.clientY) || []) {
+  for (const candidate of doc?.elementsFromPoint?.(clientX, clientY) || []) {
     const media = readerMediaElementFromCandidate(candidate)
     if (readerPointInsideRect(x, y, media?.getBoundingClientRect?.())) return media
   }
@@ -870,11 +878,23 @@ class NavicReaderRuntime {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
-      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
-      if (mediaTapTarget) {
+      const lastMediaTap = Number(doc.defaultView?.__navicLastMediaTapHandledAt || 0)
+      const timestamp = event.timeStamp || performance.now()
+      if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation()
+        log('link:media-synthetic-click-suppressed', describeUrl(anchor.getAttribute('href') || ''))
+        return
+      }
+      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+      if (mediaTapTarget) {
+        const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
+        if (!toggled) {
+          event.preventDefault()
+          event.stopPropagation()
+          event.stopImmediatePropagation()
+        }
         log('link:media-tap', mediaTapTarget.tagName || 'media', describeUrl(anchor.getAttribute('href') || ''))
         return
       }
@@ -905,26 +925,82 @@ class NavicReaderRuntime {
     }
   }
 
+  toggleSepiaImageOverlayFromEvent(doc, event) {
+    if (event.defaultPrevented || event.button > 0) return false
+    if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return false
+    const anchor = closestElement(event.target, 'a[href]')
+    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    const image = readerImageFromMediaTarget(mediaTapTarget)
+    if (!image) return false
+    event.preventDefault?.()
+    event.stopPropagation?.()
+    event.stopImmediatePropagation?.()
+    const disabled = image.dataset.navicSepiaOverlay === 'off'
+    if (disabled) {
+      delete image.dataset.navicSepiaOverlay
+    } else {
+      image.dataset.navicSepiaOverlay = 'off'
+    }
+    if (doc?.defaultView) {
+      doc.defaultView.__navicLastMediaTapHandledAt = event.timeStamp || performance.now()
+    }
+    log('image:sepia-overlay', disabled ? 'on' : 'off')
+    return true
+  }
+
   attachSepiaImageOverlayToggle(doc) {
     if (!doc?.defaultView || doc.defaultView.__navicSepiaImageOverlayToggleAttached) return
     doc.defaultView.__navicSepiaImageOverlayToggleAttached = true
-    doc.addEventListener('click', event => {
-      if (event.defaultPrevented || event.button !== 0) return
-      if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return
-      const anchor = closestElement(event.target, 'a[href]')
-      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
-      const image = readerImageFromMediaTarget(mediaTapTarget)
-      if (!image) return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      const disabled = image.dataset.navicSepiaOverlay === 'off'
-      if (disabled) {
-        delete image.dataset.navicSepiaOverlay
-      } else {
-        image.dataset.navicSepiaOverlay = 'off'
+    let touchState = null
+    doc.addEventListener('touchstart', event => {
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 1) {
+        touchState = null
+        return
       }
-      log('image:sepia-overlay', disabled ? 'on' : 'off')
+      touchState = {
+        target: event.target,
+        x: touch.screenX ?? touch.clientX ?? 0,
+        y: touch.screenY ?? touch.clientY ?? 0,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+      }
+    }, { capture: true, passive: true })
+    doc.addEventListener('touchend', event => {
+      const state = touchState
+      touchState = null
+      if (!state || event.touches?.length > 0) return
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      const endX = touch.screenX ?? touch.clientX ?? state.x
+      const endY = touch.screenY ?? touch.clientY ?? state.y
+      if (Math.abs(endX - state.x) > CenterTapMovementSlop) return
+      if (Math.abs(endY - state.y) > CenterTapMovementSlop) return
+      this.toggleSepiaImageOverlayFromEvent(doc, {
+        defaultPrevented: event.defaultPrevented,
+        button: 0,
+        target: state.target || event.target,
+        clientX: touch.clientX ?? state.clientX,
+        clientY: touch.clientY ?? state.clientY,
+        preventDefault: () => event.preventDefault(),
+        stopPropagation: () => event.stopPropagation(),
+        stopImmediatePropagation: () => event.stopImmediatePropagation(),
+        timeStamp: event.timeStamp,
+      })
+    }, { capture: true, passive: false })
+    doc.addEventListener('touchcancel', () => {
+      touchState = null
+    }, { capture: true, passive: true })
+    doc.addEventListener('click', event => {
+      const lastMediaTap = Number(doc.defaultView?.__navicLastMediaTapHandledAt || 0)
+      const timestamp = event.timeStamp || performance.now()
+      if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        return
+      }
+      this.toggleSepiaImageOverlayFromEvent(doc, event)
     }, { capture: true, passive: false })
   }
 
@@ -1112,6 +1188,11 @@ class NavicReaderRuntime {
         '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
         background: palette.background,
         'background-color': palette.background,
+        'background-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+        'background-position': 'center',
+        'background-repeat': 'no-repeat',
+        'background-size': 'cover',
+        'background-blend-mode': 'multiply',
         color: palette.foreground,
       })
     }
@@ -1364,7 +1445,8 @@ const readerParagraphSpacingCss = settings => `
 `
 
 const isThemeBackgroundMediaElement = element =>
-  ['IMG', 'PICTURE', 'VIDEO', 'CANVAS', 'SVG'].includes(element?.tagName)
+  ['IMG', 'PICTURE', 'VIDEO', 'CANVAS', 'SVG', 'OBJECT', 'EMBED'].includes(element?.tagName) ||
+  element?.getAttribute?.('role') === 'img'
 
 const readerDocumentThemeCss = settings => {
   const palette = readerThemePalette(settings?.theme)
@@ -1384,8 +1466,12 @@ const readerDocumentThemeCss = settings => {
   }
   html, body {
     color: var(--reader-foreground) !important;
-    background: var(--reader-background) !important;
     background-color: var(--reader-background) !important;
+    background-image: var(--reader-paper-texture-image) !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-size: cover !important;
+    background-blend-mode: multiply !important;
     isolation: isolate;
     position: relative !important;
   }
@@ -1406,11 +1492,11 @@ const readerDocumentThemeCss = settings => {
     transform-origin: center;
     z-index: 2147483647;
   }
-  body :not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]) {
+  body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]) {
     background-color: transparent !important;
   }
-  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]),
-  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not([data-navic-paper-texture-layer="true"]) {
+  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]),
+  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not([data-navic-paper-texture-layer="true"]) {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;

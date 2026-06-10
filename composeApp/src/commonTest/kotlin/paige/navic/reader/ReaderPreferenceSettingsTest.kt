@@ -61,10 +61,24 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
-	fun readerDefaultSettingsKeepsExplicitZeroParagraphSpacingAfterMigration() {
+	fun readerDefaultSettingsMigratesInstalledZeroParagraphSpacingToReadableDefault() {
 		val preferences = PreferenceManager(MapSettings())
 
 		preferences.readerParagraphSpacingDefaultMigrated = true
+		preferences.readerParagraphSpacingReadableDefaultMigrated = false
+		preferences.readerParagraphSpacingPercent = 0
+
+		assertEquals(100, preferences.readerDefaultSettings().paragraphSpacingPercent)
+		assertEquals(100, preferences.readerParagraphSpacingPercent)
+		assertEquals(true, preferences.readerParagraphSpacingReadableDefaultMigrated)
+	}
+
+	@Test
+	fun readerDefaultSettingsKeepsExplicitZeroParagraphSpacingAfterReadableMigration() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerParagraphSpacingDefaultMigrated = true
+		preferences.readerParagraphSpacingReadableDefaultMigrated = true
 		preferences.readerParagraphSpacingPercent = 0
 
 		assertEquals(0, preferences.readerDefaultSettings().paragraphSpacingPercent)
@@ -73,6 +87,7 @@ class ReaderPreferenceSettingsTest {
 
 		assertEquals(0, preferences.readerParagraphSpacingPercent)
 		assertEquals(true, preferences.readerParagraphSpacingDefaultMigrated)
+		assertEquals(true, preferences.readerParagraphSpacingReadableDefaultMigrated)
 	}
 
 	@Test
