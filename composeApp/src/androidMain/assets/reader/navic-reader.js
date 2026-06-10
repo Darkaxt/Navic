@@ -7,6 +7,8 @@ const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
 const ScrollEdgeTurnSlop = 2
+const CenterTapMovementSlop = 12
+const CenterTapSyntheticClickDedupeMs = 650
 const ReaderTapZoneDefault = 'default'
 const ReaderTapZoneEdge = 'edge'
 const ReaderTapZoneKindle = 'kindle'
@@ -25,6 +27,12 @@ const ReaderFlowScrolledGaps = 'scrolled-gaps'
 const ReaderDirectionDefault = 'default'
 const ReaderDirectionLtr = 'ltr'
 const ReaderDirectionRtl = 'rtl'
+const ReaderPaperTextureAssets = [
+  'paper-textures/paper-texture-1.png',
+  'paper-textures/paper-texture-2.png',
+  'paper-textures/paper-texture-3.png',
+]
+const ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2
 const ReaderThemePalettes = {
   light: {
     background: '#fbfaf8',
@@ -210,6 +218,60 @@ const komikkuTapAction = (
 
 const readerAssetUrl = path => new URL(path, document.baseURI).href
 
+const isInteractiveReaderTarget = target =>
+  Boolean(closestElement(target, 'a,button,input,textarea,select,summary,[role="button"]'))
+
+const stableHash = value => {
+  const text = String(value || '')
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+const readerPaperTextureVariantKey = (publicationUrl, section, index) =>
+  [
+    publicationUrl || 'publication',
+    Number.isFinite(index) ? index : 'unknown',
+    section?.href || section?.id || section?.label || '',
+  ].join('|')
+
+const readerPaperTextureVariantForPage = key => {
+  const variant = stableHash(key) % ReaderPaperTextureVariantCount
+  const textureIndex = variant % ReaderPaperTextureAssets.length
+  const rotate180 = Math.floor(variant / ReaderPaperTextureAssets.length) % 2 === 1
+  const mirrored = Math.floor(variant / (ReaderPaperTextureAssets.length * 2)) % 2 === 1
+  return {
+    textureIndex,
+    asset: ReaderPaperTextureAssets[textureIndex],
+    rotate180,
+    mirrored,
+  }
+}
+
+const readerPaperTextureTransform = variant => {
+  const transforms = []
+  if (variant?.mirrored) transforms.push('scaleX(-1)')
+  if (variant?.rotate180) transforms.push('rotate(180deg)')
+  return transforms.length ? transforms.join(' ') : 'none'
+}
+
+const readerPaperTextureOpacity = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return '0'
+    case 'dark':
+    case 'dusk':
+      return '0.035'
+    case ReaderThemeSepia:
+      return '0.045'
+    default:
+      return '0.035'
+  }
+}
+
 const readerFontFaceCss = () => `
   @font-face {
     font-family: 'Navic Literata';
@@ -238,7 +300,7 @@ const readerParagraphSpacingEm = settings => {
   const percent = Number(settings.paragraphSpacingPercent)
   const normalized = Number.isFinite(percent)
     ? Math.min(200, Math.max(0, percent))
-    : 0
+    : 100
   return `${normalized / 100}em`
 }
 
@@ -271,6 +333,7 @@ class NavicReaderRuntime {
   readerDirectionModeValue = ReaderDirectionDefault
   smallerTapZone = false
   originalBookDir = null
+  publicationUrl = ''
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -322,6 +385,7 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.publicationUrl = url
       if (settings) this.readerSettings = settings
       this.applyReaderViewportLayout('before-open')
       this.view = document.createElement('foliate-view')
@@ -362,6 +426,7 @@ class NavicReaderRuntime {
     this.view = null
     this.readerSettings = {}
     this.originalBookDir = null
+    this.publicationUrl = ''
     this.readerDirectionModeValue = ReaderDirectionDefault
   }
 
@@ -518,37 +583,87 @@ class NavicReaderRuntime {
     }, { passive: true })
   }
 
+  async handleReaderTapZone(event, doc, source = 'tap') {
+    if (event.defaultPrevented || event.button > 0) return false
+    if (isInteractiveReaderTarget(event.target)) return false
+    const selection = doc?.getSelection?.()
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return false
+    const tapZone = this.readerTapZone(event, doc)
+    if (!tapZone) return false
+    event.preventDefault?.()
+    event.stopPropagation?.()
+    log(`${source}-tap`, tapZone)
+    if (tapZone === 'previous') {
+      await this.previousPage()
+      return true
+    }
+    if (tapZone === 'next') {
+      await this.nextPage()
+      return true
+    }
+    if (tapZone === 'left') {
+      if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
+      else await this.previousPage()
+      return true
+    }
+    if (tapZone === 'right') {
+      if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
+      else await this.nextPage()
+      return true
+    }
+    post({ type: 'readerCenterTap' })
+    return true
+  }
+
   attachCenterTapGesture(doc) {
-    if (!doc?.defaultView || doc.defaultView.__navicCenterTapGestureAttached) return
-    doc.defaultView.__navicCenterTapGestureAttached = true
+    const win = doc?.defaultView
+    if (!win || win.__navicCenterTapGestureAttached) return
+    win.__navicCenterTapGestureAttached = true
+    let touchState = null
+    doc.addEventListener('touchstart', event => {
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      touchState = {
+        x: touch.screenX ?? touch.clientX ?? 0,
+        y: touch.screenY ?? touch.clientY ?? 0,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        time: event.timeStamp || performance.now(),
+        target: event.target,
+      }
+    }, { passive: true })
+    doc.addEventListener('touchend', async event => {
+      const state = touchState
+      touchState = null
+      if (!state) return
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 0) return
+      const endX = touch.screenX ?? touch.clientX ?? state.x
+      const endY = touch.screenY ?? touch.clientY ?? state.y
+      if (Math.abs(endX - state.x) > CenterTapMovementSlop) return
+      if (Math.abs(endY - state.y) > CenterTapMovementSlop) return
+      const handled = await this.handleReaderTapZone({
+        defaultPrevented: event.defaultPrevented,
+        button: 0,
+        target: state.target || event.target,
+        clientX: touch.clientX ?? state.clientX,
+        clientY: touch.clientY ?? state.clientY,
+        preventDefault: () => event.preventDefault(),
+        stopPropagation: () => event.stopPropagation(),
+      }, doc, 'touch')
+      if (handled) win.__navicLastTapHandledAt = event.timeStamp || performance.now()
+    }, { passive: false })
+    doc.addEventListener('touchcancel', () => {
+      touchState = null
+    }, { passive: true })
     doc.addEventListener('click', async event => {
-      if (event.defaultPrevented || event.button !== 0) return
-      if (closestElement(event.target, 'a,button,input,textarea,select,summary,[role="button"]')) return
-      const selection = doc.getSelection?.()
-      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
-      const tapZone = this.readerTapZone(event, doc)
-      if (!tapZone) return
-      event.preventDefault()
-      if (tapZone === 'previous') {
-        await this.previousPage()
-        return
-      }
-      if (tapZone === 'next') {
-        await this.nextPage()
-        return
-      }
-      if (tapZone === 'left') {
-        if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
-        else await this.previousPage()
-        return
-      }
-      if (tapZone === 'right') {
-        if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
-        else await this.nextPage()
-        return
-      }
-      log('center-tap')
-      post({ type: 'readerCenterTap' })
+      const timestamp = event.timeStamp || performance.now()
+      const lastTap = Number(win.__navicLastTapHandledAt || 0)
+      if (lastTap && Math.abs(timestamp - lastTap) < CenterTapSyntheticClickDedupeMs) return
+      await this.handleReaderTapZone(event, doc, 'center')
     }, { passive: false })
   }
 
@@ -558,30 +673,7 @@ class NavicReaderRuntime {
     element.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button !== 0) return
       if (this.view?.isFixedLayout === true) {
-        const tapZone = this.readerTapZone(event, document)
-        if (!tapZone) return
-        event.preventDefault()
-        event.stopPropagation()
-        log('surface-tap', tapZone)
-        if (tapZone === 'previous') {
-          await this.previousPage()
-          return
-        }
-        if (tapZone === 'next') {
-          await this.nextPage()
-          return
-        }
-        if (tapZone === 'left') {
-          if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
-          else await this.previousPage()
-          return
-        }
-        if (tapZone === 'right') {
-          if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
-          else await this.nextPage()
-          return
-        }
-        post({ type: 'readerCenterTap' })
+        await this.handleReaderTapZone(event, document, 'surface')
       }
     }, { passive: false })
   }
@@ -744,8 +836,8 @@ class NavicReaderRuntime {
   }
 
   applyThemeToLoadedContent(settings = this.readerSettings) {
-    for (const doc of this.contentDocuments()) {
-      this.applyDocumentTheme(doc, settings)
+    for (const content of this.contentEntries()) {
+      this.applyDocumentTheme(content.doc, settings, content.index)
     }
     this.applyRendererTheme(settings)
   }
@@ -773,13 +865,18 @@ class NavicReaderRuntime {
     }
   }
 
-  applyDocumentTheme(doc, settings = this.readerSettings) {
+  applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {
     if (!doc?.documentElement) return
     const palette = readerThemePalette(settings?.theme)
     const root = doc.documentElement
     const body = doc.body
     const styleHost = doc.head || root
+    const section = this.view?.book?.sections?.[index]
+    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index)
+    const textureVariant = readerPaperTextureVariantForPage(textureKey)
     root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
+    root.dataset.navicPaperTextureKey = textureKey
+    root.dataset.navicPaperTextureAsset = textureVariant.asset
     let themeStyle = doc.getElementById(ReaderDocumentThemeStyleId)
     if (!themeStyle) {
       themeStyle = doc.createElement('style')
@@ -793,6 +890,9 @@ class NavicReaderRuntime {
         '--reader-foreground': palette.foreground,
         '--reader-accent': palette.accent,
         '--theme-bg-color': palette.background,
+        '--reader-paper-texture-image': `url("${readerAssetUrl(textureVariant.asset)}")`,
+        '--reader-paper-texture-transform': readerPaperTextureTransform(textureVariant),
+        '--reader-paper-texture-opacity': readerPaperTextureOpacity(settings),
         background: palette.background,
         'background-color': palette.background,
         color: palette.foreground,
@@ -885,38 +985,42 @@ class NavicReaderRuntime {
     }
   }
 
-  onLoad() {
+  attachContentDocumentBehaviors(doc, index) {
+    if (!doc) return
+    this.applyDocumentDirection(doc, this.readerDirectionModeValue)
+    this.applyDocumentTheme(doc, this.readerSettings, index)
+    this.attachSepiaImageOverlayToggle(doc)
+    this.attachLinkNavigation(doc, index)
+    this.attachScrolledEdgeTurnGestures(doc)
+    this.attachCenterTapGesture(doc)
+    if (doc.defaultView?.__navicSelectionBridgeAttached) return
+    doc.defaultView.__navicSelectionBridgeAttached = true
+    doc.addEventListener('selectionchange', () => {
+      const selection = doc.getSelection()
+      const text = selection?.toString?.().trim()
+      if (!text) {
+        post({ type: 'selectionChanged' })
+        return
+      }
+      const range = selection.rangeCount ? selection.getRangeAt(0) : null
+      const cfi = range && Number.isFinite(index)
+        ? this.view?.getCFI?.(index, range)
+        : undefined
+      post({
+        type: 'selectionChanged',
+        text,
+        cfi,
+        href: this.view?.book?.sections?.[index]?.href,
+      })
+    })
+  }
+
+  onLoad(detail = {}) {
     this.applyReaderViewportLayout('load')
     this.applyReaderDirection(this.readerDirectionModeValue, false)
-    const contents = this.view?.renderer?.getContents?.() || []
-    for (const content of contents) {
-      const doc = content.doc
-      if (!doc) continue
-      this.applyDocumentTheme(doc, this.readerSettings)
-      this.attachSepiaImageOverlayToggle(doc)
-      this.attachLinkNavigation(doc, content.index)
-      this.attachScrolledEdgeTurnGestures(doc)
-      this.attachCenterTapGesture(doc)
-      if (doc.defaultView?.__navicSelectionBridgeAttached) continue
-      doc.defaultView.__navicSelectionBridgeAttached = true
-      doc.addEventListener('selectionchange', () => {
-        const selection = doc.getSelection()
-        const text = selection?.toString?.().trim()
-        if (!text) {
-          post({ type: 'selectionChanged' })
-          return
-        }
-        const range = selection.rangeCount ? selection.getRangeAt(0) : null
-        const cfi = range && Number.isFinite(content.index)
-          ? this.view?.getCFI?.(content.index, range)
-          : undefined
-        post({
-          type: 'selectionChanged',
-          text,
-          cfi,
-          href: this.view?.book?.sections?.[content.index]?.href,
-        })
-      })
+    if (detail.doc) log('load:event-doc', `index=${detail.index ?? 'unknown'}`)
+    for (const content of this.contentEntries(detail)) {
+      this.attachContentDocumentBehaviors(content.doc, content.index)
     }
     requestAnimationFrame(() => {
       this.applyRendererTheme(this.readerSettings)
@@ -972,8 +1076,27 @@ class NavicReaderRuntime {
     }
   }
 
+  contentEntries(detail = {}) {
+    const entries = []
+    const seen = new Set()
+    const contents = this.view?.renderer?.getContents?.() || []
+    const add = (doc, index) => {
+      if (!doc || seen.has(doc)) return
+      seen.add(doc)
+      entries.push({ doc, index })
+    }
+    if (detail.doc) {
+      const matchingContent = contents.find(content => content.doc === detail.doc)
+      add(detail.doc, Number.isFinite(detail.index) ? detail.index : matchingContent?.index)
+    }
+    for (const content of contents) {
+      add(content.doc, content.index)
+    }
+    return entries
+  }
+
   contentDocuments() {
-    return this.view?.renderer?.getContents?.().map(content => content.doc).filter(Boolean) || []
+    return this.contentEntries().map(content => content.doc)
   }
 }
 
@@ -1008,6 +1131,9 @@ const readerDocumentThemeCss = settings => {
     --reader-foreground: ${palette.foreground};
     --reader-accent: ${palette.accent};
     --theme-bg-color: ${palette.background};
+    --reader-paper-texture-image: none;
+    --reader-paper-texture-transform: none;
+    --reader-paper-texture-opacity: 0;
     color-scheme: ${palette.background === '#fbfaf8' || palette.background === '#f3ead7' ? 'light' : 'dark'};
     color: var(--reader-foreground) !important;
     background: var(--reader-background) !important;
@@ -1017,6 +1143,21 @@ const readerDocumentThemeCss = settings => {
     color: var(--reader-foreground) !important;
     background: var(--reader-background) !important;
     background-color: var(--reader-background) !important;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -1px;
+    pointer-events: none;
+    background-image: var(--reader-paper-texture-image);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: var(--reader-paper-texture-opacity, 0);
+    mix-blend-mode: multiply;
+    transform: var(--reader-paper-texture-transform, none);
+    transform-origin: center;
+    z-index: 2147483647;
   }
   body :not(img):not(picture):not(video):not(canvas):not(svg) {
     background-color: transparent !important;

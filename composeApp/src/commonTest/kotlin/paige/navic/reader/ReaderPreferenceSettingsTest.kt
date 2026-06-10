@@ -50,6 +50,32 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsMigratesLegacyParagraphSpacingDefault() {
+		val preferences = PreferenceManager(MapSettings())
+
+		val defaults = preferences.readerDefaultSettings()
+
+		assertEquals(100, defaults.paragraphSpacingPercent)
+		assertEquals(100, preferences.readerParagraphSpacingPercent)
+		assertEquals(true, preferences.readerParagraphSpacingDefaultMigrated)
+	}
+
+	@Test
+	fun readerDefaultSettingsKeepsExplicitZeroParagraphSpacingAfterMigration() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerParagraphSpacingDefaultMigrated = true
+		preferences.readerParagraphSpacingPercent = 0
+
+		assertEquals(0, preferences.readerDefaultSettings().paragraphSpacingPercent)
+
+		preferences.setReaderDefaultSettings(ReaderSettings(paragraphSpacingPercent = 0))
+
+		assertEquals(0, preferences.readerParagraphSpacingPercent)
+		assertEquals(true, preferences.readerParagraphSpacingDefaultMigrated)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripKeepScreenOn() {
 		val preferences = PreferenceManager(MapSettings())
 

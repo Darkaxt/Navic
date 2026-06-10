@@ -5,6 +5,11 @@ import kotlin.test.assertEquals
 
 class ReaderSettingsDefaultsTest {
 	@Test
+	fun readerSettingsDefaultsUseReadableParagraphSeparation() {
+		assertEquals(100, defaultReaderSettings().paragraphSpacingPercent)
+	}
+
+	@Test
 	fun readerSettingsDefaultsNormalizePersistedValues() {
 		assertEquals(
 			ReaderSettings(

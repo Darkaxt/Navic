@@ -233,7 +233,7 @@ class ReaderChromeStateTest {
 			.toggleSmallerTapZone()
 			.toggleOrientation()
 
-		assertEquals(50, updated.settings.paragraphSpacingPercent)
+		assertEquals(150, updated.settings.paragraphSpacingPercent)
 		assertEquals(20, updated.settings.dimOverlayPercent)
 		assertEquals(true, updated.settings.publisherStyles)
 		assertEquals(true, updated.settings.keepScreenOn)

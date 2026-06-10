@@ -3,12 +3,23 @@ package paige.navic.reader
 import paige.navic.domain.manager.PreferenceManager
 import kotlin.math.roundToInt
 
-fun PreferenceManager.readerDefaultSettings(): ReaderSettings =
-	normalizedReaderSettings(
+fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
+	val paragraphSpacingPercent = if (!readerParagraphSpacingDefaultMigrated &&
+		readerParagraphSpacingPercent == LegacyReaderParagraphSpacingPercent
+	) {
+		readerParagraphSpacingPercent = DefaultReaderParagraphSpacingPercent
+		readerParagraphSpacingDefaultMigrated = true
+		DefaultReaderParagraphSpacingPercent
+	} else {
+		if (!readerParagraphSpacingDefaultMigrated) readerParagraphSpacingDefaultMigrated = true
+		readerParagraphSpacingPercent
+	}
+
+	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
 		fontSizePercent = readerFontSizePercent,
 		lineHeightPercent = readerLineHeightPercent,
-		paragraphSpacingPercent = readerParagraphSpacingPercent,
+		paragraphSpacingPercent = paragraphSpacingPercent,
 		marginPercent = readerMarginPercent,
 		dimOverlayPercent = readerDimOverlayPercent,
 		orientation = readerOrientation,
@@ -25,13 +36,15 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings =
 		volumeKeyPageTurns = readerVolumeKeyPageTurns,
 		webContentsDebuggingEnabled = readerWebContentsDebuggingEnabled
 	)
+}
 
 fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	val normalized = settings.normalizedReaderSettings()
 	readerFontFamily = normalized.fontFamily ?: ReaderSansFontFamily
 	readerFontSizePercent = normalized.fontSizePercent ?: 100
 	readerLineHeightPercent = (((normalized.lineHeight ?: 1.55) * 100.0).roundToInt())
-	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: 0
+	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent
+	readerParagraphSpacingDefaultMigrated = true
 	readerMarginPercent = normalized.marginPercent ?: 0
 	readerDimOverlayPercent = normalized.dimOverlayPercent ?: 0
 	readerOrientation = normalized.orientation ?: ReaderOrientationDefault

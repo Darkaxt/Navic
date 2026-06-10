@@ -264,6 +264,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerCenterTap")
 		assertContains(bridgeText, "attachCenterTapGesture")
 		assertContains(bridgeText, "doc.addEventListener('click'")
+		assertContains(bridgeText, "doc.addEventListener('touchstart'")
+		assertContains(bridgeText, "doc.addEventListener('touchend'")
+		assertContains(bridgeText, "handleReaderTapZone")
+		assertContains(bridgeText, "__navicLastTapHandledAt")
+		assertContains(bridgeText, "CenterTapMovementSlop")
 		assertContains(bridgeText, "readerTapZone")
 		assertContains(bridgeText, "await this.previousPage()")
 		assertContains(bridgeText, "await this.nextPage()")
@@ -284,7 +289,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
 		assertContains(bridgeText, "this.view?.isFixedLayout === true")
 		assertContains(bridgeText, "overflow: fixedLayout ? 'auto' : 'hidden'")
-		assertContains(bridgeText, "surface-tap")
+		assertContains(bridgeText, "handleReaderTapZone(event, document, 'surface')")
 		assertContains(bridgeText, "startLocator?.progress")
 		assertContains(bridgeText, "await this.goToProgress(progress)")
 	}
@@ -318,6 +323,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "closestElement")
 		assertContains(bridgeText, "parentElement?.closest")
 		assertContains(bridgeText, "attachLinkNavigation")
+		assertContains(bridgeText, "attachContentDocumentBehaviors")
+		assertContains(bridgeText, "if (detail.doc)")
 		assertContains(bridgeText, "closestElement(event.target, 'a[href]')")
 		assertContains(bridgeText, "event.stopPropagation()")
 		assertContains(bridgeText, "await this.goTo(href)")
@@ -330,9 +337,9 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(bridgeText, "const palette = readerThemePalette(settings.theme)")
 		assertContains(bridgeText, "this.readerSettings = settings")
-		assertContains(bridgeText, "this.applyDocumentTheme(doc, settings)")
+		assertContains(bridgeText, "this.applyDocumentTheme(content.doc, settings, content.index)")
 		assertContains(bridgeText, "applyThemeToLoadedContent")
-		assertContains(bridgeText, "applyDocumentTheme(doc, settings)")
+		assertContains(bridgeText, "applyDocumentTheme(doc, settings = this.readerSettings, index = undefined)")
 		assertContains(bridgeText, "background-color: var(--reader-background) !important")
 		assertContains(bridgeText, "background: var(--reader-background) !important")
 		assertContains(bridgeText, "[style*=\"background\"]")
@@ -485,6 +492,36 @@ class ReaderRuntimeAssetsTest {
 		assertContains(ebooksSettingsText, "option_ebook_reader_publisher_styles")
 		assertContains(searchSettingsText, "ebooks.paragraph-spacing")
 		assertContains(searchSettingsText, "ebooks.publisher-styles")
+	}
+
+	@Test
+	fun androidReaderPackagesDeterministicPaperTextureVariants() {
+		val root = readerAssetRoot()
+		val bridgeText = root.resolve("navic-reader.js").readText()
+		val texture1 = root.resolve("paper-textures/paper-texture-1.png")
+		val texture2 = root.resolve("paper-textures/paper-texture-2.png")
+		val texture3 = root.resolve("paper-textures/paper-texture-3.png")
+
+		assertTrue(texture1.isFile, "Reader paper texture 1 must be packaged")
+		assertTrue(texture2.isFile, "Reader paper texture 2 must be packaged")
+		assertTrue(texture3.isFile, "Reader paper texture 3 must be packaged")
+		assertTrue(texture1.length() > 100_000, "Reader paper texture 1 should be a real image")
+		assertTrue(texture2.length() > 100_000, "Reader paper texture 2 should be a real image")
+		assertTrue(texture3.length() > 100_000, "Reader paper texture 3 should be a real image")
+		assertContains(bridgeText, "ReaderPaperTextureAssets")
+		assertContains(bridgeText, "paper-textures/paper-texture-1.png")
+		assertContains(bridgeText, "paper-textures/paper-texture-2.png")
+		assertContains(bridgeText, "paper-textures/paper-texture-3.png")
+		assertContains(bridgeText, "ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2")
+		assertContains(bridgeText, "readerPaperTextureVariantKey")
+		assertContains(bridgeText, "readerPaperTextureVariantForPage")
+		assertContains(bridgeText, "textureIndex")
+		assertContains(bridgeText, "rotate180")
+		assertContains(bridgeText, "mirrored")
+		assertContains(bridgeText, "scaleX(-1)")
+		assertContains(bridgeText, "rotate(180deg)")
+		assertContains(bridgeText, "pointer-events: none")
+		assertContains(bridgeText, "--reader-paper-texture-image")
 	}
 
 	@Test
