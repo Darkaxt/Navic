@@ -451,13 +451,24 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
 		assertContains(bridgeText, "reflowableBookPageModel")
-		assertContains(bridgeText, "reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes)")
+		assertContains(bridgeText, "reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes, canonicalPageCount)")
 		assertContains(bridgeText, "Math.ceil(model.totalReadableSize / model.readableUnitsPerPage)")
 		assertContains(bridgeText, "this.reflowableBookPageModel = null")
 		assertContains(bridgeText, "reflowable-page-model:set")
 		assertFalse(
 			bridgeText.contains("currentSectionSize / sectionPosition.pageCount"),
 			"Reflowable EPUB totals must not be estimated from the current section only, because that makes # / # change between chapters."
+		)
+		assertContains(bridgeText, "readerPageListPageCount()")
+		assertContains(bridgeText, "const canonicalPageCount = this.readerPageListPageCount()")
+		assertContains(bridgeText, "pageCountSource: 'page-list'")
+		assertContains(bridgeText, "pageCountSource: model.source")
+		assertContains(bridgeText, "const prefersOwnPageCount")
+		assertContains(bridgeText, "? 'page-list'")
+		assertContains(bridgeText, ": 'synthetic-location'")
+		assertFalse(
+			bridgeText.contains("this.reflowableBookPageModel.source !== 'rendered-section' && canUseRenderedSection"),
+			"Reflowable EPUB totals must not be upgraded from the currently rendered section, because normal relocation events may lack pageItem and then the denominator changes while reading."
 		)
 		assertFalse(
 			bridgeText.contains("Math.floor(page - 1)"),

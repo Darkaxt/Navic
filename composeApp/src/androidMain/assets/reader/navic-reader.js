@@ -37,7 +37,7 @@ const ReaderFontSourceNavic = 'navic'
 const ReaderFontSourceSystem = 'system'
 const ReaderFontSourcePublisher = 'publisher'
 const ReaderReflowableReadableUnitsPerSyntheticPage = 1500
-const ReaderReflowableRepresentativeSectionMinimumShare = 0.015
+const ReaderReflowableStartProgressPageOffsetThreshold = 0.006
 const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-1.png',
   'paper-textures/paper-texture-2.png',
@@ -576,9 +576,23 @@ const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
 
 const readerPageNumberPositionWithPageCount = (pagePosition, fallbackPageCount = null) => {
   if (!pagePosition) return null
-  const pageCount = readerPageNumberPageCount(pagePosition, fallbackPageCount)
+  const prefersOwnPageCount =
+    pagePosition.pageCountSource === 'page-list' ||
+    pagePosition.pageCountSource === 'fixed-layout'
+  const fallback = Number(fallbackPageCount)
+  const pageCount = prefersOwnPageCount
+    ? readerPageNumberPageCount(pagePosition, fallbackPageCount)
+    : Number.isFinite(fallback) && fallback > 0
+      ? Math.floor(fallback)
+      : readerPageNumberPageCount(pagePosition)
   if (!Number.isFinite(pageCount) || pageCount <= 0) return pagePosition
-  return { ...pagePosition, pageCount }
+  return {
+    ...pagePosition,
+    pageIndex: Number.isFinite(Number(pagePosition.pageIndex))
+      ? Math.min(pageCount - 1, Math.max(0, Math.floor(Number(pagePosition.pageIndex))))
+      : pagePosition.pageIndex,
+    pageCount,
+  }
 }
 
 const readerPageNumberLabel = pagePosition => {
@@ -949,6 +963,7 @@ class NavicReaderRuntime {
   pageNumberLayer = null
   currentPagePosition = null
   reflowableBookPageModel = null
+  reflowablePageIndexOffset = null
   lastRelocateDetail = null
   pageTurnPromise = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
@@ -1712,6 +1727,7 @@ class NavicReaderRuntime {
     return {
       pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex))),
       pageCount,
+      pageCountSource: 'fixed-layout',
     }
   }
 
@@ -1726,6 +1742,7 @@ class NavicReaderRuntime {
     return {
       pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2))),
       pageCount,
+      pageCountSource: 'section',
     }
   }
 
@@ -1733,14 +1750,25 @@ class NavicReaderRuntime {
     if (this.view?.isFixedLayout === true) return null
     const pageItem = detail?.pageItem
     if (!pageItem) return null
-    const pageListItems = flattenReaderNavigationItems(this.view?.book?.pageList || [])
+    const pageListItems = this.readerPageListItems()
     if (!pageListItems.length) return null
     const pageIndex = pageListItems.findIndex(item => readerNavigationItemMatches(item, pageItem))
     if (pageIndex < 0) return null
     return {
       pageIndex,
       pageCount: pageListItems.length,
+      pageCountSource: 'page-list',
     }
+  }
+
+  readerPageListItems() {
+    if (this.view?.isFixedLayout === true) return []
+    return flattenReaderNavigationItems(this.view?.book?.pageList || [])
+  }
+
+  readerPageListPageCount() {
+    const pageListItems = this.readerPageListItems()
+    return pageListItems.length > 0 ? pageListItems.length : null
   }
 
   reflowableSectionSizes() {
@@ -1750,33 +1778,29 @@ class NavicReaderRuntime {
     })
   }
 
-  reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes) {
+  reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes, canonicalPageCount = null) {
     const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
     if (!Number.isFinite(totalReadableSize) || totalReadableSize <= 0) return null
-    const currentSectionSize = sectionSizes[sectionIndex]
-    const renderedPageCount = Math.max(1, Number(sectionPosition?.pageCount) || 0)
-    const currentSectionShare = currentSectionSize / totalReadableSize
-    const canUseRenderedSection =
-      Number.isFinite(currentSectionSize) &&
-      currentSectionSize > 0 &&
-      renderedPageCount > 1 &&
-      Number.isFinite(currentSectionShare) &&
-      currentSectionShare >= ReaderReflowableRepresentativeSectionMinimumShare
+    const pageListPageCount = Number(canonicalPageCount)
+    const pageCount = Number.isFinite(pageListPageCount) && pageListPageCount > 0
+      ? Math.floor(pageListPageCount)
+      : Math.max(
+        1,
+        Math.ceil(totalReadableSize / ReaderReflowableReadableUnitsPerSyntheticPage)
+      )
+    const readableUnitsPerPage = totalReadableSize / pageCount
+    if (!Number.isFinite(readableUnitsPerPage) || readableUnitsPerPage <= 0) return null
+    const source = Number.isFinite(pageListPageCount) && pageListPageCount > 0
+      ? 'page-list'
+      : 'synthetic-location'
     const shouldSetModel =
       !this.reflowableBookPageModel ||
       this.reflowableBookPageModel.totalReadableSize !== totalReadableSize ||
-      (this.reflowableBookPageModel.source !== 'rendered-section' && canUseRenderedSection)
+      this.reflowableBookPageModel.pageCount !== pageCount ||
+      this.reflowableBookPageModel.source !== source
     if (shouldSetModel) {
-      const renderedReadableUnitsPerPage = currentSectionSize / renderedPageCount
-      const readableUnitsPerPage = canUseRenderedSection && Number.isFinite(renderedReadableUnitsPerPage)
-        ? renderedReadableUnitsPerPage
-        : ReaderReflowableReadableUnitsPerSyntheticPage
-      const pageCount = Math.max(
-        1,
-        Math.ceil(totalReadableSize / Math.max(1, readableUnitsPerPage))
-      )
       this.reflowableBookPageModel = {
-        source: canUseRenderedSection ? 'rendered-section' : 'synthetic-location',
+        source,
         sectionIndex,
         totalReadableSize,
         readableUnitsPerPage,
@@ -1793,6 +1817,31 @@ class NavicReaderRuntime {
     return this.reflowableBookPageModel
   }
 
+  normalizedReflowablePagePosition(pagePosition, detail) {
+    if (!pagePosition) return null
+    const progress = Number(detail?.fraction ?? detail?.progress ?? detail?.totalProgress)
+    if (
+      this.reflowablePageIndexOffset == null &&
+      Number.isFinite(progress) &&
+      progress >= 0 &&
+      progress <= ReaderReflowableStartProgressPageOffsetThreshold &&
+      Number.isFinite(pagePosition.pageIndex) &&
+      pagePosition.pageIndex > 0
+    ) {
+      this.reflowablePageIndexOffset = pagePosition.pageIndex
+      log('reflowable-page-offset:set', `offset=${this.reflowablePageIndexOffset}`, `progress=${progress}`)
+    }
+    const offset = Number(this.reflowablePageIndexOffset)
+    if (!Number.isFinite(offset) || offset <= 0) return pagePosition
+    return {
+      ...pagePosition,
+      pageIndex: Math.min(
+        pagePosition.pageCount - 1,
+        Math.max(0, pagePosition.pageIndex - offset)
+      ),
+    }
+  }
+
   reflowableWholeBookPagePosition(detail) {
     detail = detail || this.lastRelocateDetail || {}
     const sectionPosition = this.reflowableSectionPagePosition()
@@ -1801,25 +1850,26 @@ class NavicReaderRuntime {
     const sectionSizes = this.reflowableSectionSizes()
     if (!Number.isFinite(sectionIndex)) return null
     const normalizedSectionIndex = Math.max(0, Math.floor(sectionIndex))
-    const model = this.reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes)
+    const canonicalPageCount = this.readerPageListPageCount()
+    const model = this.reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes, canonicalPageCount)
     if (!model || !Number.isFinite(model.readableUnitsPerPage) || model.readableUnitsPerPage <= 0) return null
     const readableUnitsBeforeCurrentSection = sectionSizes
       .slice(0, normalizedSectionIndex)
       .reduce((sum, size) => sum + size, 0)
     const estimatedGlobalPageCount = Math.max(
-      sectionPosition.pageCount,
       model.pageCount,
       Math.ceil(model.totalReadableSize / model.readableUnitsPerPage)
     )
     const estimatedGlobalPageIndex = Math.floor(readableUnitsBeforeCurrentSection / model.readableUnitsPerPage) +
       sectionPosition.pageIndex
-    return {
+    return this.normalizedReflowablePagePosition({
       pageIndex: Math.min(
         estimatedGlobalPageCount - 1,
         Math.max(0, estimatedGlobalPageIndex)
       ),
       pageCount: estimatedGlobalPageCount,
-    }
+      pageCountSource: model.source,
+    }, detail)
   }
 
   reflowablePagePosition(detail) {
