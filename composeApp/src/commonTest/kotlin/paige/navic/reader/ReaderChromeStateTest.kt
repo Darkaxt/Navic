@@ -58,21 +58,6 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
-	fun pageNumberLabelUsesCompactReaderOverlayFormat() {
-		val state = ReaderChromeState().onReaderEvent(
-			ReaderBridgeEvent.LocationChanged(
-				ReaderLocator(
-					progress = 0.05,
-					pageIndex = 6,
-					pageCount = 120
-				)
-			)
-		)
-
-		assertEquals("7 / 120", state.pageNumberLabel)
-	}
-
-	@Test
 	fun typographyControlsCreateReaderSettingsCommands() {
 		val larger = ReaderChromeState().adjustFontSize(12)
 		val sepia = larger.toggleTheme()

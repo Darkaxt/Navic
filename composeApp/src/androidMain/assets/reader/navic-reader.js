@@ -6,6 +6,7 @@ const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
 const ReaderSurfacePageBorderOverlayLayerSelector = '[data-navic-surface-page-border-overlay-layer="true"]'
 const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
+const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
@@ -524,6 +525,22 @@ const readerSurfacePageBorderOverlayOpacity = settings => {
   }
 }
 
+const readerPageNumberLabel = pagePosition => {
+  const pageIndex = pagePosition?.pageIndex
+  if (!Number.isFinite(pageIndex) || pageIndex < 0) return ''
+  return String(pageIndex + 1)
+}
+
+const readerPageNumberBlendMode = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case ReaderThemeSepia:
+    case ReaderThemeLight:
+      return 'multiply'
+    default:
+      return 'normal'
+  }
+}
+
 const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
   ? `
   @font-face {
@@ -603,6 +620,17 @@ const ensureReaderSurfaceBorderOverlayLayer = () => {
   if (!layer) {
     layer = document.createElement('div')
     layer.dataset.navicSurfacePageBorderOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+const ensureReaderPageNumberLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderPageNumberLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicPageNumberLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
     readerRoot.append(layer)
   }
@@ -841,6 +869,8 @@ class NavicReaderRuntime {
   surfacePaperTextureScrollRenderer = null
   surfacePaperTextureScrollListener = null
   tapZoneOverlayLayer = null
+  pageNumberLayer = null
+  currentPagePosition = null
   lastRelocateDetail = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
@@ -949,6 +979,9 @@ class NavicReaderRuntime {
     this.surfaceBorderOverlayLayer = null
     this.tapZoneOverlayLayer?.remove?.()
     this.tapZoneOverlayLayer = null
+    this.pageNumberLayer?.remove?.()
+    this.pageNumberLayer = null
+    this.currentPagePosition = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
     this.surfacePaperTextureBaseOffset = 0
@@ -1653,6 +1686,56 @@ class NavicReaderRuntime {
     return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition(detail)
   }
 
+  readerPageNumberFontFamily(settings = this.readerSettings) {
+    const configured = readerEffectiveFontFamily(settings)
+    if (configured) return configured
+    for (const doc of this.contentDocuments()) {
+      const fontFamily = doc?.defaultView?.getComputedStyle?.(doc.body)?.fontFamily
+      if (fontFamily && fontFamily !== 'initial') return fontFamily
+    }
+    return 'Georgia, serif'
+  }
+
+  updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
+    this.currentPagePosition = pagePosition || null
+    const label = readerPageNumberLabel(pagePosition)
+    if (!label) {
+      this.pageNumberLayer?.remove?.()
+      this.pageNumberLayer = null
+      return
+    }
+    this.pageNumberLayer = this.pageNumberLayer && readerRoot.contains(this.pageNumberLayer)
+      ? this.pageNumberLayer
+      : ensureReaderPageNumberLayer()
+    const fontFamily = this.readerPageNumberFontFamily()
+    document.documentElement.style.setProperty('--reader-page-number-font-family', fontFamily)
+    this.pageNumberLayer.textContent = label
+    this.pageNumberLayer.dataset.navicPageNumberTotal = String(pagePosition.pageCount || '')
+    setStylesImportant(this.pageNumberLayer, {
+      position: 'fixed',
+      left: '50%',
+      bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
+      transform: 'translateX(-50%)',
+      'z-index': '2147483644',
+      'pointer-events': 'none',
+      'user-select': 'none',
+      color: 'color-mix(in srgb, var(--reader-foreground) 58%, transparent)',
+      opacity: '0.82',
+      'mix-blend-mode': readerPageNumberBlendMode(this.readerSettings),
+      'font-family': 'var(--reader-page-number-font-family, Georgia, serif)',
+      'font-size': '0.82rem',
+      'font-style': 'normal',
+      'font-weight': '400',
+      'font-variant-numeric': 'oldstyle-nums tabular-nums',
+      'line-height': '1',
+      'letter-spacing': '0',
+      background: 'transparent',
+      border: '0',
+      padding: '0',
+      margin: '0',
+    })
+  }
+
   applySettings(settings) {
     settings = { ...this.readerSettings, ...settings }
     this.readerSettings = settings
@@ -1661,6 +1744,7 @@ class NavicReaderRuntime {
     this.smallerTapZone = settings.smallerTapZone === true
     if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
     if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
+    rootStyle.setProperty('--reader-page-number-font-family', this.readerPageNumberFontFamily(settings))
     rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))
     const palette = readerThemePalette(settings.theme)
     rootStyle.setProperty('--reader-background', palette.background)
@@ -1677,6 +1761,7 @@ class NavicReaderRuntime {
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
     this.updateSurfacePaperTexture()
+    this.updateReaderPageNumberLayer()
     this.updateTapZoneOverlay()
   }
 
@@ -1970,6 +2055,7 @@ class NavicReaderRuntime {
   postLocationChanged(detail, reason = 'relocate') {
     const tocItem = detail.tocItem || {}
     const pagePosition = this.readerPagePosition(detail)
+    this.updateReaderPageNumberLayer(pagePosition)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,
@@ -2033,6 +2119,7 @@ class NavicReaderRuntime {
     }
     requestAnimationFrame(() => {
       this.applyRendererTheme(this.readerSettings)
+      this.updateReaderPageNumberLayer()
       requestAnimationFrame(() => this.logContentLayout('load'))
     })
     if (this.mediaOverlayEnabled) post({ type: 'overlayFragmentInactive' })

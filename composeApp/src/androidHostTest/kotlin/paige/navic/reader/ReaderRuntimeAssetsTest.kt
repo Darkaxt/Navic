@@ -378,7 +378,6 @@ class ReaderRuntimeAssetsTest {
 	fun androidReaderReportsDynamicReflowablePagePositionToChrome() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 
 		assertContains(bridgeText, "reflowablePagePosition(detail)")
 		assertContains(bridgeText, "reflowableSectionPagePosition()")
@@ -396,10 +395,16 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "const estimatedGlobalPageIndex = Math.floor(")
 		assertContains(bridgeText, "readerPagePosition(detail)")
 		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()")
-		assertContains(readerScreenText, "ReaderPageNumberOverlay(")
-		assertContains(readerScreenText, "visible = !chromeVisible")
-		assertContains(chromeStateText, "val pageNumberLabel: String?")
-		assertContains(chromeStateText, "\"${'$'}{pageIndex + 1} / ${'$'}pageCount\"")
+		assertContains(bridgeText, "ensureReaderPageNumberLayer")
+		assertContains(bridgeText, "dataset.navicPageNumberLayer")
+		assertContains(bridgeText, "readerPageNumberLabel(pagePosition)")
+		assertContains(bridgeText, "return String(pageIndex + 1)")
+		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
+		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
+		assertFalse(
+			readerScreenText.contains("ReaderPageNumberOverlay("),
+			"Page numbers must be drawn in the reader surface, not as a native Material overlay."
+		)
 	}
 
 	@Test
