@@ -39,6 +39,14 @@ fun BinderyReadingProgress.toReaderStartLocatorFor(
 	}
 }
 
+fun BinderyReadingProgress.toReaderStartLocatorForReader(
+	bookId: String,
+	resourceHref: String,
+	kind: ReaderPublicationKind
+): ReaderLocator? =
+	toReaderStartLocatorFor(resourceHref = resourceHref, kind = kind)
+		?: toReaderProgressOnlyStartLocatorFor(bookId = bookId, kind = kind)
+
 data class ReaderReadingProgressState(
 	val progresses: List<BinderyReadingProgress> = emptyList()
 ) {
@@ -53,6 +61,28 @@ data class ReaderReadingProgressState(
 			kind = kind.toBinderyReadingProgressKind()
 		) ?: return null
 		return progresses.firstOrNull { it.readingProgressKey == key }
+	}
+
+	fun startLocatorFor(
+		bookId: String,
+		resourceHref: String,
+		kind: ReaderPublicationKind
+	): ReaderLocator? {
+		progressFor(
+			bookId = bookId,
+			resourceHref = resourceHref,
+			kind = kind
+		)?.toReaderStartLocatorFor(
+			resourceHref = resourceHref,
+			kind = kind
+		)?.let { return it }
+
+		return progresses.firstNotNullOfOrNull { progress ->
+			progress.toReaderProgressOnlyStartLocatorFor(
+				bookId = bookId,
+				kind = kind
+			)
+		}
 	}
 
 	fun upsert(progress: BinderyReadingProgress): ReaderReadingProgressState {
@@ -185,6 +215,23 @@ private fun ReaderPublicationKind.toBinderyReadingProgressKind(): BinderyReading
 		ReaderPublicationKind.Ebook -> BinderyReadingProgressKind.Ebook
 		ReaderPublicationKind.Readaloud -> BinderyReadingProgressKind.Readaloud
 	}
+
+private fun BinderyReadingProgress.matchesReaderBookKind(
+	bookId: String,
+	kind: ReaderPublicationKind
+): Boolean {
+	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() } ?: return false
+	return this.bookId.trim() == safeBookId && this.kind == kind.toBinderyReadingProgressKind()
+}
+
+private fun BinderyReadingProgress.toReaderProgressOnlyStartLocatorFor(
+	bookId: String,
+	kind: ReaderPublicationKind
+): ReaderLocator? {
+	if (!matchesReaderBookKind(bookId = bookId, kind = kind)) return null
+	val safeProgress = progressFraction?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: return null
+	return ReaderLocator(progress = safeProgress)
+}
 
 fun canonicalReaderResourceHref(value: String?): String? {
 	val safeValue = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null

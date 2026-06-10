@@ -124,7 +124,7 @@ import paige.navic.reader.readerReadaloudControlsVisible
 import paige.navic.reader.readerTapZoneShortLabel
 import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
-import paige.navic.reader.toReaderStartLocatorFor
+import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.Screen
@@ -258,17 +258,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 		progressResumeLoaded = false
 		val remoteStartLocator = binderyRepository.getReadingProgress(reader.bookId)
 			.getOrNull()
-			?.toReaderStartLocatorFor(
-				resourceHref = reader.resourceHref,
-				kind = reader.kind
-			)
-		val localStartLocator = readingProgressState
-			.progressFor(
+			?.toReaderStartLocatorForReader(
 				bookId = reader.bookId,
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
 			)
-			?.toReaderStartLocatorFor(
+		val localStartLocator = readingProgressState
+			.startLocatorFor(
+				bookId = reader.bookId,
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
 			)

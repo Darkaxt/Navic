@@ -231,6 +231,123 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun remoteProgressFallsBackToProgressOnlyForSameBookKindWhenResourceChanges() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-old",
+			textHref = "EPUB/Text/chapter-09.xhtml",
+			cfi = "epubcfi(/6/18!/4/3:12)",
+			progressFraction = 0.62
+		)
+
+		assertEquals(
+			ReaderLocator(progress = 0.62),
+			progress.toReaderStartLocatorForReader(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-new",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun remoteProgressFallbackDoesNotCrossReaderKinds() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Readaloud,
+			resourceHref = "/opds/books/3693/resources/readaloud-old",
+			progressFraction = 0.62
+		)
+
+		assertEquals(
+			null,
+			progress.toReaderStartLocatorForReader(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-new",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun localReadingProgressStatePrefersExactResourceOverSameBookFallback() {
+		val fallback = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-old",
+			cfi = "epubcfi(/6/4!/4/1:0)",
+			progressFraction = 0.25
+		)
+		val exact = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-new",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progressFraction = 0.64
+		)
+		val state = ReaderReadingProgressState(listOf(fallback, exact))
+
+		assertEquals(
+			ReaderLocator(cfi = "epubcfi(/6/10!/4/3:12)", progress = 0.64),
+			state.startLocatorFor(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-new",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun localReadingProgressStateFallsBackToSameBookProgressOnlyWithoutOldHrefCfi() {
+		val state = ReaderReadingProgressState(
+			listOf(
+				BinderyReadingProgress(
+					bookId = "3693",
+					kind = BinderyReadingProgressKind.Ebook,
+					resourceHref = "/opds/books/3693/resources/ebook-old",
+					textHref = "EPUB/Text/chapter-09.xhtml",
+					cfi = "epubcfi(/6/18!/4/3:12)",
+					progressFraction = 0.62
+				)
+			)
+		)
+
+		assertEquals(
+			ReaderLocator(progress = 0.62),
+			state.startLocatorFor(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-new",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun localReadingProgressFallbackRequiresSavedProgressFraction() {
+		val state = ReaderReadingProgressState(
+			listOf(
+				BinderyReadingProgress(
+					bookId = "3693",
+					kind = BinderyReadingProgressKind.Ebook,
+					resourceHref = "/opds/books/3693/resources/ebook-old",
+					textHref = "EPUB/Text/chapter-09.xhtml",
+					cfi = "epubcfi(/6/18!/4/3:12)"
+				)
+			)
+		)
+
+		assertEquals(
+			null,
+			state.startLocatorFor(
+				bookId = "3693",
+				resourceHref = "/opds/books/3693/resources/ebook-new",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
 	fun localReadingProgressJsonRoundTripsAndIgnoresInvalidPayloads() {
 		val progress = BinderyReadingProgress(
 			bookId = "3693",
