@@ -26,3 +26,5 @@ prepare/
 *.mobileprovision
 aurral-debug.env
 bindery-debug.env
+tools/reader-harness/fixtures/local/
+tools/reader-harness/output/
