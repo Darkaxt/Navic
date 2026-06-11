@@ -3153,5 +3153,6 @@ window.NavicReaderBridge = {
   postOverlayFragmentInactive: fragmentId => post({ type: 'overlayFragmentInactive', fragmentId }),
 }
 
+readerTrace('runtime:ready', { engine: 'foliate-js' })
 log('module-loaded')
 post({ type: 'ready' })
