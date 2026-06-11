@@ -21,10 +21,11 @@ Phase 1 has produced committed WebView/harness slices:
 - `f2923801 fix(reader): stabilize webview page labels`
 - `741865de fix(reader): sync paper texture movement`
 - `41ab92b1 test(reader): guard shell cover navigation`
+- CSS smoke harness coverage for paragraph spacing, theme backgrounds, hyperlink styling, image sepia toggling, and paper texture layers.
 
 Current phase boundary:
 
-- WebView pagination labels, texture drag direction, and shell-cover handoff now have laptop harness coverage.
+- WebView pagination labels, texture drag direction, shell-cover handoff, and renderer CSS behavior now have laptop harness coverage.
 - APK/native touch ownership belongs to Phase 2 and should remain separated from renderer fixes.
 - Android release work should start only after the Phase 2 native-overlay slice is committed and verified.
 

@@ -112,3 +112,85 @@ export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
     throw new Error(`Expected WebView location to remain on readable content, but observed cover href ${coverHref}`)
   }
 }
+
+const numericCss = value => {
+  const parsed = Number.parseFloat(String(value || ''))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const isTransparent = color =>
+  !color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)'
+
+const isNativeBlueLinkColor = color =>
+  String(color || '').trim().toLowerCase() === 'rgb(0, 0, 238)' ||
+  String(color || '').trim().toLowerCase() === '#0000ee'
+
+export const assertRendererCssSmoke = result => {
+  if (!result || result.contentDocumentCount < 1) {
+    throw new Error('Expected css-smoke to inspect at least one loaded EPUB content document')
+  }
+  if (result.theme !== 'sepia') {
+    throw new Error(`Expected content document to use sepia theme; observed ${result.theme || 'unset'}`)
+  }
+  if (isTransparent(result.htmlBackground) || isTransparent(result.bodyBackground)) {
+    throw new Error(`Expected sepia backgrounds on html/body; observed html=${result.htmlBackground} body=${result.bodyBackground}`)
+  }
+  if (result.bodyBackground === 'rgb(255, 255, 255)' || result.htmlBackground === 'rgb(255, 255, 255)') {
+    throw new Error(`Expected sepia backgrounds instead of white pages; observed html=${result.htmlBackground} body=${result.bodyBackground}`)
+  }
+  const paragraphMargin = numericCss(result.paragraphMarginBottom)
+  if (paragraphMargin == null || paragraphMargin <= 0) {
+    throw new Error(`Expected positive paragraph spacing; observed ${result.paragraphMarginBottom || 'unset'}`)
+  }
+  if (!String(result.paragraphSpacingVariable || '').includes('1.5em')) {
+    throw new Error(`Expected paragraph spacing variable to use 1.5em for 150%; observed ${result.paragraphSpacingVariable || 'unset'}`)
+  }
+  if (String(result.textLinkDecoration || '').toLowerCase() !== 'none') {
+    throw new Error(`Expected text links to remove native underline; observed ${result.textLinkDecoration}`)
+  }
+  if (isNativeBlueLinkColor(result.textLinkColor)) {
+    throw new Error(`Expected text links not to use native browser blue; observed ${result.textLinkColor}`)
+  }
+  if (!String(result.textLinkAfterContent || '').includes('»')) {
+    throw new Error(`Expected text links to expose the organic continuation marker; observed ${result.textLinkAfterContent || 'unset'}`)
+  }
+  if (!String(result.textLinkAfterVerticalAlign || '').toLowerCase().includes('sub')) {
+    throw new Error(`Expected text link marker to be subscript-like; observed vertical-align=${result.textLinkAfterVerticalAlign || 'unset'}`)
+  }
+  if (String(result.mediaLinkAfterContent || '').replaceAll('"', '').trim() !== '') {
+    throw new Error(`Expected media links not to inherit text-link marker; observed ${result.mediaLinkAfterContent}`)
+  }
+  if (result.imageMixBlendModeBefore !== 'multiply') {
+    throw new Error(`Expected sepia image overlay to start with multiply blend; observed ${result.imageMixBlendModeBefore}`)
+  }
+  if (result.imageOverlayDatasetAfterFirstClick !== 'off' || result.imageMixBlendModeAfterFirstClick !== 'normal') {
+    throw new Error(
+      `Expected clicking an image to disable sepia overlay; observed dataset=${result.imageOverlayDatasetAfterFirstClick || 'unset'} blend=${result.imageMixBlendModeAfterFirstClick}`
+    )
+  }
+  if (result.imageOverlayDatasetAfterSecondClick === 'off' || result.imageMixBlendModeAfterSecondClick !== 'multiply') {
+    throw new Error(
+      `Expected clicking the image again to restore sepia overlay; observed dataset=${result.imageOverlayDatasetAfterSecondClick || 'unset'} blend=${result.imageMixBlendModeAfterSecondClick}`
+    )
+  }
+  if (!String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
+    throw new Error(`Expected surface paper texture layer background image; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)
+  }
+  if (!String(result.surfaceBorderBackgroundImage || '').includes('page-border-overlay')) {
+    throw new Error(`Expected surface border overlay background image; observed ${result.surfaceBorderBackgroundImage || 'unset'}`)
+  }
+  const textureOpacity = numericCss(result.surfaceTextureOpacity)
+  const borderOpacity = numericCss(result.surfaceBorderOpacity)
+  if (textureOpacity == null || textureOpacity <= 0) {
+    throw new Error(`Expected visible paper texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
+  }
+  if (borderOpacity == null || borderOpacity <= 0) {
+    throw new Error(`Expected visible border overlay opacity; observed ${result.surfaceBorderOpacity || 'unset'}`)
+  }
+  if (!String(result.surfaceTextureAsset || '').includes('paper-texture')) {
+    throw new Error(`Expected paper texture asset dataset to be populated; observed ${result.surfaceTextureAsset || 'unset'}`)
+  }
+  if (!String(result.surfaceBorderAsset || '').includes('page-border-overlay')) {
+    throw new Error(`Expected border overlay asset dataset to be populated; observed ${result.surfaceBorderAsset || 'unset'}`)
+  }
+}

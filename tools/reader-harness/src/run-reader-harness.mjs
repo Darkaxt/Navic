@@ -10,6 +10,7 @@ import {
   assertNoConsoleErrors,
   assertNoConsecutiveDuplicateLocations,
   assertNoConsecutiveDuplicateVisiblePageLabels,
+  assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
   assertSurfaceTextureTracksForwardContentMovement,
   assertTraceType,
@@ -351,6 +352,165 @@ if (mode === 'epub-shell-cover') {
     assertNoConsoleErrors(errors)
     assertShellCoverDoesNotNavigateWebViewToCover(result)
     console.log(`reader harness epub-shell-cover passed: ${JSON.stringify(result)}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'css-smoke') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('css-smoke mode requires --fixture <path-to-epub>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          try {
+            window.__navicReaderPostedMessages.push(JSON.parse(value))
+          } catch {
+            window.__navicReaderPostedMessages.push({ raw: value })
+          }
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return contents.some(content => content?.doc?.body)
+    }, null, { timeout: 10000 })
+    await page.waitForTimeout(500)
+    const result = await page.evaluate(async () => {
+      const view = document.querySelector('foliate-view')
+      const contents = view?.renderer?.getContents?.() || []
+      const content = contents.find(entry => entry?.doc?.body)
+      if (!content?.doc) throw new Error('Missing loaded EPUB content document')
+      const doc = content.doc
+      const win = doc.defaultView
+      const probe = doc.createElement('section')
+      probe.setAttribute('data-navic-css-smoke', 'true')
+      probe.innerHTML = `
+        <p data-navic-css-smoke-paragraph="true">Navic paragraph spacing probe one.</p>
+        <p data-navic-css-smoke-paragraph="true">Navic paragraph spacing probe two.</p>
+        <a data-navic-link-kind="text" data-navic-css-smoke-link="true" href="#navic-css-smoke-target">Probe link</a>
+        <a data-navic-link-kind="media" data-navic-css-smoke-media-link="true" href="#navic-css-smoke-target">
+          <img data-navic-css-smoke-media-image="true" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='white'/%3E%3C/svg%3E">
+        </a>
+        <span id="navic-css-smoke-target">target</span>
+      `
+      doc.body.prepend(probe)
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+
+      const htmlStyle = win.getComputedStyle(doc.documentElement)
+      const bodyStyle = win.getComputedStyle(doc.body)
+      const paragraph = doc.querySelector('[data-navic-css-smoke-paragraph="true"]')
+      const paragraphStyle = win.getComputedStyle(paragraph)
+      const textLink = doc.querySelector('[data-navic-css-smoke-link="true"]')
+      const textLinkStyle = win.getComputedStyle(textLink)
+      const textLinkAfterStyle = win.getComputedStyle(textLink, '::after')
+      const mediaLink = doc.querySelector('[data-navic-css-smoke-media-link="true"]')
+      const mediaLinkAfterStyle = win.getComputedStyle(mediaLink, '::after')
+      const image = doc.querySelector('[data-navic-css-smoke-media-image="true"]')
+      const imageMixBlendModeBefore = win.getComputedStyle(image).mixBlendMode
+      const clickOptions = {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: Math.round(win.innerWidth / 2),
+        clientY: Math.round(win.innerHeight / 2),
+      }
+      image.dispatchEvent(new win.MouseEvent('click', clickOptions))
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const imageOverlayDatasetAfterFirstClick = image.dataset.navicSepiaOverlay || ''
+      const imageMixBlendModeAfterFirstClick = win.getComputedStyle(image).mixBlendMode
+      await new Promise(resolve => win.setTimeout(resolve, 700))
+      image.dispatchEvent(new win.MouseEvent('click', clickOptions))
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const imageOverlayDatasetAfterSecondClick = image.dataset.navicSepiaOverlay || ''
+      const imageMixBlendModeAfterSecondClick = win.getComputedStyle(image).mixBlendMode
+      const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+      const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
+      const surfaceBorderStyle = surfaceBorderLayer ? getComputedStyle(surfaceBorderLayer) : null
+      return {
+        contentDocumentCount: contents.length,
+        theme: doc.documentElement.dataset.navicReaderTheme || '',
+        htmlBackground: htmlStyle.backgroundColor,
+        bodyBackground: bodyStyle.backgroundColor,
+        paragraphSpacingVariable: bodyStyle.getPropertyValue('--reader-paragraph-spacing') ||
+          htmlStyle.getPropertyValue('--reader-paragraph-spacing'),
+        paragraphMarginBottom: paragraphStyle.marginBlockEnd || paragraphStyle.marginBottom,
+        textLinkColor: textLinkStyle.color,
+        textLinkDecoration: textLinkStyle.textDecorationLine,
+        textLinkAfterContent: textLinkAfterStyle.content,
+        textLinkAfterVerticalAlign: textLinkAfterStyle.verticalAlign,
+        mediaLinkAfterContent: mediaLinkAfterStyle.content,
+        imageMixBlendModeBefore,
+        imageOverlayDatasetAfterFirstClick,
+        imageMixBlendModeAfterFirstClick,
+        imageOverlayDatasetAfterSecondClick,
+        imageMixBlendModeAfterSecondClick,
+        surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
+        surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
+        surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',
+        surfaceBorderOpacity: surfaceBorderStyle?.opacity || '',
+        surfaceTextureAsset: document.body.dataset.navicSurfacePaperTextureAsset || '',
+        surfaceBorderAsset: document.body.dataset.navicSurfaceBorderOverlayAsset || '',
+      }
+    })
+    const trace = await page.evaluate(() => window.__navicReaderTrace || [])
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'css-smoke.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+      trace,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertTraceType(trace, 'runtime:ready')
+    assertTraceType(trace, 'texture:update')
+    assertRendererCssSmoke(result)
+    console.log(`reader harness css-smoke passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1
