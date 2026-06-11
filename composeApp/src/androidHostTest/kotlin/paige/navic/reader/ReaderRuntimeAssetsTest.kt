@@ -507,6 +507,12 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
 		assertContains(bridgeText, "const location = detail?.location")
+		assertContains(bridgeText, "Math.floor(clampedProgress * pageCount)")
+		assertContains(bridgeText, "const progressedWithinSection =")
+		assertContains(bridgeText, "const advancedToLaterSection =")
+		assertContains(bridgeText, "this.reflowableLastLocationSignature")
+		assertContains(bridgeText, "this.reflowableLastLocationProgressBucket")
+		assertContains(bridgeText, "const canApplyStartOffset = pagePosition.pageCountSource !== 'location'")
 		assertContains(bridgeText, "pageCountSource: 'location'")
 		assertContains(
 			bridgeText,
@@ -530,6 +536,27 @@ class ReaderRuntimeAssetsTest {
 			closeBody,
 			"this.reflowablePageIndexOffset = null",
 			message = "The first-page offset must be scoped to one publication, otherwise a later book can start at the wrong visible page number."
+		)
+		assertContains(closeBody, "this.reflowableLastLocationSignature = null")
+		assertContains(closeBody, "this.reflowableLastLocationPageIndex = null")
+		assertContains(closeBody, "this.reflowableLastLocationSectionIndex = null")
+		assertContains(closeBody, "this.reflowableLastLocationProgressBucket = null")
+	}
+
+	@Test
+	fun androidReaderCanExpandImageDominantCoverPagesToViewport() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "classifyReaderCoverDocument(doc, section)")
+		assertContains(bridgeText, "data-navic-cover-page")
+		assertContains(bridgeText, "data-navic-cover-image")
+		assertContains(bridgeText, "data-navic-cover-image-container")
+		assertContains(bridgeText, "object-fit: contain !important")
+		assertContains(bridgeText, "width: 100vw !important")
+		assertContains(bridgeText, "height: 100vh !important")
+		assertFalse(
+			bridgeText.contains("html body img {\n    width: 100vw"),
+			"Only cover images should be expanded to the viewport; normal illustrations must keep their publication layout."
 		)
 	}
 
