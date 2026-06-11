@@ -278,6 +278,7 @@ export class FixedLayout extends HTMLElement {
                 display: 'block',
                 flexShrink: '0',
                 marginBlock: '0',
+                marginInline: this.#center || portrait ? 'auto' : '0',
             })
             if (portrait && frame !== target) {
                 element.style.display = 'none'

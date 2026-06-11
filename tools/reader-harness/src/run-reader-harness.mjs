@@ -11,6 +11,7 @@ import {
   assertNoConsoleErrors,
   assertNoConsecutiveDuplicateLocations,
   assertNoConsecutiveDuplicateVisiblePageLabels,
+  assertPdfSmoke,
   assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
   assertSurfaceTextureTracksForwardContentMovement,
@@ -808,6 +809,190 @@ if (mode === 'epub-texture-page-turns') {
     assertNoConsoleErrors(errors)
     assertTextureTracksRealPageTurnSamples(result)
     console.log(`reader harness epub-texture-page-turns passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'pdf-smoke') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('pdf-smoke mode requires --fixture <path-to-pdf>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.pdf'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'dark',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 20000 })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
+    }
+    await page.waitForTimeout(1000)
+
+    const currentLocation = async () => page.evaluate(() => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      return messages.at(-1) || null
+    })
+
+    const measurePageBounds = async () => {
+      const buffer = await page.screenshot({ type: 'png' })
+      const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`
+      return page.evaluate(async imageUrl => {
+        const image = new Image()
+        image.src = imageUrl
+        await image.decode()
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        context.drawImage(image, 0, 0)
+        const { width, height } = canvas
+        const data = context.getImageData(0, 0, width, height).data
+        let left = width
+        let right = -1
+        let top = height
+        let bottom = -1
+        let hits = 0
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            const offset = (y * width + x) * 4
+            const red = data[offset]
+            const green = data[offset + 1]
+            const blue = data[offset + 2]
+            const alpha = data[offset + 3]
+            const brightPagePixel = alpha > 240 && red > 210 && green > 210 && blue > 210
+            if (!brightPagePixel) continue
+            hits += 1
+            if (x < left) left = x
+            if (x > right) right = x
+            if (y < top) top = y
+            if (y > bottom) bottom = y
+          }
+        }
+        if (right < left || bottom < top) {
+          return { width, height, coverage: 0, centerError: Number.NaN }
+        }
+        const boxWidth = right - left + 1
+        const boxHeight = bottom - top + 1
+        const leftMargin = left
+        const rightMargin = width - right - 1
+        return {
+          width,
+          height,
+          left,
+          right,
+          top,
+          bottom,
+          boxWidth,
+          boxHeight,
+          leftMargin,
+          rightMargin,
+          centerError: (left + right) / 2 - width / 2,
+          coverage: hits / (width * height),
+        }
+      }, dataUrl)
+    }
+
+    const initialLocation = await currentLocation()
+    const initialPageBounds = await measurePageBounds()
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.waitForFunction(previousPageIndex => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const current = messages.at(-1)
+      return current && current.pageIndex > previousPageIndex
+    }, initialLocation.pageIndex, { timeout: 10000 })
+    const afterNextLocation = await currentLocation()
+    await page.evaluate(() => {
+      window.__navicPdfDoubleNext = Promise.all([
+        window.NavicReaderBridge.dispatch({ type: 'nextPage' }),
+        window.NavicReaderBridge.dispatch({ type: 'nextPage' }),
+      ])
+      return true
+    })
+    await page.evaluate(async () => window.__navicPdfDoubleNext)
+    await page.waitForFunction(previousPageIndex => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const current = messages.at(-1)
+      return current && current.pageIndex > previousPageIndex
+    }, afterNextLocation.pageIndex, { timeout: 10000 })
+    const afterDoubleNextLocation = await currentLocation()
+    const result = {
+      initialLocation,
+      initialPageBounds,
+      afterNextLocation,
+      afterDoubleNextLocation,
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'pdf-smoke.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertPdfSmoke(result)
+    console.log(`reader harness pdf-smoke passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

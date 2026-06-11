@@ -178,6 +178,40 @@ export const assertTextureUpdatesAreCommittedPageBounded = trace => {
   }
 }
 
+export const assertPdfSmoke = result => {
+  if (!result?.initialLocation || !Number.isFinite(result.initialLocation.pageIndex)) {
+    throw new Error('Expected PDF smoke to receive an initial page location')
+  }
+  if (!Number.isFinite(result.initialLocation.pageCount) || result.initialLocation.pageCount < 2) {
+    throw new Error(`Expected PDF smoke fixture to expose multiple pages; observed ${result.initialLocation.pageCount}`)
+  }
+  if (!result?.initialPageBounds || !Number.isFinite(result.initialPageBounds.centerError)) {
+    throw new Error('Expected PDF smoke to measure visible page bounds from screenshot')
+  }
+  if (Math.abs(result.initialPageBounds.centerError) > 10) {
+    throw new Error(
+      `Expected PDF page to be horizontally centered; ` +
+      `left=${result.initialPageBounds.leftMargin} right=${result.initialPageBounds.rightMargin} ` +
+      `centerError=${result.initialPageBounds.centerError}`
+    )
+  }
+  if (result.initialPageBounds.coverage < 0.2) {
+    throw new Error(`Expected screenshot to contain a visible PDF page; coverage=${result.initialPageBounds.coverage}`)
+  }
+  if (result.afterNextLocation?.pageIndex !== result.initialLocation.pageIndex + 1) {
+    throw new Error(
+      `Expected PDF nextPage to advance one page; ` +
+      `observed ${result.initialLocation.pageIndex} -> ${result.afterNextLocation?.pageIndex}`
+    )
+  }
+  if (result.afterDoubleNextLocation?.pageIndex !== result.afterNextLocation.pageIndex + 1) {
+    throw new Error(
+      `Expected coalesced PDF double nextPage to advance only one page; ` +
+      `observed ${result.afterNextLocation.pageIndex} -> ${result.afterDoubleNextLocation?.pageIndex}`
+    )
+  }
+}
+
 export const assertFullEpubTraversal = result => {
   if (!result || !Array.isArray(result.pages) || result.pages.length === 0) {
     throw new Error('Expected full EPUB traversal to collect rendered pages')
