@@ -78,3 +78,16 @@ export const assertForwardPageIndexesDoNotRegress = messages => {
     }
   }
 }
+
+export const assertSurfaceTextureTracksForwardContentMovement = result => {
+  const delta = Number(result?.delta)
+  if (!Number.isFinite(delta) || delta <= 0) {
+    throw new Error(`Expected a positive renderer movement delta; observed ${result?.delta}`)
+  }
+  const roundedDelta = Math.round(delta)
+  const backgroundPosition = String(result?.textureBackgroundPosition || '')
+  const negativeOffsetPattern = new RegExp(`(?:-\\s*${roundedDelta}px|\\+\\s*-${roundedDelta}px)`)
+  if (!negativeOffsetPattern.test(backgroundPosition)) {
+    throw new Error(`Expected texture background to move left with forward content movement ${roundedDelta}px; observed "${backgroundPosition}"`)
+  }
+}

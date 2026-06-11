@@ -632,12 +632,18 @@ const readerPaperTextureTransform = variant => {
   return transforms.length ? transforms.join(' ') : 'none'
 }
 
+const readerPaperTextureCssOffset = value => {
+  const offset = Number(value)
+  if (!Number.isFinite(offset) || offset === 0) return '+ 0px'
+  return offset < 0 ? `- ${Math.abs(offset)}px` : `+ ${offset}px`
+}
+
 const readerPaperTextureBackgroundPosition = scrollOffset => {
   const x = Number(scrollOffset?.x)
   const y = Number(scrollOffset?.y)
   const xPx = Number.isFinite(x) ? Math.round(x) : 0
   const yPx = Number.isFinite(y) ? Math.round(y) : 0
-  return `calc(50% + ${xPx}px) calc(50% + ${yPx}px)`
+  return `calc(50% ${readerPaperTextureCssOffset(xPx)}) calc(50% ${readerPaperTextureCssOffset(yPx)})`
 }
 
 const readerSurfacePaperTextureOpacity = settings => {
@@ -2643,8 +2649,8 @@ class NavicReaderRuntime {
     const maxOffset = this.readerFlowModeValue === ReaderFlowPagedVertical ? height : width
     const bounded = Math.max(-maxOffset, Math.min(maxOffset, delta))
     this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
-      ? { x: 0, y: bounded }
-      : { x: bounded, y: 0 }
+      ? { x: 0, y: -bounded }
+      : { x: -bounded, y: 0 }
     return this.surfaceTextureScrollOffset
   }
 
@@ -2671,6 +2677,7 @@ class NavicReaderRuntime {
     const offset = this.surfaceTextureScrollOffset
     if (Math.abs(offset.x || 0) > 1 || Math.abs(offset.y || 0) > 1) {
       log('surface-texture-scroll', reason, `x=${Math.round(offset.x || 0)}`, `y=${Math.round(offset.y || 0)}`)
+      readerTrace('texture:scroll', { reason, offset })
     }
   }
 
