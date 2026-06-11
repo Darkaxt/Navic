@@ -620,6 +620,51 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderShellCoverUsesFullscreenBlackSurface() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val shellCoverLayer = bridgeText
+			.substringAfter("const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {")
+			.substringBefore("\nconst updateReaderSurfaceTextureLayer")
+
+		assertContains(shellCoverLayer, "background: '#000000'")
+		assertContains(shellCoverLayer, "'background-color': '#000000'")
+		assertContains(shellCoverLayer, "padding: '0px'")
+		assertContains(shellCoverLayer, "width: '100%'")
+		assertContains(shellCoverLayer, "height: '100%'")
+		assertContains(shellCoverLayer, "'object-fit': 'contain'")
+		assertContains(shellCoverLayer, "'max-height': '100%'")
+		assertContains(shellCoverLayer, "'box-shadow': 'none'")
+	}
+
+	@Test
+	fun androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val handleTapZone = bridgeText
+			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
+			.substringBefore("\n  attachCenterTapGesture")
+		val canReturnToShellCover = bridgeText
+			.substringAfter("canReturnToShellCover() {")
+			.substringBefore("\n  applyReaderViewportLayout")
+
+		assertContains(bridgeText, "readerTargetInsideShellCover")
+		assertContains(
+			handleTapZone,
+			"if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) return false",
+			message = "Cover image taps must not be rejected as generic image/media taps."
+		)
+		assertContains(
+			canReturnToShellCover,
+			"const firstContent = Number(this.firstReadableContentTarget())",
+			message = "Previous from the first readable section should return to shell cover before Foliate can enter its EPUB cover."
+		)
+		assertContains(
+			canReturnToShellCover,
+			"Math.floor(sectionIndex) <= firstContent",
+			message = "The shell-cover boundary must be section-based, not only page-index based."
+		)
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

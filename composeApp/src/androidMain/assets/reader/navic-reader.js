@@ -531,6 +531,9 @@ const readerHrefMatchesSection = (href, section) =>
 const isInteractiveReaderTarget = target =>
   Boolean(closestElement(target, `a,button,input,textarea,select,summary,[role="button"],${readerMediaSelector}`))
 
+const readerTargetInsideShellCover = target =>
+  Boolean(closestElement(target, ReaderShellCoverLayerSelector))
+
 const stableHash = value => {
   const text = String(value || '')
   let hash = 2166136261
@@ -789,7 +792,6 @@ const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const palette = readerThemePalette(settings?.theme)
   const image = ensureReaderShellCoverImage(layer)
   if (image.getAttribute('src') !== coverUrl) image.setAttribute('src', coverUrl)
   image.setAttribute('alt', title || 'Book cover')
@@ -805,10 +807,10 @@ const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {
     'align-items': 'center',
     'justify-content': 'center',
     overflow: 'hidden',
-    background: palette.background,
-    'background-color': palette.background,
-    color: palette.foreground,
-    padding: 'max(2.5rem, env(safe-area-inset-top, 0px)) 2.25rem max(3rem, env(safe-area-inset-bottom, 0px))',
+    background: '#000000',
+    'background-color': '#000000',
+    color: '#ffffff',
+    padding: '0px',
     'box-sizing': 'border-box',
     opacity: '1',
     transform: 'translateX(0) scale(1)',
@@ -819,7 +821,7 @@ const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {
   })
   setStylesImportant(image, {
     display: 'block',
-    width: 'auto',
+    width: '100%',
     height: '100%',
     'max-width': '100%',
     'max-height': '100%',
@@ -830,9 +832,7 @@ const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {
     margin: '0',
     padding: '0',
     border: '0',
-    'box-shadow': readerThemeKey(settings?.theme) === 'black'
-      ? 'none'
-      : '0 1.25rem 4rem color-mix(in srgb, var(--reader-foreground) 18%, transparent)',
+    'box-shadow': 'none',
   })
 }
 
@@ -1416,13 +1416,18 @@ class NavicReaderRuntime {
 
   canReturnToShellCover() {
     if (!this.shellCoverBlobUrl || this.shellCoverVisible) return false
-    const pageIndex = Number(this.currentPagePosition?.pageIndex)
-    if (Number.isFinite(pageIndex)) return pageIndex <= 0
     const sectionIndex = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
     const firstContent = Number(this.firstReadableContentTarget())
-    return Number.isFinite(sectionIndex) &&
+    if (
+      Number.isFinite(sectionIndex) &&
       Number.isFinite(firstContent) &&
       Math.floor(sectionIndex) <= firstContent
+    ) {
+      return true
+    }
+    const pageIndex = Number(this.currentPagePosition?.pageIndex)
+    if (Number.isFinite(pageIndex)) return pageIndex <= 0
+    return false
   }
 
   applyReaderViewportLayout(label = 'unknown') {
@@ -1659,7 +1664,7 @@ class NavicReaderRuntime {
 
   async handleReaderTapZone(event, doc, source = 'tap') {
     if (event.defaultPrevented || event.button > 0) return false
-    if (isInteractiveReaderTarget(event.target)) return false
+    if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) return false
     const selection = doc?.getSelection?.()
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return false
     const tapZone = this.readerTapZone(event, doc)
