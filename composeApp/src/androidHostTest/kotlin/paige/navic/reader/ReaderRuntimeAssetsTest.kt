@@ -591,25 +591,29 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderRoutesSavedCoverResumeThroughShellCover() {
+	fun androidReaderShowsShellCoverBeforeSavedResumeLocation() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 
 		assertContains(bridgeText, "startLocatorTargetsShellCover")
 		assertContains(bridgeText, "const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)")
 		assertContains(
 			bridgeText,
-			"const shouldStartAtShellCover = startLocatorIsShellCover || !readerStartLocatorHasPosition(startLocator)",
-			message = "Saved cover progress must not bypass the shell cover path."
+			"const shellCoverUrl = await this.loadShellCover()",
+			message = "Every EPUB open should try to show the program-level cover before revealing reader content."
 		)
 		assertContains(
 			bridgeText,
-			"if (shellCoverUrl) {",
-			message = "When shell cover is active, Foliate should be staged behind it at first readable content."
+			"} else if (locator) {",
+			message = "Non-cover resume locators must still load behind the shell cover."
 		)
 		assertContains(
 			bridgeText,
-			"readerStartLocatorHasPosition(startLocator) && !startLocatorIsShellCover",
-			message = "Cover resume locators must not be reposted and saved again as normal progress."
+			"await this.view.goTo(locator)",
+			message = "The saved location should be preserved behind the initial cover overlay."
+		)
+		assertFalse(
+			bridgeText.contains("const shouldStartAtShellCover ="),
+			"Shell cover loading should not be gated by the absence of a saved locator."
 		)
 		assertContains(bridgeText, "detailTargetsCover")
 		assertContains(bridgeText, "location-changed:cover-skipped")

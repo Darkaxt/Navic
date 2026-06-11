@@ -1168,19 +1168,18 @@ class NavicReaderRuntime {
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
       const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)
-      const shouldStartAtShellCover = startLocatorIsShellCover || !readerStartLocatorHasPosition(startLocator)
-      const shellCoverUrl = shouldStartAtShellCover ? await this.loadShellCover() : null
+      const shellCoverUrl = await this.loadShellCover()
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
-      if (shellCoverUrl) {
-        await this.goToFirstReadableContent()
-      } else if (startLocatorIsShellCover) {
+      if (startLocatorIsShellCover) {
         await this.goToFirstReadableContent()
       } else if (locator) {
         await this.view.goTo(locator)
       } else if (Number.isFinite(progress)) {
         await this.goToProgress(progress)
+      } else if (shellCoverUrl) {
+        await this.goToFirstReadableContent()
       } else {
         await this.view.init?.({ showTextStart: true })
       }
