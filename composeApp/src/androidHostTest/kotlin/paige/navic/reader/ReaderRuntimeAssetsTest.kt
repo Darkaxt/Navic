@@ -649,9 +649,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerTargetInsideShellCover")
 		assertContains(
 			handleTapZone,
-			"if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) return false",
+			"if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) {",
 			message = "Cover image taps must not be rejected as generic image/media taps."
 		)
+		assertContains(handleTapZone, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(
 			canReturnToShellCover,
 			"const firstContent = Number(this.firstReadableContentTarget())",
@@ -788,6 +789,32 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(bridgeText, "const image = readerImageFromMediaTarget(mediaTapTarget)")
+	}
+
+	@Test
+	fun androidReaderLetsPageTurnZonesWinOverImageTintToggles() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val handleTapZone = bridgeText
+			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
+			.substringBefore("\n  attachCenterTapGesture")
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  readerTapSurfaceRect")
+
+		assertContains(bridgeText, "const readerTapZoneIsPageTurn = tapZone =>")
+		assertContains(bridgeText, "readerTapZoneWouldTurnPage(event, doc)")
+		assertContains(handleTapZone, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(handleTapZone, "if (!mediaTapTarget || !this.readerTapZoneWouldTurnPage(event, doc)) return false")
+		assertTrue(
+			linkNavigation.indexOf("if (this.readerTapZoneWouldTurnPage(event, doc)) return") <
+				linkNavigation.indexOf("const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)"),
+			"Media anchors must yield to reader page-turn zones before tint toggles can consume the click."
+		)
+		assertContains(sepiaToggle, "if (this.readerTapZoneWouldTurnPage(tapEvent, doc)) return")
+		assertContains(sepiaToggle, "if (this.readerTapZoneWouldTurnPage(event, doc)) return")
 	}
 
 	@Test
@@ -958,25 +985,28 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidReaderNormalizesTapZonesAgainstRootReaderSurfaceLikeKomikku() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerTapZoneResult = bridgeText
+			.substringAfter("readerTapZoneResult(event, doc) {")
+			.substringBefore("\n  readerTapZone(event, doc) {")
 		val readerTapZone = bridgeText
 			.substringAfter("readerTapZone(event, doc) {")
-			.substringBefore("\n  effectiveReaderDirection")
+			.substringBefore("\n  readerTapZoneWouldTurnPage")
 
 		assertContains(bridgeText, "readerRootTapPoint")
 		assertContains(bridgeText, "const frameElement = win?.frameElement")
 		assertContains(bridgeText, "const frameRect = frameElement?.getBoundingClientRect?.()")
 		assertContains(bridgeText, "const surfaceRect = this.readerTapSurfaceRect()")
-		assertContains(readerTapZone, "const point = readerRootTapPoint(event, doc)")
-		assertContains(readerTapZone, "const surfaceRect = this.readerTapSurfaceRect()")
-		assertContains(readerTapZone, "(point.x - surfaceRect.left) / surfaceRect.width")
-		assertContains(readerTapZone, "(point.y - surfaceRect.top) / surfaceRect.height")
+		assertContains(readerTapZoneResult, "const point = readerRootTapPoint(event, doc)")
+		assertContains(readerTapZoneResult, "const surfaceRect = this.readerTapSurfaceRect()")
+		assertContains(readerTapZoneResult, "(point.x - surfaceRect.left) / surfaceRect.width")
+		assertContains(readerTapZoneResult, "(point.y - surfaceRect.top) / surfaceRect.height")
 		assertContains(readerTapZone, "tap-zone")
 		assertFalse(
-			readerTapZone.contains("win.innerWidth") || readerTapZone.contains("doc?.documentElement?.clientWidth"),
+			readerTapZoneResult.contains("win.innerWidth") || readerTapZoneResult.contains("doc?.documentElement?.clientWidth"),
 			"Tap-zone dispatch must normalize against the root reader surface, not a Foliate iframe document viewport."
 		)
 		assertFalse(
-			readerTapZone.contains("const x = event.clientX") || readerTapZone.contains("const y = event.clientY"),
+			readerTapZoneResult.contains("const x = event.clientX") || readerTapZoneResult.contains("const y = event.clientY"),
 			"Iframe taps must be translated through their frame rect before navigation regions are evaluated."
 		)
 	}
@@ -1392,6 +1422,12 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "renderer.addEventListener('scroll'")
 		assertContains(runtimeFields, "surfacePaperTextureBaseOffset")
 		assertContains(runtimeFields, "surfaceTextureScrollOffset")
+		assertContains(bridgeText, "? { x: 0, y: bounded }")
+		assertContains(bridgeText, ": { x: bounded, y: 0 }")
+		assertFalse(
+			bridgeText.contains("? { x: 0, y: -bounded }") || bridgeText.contains(": { x: -bounded, y: 0 }"),
+			"Surface paper texture movement must not use the inverted paginator delta during page drags."
+		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
 	}
 

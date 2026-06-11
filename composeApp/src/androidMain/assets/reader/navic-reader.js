@@ -473,6 +473,12 @@ const komikkuTapAction = (
   return KomikkuNavigationRegionMenu
 }
 
+const readerTapZoneIsPageTurn = tapZone =>
+  tapZone === KomikkuNavigationRegionPrevious ||
+  tapZone === KomikkuNavigationRegionNext ||
+  tapZone === KomikkuNavigationRegionLeft ||
+  tapZone === KomikkuNavigationRegionRight
+
 const readerAssetUrl = path => new URL(path, document.baseURI).href
 const ReaderShellCoverProgressThreshold = 0.0015
 
@@ -1664,7 +1670,11 @@ class NavicReaderRuntime {
 
   async handleReaderTapZone(event, doc, source = 'tap') {
     if (event.defaultPrevented || event.button > 0) return false
-    if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) return false
+    if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) {
+      const anchor = closestElement(event.target, 'a[href]')
+      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+      if (!mediaTapTarget || !this.readerTapZoneWouldTurnPage(event, doc)) return false
+    }
     const selection = doc?.getSelection?.()
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return false
     const tapZone = this.readerTapZone(event, doc)
@@ -1845,6 +1855,7 @@ class NavicReaderRuntime {
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
       if (mediaTapTarget) {
+        if (this.readerTapZoneWouldTurnPage(event, doc)) return
         const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
         if (!toggled) {
           event.preventDefault()
@@ -1941,7 +1952,7 @@ class NavicReaderRuntime {
       const endY = touch.screenY ?? touch.clientY ?? state.y
       if (Math.abs(endX - state.x) > CenterTapMovementSlop) return
       if (Math.abs(endY - state.y) > CenterTapMovementSlop) return
-      this.toggleSepiaImageOverlayFromEvent(doc, {
+      const tapEvent = {
         defaultPrevented: event.defaultPrevented,
         button: 0,
         target: state.target || event.target,
@@ -1951,7 +1962,9 @@ class NavicReaderRuntime {
         stopPropagation: () => event.stopPropagation(),
         stopImmediatePropagation: () => event.stopImmediatePropagation(),
         timeStamp: event.timeStamp,
-      }, state.mediaTapTarget)
+      }
+      if (this.readerTapZoneWouldTurnPage(tapEvent, doc)) return
+      this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)
     }, { capture: true, passive: false })
     doc.addEventListener('touchcancel', () => {
       touchState = null
@@ -1965,6 +1978,7 @@ class NavicReaderRuntime {
         event.stopImmediatePropagation()
         return
       }
+      if (this.readerTapZoneWouldTurnPage(event, doc)) return
       this.toggleSepiaImageOverlayFromEvent(doc, event)
     }, { capture: true, passive: false })
   }
@@ -1980,7 +1994,7 @@ class NavicReaderRuntime {
     return { left, top, width, height }
   }
 
-  readerTapZone(event, doc) {
+  readerTapZoneResult(event, doc) {
     const point = readerRootTapPoint(event, doc)
     const surfaceRect = this.readerTapSurfaceRect()
     if (!point) return null
@@ -1993,6 +2007,13 @@ class NavicReaderRuntime {
       this.smallerTapZone,
       this.readerFlowModeValue
     )
+    return { point, tapZone, xFraction, yFraction }
+  }
+
+  readerTapZone(event, doc) {
+    const result = this.readerTapZoneResult(event, doc)
+    if (!result) return null
+    const { point, tapZone, xFraction, yFraction } = result
     log(
       'tap-zone',
       `source=${point.source}`,
@@ -2004,6 +2025,10 @@ class NavicReaderRuntime {
       `flow=${this.readerFlowModeValue || ReaderFlowPaged}`
     )
     return tapZone
+  }
+
+  readerTapZoneWouldTurnPage(event, doc) {
+    return readerTapZoneIsPageTurn(this.readerTapZoneResult(event, doc)?.tapZone)
   }
 
   effectiveReaderDirection() {
@@ -2558,8 +2583,8 @@ class NavicReaderRuntime {
     const maxOffset = this.readerFlowModeValue === ReaderFlowPagedVertical ? height : width
     const bounded = Math.max(-maxOffset, Math.min(maxOffset, delta))
     this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
-      ? { x: 0, y: -bounded }
-      : { x: -bounded, y: 0 }
+      ? { x: 0, y: bounded }
+      : { x: bounded, y: 0 }
     return this.surfaceTextureScrollOffset
   }
 
