@@ -172,6 +172,7 @@ Continue upgrading the reader in small deliverables:
 - PDF/image scaling, centering, and navigation polish.
 - Storyteller-generated readaloud EPUB support, including media overlays and audio metadata labels.
 - Colibrio-inspired synced audiobook/ebook media support where it maps cleanly to Navic's architecture.
+- Page-curl drag animation is lowest priority. If implemented later, it should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
 
 ## Delivery Protocol
 
@@ -198,4 +199,3 @@ Phase 1 is complete when:
 - Texture variant and offset traces show no inversion or hard reset during page turns or area transitions.
 - Renderer CSS checks pass for paragraph spacing, theme backgrounds, hyperlink presentation, and paper texture layering.
 - The fixes are committed before APK integration begins.
-
