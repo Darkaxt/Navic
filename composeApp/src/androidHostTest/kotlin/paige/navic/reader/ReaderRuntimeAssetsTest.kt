@@ -544,19 +544,16 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderCanExpandImageDominantCoverPagesToViewport() {
+	fun androidReaderDoesNotForceCoverPagesToViewportInsidePaginatedIframe() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 
-		assertContains(bridgeText, "classifyReaderCoverDocument(doc, section)")
-		assertContains(bridgeText, "data-navic-cover-page")
-		assertContains(bridgeText, "data-navic-cover-image")
-		assertContains(bridgeText, "data-navic-cover-image-container")
-		assertContains(bridgeText, "object-fit: contain !important")
-		assertContains(bridgeText, "width: 100vw !important")
-		assertContains(bridgeText, "height: 100vh !important")
 		assertFalse(
-			bridgeText.contains("html body img {\n    width: 100vw"),
-			"Only cover images should be expanded to the viewport; normal illustrations must keep their publication layout."
+			bridgeText.contains("data-navic-cover-page"),
+			"Cover-page viewport expansion inside Foliate's paginated iframe can trigger ResizeObserver loops and blank the first page."
+		)
+		assertFalse(
+			bridgeText.contains("width: 100vw !important") && bridgeText.contains("height: 100vh !important"),
+			"Reader content CSS must not force EPUB cover documents to viewport size inside the paginated iframe."
 		)
 	}
 

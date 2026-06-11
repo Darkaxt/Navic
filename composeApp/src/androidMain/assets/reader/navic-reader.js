@@ -892,57 +892,6 @@ const classifyReaderParagraphBlocks = doc => {
   }
 }
 
-const readerElementTokenText = element =>
-  [
-    element?.id,
-    element?.className?.baseVal,
-    element?.className,
-    element?.getAttribute?.('epub:type'),
-    element?.getAttribute?.('role'),
-  ].filter(Boolean).join(' ')
-
-const readerDocumentHasCoverSignal = (doc, section) => {
-  const tokens = [
-    section?.href,
-    section?.id,
-    section?.label,
-    section?.type,
-    doc?.title,
-    readerElementTokenText(doc?.documentElement),
-    readerElementTokenText(doc?.body),
-  ].filter(Boolean).join(' ').toLowerCase()
-  return /(^|[\s._/-])cover([\s._/-]|$)|cover-image|coverpage|cover.xhtml/.test(tokens)
-}
-
-const clearReaderCoverDocumentClassification = doc => {
-  if (!doc?.querySelectorAll) return
-  delete doc.documentElement?.dataset?.navicCoverPage
-  for (const element of doc.querySelectorAll('[data-navic-cover-image], [data-navic-cover-image-container]')) {
-    delete element.dataset.navicCoverImage
-    delete element.dataset.navicCoverImageContainer
-  }
-}
-
-const classifyReaderCoverDocument = (doc, section) => {
-  if (!doc?.querySelectorAll || !doc.documentElement || !doc.body) return
-  clearReaderCoverDocumentClassification(doc)
-  const images = Array.from(doc.querySelectorAll('img, svg')).filter(element => {
-    if (!element) return false
-    if (element.matches?.('svg') && element.querySelector?.('text')) return false
-    return true
-  })
-  const text = doc.body.textContent?.replace(/\s+/g, ' ').trim() || ''
-  const hasCoverSignal = readerDocumentHasCoverSignal(doc, section)
-  const imageDominant = images.length === 1 && text.length <= 64
-  if (!hasCoverSignal || !imageDominant) return
-  const coverImage = images[0]
-  doc.documentElement.dataset.navicCoverPage = 'true'
-  coverImage.dataset.navicCoverImage = 'true'
-  for (let element = coverImage.parentElement; element && element !== doc.body; element = element.parentElement) {
-    element.dataset.navicCoverImageContainer = 'true'
-  }
-}
-
 const setStylesImportant = (element, styles) => {
   if (!element) return
   for (const [property, value] of Object.entries(styles)) {
@@ -2427,8 +2376,6 @@ class NavicReaderRuntime {
 
   attachContentDocumentBehaviors(doc, index) {
     if (!doc) return
-    const section = this.view?.book?.sections?.[index]
-    classifyReaderCoverDocument(doc, section)
     this.applyDocumentDirection(doc, this.readerDirectionModeValue)
     this.applyDocumentTheme(doc, this.readerSettings, index)
     this.classifyReaderLinks(doc)
@@ -2603,45 +2550,6 @@ const readerParagraphSpacingCss = settings => `
   }
 `
 
-const readerCoverPageCss = () => `
-  html[data-navic-cover-page="true"],
-  html[data-navic-cover-page="true"] body {
-    width: 100vw !important;
-    height: 100vh !important;
-    min-width: 100vw !important;
-    min-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-  }
-  html[data-navic-cover-page="true"] body,
-  html[data-navic-cover-page="true"] [data-navic-cover-image-container="true"] {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    box-sizing: border-box !important;
-  }
-  html[data-navic-cover-page="true"] img[data-navic-cover-image="true"],
-  html[data-navic-cover-page="true"] svg[data-navic-cover-image="true"] {
-    display: block !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    object-fit: contain !important;
-    object-position: center center !important;
-  }
-`
-
 const isThemeBackgroundMediaElement = element =>
   ['IMG', 'PICTURE', 'VIDEO', 'CANVAS', 'SVG', 'OBJECT', 'EMBED'].includes(element?.tagName) ||
   element?.getAttribute?.('role') === 'img'
@@ -2702,7 +2610,6 @@ const readerContentCss = settings => {
   }
   ${readerTypographyCss(settings)}
   ${readerParagraphSpacingCss(settings)}
-  ${readerCoverPageCss()}
   a:any-link {
     color: inherit !important;
     text-decoration: none !important;
