@@ -576,13 +576,9 @@ const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
 
 const readerPageNumberPositionWithPageCount = (pagePosition, fallbackPageCount = null) => {
   if (!pagePosition) return null
-  const prefersOwnPageCount =
-    pagePosition.pageCountSource === 'page-list' ||
-    pagePosition.pageCountSource === 'fixed-layout'
+  const prefersFallbackPageCount = pagePosition.pageCountSource === 'section'
   const fallback = Number(fallbackPageCount)
-  const pageCount = prefersOwnPageCount
-    ? readerPageNumberPageCount(pagePosition, fallbackPageCount)
-    : Number.isFinite(fallback) && fallback > 0
+  const pageCount = prefersFallbackPageCount && Number.isFinite(fallback) && fallback > 0
       ? Math.floor(fallback)
       : readerPageNumberPageCount(pagePosition)
   if (!Number.isFinite(pageCount) || pageCount <= 0) return pagePosition
@@ -1079,6 +1075,7 @@ class NavicReaderRuntime {
     this.pageNumberLayer = null
     this.currentPagePosition = null
     this.reflowableBookPageModel = null
+    this.reflowablePageIndexOffset = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
     this.surfacePaperTextureBaseOffset = 0
@@ -1754,6 +1751,19 @@ class NavicReaderRuntime {
     }
   }
 
+  reflowableLocationPagePosition(detail) {
+    if (this.view?.isFixedLayout === true) return null
+    const location = detail?.location
+    const pageIndex = Number(location?.current)
+    const pageCount = Number(location?.total)
+    if (!Number.isFinite(pageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) return null
+    return this.normalizedReflowablePagePosition({
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex))),
+      pageCount: Math.floor(pageCount),
+      pageCountSource: 'location',
+    }, detail)
+  }
+
   readerPageListPosition(detail) {
     if (this.view?.isFixedLayout === true) return null
     const pageItem = detail?.pageItem
@@ -1881,7 +1891,7 @@ class NavicReaderRuntime {
   }
 
   reflowablePagePosition(detail) {
-    return this.readerPageListPosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()
+    return this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()
   }
 
   readerPagePosition(detail) {

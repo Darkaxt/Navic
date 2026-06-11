@@ -441,6 +441,7 @@ class ReaderRuntimeAssetsTest {
 		val readerScreenText = readerScreenFile().readText()
 
 		assertContains(bridgeText, "reflowablePagePosition(detail)")
+		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
 		assertContains(bridgeText, "reflowableSectionPagePosition()")
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
@@ -465,8 +466,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "readerPageListPageCount()")
 		assertContains(bridgeText, "const canonicalPageCount = this.readerPageListPageCount()")
 		assertContains(bridgeText, "pageCountSource: 'page-list'")
+		assertContains(bridgeText, "pageCountSource: 'location'")
 		assertContains(bridgeText, "pageCountSource: model.source")
-		assertContains(bridgeText, "const prefersOwnPageCount")
+		assertContains(bridgeText, "const prefersFallbackPageCount = pagePosition.pageCountSource === 'section'")
 		assertContains(bridgeText, "? 'page-list'")
 		assertContains(bridgeText, ": 'synthetic-location'")
 		assertFalse(
@@ -478,7 +480,7 @@ class ReaderRuntimeAssetsTest {
 			"The first visible reflowable EPUB page must map to page 1, not page 2."
 		)
 		assertContains(bridgeText, "readerPagePosition(detail)")
-		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableSectionPagePosition()")
+		assertContains(bridgeText, "this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
 		assertContains(bridgeText, "dataset.navicPageNumberLayer")
 		assertContains(bridgeText, "return `${'$'}{currentPage} / ${'$'}{pageCount}`")
@@ -493,6 +495,41 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(
 			readerScreenText.contains("ReaderPageNumberOverlay("),
 			"Page numbers must be drawn in the reader surface, not as a native Material overlay."
+		)
+	}
+
+	@Test
+	fun androidReaderUsesStableLocationTotalsForReflowablePageNumbers() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val closeBody = bridgeText
+			.substringAfter("close() {")
+			.substringBefore("applyReaderViewportLayout(label = 'unknown') {")
+
+		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
+		assertContains(bridgeText, "const location = detail?.location")
+		assertContains(bridgeText, "pageCountSource: 'location'")
+		assertContains(
+			bridgeText,
+			"return this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()",
+			message = "Reflowable EPUB labels must prefer Foliate's stable book-level location total before page-list or section fallbacks."
+		)
+		assertFalse(
+			bridgeText.contains("return this.readerPageListPosition(detail) || this.reflowableWholeBookPagePosition(detail)"),
+			"Reflowable EPUB labels must not opportunistically switch to sparse page-list totals."
+		)
+		assertContains(
+			bridgeText,
+			"const prefersFallbackPageCount = pagePosition.pageCountSource === 'section'",
+			message = "Only section fallback positions should inherit the previous book denominator."
+		)
+		assertFalse(
+			bridgeText.contains("const prefersOwnPageCount ="),
+			"Book-level reflowable positions must keep their own denominator instead of being overwritten by a stale fallback count."
+		)
+		assertContains(
+			closeBody,
+			"this.reflowablePageIndexOffset = null",
+			message = "The first-page offset must be scoped to one publication, otherwise a later book can start at the wrong visible page number."
 		)
 	}
 
