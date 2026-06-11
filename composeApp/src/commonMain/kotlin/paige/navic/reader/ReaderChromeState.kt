@@ -57,6 +57,11 @@ const val ReaderOrientationLockedPortrait = "locked-portrait"
 const val ReaderOrientationLockedLandscape = "locked-landscape"
 const val ReaderOrientationReversePortrait = "reverse-portrait"
 
+private const val ReaderTapZoneNormalSize = 0.25f
+private const val ReaderTapZoneSmallerSize = 0.2f
+private const val ReaderTapZoneCenterMenuSize = 0.42f
+private const val ReaderTapZoneConstantMenuHeight = 0.05f
+
 val ReaderSupportedFontFamilies: List<String> = listOf(
 	ReaderSansFontFamily,
 	ReaderSerifFontFamily,
@@ -142,6 +147,119 @@ fun normalizedReaderOrientation(orientation: String?): String =
 
 fun normalizedReaderDirection(direction: String?): String =
 	ReaderSupportedDirections.firstOrNull { supported -> supported == direction } ?: ReaderDirectionDefault
+
+enum class ReaderTapZoneAction {
+	Menu,
+	Previous,
+	Next,
+	Left,
+	Right
+}
+
+data class ReaderTapZoneRegion(
+	val left: Float,
+	val top: Float,
+	val right: Float,
+	val bottom: Float,
+	val action: ReaderTapZoneAction
+) {
+	fun contains(x: Float, y: Float): Boolean =
+		x >= left && x <= right && y >= top && y <= bottom
+}
+
+fun readerTapZoneSize(smallerTapZone: Boolean): Float =
+	if (smallerTapZone) ReaderTapZoneSmallerSize else ReaderTapZoneNormalSize
+
+fun readerDefaultTapZoneMode(flowMode: String?): String =
+	when (normalizedReaderFlowMode(flowMode, paged = null)) {
+		ReaderFlowPagedVertical,
+		ReaderFlowScrolled,
+		ReaderFlowScrolledGaps -> ReaderTapZoneLShaped
+		else -> ReaderTapZoneRightLeft
+	}
+
+fun readerTapZoneRegions(
+	tapZone: String?,
+	smallerTapZone: Boolean = false,
+	flowMode: String? = ReaderFlowPaged
+): List<ReaderTapZoneRegion> {
+	val mode = normalizedReaderTapZone(tapZone).let { normalized ->
+		if (normalized == ReaderTapZoneDefault) readerDefaultTapZoneMode(flowMode) else normalized
+	}
+	val regionSize1 = readerTapZoneSize(smallerTapZone)
+	val regionSize2 = 1f - regionSize1
+	return when (mode) {
+		ReaderTapZoneLShaped -> listOf(
+			ReaderTapZoneRegion(0f, regionSize1, regionSize1, regionSize2, ReaderTapZoneAction.Previous),
+			ReaderTapZoneRegion(0f, 0f, 1f, regionSize1, ReaderTapZoneAction.Previous),
+			ReaderTapZoneRegion(regionSize2, regionSize1, 1f, regionSize2, ReaderTapZoneAction.Next),
+			ReaderTapZoneRegion(0f, regionSize2, 1f, 1f, ReaderTapZoneAction.Next)
+		)
+		ReaderTapZoneKindle -> listOf(
+			ReaderTapZoneRegion(regionSize1, regionSize1, 1f, 1f, ReaderTapZoneAction.Next),
+			ReaderTapZoneRegion(0f, regionSize1, regionSize1, 1f, ReaderTapZoneAction.Previous)
+		)
+		ReaderTapZoneEdge -> listOf(
+			ReaderTapZoneRegion(0f, 0f, regionSize1, 1f, ReaderTapZoneAction.Next),
+			ReaderTapZoneRegion(regionSize1, regionSize2, regionSize2, 1f, ReaderTapZoneAction.Previous),
+			ReaderTapZoneRegion(regionSize2, 0f, 1f, 1f, ReaderTapZoneAction.Next)
+		)
+		ReaderTapZoneRightLeft -> listOf(
+			ReaderTapZoneRegion(0f, 0f, regionSize1, 1f, ReaderTapZoneAction.Left),
+			ReaderTapZoneRegion(regionSize2, 0f, 1f, 1f, ReaderTapZoneAction.Right)
+		)
+		ReaderTapZoneDisabled -> emptyList()
+		else -> emptyList()
+	}
+}
+
+fun readerTapZoneActionAt(
+	tapZone: String?,
+	xFraction: Float,
+	yFraction: Float,
+	smallerTapZone: Boolean = false,
+	flowMode: String? = ReaderFlowPaged
+): ReaderTapZoneAction {
+	val x = xFraction.coerceIn(0f, 1f)
+	val y = yFraction.coerceIn(0f, 1f)
+	if (y <= ReaderTapZoneConstantMenuHeight) return ReaderTapZoneAction.Menu
+	val centerStart = (1f - ReaderTapZoneCenterMenuSize) / 2f
+	val centerEnd = (1f + ReaderTapZoneCenterMenuSize) / 2f
+	if (x >= centerStart && x <= centerEnd && y >= centerStart && y <= centerEnd) {
+		return ReaderTapZoneAction.Menu
+	}
+	return readerTapZoneRegions(tapZone, smallerTapZone, flowMode)
+		.firstOrNull { region -> region.contains(x, y) }
+		?.action ?: ReaderTapZoneAction.Menu
+}
+
+fun readerTapZoneActionTurnsPage(action: ReaderTapZoneAction): Boolean =
+	action == ReaderTapZoneAction.Previous ||
+		action == ReaderTapZoneAction.Next ||
+		action == ReaderTapZoneAction.Left ||
+		action == ReaderTapZoneAction.Right
+
+fun readerTapZonePageTurnCommand(
+	action: ReaderTapZoneAction,
+	direction: String?
+): ReaderBridgeCommand? =
+	when (action) {
+		ReaderTapZoneAction.Previous -> ReaderBridgeCommand.PreviousPage
+		ReaderTapZoneAction.Next -> ReaderBridgeCommand.NextPage
+		ReaderTapZoneAction.Left ->
+			if (normalizedReaderDirection(direction) == ReaderDirectionRtl) {
+				ReaderBridgeCommand.NextPage
+			} else {
+				ReaderBridgeCommand.PreviousPage
+			}
+		ReaderTapZoneAction.Right ->
+			if (normalizedReaderDirection(direction) == ReaderDirectionRtl) {
+				ReaderBridgeCommand.PreviousPage
+			} else {
+				ReaderBridgeCommand.NextPage
+			}
+		ReaderTapZoneAction.Menu -> null
+	}
 
 enum class ReaderOptionsTab {
 	Reading,

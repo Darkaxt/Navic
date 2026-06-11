@@ -132,6 +132,80 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeTapZonesMatchKomikkuRightLeftPagedDefault() {
+		assertEquals(
+			ReaderTapZoneAction.Left,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.05f,
+				yFraction = 0.5f,
+				flowMode = ReaderFlowPaged
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Right,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.95f,
+				yFraction = 0.5f,
+				flowMode = ReaderFlowPaged
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Menu,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.5f,
+				yFraction = 0.5f,
+				flowMode = ReaderFlowPaged
+			)
+		)
+	}
+
+	@Test
+	fun nativeTapZonesUseLShapedDefaultForScrolledModes() {
+		assertEquals(
+			ReaderTapZoneAction.Previous,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.5f,
+				yFraction = 0.1f,
+				flowMode = ReaderFlowScrolled
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Next,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.5f,
+				yFraction = 0.9f,
+				flowMode = ReaderFlowScrolled
+			)
+		)
+	}
+
+	@Test
+	fun nativeTapZoneCommandsRespectReadingDirection() {
+		assertEquals(
+			ReaderBridgeCommand.PreviousPage,
+			readerTapZonePageTurnCommand(ReaderTapZoneAction.Left, ReaderDirectionLtr)
+		)
+		assertEquals(
+			ReaderBridgeCommand.NextPage,
+			readerTapZonePageTurnCommand(ReaderTapZoneAction.Right, ReaderDirectionLtr)
+		)
+		assertEquals(
+			ReaderBridgeCommand.NextPage,
+			readerTapZonePageTurnCommand(ReaderTapZoneAction.Left, ReaderDirectionRtl)
+		)
+		assertEquals(
+			ReaderBridgeCommand.PreviousPage,
+			readerTapZonePageTurnCommand(ReaderTapZoneAction.Right, ReaderDirectionRtl)
+		)
+		assertEquals(null, readerTapZonePageTurnCommand(ReaderTapZoneAction.Menu, ReaderDirectionLtr))
+	}
+
+	@Test
 	fun fullscreenControlDefaultsToKomikkuStyleImmersiveReading() {
 		val initial = ReaderChromeState()
 		val updated = initial.toggleFullscreen()

@@ -508,7 +508,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
 		assertContains(bridgeText, "const location = detail?.location")
 		assertContains(bridgeText, "Math.floor(clampedProgress * pageCount)")
-		assertContains(bridgeText, "const progressedWithinSection =")
+		assertContains(bridgeText, "const advancedProgressWithinSection =")
+		assertContains(bridgeText, "const progressedToNewBucketWithinSection =")
+		assertContains(bridgeText, "this.reflowableLastLocationProgress")
 		assertContains(bridgeText, "const advancedToLaterSection =")
 		assertContains(bridgeText, "this.reflowableLastLocationSignature")
 		assertContains(bridgeText, "this.reflowableLastLocationProgressBucket")
@@ -1422,11 +1424,12 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "renderer.addEventListener('scroll'")
 		assertContains(runtimeFields, "surfacePaperTextureBaseOffset")
 		assertContains(runtimeFields, "surfaceTextureScrollOffset")
-		assertContains(bridgeText, "? { x: 0, y: bounded }")
-		assertContains(bridgeText, ": { x: bounded, y: 0 }")
+		assertContains(bridgeText, "? { x: 0, y: -bounded }")
+		assertContains(bridgeText, ": { x: -bounded, y: 0 }")
+		assertContains(bridgeText, "readerTrace('texture:scroll'")
 		assertFalse(
-			bridgeText.contains("? { x: 0, y: -bounded }") || bridgeText.contains(": { x: -bounded, y: 0 }"),
-			"Surface paper texture movement must not use the inverted paginator delta during page drags."
+			bridgeText.contains("? { x: 0, y: bounded }") || bridgeText.contains(": { x: bounded, y: 0 }"),
+			"Surface paper texture movement must use the inverted paginator delta so the fixed texture moves with the page content."
 		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
 	}

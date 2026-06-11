@@ -2,6 +2,9 @@ package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -52,6 +55,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,6 +102,7 @@ import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
+import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
@@ -118,6 +123,8 @@ import paige.navic.reader.readerOptionsTabs
 import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
+import paige.navic.reader.readerTapZoneActionAt
+import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerBookmarkFromLocator
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDirectionShortLabel
@@ -659,6 +666,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 					dimOverlayPercent = chromeState.settings.dimOverlayPercent ?: 0,
 					modifier = Modifier.matchParentSize()
 				)
+				ReaderNativePageTurnTapOverlay(
+					settings = chromeState.settings,
+					enabled = !readerSystemBarsVisible,
+					onPageTurn = { command ->
+						platformContext.clickSound()
+						dispatchReaderCommand(command)
+					},
+					modifier = Modifier.matchParentSize()
+				)
 			}
 			if (!progressResumeLoaded || (preparedPublicationUrl == null && lastReaderError == null)) {
 				CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -700,6 +716,49 @@ fun ReaderScreen(reader: Screen.Reader) {
 			}
 		)
 	}
+}
+
+@Composable
+private fun ReaderNativePageTurnTapOverlay(
+	settings: ReaderSettings,
+	enabled: Boolean,
+	onPageTurn: (ReaderBridgeCommand) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	if (!enabled || settings.tapZone == ReaderTapZoneDisabled) return
+	Box(
+		modifier.pointerInput(
+			settings.tapZone,
+			settings.smallerTapZone,
+			settings.flowMode,
+			settings.direction
+		) {
+			awaitEachGesture {
+				val down = awaitFirstDown(requireUnconsumed = false)
+				val width = size.width.toFloat()
+				val height = size.height.toFloat()
+				if (width <= 0f || height <= 0f) return@awaitEachGesture
+				val action = readerTapZoneActionAt(
+					tapZone = settings.tapZone,
+					xFraction = down.position.x / width,
+					yFraction = down.position.y / height,
+					smallerTapZone = settings.smallerTapZone == true,
+					flowMode = settings.flowMode
+				)
+				val command = readerTapZonePageTurnCommand(action, settings.direction)
+				if (command == null) {
+					waitForUpOrCancellation()
+					return@awaitEachGesture
+				}
+				down.consume()
+				val up = waitForUpOrCancellation()
+				if (up != null) {
+					up.consume()
+					onPageTurn(command)
+				}
+			}
+		}
+	)
 }
 
 @Composable
