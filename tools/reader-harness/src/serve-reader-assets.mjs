@@ -23,12 +23,15 @@ const insideRoot = (root, candidate) => {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
-const resolveRequestPath = ({ repoRoot, requestPath }) => {
+const resolveRequestPath = ({ repoRoot, requestPath, extraFiles }) => {
   const assetRoot = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader')
   const fixtureRoot = path.join(repoRoot, 'tools/reader-harness/fixtures/local')
   const normalizedRequest = requestPath === '/' ? '/index.html' : requestPath
   const decodedRequest = decodeURIComponent(normalizedRequest)
   const relativeRequest = decodedRequest.replace(/^\/+/, '')
+
+  const extraFile = extraFiles.get(`/${relativeRequest}`)
+  if (extraFile) return extraFile
 
   if (relativeRequest.startsWith('fixtures/local/')) {
     const target = path.resolve(repoRoot, 'tools/reader-harness', relativeRequest)
@@ -39,11 +42,11 @@ const resolveRequestPath = ({ repoRoot, requestPath }) => {
   return insideRoot(assetRoot, target) ? target : null
 }
 
-export const startReaderAssetServer = ({ repoRoot, port = 0 }) => new Promise((resolve, reject) => {
+export const startReaderAssetServer = ({ repoRoot, port = 0, extraFiles = new Map() }) => new Promise((resolve, reject) => {
   const server = http.createServer((request, response) => {
     try {
       const url = new URL(request.url || '/', 'http://127.0.0.1')
-      const filePath = resolveRequestPath({ repoRoot, requestPath: url.pathname })
+      const filePath = resolveRequestPath({ repoRoot, requestPath: url.pathname, extraFiles })
 
       if (!filePath) {
         response.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
