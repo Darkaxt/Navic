@@ -29,6 +29,14 @@ Current phase boundary:
 - APK/native touch ownership belongs to Phase 2 and should remain separated from renderer fixes.
 - Android release work should start only after the Phase 2 native-overlay slice is committed and verified.
 
+Current execution priority, registered 2026-06-11:
+
+- Focus this thread on Phase 1 WebView pagination and renderer correctness first.
+- Treat APK/Kotlin refactoring as owned by the parallel APK thread until Phase 1 is closed.
+- Use the laptop harness to validate page numbers, cover suppression, texture transitions, hyperlink behavior, and renderer CSS before deploying APKs.
+- Do not continue APK-native touch or cover work from this thread until the WebView pagination path is stable and committed.
+- Before any later APK work, fetch `fork/master`, inspect the other thread's changes, and only then continue from the merged state.
+
 ---
 
 ## File Structure
