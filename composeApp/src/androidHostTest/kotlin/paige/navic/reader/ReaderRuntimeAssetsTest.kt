@@ -445,8 +445,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
 		assertContains(bridgeText, "if (!renderer || renderer.scrolled) return null")
-		assertContains(bridgeText, "const page = Number(renderer.page)")
-		assertContains(bridgeText, "const pages = Number(renderer.pages)")
+		assertContains(bridgeText, "let page")
+		assertContains(bridgeText, "let pages")
+		assertContains(bridgeText, "page = Number(renderer.page)")
+		assertContains(bridgeText, "pages = Number(renderer.pages)")
+		assertContains(bridgeText, "reflowable-section-pages:pending")
 		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 2)")
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
@@ -521,6 +524,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "event.stopPropagation()")
 		assertContains(bridgeText, "await this.goTo(href)")
 		assertContains(bridgeText, "link:navigate")
+	}
+
+	@Test
+	fun androidReaderSettingsDoNotQueryPaginationBeforeEpubFrameExists() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val applySettings = bridgeText
+			.substringAfter("applySettings(settings) {")
+			.substringBefore("\n  updateTapZoneOverlay")
+
+		assertFalse(
+			applySettings.contains("readerPagePosition("),
+			"Settings are applied during EPUB open before Foliate always has an active iframe; querying pagination there can abort publication loading."
+		)
+		assertContains(bridgeText, "scheduleReaderPageNumberRefresh")
+		assertContains(bridgeText, "tryUpdateReaderPageNumberLayer")
 	}
 
 	@Test

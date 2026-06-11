@@ -961,6 +961,7 @@ class NavicReaderRuntime {
   surfacePaperTextureScrollListener = null
   tapZoneOverlayLayer = null
   pageNumberLayer = null
+  pageNumberRefreshScheduled = false
   currentPagePosition = null
   reflowableBookPageModel = null
   reflowablePageIndexOffset = null
@@ -1735,8 +1736,15 @@ class NavicReaderRuntime {
     if (this.view?.isFixedLayout === true) return null
     const renderer = this.view?.renderer
     if (!renderer || renderer.scrolled) return null
-    const page = Number(renderer.page)
-    const pages = Number(renderer.pages)
+    let page
+    let pages
+    try {
+      page = Number(renderer.page)
+      pages = Number(renderer.pages)
+    } catch (error) {
+      log('reflowable-section-pages:pending', error?.message || error)
+      return null
+    }
     if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 2) return null
     const pageCount = Math.max(1, Math.round(pages) - 2)
     return {
@@ -1931,6 +1939,27 @@ class NavicReaderRuntime {
     })
   }
 
+  tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition) {
+    try {
+      const pagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
+      this.updateReaderPageNumberLayer(pagePosition)
+      return pagePosition || null
+    } catch (error) {
+      logError('page-number:update-failed', error?.message || error)
+      return fallback || null
+    }
+  }
+
+  scheduleReaderPageNumberRefresh(reason = 'deferred') {
+    if (this.pageNumberRefreshScheduled) return
+    this.pageNumberRefreshScheduled = true
+    requestAnimationFrame(() => {
+      this.pageNumberRefreshScheduled = false
+      log('page-number:refresh', reason)
+      this.tryUpdateReaderPageNumberLayer(this.lastRelocateDetail, this.currentPagePosition)
+    })
+  }
+
   applySettings(settings) {
     settings = { ...this.readerSettings, ...settings }
     this.readerSettings = settings
@@ -1957,7 +1986,7 @@ class NavicReaderRuntime {
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
     this.updateSurfacePaperTexture()
-    this.updateReaderPageNumberLayer(this.readerPagePosition(this.lastRelocateDetail) || this.currentPagePosition)
+    this.scheduleReaderPageNumberRefresh('settings')
     this.updateTapZoneOverlay()
   }
 
@@ -2250,8 +2279,7 @@ class NavicReaderRuntime {
 
   postLocationChanged(detail, reason = 'relocate') {
     const tocItem = detail.tocItem || {}
-    const pagePosition = this.readerPagePosition(detail)
-    this.updateReaderPageNumberLayer(pagePosition)
+    const pagePosition = this.tryUpdateReaderPageNumberLayer(detail)
     post({
       type: 'locationChanged',
       href: detail.href || tocItem.href,
