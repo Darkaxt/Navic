@@ -7,6 +7,7 @@ import {
   assertBridgePostType,
   assertFirstVisibleLocationStartsAtZero,
   assertForwardPageIndexesDoNotRegress,
+  assertFullEpubTraversal,
   assertNoConsoleErrors,
   assertNoConsecutiveDuplicateLocations,
   assertNoConsecutiveDuplicateVisiblePageLabels,
@@ -298,6 +299,194 @@ if (mode === 'epub-page-boundary') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-full-traversal') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-full-traversal mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage: message => {
+          let parsed = message
+          try {
+            parsed = JSON.parse(message)
+          } catch {
+            parsed = { type: 'unparseable', message }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 15000 })
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
+
+    const collectSnapshot = async () => page.evaluate(() => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const location = messages.at(-1)
+      const view = document.querySelector('foliate-view')
+      const contents = view?.renderer?.getContents?.() || []
+      const documents = []
+      const coverImageHits = []
+      const coverLikePages = []
+      for (const content of contents) {
+        const doc = content?.doc
+        if (!doc?.body) continue
+        const text = doc.body.textContent?.replace(/\s+/g, ' ').trim() || ''
+        const images = Array.from(doc.images || []).map(image => {
+          const width = Number(image.getAttribute('width') || image.naturalWidth)
+          const height = Number(image.getAttribute('height') || image.naturalHeight)
+          const src = image.getAttribute('src') || image.currentSrc || image.src || ''
+          return { src, width, height, aspect: width > 0 ? height / width : 0 }
+        })
+        for (const image of images) {
+          if (/cover|frontcover|coverpage|cubierta|portada/i.test(image.src)) {
+            coverImageHits.push({ pageIndex: location?.pageIndex, href: location?.href, src: image.src })
+          }
+        }
+        const firstImage = images[0]
+        const firstSpine = Number(content.index) === 0 || /\/Text\/1\.html(?:$|#)/i.test(location?.href || '')
+        const coverLike =
+          firstSpine &&
+          text.length <= 40 &&
+          images.length >= 1 &&
+          images.length <= 2 &&
+          (
+            images.some(image => /cover|frontcover|coverpage|cubierta|portada/i.test(image.src)) ||
+            (Number.isFinite(firstImage?.aspect) && firstImage.aspect >= 1.15 && firstImage.aspect <= 1.85)
+          )
+        if (coverLike) {
+          coverLikePages.push({
+            pageIndex: location?.pageIndex,
+            href: location?.href,
+            text,
+            images,
+          })
+        }
+        documents.push({
+          index: content.index,
+          textLength: text.length,
+          textSample: text.slice(0, 220),
+          images,
+        })
+      }
+      return {
+        location,
+        shellCoverVisible: document.body.dataset.navicShellCoverVisible === 'true',
+        documents,
+        coverImageHits,
+        coverLikePages,
+      }
+    })
+
+    const pages = []
+    const coverImageHits = []
+    const coverLikePages = []
+    let snapshot = await collectSnapshot()
+    const maxTurns = Math.max(1, Number(snapshot.location?.pageCount || 0) + 12)
+    for (let turn = 0; turn < maxTurns; turn += 1) {
+      if (!snapshot.location) throw new Error('Missing location during full EPUB traversal')
+      pages.push({
+        location: snapshot.location,
+        shellCoverVisible: snapshot.shellCoverVisible,
+        documents: snapshot.documents,
+      })
+      coverImageHits.push(...snapshot.coverImageHits)
+      coverLikePages.push(...snapshot.coverLikePages)
+      if (snapshot.location.pageIndex % 50 === 0) {
+        console.log(`epub-full-traversal progress: ${snapshot.location.pageIndex + 1}/${snapshot.location.pageCount}`)
+      }
+      if (snapshot.location.pageIndex >= snapshot.location.pageCount - 1) break
+      const previousPageIndex = snapshot.location.pageIndex
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(previous => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const current = messages.at(-1)
+        return current && current.pageIndex > previous
+      }, previousPageIndex, { timeout: 8000 })
+      snapshot = await collectSnapshot()
+    }
+    const trace = await page.evaluate(() => window.__navicReaderTrace || [])
+    const result = {
+      pages,
+      coverImageHits,
+      coverLikePages,
+      traceSummary: {
+        rawRelocations: trace.filter(event => event?.type === 'relocate:raw').length,
+        committedLocations: trace.filter(event => event?.type === 'location:post').length,
+        suppressedCoverDocuments: trace.filter(event => event?.type === 'cover:document-suppressed').length,
+      },
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-full-traversal.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertFullEpubTraversal(result)
+    console.log(`reader harness epub-full-traversal passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'epub-texture-scroll') {
   const fixturePath = path.resolve(argValue('--fixture') || '')
   if (!fixturePath || !fs.existsSync(fixturePath)) {
@@ -439,7 +628,7 @@ if (mode === 'epub-shell-cover') {
       const initialShellVisible = shellVisible()
       const initialLocation = location()
       await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
-      await new Promise(resolve => setTimeout(resolve, 380))
+      await new Promise(resolve => setTimeout(resolve, 900))
       const afterNextShellVisible = shellVisible()
       const afterNextLocation = location()
       await window.NavicReaderBridge.dispatch({ type: 'previousPage' })

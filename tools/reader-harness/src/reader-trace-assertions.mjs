@@ -32,6 +32,8 @@ const locationKey = message => [
   message.tocTitle || '',
 ].join('|')
 
+const coverPathPattern = /cover|frontcover|coverpage|cubierta|portada/i
+
 export const assertFirstVisibleLocationStartsAtZero = messages => {
   const firstLocation = messages.find(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
   if (!firstLocation) {
@@ -113,12 +115,58 @@ export const assertTextureUpdatesAreCommittedPageBounded = trace => {
   }
 }
 
+export const assertFullEpubTraversal = result => {
+  if (!result || !Array.isArray(result.pages) || result.pages.length === 0) {
+    throw new Error('Expected full EPUB traversal to collect rendered pages')
+  }
+  const first = result.pages[0]?.location
+  const last = result.pages.at(-1)?.location
+  if (!first || !last) {
+    throw new Error('Expected full EPUB traversal pages to include locations')
+  }
+  if (first.pageIndex !== 0) {
+    throw new Error(`Expected traversal to start on WebView page 0 after shell cover handoff; observed ${first.pageIndex}`)
+  }
+  if (!Number.isFinite(last.pageCount) || last.pageCount <= 0) {
+    throw new Error(`Expected finite final page count; observed ${last.pageCount}`)
+  }
+  if (last.pageIndex !== last.pageCount - 1) {
+    throw new Error(`Expected traversal to reach final page ${last.pageCount - 1}; observed ${last.pageIndex}`)
+  }
+  const pageCounts = new Set(result.pages.map(page => page.location?.pageCount).filter(Number.isFinite))
+  if (pageCounts.size !== 1) {
+    throw new Error(`Expected stable page count during full traversal; observed ${[...pageCounts].join(', ')}`)
+  }
+  for (let index = 1; index < result.pages.length; index += 1) {
+    const previous = result.pages[index - 1].location
+    const current = result.pages[index].location
+    if (current.pageIndex <= previous.pageIndex) {
+      throw new Error(`Expected full traversal page labels to strictly advance; observed ${previous.pageIndex} -> ${current.pageIndex} at sample ${index}`)
+    }
+    if (current.pageIndex !== previous.pageIndex + 1) {
+      throw new Error(`Expected full traversal not to skip labels; observed ${previous.pageIndex} -> ${current.pageIndex} at sample ${index}`)
+    }
+  }
+  if (result.pages.length !== last.pageCount) {
+    throw new Error(`Expected one rendered sample per visible page; collected ${result.pages.length} for ${last.pageCount} pages`)
+  }
+  if (Array.isArray(result.coverImageHits) && result.coverImageHits.length > 0) {
+    throw new Error(`Expected WebView not to render cover image assets; observed ${JSON.stringify(result.coverImageHits.slice(0, 3))}`)
+  }
+  if (Array.isArray(result.coverLikePages) && result.coverLikePages.length > 0) {
+    throw new Error(`Expected WebView not to render cover-like image-only pages; observed ${JSON.stringify(result.coverLikePages.slice(0, 3))}`)
+  }
+}
+
 export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
   if (result?.initialShellVisible !== true) {
     throw new Error('Expected metadata cover to be shown as the initial shell cover overlay')
   }
   if (result?.afterNextShellVisible !== false) {
     throw new Error('Expected nextPage from shell cover to hide the shell cover overlay')
+  }
+  if (!result?.afterNextLocation?.href && !result?.afterNextLocation?.cfi) {
+    throw new Error('Expected shell-cover handoff to post a readable WebView location')
   }
   if (result?.afterPreviousShellVisible !== true) {
     throw new Error('Expected previousPage from first readable content to restore the shell cover overlay')
@@ -128,7 +176,7 @@ export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
     result?.afterNextLocation?.href,
     result?.afterPreviousLocation?.href,
   ].filter(Boolean)
-  const coverHref = hrefs.find(href => /cover|frontcover|coverpage/i.test(href))
+  const coverHref = hrefs.find(href => coverPathPattern.test(href))
   if (coverHref) {
     throw new Error(`Expected WebView location to remain on readable content, but observed cover href ${coverHref}`)
   }

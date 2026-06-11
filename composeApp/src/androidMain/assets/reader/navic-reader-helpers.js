@@ -536,8 +536,33 @@ export const readerSectionTokenText = section =>
 export const readerSectionLooksLikeCover = (section, index = 0) => {
   const tokens = readerSectionTokenText(section).toLowerCase()
   if (!tokens) return false
-  return /(^|[\s._/-])cover([\s._/-]|$)|cover-image|coverpage|cover.xhtml|frontcover/.test(tokens) ||
-    (index === 0 && /cover/.test(tokens))
+  return /(^|[\s._/-])(cover|cubierta|portada)([\s._/-]|$)|cover-image|coverpage|cover.xhtml|frontcover|cubierta.xhtml|portada.xhtml/.test(tokens) ||
+    (index === 0 && /(cover|cubierta|portada)/.test(tokens))
+}
+
+export const readerContentDocumentLooksLikeCover = (doc, section, index = 0) => {
+  if (!doc || index !== 0) return false
+  if (readerSectionLooksLikeCover(section, index)) return true
+  const text = doc.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+  const images = Array.from(doc.images || [])
+  if (text.length > 40 || images.length < 1 || images.length > 2) return false
+  const tokenText = [
+    doc.title,
+    doc.documentElement?.getAttribute?.('epub:type'),
+    doc.body?.getAttribute?.('epub:type'),
+    ...images.map(image => [
+      image.getAttribute('src'),
+      image.getAttribute('alt'),
+      image.getAttribute('title'),
+      image.getAttribute('aria-label'),
+    ].filter(Boolean).join(' ')),
+  ].filter(Boolean).join(' ').toLowerCase()
+  if (/cover|frontcover|cover-image|coverpage|cubierta|portada/.test(tokenText)) return true
+  const image = images[0]
+  const width = Number(image.getAttribute('width') || image.naturalWidth)
+  const height = Number(image.getAttribute('height') || image.naturalHeight)
+  const aspect = width > 0 ? height / width : 0
+  return Number.isFinite(aspect) && aspect >= 1.15 && aspect <= 1.85
 }
 
 export const readerSectionIsReadable = section =>

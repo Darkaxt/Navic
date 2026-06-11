@@ -100,6 +100,7 @@ import {
   readerTokenText,
   readerSectionTokenText,
   readerSectionLooksLikeCover,
+  readerContentDocumentLooksLikeCover,
   readerSectionIsReadable,
   readerHrefComparable,
   readerHrefMatches,
@@ -200,6 +201,7 @@ class NavicReaderRuntime {
   lastRelocateDetail = null
   pageTurnPromise = null
   pageTurnInProgress = false
+  suppressedCoverSectionIndexes = new Set()
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -309,6 +311,7 @@ class NavicReaderRuntime {
     this.publicationUrl = ''
     this.pageTurnPromise = null
     this.pageTurnInProgress = false
+    this.suppressedCoverSectionIndexes = new Set()
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
@@ -381,7 +384,7 @@ class NavicReaderRuntime {
     const sections = Array.from(this.view?.book?.sections || [])
     if (!sections.length) return null
     const firstNonCover = sections.findIndex((section, index) =>
-      readerSectionIsReadable(section) && !readerSectionLooksLikeCover(section, index)
+      readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
     )
     if (firstNonCover >= 0) return firstNonCover
     const firstReadable = sections.findIndex(readerSectionIsReadable)
@@ -391,13 +394,17 @@ class NavicReaderRuntime {
   coverSectionEntries() {
     return Array.from(this.view?.book?.sections || [])
       .map((section, index) => ({ section, index }))
-      .filter(({ section, index }) => readerSectionLooksLikeCover(section, index))
+      .filter(({ section, index }) => this.sectionTargetsCover(section, index))
   }
 
   hasNonCoverReadableContent() {
     return Array.from(this.view?.book?.sections || []).some((section, index) =>
-      readerSectionIsReadable(section) && !readerSectionLooksLikeCover(section, index)
+      readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
     )
+  }
+
+  sectionTargetsCover(section, index) {
+    return readerSectionLooksLikeCover(section, index) || this.suppressedCoverSectionIndexes.has(index)
   }
 
   startLocatorTargetsShellCover(startLocator) {
@@ -437,10 +444,17 @@ class NavicReaderRuntime {
     const index = Number(detail?.section?.current ?? detail?.index)
     if (Number.isFinite(index)) {
       const section = this.view?.book?.sections?.[Math.floor(index)]
-      if (readerSectionLooksLikeCover(section, Math.floor(index))) return true
+      return this.sectionTargetsCover(section, Math.floor(index))
     }
     const href = detail?.href || detail?.tocItem?.href || detail?.section?.href
     return Boolean(href && coverSections.some(({ section }) => readerHrefMatchesSection(href, section)))
+  }
+
+  sectionHrefForDetail(detail) {
+    const index = Number(detail?.section?.current ?? detail?.index)
+    if (!Number.isFinite(index)) return ''
+    const section = this.view?.book?.sections?.[Math.floor(index)]
+    return section?.href || section?.id || section?.url || section?.name || ''
   }
 
   async goToFirstReadableContent() {
@@ -1917,11 +1931,15 @@ class NavicReaderRuntime {
       readerTrace('location:cover-skipped', { reason, detail })
       return
     }
-    const tocItem = detail.tocItem || {}
+    const sectionHref = this.sectionHrefForDetail(detail)
+    const rawTocItem = detail.tocItem || {}
+    const tocItem = sectionHref && rawTocItem.href && !readerHrefMatches(sectionHref, rawTocItem.href)
+      ? {}
+      : rawTocItem
     const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
     const message = {
       type: 'locationChanged',
-      href: detail.href || tocItem.href,
+      href: detail.href || sectionHref || tocItem.href,
       cfi: detail.cfi,
       progress: optionalNumber(detail.fraction ?? detail.progress ?? detail.totalProgress),
       pageIndex: pagePosition?.pageIndex,
@@ -1984,8 +2002,47 @@ class NavicReaderRuntime {
     })
   }
 
+  suppressLoadedCoverDocument(doc, index) {
+    const normalizedIndex = Number(index)
+    if (!Number.isFinite(normalizedIndex)) return false
+    const sectionIndex = Math.floor(normalizedIndex)
+    const section = this.view?.book?.sections?.[sectionIndex]
+    if (!readerContentDocumentLooksLikeCover(doc, section, sectionIndex)) return false
+    this.suppressedCoverSectionIndexes.add(sectionIndex)
+    doc.documentElement.dataset.navicSuppressedCover = 'true'
+    doc.body?.setAttribute?.('data-navic-suppressed-cover', 'true')
+    setStylesImportant(doc.documentElement, {
+      background: 'transparent',
+      color: 'transparent',
+    })
+    if (doc.body) {
+      setStylesImportant(doc.body, {
+        display: 'none',
+        visibility: 'hidden',
+        background: 'transparent',
+        color: 'transparent',
+      })
+    }
+    readerTrace('cover:document-suppressed', {
+      index: sectionIndex,
+      href: section?.href || section?.id || '',
+    })
+    log('cover-document:suppressed', `index=${sectionIndex}`, section?.href || section?.id || '')
+    if (this.hasNonCoverReadableContent()) {
+      requestAnimationFrame(() => {
+        if (!this.view || this.shellCoverVisible) return
+        const current = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
+        if (!Number.isFinite(current) || Math.floor(current) === sectionIndex) {
+          this.goToFirstReadableContent().catch(error => reportError(error, 'navigation_failed'))
+        }
+      })
+    }
+    return true
+  }
+
   attachContentDocumentBehaviors(doc, index) {
     if (!doc) return
+    if (this.suppressLoadedCoverDocument(doc, index)) return
     this.applyDocumentDirection(doc, this.readerDirectionModeValue)
     this.applyDocumentTheme(doc, this.readerSettings, index)
     this.classifyReaderLinks(doc)
