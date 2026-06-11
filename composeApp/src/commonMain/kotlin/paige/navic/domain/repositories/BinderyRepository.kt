@@ -10,6 +10,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -45,6 +46,11 @@ private val BinderyJson = Json {
 	ignoreUnknownKeys = true
 	isLenient = true
 }
+
+@Serializable
+private data class BinderyProviderCoverCachePayload(
+	val coverUrl: String? = null
+)
 
 class BinderyRepository(
 	private val preferenceManager: PreferenceManager,
@@ -202,6 +208,88 @@ class BinderyRepository(
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
+
+	suspend fun getFindingProviderCoverUrl(finding: BinderyFindingMetadata): Result<String?> {
+		val provider = finding.providerKind ?: finding.provider
+		val findingId = finding.findingId?.trim()?.takeIf { it.isNotEmpty() } ?: "<unknown>"
+		if (!provider.isAudioBookBayProvider()) {
+			Logger.i(
+				TAG,
+				"Bindery audiobook provider cover skipped finding=$findingId provider=${provider.orEmpty()} reason=unsupported-provider"
+			)
+			return Result.success(null)
+		}
+		val sourceUrl = finding.sourceUrl?.trim()?.takeIf { it.isNotEmpty() }
+		if (sourceUrl == null) {
+			Logger.i(
+				TAG,
+				"Bindery audiobook provider cover skipped finding=$findingId provider=${provider.orEmpty()} reason=missing-source-url"
+			)
+			return Result.success(null)
+		}
+		return withConfiguredClientAvailability { baseUrl, _ ->
+			val cacheKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = BinderyMetadataPayloadType.ProviderCover,
+				path = sourceUrl
+			)
+			val cached = metadataCache.get(cacheKey)
+			if (cached != null && isFresh(cached.updatedAtMillis)) {
+				runCatching { BinderyJson.decodeFromString<BinderyProviderCoverCachePayload>(cached.payloadJson) }
+					.onSuccess { payload ->
+						Logger.i(
+							TAG,
+							"Bindery audiobook provider cover cache hit finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${payload.coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+						)
+						return@withConfiguredClientAvailability Result.success(payload.coverUrl)
+					}
+					.onFailure { cacheError ->
+						Logger.w(TAG, "Bindery provider cover cache decode failed", cacheError)
+					}
+			}
+
+			runCatching {
+				val html = apiClient.fetchExternalText(sourceUrl)
+				binderyAudioBookBayProviderCoverUrl(sourceUrl = sourceUrl, html = html)
+			}.fold(
+				onSuccess = { coverUrl ->
+					metadataCache.put(
+						BinderyMetadataCacheRecord(
+							cacheKey = cacheKey,
+							baseUrl = baseUrl,
+							payloadType = BinderyMetadataPayloadType.ProviderCover,
+							path = sourceUrl,
+							payloadJson = BinderyJson.encodeToString(BinderyProviderCoverCachePayload(coverUrl)),
+							updatedAtMillis = currentTimeMillis()
+						)
+					)
+					Logger.i(
+						TAG,
+						"Bindery audiobook provider cover fetched finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)} cover=${coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+					)
+					Result.success(coverUrl)
+				},
+				onFailure = { error ->
+					metadataCache.put(
+						BinderyMetadataCacheRecord(
+							cacheKey = cacheKey,
+							baseUrl = baseUrl,
+							payloadType = BinderyMetadataPayloadType.ProviderCover,
+							path = sourceUrl,
+							payloadJson = BinderyJson.encodeToString(BinderyProviderCoverCachePayload(null)),
+							updatedAtMillis = currentTimeMillis()
+						)
+					)
+					Logger.w(
+						TAG,
+						"Bindery audiobook provider cover fetch failed finding=$findingId source=${readerPublicationResourceLogLabel(sourceUrl)}; cached fallback",
+						error
+					)
+					Result.success(null)
+				}
+			)
+		}
+	}
 
 	suspend fun performAction(path: String): Result<Unit> {
 		val label = readerPublicationResourceLogLabel(path)
@@ -363,6 +451,8 @@ interface BinderyApiClient {
 		bookId: String
 	): BinderyCatalog
 
+	suspend fun fetchExternalText(url: String): String
+
 	suspend fun performAction(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -496,6 +586,19 @@ private class KtorBinderyApiClient : BinderyApiClient {
 		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery book id is required.")
 		return fetchCatalog(baseUrl, requestHeaders, "books/${encodeUrlPathSegment(safeBookId)}/findings")
+	}
+
+	override suspend fun fetchExternalText(url: String): String {
+		val safeUrl = url.trim().takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
+			?: throw IllegalStateException("Provider source URL must be absolute.")
+		val response = client.get(safeUrl) {
+			header("User-Agent", "Navic/1.0 provider-cover-resolver")
+			accept(ContentType.Text.Html)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Provider source page", response.status))
+		}
+		return response.bodyAsText()
 	}
 
 	override suspend fun performAction(
@@ -1359,6 +1462,34 @@ internal fun binderyApiKeyHeaders(apiKey: String): Map<String, String> {
 	return if (trimmed.isEmpty()) emptyMap() else mapOf("X-Api-Key" to trimmed)
 }
 
+internal fun binderyRequestHeadersForUrl(
+	baseUrl: String,
+	url: String?,
+	requestHeaders: Map<String, String>
+): Map<String, String> {
+	val imageOrigin = url?.httpUrlOriginOrNull() ?: return emptyMap()
+	val binderyOrigin = runCatching { binderyOrigin(normalizeBinderyOpdsBaseUrl(baseUrl)) }.getOrNull()
+		?.lowercase()
+		?: return emptyMap()
+	return if (imageOrigin == binderyOrigin) requestHeaders else emptyMap()
+}
+
+internal fun binderyAudioBookBayProviderCoverUrl(
+	sourceUrl: String,
+	html: String
+): String? {
+	val candidates = (
+		AudioBookBayMetaImageRegexes.flatMap { regex ->
+			regex.findAll(html).map { match -> match.groupValues[1] }
+		} +
+			AudioBookBayImageSrcRegex.findAll(html).map { match -> match.groupValues[1] }
+		)
+		.mapNotNull { candidate -> binderyAbsoluteProviderImageUrl(sourceUrl, candidate) }
+		.distinct()
+	return candidates.firstOrNull(String::isAudioBookBayPrimaryCoverUrl)
+		?: candidates.firstOrNull(String::isLikelyProviderCoverImageUrl)
+}
+
 internal fun binderyEndpoint(baseUrl: String, path: String): String =
 	binderyEndpointFromNormalizedBase(
 		normalizeBinderyOpdsBaseUrl(baseUrl),
@@ -1466,6 +1597,102 @@ private fun parsedBinderyUrlHostOrNull(authority: String): String? {
 
 private fun String.hasSupportedHttpScheme(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private val AudioBookBayMetaImageRegexes = listOf(
+	Regex(
+		"""<meta\b[^>]*(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]*content\s*=\s*["']([^"']+)["'][^>]*>""",
+		RegexOption.IGNORE_CASE
+	),
+	Regex(
+		"""<meta\b[^>]*content\s*=\s*["']([^"']+)["'][^>]*(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]*>""",
+		RegexOption.IGNORE_CASE
+	)
+)
+
+private val AudioBookBayImageSrcRegex =
+	Regex("""<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+
+private fun String?.isAudioBookBayProvider(): Boolean =
+	this?.trim()?.lowercase() in setOf("audiobookbay", "audio book bay", "abb")
+
+private fun String.httpUrlOriginOrNull(): String? {
+	val trimmed = trim()
+	val schemeSeparator = trimmed.indexOf("://")
+	if (schemeSeparator <= 0) return null
+	val scheme = trimmed.substring(0, schemeSeparator).lowercase()
+	if (scheme != "http" && scheme != "https") return null
+	val afterScheme = trimmed.drop(schemeSeparator + 3)
+	val authority = afterScheme.takeWhile { it != '/' }.takeIf { it.isNotBlank() } ?: return null
+	return "$scheme://${authority.lowercase()}"
+}
+
+private fun binderyAbsoluteProviderImageUrl(baseUrl: String, candidate: String): String? {
+	val value = candidate.htmlAttributeDecode().trim()
+		.takeIf { it.isNotEmpty() }
+		?: return null
+	val absolute = when {
+		value.startsWith("http://", ignoreCase = true) ||
+			value.startsWith("https://", ignoreCase = true) -> value
+		value.startsWith("//") -> {
+			val scheme = baseUrl.substringBefore("://", "https")
+				.takeIf { it.equals("http", ignoreCase = true) || it.equals("https", ignoreCase = true) }
+				?: "https"
+			"$scheme:$value"
+		}
+		value.startsWith("/") -> {
+			val origin = baseUrl.httpUrlOriginOrNull() ?: return null
+			"$origin$value"
+		}
+		else -> {
+			val baseWithoutQuery = baseUrl.substringBefore("?").substringBefore("#")
+			val directory = baseWithoutQuery.substringBeforeLast('/', missingDelimiterValue = baseWithoutQuery)
+			"$directory/$value"
+		}
+	}
+	return absolute.upgradeKnownProviderImageUrl()
+}
+
+private fun String.htmlAttributeDecode(): String =
+	replace("&amp;", "&")
+		.replace("&#038;", "&")
+		.replace("&#38;", "&")
+		.replace("&quot;", "\"")
+		.replace("&#34;", "\"")
+		.replace("&#39;", "'")
+		.replace("&apos;", "'")
+
+private fun String.upgradeKnownProviderImageUrl(): String =
+	if (startsWith("http://image.bayimg.com/", ignoreCase = true)) {
+		"https://" + drop("http://".length)
+	} else {
+		this
+	}
+
+private fun String.isAudioBookBayPrimaryCoverUrl(): Boolean {
+	val normalized = lowercase()
+	return "bayimg.com/" in normalized && normalized.hasProviderImageExtension()
+}
+
+private fun String.isLikelyProviderCoverImageUrl(): Boolean {
+	val normalized = lowercase()
+	if (!normalized.hasProviderImageExtension()) return false
+	if ("gravatar.com/" in normalized) return false
+	if ("/avatar/" in normalized) return false
+	if ("/images/search." in normalized) return false
+	if ("/images/trr." in normalized) return false
+	if ("/images/tlt." in normalized) return false
+	if ("/images/bz." in normalized) return false
+	if ("/images/" in normalized && normalized.endsWith(".gif")) return false
+	return true
+}
+
+private fun String.hasProviderImageExtension(): Boolean {
+	val path = substringBefore("?").substringBefore("#").lowercase()
+	return path.endsWith(".jpg") ||
+		path.endsWith(".jpeg") ||
+		path.endsWith(".png") ||
+		path.endsWith(".webp")
+}
 
 private fun binderyHttpErrorMessage(
 	operation: String,

@@ -70,6 +70,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.domain.repositories.binderyRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
@@ -111,12 +112,13 @@ fun BinderyAudiobookPlayerScreen(
 	val backStack = LocalNavStack.current
 	val manifestState by viewModel.manifestState.collectAsStateWithLifecycle()
 	val manifest = manifestState.data
+	val providerCoverUrlState by viewModel.providerCoverUrlState.collectAsStateWithLifecycle()
 	val binderyConfigured = shouldLoadBinderyUi(
 		binderyEnabled = preferenceManager.binderyEnabled,
 		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 		apiKey = preferenceManager.binderyApiKey
 	)
-	val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+	val binderyRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val findingsState by viewModel.findingsState.collectAsStateWithLifecycle()
 	val findingsCatalog = findingsState.data
 	val chapters = remember(manifest, versionRowId) {
@@ -125,20 +127,20 @@ fun BinderyAudiobookPlayerScreen(
 	val resumeProgress = remember(bookId, versionRowId) {
 		viewModel.rememberedProgress(versionRowId)
 	}
-	val playbackPlan = remember(manifest, versionRowId, preferenceManager.binderyOpdsBaseUrl, requestHeaders, resumeProgress) {
+	val playbackPlan = remember(manifest, versionRowId, preferenceManager.binderyOpdsBaseUrl, binderyRequestHeaders, resumeProgress) {
 		manifest?.takeIf { chapters.isNotEmpty() }?.let {
 			binderyAudiobookPlaybackPlan(
 				manifest = it,
 				versionRowId = versionRowId,
 				opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-				requestHeaders = requestHeaders,
+				requestHeaders = binderyRequestHeaders,
 				resumeProgress = resumeProgress
 			)
 		}
 	}
-	val coverHref = remember(manifest, bookId, versionRowId, findingsCatalog) {
+	val coverSelection = remember(manifest, bookId, versionRowId, findingsCatalog) {
 		manifest?.let {
-			binderyAudiobookCoverHref(
+			binderyAudiobookCoverSelection(
 				manifest = it,
 				versionRowId = versionRowId,
 				findingsCatalog = findingsCatalog,
@@ -146,8 +148,16 @@ fun BinderyAudiobookPlayerScreen(
 			)
 		}
 	}
-	val coverUrl = remember(coverHref, preferenceManager.binderyOpdsBaseUrl) {
-		coverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
+	val fallbackCoverUrl = remember(coverSelection?.fallbackCoverHref, preferenceManager.binderyOpdsBaseUrl) {
+		coverSelection?.fallbackCoverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
+	}
+	val coverUrl = providerCoverUrlState.data?.takeIf { it.isNotBlank() } ?: fallbackCoverUrl
+	val imageRequestHeaders = remember(coverUrl, preferenceManager.binderyOpdsBaseUrl, binderyRequestHeaders) {
+		binderyRequestHeadersForUrl(
+			baseUrl = preferenceManager.binderyOpdsBaseUrl,
+			url = coverUrl,
+			requestHeaders = binderyRequestHeaders
+		)
 	}
 	val coverCacheKey = remember(manifest?.id, versionRowId, coverUrl) {
 		"bindery-audiobook:${manifest?.id.orEmpty()}:$versionRowId:${coverUrl.orEmpty()}"
@@ -174,6 +184,15 @@ fun BinderyAudiobookPlayerScreen(
 		}
 	}
 
+	LaunchedEffect(coverSelection?.finding, coverSelection?.fallbackCoverHref) {
+		if (coverSelection != null) {
+			viewModel.refreshProviderCover(
+				finding = coverSelection.finding,
+				fallbackCoverHref = coverSelection.fallbackCoverHref
+			)
+		}
+	}
+
 	BinderyAudiobookRuntimeHost(
 		playbackPlan = playbackPlan,
 		bookId = bookId,
@@ -181,7 +200,7 @@ fun BinderyAudiobookPlayerScreen(
 		versionRowId = versionRowId,
 		coverUrl = coverUrl,
 		coverCacheKey = coverCacheKey,
-		imageRequestHeaders = requestHeaders,
+		imageRequestHeaders = imageRequestHeaders,
 		playbackCommand = playbackCommand,
 		playbackCommandKey = playbackCommandKey,
 		onPlaybackState = { playbackState = it },
@@ -239,7 +258,7 @@ fun BinderyAudiobookPlayerScreen(
 					coverArtId = null,
 					imageUrl = coverUrl,
 					imageCacheKey = coverCacheKey,
-					imageRequestHeaders = requestHeaders,
+					imageRequestHeaders = imageRequestHeaders,
 					isPaused = !playbackState.isPlaying,
 					showBottomGradient = true
 				)
@@ -278,7 +297,7 @@ fun BinderyAudiobookPlayerScreen(
 							manifest = manifest,
 							coverUrl = coverUrl,
 							coverCacheKey = coverCacheKey,
-							requestHeaders = requestHeaders,
+							requestHeaders = imageRequestHeaders,
 							playbackState = playbackState,
 							chapters = chapters,
 							onCommand = ::dispatch,
@@ -292,7 +311,7 @@ fun BinderyAudiobookPlayerScreen(
 							manifest = manifest,
 							coverUrl = coverUrl,
 							coverCacheKey = coverCacheKey,
-							requestHeaders = requestHeaders,
+							requestHeaders = imageRequestHeaders,
 							playbackState = playbackState,
 							chapters = chapters,
 							onCommand = ::dispatch,
