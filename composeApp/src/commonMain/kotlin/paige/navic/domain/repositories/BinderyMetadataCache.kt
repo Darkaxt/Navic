@@ -10,6 +10,7 @@ internal object BinderyMetadataPayloadType {
 	const val Manifest = "manifest"
 	const val Resources = "resources"
 	const val BookFindings = "book-findings"
+	const val ProviderCover = "provider-cover"
 }
 
 interface BinderyMetadataCache {

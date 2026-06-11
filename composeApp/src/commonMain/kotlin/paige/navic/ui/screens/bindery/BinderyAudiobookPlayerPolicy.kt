@@ -45,6 +45,11 @@ data class BinderyAudiobookChapter(
 	val subtitle: String? = null
 )
 
+data class BinderyAudiobookCoverSelection(
+	val fallbackCoverHref: String?,
+	val finding: BinderyFindingMetadata? = null
+)
+
 @Serializable
 data class BinderyAudiobookPlaybackProgress(
 	val bookId: String,
@@ -95,20 +100,37 @@ fun binderyAudiobookCoverHref(
 	versionRowId: String,
 	findingsCatalog: BinderyCatalog?,
 	routeBookId: String? = null
-): String? {
+): String? =
+	binderyAudiobookCoverSelection(
+		manifest = manifest,
+		versionRowId = versionRowId,
+		findingsCatalog = findingsCatalog,
+		routeBookId = routeBookId
+	).fallbackCoverHref
+
+fun binderyAudiobookCoverSelection(
+	manifest: BinderyManifest,
+	versionRowId: String,
+	findingsCatalog: BinderyCatalog?,
+	routeBookId: String? = null
+): BinderyAudiobookCoverSelection {
 	val bookFileIds = (
 		listOfNotNull(versionRowId.selectedAudiobookBookFileId()) +
 			selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
 				.mapNotNull(BinderyReadingOrderItem::bookFileId)
-		).distinct()
-	return findingsCatalog
+	).distinct()
+	val findingPublication = findingsCatalog
 		.associatedAudiobookFindingPublication(
 			bookId = manifest.id ?: routeBookId,
 			bookFileIds = bookFileIds
 		)
-		?.audiobookFindingCoverHref()
+	val fallbackCoverHref = findingPublication?.audiobookFindingCoverHref()
 		?: manifest.images.firstImageHref()
 		?: manifest.properties.firstNonBlankValue("image", "cover")
+	return BinderyAudiobookCoverSelection(
+		fallbackCoverHref = fallbackCoverHref,
+		finding = findingPublication?.finding
+	)
 }
 
 fun binderyAudiobookPlaybackPlan(
@@ -273,8 +295,8 @@ private fun BinderyFindingMetadata.isAudiobookFinding(): Boolean =
 		.any(String::isAudiobookMediaLabel)
 
 private fun BinderyPublication.audiobookFindingCoverHref(): String? =
-	finding?.coverUrl?.trim()?.takeIf { it.isNotEmpty() }
-		?: images.firstImageHref()
+	images.firstImageHref()
+		?: finding?.coverUrl?.trim()?.takeIf { it.isNotEmpty() }
 		?: properties.firstNonBlankValue("image", "cover")
 
 private fun List<BinderyLink>.firstImageHref(): String? =

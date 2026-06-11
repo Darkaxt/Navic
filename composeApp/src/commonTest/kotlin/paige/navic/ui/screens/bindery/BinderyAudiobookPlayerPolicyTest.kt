@@ -274,6 +274,40 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun coverSelectionExposesAssociatedAudiobookBayFindingForProviderArtwork() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = emptyList()
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "match",
+					bookId = "book-1",
+					bookFileId = "file-one",
+					coverUrl = "https://assets.hardcover.app/edition/book-cover.jpg",
+					providerKind = "audiobookbay",
+					sourceUrl = "https://audiobookbay.lu/abss/the-hobbit/"
+				)
+			)
+		)
+
+		val selection = binderyAudiobookCoverSelection(
+			manifest = manifest,
+			versionRowId = "audiobook:file-one",
+			findingsCatalog = findings
+		)
+
+		assertEquals("match", selection.finding?.findingId)
+		assertEquals("audiobookbay", selection.finding?.providerKind)
+		assertEquals("https://audiobookbay.lu/abss/the-hobbit/", selection.finding?.sourceUrl)
+		assertEquals("https://assets.hardcover.app/edition/book-cover.jpg", selection.fallbackCoverHref)
+	}
+
+	@Test
 	fun coverHrefFallsBackToFindingPublicationImageThenBookCover() {
 		val manifest = BinderyManifest(
 			id = "book-1",
@@ -308,6 +342,37 @@ class BinderyAudiobookPlayerPolicyTest {
 				manifest = manifest,
 				versionRowId = "audiobook:file-one",
 				findingsCatalog = null
+			)
+		)
+	}
+
+	@Test
+	fun coverHrefUsesSameImagePriorityAsFindingDetail() {
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = listOf(audioItem("one-a", "Chapter 1", "file-one"))
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "match",
+					bookId = "book-1",
+					bookFileId = "file-one",
+					coverUrl = "https://assets.hardcover.app/edition/book-fallback.jpg",
+					imageHref = "/opds/findings/match/cover"
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/findings/match/cover",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = findings
 			)
 		)
 	}
@@ -400,7 +465,9 @@ class BinderyAudiobookPlayerPolicyTest {
 		bookFileId: String,
 		coverUrl: String?,
 		imageHref: String? = null,
-		mediaType: String = "audiobook"
+		mediaType: String = "audiobook",
+		providerKind: String? = null,
+		sourceUrl: String? = null
 	): BinderyPublication =
 		BinderyPublication(
 			id = "urn:bindery:finding:$findingId",
@@ -409,6 +476,8 @@ class BinderyAudiobookPlayerPolicyTest {
 			finding = BinderyFindingMetadata(
 				findingId = findingId,
 				mediaType = mediaType,
+				providerKind = providerKind,
+				sourceUrl = sourceUrl,
 				coverUrl = coverUrl,
 				mappings = listOf(
 					BinderyFindingMapping(

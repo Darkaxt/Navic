@@ -9,10 +9,13 @@ import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyRepository
+import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.ReadaloudPlaybackPosition
 import paige.navic.ui.core.UiState
+import paige.navic.util.core.Logger
 
 class BinderyAudiobookPlayerViewModel(
 	private val bookId: String,
@@ -23,8 +26,11 @@ class BinderyAudiobookPlayerViewModel(
 	val manifestState = _manifestState.asStateFlow()
 	private val _findingsState = MutableStateFlow<UiState<BinderyCatalog>>(UiState.Loading())
 	val findingsState = _findingsState.asStateFlow()
+	private val _providerCoverUrlState = MutableStateFlow<UiState<String?>>(UiState.Success(null))
+	val providerCoverUrlState = _providerCoverUrlState.asStateFlow()
 
 	private var manifestJob: Job? = null
+	private var providerCoverJob: Job? = null
 	private var lastSavedProgress: BinderyAudiobookPlaybackProgress? = null
 
 	fun refreshManifest(fullRefresh: Boolean = false) {
@@ -55,6 +61,46 @@ class BinderyAudiobookPlayerViewModel(
 						error = error as? Exception ?: Exception(error),
 						data = currentData
 					)
+				}
+			)
+		}
+	}
+
+	fun refreshProviderCover(
+		finding: BinderyFindingMetadata?,
+		fallbackCoverHref: String?
+	) {
+		providerCoverJob?.cancel()
+		if (finding == null) {
+			Logger.i(
+				BinderyAudiobookCoverLogTag,
+				"provider cover skipped book=$bookId reason=no-associated-finding fallback=${fallbackCoverHref?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+			)
+			_providerCoverUrlState.value = UiState.Success(null)
+			return
+		}
+		val findingId = finding.findingId?.trim()?.takeIf { it.isNotEmpty() } ?: "<unknown>"
+		Logger.i(
+			BinderyAudiobookCoverLogTag,
+			"provider cover resolve book=$bookId finding=$findingId provider=${finding.providerKind ?: finding.provider.orEmpty()} source=${finding.sourceUrl?.let(::readerPublicationResourceLogLabel) ?: "<none>"} fallback=${fallbackCoverHref?.let(::readerPublicationResourceLogLabel) ?: "<none>"}"
+		)
+		_providerCoverUrlState.value = UiState.Loading(null)
+		providerCoverJob = viewModelScope.launch {
+			repository.getFindingProviderCoverUrl(finding).fold(
+				onSuccess = { coverUrl ->
+					Logger.i(
+						BinderyAudiobookCoverLogTag,
+						"provider cover resolved book=$bookId finding=$findingId cover=${coverUrl?.let(::readerPublicationResourceLogLabel) ?: "<fallback>"}"
+					)
+					_providerCoverUrlState.value = UiState.Success(coverUrl)
+				},
+				onFailure = { error ->
+					Logger.w(
+						BinderyAudiobookCoverLogTag,
+						"provider cover resolution failed book=$bookId finding=$findingId; using fallback",
+						error
+					)
+					_providerCoverUrlState.value = UiState.Success(null)
 				}
 			)
 		}
@@ -92,3 +138,5 @@ class BinderyAudiobookPlayerViewModel(
 		lastSavedProgress = next
 	}
 }
+
+private const val BinderyAudiobookCoverLogTag = "BinderyAudiobookCover"
