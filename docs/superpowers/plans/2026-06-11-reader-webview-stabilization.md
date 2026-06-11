@@ -8,6 +8,26 @@
 
 **Tech Stack:** Node.js, Playwright/Chromium when available, JavaScript ES modules, Android reader assets, foliate-js, Gradle host tests for packaged-asset guards.
 
+## Execution Status
+
+Phase 1 has produced committed WebView/harness slices:
+
+- `d89ea815 docs(reader): register stabilization plan`
+- `0738edc5 docs(reader): plan webview stabilization`
+- `eec83c0b test(reader): add webview trace harness`
+- `f3f28aaf test(reader): serve reader assets locally`
+- `ecdacb57 test(reader): capture browser reader traces`
+- `16db0b0e test(reader): drive epub frontmatter fixture`
+- `f2923801 fix(reader): stabilize webview page labels`
+- `741865de fix(reader): sync paper texture movement`
+- `41ab92b1 test(reader): guard shell cover navigation`
+
+Current phase boundary:
+
+- WebView pagination labels, texture drag direction, and shell-cover handoff now have laptop harness coverage.
+- APK/native touch ownership belongs to Phase 2 and should remain separated from renderer fixes.
+- Android release work should start only after the Phase 2 native-overlay slice is committed and verified.
+
 ---
 
 ## File Structure
