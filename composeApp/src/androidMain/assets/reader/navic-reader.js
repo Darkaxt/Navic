@@ -202,6 +202,7 @@ class NavicReaderRuntime {
   lastRelocateDetail = null
   pageTurnPromise = null
   pageTurnInProgress = false
+  pageTurnDirection = null
   suppressedCoverSectionIndexes = new Set()
   embeddedCoverSuppressedSectionIndexes = new Set()
   embeddedCoverRerenderScheduled = false
@@ -314,6 +315,7 @@ class NavicReaderRuntime {
     this.publicationUrl = ''
     this.pageTurnPromise = null
     this.pageTurnInProgress = false
+    this.pageTurnDirection = null
     this.suppressedCoverSectionIndexes = new Set()
     this.embeddedCoverSuppressedSectionIndexes = new Set()
     this.embeddedCoverRerenderScheduled = false
@@ -714,6 +716,7 @@ class NavicReaderRuntime {
     }
     this.cancelPendingCommittedRelocation()
     this.pageTurnInProgress = true
+    this.pageTurnDirection = direction
     const turnPromise = this.performPageTurn(direction)
     this.pageTurnPromise = turnPromise
     try {
@@ -721,6 +724,7 @@ class NavicReaderRuntime {
     } finally {
       if (this.pageTurnPromise === turnPromise) this.pageTurnPromise = null
       this.pageTurnInProgress = false
+      if (this.pageTurnDirection === direction) this.pageTurnDirection = null
     }
   }
 
@@ -1750,7 +1754,11 @@ class NavicReaderRuntime {
     const delta = position - this.surfacePaperTextureBaseOffset
     const { width, height } = readerViewportSize()
     const maxOffset = this.readerFlowModeValue === ReaderFlowPagedVertical ? height : width
-    const bounded = Math.max(-maxOffset, Math.min(maxOffset, delta))
+    const wrapsForwardBoundary = this.pageTurnDirection === 'next' && delta < -maxOffset * 0.5
+    const wrapsBackwardBoundary = this.pageTurnDirection === 'previous' && delta > maxOffset * 0.5
+    const bounded = wrapsForwardBoundary || wrapsBackwardBoundary
+      ? 0
+      : Math.max(-maxOffset, Math.min(maxOffset, delta))
     this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
       ? { x: 0, y: -bounded }
       : { x: -bounded, y: 0 }

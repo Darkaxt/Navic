@@ -94,6 +94,69 @@ export const assertSurfaceTextureTracksForwardContentMovement = result => {
   }
 }
 
+const parseBackgroundPositionOffset = value => {
+  const text = String(value || '')
+  const match = text.match(/calc\(50%\s*([+-])\s*(-?\d+(?:\.\d+)?)px\)/i)
+  if (!match) return null
+  const sign = match[1] === '-' ? -1 : 1
+  return sign * Number.parseFloat(match[2])
+}
+
+const textureOffsetForSample = sample =>
+  parseBackgroundPositionOffset(sample?.textureBackgroundPosition) ??
+  parseBackgroundPositionOffset(sample?.computedTextureBackgroundPosition)
+
+export const assertTextureTracksRealPageTurnSamples = result => {
+  if (!result || !Array.isArray(result.probes) || result.probes.length === 0) {
+    throw new Error('Expected texture page-turn probes')
+  }
+
+  for (const probe of result.probes) {
+    if (!Array.isArray(probe.samples) || probe.samples.length < 2) {
+      throw new Error(`Expected probe ${probe.name || 'unknown'} to include before/after samples`)
+    }
+    const before = probe.samples[0]
+    const movedSamples = probe.samples
+      .slice(1)
+      .map(sample => ({
+        sample,
+        positionDelta: Number(sample.position) - Number(before.position),
+        textureDelta: textureOffsetForSample(sample) - textureOffsetForSample(before),
+      }))
+      .filter(({ positionDelta, textureDelta }) =>
+        Number.isFinite(positionDelta) &&
+        Math.abs(positionDelta) > 1 &&
+        Number.isFinite(textureDelta)
+      )
+    if (movedSamples.length === 0) {
+      throw new Error(`Expected probe ${probe.name || 'unknown'} to observe renderer movement with texture CSS samples`)
+    }
+    if (probe.direction === 'forward') {
+      const forwardInversion = movedSamples.find(({ textureDelta }) => textureDelta > 1)
+      if (forwardInversion) {
+        throw new Error(
+          `Expected forward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
+          `observed textureDelta=${forwardInversion.textureDelta} at ${forwardInversion.sample?.label || 'unknown'}`
+        )
+      }
+    }
+    const inverted = movedSamples.find(({ positionDelta, textureDelta }) =>
+      Math.sign(textureDelta) !== 0 &&
+      Math.sign(positionDelta) === Math.sign(textureDelta)
+    )
+    if (inverted) {
+      throw new Error(
+        `Expected texture to counter-move with renderer in probe ${probe.name || 'unknown'}; ` +
+        `observed positionDelta=${inverted.positionDelta}, textureDelta=${inverted.textureDelta}`
+      )
+    }
+    const stationary = movedSamples.every(({ textureDelta }) => Math.abs(textureDelta) <= 1)
+    if (stationary) {
+      throw new Error(`Expected texture to move during probe ${probe.name || 'unknown'}; observed stationary texture`)
+    }
+  }
+}
+
 export const assertTextureUpdatesAreCommittedPageBounded = trace => {
   if (!Array.isArray(trace)) {
     throw new Error('Expected reader trace to be an array')

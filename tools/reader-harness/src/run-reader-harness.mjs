@@ -14,6 +14,7 @@ import {
   assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
   assertSurfaceTextureTracksForwardContentMovement,
+  assertTextureTracksRealPageTurnSamples,
   assertTextureUpdatesAreCommittedPageBounded,
   assertTraceType,
 } from './reader-trace-assertions.mjs'
@@ -605,6 +606,208 @@ if (mode === 'epub-texture-scroll') {
     assertNoConsoleErrors(errors)
     assertSurfaceTextureTracksForwardContentMovement(result)
     console.log(`reader harness epub-texture-scroll passed: ${JSON.stringify(result)}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-texture-page-turns') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('epub-texture-page-turns mode requires --fixture <path-to-epub>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 15000 })
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
+
+    const collectState = async label => page.evaluate(sampleLabel => {
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const location = messages.at(-1) || null
+      return {
+        label: sampleLabel,
+        timestamp: performance.now(),
+        location,
+        href: location?.href || '',
+        pageIndex: location?.pageIndex,
+        pageCount: location?.pageCount,
+        position: Number(renderer?.containerPosition),
+        rendererPage: Number(renderer?.page),
+        rendererPages: Number(renderer?.pages),
+        textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+        textureBackgroundPosition: layer?.style.backgroundPosition || '',
+        computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
+        borderBackgroundPosition: borderLayer?.style.backgroundPosition || '',
+        computedBorderBackgroundPosition: borderLayer ? getComputedStyle(borderLayer).backgroundPosition : '',
+      }
+    }, label)
+
+    const dragProbe = await page.evaluate(async delta => {
+      const sample = label => {
+        const view = document.querySelector('foliate-view')
+        const renderer = view?.renderer
+        const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const location = messages.at(-1) || null
+        return {
+          label,
+          timestamp: performance.now(),
+          location,
+          href: location?.href || '',
+          pageIndex: location?.pageIndex,
+          pageCount: location?.pageCount,
+          position: Number(renderer?.containerPosition),
+          textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+          textureBackgroundPosition: layer?.style.backgroundPosition || '',
+          computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
+        }
+      }
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      if (!renderer) throw new Error('Missing foliate renderer for texture drag probe')
+      const samples = [sample('before')]
+      renderer.scrollBy(delta, 0)
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      samples.push(sample('after-scrollBy'))
+      renderer.scrollBy(-delta, 0)
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      return { name: 'renderer-scrollBy-forward', direction: 'forward', samples, delta }
+    }, Math.min(160, Math.max(80, Math.round(phoneViewport.viewport.width * 0.32))))
+
+    const bridgeProbe = async name => {
+      const samples = [await collectState('before')]
+      await page.evaluate(() => {
+        const renderer = document.querySelector('foliate-view')?.renderer
+        renderer?.setAttribute?.('animated', '')
+        window.__navicTexturePageTurnPromise = window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+        return true
+      })
+      for (const delay of [40, 80, 120, 180, 260]) {
+        await page.waitForTimeout(delay)
+        samples.push(await collectState(`t+${delay}`))
+      }
+      await page.evaluate(async () => {
+        await window.__navicTexturePageTurnPromise
+      })
+      await page.waitForTimeout(260)
+      samples.push(await collectState('settled'))
+      return { name, direction: 'forward', samples }
+    }
+
+    const bridgeNextProbe = await bridgeProbe('bridge-next-animated')
+
+    const boundarySamples = []
+    let bridgeBoundaryProbe = null
+    let previous = await collectState('boundary-search-start')
+    for (let index = 0; index < 180; index += 1) {
+      await page.evaluate(async () => {
+        document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
+        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      })
+      await page.waitForFunction(beforePageIndex => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const current = messages.at(-1)
+        return current && current.pageIndex > beforePageIndex
+      }, previous.pageIndex, { timeout: 8000 })
+      const current = await collectState(`boundary-search-${index}`)
+      if (current.href && previous.href && current.href !== previous.href) {
+        boundarySamples.push(previous, current)
+        await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'previousPage' }))
+        await page.waitForFunction(afterPageIndex => {
+          const messages = (window.__navicReaderPostedMessages || [])
+            .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+          const currentLocation = messages.at(-1)
+          return currentLocation && currentLocation.pageIndex < afterPageIndex
+        }, current.pageIndex, { timeout: 8000 })
+        boundarySamples.push(await collectState('boundary-returned-before'))
+        bridgeBoundaryProbe = await bridgeProbe('bridge-next-boundary-animated')
+        break
+      }
+      previous = current
+    }
+
+    const result = {
+      probes: [dragProbe, bridgeNextProbe, bridgeBoundaryProbe].filter(Boolean),
+      boundarySamples,
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-texture-page-turns.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertTextureTracksRealPageTurnSamples(result)
+    console.log(`reader harness epub-texture-page-turns passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1
