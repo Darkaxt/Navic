@@ -101,6 +101,7 @@ import {
   readerSectionTokenText,
   readerSectionLooksLikeCover,
   readerContentDocumentLooksLikeCover,
+  suppressReaderEmbeddedCoverPage,
   readerSectionIsReadable,
   readerHrefComparable,
   readerHrefMatches,
@@ -202,6 +203,8 @@ class NavicReaderRuntime {
   pageTurnPromise = null
   pageTurnInProgress = false
   suppressedCoverSectionIndexes = new Set()
+  embeddedCoverSuppressedSectionIndexes = new Set()
+  embeddedCoverRerenderScheduled = false
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -312,6 +315,8 @@ class NavicReaderRuntime {
     this.pageTurnPromise = null
     this.pageTurnInProgress = false
     this.suppressedCoverSectionIndexes = new Set()
+    this.embeddedCoverSuppressedSectionIndexes = new Set()
+    this.embeddedCoverRerenderScheduled = false
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
@@ -538,6 +543,8 @@ class NavicReaderRuntime {
 
   canReturnToShellCover() {
     if (!this.shellCoverBlobUrl || this.shellCoverVisible) return false
+    const pageIndex = Number(this.currentPagePosition?.pageIndex)
+    if (Number.isFinite(pageIndex)) return pageIndex <= 0
     const sectionIndex = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
     const firstContent = Number(this.firstReadableContentTarget())
     if (
@@ -547,8 +554,6 @@ class NavicReaderRuntime {
     ) {
       return true
     }
-    const pageIndex = Number(this.currentPagePosition?.pageIndex)
-    if (Number.isFinite(pageIndex)) return pageIndex <= 0
     return false
   }
 
@@ -2040,9 +2045,38 @@ class NavicReaderRuntime {
     return true
   }
 
+  suppressLoadedEmbeddedCoverPage(doc, index) {
+    const normalizedIndex = Number(index)
+    if (!Number.isFinite(normalizedIndex)) return false
+    const sectionIndex = Math.floor(normalizedIndex)
+    const suppressed = suppressReaderEmbeddedCoverPage(doc, sectionIndex)
+    if (!suppressed) return false
+    const firstSuppression = !this.embeddedCoverSuppressedSectionIndexes.has(sectionIndex)
+    this.embeddedCoverSuppressedSectionIndexes.add(sectionIndex)
+    const section = this.view?.book?.sections?.[sectionIndex]
+    readerTrace('cover:embedded-page-suppressed', {
+      index: sectionIndex,
+      href: section?.href || section?.id || '',
+      rerender: firstSuppression,
+    })
+    log('cover-embedded-page:suppressed', `index=${sectionIndex}`, section?.href || section?.id || '')
+    if (firstSuppression && !this.embeddedCoverRerenderScheduled) {
+      this.embeddedCoverRerenderScheduled = true
+      requestAnimationFrame(() => {
+        this.embeddedCoverRerenderScheduled = false
+        if (!this.view) return
+        this.view.renderer?.render?.()
+        this.applyReaderViewportLayout('embedded-cover-suppressed')
+        this.scheduleReaderPageNumberRefresh('embedded-cover-suppressed')
+      })
+    }
+    return true
+  }
+
   attachContentDocumentBehaviors(doc, index) {
     if (!doc) return
     if (this.suppressLoadedCoverDocument(doc, index)) return
+    this.suppressLoadedEmbeddedCoverPage(doc, index)
     this.applyDocumentDirection(doc, this.readerDirectionModeValue)
     this.applyDocumentTheme(doc, this.readerSettings, index)
     this.classifyReaderLinks(doc)

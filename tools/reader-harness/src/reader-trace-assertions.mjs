@@ -168,6 +168,24 @@ export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
   if (!result?.afterNextLocation?.href && !result?.afterNextLocation?.cfi) {
     throw new Error('Expected shell-cover handoff to post a readable WebView location')
   }
+  if (result?.afterSecondNextShellVisible !== false) {
+    throw new Error('Expected second nextPage to stay inside readable content')
+  }
+  if (!result?.afterSecondNextLocation?.href && !result?.afterSecondNextLocation?.cfi) {
+    throw new Error('Expected second nextPage to post a readable WebView location')
+  }
+  if (result?.afterSecondPreviousShellVisible !== false) {
+    throw new Error('Expected previousPage from the second readable page to stay in content instead of returning to the cover')
+  }
+  if (
+    Number.isFinite(result?.afterSecondNextLocation?.pageIndex) &&
+    Number.isFinite(result?.afterSecondPreviousLocation?.pageIndex) &&
+    result.afterSecondPreviousLocation.pageIndex >= result.afterSecondNextLocation.pageIndex
+  ) {
+    throw new Error(
+      `Expected previousPage from second readable page to decrement page index; observed ${result.afterSecondNextLocation.pageIndex} -> ${result.afterSecondPreviousLocation.pageIndex}`
+    )
+  }
   if (result?.afterPreviousShellVisible !== true) {
     throw new Error('Expected previousPage from first readable content to restore the shell cover overlay')
   }

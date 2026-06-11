@@ -565,6 +565,76 @@ export const readerContentDocumentLooksLikeCover = (doc, section, index = 0) => 
   return Number.isFinite(aspect) && aspect >= 1.15 && aspect <= 1.85
 }
 
+const readerElementText = element =>
+  element?.textContent?.replace(/\s+/g, ' ').trim() || ''
+
+const readerElementContainsMedia = element =>
+  Boolean(element?.matches?.('img,svg,object,picture') || element?.querySelector?.('img,svg,object,picture'))
+
+const readerFirstMeaningfulBodyElement = doc => {
+  for (const element of Array.from(doc?.body?.children || [])) {
+    if (element.tagName === 'BR') continue
+    if (readerElementText(element) || readerElementContainsMedia(element)) return element
+  }
+  return null
+}
+
+const readerImageAspect = image => {
+  const width = Number(image?.getAttribute?.('width') || image?.naturalWidth)
+  const height = Number(image?.getAttribute?.('height') || image?.naturalHeight)
+  return width > 0 ? { width, height, aspect: height / width } : null
+}
+
+export const readerEmbeddedCoverImage = (doc, index = 0) => {
+  if (!doc?.body || index !== 0 || doc.documentElement?.dataset?.navicEmbeddedCoverSuppressed === 'true') return null
+  const first = readerFirstMeaningfulBodyElement(doc)
+  if (!first || readerElementText(first).length > 40) return null
+  const image = first.matches?.('img') ? first : first.querySelector?.('img')
+  const metrics = readerImageAspect(image)
+  if (!image || !metrics || !Number.isFinite(metrics.aspect)) return null
+  const largeEnough = metrics.width >= 480 || metrics.height >= 640
+  if (!largeEnough || metrics.aspect < 1.1 || metrics.aspect > 1.9) return null
+  return image
+}
+
+export const suppressReaderEmbeddedCoverPage = (doc, index = 0) => {
+  const image = readerEmbeddedCoverImage(doc, index)
+  if (!image) return false
+  const body = doc.body
+  const parent = image.parentElement
+  const hideTarget = parent && parent !== body && !readerElementText(parent) && parent.children.length <= 2
+    ? parent
+    : image
+  const hidden = [hideTarget]
+  let sibling = hideTarget.nextSibling
+  for (let count = 0; sibling && count < 4; count += 1) {
+    const current = sibling
+    sibling = sibling.nextSibling
+    const isWhitespace = current.nodeType === Node.TEXT_NODE && !String(current.textContent || '').trim()
+    const isBreak = current.nodeType === Node.ELEMENT_NODE && current.tagName === 'BR'
+    if (!isWhitespace && !isBreak) break
+    hidden.push(current)
+  }
+  doc.documentElement.dataset.navicEmbeddedCoverSuppressed = 'true'
+  body?.setAttribute?.('data-navic-embedded-cover-suppressed', 'true')
+  for (const node of hidden) {
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      node.textContent = ''
+      continue
+    }
+    node.setAttribute('data-navic-embedded-cover-hidden', 'true')
+    setStylesImportant(node, {
+      display: 'none',
+      visibility: 'hidden',
+      width: '0',
+      height: '0',
+      margin: '0',
+      padding: '0',
+    })
+  }
+  return true
+}
+
 export const readerSectionIsReadable = section =>
   Boolean(section) && section.linear !== 'no'
 

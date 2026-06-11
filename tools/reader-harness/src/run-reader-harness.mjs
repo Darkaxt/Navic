@@ -380,34 +380,77 @@ if (mode === 'epub-full-traversal') {
       for (const content of contents) {
         const doc = content?.doc
         if (!doc?.body) continue
+        const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect?.()
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
         const text = doc.body.textContent?.replace(/\s+/g, ' ').trim() || ''
+        const screenRectFor = rect => ({
+          left: (frameRect?.left || 0) + rect.left,
+          top: (frameRect?.top || 0) + rect.top,
+          right: (frameRect?.left || 0) + rect.right,
+          bottom: (frameRect?.top || 0) + rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        })
+        const intersectionArea = rect => {
+          const left = Math.max(0, rect.left)
+          const right = Math.min(viewportWidth, rect.right)
+          const top = Math.max(0, rect.top)
+          const bottom = Math.min(viewportHeight, rect.bottom)
+          return Math.max(0, right - left) * Math.max(0, bottom - top)
+        }
         const images = Array.from(doc.images || []).map(image => {
           const width = Number(image.getAttribute('width') || image.naturalWidth)
           const height = Number(image.getAttribute('height') || image.naturalHeight)
           const src = image.getAttribute('src') || image.currentSrc || image.src || ''
-          return { src, width, height, aspect: width > 0 ? height / width : 0 }
+          const rect = image.getBoundingClientRect()
+          const screenRect = screenRectFor(rect)
+          return {
+            src,
+            width,
+            height,
+            aspect: width > 0 ? height / width : 0,
+            screenArea: intersectionArea(screenRect),
+            screenRect,
+          }
         })
+        const visibleText = Array.from(doc.body.querySelectorAll('body *'))
+          .filter(element => {
+            const rect = screenRectFor(element.getBoundingClientRect())
+            const area = intersectionArea(rect)
+            const elementArea = Math.max(1, rect.width * rect.height)
+            return area > 48 && area / elementArea > 0.15
+          })
+          .map(element => element.textContent?.replace(/\s+/g, ' ').trim() || '')
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
         for (const image of images) {
           if (/cover|frontcover|coverpage|cubierta|portada/i.test(image.src)) {
             coverImageHits.push({ pageIndex: location?.pageIndex, href: location?.href, src: image.src })
           }
         }
-        const firstImage = images[0]
-        const firstSpine = Number(content.index) === 0 || /\/Text\/1\.html(?:$|#)/i.test(location?.href || '')
+        const dominantVisibleImage = images
+          .filter(image => image.screenArea > 0)
+          .sort((left, right) => right.screenArea - left.screenArea)[0]
+        const viewportArea = Math.max(1, viewportWidth * viewportHeight)
+        const firstVisiblePage = Number(location?.pageIndex) === 0
         const coverLike =
-          firstSpine &&
-          text.length <= 40 &&
-          images.length >= 1 &&
-          images.length <= 2 &&
+          firstVisiblePage &&
+          visibleText.length <= 40 &&
+          dominantVisibleImage &&
+          dominantVisibleImage.screenArea / viewportArea >= 0.45 &&
           (
-            images.some(image => /cover|frontcover|coverpage|cubierta|portada/i.test(image.src)) ||
-            (Number.isFinite(firstImage?.aspect) && firstImage.aspect >= 1.15 && firstImage.aspect <= 1.85)
+            /cover|frontcover|coverpage|cubierta|portada/i.test(dominantVisibleImage.src) ||
+            (Number.isFinite(dominantVisibleImage.aspect) && dominantVisibleImage.aspect >= 1.15 && dominantVisibleImage.aspect <= 1.85)
           )
         if (coverLike) {
           coverLikePages.push({
             pageIndex: location?.pageIndex,
             href: location?.href,
-            text,
+            visibleText,
+            dominantVisibleImage,
             images,
           })
         }
@@ -431,6 +474,9 @@ if (mode === 'epub-full-traversal') {
     const coverImageHits = []
     const coverLikePages = []
     let snapshot = await collectSnapshot()
+    if (snapshot.coverLikePages.length > 0) {
+      throw new Error(`Expected first WebView-visible page not to be the EPUB cover; observed ${JSON.stringify(snapshot.coverLikePages[0])}`)
+    }
     const maxTurns = Math.max(1, Number(snapshot.location?.pageCount || 0) + 12)
     for (let turn = 0; turn < maxTurns; turn += 1) {
       if (!snapshot.location) throw new Error('Missing location during full EPUB traversal')
@@ -620,6 +666,7 @@ if (mode === 'epub-shell-cover') {
     }, `${server.origin}${fixtureRoute}`)
     await page.waitForTimeout(500)
     const result = await page.evaluate(async () => {
+      const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
       const shellVisible = () => document.body.dataset.navicShellCoverVisible === 'true'
       const location = () => {
         const messages = window.__navicReaderPostedMessages || []
@@ -628,11 +675,19 @@ if (mode === 'epub-shell-cover') {
       const initialShellVisible = shellVisible()
       const initialLocation = location()
       await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
-      await new Promise(resolve => setTimeout(resolve, 900))
+      await wait(900)
       const afterNextShellVisible = shellVisible()
       const afterNextLocation = location()
+      await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      await wait(900)
+      const afterSecondNextShellVisible = shellVisible()
+      const afterSecondNextLocation = location()
       await window.NavicReaderBridge.dispatch({ type: 'previousPage' })
-      await new Promise(resolve => requestAnimationFrame(resolve))
+      await wait(900)
+      const afterSecondPreviousShellVisible = shellVisible()
+      const afterSecondPreviousLocation = location()
+      await window.NavicReaderBridge.dispatch({ type: 'previousPage' })
+      await wait(900)
       const afterPreviousShellVisible = shellVisible()
       const afterPreviousLocation = location()
       return {
@@ -640,6 +695,10 @@ if (mode === 'epub-shell-cover') {
         initialLocation,
         afterNextShellVisible,
         afterNextLocation,
+        afterSecondNextShellVisible,
+        afterSecondNextLocation,
+        afterSecondPreviousShellVisible,
+        afterSecondPreviousLocation,
         afterPreviousShellVisible,
         afterPreviousLocation,
       }
