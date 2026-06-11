@@ -91,3 +91,24 @@ export const assertSurfaceTextureTracksForwardContentMovement = result => {
     throw new Error(`Expected texture background to move left with forward content movement ${roundedDelta}px; observed "${backgroundPosition}"`)
   }
 }
+
+export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
+  if (result?.initialShellVisible !== true) {
+    throw new Error('Expected metadata cover to be shown as the initial shell cover overlay')
+  }
+  if (result?.afterNextShellVisible !== false) {
+    throw new Error('Expected nextPage from shell cover to hide the shell cover overlay')
+  }
+  if (result?.afterPreviousShellVisible !== true) {
+    throw new Error('Expected previousPage from first readable content to restore the shell cover overlay')
+  }
+  const hrefs = [
+    result?.initialLocation?.href,
+    result?.afterNextLocation?.href,
+    result?.afterPreviousLocation?.href,
+  ].filter(Boolean)
+  const coverHref = hrefs.find(href => /cover|frontcover|coverpage/i.test(href))
+  if (coverHref) {
+    throw new Error(`Expected WebView location to remain on readable content, but observed cover href ${coverHref}`)
+  }
+}
