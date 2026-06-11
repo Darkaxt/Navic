@@ -591,6 +591,31 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderRoutesSavedCoverResumeThroughShellCover() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "startLocatorTargetsShellCover")
+		assertContains(bridgeText, "const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)")
+		assertContains(
+			bridgeText,
+			"const shouldStartAtShellCover = startLocatorIsShellCover || !readerStartLocatorHasPosition(startLocator)",
+			message = "Saved cover progress must not bypass the shell cover path."
+		)
+		assertContains(
+			bridgeText,
+			"if (shellCoverUrl) {",
+			message = "When shell cover is active, Foliate should be staged behind it at first readable content."
+		)
+		assertContains(
+			bridgeText,
+			"readerStartLocatorHasPosition(startLocator) && !startLocatorIsShellCover",
+			message = "Cover resume locators must not be reposted and saved again as normal progress."
+		)
+		assertContains(bridgeText, "detailTargetsCover")
+		assertContains(bridgeText, "location-changed:cover-skipped")
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

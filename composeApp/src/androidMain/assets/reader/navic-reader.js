@@ -474,6 +474,7 @@ const komikkuTapAction = (
 }
 
 const readerAssetUrl = path => new URL(path, document.baseURI).href
+const ReaderShellCoverProgressThreshold = 0.0015
 
 const readerTokenText = value => {
   if (value == null) return ''
@@ -501,6 +502,31 @@ const readerSectionLooksLikeCover = (section, index = 0) => {
 
 const readerSectionIsReadable = section =>
   Boolean(section) && section.linear !== 'no'
+
+const readerHrefComparable = value => {
+  const text = String(value || '').trim().split('#')[0].replace(/\\/g, '/')
+  if (!text) return ''
+  try {
+    return decodeURIComponent(text).replace(/^\.?\//, '').replace(/^\/+/, '').toLowerCase()
+  } catch (_) {
+    return text.replace(/^\.?\//, '').replace(/^\/+/, '').toLowerCase()
+  }
+}
+
+const readerHrefMatches = (left, right) => {
+  const first = readerHrefComparable(left)
+  const second = readerHrefComparable(right)
+  if (!first || !second) return false
+  return first === second || first.endsWith(`/${second}`) || second.endsWith(`/${first}`)
+}
+
+const readerHrefMatchesSection = (href, section) =>
+  Boolean(section) && [
+    section.href,
+    section.id,
+    section.url,
+    section.name,
+  ].some(candidate => readerHrefMatches(href, candidate))
 
 const isInteractiveReaderTarget = target =>
   Boolean(closestElement(target, `a,button,input,textarea,select,summary,[role="button"],${readerMediaSelector}`))
@@ -1141,17 +1167,20 @@ class NavicReaderRuntime {
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
-      const shouldStartAtShellCover = !readerStartLocatorHasPosition(startLocator)
+      const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)
+      const shouldStartAtShellCover = startLocatorIsShellCover || !readerStartLocatorHasPosition(startLocator)
       const shellCoverUrl = shouldStartAtShellCover ? await this.loadShellCover() : null
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
-      if (locator) {
+      if (shellCoverUrl) {
+        await this.goToFirstReadableContent()
+      } else if (startLocatorIsShellCover) {
+        await this.goToFirstReadableContent()
+      } else if (locator) {
         await this.view.goTo(locator)
       } else if (Number.isFinite(progress)) {
         await this.goToProgress(progress)
-      } else if (shellCoverUrl) {
-        await this.goToFirstReadableContent()
       } else {
         await this.view.init?.({ showTextStart: true })
       }
@@ -1163,7 +1192,7 @@ class NavicReaderRuntime {
       this.logContentLayout('ready')
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
-      if (readerStartLocatorHasPosition(startLocator)) {
+      if (readerStartLocatorHasPosition(startLocator) && !startLocatorIsShellCover) {
         requestAnimationFrame(() => this.postCurrentLocationSnapshot('initial-resume'))
       }
     } catch (error) {
@@ -1250,6 +1279,61 @@ class NavicReaderRuntime {
     if (firstNonCover >= 0) return firstNonCover
     const firstReadable = sections.findIndex(readerSectionIsReadable)
     return firstReadable >= 0 ? firstReadable : 0
+  }
+
+  coverSectionEntries() {
+    return Array.from(this.view?.book?.sections || [])
+      .map((section, index) => ({ section, index }))
+      .filter(({ section, index }) => readerSectionLooksLikeCover(section, index))
+  }
+
+  hasNonCoverReadableContent() {
+    return Array.from(this.view?.book?.sections || []).some((section, index) =>
+      readerSectionIsReadable(section) && !readerSectionLooksLikeCover(section, index)
+    )
+  }
+
+  startLocatorTargetsShellCover(startLocator) {
+    if (!readerStartLocatorHasPosition(startLocator)) return false
+    const coverSections = this.coverSectionEntries()
+    if (!coverSections.length || !this.hasNonCoverReadableContent()) return false
+    const href = startLocator?.href
+    if (href && coverSections.some(({ section }) => readerHrefMatchesSection(href, section))) {
+      log('shell-cover:start-locator-cover', `href=${href}`)
+      return true
+    }
+    const cfi = String(startLocator?.cfi || '')
+    if (/cover/i.test(cfi)) {
+      log('shell-cover:start-locator-cover', 'cfi-token')
+      return true
+    }
+    const progress = Number(startLocator?.progress)
+    const firstCoverIndex = Math.min(...coverSections.map(({ index }) => index))
+    const firstReadableIndex = Number(this.firstReadableContentTarget())
+    if (
+      Number.isFinite(progress) &&
+      progress >= 0 &&
+      progress <= ReaderShellCoverProgressThreshold &&
+      firstCoverIndex === 0 &&
+      Number.isFinite(firstReadableIndex) &&
+      firstReadableIndex > firstCoverIndex
+    ) {
+      log('shell-cover:start-locator-cover', `progress=${progress}`)
+      return true
+    }
+    return false
+  }
+
+  detailTargetsCover(detail) {
+    const coverSections = this.coverSectionEntries()
+    if (!coverSections.length) return false
+    const index = Number(detail?.section?.current ?? detail?.index)
+    if (Number.isFinite(index)) {
+      const section = this.view?.book?.sections?.[Math.floor(index)]
+      if (readerSectionLooksLikeCover(section, Math.floor(index))) return true
+    }
+    const href = detail?.href || detail?.tocItem?.href || detail?.section?.href
+    return Boolean(href && coverSections.some(({ section }) => readerHrefMatchesSection(href, section)))
   }
 
   async goToFirstReadableContent() {
@@ -2636,6 +2720,11 @@ class NavicReaderRuntime {
   }
 
   postLocationChanged(detail, reason = 'relocate') {
+    if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
+      this.updateReaderPageNumberLayer(null)
+      log('location-changed:cover-skipped', reason)
+      return
+    }
     const tocItem = detail.tocItem || {}
     const pagePosition = this.tryUpdateReaderPageNumberLayer(detail)
     post({
