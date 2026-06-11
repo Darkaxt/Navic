@@ -133,12 +133,13 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderMirrorsPaperTextureOnTopLevelSurface() {
 		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val surfaceTextureUpdater = bridgeText
-			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
-		val surfaceLayerUpdater = bridgeText
-			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) =>")
-			.substringBefore("\n\nconst isParagraphCandidate")
+		val surfaceLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) =>")
+			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
 		val applySettings = bridgeText
 			.substringAfter("applySettings(settings) {")
 			.substringBefore("\n  applyThemeToLoadedContent")
@@ -165,9 +166,13 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater.contains("readerPaperTextureBackgroundImage(textureVariant, settings)"),
 			"The top-level surface texture must stay subtle and must not reuse the stacked document texture overlay."
 		)
-		assertContains(applySettings, "this.updateSurfacePaperTexture()")
-		assertContains(onLoad, "this.updateSurfacePaperTexture(detail)")
-		assertContains(onRelocate, "this.updateSurfacePaperTexture(detail)")
+		assertContains(applySettings, "this.renderSurfacePaperTextureLayers()")
+		assertContains(onLoad, "this.updateReaderPageNumberLayer()")
+		assertContains(
+			bridgeText,
+			"this.updateSurfacePaperTexture(detail, pagePosition)",
+			message = "Committed location posts should refresh the surface texture with the same page position used for numbering."
+		)
 		assertContains(bridgeText, "position: 'fixed'")
 		assertContains(bridgeText, "'pointer-events': 'none'")
 	}
@@ -175,6 +180,7 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderKeepsPaperTextureAtReaderWindowSurfaceOnly() {
 		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val documentThemeCss = bridgeText
 			.substringAfter("const readerDocumentThemeCss = settings =>")
 			.substringBefore("const readerContentCss = settings =>")
@@ -182,11 +188,11 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
 		val surfaceTextureUpdater = bridgeText
-			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
-		val surfaceLayerUpdater = bridgeText
-			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings) =>")
-			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
+		val surfaceLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) =>")
+			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
 
 		assertFalse(documentThemeCss.contains("html::before"), "Document pseudo-elements must not carry paper texture.")
 		assertFalse(documentThemeCss.contains("body::before"), "Document pseudo-elements must not carry paper texture.")
@@ -225,22 +231,27 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderSurfaceTapGesturesHandleEpubBorderTaps() {
+	fun androidReaderSurfaceTapGesturesDoNotOwnReaderWideEpubTaps() {
 		val bridgeText = readerBridgeText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
 			.substringBefore("\n  attachLinkNavigation")
 
-		assertContains(surfaceGesture, "await this.handleReaderTapZone(event, document, 'surface')")
-		assertContains(surfaceGesture, "await this.handleReaderTapZone({")
-		assertContains(surfaceGesture, "surface-touch")
+		assertFalse(
+			surfaceGesture.contains("handleReaderTapZone"),
+			"EPUB/PDF surface tap zones must be owned by the native ReaderTouchOverlay above the WebView."
+		)
+		assertFalse(
+			surfaceGesture.contains("surface-touch"),
+			"Surface touch taps must not dispatch reader-wide page/menu actions from JavaScript."
+		)
 		assertFalse(
 			surfaceGesture.contains("if (this.view?.isFixedLayout !== true) return\n      const touch"),
-			"EPUB border taps must use the same Komikku tap-zone surface path as fixed-layout content."
+			"Surface gesture setup must still allow fixed-layout swipe handling without gating the whole listener away."
 		)
 		assertFalse(
 			surfaceGesture.contains("if (this.view?.isFixedLayout === true) {\n        await this.handleReaderTapZone(event, document, 'surface')"),
-			"Click-based surface taps must not be restricted to fixed-layout/PDF rendering."
+			"Fixed-layout surface clicks must not use WebView-owned reader-wide tap zones."
 		)
 	}
 
@@ -301,7 +312,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringAfter("const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {}) =>")
 			.substringBefore("\n\nconst readerPaperTextureVariantForPage")
 		val surfaceTextureUpdater = bridgeText
-			.substringAfter("updateSurfacePaperTexture(detail = {}) {")
+			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
 
 		assertContains(bridgeText, "readerPaperTexturePageLocator")
@@ -310,7 +321,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(textureKey, "readerPaperTexturePageLocator(detail)")
 		assertContains(
 			surfaceTextureUpdater,
-			"readerPaperTextureVariantKey(this.publicationUrl, section, index, detail)",
+			"readerPaperTextureVariantKey(this.publicationUrl, section, index, textureDetail)",
 			message = "Paginated EPUB pages inside the same spine item need distinct deterministic texture variants."
 		)
 		assertFalse(

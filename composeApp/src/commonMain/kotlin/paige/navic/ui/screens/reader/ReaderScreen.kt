@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -49,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -125,6 +128,7 @@ import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerTapZoneActionAt
 import paige.navic.reader.readerTapZonePageTurnCommand
+import paige.navic.reader.readerTapZoneRegions
 import paige.navic.reader.readerBookmarkFromLocator
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDirectionShortLabel
@@ -644,9 +648,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 					progressSaveDecision.locatorToSave?.let { locator ->
 						saveReaderProgress(locator)
 					}
-					if (event is ReaderBridgeEvent.CenterTap) {
-						toggleReaderChrome()
-					}
 				}
 				ReaderWebViewHost(
 					publicationUrl = publicationUrl,
@@ -666,9 +667,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 					dimOverlayPercent = chromeState.settings.dimOverlayPercent ?: 0,
 					modifier = Modifier.matchParentSize()
 				)
-				ReaderNativePageTurnTapOverlay(
+				ReaderNativeTapOverlay(
 					settings = chromeState.settings,
-					enabled = !readerSystemBarsVisible,
+					enabled = !optionsVisible,
+					onMenuTap = {
+						platformContext.clickSound()
+						toggleReaderChrome()
+					},
 					onPageTurn = { command ->
 						platformContext.clickSound()
 						dispatchReaderCommand(command)
@@ -719,9 +724,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 }
 
 @Composable
-private fun ReaderNativePageTurnTapOverlay(
+private fun ReaderNativeTapOverlay(
 	settings: ReaderSettings,
 	enabled: Boolean,
+	onMenuTap: () -> Unit,
 	onPageTurn: (ReaderBridgeCommand) -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -746,19 +752,66 @@ private fun ReaderNativePageTurnTapOverlay(
 					flowMode = settings.flowMode
 				)
 				val command = readerTapZonePageTurnCommand(action, settings.direction)
-				if (command == null) {
-					waitForUpOrCancellation()
-					return@awaitEachGesture
-				}
 				down.consume()
 				val up = waitForUpOrCancellation()
 				if (up != null) {
 					up.consume()
-					onPageTurn(command)
+					if (command != null) {
+						onPageTurn(command)
+					} else {
+						onMenuTap()
+					}
 				}
 			}
 		}
+	) {
+		if (settings.showTapZones == true) {
+			ReaderNativeTapZoneDebugOverlay(
+				settings = settings,
+				modifier = Modifier.matchParentSize()
+			)
+		}
+	}
+}
+
+@Composable
+private fun ReaderNativeTapZoneDebugOverlay(
+	settings: ReaderSettings,
+	modifier: Modifier = Modifier
+) {
+	val regions = readerTapZoneRegions(
+		tapZone = settings.tapZone,
+		smallerTapZone = settings.smallerTapZone == true,
+		flowMode = settings.flowMode
 	)
+	Canvas(modifier) {
+		regions.forEach { region ->
+			val color = when (region.action.name) {
+				"Previous", "Left" -> Color(0xFFEF4444)
+				"Next", "Right" -> Color(0xFF3B82F6)
+				else -> Color(0xFF22C55E)
+			}
+			drawRect(
+				color = color.copy(alpha = 0.18f),
+				topLeft = Offset(region.left * size.width, region.top * size.height),
+				size = Size(
+					(region.right - region.left) * size.width,
+					(region.bottom - region.top) * size.height
+				)
+			)
+		}
+		val centerSize = size.minDimension * 0.42f
+		drawRect(
+			color = Color(0xFF22C55E).copy(alpha = 0.16f),
+			topLeft = Offset((size.width - centerSize) / 2f, (size.height - centerSize) / 2f),
+			size = Size(centerSize, centerSize)
+		)
+		drawRect(
+			color = Color(0xFF22C55E).copy(alpha = 0.12f),
+			topLeft = Offset.Zero,
+			size = Size(size.width, size.height * 0.05f)
+		)
+	}
 }
 
 @Composable

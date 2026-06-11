@@ -3,11 +3,6 @@ import {
   CenterTapMovementSlop,
   CenterTapSyntheticClickDedupeMs,
   FixedLayoutSurfaceSwipeThreshold,
-  KomikkuNavigationRegionLeft,
-  KomikkuNavigationRegionMenu,
-  KomikkuNavigationRegionNext,
-  KomikkuNavigationRegionPrevious,
-  KomikkuNavigationRegionRight,
   ReaderDirectionDefault,
   ReaderDirectionLtr,
   ReaderDirectionRtl,
@@ -33,12 +28,6 @@ import {
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneDefault,
-  ReaderTapZoneDisabled,
-  ReaderTapZoneEdge,
-  ReaderTapZoneKindle,
-  ReaderTapZoneLShaped,
-  ReaderTapZoneOverlayLayerSelector,
-  ReaderTapZoneRightLeft,
   ReaderThemeLight,
   ReaderThemeSepia,
   ScrollEdgeTurnSlop,
@@ -72,7 +61,6 @@ import {
   isReaderMediaTapTarget,
   readerPointInsideRect,
   readerEventClientPoint,
-  readerRootTapPoint,
   readerPointInsideAnchorText,
   readerMediaElementFromCandidate,
   readerImageFromMediaTarget,
@@ -81,20 +69,8 @@ import {
   markReaderMediaTapHandled,
   readerLastMediaTapRectContainsPoint,
   readerShouldSuppressMediaSyntheticClick,
-  markReaderDocumentTapHandled,
-  shouldSuppressReaderDocumentClick,
   markReaderSurfaceTapHandled,
   shouldSuppressReaderSurfaceClick,
-  komikkuNavigationRegion,
-  komikkuConstantMenuRegion,
-  komikkuRegionContains,
-  ReaderCenterMenuRegionSize,
-  readerCenterMenuRegion,
-  komikkuRegionSize,
-  komikkuDefaultNavigationMode,
-  komikkuNavigationRegions,
-  komikkuTapAction,
-  readerTapZoneIsPageTurn,
   readerAssetUrl,
   ReaderShellCoverProgressThreshold,
   readerTokenText,
@@ -106,8 +82,6 @@ import {
   readerHrefComparable,
   readerHrefMatches,
   readerHrefMatchesSection,
-  isInteractiveReaderTarget,
-  readerTargetInsideShellCover,
   stableHash,
   readerPaperTexturePageLocator,
   readerPaperTextureVariantKey,
@@ -134,11 +108,6 @@ import {
   updateReaderShellCoverLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
-  readerTapZoneOverlayLabel,
-  readerTapZoneOverlayColor,
-  readerTapZoneOverlayRegions,
-  ensureTapZoneOverlayLayer,
-  updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
   classifyReaderParagraphBlocks,
@@ -613,7 +582,6 @@ class NavicReaderRuntime {
       )
     }
     this.renderSurfacePaperTextureLayers()
-    this.updateTapZoneOverlay()
     log('viewport-layout', `label=${label}`, `${width}x${height}`)
   }
 
@@ -797,98 +765,6 @@ class NavicReaderRuntime {
     }, { passive: true })
   }
 
-  async handleReaderTapZone(event, doc, source = 'tap') {
-    if (event.defaultPrevented || event.button > 0) return false
-    if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) {
-      const anchor = closestElement(event.target, 'a[href]')
-      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
-      if (!mediaTapTarget || !this.readerTapZoneWouldTurnPage(event, doc)) return false
-    }
-    const selection = doc?.getSelection?.()
-    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return false
-    const tapZone = this.readerTapZone(event, doc)
-    if (!tapZone) return false
-    event.preventDefault?.()
-    event.stopPropagation?.()
-    event.markHandled?.()
-    log(`${source}-tap`, tapZone)
-    if (tapZone === 'previous') {
-      await this.previousPage()
-      return true
-    }
-    if (tapZone === 'next') {
-      await this.nextPage()
-      return true
-    }
-    if (tapZone === 'left') {
-      if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.nextPage()
-      else await this.previousPage()
-      return true
-    }
-    if (tapZone === 'right') {
-      if (this.effectiveReaderDirection() === ReaderDirectionRtl) await this.previousPage()
-      else await this.nextPage()
-      return true
-    }
-    post({ type: 'readerCenterTap' })
-    return true
-  }
-
-  attachCenterTapGesture(doc) {
-    const win = doc?.defaultView
-    if (!win || win.__navicCenterTapGestureAttached) return
-    win.__navicCenterTapGestureAttached = true
-    let touchState = null
-    doc.addEventListener('touchstart', event => {
-      const touch = event.changedTouches?.[0]
-      if (!touch || event.touches?.length > 1) {
-        touchState = null
-        return
-      }
-      touchState = {
-        x: touch.screenX ?? touch.clientX ?? 0,
-        y: touch.screenY ?? touch.clientY ?? 0,
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        time: event.timeStamp || performance.now(),
-        target: event.target,
-      }
-    }, { passive: true })
-    doc.addEventListener('touchend', async event => {
-      const state = touchState
-      touchState = null
-      if (!state) return
-      const touch = event.changedTouches?.[0]
-      if (!touch || event.touches?.length > 0) return
-      const endX = touch.screenX ?? touch.clientX ?? state.x
-      const endY = touch.screenY ?? touch.clientY ?? state.y
-      if (Math.abs(endX - state.x) > CenterTapMovementSlop) return
-      if (Math.abs(endY - state.y) > CenterTapMovementSlop) return
-      const handled = await this.handleReaderTapZone({
-        defaultPrevented: event.defaultPrevented,
-        button: 0,
-        target: state.target || event.target,
-        clientX: touch.clientX ?? state.clientX,
-        clientY: touch.clientY ?? state.clientY,
-        preventDefault: () => event.preventDefault(),
-        stopPropagation: () => event.stopPropagation(),
-        markHandled: () => markReaderDocumentTapHandled(win, event),
-      }, doc, 'touch')
-      if (handled) markReaderDocumentTapHandled(win, event)
-    }, { passive: false })
-    doc.addEventListener('touchcancel', () => {
-      touchState = null
-    }, { passive: true })
-    doc.addEventListener('click', async event => {
-      if (shouldSuppressReaderDocumentClick(win, event)) {
-        event.preventDefault()
-        event.stopPropagation()
-        return
-      }
-      await this.handleReaderTapZone(event, doc, 'center')
-    }, { passive: false })
-  }
-
   attachSurfaceTapGesture(element) {
     if (!element || element.__navicSurfaceTapGestureAttached) return
     element.__navicSurfaceTapGestureAttached = true
@@ -941,30 +817,17 @@ class NavicReaderRuntime {
         }
         return
       }
-      if (Math.abs(deltaX) > CenterTapMovementSlop || Math.abs(deltaY) > CenterTapMovementSlop) return
-      const handled = await this.handleReaderTapZone({
-        defaultPrevented: event.defaultPrevented,
-        button: 0,
-        target: state.target || event.target,
-        clientX: touch.clientX ?? state.clientX,
-        clientY: touch.clientY ?? state.clientY,
-        preventDefault: () => event.preventDefault(),
-        stopPropagation: () => event.stopPropagation(),
-        markHandled: () => markReaderSurfaceTapHandled(element, event),
-      }, document, 'surface-touch')
-      if (handled) markReaderSurfaceTapHandled(element, event)
     }, { passive: false })
     element.addEventListener('touchcancel', () => {
       touchState = null
     }, { passive: true })
-    element.addEventListener('click', async event => {
+    element.addEventListener('click', event => {
       if (event.defaultPrevented || event.button !== 0) return
       if (shouldSuppressReaderSurfaceClick(element, event)) {
         event.preventDefault()
         event.stopPropagation()
         return
       }
-      await this.handleReaderTapZone(event, document, 'surface')
     }, { passive: false })
   }
 
@@ -984,7 +847,6 @@ class NavicReaderRuntime {
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
       if (mediaTapTarget) {
-        if (this.readerTapZoneWouldTurnPage(event, doc)) return
         const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
         if (!toggled) {
           event.preventDefault()
@@ -1092,7 +954,6 @@ class NavicReaderRuntime {
         stopImmediatePropagation: () => event.stopImmediatePropagation(),
         timeStamp: event.timeStamp,
       }
-      if (this.readerTapZoneWouldTurnPage(tapEvent, doc)) return
       this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)
     }, { capture: true, passive: false })
     doc.addEventListener('touchcancel', () => {
@@ -1107,57 +968,8 @@ class NavicReaderRuntime {
         event.stopImmediatePropagation()
         return
       }
-      if (this.readerTapZoneWouldTurnPage(event, doc)) return
       this.toggleSepiaImageOverlayFromEvent(doc, event)
     }, { capture: true, passive: false })
-  }
-
-  readerTapSurfaceRect() {
-    const rect = this.view?.getBoundingClientRect?.() || readerRoot?.getBoundingClientRect?.()
-    const fallbackWidth = window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 1
-    const fallbackHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 1
-    const left = Number.isFinite(rect?.left) ? rect.left : 0
-    const top = Number.isFinite(rect?.top) ? rect.top : 0
-    const width = Math.max(1, Number.isFinite(rect?.width) ? rect.width : fallbackWidth)
-    const height = Math.max(1, Number.isFinite(rect?.height) ? rect.height : fallbackHeight)
-    return { left, top, width, height }
-  }
-
-  readerTapZoneResult(event, doc) {
-    const point = readerRootTapPoint(event, doc)
-    const surfaceRect = this.readerTapSurfaceRect()
-    if (!point) return null
-    const xFraction = (point.x - surfaceRect.left) / surfaceRect.width
-    const yFraction = (point.y - surfaceRect.top) / surfaceRect.height
-    const tapZone = komikkuTapAction(
-      this.readerTapZoneMode,
-      xFraction,
-      yFraction,
-      this.smallerTapZone,
-      this.readerFlowModeValue
-    )
-    return { point, tapZone, xFraction, yFraction }
-  }
-
-  readerTapZone(event, doc) {
-    const result = this.readerTapZoneResult(event, doc)
-    if (!result) return null
-    const { point, tapZone, xFraction, yFraction } = result
-    log(
-      'tap-zone',
-      `source=${point.source}`,
-      `doc=${doc === document ? 'surface' : 'content'}`,
-      `x=${xFraction.toFixed(3)}`,
-      `y=${yFraction.toFixed(3)}`,
-      `zone=${tapZone}`,
-      `mode=${this.readerTapZoneMode || ReaderTapZoneDefault}`,
-      `flow=${this.readerFlowModeValue || ReaderFlowPaged}`
-    )
-    return tapZone
-  }
-
-  readerTapZoneWouldTurnPage(event, doc) {
-    return readerTapZoneIsPageTurn(this.readerTapZoneResult(event, doc)?.tapZone)
   }
 
   effectiveReaderDirection() {
@@ -1631,26 +1443,6 @@ class NavicReaderRuntime {
       )
     }
     this.scheduleReaderPageNumberRefresh('settings')
-    this.updateTapZoneOverlay()
-  }
-
-  updateTapZoneOverlay() {
-    if (this.readerSettings?.showTapZones !== true) {
-      this.tapZoneOverlayLayer?.remove?.()
-      this.tapZoneOverlayLayer = null
-      return
-    }
-    this.tapZoneOverlayLayer = this.tapZoneOverlayLayer && readerRoot.contains(this.tapZoneOverlayLayer)
-      ? this.tapZoneOverlayLayer
-      : ensureTapZoneOverlayLayer()
-    updateTapZoneOverlayLayer(
-      this.tapZoneOverlayLayer,
-      this.readerSettings,
-      this.readerTapZoneMode,
-      this.smallerTapZone,
-      this.readerFlowModeValue,
-      this.readerTapSurfaceRect()
-    )
   }
 
   applyThemeToLoadedContent(settings = this.readerSettings) {
@@ -2091,7 +1883,6 @@ class NavicReaderRuntime {
     this.attachSepiaImageOverlayToggle(doc)
     this.attachLinkNavigation(doc, index)
     this.attachScrolledEdgeTurnGestures(doc)
-    this.attachCenterTapGesture(doc)
     if (doc.defaultView?.__navicSelectionBridgeAttached) return
     doc.defaultView.__navicSelectionBridgeAttached = true
     doc.addEventListener('selectionchange', () => {

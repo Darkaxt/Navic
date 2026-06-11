@@ -85,22 +85,32 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readerChromeIsImmersiveAndDrivenByCenterTapBridgeEvents() {
+	fun readerChromeIsImmersiveAndDrivenByNativeTapOverlay() {
 		val bridgeText = readerBridgeText()
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val nativeOverlay = readerScreenText
+			.substringAfter("private fun ReaderNativeTapOverlay(")
+			.substringBefore("\n@Composable\nprivate fun ReaderDimOverlay")
 
-		assertContains(bridgeText, "readerCenterTap")
-		assertContains(bridgeText, "attachCenterTapGesture")
-		assertContains(bridgeText, "doc.addEventListener('click'")
-		assertContains(bridgeText, "doc.addEventListener('touchstart'")
-		assertContains(bridgeText, "doc.addEventListener('touchend'")
-		assertContains(bridgeText, "handleReaderTapZone")
-		assertContains(bridgeText, "__navicLastTapHandledAt")
-		assertContains(bridgeText, "CenterTapMovementSlop")
-		assertContains(bridgeText, "readerTapZone")
-		assertContains(bridgeText, "await this.previousPage()")
-		assertContains(bridgeText, "await this.nextPage()")
-		assertContains(readerScreenText, "ReaderBridgeEvent.CenterTap")
+		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
+		assertContains(nativeOverlay, "onMenuTap")
+		assertContains(nativeOverlay, "onPageTurn")
+		assertContains(nativeOverlay, "settings.showTapZones")
+		assertContains(nativeOverlay, "readerTapZoneActionAt")
+		assertContains(nativeOverlay, "readerTapZonePageTurnCommand")
+		assertFalse(
+			runtimeText.contains("attachCenterTapGesture"),
+			"Reader-wide menu taps must be owned by the native overlay, not iframe/WebView content."
+		)
+		assertFalse(
+			runtimeText.contains("handleReaderTapZone"),
+			"Reader-wide page taps must be owned by the native overlay, not iframe/WebView content."
+		)
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
+			"Native tap overlay should toggle reader chrome directly instead of depending on WebView bridge center taps."
+		)
 		assertContains(readerScreenText, "chromeVisible")
 		assertContains(readerScreenText, "if (chromeVisible)")
 		assertFalse(
@@ -112,6 +122,7 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderSupportsPdfSurfaceNavigationAndScrolling() {
 		val bridgeText = readerBridgeText()
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
 			.substringBefore("\n  attachLinkNavigation")
@@ -120,7 +131,6 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
 		assertContains(bridgeText, "this.view?.isFixedLayout === true")
 		assertContains(bridgeText, "overflow: fixedLayout ? 'auto' : 'hidden'")
-		assertContains(bridgeText, "handleReaderTapZone(event, document, 'surface')")
 		assertContains(bridgeText, "FixedLayoutSurfaceSwipeThreshold")
 		assertContains(bridgeText, "turnFixedLayoutSwipePage(deltaX)")
 		assertContains(surfaceGesture, "element.addEventListener('touchstart'")
@@ -130,43 +140,35 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(surfaceGesture, "Math.abs(deltaX) >= FixedLayoutSurfaceSwipeThreshold")
 		assertContains(surfaceGesture, "await this.turnFixedLayoutSwipePage(deltaX)")
 		assertContains(surfaceGesture, "markReaderSurfaceTapHandled(element, event)")
+		assertFalse(
+			surfaceGesture.contains("handleReaderTapZone") || runtimeText.contains("handleReaderTapZone"),
+			"PDF/WebView surface gestures may keep drag/swipe handling, but reader-wide tap zones belong to the native overlay."
+		)
 		assertContains(bridgeText, "startLocator?.progress")
 		assertContains(bridgeText, "await this.goToProgress(progress)")
 	}
 
 	@Test
-	fun androidReaderMarksTapHandledBeforeAwaitingPageTurnNavigation() {
+	fun androidReaderKeepsSyntheticTapSuppressionForFixedLayoutSwipeNavigation() {
 		val bridgeText = readerBridgeText()
-		val handleTapZone = bridgeText
-			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
-			.substringBefore("\n  attachCenterTapGesture")
-		val centerTouchEnd = bridgeText
-			.substringAfter("doc.addEventListener('touchend', async event => {")
-			.substringBefore("\n    }, { passive: false })")
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val surfaceTouchEnd = bridgeText
 			.substringAfter("element.addEventListener('touchend', async event => {")
 			.substringBefore("\n    }, { passive: false })")
 		val surfaceClick = bridgeText
-			.substringAfter("element.addEventListener('click', async event => {")
+			.substringAfter("element.addEventListener('click', event => {")
 			.substringBefore("\n    }, { passive: false })")
 
-		assertContains(bridgeText, "markReaderDocumentTapHandled")
 		assertContains(bridgeText, "markReaderSurfaceTapHandled")
-		assertContains(bridgeText, "__navicSuppressNextTapClickUntil")
 		assertContains(bridgeText, "__navicSuppressNextSurfaceClickUntil")
-		assertContains(handleTapZone, "event.markHandled?.()")
+		assertFalse(runtimeText.contains("markReaderDocumentTapHandled"))
+		assertFalse(runtimeText.contains("__navicSuppressNextTapClickUntil"))
+		assertContains(surfaceTouchEnd, "markReaderSurfaceTapHandled(element, event)")
 		assertTrue(
-			handleTapZone.indexOf("event.markHandled?.()") <
-				handleTapZone.indexOf("await this.previousPage()"),
-			"Touch handlers must mark a page tap as handled before awaiting navigation so Android WebView synthetic clicks cannot turn a second page."
+			surfaceTouchEnd.indexOf("markReaderSurfaceTapHandled(element, event)") <
+				surfaceTouchEnd.indexOf("await this.turnFixedLayoutSwipePage(deltaX)"),
+			"Fixed-layout swipe handlers must mark the touch as handled before awaiting navigation so Android WebView synthetic clicks cannot turn a second page."
 		)
-		assertTrue(
-			handleTapZone.indexOf("event.markHandled?.()") <
-				handleTapZone.indexOf("await this.nextPage()"),
-			"Touch handlers must mark a page tap as handled before awaiting navigation so Android WebView synthetic clicks cannot turn a second page."
-		)
-		assertContains(centerTouchEnd, "markHandled: () => markReaderDocumentTapHandled(win, event)")
-		assertContains(surfaceTouchEnd, "markHandled: () => markReaderSurfaceTapHandled(element, event)")
 		assertContains(surfaceClick, "shouldSuppressReaderSurfaceClick(element, event)")
 		assertContains(surfaceClick, "event.preventDefault()")
 	}
@@ -191,13 +193,13 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\n  close()")
 		val onRelocate = bridgeText
 			.substringAfter("onRelocate(detail) {")
-			.substringBefore("\n  attachContentDocumentBehaviors")
+			.substringBefore("\n  cancelPendingCommittedRelocation")
 
 		assertContains(bridgeText, "lastRelocateDetail = null")
 		assertContains(bridgeText, "postLocationChanged(detail")
 		assertContains(bridgeText, "postCurrentLocationSnapshot('initial-resume')")
 		assertContains(onRelocate, "this.lastRelocateDetail = detail")
-		assertContains(onRelocate, "this.postLocationChanged(detail")
+		assertContains(onRelocate, "this.scheduleCommittedRelocation(detail)")
 		assertTrue(
 			openPublication.indexOf("post({ type: 'publicationReady' })") <
 				openPublication.indexOf("this.postCurrentLocationSnapshot('initial-resume')"),
@@ -238,11 +240,11 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "page = Number(renderer.page)")
 		assertContains(bridgeText, "pages = Number(renderer.pages)")
 		assertContains(bridgeText, "reflowable-section-pages:pending")
-		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 2)")
-		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2)))")
+		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 1)")
+		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
 		assertContains(bridgeText, "reflowableBookPageModel")
-		assertContains(bridgeText, "reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes, canonicalPageCount)")
+		assertContains(bridgeText, "reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes)")
 		assertContains(bridgeText, "Math.ceil(model.totalReadableSize / model.readableUnitsPerPage)")
 		assertContains(bridgeText, "this.reflowableBookPageModel = null")
 		assertContains(bridgeText, "reflowable-page-model:set")
@@ -251,23 +253,20 @@ class ReaderRuntimeShellProgressTest {
 			"Reflowable EPUB totals must not be estimated from the current section only, because that makes # / # change between chapters."
 		)
 		assertContains(bridgeText, "readerPageListPageCount()")
-		assertContains(bridgeText, "const canonicalPageCount = this.readerPageListPageCount()")
 		assertContains(bridgeText, "pageCountSource: 'page-list'")
 		assertContains(bridgeText, "pageCountSource: 'location'")
 		assertContains(bridgeText, "pageCountSource: model.source")
-		assertContains(bridgeText, "const prefersFallbackPageCount = pagePosition.pageCountSource === 'section'")
-		assertContains(bridgeText, "? 'page-list'")
-		assertContains(bridgeText, ": 'synthetic-location'")
 		assertFalse(
 			bridgeText.contains("this.reflowableBookPageModel.source !== 'rendered-section' && canUseRenderedSection"),
 			"Reflowable EPUB totals must not be upgraded from the currently rendered section, because normal relocation events may lack pageItem and then the denominator changes while reading."
 		)
-		assertFalse(
-			bridgeText.contains("Math.floor(page - 1)"),
-			"The first visible reflowable EPUB page must map to page 1, not page 2."
+		assertContains(
+			bridgeText,
+			"pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))",
+			message = "Foliate's 1-based section page must be converted to a zero-based page index after EPUB cover suppression."
 		)
 		assertContains(bridgeText, "readerPagePosition(detail)")
-		assertContains(bridgeText, "this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail)")
+		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail)")
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
 		assertContains(bridgeText, "dataset.navicPageNumberLayer")
 		assertContains(bridgeText, "return `${'$'}{currentPage} / ${'$'}{pageCount}`")
@@ -305,17 +304,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "pageCountSource: 'location'")
 		assertContains(
 			bridgeText,
-			"return this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()",
-			message = "Reflowable EPUB labels must prefer Foliate's stable book-level location total before page-list or section fallbacks."
+			"return this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()",
+			message = "Reflowable EPUB labels must prefer the stable whole-book model before location, page-list, or section fallbacks."
 		)
 		assertFalse(
 			bridgeText.contains("return this.readerPageListPosition(detail) || this.reflowableWholeBookPagePosition(detail)"),
 			"Reflowable EPUB labels must not opportunistically switch to sparse page-list totals."
-		)
-		assertContains(
-			bridgeText,
-			"const prefersFallbackPageCount = pagePosition.pageCountSource === 'section'",
-			message = "Only section fallback positions should inherit the previous book denominator."
 		)
 		assertFalse(
 			bridgeText.contains("const prefersOwnPageCount ="),

@@ -105,20 +105,19 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover() {
 		val bridgeText = readerBridgeText()
-		val handleTapZone = bridgeText
-			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
-			.substringBefore("\n  attachCenterTapGesture")
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
 		val canReturnToShellCover = bridgeText
 			.substringAfter("canReturnToShellCover() {")
 			.substringBefore("\n  applyReaderViewportLayout")
 
-		assertContains(bridgeText, "readerTargetInsideShellCover")
-		assertContains(
-			handleTapZone,
-			"if (!readerTargetInsideShellCover(event.target) && isInteractiveReaderTarget(event.target)) {",
-			message = "Cover image taps must not be rejected as generic image/media taps."
+		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
+		assertContains(readerScreenText, "onPageTurn = { command ->")
+		assertContains(readerScreenText, "dispatchReaderCommand(command)")
+		assertFalse(
+			runtimeText.contains("readerTargetInsideShellCover") || runtimeText.contains("isInteractiveReaderTarget"),
+			"Cover image taps must be owned above the WebView, not special-cased inside content hit testing."
 		)
-		assertContains(handleTapZone, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(
 			canReturnToShellCover,
 			"const firstContent = Number(this.firstReadableContentTarget())",
@@ -166,7 +165,7 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val applySettings = bridgeText
 			.substringAfter("applySettings(settings) {")
-			.substringBefore("\n  updateTapZoneOverlay")
+			.substringBefore("\n  applyThemeToLoadedContent")
 
 		assertFalse(
 			applySettings.contains("readerPagePosition("),
@@ -224,19 +223,15 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun androidReaderDoesNotNavigateImageAnchorsWhenTogglingSepiaOverlay() {
 		val bridgeText = readerBridgeText()
-		val interactiveTarget = bridgeText
-			.substringAfter("const isInteractiveReaderTarget = target =>")
-			.substringBefore("\n\nconst stableHash")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 		val sepiaToggle = bridgeText
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
-			.substringBefore("\n  readerTapZone")
+			.substringBefore("\n  effectiveReaderDirection")
 
 		assertContains(bridgeText, "const isReaderMediaAnchor =")
 		assertContains(bridgeText, "const isReaderMediaTapTarget =")
-		assertContains(interactiveTarget, "readerMediaSelector")
 		assertContains(linkNavigation, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(linkNavigation, "if (mediaTapTarget) {")
 		assertContains(linkNavigation, "event.preventDefault()")
@@ -258,29 +253,29 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderLetsPageTurnZonesWinOverImageTintToggles() {
+	fun androidReaderLetsNativePageTurnOverlayWinOverImageTintToggles() {
 		val bridgeText = readerBridgeText()
-		val handleTapZone = bridgeText
-			.substringAfter("async handleReaderTapZone(event, doc, source = 'tap') {")
-			.substringBefore("\n  attachCenterTapGesture")
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val nativeOverlay = readerScreenText
+			.substringAfter("private fun ReaderNativeTapOverlay(")
+			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 		val sepiaToggle = bridgeText
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
-			.substringBefore("\n  readerTapSurfaceRect")
+			.substringBefore("\n  effectiveReaderDirection")
 
-		assertContains(bridgeText, "const readerTapZoneIsPageTurn = tapZone =>")
-		assertContains(bridgeText, "readerTapZoneWouldTurnPage(event, doc)")
-		assertContains(handleTapZone, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
-		assertContains(handleTapZone, "if (!mediaTapTarget || !this.readerTapZoneWouldTurnPage(event, doc)) return false")
-		assertTrue(
-			linkNavigation.indexOf("if (this.readerTapZoneWouldTurnPage(event, doc)) return") <
-				linkNavigation.indexOf("const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)"),
-			"Media anchors must yield to reader page-turn zones before tint toggles can consume the click."
+		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
+		assertContains(nativeOverlay, "down.consume()")
+		assertContains(nativeOverlay, "onPageTurn(command)")
+		assertContains(linkNavigation, "const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)")
+		assertContains(sepiaToggle, "this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)")
+		assertFalse(
+			runtimeText.contains("readerTapZoneWouldTurnPage") || runtimeText.contains("handleReaderTapZone"),
+			"Image/link JavaScript must not arbitrate page-turn zones after native overlay ownership."
 		)
-		assertContains(sepiaToggle, "if (this.readerTapZoneWouldTurnPage(tapEvent, doc)) return")
-		assertContains(sepiaToggle, "if (this.readerTapZoneWouldTurnPage(event, doc)) return")
 	}
 
 	@Test
@@ -291,7 +286,7 @@ class ReaderRuntimeImageLinkTest {
 			.substringBefore("\n  classifyReaderLinks")
 		val sepiaToggle = bridgeText
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
-			.substringBefore("\n  readerTapZone")
+			.substringBefore("\n  effectiveReaderDirection")
 
 		assertContains(bridgeText, "toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(sepiaToggle, "touchstart")

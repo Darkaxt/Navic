@@ -66,37 +66,31 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderNormalizesTapZonesAgainstRootReaderSurfaceLikeKomikku() {
-		val bridgeText = readerBridgeText()
-		val readerTapZoneResult = bridgeText
-			.substringAfter("readerTapZoneResult(event, doc) {")
-			.substringBefore("\n  readerTapZone(event, doc) {")
-		val readerTapZone = bridgeText
-			.substringAfter("readerTapZone(event, doc) {")
-			.substringBefore("\n  readerTapZoneWouldTurnPage")
+	fun androidReaderNormalizesTapZonesInNativeOverlayLikeKomikku() {
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerScreenText = readerScreenFile().readText()
+		val nativeOverlay = readerScreenText
+			.substringAfter("private fun ReaderNativeTapOverlay(")
+			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
 
-		assertContains(bridgeText, "readerRootTapPoint")
-		assertContains(bridgeText, "const frameElement = win?.frameElement")
-		assertContains(bridgeText, "const frameRect = frameElement?.getBoundingClientRect?.()")
-		assertContains(bridgeText, "const surfaceRect = this.readerTapSurfaceRect()")
-		assertContains(readerTapZoneResult, "const point = readerRootTapPoint(event, doc)")
-		assertContains(readerTapZoneResult, "const surfaceRect = this.readerTapSurfaceRect()")
-		assertContains(readerTapZoneResult, "(point.x - surfaceRect.left) / surfaceRect.width")
-		assertContains(readerTapZoneResult, "(point.y - surfaceRect.top) / surfaceRect.height")
-		assertContains(readerTapZone, "tap-zone")
+		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
+		assertContains(nativeOverlay, "down.position.x / width")
+		assertContains(nativeOverlay, "down.position.y / height")
+		assertContains(nativeOverlay, "readerTapZoneActionAt(")
+		assertContains(nativeOverlay, "readerTapZonePageTurnCommand(action, settings.direction)")
 		assertFalse(
-			readerTapZoneResult.contains("win.innerWidth") || readerTapZoneResult.contains("doc?.documentElement?.clientWidth"),
-			"Tap-zone dispatch must normalize against the root reader surface, not a Foliate iframe document viewport."
+			runtimeText.contains("readerTapSurfaceRect") || runtimeText.contains("readerRootTapPoint"),
+			"Reader-wide tap-zone dispatch must normalize in the native overlay, not in Foliate iframe/WebView JavaScript."
 		)
 		assertFalse(
-			readerTapZoneResult.contains("const x = event.clientX") || readerTapZoneResult.contains("const y = event.clientY"),
-			"Iframe taps must be translated through their frame rect before navigation regions are evaluated."
+			runtimeText.contains("readerTapZoneResult") || runtimeText.contains("tap-zone"),
+			"WebView JavaScript must not own reader-wide tap-zone classification."
 		)
 	}
 
 	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
-		val bridgeText = readerBridgeText()
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -104,8 +98,8 @@ class ReaderRuntimeSettingsBridgeTest {
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
-		assertContains(bridgeText, "settings.smallerTapZone === true")
-		assertContains(bridgeText, "this.smallerTapZone = settings.smallerTapZone === true")
+		assertContains(runtimeText, "settings.smallerTapZone === true")
+		assertContains(runtimeText, "this.smallerTapZone = settings.smallerTapZone === true")
 		assertContains(readerOptionsPanelText, "Smaller tap zones")
 		assertContains(readerOptionsPanelText, "toggleSmallerTapZone()")
 		assertContains(ebooksSettingsText, "readerSmallerTapZone")
@@ -119,7 +113,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 	@Test
 	fun androidReaderExposesVisibleTapZoneOverlayControl() {
-		val bridgeText = readerBridgeText()
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -128,11 +122,14 @@ class ReaderRuntimeSettingsBridgeTest {
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 
-		assertContains(bridgeText, "ReaderTapZoneOverlayLayerSelector")
-		assertContains(bridgeText, "updateTapZoneOverlayLayer")
-		assertContains(bridgeText, "settings.showTapZones === true")
-		assertContains(bridgeText, "komikkuNavigationRegions(")
-		assertContains(bridgeText, "pointer-events': 'none'")
+		assertContains(readerScreenText, "ReaderNativeTapZoneDebugOverlay")
+		assertContains(readerScreenText, "settings.showTapZones == true")
+		assertContains(readerScreenText, "readerTapZoneRegions(")
+		assertContains(readerScreenText, "drawRect(")
+		assertFalse(
+			runtimeText.contains("updateTapZoneOverlayLayer") || runtimeText.contains("settings.showTapZones === true"),
+			"Visible tap-zone diagnostics must be rendered by the native overlay above the WebView."
+		)
 		assertContains(readerOptionsPanelText, "Show tap zones")
 		assertContains(readerOptionsPanelText, "toggleShowTapZones()")
 		assertContains(ebooksSettingsText, "readerShowTapZones")
