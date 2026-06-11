@@ -244,6 +244,36 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun coverHrefUsesVersionRowBookFileIdWhenManifestHasNoReadingOrder() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:book-1",
+			title = "Book",
+			images = listOf(BinderyLink(href = "/opds/books/book-1/cover")),
+			readingOrder = emptyList()
+		)
+		val findings = BinderyCatalog(
+			title = "Findings",
+			publications = listOf(
+				findingPublication(
+					findingId = "match",
+					bookId = "book-1",
+					bookFileId = "file-one",
+					coverUrl = "/opds/findings/match/cover"
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/findings/match/cover",
+			binderyAudiobookCoverHref(
+				manifest = manifest,
+				versionRowId = "audiobook:file-one",
+				findingsCatalog = findings
+			)
+		)
+	}
+
+	@Test
 	fun coverHrefFallsBackToFindingPublicationImageThenBookCover() {
 		val manifest = BinderyManifest(
 			id = "book-1",
