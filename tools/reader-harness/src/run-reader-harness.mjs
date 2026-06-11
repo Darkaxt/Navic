@@ -3,7 +3,15 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { assertBridgePostType, assertNoConsoleErrors, assertTraceType } from './reader-trace-assertions.mjs'
+import {
+  assertBridgePostType,
+  assertFirstVisibleLocationStartsAtZero,
+  assertForwardPageIndexesDoNotRegress,
+  assertNoConsoleErrors,
+  assertNoConsecutiveDuplicateLocations,
+  assertNoConsecutiveDuplicateVisiblePageLabels,
+  assertTraceType,
+} from './reader-trace-assertions.mjs'
 import { startReaderAssetServer } from './serve-reader-assets.mjs'
 
 const currentFile = fileURLToPath(import.meta.url)
@@ -18,6 +26,13 @@ const mode = modeArgIndex >= 0 ? process.argv[modeArgIndex + 1] : 'smoke'
 const argValue = name => {
   const index = process.argv.indexOf(name)
   return index >= 0 ? process.argv[index + 1] : null
+}
+
+const phoneViewport = {
+  viewport: { width: 393, height: 873 },
+  deviceScaleFactor: 3,
+  isMobile: true,
+  hasTouch: true,
 }
 
 if (mode === 'serve-smoke') {
@@ -45,12 +60,7 @@ if (mode === 'trace-smoke') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1500, height: 2000 },
-      deviceScaleFactor: 1,
-      isMobile: true,
-      hasTouch: true,
-    })
+    const page = await browser.newPage(phoneViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -94,12 +104,7 @@ if (mode === 'epub-frontmatter') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1500, height: 2000 },
-      deviceScaleFactor: 1,
-      isMobile: true,
-      hasTouch: true,
-    })
+    const page = await browser.newPage(phoneViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -154,13 +159,6 @@ if (mode === 'epub-frontmatter') {
       messages: window.__navicReaderPostedMessages || [],
       rootDataset: { ...document.body.dataset },
     }))
-    assertNoConsoleErrors(errors)
-    assertTraceType(result.trace, 'runtime:ready')
-    assertTraceType(result.trace, 'relocate:raw')
-    assertTraceType(result.trace, 'texture:update')
-    assertBridgePostType(result.messages, 'publicationReady')
-    assertBridgePostType(result.messages, 'locationChanged')
-
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
     fs.mkdirSync(outputDir, { recursive: true })
     const outputPath = path.join(outputDir, 'epub-frontmatter.trace.json')
@@ -169,6 +167,17 @@ if (mode === 'epub-frontmatter') {
       generatedAt: new Date().toISOString(),
       ...result,
     }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertTraceType(result.trace, 'runtime:ready')
+    assertTraceType(result.trace, 'relocate:raw')
+    assertTraceType(result.trace, 'texture:update')
+    assertBridgePostType(result.messages, 'publicationReady')
+    assertBridgePostType(result.messages, 'locationChanged')
+    assertFirstVisibleLocationStartsAtZero(result.messages)
+    assertNoConsecutiveDuplicateLocations(result.messages)
+    assertNoConsecutiveDuplicateVisiblePageLabels(result.messages)
+    assertForwardPageIndexesDoNotRegress(result.messages)
+
     console.log(`reader harness epub-frontmatter passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))

@@ -40,6 +40,7 @@ const ReaderFontSourceSystem = 'system'
 const ReaderFontSourcePublisher = 'publisher'
 const ReaderReflowableReadableUnitsPerSyntheticPage = 1500
 const ReaderReflowableStartProgressPageOffsetThreshold = 0.006
+const ReaderReflowableProgressEpsilon = 0.0000001
 const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-1.png',
   'paper-textures/paper-texture-2.png',
@@ -109,6 +110,14 @@ const readerTrace = (type, payload = {}) => {
     payload: readerTraceValue(payload),
   })
 }
+
+const readerLocationPostKey = message => [
+  message?.href || '',
+  message?.cfi || '',
+  Number.isFinite(message?.pageIndex) ? message.pageIndex : '',
+  Number.isFinite(message?.pageCount) ? message.pageCount : '',
+  message?.tocTitle || '',
+].join('|')
 
 const describeUrl = url => {
   try {
@@ -1125,12 +1134,14 @@ class NavicReaderRuntime {
   shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
+  lastPostedLocationKey = null
   reflowableBookPageModel = null
   reflowablePageIndexOffset = null
   reflowableLastLocationSignature = null
   reflowableLastLocationPageIndex = null
   reflowableLastLocationSectionIndex = null
   reflowableLastLocationProgressBucket = null
+  reflowableLastLocationProgress = null
   lastRelocateDetail = null
   pageTurnPromise = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
@@ -1252,12 +1263,14 @@ class NavicReaderRuntime {
     this.pageNumberLayer?.remove?.()
     this.pageNumberLayer = null
     this.currentPagePosition = null
+    this.lastPostedLocationKey = null
     this.reflowableBookPageModel = null
     this.reflowablePageIndexOffset = null
     this.reflowableLastLocationSignature = null
     this.reflowableLastLocationPageIndex = null
     this.reflowableLastLocationSectionIndex = null
     this.reflowableLastLocationProgressBucket = null
+    this.reflowableLastLocationProgress = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
     this.surfacePaperTextureBaseOffset = 0
@@ -2179,7 +2192,7 @@ class NavicReaderRuntime {
     const clampedProgress = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : null
     const progressPageIndex = Number.isFinite(clampedProgress) ? Math.floor(clampedProgress * pageCount) : null
     const locationPageIndex = Number(location?.current)
-    let pageIndex = Number.isFinite(progressPageIndex) ? progressPageIndex : locationPageIndex
+    let pageIndex = Number.isFinite(locationPageIndex) ? locationPageIndex : progressPageIndex
     if (!Number.isFinite(pageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) return null
     pageIndex = Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex)))
 
@@ -2202,25 +2215,45 @@ class NavicReaderRuntime {
     const previousProgressBucket = this.reflowableLastLocationProgressBucket == null
       ? null
       : Number(this.reflowableLastLocationProgressBucket)
+    const previousProgress = this.reflowableLastLocationProgress == null
+      ? null
+      : Number(this.reflowableLastLocationProgress)
     const signatureChanged = signature !== this.reflowableLastLocationSignature
     const sameSection =
       Number.isFinite(sectionIndex) &&
       Number.isFinite(previousSectionIndex) &&
       Math.floor(sectionIndex) === previousSectionIndex
-    const progressedWithinSection =
+    const advancedProgressWithinSection =
+      sameSection &&
+      Number.isFinite(clampedProgress) &&
+      Number.isFinite(previousProgress) &&
+      clampedProgress > previousProgress + ReaderReflowableProgressEpsilon
+    const progressedToNewBucketWithinSection =
       sameSection &&
       Number.isFinite(progressBucket) &&
       Number.isFinite(previousProgressBucket) &&
       progressBucket > previousProgressBucket
+    const progressDidNotMoveBackward =
+      !Number.isFinite(clampedProgress) ||
+      !Number.isFinite(previousProgress) ||
+      clampedProgress >= previousProgress - ReaderReflowableProgressEpsilon
     const advancedToLaterSection =
       Number.isFinite(sectionIndex) &&
       Number.isFinite(previousSectionIndex) &&
       Math.floor(sectionIndex) > previousSectionIndex
     if (
+      sameSection &&
+      Number.isFinite(previousPageIndex) &&
+      pageIndex < previousPageIndex &&
+      progressDidNotMoveBackward
+    ) {
+      pageIndex = previousPageIndex
+    }
+    if (
       signatureChanged &&
       Number.isFinite(previousPageIndex) &&
       pageIndex <= previousPageIndex &&
-      (progressedWithinSection || advancedToLaterSection)
+      (advancedProgressWithinSection || progressedToNewBucketWithinSection || advancedToLaterSection)
     ) {
       pageIndex = previousPageIndex + 1
     }
@@ -2229,6 +2262,7 @@ class NavicReaderRuntime {
     this.reflowableLastLocationPageIndex = pageIndex
     this.reflowableLastLocationSectionIndex = Number.isFinite(sectionIndex) ? Math.floor(sectionIndex) : null
     this.reflowableLastLocationProgressBucket = Number.isFinite(progressBucket) ? Math.floor(progressBucket) : null
+    this.reflowableLastLocationProgress = Number.isFinite(clampedProgress) ? clampedProgress : null
     return this.normalizedReflowablePagePosition({
       pageIndex,
       pageCount: Math.floor(pageCount),
@@ -2800,6 +2834,13 @@ class NavicReaderRuntime {
       pageCount: pagePosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
     }
+    const locationKey = readerLocationPostKey(message)
+    if (locationKey === this.lastPostedLocationKey) {
+      log('location-changed:duplicate-skipped', reason)
+      readerTrace('location:duplicate-skipped', { reason, message })
+      return
+    }
+    this.lastPostedLocationKey = locationKey
     readerTrace('location:post', { reason, message })
     post(message)
     log('location-changed:posted', reason)
