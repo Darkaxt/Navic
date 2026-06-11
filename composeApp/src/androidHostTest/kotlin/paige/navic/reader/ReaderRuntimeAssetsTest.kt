@@ -558,6 +558,39 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderUsesShellCoverInsteadOfNumberingTheEpubCoverPage() {
+		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(bridgeText, "ReaderShellCoverLayerSelector")
+		assertContains(bridgeText, "ensureReaderShellCoverLayer")
+		assertContains(bridgeText, "loadShellCover")
+		assertContains(bridgeText, "book.getCover?.()")
+		assertContains(bridgeText, "firstReadableContentTarget")
+		assertContains(bridgeText, "showShellCover")
+		assertContains(bridgeText, "hideShellCover")
+		assertContains(bridgeText, "this.shellCoverVisible")
+		assertContains(
+			bridgeText,
+			"if (this.shellCoverVisible) {",
+			message = "The organic page number layer must be suppressed while the shell cover is visible."
+		)
+		assertContains(
+			bridgeText,
+			"if (this.shellCoverVisible && direction === 'next')",
+			message = "Next from the shell cover should reveal the first real content page instead of advancing twice."
+		)
+		assertContains(
+			bridgeText,
+			"if (direction === 'previous' && this.canReturnToShellCover())",
+			message = "Previous from the first real content page should return to the shell cover surface."
+		)
+		assertFalse(
+			bridgeText.contains("classifyReaderCoverDocument"),
+			"Shell-cover support must not reintroduce EPUB iframe cover classification."
+		)
+	}
+
+	@Test
 	fun androidReaderStylesEbookHyperlinksAsInlineFastForwardAffordances() {
 		val bridgeText = readerAssetRoot().resolve("navic-reader.js").readText()
 

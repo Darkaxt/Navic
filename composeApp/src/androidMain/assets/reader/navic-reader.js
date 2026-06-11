@@ -7,6 +7,7 @@ const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-textur
 const ReaderSurfacePageBorderOverlayLayerSelector = '[data-navic-surface-page-border-overlay-layer="true"]'
 const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
 const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="true"]'
+const ReaderShellCoverLayerSelector = '[data-navic-shell-cover-layer="true"]'
 const ReaderThemeLight = 'light'
 const ReaderThemeSepia = 'sepia'
 const ScrollEdgeTurnSwipeThreshold = 60
@@ -15,6 +16,7 @@ const FixedLayoutSurfaceSwipeThreshold = 56
 const CenterTapMovementSlop = 12
 const CenterTapSyntheticClickDedupeMs = 650
 const ReaderMediaSyntheticClickSuppressMs = 1200
+const ReaderShellCoverTransitionMs = 280
 const ReaderTapZoneDefault = 'default'
 const ReaderTapZoneEdge = 'edge'
 const ReaderTapZoneKindle = 'kindle'
@@ -473,6 +475,33 @@ const komikkuTapAction = (
 
 const readerAssetUrl = path => new URL(path, document.baseURI).href
 
+const readerTokenText = value => {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value.map(readerTokenText).join(' ')
+  if (typeof value === 'object') return Object.values(value).map(readerTokenText).join(' ')
+  return String(value)
+}
+
+const readerSectionTokenText = section =>
+  [
+    section?.id,
+    section?.href,
+    section?.label,
+    section?.title,
+    section?.type,
+    section?.properties,
+  ].map(readerTokenText).filter(Boolean).join(' ')
+
+const readerSectionLooksLikeCover = (section, index = 0) => {
+  const tokens = readerSectionTokenText(section).toLowerCase()
+  if (!tokens) return false
+  return /(^|[\s._/-])cover([\s._/-]|$)|cover-image|coverpage|cover.xhtml|frontcover/.test(tokens) ||
+    (index === 0 && /cover/.test(tokens))
+}
+
+const readerSectionIsReadable = section =>
+  Boolean(section) && section.linear !== 'no'
+
 const isInteractiveReaderTarget = target =>
   Boolean(closestElement(target, `a,button,input,textarea,select,summary,[role="button"],${readerMediaSelector}`))
 
@@ -704,6 +733,81 @@ const ensureReaderPageNumberLayer = () => {
     readerRoot.append(layer)
   }
   return layer
+}
+
+const ensureReaderShellCoverLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderShellCoverLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicShellCoverLayer = 'true'
+    layer.setAttribute('aria-label', 'Book cover')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+const ensureReaderShellCoverImage = layer => {
+  let image = layer?.querySelector?.('[data-navic-shell-cover-image="true"]')
+  if (!image) {
+    image = document.createElement('img')
+    image.dataset.navicShellCoverImage = 'true'
+    image.decoding = 'async'
+    image.loading = 'eager'
+    layer.replaceChildren(image)
+  }
+  return image
+}
+
+const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {
+  if (!layer || !coverUrl) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  const palette = readerThemePalette(settings?.theme)
+  const image = ensureReaderShellCoverImage(layer)
+  if (image.getAttribute('src') !== coverUrl) image.setAttribute('src', coverUrl)
+  image.setAttribute('alt', title || 'Book cover')
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    'z-index': '2147483643',
+    display: 'flex',
+    'align-items': 'center',
+    'justify-content': 'center',
+    overflow: 'hidden',
+    background: palette.background,
+    'background-color': palette.background,
+    color: palette.foreground,
+    padding: 'max(2.5rem, env(safe-area-inset-top, 0px)) 2.25rem max(3rem, env(safe-area-inset-bottom, 0px))',
+    'box-sizing': 'border-box',
+    opacity: '1',
+    transform: 'translateX(0) scale(1)',
+    'transform-origin': 'center',
+    transition: `opacity ${ReaderShellCoverTransitionMs}ms ease, transform ${ReaderShellCoverTransitionMs}ms ease`,
+    'pointer-events': 'auto',
+    'touch-action': 'manipulation',
+  })
+  setStylesImportant(image, {
+    display: 'block',
+    width: 'auto',
+    height: '100%',
+    'max-width': '100%',
+    'max-height': '100%',
+    'object-fit': 'contain',
+    'object-position': 'center center',
+    background: 'transparent',
+    'background-color': 'transparent',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    'box-shadow': readerThemeKey(settings?.theme) === 'black'
+      ? 'none'
+      : '0 1.25rem 4rem color-mix(in srgb, var(--reader-foreground) 18%, transparent)',
+  })
 }
 
 const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) => {
@@ -957,6 +1061,10 @@ class NavicReaderRuntime {
   surfacePaperTextureScrollListener = null
   tapZoneOverlayLayer = null
   pageNumberLayer = null
+  shellCoverLayer = null
+  shellCoverBlobUrl = null
+  shellCoverVisible = false
+  shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
   reflowableBookPageModel = null
@@ -1033,6 +1141,8 @@ class NavicReaderRuntime {
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
+      const shouldStartAtShellCover = !readerStartLocatorHasPosition(startLocator)
+      const shellCoverUrl = shouldStartAtShellCover ? await this.loadShellCover() : null
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
@@ -1040,11 +1150,14 @@ class NavicReaderRuntime {
         await this.view.goTo(locator)
       } else if (Number.isFinite(progress)) {
         await this.goToProgress(progress)
+      } else if (shellCoverUrl) {
+        await this.goToFirstReadableContent()
       } else {
         await this.view.init?.({ showTextStart: true })
       }
       this.attachSurfaceTapGesture(this.view)
       this.updateSurfacePaperTexture(this.lastRelocateDetail || {})
+      if (shellCoverUrl) this.showShellCover()
       log('openPublication:ready', describeUrl(url))
       this.applyReaderViewportLayout('ready')
       this.logContentLayout('ready')
@@ -1060,6 +1173,7 @@ class NavicReaderRuntime {
 
   close() {
     this.clearOverlay()
+    this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
     this.view?.close?.()
     this.view?.remove?.()
@@ -1089,6 +1203,143 @@ class NavicReaderRuntime {
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.lastRelocateDetail = null
+  }
+
+  clearShellCover({ revoke = true } = {}) {
+    if (this.shellCoverHideTimer) {
+      clearTimeout(this.shellCoverHideTimer)
+      this.shellCoverHideTimer = null
+    }
+    this.shellCoverVisible = false
+    this.shellCoverLayer?.remove?.()
+    this.shellCoverLayer = null
+    delete readerRoot.dataset.navicShellCoverVisible
+    if (revoke && this.shellCoverBlobUrl) {
+      URL.revokeObjectURL(this.shellCoverBlobUrl)
+      this.shellCoverBlobUrl = null
+    }
+  }
+
+  async loadShellCover() {
+    if (this.shellCoverBlobUrl) {
+      URL.revokeObjectURL(this.shellCoverBlobUrl)
+      this.shellCoverBlobUrl = null
+    }
+    try {
+      const book = this.view?.book
+      const blob = await book.getCover?.()
+      if (!blob) {
+        log('shell-cover:missing')
+        return null
+      }
+      this.shellCoverBlobUrl = URL.createObjectURL(blob)
+      log('shell-cover:loaded', blob.type || 'blob', blob.size || 0)
+      return this.shellCoverBlobUrl
+    } catch (error) {
+      logError('shell-cover:load-failed', error?.message || error)
+      return null
+    }
+  }
+
+  firstReadableContentTarget() {
+    const sections = Array.from(this.view?.book?.sections || [])
+    if (!sections.length) return null
+    const firstNonCover = sections.findIndex((section, index) =>
+      readerSectionIsReadable(section) && !readerSectionLooksLikeCover(section, index)
+    )
+    if (firstNonCover >= 0) return firstNonCover
+    const firstReadable = sections.findIndex(readerSectionIsReadable)
+    return firstReadable >= 0 ? firstReadable : 0
+  }
+
+  async goToFirstReadableContent() {
+    const target = this.firstReadableContentTarget()
+    if (target == null) {
+      await this.view?.init?.({ showTextStart: true })
+      return
+    }
+    log('shell-cover:first-readable', target)
+    await this.view?.goTo?.(target)
+  }
+
+  showShellCover({ animate = true } = {}) {
+    if (!this.shellCoverBlobUrl) return false
+    if (this.shellCoverHideTimer) {
+      clearTimeout(this.shellCoverHideTimer)
+      this.shellCoverHideTimer = null
+    }
+    this.shellCoverVisible = true
+    readerRoot.dataset.navicShellCoverVisible = 'true'
+    this.pageNumberLayer?.remove?.()
+    this.pageNumberLayer = null
+    this.shellCoverLayer = this.shellCoverLayer && readerRoot.contains(this.shellCoverLayer)
+      ? this.shellCoverLayer
+      : ensureReaderShellCoverLayer()
+    updateReaderShellCoverLayer(
+      this.shellCoverLayer,
+      this.shellCoverBlobUrl,
+      this.readerSettings,
+      this.view?.book?.metadata?.title || ''
+    )
+    this.attachSurfaceTapGesture(this.shellCoverLayer)
+    this.shellCoverLayer.dataset.navicShellCoverState = animate ? 'entering' : 'visible'
+    if (animate) {
+      setStylesImportant(this.shellCoverLayer, {
+        opacity: '0',
+        transform: 'translateX(4%) scale(0.985)',
+      })
+      requestAnimationFrame(() => {
+        if (!this.shellCoverVisible || !this.shellCoverLayer) return
+        this.shellCoverLayer.dataset.navicShellCoverState = 'visible'
+        setStylesImportant(this.shellCoverLayer, {
+          opacity: '1',
+          transform: 'translateX(0) scale(1)',
+          'pointer-events': 'auto',
+        })
+      })
+    }
+    log('shell-cover:show', animate ? 'animated' : 'static')
+    return true
+  }
+
+  hideShellCover({ animate = true } = {}) {
+    if (!this.shellCoverVisible && !this.shellCoverLayer) return false
+    this.shellCoverVisible = false
+    delete readerRoot.dataset.navicShellCoverVisible
+    const layer = this.shellCoverLayer
+    const finish = () => {
+      if (this.shellCoverVisible || this.shellCoverLayer !== layer) return
+      layer?.remove?.()
+      this.shellCoverLayer = null
+      this.updateReaderPageNumberLayer()
+    }
+    if (layer && animate) {
+      layer.dataset.navicShellCoverState = 'exiting'
+      setStylesImportant(layer, {
+        opacity: '0',
+        transform: 'translateX(-8%) scale(1.018)',
+        'pointer-events': 'none',
+      })
+      this.shellCoverHideTimer = setTimeout(() => {
+        this.shellCoverHideTimer = null
+        finish()
+      }, ReaderShellCoverTransitionMs + 40)
+    } else {
+      finish()
+    }
+    log('shell-cover:hide', animate ? 'animated' : 'static')
+    return true
+  }
+
+  canReturnToShellCover() {
+    if (!this.shellCoverBlobUrl || this.shellCoverVisible) return false
+    const pageIndex = Number(this.currentPagePosition?.pageIndex)
+    if (Number.isFinite(pageIndex)) return pageIndex <= 0
+    const sectionIndex = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
+    const firstContent = Number(this.firstReadableContentTarget())
+    return Number.isFinite(sectionIndex) &&
+      Number.isFinite(firstContent) &&
+      Math.floor(sectionIndex) <= firstContent
   }
 
   applyReaderViewportLayout(label = 'unknown') {
@@ -1136,6 +1387,14 @@ class NavicReaderRuntime {
       overflow: fixedLayout ? 'auto' : 'hidden',
     })
     if (renderer) requestAnimationFrame(() => renderer?.render?.())
+    if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
+      updateReaderShellCoverLayer(
+        this.shellCoverLayer,
+        this.shellCoverBlobUrl,
+        this.readerSettings,
+        this.view?.book?.metadata?.title || ''
+      )
+    }
     this.renderSurfacePaperTextureLayers()
     this.updateTapZoneOverlay()
     log('viewport-layout', `label=${label}`, `${width}x${height}`)
@@ -1220,6 +1479,20 @@ class NavicReaderRuntime {
   }
 
   async turnPage(direction) {
+    if (this.shellCoverVisible && direction === 'next') {
+      log('page-turn:shell-cover-hide', direction)
+      this.hideShellCover()
+      return
+    }
+    if (this.shellCoverVisible && direction === 'previous') {
+      log('page-turn:shell-cover-boundary', direction)
+      return
+    }
+    if (direction === 'previous' && this.canReturnToShellCover()) {
+      log('page-turn:shell-cover-return', direction)
+      this.showShellCover()
+      return
+    }
     if (this.pageTurnPromise) {
       log('page-turn:coalesced', direction)
       return this.pageTurnPromise
@@ -1973,6 +2246,11 @@ class NavicReaderRuntime {
   updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     const pageNumberPosition = readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)
     this.currentPagePosition = pageNumberPosition || null
+    if (this.shellCoverVisible) {
+      this.pageNumberLayer?.remove?.()
+      this.pageNumberLayer = null
+      return
+    }
     const label = readerPageNumberLabel(pageNumberPosition)
     if (!label) {
       this.pageNumberLayer?.remove?.()
@@ -2058,6 +2336,14 @@ class NavicReaderRuntime {
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
     this.updateSurfacePaperTexture()
+    if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
+      updateReaderShellCoverLayer(
+        this.shellCoverLayer,
+        this.shellCoverBlobUrl,
+        settings,
+        this.view?.book?.metadata?.title || ''
+      )
+    }
     this.scheduleReaderPageNumberRefresh('settings')
     this.updateTapZoneOverlay()
   }
