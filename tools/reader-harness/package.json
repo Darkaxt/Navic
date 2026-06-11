@@ -1,0 +1,11 @@
+{
+  "name": "navic-reader-harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node src/run-reader-harness.mjs --mode smoke"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

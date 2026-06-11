@@ -84,6 +84,32 @@ const ReaderThemePalettes = {
 const log = (label, ...details) => console.debug('[NavicReader]', label, ...details)
 const logError = (label, ...details) => console.error('[NavicReader]', label, ...details)
 
+const readerTraceValue = (value, depth = 0) => {
+  if (value === null || value === undefined) return value
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (depth >= 2) return String(value)
+  if (Array.isArray(value)) return value.slice(0, 12).map(item => readerTraceValue(item, depth + 1))
+  if (typeof value === 'object') {
+    const result = {}
+    for (const [key, entry] of Object.entries(value).slice(0, 24)) {
+      if (typeof entry === 'function') continue
+      result[key] = readerTraceValue(entry, depth + 1)
+    }
+    return result
+  }
+  return String(value)
+}
+
+const readerTrace = (type, payload = {}) => {
+  const trace = window.__navicReaderTrace
+  if (!trace || typeof trace.push !== 'function') return
+  trace.push({
+    type,
+    timestamp: Date.now(),
+    payload: readerTraceValue(payload),
+  })
+}
+
 const describeUrl = url => {
   try {
     const parsed = new URL(url)
@@ -2671,6 +2697,14 @@ class NavicReaderRuntime {
     readerRoot.dataset.navicSurfacePaperTextureAsset = textureVariant.asset
     readerRoot.dataset.navicSurfacePageBorderOverlayAsset = borderOverlayVariant.asset
     readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
+    readerTrace('texture:update', {
+      index,
+      key: textureKey,
+      baseAsset: textureVariant.asset,
+      borderAsset: borderOverlayVariant.asset,
+      baseOffset: this.surfacePaperTextureBaseOffset,
+      scrollOffset: this.surfaceTextureScrollOffset,
+    })
     this.renderSurfacePaperTextureLayers()
   }
 
@@ -2752,11 +2786,12 @@ class NavicReaderRuntime {
     if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
       this.updateReaderPageNumberLayer(null)
       log('location-changed:cover-skipped', reason)
+      readerTrace('location:cover-skipped', { reason, detail })
       return
     }
     const tocItem = detail.tocItem || {}
     const pagePosition = this.tryUpdateReaderPageNumberLayer(detail)
-    post({
+    const message = {
       type: 'locationChanged',
       href: detail.href || tocItem.href,
       cfi: detail.cfi,
@@ -2764,7 +2799,9 @@ class NavicReaderRuntime {
       pageIndex: pagePosition?.pageIndex,
       pageCount: pagePosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
-    })
+    }
+    readerTrace('location:post', { reason, message })
+    post(message)
     log('location-changed:posted', reason)
     if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
     if (tocItem.href || tocItem.label || tocItem.title) {
@@ -2773,6 +2810,7 @@ class NavicReaderRuntime {
   }
 
   onRelocate(detail) {
+    readerTrace('relocate:raw', detail)
     this.lastRelocateDetail = detail
     this.updateSurfacePaperTexture(detail)
     this.postLocationChanged(detail)
