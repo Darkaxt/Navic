@@ -157,6 +157,8 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 
+const ReaderRelocationCommitDelayMs = 180
+
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
@@ -184,6 +186,10 @@ class NavicReaderRuntime {
   pageNumberRefreshScheduled = false
   currentPagePosition = null
   lastPostedLocationKey = null
+  pendingRelocateDetail = null
+  pendingRelocateReason = 'relocate-committed'
+  relocatePostScheduled = false
+  relocatePostTimer = null
   reflowableBookPageModel = null
   reflowablePageIndexOffset = null
   reflowableLastLocationSignature = null
@@ -193,6 +199,7 @@ class NavicReaderRuntime {
   reflowableLastLocationProgress = null
   lastRelocateDetail = null
   pageTurnPromise = null
+  pageTurnInProgress = false
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -302,6 +309,7 @@ class NavicReaderRuntime {
     this.originalBookDir = null
     this.publicationUrl = ''
     this.pageTurnPromise = null
+    this.pageTurnInProgress = false
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
@@ -313,6 +321,13 @@ class NavicReaderRuntime {
     this.pageNumberLayer = null
     this.currentPagePosition = null
     this.lastPostedLocationKey = null
+    this.pendingRelocateDetail = null
+    this.pendingRelocateReason = 'relocate-committed'
+    this.relocatePostScheduled = false
+    if (this.relocatePostTimer != null) {
+      clearTimeout(this.relocatePostTimer)
+      this.relocatePostTimer = null
+    }
     this.reflowableBookPageModel = null
     this.reflowablePageIndexOffset = null
     this.reflowableLastLocationSignature = null
@@ -679,12 +694,15 @@ class NavicReaderRuntime {
       log('page-turn:coalesced', direction)
       return this.pageTurnPromise
     }
+    this.cancelPendingCommittedRelocation()
+    this.pageTurnInProgress = true
     const turnPromise = this.performPageTurn(direction)
     this.pageTurnPromise = turnPromise
     try {
       return await turnPromise
     } finally {
       if (this.pageTurnPromise === turnPromise) this.pageTurnPromise = null
+      this.pageTurnInProgress = false
     }
   }
 
@@ -704,6 +722,7 @@ class NavicReaderRuntime {
       this.applyReaderViewportLayout(`page-turn:${direction}`)
       requestAnimationFrame(() => {
         this.logContentLayout(`page-turn:${direction}`)
+        this.scheduleCommittedRelocation(this.lastRelocateDetail, `page-turn:${direction}`)
         log('page-turn:done', direction)
       })
     } catch (error) {
@@ -1224,10 +1243,10 @@ class NavicReaderRuntime {
       log('reflowable-section-pages:pending', error?.message || error)
       return null
     }
-    if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 2) return null
-    const pageCount = Math.max(1, Math.round(pages) - 2)
+    if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 1) return null
+    const pageCount = Math.max(1, Math.round(pages) - 1)
     return {
-      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 2))),
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1))),
       pageCount,
       pageCountSource: 'section',
     }
@@ -1351,26 +1370,27 @@ class NavicReaderRuntime {
     })
   }
 
-  reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes, canonicalPageCount = null) {
+  reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes) {
     const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
     if (!Number.isFinite(totalReadableSize) || totalReadableSize <= 0) return null
-    const pageListPageCount = Number(canonicalPageCount)
-    const pageCount = Number.isFinite(pageListPageCount) && pageListPageCount > 0
-      ? Math.floor(pageListPageCount)
-      : Math.max(
-        1,
-        Math.ceil(totalReadableSize / ReaderReflowableReadableUnitsPerSyntheticPage)
-      )
-    const readableUnitsPerPage = totalReadableSize / pageCount
+    const currentSectionSize = Number(sectionSizes[sectionIndex])
+    const currentSectionPageCount = Number(sectionPosition?.pageCount)
+    const hasVisualSectionMeasure =
+      Number.isFinite(currentSectionSize) &&
+      currentSectionSize > 0 &&
+      Number.isFinite(currentSectionPageCount) &&
+      currentSectionPageCount > 0
+    const source = hasVisualSectionMeasure ? 'visual-layout' : 'synthetic-location'
+    const readableUnitsPerPage = hasVisualSectionMeasure
+      ? currentSectionSize / currentSectionPageCount
+      : ReaderReflowableReadableUnitsPerSyntheticPage
     if (!Number.isFinite(readableUnitsPerPage) || readableUnitsPerPage <= 0) return null
-    const source = Number.isFinite(pageListPageCount) && pageListPageCount > 0
-      ? 'page-list'
-      : 'synthetic-location'
+    const pageCount = Math.max(1, Math.ceil(totalReadableSize / readableUnitsPerPage))
     const shouldSetModel =
       !this.reflowableBookPageModel ||
       this.reflowableBookPageModel.totalReadableSize !== totalReadableSize ||
-      this.reflowableBookPageModel.pageCount !== pageCount ||
-      this.reflowableBookPageModel.source !== source
+      this.reflowableBookPageModel.source !== source ||
+      (source !== 'visual-layout' && this.reflowableBookPageModel.pageCount !== pageCount)
     if (shouldSetModel) {
       this.reflowableBookPageModel = {
         source,
@@ -1425,8 +1445,7 @@ class NavicReaderRuntime {
     const sectionSizes = this.reflowableSectionSizes()
     if (!Number.isFinite(sectionIndex)) return null
     const normalizedSectionIndex = Math.max(0, Math.floor(sectionIndex))
-    const canonicalPageCount = this.readerPageListPageCount()
-    const model = this.reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes, canonicalPageCount)
+    const model = this.reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes)
     if (!model || !Number.isFinite(model.readableUnitsPerPage) || model.readableUnitsPerPage <= 0) return null
     const readableUnitsBeforeCurrentSection = sectionSizes
       .slice(0, normalizedSectionIndex)
@@ -1448,11 +1467,33 @@ class NavicReaderRuntime {
   }
 
   reflowablePagePosition(detail) {
-    return this.reflowableLocationPagePosition(detail) || this.reflowableWholeBookPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()
+    return this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()
   }
 
   readerPagePosition(detail) {
     return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition(detail)
+  }
+
+  committedPageTurnPosition(pagePosition, reason) {
+    if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
+    const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+    const candidatePageIndex = Number(pagePosition.pageIndex)
+    const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
+    if (!Number.isFinite(currentPageIndex) || !Number.isFinite(candidatePageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) {
+      return pagePosition
+    }
+    const direction = String(reason).includes(':previous') ? 'previous' : 'next'
+    const targetPageIndex = direction === 'previous'
+      ? currentPageIndex - 1
+      : currentPageIndex + 1
+    if (direction === 'next' && candidatePageIndex === targetPageIndex) return pagePosition
+    if (direction === 'previous' && candidatePageIndex === targetPageIndex) return pagePosition
+    return {
+      ...pagePosition,
+      pageIndex: Math.min(pageCount - 1, Math.max(0, targetPageIndex)),
+      pageCount,
+      pageCountSource: pagePosition.pageCountSource || 'page-turn',
+    }
   }
 
   readerPageNumberFontFamily(settings = this.readerSettings) {
@@ -1511,9 +1552,10 @@ class NavicReaderRuntime {
     })
   }
 
-  tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition) {
+  tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition, reason = '') {
     try {
-      const pagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
+      const candidatePagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
+      const pagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
       this.updateReaderPageNumberLayer(pagePosition)
       return pagePosition || null
     } catch (error) {
@@ -1874,7 +1916,7 @@ class NavicReaderRuntime {
       return
     }
     const tocItem = detail.tocItem || {}
-    const pagePosition = this.tryUpdateReaderPageNumberLayer(detail)
+    const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
     const message = {
       type: 'locationChanged',
       href: detail.href || tocItem.href,
@@ -1904,7 +1946,40 @@ class NavicReaderRuntime {
     readerTrace('relocate:raw', detail)
     this.lastRelocateDetail = detail
     this.updateSurfacePaperTexture(detail)
-    this.postLocationChanged(detail)
+    if (this.pageTurnInProgress || this.pageTurnPromise) return
+    this.scheduleCommittedRelocation(detail)
+  }
+
+  cancelPendingCommittedRelocation() {
+    this.pendingRelocateDetail = null
+    this.pendingRelocateReason = 'relocate-committed'
+    this.relocatePostScheduled = false
+    if (this.relocatePostTimer != null) {
+      clearTimeout(this.relocatePostTimer)
+      this.relocatePostTimer = null
+    }
+  }
+
+  scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
+    if (!detail) return
+    this.pendingRelocateDetail = detail
+    this.pendingRelocateReason = reason
+    if (this.relocatePostScheduled) return
+    this.relocatePostScheduled = true
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.relocatePostTimer = setTimeout(() => {
+          this.relocatePostTimer = null
+          this.relocatePostScheduled = false
+          const pendingDetail = this.pendingRelocateDetail
+          const pendingReason = this.pendingRelocateReason
+          this.pendingRelocateDetail = null
+          this.pendingRelocateReason = 'relocate-committed'
+          if (!pendingDetail) return
+          this.postLocationChanged(pendingDetail, pendingReason)
+        }, ReaderRelocationCommitDelayMs)
+      })
+    })
   }
 
   attachContentDocumentBehaviors(doc, index) {
