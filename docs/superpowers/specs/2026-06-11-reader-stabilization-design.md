@@ -172,7 +172,12 @@ Continue upgrading the reader in small deliverables:
 - PDF/image scaling, centering, and navigation polish.
 - Storyteller-generated readaloud EPUB support, including media overlays and audio metadata labels.
 - Colibrio-inspired synced audiobook/ebook media support where it maps cleanly to Navic's architecture.
-- Page-curl drag animation is lowest priority. If implemented later, it should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
+
+Lowest priority:
+
+- Page-curl drag animation and rotation-aware spread animation are deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, and readaloud/media support.
+- If implemented later, page-curl should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
+- Do not spend active stabilization time on the page-curl/spread animation until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
 
 ## Delivery Protocol
 
