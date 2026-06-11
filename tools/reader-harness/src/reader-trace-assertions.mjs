@@ -92,6 +92,27 @@ export const assertSurfaceTextureTracksForwardContentMovement = result => {
   }
 }
 
+export const assertTextureUpdatesAreCommittedPageBounded = trace => {
+  if (!Array.isArray(trace)) {
+    throw new Error('Expected reader trace to be an array')
+  }
+  const committedLocations = trace.filter(event => event?.type === 'location:post')
+  const textureUpdates = trace.filter(event => event?.type === 'texture:update')
+  if (committedLocations.length === 0) {
+    throw new Error('Expected committed location trace events before checking texture updates')
+  }
+  if (textureUpdates.length === 0) {
+    throw new Error('Expected texture update trace events')
+  }
+  const allowedStartupUpdates = 8
+  const maxTextureUpdates = committedLocations.length + allowedStartupUpdates
+  if (textureUpdates.length > maxTextureUpdates) {
+    throw new Error(
+      `Expected texture updates to be bounded by committed visible pages; observed ${textureUpdates.length} texture updates for ${committedLocations.length} committed locations`
+    )
+  }
+}
+
 export const assertShellCoverDoesNotNavigateWebViewToCover = result => {
   if (result?.initialShellVisible !== true) {
     throw new Error('Expected metadata cover to be shown as the initial shell cover overlay')

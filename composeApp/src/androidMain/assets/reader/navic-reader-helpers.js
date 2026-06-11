@@ -585,6 +585,11 @@ export const stableHash = value => {
 }
 
 export const readerPaperTexturePageLocator = detail => {
+  const pageIndex = Number(detail?.pageIndex)
+  const pageCount = Number(detail?.pageCount)
+  if (Number.isFinite(pageIndex) && Number.isFinite(pageCount) && pageCount > 0) {
+    return `page:${Math.max(0, Math.floor(pageIndex))}:${Math.floor(pageCount)}`
+  }
   const cfi = String(detail?.cfi || '').trim()
   if (cfi) return `cfi:${cfi}`
   const progress = Number(detail?.fraction ?? detail?.progress ?? detail?.totalProgress)
@@ -1301,4 +1306,3 @@ export const tocLabel = item => {
   }
   return String(label).trim() || undefined
 }
-

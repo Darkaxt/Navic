@@ -13,6 +13,7 @@ import {
   assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
   assertSurfaceTextureTracksForwardContentMovement,
+  assertTextureUpdatesAreCommittedPageBounded,
   assertTraceType,
 } from './reader-trace-assertions.mjs'
 import { startReaderAssetServer } from './serve-reader-assets.mjs'
@@ -284,6 +285,7 @@ if (mode === 'epub-page-boundary') {
     assertBridgePostType(result.messages, 'locationChanged')
     assertNoConsecutiveDuplicateVisiblePageLabels(result.messages)
     assertForwardPageIndexesDoNotRegress(result.messages)
+    assertTextureUpdatesAreCommittedPageBounded(result.trace)
 
     console.log(`reader harness epub-page-boundary passed: ${outputPath}`)
   } catch (error) {

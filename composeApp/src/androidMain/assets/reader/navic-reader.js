@@ -283,7 +283,6 @@ class NavicReaderRuntime {
         await this.view.init?.({ showTextStart: true })
       }
       this.attachSurfaceTapGesture(this.view)
-      this.updateSurfacePaperTexture(this.lastRelocateDetail || {})
       if (shellCoverUrl) this.showShellCover()
       log('openPublication:ready', describeUrl(url))
       this.applyReaderViewportLayout('ready')
@@ -1599,7 +1598,7 @@ class NavicReaderRuntime {
     this.applyReaderViewportLayout('settings')
     this.view?.renderer?.setStyles?.(readerContentCss(settings))
     this.applyThemeToLoadedContent(settings)
-    this.updateSurfacePaperTexture()
+    this.renderSurfacePaperTextureLayers()
     if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
       updateReaderShellCoverLayer(
         this.shellCoverLayer,
@@ -1803,10 +1802,13 @@ class NavicReaderRuntime {
     return Number.isFinite(entryIndex) ? Math.floor(entryIndex) : 0
   }
 
-  updateSurfacePaperTexture(detail = {}) {
+  updateSurfacePaperTexture(detail = {}, pagePosition = null) {
     const index = this.surfacePaperTextureIndex(detail)
     const section = this.view?.book?.sections?.[index]
-    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, detail)
+    const textureDetail = pagePosition
+      ? { ...detail, pageIndex: pagePosition.pageIndex, pageCount: pagePosition.pageCount }
+      : detail
+    const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, textureDetail)
     const textureVariant = readerPaperTextureVariantForPage(textureKey)
     const borderOverlayVariant = readerPageBorderOverlayVariantForPage(textureKey)
     this.surfaceTextureVariant = textureVariant
@@ -1932,6 +1934,7 @@ class NavicReaderRuntime {
       readerTrace('location:duplicate-skipped', { reason, message })
       return
     }
+    this.updateSurfacePaperTexture(detail, pagePosition)
     this.lastPostedLocationKey = locationKey
     readerTrace('location:post', { reason, message })
     post(message)
@@ -1945,7 +1948,6 @@ class NavicReaderRuntime {
   onRelocate(detail) {
     readerTrace('relocate:raw', detail)
     this.lastRelocateDetail = detail
-    this.updateSurfacePaperTexture(detail)
     if (this.pageTurnInProgress || this.pageTurnPromise) return
     this.scheduleCommittedRelocation(detail)
   }
@@ -2016,7 +2018,6 @@ class NavicReaderRuntime {
   onLoad(detail = {}) {
     this.applyReaderViewportLayout('load')
     this.applyReaderDirection(this.readerDirectionModeValue, false)
-    this.updateSurfacePaperTexture(detail)
     if (detail.doc) log('load:event-doc', `index=${detail.index ?? 'unknown'}`)
     for (const content of this.contentEntries(detail)) {
       this.attachContentDocumentBehaviors(content.doc, content.index)
