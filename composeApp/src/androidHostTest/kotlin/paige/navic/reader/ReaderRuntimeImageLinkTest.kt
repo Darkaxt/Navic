@@ -334,7 +334,7 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "readerContentHandledTap()")
+		assertContains(webViewHostText, "readerContentHandledTap(contentHitType)")
 		assertContains(webViewHostText, "WebView.HitTestResult.IMAGE_TYPE")
 		assertContains(webViewHostText, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
 		assertContains(webViewHostText, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")

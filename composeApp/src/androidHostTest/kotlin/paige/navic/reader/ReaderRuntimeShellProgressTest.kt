@@ -173,12 +173,18 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(webViewHostText, "handleReaderSurfaceTouch(event)")
+		assertContains(webViewHostText, "MotionEvent.ACTION_DOWN")
+		assertContains(webViewHostText, "MotionEvent.ACTION_UP")
 		assertContains(webViewHostText, "return childHandled")
 		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
 		assertFalse(
 			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
 			"The native surface must observe the child touch stream without rewriting WebView/Foliate events."
+		)
+		assertFalse(
+			webViewHostText.contains("GestureDetector.SimpleOnGestureListener()"),
+			"The native surface tap manager must not depend on delayed GestureDetector callbacks."
 		)
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")

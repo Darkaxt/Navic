@@ -94,13 +94,18 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(webViewHostText, "private class ReaderSurfaceHost")
 		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(webViewHostText, "handleReaderSurfaceTouch(event)")
 		assertContains(webViewHostText, "return childHandled")
-		assertContains(webViewHostText, "GestureDetector.SimpleOnGestureListener()")
-		assertContains(webViewHostText, "onSingleTapConfirmed(event: MotionEvent)")
+		assertContains(webViewHostText, "MotionEvent.ACTION_DOWN")
+		assertContains(webViewHostText, "MotionEvent.ACTION_UP")
+		assertContains(webViewHostText, "ViewConfiguration.get(context).scaledTouchSlop")
 		assertFalse(
 			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
 			"Android must not keep the old split WebView-only tap-zone observer."
+		)
+		assertFalse(
+			webViewHostText.contains("GestureDetector.SimpleOnGestureListener()"),
+			"The native reader surface must classify taps directly instead of relying on delayed GestureDetector callbacks."
 		)
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapRegion("),

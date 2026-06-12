@@ -2,9 +2,9 @@ package paige.navic.ui.screens.reader
 
 import android.content.Context
 import android.graphics.Color
-import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
@@ -357,31 +357,75 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var shellCoverUrl: String? = null
 	private var shellCoverTitle: String = ""
 	private var shellCoverVisible: Boolean = false
-
-	private val readerGestureDetector = GestureDetector(
-		context,
-		object : GestureDetector.SimpleOnGestureListener() {
-			override fun onDown(event: MotionEvent): Boolean = true
-
-			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-				if (!readerWideTapsEnabled) return false
-				dispatchReaderWideTap(event)
-				return true
-			}
-		}
-	)
+	private val tapSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+	private var tapCandidatePointerId: Int = MotionEvent.INVALID_POINTER_ID
+	private var tapDownX: Float = 0f
+	private var tapDownY: Float = 0f
+	private var tapCandidate: Boolean = false
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val childHandled = super.dispatchTouchEvent(event)
 		if (readerWideTapsEnabled) {
-			readerGestureDetector.onTouchEvent(event)
+			handleReaderSurfaceTouch(event)
 		}
 		return childHandled
 	}
 
+	private fun handleReaderSurfaceTouch(event: MotionEvent) {
+		when (event.actionMasked) {
+			MotionEvent.ACTION_DOWN -> {
+				tapCandidatePointerId = event.getPointerId(0)
+				tapDownX = event.x
+				tapDownY = event.y
+				tapCandidate = true
+				Logger.i(
+					ReaderWebViewHostTag,
+					"Reader surface touch down x=${event.x.toInt()} y=${event.y.toInt()} " +
+						"shellCover=$shellCoverVisible"
+				)
+			}
+			MotionEvent.ACTION_POINTER_DOWN -> {
+				tapCandidate = false
+			}
+			MotionEvent.ACTION_MOVE -> {
+				if (!tapCandidate) return
+				val pointerIndex = event.findPointerIndex(tapCandidatePointerId)
+				if (pointerIndex < 0) {
+					tapCandidate = false
+					return
+				}
+				val dx = event.getX(pointerIndex) - tapDownX
+				val dy = event.getY(pointerIndex) - tapDownY
+				if ((dx * dx) + (dy * dy) > tapSlopPx * tapSlopPx) {
+					tapCandidate = false
+				}
+			}
+			MotionEvent.ACTION_UP -> {
+				if (tapCandidate) {
+					dispatchReaderWideTap(event)
+				}
+				clearTapCandidate()
+			}
+			MotionEvent.ACTION_CANCEL -> clearTapCandidate()
+		}
+	}
+
+	private fun clearTapCandidate() {
+		tapCandidatePointerId = MotionEvent.INVALID_POINTER_ID
+		tapCandidate = false
+	}
+
 	private fun dispatchReaderWideTap(event: MotionEvent) {
 		if (width <= 0 || height <= 0) return
-		if (!shellCoverVisible && readerContentHandledTap()) return
+		val contentHitType = readerWebView?.hitTestResult?.type ?: WebView.HitTestResult.UNKNOWN_TYPE
+		if (!shellCoverVisible && readerContentHandledTap(contentHitType)) {
+			Logger.i(
+				ReaderWebViewHostTag,
+				"Reader surface tap ignored for content hitType=$contentHitType " +
+					"x=${event.x.toInt()} y=${event.y.toInt()}"
+			)
+			return
+		}
 		val action = readerTapZoneActionAt(
 			tapZone = readerSettings.tapZone,
 			xFraction = event.x / width.toFloat(),
@@ -390,6 +434,13 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			flowMode = readerSettings.flowMode
 		)
 		val command = readerTapZonePageTurnCommand(action, readerSettings.direction)
+		Logger.i(
+			ReaderWebViewHostTag,
+			"Reader surface tap action=$action command=${command?.debugLabel().orEmpty()} " +
+				"x=${event.x.toInt()} y=${event.y.toInt()} " +
+				"fractions=${event.x / width.toFloat()},${event.y / height.toFloat()} " +
+				"hitType=$contentHitType shellCover=$shellCoverVisible"
+		)
 		if (command != null) {
 			dispatchReaderPageTurnCommand(command)
 		} else {
@@ -426,6 +477,11 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun dispatchReaderPageTurnCommand(command: ReaderBridgeCommand) {
 		if (shellCoverVisible) {
+			Logger.i(
+				ReaderWebViewHostTag,
+				"Reader shell cover command=${command.debugLabel()} " +
+					"canReturn=$canReturnToShellCover"
+			)
 			when (command) {
 				ReaderBridgeCommand.NextPage -> hideShellCover()
 				ReaderBridgeCommand.PreviousPage -> Unit
@@ -434,9 +490,11 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			return
 		}
 		if (command == ReaderBridgeCommand.PreviousPage && canReturnToShellCover && !shellCoverUrl.isNullOrBlank()) {
+			Logger.i(ReaderWebViewHostTag, "Reader surface returning to shell cover")
 			showShellCover()
 			return
 		}
+		Logger.i(ReaderWebViewHostTag, "Reader surface dispatch command=${command.debugLabel()}")
 		onReaderCommand(command)
 	}
 
@@ -450,8 +508,8 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		shellCoverWebView?.visibility = View.GONE
 	}
 
-	private fun readerContentHandledTap(): Boolean =
-		when (readerWebView?.hitTestResult?.type) {
+	private fun readerContentHandledTap(hitType: Int): Boolean =
+		when (hitType) {
 			WebView.HitTestResult.PHONE_TYPE,
 			WebView.HitTestResult.GEO_TYPE,
 			WebView.HitTestResult.EMAIL_TYPE,
