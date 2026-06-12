@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
@@ -128,10 +129,10 @@ import paige.navic.reader.readerOptionsTabs
 import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
-import paige.navic.reader.readerTapZoneActionAt
+import paige.navic.reader.readerTapZoneInteractiveRegions
 import paige.navic.reader.readerTapZonePageTurnCommand
-import paige.navic.reader.readerTapZoneRegions
 import paige.navic.reader.readerShouldReturnToNativeShellCover
+import paige.navic.reader.ReaderTapZoneRegion
 import paige.navic.reader.readerBookmarkFromLocator
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDirectionShortLabel
@@ -786,39 +787,29 @@ private fun ReaderNativeTapOverlay(
 	modifier: Modifier = Modifier
 ) {
 	if (!enabled || settings.tapZone == ReaderTapZoneDisabled) return
-	Box(
-		modifier.pointerInput(
-			settings.tapZone,
-			settings.smallerTapZone,
-			settings.flowMode,
-			settings.direction
-		) {
-			awaitEachGesture {
-				val down = awaitFirstDown(requireUnconsumed = false)
-				val width = size.width.toFloat()
-				val height = size.height.toFloat()
-				if (width <= 0f || height <= 0f) return@awaitEachGesture
-				val action = readerTapZoneActionAt(
-					tapZone = settings.tapZone,
-					xFraction = down.position.x / width,
-					yFraction = down.position.y / height,
-					smallerTapZone = settings.smallerTapZone == true,
-					flowMode = settings.flowMode
-				)
-				val command = readerTapZonePageTurnCommand(action, settings.direction)
-				down.consume()
-				val up = waitForUpOrCancellation()
-				if (up != null) {
-					up.consume()
-					if (command != null) {
-						onPageTurn(command)
-					} else {
-						onMenuTap()
-					}
-				}
-			}
+	BoxWithConstraints(modifier) {
+		val regions = readerTapZoneInteractiveRegions(
+			tapZone = settings.tapZone,
+			smallerTapZone = settings.smallerTapZone == true,
+			flowMode = settings.flowMode
+		)
+		regions.forEach { region ->
+			ReaderNativeTapRegion(
+				region = region,
+				direction = settings.direction,
+				onMenuTap = onMenuTap,
+				onPageTurn = onPageTurn,
+				modifier = Modifier
+					.offset(
+						x = maxWidth * region.left,
+						y = maxHeight * region.top
+					)
+					.size(
+						width = maxWidth * (region.right - region.left),
+						height = maxHeight * (region.bottom - region.top)
+					)
+			)
 		}
-	) {
 		if (settings.showTapZones == true) {
 			ReaderNativeTapZoneDebugOverlay(
 				settings = settings,
@@ -829,11 +820,39 @@ private fun ReaderNativeTapOverlay(
 }
 
 @Composable
+private fun ReaderNativeTapRegion(
+	region: ReaderTapZoneRegion,
+	direction: String?,
+	onMenuTap: () -> Unit,
+	onPageTurn: (ReaderBridgeCommand) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	Box(
+		modifier.pointerInput(region, direction) {
+			awaitEachGesture {
+				val down = awaitFirstDown(requireUnconsumed = false)
+				down.consume()
+				val up = waitForUpOrCancellation()
+				if (up != null) {
+					up.consume()
+					val command = readerTapZonePageTurnCommand(region.action, direction)
+					if (command != null) {
+						onPageTurn(command)
+					} else {
+						onMenuTap()
+					}
+				}
+			}
+		}
+	)
+}
+
+@Composable
 private fun ReaderNativeTapZoneDebugOverlay(
 	settings: ReaderSettings,
 	modifier: Modifier = Modifier
 ) {
-	val regions = readerTapZoneRegions(
+	val regions = readerTapZoneInteractiveRegions(
 		tapZone = settings.tapZone,
 		smallerTapZone = settings.smallerTapZone == true,
 		flowMode = settings.flowMode

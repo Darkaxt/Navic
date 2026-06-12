@@ -97,8 +97,9 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(nativeOverlay, "onMenuTap")
 		assertContains(nativeOverlay, "onPageTurn")
 		assertContains(nativeOverlay, "settings.showTapZones")
-		assertContains(nativeOverlay, "readerTapZoneActionAt")
-		assertContains(nativeOverlay, "readerTapZonePageTurnCommand")
+		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions")
+		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
+		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
 		assertFalse(
 			runtimeText.contains("attachCenterTapGesture"),
 			"Reader-wide menu taps must be owned by the native overlay, not iframe/WebView content."

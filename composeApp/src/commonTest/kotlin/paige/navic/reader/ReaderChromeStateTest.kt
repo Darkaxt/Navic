@@ -163,6 +163,42 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeTapOverlayRegionsLeaveContentInteractionGaps() {
+		val regions = readerTapZoneInteractiveRegions(
+			tapZone = ReaderTapZoneDefault,
+			smallerTapZone = false,
+			flowMode = ReaderFlowPaged
+		)
+
+		assertTrue(regions.any { region ->
+			region.action == ReaderTapZoneAction.Menu &&
+				region.contains(0.5f, 0.02f)
+		})
+		assertTrue(regions.any { region ->
+			region.action == ReaderTapZoneAction.Menu &&
+				region.contains(0.5f, 0.5f)
+		})
+		assertTrue(regions.any { region ->
+			region.action == ReaderTapZoneAction.Left &&
+				region.contains(0.05f, 0.5f)
+		})
+		assertTrue(regions.any { region ->
+			region.action == ReaderTapZoneAction.Right &&
+				region.contains(0.95f, 0.5f)
+		})
+		assertFalse(
+			regions.any { region -> region.contains(0.5f, 0.12f) },
+			"Native overlay must leave non-zone content areas available for WebView links, images, and text selection."
+		)
+		assertFalse(
+			regions.any { region ->
+				region.left == 0f && region.top == 0f && region.right == 1f && region.bottom == 1f
+			},
+			"Native overlay must not model a full-screen pointer target."
+		)
+	}
+
+	@Test
 	fun nativeTapZonesUseLShapedDefaultForScrolledModes() {
 		assertEquals(
 			ReaderTapZoneAction.Previous,

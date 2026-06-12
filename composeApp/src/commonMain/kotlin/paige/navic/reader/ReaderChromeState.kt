@@ -213,6 +213,26 @@ fun readerTapZoneRegions(
 	}
 }
 
+fun readerTapZoneMenuRegions(): List<ReaderTapZoneRegion> {
+	val centerStart = (1f - ReaderTapZoneCenterMenuSize) / 2f
+	val centerEnd = (1f + ReaderTapZoneCenterMenuSize) / 2f
+	return listOf(
+		ReaderTapZoneRegion(0f, 0f, 1f, ReaderTapZoneConstantMenuHeight, ReaderTapZoneAction.Menu),
+		ReaderTapZoneRegion(centerStart, centerStart, centerEnd, centerEnd, ReaderTapZoneAction.Menu)
+	)
+}
+
+fun readerTapZoneInteractiveRegions(
+	tapZone: String?,
+	smallerTapZone: Boolean = false,
+	flowMode: String? = ReaderFlowPaged
+): List<ReaderTapZoneRegion> =
+	if (normalizedReaderTapZone(tapZone) == ReaderTapZoneDisabled) {
+		emptyList()
+	} else {
+		readerTapZoneRegions(tapZone, smallerTapZone, flowMode) + readerTapZoneMenuRegions()
+	}
+
 fun readerTapZoneActionAt(
 	tapZone: String?,
 	xFraction: Float,

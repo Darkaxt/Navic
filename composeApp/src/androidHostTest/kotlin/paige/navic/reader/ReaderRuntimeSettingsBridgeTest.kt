@@ -71,13 +71,17 @@ class ReaderRuntimeSettingsBridgeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val nativeOverlay = readerScreenText
 			.substringAfter("private fun ReaderNativeTapOverlay(")
-			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapRegion")
 
 		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
-		assertContains(nativeOverlay, "down.position.x / width")
-		assertContains(nativeOverlay, "down.position.y / height")
-		assertContains(nativeOverlay, "readerTapZoneActionAt(")
-		assertContains(nativeOverlay, "readerTapZonePageTurnCommand(action, settings.direction)")
+		assertContains(readerScreenText, "ReaderNativeTapRegion(")
+		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions(")
+		assertFalse(
+			nativeOverlay.contains("modifier.pointerInput("),
+			"Native reader tap ownership must use discrete region targets so non-zone WebView content remains interactive."
+		)
+		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
+		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
 		assertFalse(
 			runtimeText.contains("readerTapSurfaceRect") || runtimeText.contains("readerRootTapPoint"),
 			"Reader-wide tap-zone dispatch must normalize in the native overlay, not in Foliate iframe/WebView JavaScript."
@@ -124,7 +128,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(readerScreenText, "ReaderNativeTapZoneDebugOverlay")
 		assertContains(readerScreenText, "settings.showTapZones == true")
-		assertContains(readerScreenText, "readerTapZoneRegions(")
+		assertContains(readerScreenText, "readerTapZoneInteractiveRegions(")
 		assertContains(readerScreenText, "drawRect(")
 		assertFalse(
 			runtimeText.contains("updateTapZoneOverlayLayer") || runtimeText.contains("settings.showTapZones === true"),
