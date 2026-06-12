@@ -1041,6 +1041,28 @@ class NavicReaderRuntime {
     return false
   }
 
+  claimReaderInteractiveContentTouch(doc, event) {
+    if (!doc || event?.defaultPrevented || event?.touches?.length > 1) return false
+    const anchor = closestElement(event.target, 'a[href]')
+    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    if (mediaTapTarget) {
+      post({ type: 'readerContentTapHandled', source: 'media-touch' })
+      readerTrace('content-touch:media', {
+        tagName: mediaTapTarget.tagName || 'media',
+        href: anchor?.getAttribute?.('href') || '',
+      })
+      return true
+    }
+    if (anchor && readerPointInsideAnchorText(anchor, event)) {
+      post({ type: 'readerContentTapHandled', source: 'link-touch' })
+      readerTrace('content-touch:link', {
+        href: anchor.getAttribute('href') || '',
+      })
+      return true
+    }
+    return false
+  }
+
   handleReaderTapZoneTap(event, sourceTarget) {
     if (!event || event.defaultPrevented || event.button > 0) return false
     const doc = event?.target?.ownerDocument || sourceTarget?.ownerDocument || sourceTarget
@@ -1130,6 +1152,12 @@ class NavicReaderRuntime {
   attachLinkNavigation(doc, index) {
     if (!doc?.defaultView || doc.defaultView.__navicLinkNavigationAttached) return
     doc.defaultView.__navicLinkNavigationAttached = true
+    doc.addEventListener('touchstart', event => {
+      this.claimReaderInteractiveContentTouch(doc, event)
+    }, { capture: true, passive: true })
+    doc.addEventListener('touchend', event => {
+      this.claimReaderInteractiveContentTouch(doc, event)
+    }, { capture: true, passive: true })
     doc.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')

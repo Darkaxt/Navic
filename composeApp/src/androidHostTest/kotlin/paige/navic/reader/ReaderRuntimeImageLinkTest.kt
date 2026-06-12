@@ -414,6 +414,37 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch() {
+		val bridgeText = readerBridgeText()
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  attachLinkNavigation")
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+
+		assertContains(bridgeText, "claimReaderInteractiveContentTouch(doc, event)")
+		assertContains(linkNavigation, "doc.addEventListener('touchstart', event => {")
+		assertContains(linkNavigation, "this.claimReaderInteractiveContentTouch(doc, event)")
+		assertContains(linkNavigation, "doc.addEventListener('touchend', event => {")
+		assertContains(
+			claimInteractiveTouch,
+			"post({ type: 'readerContentTapHandled', source: 'media-touch' })",
+			message = "Image/media touches must claim content ownership before Android can dispatch center chrome."
+		)
+		assertContains(
+			claimInteractiveTouch,
+			"post({ type: 'readerContentTapHandled', source: 'link-touch' })",
+			message = "Chapter/frontmatter link touches must claim content ownership before Android can dispatch center chrome."
+		)
+		assertTrue(
+			linkNavigation.indexOf("doc.addEventListener('touchstart'") <
+				linkNavigation.indexOf("doc.addEventListener('click'"),
+			"Interactive content ownership must be claimed during the touch phase, not only during synthetic click handling."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

@@ -1375,3 +1375,106 @@ Phone validation required after release:
 - Verify cover taps still work.
 - Verify normal readable EPUB drags still work.
 - Verify PDF/fixed-layout swipes still work.
+
+Release publication status:
+
+- Commit: `32642c7fef2b1f95318d7f4a3fde58635a9dcd1f`
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta43`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27447882521`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,171,889` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta43/Navic.apk`
+- Asset SHA-256 digest: `d27ff1aad67a7cbc930fe73909c74ae829718d3a048fe75f4acf117ab7242c27`
+
+## ADB/User Validation Feedback: 2026-06-13 eta43 Reader Interaction Results
+
+User-tested behavior from the latest phone session is the current bug register before further stabilization work:
+
+Confirmed working:
+
+- Cover tapping works.
+- Normal readable EPUB taps work.
+- Normal readable EPUB drag gestures work.
+- Image sepia-tint interaction can bring the tint back and toggle it as expected, even if the image initially loads without the expected sepia filter.
+
+Still broken:
+
+- Dragging does not work on the cover in the latest phone test, so eta43's shell-cover swipe fallback is not yet proven on-device.
+- Center-tapping interactive images still also surfaces reader chrome.
+- Tapping links in the chapter-selection/frontmatter area still also surfaces reader chrome.
+- The paper texture transition still inverts when moving from the maps into the Author's Note and remains inverted after that area transition.
+
+Current priority order:
+
+1. Fix interactive content center-tap ownership so image interactions and chapter/frontmatter links do not surface reader chrome.
+2. Re-check shell-cover drag with ADB once a device is attached; if eta43's fallback is not firing, diagnose the native shell-cover event path rather than adding another blind gesture path.
+3. Fix the paper-texture sign inversion at the maps -> Author's Note area transition.
+4. Publish the next APK only after host/harness evidence proves the selected slice and the release is phone-evaluable.
+
+## Release Candidate: 2026-06-13 eta44 Interactive Touch Ownership
+
+Scope:
+
+- Claim content ownership during the touch phase for actual EPUB image/media targets and real text-link hits.
+- Keep ordinary reader-area taps untouched so left/right page-turn zones remain immediate.
+- Keep final click handlers for image sepia toggles and link navigation, but stop relying on synthetic click timing to suppress native center chrome.
+- Do not change texture movement or cover drag in this slice.
+
+Root-cause evidence:
+
+- eta41/eta42 delayed native center chrome after `ACTION_UP`, but phone validation still showed image taps and chapter/frontmatter links surfacing the reader menu.
+- The existing runtime only posted `readerContentTapHandled` from final `click`/toggle/navigation handling.
+- Android's center-menu runnable can therefore win when WebView/Foliate iframe click delivery is late.
+- The existing `epub-texture-frontmatter-transition` harness does not yet reproduce the phone texture failure: the trace stayed in `OEBPS/Text/1.html` from pages `4 -> 6`, so the texture bug remains open instead of being declared fixed.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch"
+```
+
+Initial result: failed while no `claimReaderInteractiveContentTouch` path existed.
+
+Implementation:
+
+- `navic-reader.js` now detects real media/image targets and real text-link hits during `touchstart` and `touchend`.
+- Those paths post the existing `readerContentTapHandled` bridge event with `media-touch` or `link-touch`.
+- The Android native surface already treats that bridge event as content ownership and cancels/suppresses pending center chrome.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta44
+git diff --check
+```
+
+Result: all commands exited `0`; release verifier printed `Android versionName matches v1.0.11-eta44`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: first attempt timed out at the 5-minute command limit; rerun with a larger command timeout passed all 15 checks, including EPUB full traversal and PDF smoke/fast-turn/image-settings checks.
+
+Phone validation required after release:
+
+- Center-tapping an image should toggle sepia image behavior without surfacing reader chrome.
+- Tapping a chapter-selection/frontmatter link should navigate without surfacing reader chrome.
+- Left/right edge taps should still page on shell cover, image pages, text pages, and PDF pages.
+- Confirm normal readable EPUB drag gestures still work.
+- Texture inversion at maps -> Author's Note and cover drag remain separate open issues unless this release is later proven to affect them.
