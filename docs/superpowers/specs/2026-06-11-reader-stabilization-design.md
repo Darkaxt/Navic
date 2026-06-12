@@ -55,6 +55,14 @@ The harness should emit structured traces for:
 - hyperlink/image click handling
 - renderer warnings and errors
 
+The durable local Phase 1 gate is:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "<path-to-epub>" --pdf-fixture "<path-to-pdf>"
+```
+
+This runs the current EPUB front-matter, page-boundary, shell-cover, CSS, texture, full-traversal, and PDF checks through the same reader assets packaged into the APK.
+
 The first regression fixture should cover the observed failure path:
 
 ```text

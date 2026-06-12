@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import {
@@ -43,6 +44,51 @@ const phoneViewport = {
   deviceScaleFactor: 3,
   isMobile: true,
   hasTouch: true,
+}
+
+if (mode === 'phase1-stabilization') {
+  const epubFixturePath = path.resolve(argValue('--epub-fixture') || '')
+  const pdfFixturePath = path.resolve(argValue('--pdf-fixture') || '')
+  if (!epubFixturePath || !fs.existsSync(epubFixturePath)) {
+    console.error('phase1-stabilization mode requires --epub-fixture <path-to-epub>')
+    process.exit(1)
+  }
+  if (!pdfFixturePath || !fs.existsSync(pdfFixturePath)) {
+    console.error('phase1-stabilization mode requires --pdf-fixture <path-to-pdf>')
+    process.exit(1)
+  }
+
+  const steps = [
+    { mode: 'trace-smoke' },
+    { mode: 'epub-frontmatter', fixture: epubFixturePath },
+    { mode: 'epub-page-boundary', fixture: epubFixturePath },
+    { mode: 'epub-shell-cover', fixture: epubFixturePath },
+    { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
+    { mode: 'css-smoke', fixture: epubFixturePath },
+    { mode: 'epub-texture-scroll', fixture: epubFixturePath },
+    { mode: 'epub-texture-page-turns', fixture: epubFixturePath },
+    { mode: 'epub-full-traversal', fixture: epubFixturePath },
+    { mode: 'pdf-smoke', fixture: pdfFixturePath },
+    { mode: 'pdf-fast-sequential-turns', fixture: pdfFixturePath },
+  ]
+
+  for (const step of steps) {
+    const args = [currentFile, '--mode', step.mode]
+    if (step.fixture) args.push('--fixture', step.fixture)
+    console.log(`reader harness phase1-stabilization running: ${step.mode}`)
+    const result = spawnSync(process.execPath, args, {
+      cwd: repoRoot,
+      stdio: 'inherit',
+      env: process.env,
+    })
+    if (result.status !== 0) {
+      console.error(`reader harness phase1-stabilization failed at ${step.mode}`)
+      process.exit(result.status || 1)
+    }
+  }
+
+  console.log(`reader harness phase1-stabilization passed: ${steps.length} checks`)
+  process.exit(0)
 }
 
 if (mode === 'serve-smoke') {
