@@ -114,7 +114,7 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Annotations/highlights | Supported | Keep CFI-backed, and add export/share later only after renderer stability is settled. |
 | Basic typography settings | Supported | Current set includes font family/source, font size, line height, paragraph spacing, margins, publisher-style override, theme palette, dim overlay, paged/scroll, direction, and orientation controls. |
 | Immersive reader chrome | Supported in `v1.0.10-epsilon7` work | Reader removes the global top bar, hides controls by default, and toggles reader controls through center tap. |
-| Left/right tap page turns | Supported in `v1.0.10-epsilon7` work | Keep page-zone behavior in the WebView bridge so it works inside EPUB iframe documents. |
+| Left/right tap page turns | Supported in code/tests | Reader-wide tap zones are owned by the native Compose overlay above the WebView and shell-cover surfaces. WebView content keeps only content-specific gestures such as links, media/image taps, and fixed-layout swipe handling. |
 | Storyteller EPUB Media Overlay parsing | Supported in tests, partial on device | Parser now preserves OPF media-overlay, SMIL clips, embedded audio resources, duration, and Storyteller audio metadata labels; still requires signed-release smoke tests with real Storyteller-generated EPUB bundles. |
 | Media3 readaloud playback | Supported in tests, partial on device | Use Media3 for audio. Do not play embedded audio through WebView. |
 | Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
@@ -127,6 +127,7 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Volume-key page turn | Supported in code/tests, phone smoke pending | Reader screen handles volume-key page turns behind a persisted Settings > Ebooks switch. Validate with signed APK on device because OEM key routing can vary. |
 | Custom tap-zone editor | Partial | Komikku-style presets, smaller zones, and visible tap-zone overlay exist. A true custom 3x3 editor remains pending. |
 | Header/footer reading info customization | Partial | Organic page number overlay exists, including `current / total`. Configurable chapter/book/section/battery/time slots remain pending. |
+| Per-book reader preferences | Supported foundation in `v1.0.11-eta31` | Reader options expose `Global`, `For this book`, and `Reset book`; book overrides persist in `readerBookSettingsJson` and merge over global defaults. Per-series grouping remains pending until Navic has a stable series identity for Bindery books. |
 | TTS service/rate/pitch/volume | Not prioritized | Storyteller synced audio is the primary path. Generic TTS is fallback work, not the core experience. |
 
 ### Komikku Options To Adapt
@@ -151,7 +152,7 @@ Use Komikku's reader chrome behavior as the reader-shell target:
 - The top overlay should contain only reader context: back, book title, current chapter/section, bookmark/readaloud state, and optionally a compact play/pause chip for readaloud books.
 - The bottom overlay should use icon-first commands: table of contents, readaloud/audio sync, reader settings, search, bookmark/highlight actions, and page/navigation controls.
 - The settings surface should be a modal tabbed panel over dimmed content, with dense segmented controls instead of a long generic settings list.
-- Reader settings should support global defaults plus per-book/per-series overrides, mirroring Komikku's "For this series" model as "For this book" in Navic.
+- Reader settings support global defaults plus a per-book override layer, mirroring Komikku's "For this series" model as "For this book" in Navic. Per-series grouping remains a later data-model extension.
 - A right-side progress scrubber is desirable for PDF/image/continuous layouts. For EPUB/readaloud it should be treated as a progress navigator only after Foliate locator/percentage seeking is reliable.
 - The reader must stay usable with chrome hidden: left/right tap zones, center menu zone, and scroll/page gestures should work inside the WebView content document.
 
@@ -171,8 +172,7 @@ Proposed reader-settings tabs:
 2. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
 3. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
 4. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
-5. Add per-book/per-series reader preferences, using Komikku's "For this series" model as Navic's "For this book" override layer.
-6. Add imported/downloaded custom font files and a sanitized custom CSS path after renderer stability is proven on real EPUB/PDF/readaloud packages.
+5. Add imported/downloaded custom font files and a sanitized custom CSS path after renderer stability is proven on real EPUB/PDF/readaloud packages.
 
 ### Recent Release Checkpoints
 
