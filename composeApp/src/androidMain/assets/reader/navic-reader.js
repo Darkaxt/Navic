@@ -924,6 +924,9 @@ class NavicReaderRuntime {
         event.stopPropagation()
         event.stopImmediatePropagation()
         log('link:media-synthetic-click-suppressed', describeUrl(anchor.getAttribute('href') || ''))
+        readerTrace('link:media-synthetic-click-suppressed', {
+          href: anchor.getAttribute('href') || '',
+        })
         return
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
@@ -935,6 +938,11 @@ class NavicReaderRuntime {
           event.stopImmediatePropagation()
         }
         log('link:media-tap', mediaTapTarget.tagName || 'media', describeUrl(anchor.getAttribute('href') || ''))
+        readerTrace('link:media-tap', {
+          href: anchor.getAttribute('href') || '',
+          tagName: mediaTapTarget.tagName || 'media',
+          toggled,
+        })
         return
       }
       if (!readerPointInsideAnchorText(anchor, event)) {
@@ -942,6 +950,9 @@ class NavicReaderRuntime {
         event.stopPropagation()
         event.stopImmediatePropagation()
         log('link:text-hit-miss', describeUrl(anchor.getAttribute('href') || ''))
+        readerTrace('link:text-hit-miss', {
+          href: anchor.getAttribute('href') || '',
+        })
         return
       }
       const rawHref = anchor.getAttribute('href')
@@ -953,10 +964,12 @@ class NavicReaderRuntime {
       try {
         if (this.view?.book?.isExternal?.(href)) {
           log('link:external', describeUrl(href))
+          readerTrace('link:external', { href })
           globalThis.open?.(href, '_blank')
           return
         }
         log('link:navigate', href)
+        readerTrace('link:navigate', { href })
         await this.goTo(href)
       } catch (error) {
         reportError(error, 'link_navigation_failed')
@@ -991,6 +1004,10 @@ class NavicReaderRuntime {
     }
     markReaderMediaTapHandled(doc, event, image || mediaTapTarget)
     log('image:sepia-overlay', disabled ? 'on' : 'off')
+    readerTrace('image:sepia-overlay', {
+      state: disabled ? 'on' : 'off',
+      tagName: image.tagName || 'img',
+    })
     return true
   }
 

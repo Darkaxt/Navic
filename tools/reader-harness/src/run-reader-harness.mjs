@@ -1440,22 +1440,41 @@ if (mode === 'css-smoke') {
       const mediaLinkAfterStyle = win.getComputedStyle(mediaLink, '::after')
       const image = doc.querySelector('[data-navic-css-smoke-media-image="true"]')
       const imageMixBlendModeBefore = win.getComputedStyle(image).mixBlendMode
-      const clickOptions = {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-        clientX: Math.round(win.innerWidth / 2),
-        clientY: Math.round(win.innerHeight / 2),
+      const clickOptionsFor = element => {
+        const rect = element.getBoundingClientRect()
+        return {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientX: Math.round(rect.left + rect.width / 2),
+          clientY: Math.round(rect.top + rect.height / 2),
+        }
       }
-      image.dispatchEvent(new win.MouseEvent('click', clickOptions))
+      const traceLengthBeforeImageClicks = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.length
+        : 0
+      image.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(image)))
       await new Promise(resolve => win.requestAnimationFrame(resolve))
       const imageOverlayDatasetAfterFirstClick = image.dataset.navicSepiaOverlay || ''
       const imageMixBlendModeAfterFirstClick = win.getComputedStyle(image).mixBlendMode
       await new Promise(resolve => win.setTimeout(resolve, 700))
-      image.dispatchEvent(new win.MouseEvent('click', clickOptions))
+      image.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(image)))
       await new Promise(resolve => win.requestAnimationFrame(resolve))
       const imageOverlayDatasetAfterSecondClick = image.dataset.navicSepiaOverlay || ''
       const imageMixBlendModeAfterSecondClick = win.getComputedStyle(image).mixBlendMode
+      const traceAfterImageClicks = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.slice(traceLengthBeforeImageClicks)
+        : []
+      const traceLengthBeforeTextLinkClick = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.length
+        : 0
+      win.__navicLastMediaTapHandledAt = 0
+      win.__navicSuppressNextMediaClickUntil = 0
+      textLink.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(textLink)))
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const traceAfterTextLinkClick = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.slice(traceLengthBeforeTextLinkClick)
+        : []
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
@@ -1478,6 +1497,10 @@ if (mode === 'css-smoke') {
         imageMixBlendModeAfterFirstClick,
         imageOverlayDatasetAfterSecondClick,
         imageMixBlendModeAfterSecondClick,
+        imageOverlayTraceCount: traceAfterImageClicks.filter(event => event?.type === 'image:sepia-overlay').length,
+        imageNavigationTraceCount: traceAfterImageClicks.filter(event => event?.type === 'link:navigate').length,
+        textLinkNavigationTraceCount: traceAfterTextLinkClick.filter(event => event?.type === 'link:navigate').length,
+        textLinkHitMissTraceCount: traceAfterTextLinkClick.filter(event => event?.type === 'link:text-hit-miss').length,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',

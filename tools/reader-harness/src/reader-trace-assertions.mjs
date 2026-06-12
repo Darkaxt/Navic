@@ -365,6 +365,12 @@ export const assertRendererCssSmoke = result => {
   if (!String(result.textLinkAfterVerticalAlign || '').toLowerCase().includes('sub')) {
     throw new Error(`Expected text link marker to be subscript-like; observed vertical-align=${result.textLinkAfterVerticalAlign || 'unset'}`)
   }
+  if (result.textLinkNavigationTraceCount !== 1) {
+    throw new Error(`Expected styled text link click to emit one navigation trace; observed ${result.textLinkNavigationTraceCount}`)
+  }
+  if (result.textLinkHitMissTraceCount !== 0) {
+    throw new Error(`Expected styled text link click not to be rejected as a text hit miss; observed ${result.textLinkHitMissTraceCount}`)
+  }
   if (String(result.mediaLinkAfterContent || '').replaceAll('"', '').trim() !== '') {
     throw new Error(`Expected media links not to inherit text-link marker; observed ${result.mediaLinkAfterContent}`)
   }
@@ -375,6 +381,12 @@ export const assertRendererCssSmoke = result => {
     throw new Error(
       `Expected clicking an image to disable sepia overlay; observed dataset=${result.imageOverlayDatasetAfterFirstClick || 'unset'} blend=${result.imageMixBlendModeAfterFirstClick}`
     )
+  }
+  if (result.imageOverlayTraceCount !== 2) {
+    throw new Error(`Expected two image tint-toggle traces; observed ${result.imageOverlayTraceCount}`)
+  }
+  if (result.imageNavigationTraceCount !== 0) {
+    throw new Error(`Expected image tint toggles not to emit link navigation traces; observed ${result.imageNavigationTraceCount}`)
   }
   if (result.imageOverlayDatasetAfterSecondClick === 'off' || result.imageMixBlendModeAfterSecondClick !== 'multiply') {
     throw new Error(
