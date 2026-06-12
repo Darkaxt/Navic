@@ -539,3 +539,46 @@ git diff --check
 ```
 
 Result: both commands exited `0`; `reader harness font-css-smoke passed`.
+
+## Microdeliverable Checkpoint: 2026-06-12 PDF/Image Options Foundation And Native Drag Fallback
+
+Scope:
+
+- Add a dedicated in-reader `PDF/Image` options tab for PDF publications, separate from EPUB/readaloud settings.
+- Add normalized PDF/Image settings for page fit, crop borders, and page gap to `ReaderSettings`, default preferences, per-book override JSON, and bridge serialization.
+- Preserve touch-zone tap behavior while adding a native horizontal-drag page-turn fallback for touch streams already intercepted by the native overlay.
+- Keep page-curl, drag animation, dual-page/spread animation, and rotation-triggered spread mode deferred as visual polish.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.pdfReaderOptionsUseDedicatedPdfImageTabAndSettings" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripPdfImagePreferences" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat"
+```
+
+Initial result: failed at compile time with unresolved `ReaderOptionsTab.PdfImage`, `publicationFormat`, `ReaderPdfFit*`, `pdfFitMode`, `pdfCropBorders`, `pdfPageGapPercent`, and PDF setting methods, proving the PDF/Image settings contract was not implemented.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeTapOverlayDragCommandsRespectReadingDirection" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeTapOverlayTurnsHorizontalDragsWithoutDependingOnWebViewSwipeHandlers" --tests "paige.navic.reader.ReaderChromeStateTest.pdfReaderOptionsUseDedicatedPdfImageTabAndSettings" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripPdfImagePreferences" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat"
+```
+
+Intermediate result: failed only in `ReaderRuntimeShellProgressTest.nativeTapOverlayTurnsHorizontalDragsWithoutDependingOnWebViewSwipeHandlers`, proving the native overlay still had tap-only handling before the drag fallback.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeTapOverlayDragCommandsRespectReadingDirection" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeTapOverlayTurnsHorizontalDragsWithoutDependingOnWebViewSwipeHandlers" --tests "paige.navic.reader.ReaderChromeStateTest.pdfReaderOptionsUseDedicatedPdfImageTabAndSettings" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripPdfImagePreferences" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 6 executed and 18 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+git diff --check
+```
+
+Result: command exited `0`.

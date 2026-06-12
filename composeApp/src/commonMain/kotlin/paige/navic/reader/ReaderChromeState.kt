@@ -1,5 +1,6 @@
 package paige.navic.reader
 
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val MinReaderFontSizePercent = 80
@@ -18,6 +19,9 @@ private const val DefaultReaderMarginPercent = 0
 private const val MinReaderDimOverlayPercent = 0
 private const val MaxReaderDimOverlayPercent = 80
 private const val DefaultReaderDimOverlayPercent = 0
+private const val MinReaderPdfPageGapPercent = 0
+private const val MaxReaderPdfPageGapPercent = 48
+private const val DefaultReaderPdfPageGapPercent = 0
 const val ReaderSansFontFamily = "system-ui, sans-serif"
 const val ReaderSerifFontFamily = "Georgia, serif"
 const val ReaderBookFontFamily = "\"Navic Literata\", Literata, Bookerly, Georgia, serif"
@@ -57,6 +61,10 @@ const val ReaderOrientationLandscape = "landscape"
 const val ReaderOrientationLockedPortrait = "locked-portrait"
 const val ReaderOrientationLockedLandscape = "locked-landscape"
 const val ReaderOrientationReversePortrait = "reverse-portrait"
+const val ReaderPdfFitWidth = "width"
+const val ReaderPdfFitPage = "page"
+const val ReaderPdfFitHeight = "height"
+const val ReaderPdfFitOriginal = "original"
 
 private const val ReaderTapZoneNormalSize = 0.25f
 private const val ReaderTapZoneSmallerSize = 0.2f
@@ -120,6 +128,13 @@ val ReaderSupportedOrientations: List<String> = listOf(
 	ReaderOrientationReversePortrait
 )
 
+val ReaderSupportedPdfFitModes: List<String> = listOf(
+	ReaderPdfFitWidth,
+	ReaderPdfFitPage,
+	ReaderPdfFitHeight,
+	ReaderPdfFitOriginal
+)
+
 enum class ReaderSettingsScope {
 	Global,
 	Book
@@ -172,6 +187,9 @@ fun normalizedReaderOrientation(orientation: String?): String =
 
 fun normalizedReaderDirection(direction: String?): String =
 	ReaderSupportedDirections.firstOrNull { supported -> supported == direction } ?: ReaderDirectionDefault
+
+fun normalizedReaderPdfFitMode(pdfFitMode: String?): String =
+	ReaderSupportedPdfFitModes.firstOrNull { supported -> supported == pdfFitMode } ?: ReaderPdfFitWidth
 
 enum class ReaderTapZoneAction {
 	Menu,
@@ -306,6 +324,23 @@ fun readerTapZonePageTurnCommand(
 		ReaderTapZoneAction.Menu -> null
 	}
 
+fun readerTapZoneDragPageTurnCommand(
+	deltaX: Float,
+	deltaY: Float,
+	direction: String?,
+	thresholdPx: Float
+): ReaderBridgeCommand? {
+	val threshold = thresholdPx.coerceAtLeast(1f)
+	if (abs(deltaX) < threshold || abs(deltaX) <= abs(deltaY)) return null
+	val swipedLeft = deltaX < 0f
+	val rtl = normalizedReaderDirection(direction) == ReaderDirectionRtl
+	return if (swipedLeft == rtl) {
+		ReaderBridgeCommand.PreviousPage
+	} else {
+		ReaderBridgeCommand.NextPage
+	}
+}
+
 fun readerShouldReturnToNativeShellCover(
 	shellCoverUrl: String?,
 	shellCoverVisible: Boolean,
@@ -319,11 +354,17 @@ fun readerShouldReturnToNativeShellCover(
 enum class ReaderOptionsTab {
 	Reading,
 	General,
-	Media
+	Media,
+	PdfImage
 }
 
-fun readerOptionsTabs(showReadaloudControls: Boolean): List<ReaderOptionsTab> =
-	if (showReadaloudControls) {
+fun readerOptionsTabs(
+	showReadaloudControls: Boolean,
+	publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub
+): List<ReaderOptionsTab> =
+	if (publicationFormat == ReaderPublicationFormat.Pdf) {
+		listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General, ReaderOptionsTab.PdfImage)
+	} else if (showReadaloudControls) {
 		listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General, ReaderOptionsTab.Media)
 	} else {
 		listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General)
@@ -331,9 +372,10 @@ fun readerOptionsTabs(showReadaloudControls: Boolean): List<ReaderOptionsTab> =
 
 fun normalizedReaderOptionsTab(
 	tab: ReaderOptionsTab,
-	showReadaloudControls: Boolean
+	showReadaloudControls: Boolean,
+	publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub
 ): ReaderOptionsTab =
-	readerOptionsTabs(showReadaloudControls).firstOrNull { supported -> supported == tab }
+	readerOptionsTabs(showReadaloudControls, publicationFormat).firstOrNull { supported -> supported == tab }
 		?: ReaderOptionsTab.Reading
 
 fun readerOptionsTabLabel(tab: ReaderOptionsTab): String =
@@ -341,6 +383,7 @@ fun readerOptionsTabLabel(tab: ReaderOptionsTab): String =
 		ReaderOptionsTab.Reading -> "Reading"
 		ReaderOptionsTab.General -> "General"
 		ReaderOptionsTab.Media -> "Media"
+		ReaderOptionsTab.PdfImage -> "PDF/Image"
 	}
 
 fun nextReaderTheme(theme: String?): String {
@@ -449,6 +492,14 @@ fun readerDirectionShortLabel(direction: String?): String =
 		else -> "Default"
 	}
 
+fun readerPdfFitShortLabel(pdfFitMode: String?): String =
+	when (normalizedReaderPdfFitMode(pdfFitMode)) {
+		ReaderPdfFitPage -> "Page"
+		ReaderPdfFitHeight -> "Height"
+		ReaderPdfFitOriginal -> "Original"
+		else -> "Width"
+	}
+
 fun readerSettingsScopeLabel(scope: ReaderSettingsScope): String =
 	when (scope) {
 		ReaderSettingsScope.Global -> "Global"
@@ -477,7 +528,10 @@ fun defaultReaderSettings(): ReaderSettings =
 		keepScreenOn = false,
 		readaloudSyncEnabled = true,
 		volumeKeyPageTurns = false,
-		webContentsDebuggingEnabled = false
+		webContentsDebuggingEnabled = false,
+		pdfFitMode = ReaderPdfFitWidth,
+		pdfCropBorders = false,
+		pdfPageGapPercent = DefaultReaderPdfPageGapPercent
 	)
 
 fun normalizedReaderSettings(
@@ -503,7 +557,10 @@ fun normalizedReaderSettings(
 	keepScreenOn: Boolean = false,
 	readaloudSyncEnabled: Boolean = true,
 	volumeKeyPageTurns: Boolean = false,
-	webContentsDebuggingEnabled: Boolean = false
+	webContentsDebuggingEnabled: Boolean = false,
+	pdfFitMode: String? = ReaderPdfFitWidth,
+	pdfCropBorders: Boolean = false,
+	pdfPageGapPercent: Int = DefaultReaderPdfPageGapPercent
 ): ReaderSettings {
 	val source = normalizedReaderFontSource(fontSource)
 	val normalizedCustomFontFamily = if (source == ReaderFontSourceCustom) {
@@ -549,7 +606,13 @@ fun normalizedReaderSettings(
 		keepScreenOn = keepScreenOn,
 		readaloudSyncEnabled = readaloudSyncEnabled,
 		volumeKeyPageTurns = volumeKeyPageTurns,
-		webContentsDebuggingEnabled = webContentsDebuggingEnabled
+		webContentsDebuggingEnabled = webContentsDebuggingEnabled,
+		pdfFitMode = normalizedReaderPdfFitMode(pdfFitMode),
+		pdfCropBorders = pdfCropBorders,
+		pdfPageGapPercent = pdfPageGapPercent.coerceIn(
+			MinReaderPdfPageGapPercent,
+			MaxReaderPdfPageGapPercent
+		)
 	)
 }
 
@@ -577,7 +640,10 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		keepScreenOn = keepScreenOn ?: false,
 		readaloudSyncEnabled = readaloudSyncEnabled ?: true,
 		volumeKeyPageTurns = volumeKeyPageTurns ?: false,
-		webContentsDebuggingEnabled = webContentsDebuggingEnabled ?: false
+		webContentsDebuggingEnabled = webContentsDebuggingEnabled ?: false,
+		pdfFitMode = pdfFitMode,
+		pdfCropBorders = pdfCropBorders ?: false,
+		pdfPageGapPercent = pdfPageGapPercent ?: DefaultReaderPdfPageGapPercent
 	)
 
 data class ReaderChromeState(
@@ -718,6 +784,20 @@ data class ReaderChromeState(
 
 	fun toggleVolumeKeyPageTurns(): ReaderChromeState =
 		copy(settings = settings.copy(volumeKeyPageTurns = settings.volumeKeyPageTurns != true))
+
+	fun setPdfFitMode(pdfFitMode: String): ReaderChromeState =
+		copy(settings = settings.copy(pdfFitMode = normalizedReaderPdfFitMode(pdfFitMode)))
+
+	fun togglePdfCropBorders(): ReaderChromeState =
+		copy(settings = settings.copy(pdfCropBorders = settings.pdfCropBorders != true))
+
+	fun adjustPdfPageGap(deltaPercent: Int): ReaderChromeState =
+		copy(
+			settings = settings.copy(
+				pdfPageGapPercent = ((settings.pdfPageGapPercent ?: DefaultReaderPdfPageGapPercent) + deltaPercent)
+					.coerceIn(MinReaderPdfPageGapPercent, MaxReaderPdfPageGapPercent)
+			)
+		)
 
 	fun toSettingsCommand(): ReaderBridgeCommand.ApplySettings =
 		ReaderBridgeCommand.ApplySettings(settings)

@@ -229,6 +229,26 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerOptionsPanelText = readerOptionsPanelFile().readText()
+		val readerChromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+
+		assertContains(readerChromeStateText, "ReaderOptionsTab.PdfImage")
+		assertContains(readerChromeStateText, "publicationFormat: ReaderPublicationFormat")
+		assertContains(readerScreenText, "publicationFormat = reader.publicationFormat")
+		assertContains(readerOptionsPanelText, "publicationFormat: ReaderPublicationFormat")
+		assertContains(readerOptionsPanelText, "ReaderPdfImageOptions(")
+		assertContains(readerOptionsPanelText, "Page fit")
+		assertContains(readerOptionsPanelText, "ReaderSupportedPdfFitModes")
+		assertContains(readerOptionsPanelText, "Crop borders")
+		assertContains(readerOptionsPanelText, "Page gap")
+		assertContains(readerOptionsPanelText, "setPdfFitMode")
+		assertContains(readerOptionsPanelText, "togglePdfCropBorders")
+		assertContains(readerOptionsPanelText, "adjustPdfPageGap")
+	}
+
+	@Test
 	fun commonReaderOptionsSupportKomikkuStylePerBookSettingsScope() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()

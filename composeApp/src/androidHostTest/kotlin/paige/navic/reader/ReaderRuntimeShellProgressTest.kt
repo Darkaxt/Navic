@@ -175,6 +175,20 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeTapOverlayTurnsHorizontalDragsWithoutDependingOnWebViewSwipeHandlers() {
+		val readerScreenText = readerScreenFile().readText()
+		val nativeRegion = readerScreenText
+			.substringAfter("private fun ReaderNativeTapRegion(")
+			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+
+		assertContains(nativeRegion, "awaitPointerEvent()")
+		assertContains(nativeRegion, "readerTapZoneDragPageTurnCommand(")
+		assertContains(nativeRegion, "delta.x")
+		assertContains(nativeRegion, "delta.y")
+		assertContains(nativeRegion, "onPageTurn(dragCommand)")
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()

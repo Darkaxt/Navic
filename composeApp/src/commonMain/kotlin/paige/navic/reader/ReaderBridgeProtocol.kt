@@ -69,6 +69,9 @@ data class ReaderSettings(
 	val tapZone: String? = null,
 	val smallerTapZone: Boolean? = null,
 	val showTapZones: Boolean? = null,
+	val pdfFitMode: String? = null,
+	val pdfCropBorders: Boolean? = null,
+	val pdfPageGapPercent: Int? = null,
 	val publisherStyles: Boolean? = null,
 	val fullscreen: Boolean? = null,
 	val keepScreenOn: Boolean? = null,
@@ -368,6 +371,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		tapZone?.let { put("tapZone", it) }
 		smallerTapZone?.let { put("smallerTapZone", it) }
 		showTapZones?.let { put("showTapZones", it) }
+		pdfFitMode?.let { put("pdfFitMode", it) }
+		pdfCropBorders?.let { put("pdfCropBorders", it) }
+		pdfPageGapPercent?.let { put("pdfPageGapPercent", it) }
 		publisherStyles?.let { put("publisherStyles", it) }
 		fullscreen?.let { put("fullscreen", it) }
 		keepScreenOn?.let { put("keepScreenOn", it) }

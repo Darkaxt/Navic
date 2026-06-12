@@ -84,6 +84,7 @@ import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOptionsTab
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderProgressSaveGate
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -97,6 +98,7 @@ import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedSettingsScopes
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
@@ -118,6 +120,7 @@ import paige.navic.reader.readerFontSourceShortLabel
 import paige.navic.reader.readerOptionsTabLabel
 import paige.navic.reader.readerOptionsTabs
 import paige.navic.reader.readerOrientationShortLabel
+import paige.navic.reader.readerPdfFitShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerBookmarkFromLocator
@@ -138,6 +141,7 @@ import paige.navic.util.core.Logger
 internal fun ReaderOptionsPanel(
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
+	publicationFormat: ReaderPublicationFormat,
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	selectedTab: ReaderOptionsTab,
@@ -150,7 +154,7 @@ internal fun ReaderOptionsPanel(
 	onReadaloudSyncChange: (ReaderReadaloudPlaybackCommand) -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val tabs = readerOptionsTabs(showReadaloudControls)
+	val tabs = readerOptionsTabs(showReadaloudControls, publicationFormat)
 	Column(
 		modifier = modifier,
 		verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -189,6 +193,10 @@ internal fun ReaderOptionsPanel(
 				onReadaloudToggle = onReadaloudToggle,
 				onReadaloudSpeedChange = onReadaloudSpeedChange,
 				onReadaloudSyncChange = onReadaloudSyncChange
+			)
+			ReaderOptionsTab.PdfImage -> ReaderPdfImageOptions(
+				state = state,
+				onSettingsChange = onSettingsChange
 			)
 		}
 	}
@@ -459,6 +467,37 @@ private fun ReaderMediaOptions(
 			onIncrease = {
 				playback.adjustSpeedCommand(0.25f)?.let(onReadaloudSpeedChange)
 			}
+		)
+	}
+}
+
+@Composable
+private fun ReaderPdfImageOptions(
+	state: ReaderChromeState,
+	onSettingsChange: (ReaderChromeState) -> Unit
+) {
+	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		ReaderSettingsChipRow("Page fit") {
+			ReaderSupportedPdfFitModes.forEach { fitMode ->
+				ReaderOptionChip(
+					label = readerPdfFitShortLabel(fitMode),
+					selected = state.settings.pdfFitMode == fitMode,
+					onClick = { onSettingsChange(state.setPdfFitMode(fitMode)) }
+				)
+			}
+		}
+		ReaderSettingsChipRow("PDF/Image") {
+			ReaderToggleChip(
+				label = "Crop borders",
+				checked = state.settings.pdfCropBorders == true,
+				onClick = { onSettingsChange(state.togglePdfCropBorders()) }
+			)
+		}
+		ReaderControlStepper(
+			label = "Page gap",
+			value = "${state.settings.pdfPageGapPercent ?: 0}%",
+			onDecrease = { onSettingsChange(state.adjustPdfPageGap(-4)) },
+			onIncrease = { onSettingsChange(state.adjustPdfPageGap(4)) }
 		)
 	}
 }

@@ -38,6 +38,7 @@ Current execution priority, registered 2026-06-11:
 - Before any later APK work, fetch `fork/master`, inspect the other thread's changes, and only then continue from the merged state.
 - Keep page-curl drag animation, including the `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html` experiment, phone-rotation dual-page/spread mode, and the spread animation model, at the absolute lowest priority. It must not displace pagination correctness, cover suppression, native tap ownership, PDF navigation, cache/progress, Storyteller/readaloud metadata, audio sync, core reader settings, or Komikku-style reader shell work.
 - The specific rotation behavior requested on 2026-06-12, where rotating the phone enters dual-page mode and applies the spread-mode page animation, belongs to that same lowest-priority backlog floor. Do not start it until the higher-priority reader stabilization and feature-parity queue is closed or the user explicitly promotes this item.
+- 2026-06-12 priority update: treat the page-curl mockup review, finger-drag animation, single-page curl, dual-page/spread curl, and rotation-triggered spread mode as visual polish only. These items are lower priority than the active PDF/Image settings split, EPUB page-number correctness, cover suppression/shell cover handoff, native tap overlay ownership, PDF navigation responsiveness, ebook cache/progress, Storyteller readaloud metadata labels, and Anx/Komikku reader feature parity.
 
 ---
 

@@ -52,6 +52,9 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		tapZone = readerTapZone,
 		smallerTapZone = readerSmallerTapZone,
 		showTapZones = readerShowTapZones,
+		pdfFitMode = readerPdfFitMode,
+		pdfCropBorders = readerPdfCropBorders,
+		pdfPageGapPercent = readerPdfPageGapPercent,
 		publisherStyles = readerPublisherStylesEnabled,
 		fullscreen = readerFullscreen,
 		keepScreenOn = readerKeepScreenOn,
@@ -82,6 +85,9 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
 	readerSmallerTapZone = normalized.smallerTapZone ?: false
 	readerShowTapZones = normalized.showTapZones ?: false
+	readerPdfFitMode = normalized.pdfFitMode ?: ReaderPdfFitWidth
+	readerPdfCropBorders = normalized.pdfCropBorders ?: false
+	readerPdfPageGapPercent = normalized.pdfPageGapPercent ?: 0
 	readerPublisherStylesEnabled = normalized.publisherStyles ?: false
 	readerFullscreen = normalized.fullscreen ?: true
 	readerKeepScreenOn = normalized.keepScreenOn ?: false
@@ -137,6 +143,9 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		tapZone = override.tapZone ?: tapZone,
 		smallerTapZone = override.smallerTapZone ?: smallerTapZone,
 		showTapZones = override.showTapZones ?: showTapZones,
+		pdfFitMode = override.pdfFitMode ?: pdfFitMode,
+		pdfCropBorders = override.pdfCropBorders ?: pdfCropBorders,
+		pdfPageGapPercent = override.pdfPageGapPercent ?: pdfPageGapPercent,
 		publisherStyles = override.publisherStyles ?: publisherStyles,
 		fullscreen = override.fullscreen ?: fullscreen,
 		keepScreenOn = override.keepScreenOn ?: keepScreenOn,
@@ -167,6 +176,9 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		tapZone = if (tapZone != null) normalized.tapZone else null,
 		smallerTapZone = if (smallerTapZone != null) normalized.smallerTapZone else null,
 		showTapZones = if (showTapZones != null) normalized.showTapZones else null,
+		pdfFitMode = if (pdfFitMode != null) normalized.pdfFitMode else null,
+		pdfCropBorders = if (pdfCropBorders != null) normalized.pdfCropBorders else null,
+		pdfPageGapPercent = if (pdfPageGapPercent != null) normalized.pdfPageGapPercent else null,
 		publisherStyles = if (publisherStyles != null) normalized.publisherStyles else null,
 		fullscreen = if (fullscreen != null) normalized.fullscreen else null,
 		keepScreenOn = if (keepScreenOn != null) normalized.keepScreenOn else null,
@@ -232,6 +244,9 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		tapZone = stringValue("tapZone"),
 		smallerTapZone = booleanValue("smallerTapZone"),
 		showTapZones = booleanValue("showTapZones"),
+		pdfFitMode = stringValue("pdfFitMode"),
+		pdfCropBorders = booleanValue("pdfCropBorders"),
+		pdfPageGapPercent = intValue("pdfPageGapPercent"),
 		publisherStyles = booleanValue("publisherStyles"),
 		fullscreen = booleanValue("fullscreen"),
 		keepScreenOn = booleanValue("keepScreenOn"),
@@ -259,6 +274,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		tapZone?.let { put("tapZone", it) }
 		smallerTapZone?.let { put("smallerTapZone", it) }
 		showTapZones?.let { put("showTapZones", it) }
+		pdfFitMode?.let { put("pdfFitMode", it) }
+		pdfCropBorders?.let { put("pdfCropBorders", it) }
+		pdfPageGapPercent?.let { put("pdfPageGapPercent", it) }
 		publisherStyles?.let { put("publisherStyles", it) }
 		fullscreen?.let { put("fullscreen", it) }
 		keepScreenOn?.let { put("keepScreenOn", it) }

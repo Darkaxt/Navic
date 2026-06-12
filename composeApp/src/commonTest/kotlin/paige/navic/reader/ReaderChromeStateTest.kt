@@ -242,6 +242,55 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeTapOverlayDragCommandsRespectReadingDirection() {
+		assertEquals(
+			ReaderBridgeCommand.NextPage,
+			readerTapZoneDragPageTurnCommand(
+				deltaX = -96f,
+				deltaY = 12f,
+				direction = ReaderDirectionLtr,
+				thresholdPx = 48f
+			)
+		)
+		assertEquals(
+			ReaderBridgeCommand.PreviousPage,
+			readerTapZoneDragPageTurnCommand(
+				deltaX = 96f,
+				deltaY = 12f,
+				direction = ReaderDirectionLtr,
+				thresholdPx = 48f
+			)
+		)
+		assertEquals(
+			ReaderBridgeCommand.PreviousPage,
+			readerTapZoneDragPageTurnCommand(
+				deltaX = -96f,
+				deltaY = 12f,
+				direction = ReaderDirectionRtl,
+				thresholdPx = 48f
+			)
+		)
+		assertEquals(
+			null,
+			readerTapZoneDragPageTurnCommand(
+				deltaX = -24f,
+				deltaY = 4f,
+				direction = ReaderDirectionLtr,
+				thresholdPx = 48f
+			)
+		)
+		assertEquals(
+			null,
+			readerTapZoneDragPageTurnCommand(
+				deltaX = -96f,
+				deltaY = 128f,
+				direction = ReaderDirectionLtr,
+				thresholdPx = 48f
+			)
+		)
+	}
+
+	@Test
 	fun nativeShellCoverBoundaryInterceptsPreviousOnlyFromFirstReadablePage() {
 		assertTrue(
 			readerShouldReturnToNativeShellCover(
@@ -401,5 +450,44 @@ class ReaderChromeStateTest {
 		assertEquals(ReaderOrientationFree, updated.settings.orientation)
 		assertEquals("Edge", readerTapZoneShortLabel(updated.settings.tapZone))
 		assertEquals("Free", readerOrientationShortLabel(updated.settings.orientation))
+	}
+
+	@Test
+	fun pdfReaderOptionsUseDedicatedPdfImageTabAndSettings() {
+		assertEquals(
+			listOf(ReaderOptionsTab.Reading, ReaderOptionsTab.General, ReaderOptionsTab.PdfImage),
+			readerOptionsTabs(
+				showReadaloudControls = false,
+				publicationFormat = ReaderPublicationFormat.Pdf
+			)
+		)
+		assertEquals(
+			ReaderOptionsTab.Reading,
+			normalizedReaderOptionsTab(
+				tab = ReaderOptionsTab.Media,
+				showReadaloudControls = true,
+				publicationFormat = ReaderPublicationFormat.Pdf
+			)
+		)
+		assertEquals(
+			ReaderOptionsTab.PdfImage,
+			normalizedReaderOptionsTab(
+				tab = ReaderOptionsTab.PdfImage,
+				showReadaloudControls = false,
+				publicationFormat = ReaderPublicationFormat.Pdf
+			)
+		)
+		assertEquals("PDF/Image", readerOptionsTabLabel(ReaderOptionsTab.PdfImage))
+		assertEquals(ReaderPdfFitWidth, defaultReaderSettings().pdfFitMode)
+
+		val updated = ReaderChromeState()
+			.setPdfFitMode(ReaderPdfFitPage)
+			.adjustPdfPageGap(12)
+			.togglePdfCropBorders()
+
+		assertEquals(ReaderPdfFitPage, updated.settings.pdfFitMode)
+		assertEquals(12, updated.settings.pdfPageGapPercent)
+		assertEquals(true, updated.settings.pdfCropBorders)
+		assertEquals("Page", readerPdfFitShortLabel(updated.settings.pdfFitMode))
 	}
 }

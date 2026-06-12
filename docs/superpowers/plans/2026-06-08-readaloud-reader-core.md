@@ -178,7 +178,7 @@ Do not spend implementation time on page-curl, drag animation, dual-page animati
 
 1. Stabilize the signed-release phone test loop: build in CI, install the signed APK over the existing release package, and run an adb smoke script for EPUB, PDF, and readaloud EPUB. `scripts/adb-reader-smoke.ps1` exists, but live validation still depends on an attached device.
 2. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
-3. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
+3. Continue the PDF/image settings split: the in-reader PDF/Image tab, preference persistence, per-book override JSON, and bridge fields now exist; renderer application for fit/crop/gap plus broader Komikku-style PDF/image controls remain pending.
 4. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
 5. Continue broader imported/downloaded font management: imported-font removal and cache-size display are supported; downloaded font library management and per-book imported font presets remain pending.
 

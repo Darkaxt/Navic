@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -61,6 +60,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import kotlin.math.abs
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
@@ -94,6 +95,7 @@ import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOptionsTab
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderProgressSaveGate
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -132,6 +134,7 @@ import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerTapZoneInteractiveRegions
+import paige.navic.reader.readerTapZoneDragPageTurnCommand
 import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerShouldReturnToNativeShellCover
 import paige.navic.reader.ReaderTapZoneRegion
@@ -206,6 +209,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerTapZone,
 		preferenceManager.readerSmallerTapZone,
 		preferenceManager.readerShowTapZones,
+		preferenceManager.readerPdfFitMode,
+		preferenceManager.readerPdfCropBorders,
+		preferenceManager.readerPdfPageGapPercent,
 		preferenceManager.readerPublisherStylesEnabled,
 		preferenceManager.readerFullscreen,
 		preferenceManager.readerKeepScreenOn,
@@ -800,6 +806,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				kind = reader.kind,
 				mediaOverlayEnabled = reader.mediaOverlayEnabled
 			),
+			publicationFormat = reader.publicationFormat,
 			settingsScope = readerSettingsScope,
 			hasBookSettings = hasReaderBookSettings,
 			onDismissRequest = { optionsVisible = false },
@@ -897,19 +904,41 @@ private fun ReaderNativeTapRegion(
 	onPageTurn: (ReaderBridgeCommand) -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val touchSlop = LocalViewConfiguration.current.touchSlop
+	val pageDragThresholdPx = touchSlop * 3f
 	Box(
-		modifier.pointerInput(region, direction) {
+		modifier.pointerInput(region, direction, pageDragThresholdPx, touchSlop) {
 			awaitEachGesture {
 				val down = awaitFirstDown(requireUnconsumed = false)
 				down.consume()
-				val up = waitForUpOrCancellation()
-				if (up != null) {
-					up.consume()
-					val command = readerTapZonePageTurnCommand(region.action, direction)
-					if (command != null) {
-						onPageTurn(command)
-					} else {
-						onMenuTap()
+				var dragCommand: ReaderBridgeCommand? = null
+				var movedBeyondTapSlop = false
+				while (true) {
+					val event = awaitPointerEvent()
+					val change = event.changes.firstOrNull { pointer -> pointer.id == down.id }
+						?: return@awaitEachGesture
+					val delta = change.position - down.position
+					if (abs(delta.x) > touchSlop || abs(delta.y) > touchSlop) {
+						movedBeyondTapSlop = true
+					}
+					readerTapZoneDragPageTurnCommand(
+						deltaX = delta.x,
+						deltaY = delta.y,
+						direction = direction,
+						thresholdPx = pageDragThresholdPx
+					)?.let { command ->
+						dragCommand = dragCommand ?: command
+						change.consume()
+					}
+					if (!change.pressed) {
+						change.consume()
+						val command = readerTapZonePageTurnCommand(region.action, direction)
+						when {
+							dragCommand != null -> onPageTurn(dragCommand)
+							command != null && !movedBeyondTapSlop -> onPageTurn(command)
+							command == null && !movedBeyondTapSlop -> onMenuTap()
+						}
+						return@awaitEachGesture
 					}
 				}
 			}
@@ -1171,6 +1200,7 @@ private fun ReaderBottomChrome(
 private fun ReaderKomikkuOptionsSheet(
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
+	publicationFormat: ReaderPublicationFormat,
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	onDismissRequest: () -> Unit,
@@ -1182,12 +1212,13 @@ private fun ReaderKomikkuOptionsSheet(
 	onReadaloudSyncChange: (ReaderReadaloudPlaybackCommand) -> Unit
 ) {
 	val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-	var selectedOptionsTab by remember(showReadaloudControls) {
+	var selectedOptionsTab by remember(showReadaloudControls, publicationFormat) {
 		mutableStateOf(ReaderOptionsTab.Reading)
 	}
 	val safeSelectedOptionsTab = normalizedReaderOptionsTab(
 		tab = selectedOptionsTab,
-		showReadaloudControls = showReadaloudControls
+		showReadaloudControls = showReadaloudControls,
+		publicationFormat = publicationFormat
 	)
 	ModalBottomSheet(
 		onDismissRequest = onDismissRequest,
@@ -1207,6 +1238,7 @@ private fun ReaderKomikkuOptionsSheet(
 				ReaderOptionsPanel(
 					state = state,
 					showReadaloudControls = showReadaloudControls,
+					publicationFormat = publicationFormat,
 					settingsScope = settingsScope,
 					hasBookSettings = hasBookSettings,
 					selectedTab = safeSelectedOptionsTab,

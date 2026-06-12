@@ -246,6 +246,35 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripPdfImagePreferences() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerPdfFitMode = ReaderPdfFitHeight
+		preferences.readerPdfCropBorders = true
+		preferences.readerPdfPageGapPercent = 18
+
+		val defaults = preferences.readerDefaultSettings()
+		assertEquals(ReaderPdfFitHeight, defaults.pdfFitMode)
+		assertEquals(true, defaults.pdfCropBorders)
+		assertEquals(18, defaults.pdfPageGapPercent)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(
+				pdfFitMode = ReaderPdfFitOriginal,
+				pdfCropBorders = false,
+				pdfPageGapPercent = 24
+			)
+		)
+
+		assertEquals(ReaderPdfFitOriginal, preferences.readerPdfFitMode)
+		assertEquals(false, preferences.readerPdfCropBorders)
+		assertEquals(24, preferences.readerPdfPageGapPercent)
+		assertEquals(ReaderPdfFitOriginal, preferences.readerDefaultSettings().pdfFitMode)
+		assertEquals(false, preferences.readerDefaultSettings().pdfCropBorders)
+		assertEquals(24, preferences.readerDefaultSettings().pdfPageGapPercent)
+	}
+
+	@Test
 	fun readerBookSettingsOverrideMergesOverGlobalDefaultsWithoutMutatingThem() {
 		val preferences = PreferenceManager(MapSettings())
 		preferences.readerTheme = ReaderDarkTheme
