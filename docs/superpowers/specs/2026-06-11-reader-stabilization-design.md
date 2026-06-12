@@ -337,3 +337,34 @@ Published release evidence:
 - Asset size: `13,152,601` bytes
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta31/Navic.apk`
 - Asset SHA-256 digest: `2c2709378a6698e59a3ce1d5a287da619947d73742729488d6f9e85436251bbf`
+
+## Validation Checkpoint: 2026-06-12 WebView Phase 1 Gate
+
+Scope:
+
+- Re-run the laptop WebView harness against the real local Hobbit EPUB and PDF fixtures before continuing APK-native work.
+- Verify EPUB cover suppression, page labels, texture movement, shell-cover handoff, renderer CSS, full traversal, and PDF navigation from the same reader assets shipped in the APK.
+
+Fresh validation evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode smoke
+node tools\reader-harness\src\run-reader-harness.mjs --mode serve-smoke
+node tools\reader-harness\src\run-reader-harness.mjs --mode trace-smoke
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+```
+
+Result: all commands exited `0`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 11 checks`.
+
+Observed harness details:
+
+- EPUB full traversal reported `505` visible pages and completed through page `501/505` progress logging before the final assertion passed.
+- Shell-cover handoff starts with native shell cover visible, suppresses the WebView cover, advances to page `1/505` on the second next action, and returns to shell cover on previous from the first visible page.
+- Texture scroll produced a positive renderer movement delta of `98` with `calc(50% - 98px)` background counter-movement.
+- PDF smoke and fast sequential turn checks passed against a `3` page fixture, ending at page index `2`.
