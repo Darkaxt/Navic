@@ -122,13 +122,16 @@ class ReaderRuntimeImageLinkTest {
 			message = "The Android resolver's EPUB cover URL must be surfaced to common reader UI."
 		)
 		assertContains(readerScreenText, "nativeShellCoverUrl")
-		assertContains(readerScreenText, "nativeShellCoverVisible")
-		assertContains(readerScreenText, "ReaderNativeShellCoverSurface(")
 		assertContains(readerScreenText, "externalShellCover = nativeShellCoverUrl != null")
-		assertContains(readerScreenText, "ReaderBridgeCommand.NextPage -> nativeShellCoverVisible = false")
+		assertContains(readerScreenText, "nativeShellCoverUrl = nativeShellCoverUrl")
+		assertContains(readerScreenText, "canReturnToShellCover = readerShouldReturnToNativeShellCover(")
 		assertContains(readerScreenText, "readerShouldReturnToNativeShellCover(")
 		assertContains(webViewHostText, "externalShellCover: Boolean")
+		assertContains(webViewHostText, "nativeShellCoverUrl: String?")
+		assertContains(webViewHostText, "canReturnToShellCover: Boolean")
 		assertContains(webViewHostText, "externalShellCover = externalShellCover")
+		assertContains(webViewHostText, "shellCoverWebView")
+		assertContains(webViewHostText, "updateShellCover(nativeShellCoverUrl, title)")
 	}
 
 	@Test
@@ -153,13 +156,25 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val webViewHostText = readerWebViewHostFile().readText()
 		val canReturnToShellCover = bridgeText
 			.substringAfter("canReturnToShellCover() {")
 			.substringBefore("\n  applyReaderViewportLayout")
 
-		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
-		assertContains(readerScreenText, "onPageTurn = { command ->")
-		assertContains(readerScreenText, "dispatchReaderCommand(command)")
+		assertContains(readerScreenText, "nativeShellCoverUrl = nativeShellCoverUrl")
+		assertContains(webViewHostText, "ReaderSurfaceHost")
+		assertContains(webViewHostText, "shellCoverWebView")
+		assertContains(webViewHostText, "readerShellCoverHtml")
+		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage -> hideShellCover()")
+		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage -> Unit")
+		assertContains(webViewHostText, "dispatchReaderWideTap")
+		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
+		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage")
+		assertFalse(
+			readerScreenText.contains("ReaderNativeTapOverlay("),
+			"Reader taps must be owned by the Android reader surface host, not a Compose overlay that can sit behind the WebView surface."
+		)
 		assertFalse(
 			runtimeText.contains("readerTargetInsideShellCover") || runtimeText.contains("isInteractiveReaderTarget"),
 			"Cover image taps must be owned above the WebView, not special-cased inside content hit testing."
@@ -302,9 +317,7 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderLetsMediaTogglesWinOverReadableTapZones() {
 		val bridgeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
-		val nativeOverlay = readerScreenText
-			.substringAfter("private fun ReaderNativeTapOverlay(")
-			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+		val webViewHostText = readerWebViewHostFile().readText()
 		val tapZoneTargetGuard = bridgeText
 			.substringAfter("shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {")
 			.substringBefore("\n  handleReaderTapZoneTap")
@@ -315,12 +328,16 @@ class ReaderRuntimeImageLinkTest {
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
 			.substringBefore("\n  effectiveReaderDirection")
 
-		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
 		assertFalse(
-			nativeOverlay.contains("down.consume()") || nativeOverlay.contains("change.consume()"),
-			"Readable media taps must not depend on a native overlay consuming the WebView gesture stream."
+			readerScreenText.contains("ReaderNativeTapOverlay("),
+			"Readable media taps must not depend on a Compose overlay consuming the WebView gesture stream."
 		)
-		assertContains(nativeOverlay, "onPageTurn(command)")
+		assertContains(webViewHostText, "ReaderSurfaceHost")
+		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
+		assertContains(webViewHostText, "readerContentHandledTap()")
+		assertContains(webViewHostText, "WebView.HitTestResult.IMAGE_TYPE")
+		assertContains(webViewHostText, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
+		assertContains(webViewHostText, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
 		assertContains(tapZoneTargetGuard, "readerPointInsideAnchorText(anchor, event)")
 		assertContains(tapZoneTargetGuard, "readerMediaTapTargetForEvent(doc, event, anchor)")
 		assertContains(bridgeText, "this.shouldIgnoreReaderTapZoneTarget(event, sourceTarget)")

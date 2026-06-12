@@ -1,5 +1,11 @@
 package paige.navic.ui.screens.reader
 
+import android.content.Context
+import android.graphics.Color
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -8,6 +14,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +37,8 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
+import paige.navic.reader.readerTapZoneActionAt
+import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
@@ -43,6 +52,8 @@ actual fun ReaderWebViewHost(
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
+	nativeShellCoverUrl: String?,
+	canReturnToShellCover: Boolean,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
@@ -95,7 +106,10 @@ actual fun ReaderWebViewHost(
 	val currentCommand by rememberUpdatedState(command.withAndroidNativeTapZones())
 	val currentCommandKey by rememberUpdatedState(commandKey)
 	val currentSettings by rememberUpdatedState(settings)
+	val currentNativeShellCoverUrl by rememberUpdatedState(nativeShellCoverUrl)
+	val currentCanReturnToShellCover by rememberUpdatedState(canReturnToShellCover)
 	var webView by remember { mutableStateOf<WebView?>(null) }
+	var coverWebView by remember { mutableStateOf<WebView?>(null) }
 	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
@@ -152,6 +166,8 @@ actual fun ReaderWebViewHost(
 		onDispose {
 			webView?.destroy()
 			webView = null
+			coverWebView?.destroy()
+			coverWebView = null
 		}
 	}
 
@@ -159,7 +175,7 @@ actual fun ReaderWebViewHost(
 		AndroidView(
 			modifier = modifier,
 			factory = {
-				WebView(context).apply {
+				val readerWebView = WebView(context).apply {
 					webView = this
 					webChromeClient = object : WebChromeClient() {
 						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
@@ -243,23 +259,259 @@ actual fun ReaderWebViewHost(
 						enableDebugging = settings.webContentsDebuggingEnabled == true
 					)
 				}
+				val readerCoverWebView = WebView(context).apply {
+					coverWebView = this
+					setBackgroundColor(Color.BLACK)
+					isVerticalScrollBarEnabled = false
+					isHorizontalScrollBarEnabled = false
+					webViewClient = object : WebViewClient() {
+						override fun shouldInterceptRequest(
+							view: WebView,
+							request: WebResourceRequest
+						): WebResourceResponse? =
+							readerAssetLoader.shouldInterceptRequest(request.url)
+								?: super.shouldInterceptRequest(view, request)
+					}
+				}
+				ReaderSurfaceHost(context).apply {
+					this.readerWebView = readerWebView
+					this.shellCoverWebView = readerCoverWebView
+					readerSettings = currentSettings
+					readerWideTapsEnabled = true
+					this.canReturnToShellCover = currentCanReturnToShellCover
+					updateShellCover(currentNativeShellCoverUrl, title)
+					onReaderCommand = { readerCommand ->
+						readerWebView.post {
+							Logger.i(
+								ReaderWebViewHostTag,
+								"Dispatching reader surface command: ${readerCommand.debugLabel()} " +
+									"publication=${currentPublicationKey.hashCode()}"
+							)
+							readerWebView.evaluateJavascript(ReaderWebRuntime.commandScript(readerCommand), null)
+						}
+					}
+					onReaderCenterTap = {
+						readerWebView.post { handleReaderBridgeEvent(ReaderBridgeEvent.CenterTap) }
+					}
+					addView(
+						readerWebView,
+						FrameLayout.LayoutParams(
+							ViewGroup.LayoutParams.MATCH_PARENT,
+							ViewGroup.LayoutParams.MATCH_PARENT
+						)
+					)
+					addView(
+						readerCoverWebView,
+						FrameLayout.LayoutParams(
+							ViewGroup.LayoutParams.MATCH_PARENT,
+							ViewGroup.LayoutParams.MATCH_PARENT
+						)
+					)
+				}
 			},
 			update = { view ->
+				view.readerSettings = settings
+				view.readerWideTapsEnabled = true
+				view.canReturnToShellCover = canReturnToShellCover
+				view.updateShellCover(nativeShellCoverUrl, title)
 				view.keepScreenOn = settings.keepScreenOn == true
+				view.onReaderCommand = { readerCommand ->
+					webView?.post {
+						Logger.i(
+							ReaderWebViewHostTag,
+							"Dispatching reader surface command: ${readerCommand.debugLabel()} " +
+								"publication=${currentPublicationKey.hashCode()}"
+						)
+						webView?.evaluateJavascript(ReaderWebRuntime.commandScript(readerCommand), null)
+					}
+				}
+				view.onReaderCenterTap = {
+					webView?.post { handleReaderBridgeEvent(ReaderBridgeEvent.CenterTap) }
+						?: handleReaderBridgeEvent(ReaderBridgeEvent.CenterTap)
+				}
+				val activeWebView = webView ?: return@AndroidView
+				activeWebView.keepScreenOn = settings.keepScreenOn == true
 				ReaderWebRuntime.setWebContentsDebuggingEnabled(settings.webContentsDebuggingEnabled == true)
 				if (
 					shouldDispatchReaderCommandsToWebRuntime(
 						runtimeReady = readerRuntimeReady,
-						currentUrl = view.url,
+						currentUrl = activeWebView.url,
 						entrypointUrl = ReaderWebRuntime.entrypointUrl
 					)
 				) {
-					view.dispatchReadyReaderCommands()
+					activeWebView.dispatchReadyReaderCommands()
 				}
 			}
 		)
 	}
 }
+
+private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
+	var readerWebView: WebView? = null
+	var shellCoverWebView: WebView? = null
+	var readerSettings: ReaderSettings = ReaderSettings()
+	var readerWideTapsEnabled: Boolean = true
+	var canReturnToShellCover: Boolean = false
+	var onReaderCommand: (ReaderBridgeCommand) -> Unit = {}
+	var onReaderCenterTap: () -> Unit = {}
+	private var shellCoverUrl: String? = null
+	private var shellCoverTitle: String = ""
+	private var shellCoverVisible: Boolean = false
+
+	private val readerGestureDetector = GestureDetector(
+		context,
+		object : GestureDetector.SimpleOnGestureListener() {
+			override fun onDown(event: MotionEvent): Boolean = true
+
+			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+				if (!readerWideTapsEnabled) return false
+				dispatchReaderWideTap(event)
+				return true
+			}
+		}
+	)
+
+	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+		val childHandled = super.dispatchTouchEvent(event)
+		if (readerWideTapsEnabled) {
+			readerGestureDetector.onTouchEvent(event)
+		}
+		return childHandled
+	}
+
+	private fun dispatchReaderWideTap(event: MotionEvent) {
+		if (width <= 0 || height <= 0) return
+		if (!shellCoverVisible && readerContentHandledTap()) return
+		val action = readerTapZoneActionAt(
+			tapZone = readerSettings.tapZone,
+			xFraction = event.x / width.toFloat(),
+			yFraction = event.y / height.toFloat(),
+			smallerTapZone = readerSettings.smallerTapZone == true,
+			flowMode = readerSettings.flowMode
+		)
+		val command = readerTapZonePageTurnCommand(action, readerSettings.direction)
+		if (command != null) {
+			dispatchReaderPageTurnCommand(command)
+		} else {
+			onReaderCenterTap()
+		}
+	}
+
+	fun updateShellCover(coverUrl: String?, title: String) {
+		val nextCoverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+		if (nextCoverUrl == null) {
+			shellCoverUrl = null
+			shellCoverTitle = ""
+			hideShellCover()
+			shellCoverWebView?.loadUrl("about:blank")
+			return
+		}
+		val changed = shellCoverUrl != nextCoverUrl || shellCoverTitle != title
+		shellCoverUrl = nextCoverUrl
+		shellCoverTitle = title
+		if (changed) {
+			shellCoverVisible = true
+			shellCoverWebView?.visibility = View.VISIBLE
+			shellCoverWebView?.loadDataWithBaseURL(
+				ReaderWebRuntime.AssetLoaderOrigin,
+				readerShellCoverHtml(nextCoverUrl, title),
+				"text/html",
+				"UTF-8",
+				null
+			)
+		} else if (shellCoverVisible) {
+			shellCoverWebView?.visibility = View.VISIBLE
+		}
+	}
+
+	private fun dispatchReaderPageTurnCommand(command: ReaderBridgeCommand) {
+		if (shellCoverVisible) {
+			when (command) {
+				ReaderBridgeCommand.NextPage -> hideShellCover()
+				ReaderBridgeCommand.PreviousPage -> Unit
+				else -> onReaderCommand(command)
+			}
+			return
+		}
+		if (command == ReaderBridgeCommand.PreviousPage && canReturnToShellCover && !shellCoverUrl.isNullOrBlank()) {
+			showShellCover()
+			return
+		}
+		onReaderCommand(command)
+	}
+
+	private fun showShellCover() {
+		shellCoverVisible = !shellCoverUrl.isNullOrBlank()
+		shellCoverWebView?.visibility = if (shellCoverVisible) View.VISIBLE else View.GONE
+	}
+
+	private fun hideShellCover() {
+		shellCoverVisible = false
+		shellCoverWebView?.visibility = View.GONE
+	}
+
+	private fun readerContentHandledTap(): Boolean =
+		when (readerWebView?.hitTestResult?.type) {
+			WebView.HitTestResult.PHONE_TYPE,
+			WebView.HitTestResult.GEO_TYPE,
+			WebView.HitTestResult.EMAIL_TYPE,
+			WebView.HitTestResult.IMAGE_TYPE,
+			WebView.HitTestResult.SRC_ANCHOR_TYPE,
+			WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE,
+			WebView.HitTestResult.EDIT_TEXT_TYPE -> true
+			else -> false
+		}
+}
+
+private fun readerShellCoverHtml(coverUrl: String, title: String): String =
+	"""
+	<!doctype html>
+	<html>
+	<head>
+	  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+	  <style>
+	    html, body {
+	      width: 100%;
+	      height: 100%;
+	      margin: 0;
+	      padding: 0;
+	      overflow: hidden;
+	      background: #000000;
+	    }
+	    body {
+	      display: flex;
+	      align-items: center;
+	      justify-content: center;
+	    }
+	    img {
+	      display: block;
+	      width: auto;
+	      height: auto;
+	      max-width: 100vw;
+	      max-height: 100vh;
+	      object-fit: contain;
+	    }
+	  </style>
+	</head>
+	<body>
+	  <img src="${coverUrl.readerHtmlAttributeEscape()}" alt="${title.readerHtmlAttributeEscape()}">
+	</body>
+	</html>
+	""".trimIndent()
+
+private fun String.readerHtmlAttributeEscape(): String =
+	buildString(length) {
+		this@readerHtmlAttributeEscape.forEach { char ->
+			when (char) {
+				'&' -> append("&amp;")
+				'"' -> append("&quot;")
+				'\'' -> append("&#39;")
+				'<' -> append("&lt;")
+				'>' -> append("&gt;")
+				else -> append(char)
+			}
+		}
+	}
 
 private fun ReaderBridgeCommand.debugLabel(): String =
 	when (this) {

@@ -85,26 +85,26 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readerChromeIsImmersiveAndDrivenByNativeTapOverlay() {
+	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
 		val bridgeText = readerBridgeText()
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val nativeOverlay = readerScreenText
-			.substringAfter("private fun ReaderNativeTapOverlay(")
-			.substringBefore("\n@Composable\nprivate fun ReaderDimOverlay")
+		val webViewHostText = readerWebViewHostFile().readText()
 
-		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
-		assertContains(nativeOverlay, "onMenuTap")
-		assertContains(nativeOverlay, "onPageTurn")
-		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions")
-		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
-		assertContains(readerScreenText, "enabled = !optionsVisible")
-		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
+		assertContains(webViewHostText, "ReaderSurfaceHost")
+		assertContains(webViewHostText, "dispatchReaderWideTap")
+		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
+		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage")
+		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
 		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
 		assertContains(readerScreenText, "chromeVisible")
 		assertContains(readerScreenText, "if (chromeVisible)")
+		assertFalse(
+			readerScreenText.contains("ReaderNativeTapOverlay("),
+			"The Komikku-style touch manager must be the native Android reader surface, not a Compose overlay."
+		)
 		assertFalse(
 			readerScreenText.contains("RootTopBar("),
 			"ReaderScreen must not show the global search/settings/account top bar in the reading area."
@@ -167,23 +167,19 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readableContentTapsRemainOwnedByTopNativeOverlay() {
-		val readerScreenText = readerScreenFile().readText()
-		val nativeRegion = readerScreenText
-			.substringAfter("private fun ReaderNativeTapRegion(")
-			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatch() {
+		val webViewHostText = readerWebViewHostFile().readText()
 		val bridgeText = readerBridgeText()
 
+		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
+		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(webViewHostText, "return childHandled")
+		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
 		assertFalse(
-			nativeRegion.contains("down.consume()") || nativeRegion.contains("change.consume()"),
-			"The top overlay only needs tap classification; it should not manually consume low-level changes."
+			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
+			"The native surface must observe the child touch stream without rewriting WebView/Foliate events."
 		)
-		assertFalse(
-			nativeRegion.contains("readerTapZoneDragPageTurnCommand("),
-			"Reader-wide navigation must stay tap-zone driven instead of reintroducing a second drag/page manager."
-		)
-		assertContains(readerScreenText, "enabled = !optionsVisible")
-		assertContains(nativeRegion, "readerTapZonePageTurnCommand(region.action, direction)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
 		assertContains(bridgeText, "target.addEventListener('touchstart'")
@@ -192,20 +188,21 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun androidWebViewDoesNotInstallASecondReaderTapZoneManager() {
+	fun androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager() {
 		val webViewHostText = readerWebViewHostFile().readText()
 
-		assertFalse(
-			webViewHostText.contains("setOnTouchListener"),
-			"Reader-wide tap zones must be owned by the top overlay, not by a WebView touch listener."
-		)
+		assertContains(webViewHostText, "ReaderSurfaceHost")
+		assertContains(webViewHostText, "addView(")
+		assertContains(webViewHostText, "readerWebView,")
+		assertContains(webViewHostText, "shellCoverWebView")
+		assertContains(webViewHostText, "readerWideTapsEnabled")
+		assertContains(webViewHostText, "onReaderCommand")
+		assertContains(webViewHostText, "onReaderCenterTap")
 		assertFalse(
 			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
-			"The old split manager made cover and content taps diverge; keep only the top overlay manager."
+			"The old split manager made cover and content taps diverge; keep only the reader surface manager."
 		)
-		assertFalse(webViewHostText.contains("readerTapZoneActionAt("))
-		assertFalse(webViewHostText.contains("readerTapZonePageTurnCommand("))
-		assertFalse(webViewHostText.contains("WebView.HitTestResult.IMAGE_TYPE"))
+		assertFalse(webViewHostText.contains("setOnTouchListener"))
 	}
 
 	@Test

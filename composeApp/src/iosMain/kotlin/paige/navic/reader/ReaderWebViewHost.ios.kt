@@ -18,6 +18,8 @@ actual fun ReaderWebViewHost(
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
+	nativeShellCoverUrl: String?,
+	canReturnToShellCover: Boolean,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,

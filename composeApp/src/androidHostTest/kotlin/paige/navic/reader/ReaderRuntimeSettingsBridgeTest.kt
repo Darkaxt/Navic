@@ -66,54 +66,50 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderNormalizesReadableTapZonesInWebViewLikeKomikku() {
+	fun androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val nativeOverlay = readerScreenText
-			.substringAfter("private fun ReaderNativeTapOverlay(")
-			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapRegion")
+		val webViewHostText = readerWebViewHostFile().readText()
 
-		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
-		assertContains(readerScreenText, "ReaderNativeTapRegion(")
-		assertContains(readerScreenText, "enabled = !optionsVisible")
+		assertContains(webViewHostText, "ReaderSurfaceHost")
+		assertContains(webViewHostText, "readerTapZoneActionAt(")
+		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "dispatchReaderWideTap")
+		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
 		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "komikkuTapAction(")
 		assertContains(runtimeText, "readerTapZoneCommand(")
-		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions(")
 		assertFalse(
-			nativeOverlay.contains("modifier.pointerInput("),
-			"Native cover tap ownership must use discrete region targets so readable WebView content remains interactive."
+			readerScreenText.contains("ReaderNativeTapOverlay("),
+			"Readable EPUB/PDF tap ownership must live in the Android reader surface, not a Compose sibling overlay."
 		)
-		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
-		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
 	}
 
 	@Test
-	fun androidReaderUsesOneTopTapManagerAboveCoverAndWebView() {
+	fun androidReaderUsesChildFirstNativeReaderSurfaceAboveWebView() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()
-		val nativeOverlayCall = readerScreenText
-			.substringAfter("ReaderNativeTapOverlay(")
-			.substringBefore("onMenuTap =")
 
-		assertContains(nativeOverlayCall, "enabled = !optionsVisible")
-		assertFalse(
-			nativeOverlayCall.contains("nativeShellCoverVisible"),
-			"The reader-wide tap manager must not be gated to the shell cover; it owns taps above the WebView too."
-		)
+		assertContains(webViewHostText, "private class ReaderSurfaceHost")
+		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
+		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(webViewHostText, "return childHandled")
+		assertContains(webViewHostText, "GestureDetector.SimpleOnGestureListener()")
+		assertContains(webViewHostText, "onSingleTapConfirmed(event: MotionEvent)")
 		assertFalse(
 			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
-			"Android must not keep a second WebView-owned tap-zone manager when the top overlay owns reader-wide taps."
+			"Android must not keep the old split WebView-only tap-zone observer."
 		)
 		assertFalse(
-			webViewHostText.contains("setOnTouchListener"),
-			"WebView touch handling should stay with WebView/Foliate internals; reader-wide taps are handled by the top overlay."
+			readerScreenText.contains("ReaderNativeTapRegion("),
+			"Reader-wide tap zones must not be Compose region boxes over the WebView."
 		)
 	}
 
 	@Test
-	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenTopOverlayOwnsTaps() {
+	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeSurfaceOwnsTaps() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val webViewHostText = readerWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
@@ -130,7 +126,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(
 			tapHandler,
 			"return",
-			message = "Android top tap ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
+			message = "Android native reader-surface ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
 		)
 	}
 
@@ -160,7 +156,6 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderExposesVisibleTapZoneOverlayControl() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
-		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
@@ -168,10 +163,6 @@ class ReaderRuntimeSettingsBridgeTest {
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 
-		assertContains(readerScreenText, "ReaderNativeTapZoneDebugOverlay")
-		assertContains(readerScreenText, "settings.showTapZones == true")
-		assertContains(readerScreenText, "readerTapZoneInteractiveRegions(")
-		assertContains(readerScreenText, "drawRect(")
 		assertContains(runtimeText, "ensureTapZoneOverlayLayer()")
 		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
 		assertContains(runtimeText, "settings.showTapZones !== true")

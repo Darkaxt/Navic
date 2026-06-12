@@ -1,10 +1,7 @@
 package paige.navic.ui.screens.reader
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
@@ -50,25 +46,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
-import kotlin.math.abs
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
@@ -111,7 +100,6 @@ import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
-import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
@@ -132,11 +120,8 @@ import paige.navic.reader.readerOptionsTabLabel
 import paige.navic.reader.readerOptionsTabs
 import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
-import paige.navic.reader.readerThemeShortLabel
-import paige.navic.reader.readerTapZoneInteractiveRegions
-import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerShouldReturnToNativeShellCover
-import paige.navic.reader.ReaderTapZoneRegion
+import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerBookmarkFromLocator
 import paige.navic.reader.readerBookSettings
 import paige.navic.reader.readerDefaultSettings
@@ -169,9 +154,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	var nativeShellCoverUrl by remember(reader.publicationUrl, reader.resourceHref, reader.kind) {
 		mutableStateOf<String?>(null)
-	}
-	var nativeShellCoverVisible by remember(reader.publicationUrl, reader.resourceHref, reader.kind) {
-		mutableStateOf(false)
 	}
 	var readerCommand by remember(reader.publicationUrl) { mutableStateOf<ReaderBridgeCommand?>(null) }
 	var readerCommandKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
@@ -347,7 +329,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 		lastReaderError = null
 		preparedPublicationUrl = publicationUrl
 		nativeShellCoverUrl = shellCoverUrl
-		nativeShellCoverVisible = !shellCoverUrl.isNullOrBlank()
 	}
 
 	fun hideReaderPanels() {
@@ -739,6 +720,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 					kind = reader.kind,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled,
 					externalShellCover = nativeShellCoverUrl != null,
+					nativeShellCoverUrl = nativeShellCoverUrl,
+					canReturnToShellCover = readerShouldReturnToNativeShellCover(
+						shellCoverUrl = nativeShellCoverUrl,
+						shellCoverVisible = false,
+						locator = chromeState.currentLocator
+					),
 					settings = chromeState.settings,
 					startCfi = resumeStartLocator?.cfi,
 					startHref = resumeStartLocator?.href,
@@ -750,39 +737,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 				)
 				ReaderDimOverlay(
 					dimOverlayPercent = chromeState.settings.dimOverlayPercent ?: 0,
-					modifier = Modifier.matchParentSize()
-				)
-				nativeShellCoverUrl?.takeIf { nativeShellCoverVisible }?.let { coverUrl ->
-					ReaderNativeShellCoverSurface(
-						coverUrl = coverUrl,
-						title = reader.title,
-						modifier = Modifier.matchParentSize()
-					)
-				}
-				ReaderNativeTapOverlay(
-					settings = chromeState.settings,
-					enabled = !optionsVisible,
-					onMenuTap = {
-						platformContext.clickSound()
-						toggleReaderChrome()
-					},
-					onPageTurn = { command ->
-						platformContext.clickSound()
-						when {
-							nativeShellCoverVisible -> when (command) {
-								ReaderBridgeCommand.NextPage -> nativeShellCoverVisible = false
-								ReaderBridgeCommand.PreviousPage -> Unit
-								else -> dispatchReaderCommand(command)
-							}
-							command == ReaderBridgeCommand.PreviousPage &&
-								readerShouldReturnToNativeShellCover(
-									shellCoverUrl = nativeShellCoverUrl,
-									shellCoverVisible = nativeShellCoverVisible,
-									locator = chromeState.currentLocator
-								) -> nativeShellCoverVisible = true
-							else -> dispatchReaderCommand(command)
-						}
-					},
 					modifier = Modifier.matchParentSize()
 				)
 			}
@@ -835,142 +789,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 			onReadaloudSyncChange = { command ->
 				dispatchReadaloudCommand(command)
 			}
-		)
-	}
-}
-
-@Composable
-private fun ReaderNativeShellCoverSurface(
-	coverUrl: String,
-	title: String,
-	modifier: Modifier = Modifier
-) {
-	Box(
-		modifier = modifier.background(Color.Black),
-		contentAlignment = Alignment.Center
-	) {
-		AsyncImage(
-			model = coverUrl,
-			contentDescription = title,
-			contentScale = ContentScale.Fit,
-			modifier = Modifier.fillMaxSize()
-		)
-	}
-}
-
-@Composable
-private fun ReaderNativeTapOverlay(
-	settings: ReaderSettings,
-	enabled: Boolean,
-	onMenuTap: () -> Unit,
-	onPageTurn: (ReaderBridgeCommand) -> Unit,
-	modifier: Modifier = Modifier
-) {
-	if (!enabled || settings.tapZone == ReaderTapZoneDisabled) return
-	BoxWithConstraints(modifier) {
-		val regions = readerTapZoneInteractiveRegions(
-			tapZone = settings.tapZone,
-			smallerTapZone = settings.smallerTapZone == true,
-			flowMode = settings.flowMode
-		)
-		regions.forEach { region ->
-			ReaderNativeTapRegion(
-				region = region,
-				direction = settings.direction,
-				onMenuTap = onMenuTap,
-				onPageTurn = onPageTurn,
-				modifier = Modifier
-					.offset(
-						x = maxWidth * region.left,
-						y = maxHeight * region.top
-					)
-					.size(
-						width = maxWidth * (region.right - region.left),
-						height = maxHeight * (region.bottom - region.top)
-					)
-			)
-		}
-		if (settings.showTapZones == true) {
-			ReaderNativeTapZoneDebugOverlay(
-				settings = settings,
-				modifier = Modifier.matchParentSize()
-			)
-		}
-	}
-}
-
-@Composable
-private fun ReaderNativeTapRegion(
-	region: ReaderTapZoneRegion,
-	direction: String?,
-	onMenuTap: () -> Unit,
-	onPageTurn: (ReaderBridgeCommand) -> Unit,
-	modifier: Modifier = Modifier
-) {
-	val touchSlop = LocalViewConfiguration.current.touchSlop
-	Box(
-		modifier.pointerInput(region, direction, touchSlop) {
-			awaitEachGesture {
-				val down = awaitFirstDown(requireUnconsumed = false)
-				var movedBeyondTapSlop = false
-				while (true) {
-					val event = awaitPointerEvent()
-					val change = event.changes.firstOrNull { pointer -> pointer.id == down.id }
-						?: return@awaitEachGesture
-					val delta = change.position - down.position
-					if (abs(delta.x) > touchSlop || abs(delta.y) > touchSlop) {
-						movedBeyondTapSlop = true
-					}
-					if (!change.pressed) {
-						val command = readerTapZonePageTurnCommand(region.action, direction)
-						when {
-							command != null && !movedBeyondTapSlop -> onPageTurn(command)
-							command == null && !movedBeyondTapSlop -> onMenuTap()
-						}
-						return@awaitEachGesture
-					}
-				}
-			}
-		}
-	)
-}
-
-@Composable
-private fun ReaderNativeTapZoneDebugOverlay(
-	settings: ReaderSettings,
-	modifier: Modifier = Modifier
-) {
-	val regions = readerTapZoneInteractiveRegions(
-		tapZone = settings.tapZone,
-		smallerTapZone = settings.smallerTapZone == true,
-		flowMode = settings.flowMode
-	)
-	Canvas(modifier) {
-		regions.forEach { region ->
-			val color = when (region.action.name) {
-				"Previous", "Left" -> Color(0xFFEF4444)
-				"Next", "Right" -> Color(0xFF3B82F6)
-				else -> Color(0xFF22C55E)
-			}
-			drawRect(
-				color = color.copy(alpha = 0.18f),
-				topLeft = Offset(region.left * size.width, region.top * size.height),
-				size = Size(
-					(region.right - region.left) * size.width,
-					(region.bottom - region.top) * size.height
-				)
-			)
-		}
-		val centerSize = size.minDimension * 0.42f
-		drawRect(
-			color = Color(0xFF22C55E).copy(alpha = 0.16f),
-			topLeft = Offset((size.width - centerSize) / 2f, (size.height - centerSize) / 2f),
-			size = Size(centerSize, centerSize)
-		)
-		drawRect(
-			color = Color(0xFF22C55E).copy(alpha = 0.12f),
-			topLeft = Offset.Zero,
-			size = Size(size.width, size.height * 0.05f)
 		)
 	}
 }
@@ -1572,6 +1390,8 @@ expect fun ReaderWebViewHost(
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
+	nativeShellCoverUrl: String? = null,
+	canReturnToShellCover: Boolean = false,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
