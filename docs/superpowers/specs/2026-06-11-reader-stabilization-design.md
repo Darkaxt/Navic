@@ -1323,3 +1323,15 @@ Phone validation required after release:
 - Verify left/right edge taps still page on shell cover, image pages, text pages, and PDF pages.
 - Verify maps -> Author's Note texture movement no longer flips direction or remains inverted.
 - Cover drag remains a known follow-up unless explicitly fixed in a later slice.
+
+Release publication status:
+
+- Commit: `e220cb834066bac7f15adb4b18a2095447ed2020`
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta42`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27446667488`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,171,889` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta42/Navic.apk`
+- Asset SHA-256 digest: `ec4dae1bcca833402a5a94c73c27b2595b99da65b3e417f40f04041e9303c748`
