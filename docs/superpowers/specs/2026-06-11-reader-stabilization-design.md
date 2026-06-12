@@ -215,3 +215,43 @@ Phase 1 is complete when:
 - Texture variant and offset traces show no inversion or hard reset during page turns or area transitions.
 - Renderer CSS checks pass for paragraph spacing, theme backgrounds, hyperlink presentation, and paper texture layering.
 - The fixes are committed before APK integration begins.
+
+## Validation Checkpoint: 2026-06-12
+
+Current branch status:
+
+- `master` is clean against `fork/master`, excluding untracked local `releases/` and `tmp/` folders.
+- `v1.0.11-eta29` has been pushed and its `Navic.apk` release asset was produced by GitHub Actions.
+- Page-curl drag animation, dual-page/spread animation, and rotation-triggered spread mode remain lowest priority.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest" --tests "paige.navic.reader.StorytellerReadaloudRuntimeLoaderTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderProgressSyncTest" --tests "paige.navic.ui.components.layouts.MiniPlayerVisibilityPolicyTest" --tests "paige.navic.domain.models.AudioPlaybackOwnershipPolicyTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 11 checks`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.StorytellerMediaOverlayParserTest" --tests "paige.navic.reader.StorytellerReadaloudRuntimeLoaderTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+Verified high-priority contracts:
+
+- Bindery EPUB/PDF reader resources are materialized into the local `reader/reader-publications` cache and repeat opens reuse the cached file without refetching.
+- Reader progress ignores repeated startup cover placeholders before saving the first real readable location.
+- The WebView harness opens the real local EPUB, suppresses cover rendering, starts visible pages at page index `0`, traverses all visible pages with a stable total, and verifies texture/page-label behavior across page turns.
+- PDF harness coverage checks horizontal centering, normal next-page movement, coalesced double next-page behavior, and fast sequential next-page behavior.
+- Native Compose tap zones sit above WebView and shell-cover surfaces; WebView JavaScript no longer owns reader-wide center/menu/page tap classification.
+- Storyteller/readaloud parsing preserves audio metadata labels including chapter, section, narrator, quality, source provider, source release, source URL, codec, bitrate, sample rate, and channel count.
+- Music and audiobook mini-player visibility is scoped by app area, and Android playback managers use `AudioPlaybackArbitrator` so starting one owner pauses the other.
+
+No new high-priority stabilization fix is currently confirmed by local evidence. The next implementation slice should start with a failing focused test only after a concrete gap is observed or selected from the Phase 4 reader-upgrade backlog.
