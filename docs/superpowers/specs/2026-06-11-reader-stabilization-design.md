@@ -502,3 +502,40 @@ git diff --check
 ```
 
 Result: all commands exited `0`.
+
+## Microdeliverable Checkpoint: 2026-06-12 Imported Font Management
+
+Scope:
+
+- Add an imported-font cache readout to Settings > Ebooks so the user can see storage used by imported ebook fonts.
+- Add a clear imported font action that deletes cached imported font files and resets the default reader font source back to Navic bundled fonts.
+- Keep Android as the active cache-management implementation and iOS as an explicit unsupported/no-op importer.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontCacheTest.importedFontCacheReportsStorageAndCanBeCleared" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonSettingsEbooksScreenCanClearImportedFontAndShowsFontCacheStorage"
+```
+
+Initial result: failed at compile time with unresolved `cachedFontsByteSize` and `clearImportedFonts`, proving imported-font cache management was not implemented.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontCacheTest.importedFontCacheReportsStorageAndCanBeCleared" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonSettingsEbooksScreenCanClearImportedFontAndShowsFontCacheStorage"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontTest" --tests "paige.navic.reader.ReaderImportedFontCacheTest" --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+git diff --check
+```
+
+Result: both commands exited `0`; `reader harness font-css-smoke passed`.

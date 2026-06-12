@@ -5,7 +5,9 @@ import paige.navic.reader.ReaderImportedFont
 
 interface ReaderFontImporter {
 	val supported: Boolean
+	val cachedFontBytes: Long
 	fun launch()
+	fun clearImportedFonts()
 }
 
 @Composable

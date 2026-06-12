@@ -12,9 +12,12 @@ actual fun rememberReaderFontImporter(
 	remember(onError) {
 		object : ReaderFontImporter {
 			override val supported: Boolean = false
+			override val cachedFontBytes: Long = 0L
 
 			override fun launch() {
 				onError("Font import is not available on this platform.")
 			}
+
+			override fun clearImportedFonts() = Unit
 		}
 	}

@@ -214,6 +214,8 @@
 	<string name="subtitle_ebook_reader_font_family">Default font source used inside EPUB publications.</string>
 	<string name="subtitle_ebook_reader_font_source">Choose whether EPUB text uses bundled reader fonts, Android system fonts, publication-provided fonts, or an imported file.</string>
 	<string name="subtitle_ebook_reader_import_font">Choose a TTF, OTF, WOFF, WOFF2, or TTC file for ebook rendering.</string>
+	<string name="subtitle_ebook_reader_imported_font_storage">Storage used by imported ebook fonts in the reader cache.</string>
+	<string name="subtitle_ebook_reader_clear_imported_font">Remove imported ebook fonts and return the default font source to Navic bundled fonts.</string>
 	<string name="subtitle_ebook_reader_font_size">Default text scale for EPUB content.</string>
 	<string name="subtitle_ebook_reader_line_height">Default spacing between lines in the reader.</string>
 	<string name="subtitle_ebook_reader_paragraph_spacing">Extra space after EPUB paragraphs.</string>
@@ -543,6 +545,8 @@
 	<string name="option_ebook_reader_font_source_publisher">Book fonts</string>
 	<string name="option_ebook_reader_font_source_custom">Imported file</string>
 	<string name="option_ebook_reader_import_font">Import font file</string>
+	<string name="option_ebook_reader_imported_font_storage">Imported font storage</string>
+	<string name="option_ebook_reader_clear_imported_font">Clear imported font</string>
 	<string name="option_ebook_reader_font_size">Font size</string>
 	<string name="option_ebook_reader_line_height">Line height</string>
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>
@@ -929,6 +933,7 @@
 	<string name="info_clear_musicbrainz_cache_confirmation">Cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries will be removed and resolved again during playback.</string>
 	<string name="info_clear_lidaclips_video_cache_confirmation">Cached LidaClips videos will be removed. Saved/offline clips kept with downloaded songs are not deleted by this action.</string>
 	<string name="info_ebook_reader_import_font_success">Imported ebook font.</string>
+	<string name="info_ebook_reader_clear_imported_font_success">Cleared imported ebook font.</string>
 	<string name="info_clear_pending_actions_confirmation">Pending offline sync actions will be discarded. Changes that have not reached your server may be lost.</string>
 	<string name="info_clear_downloads_confirmation">Downloaded songs will be removed from this device. You can download them again later.</string>
 	<string name="info_rebuild_database_confirmation">Local library data will be cleared and rebuilt from the server. Offline-only cached state may be removed.</string>

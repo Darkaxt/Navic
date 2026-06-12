@@ -18,8 +18,10 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import kotlinx.coroutines.launch
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_ebook_reader_clear_imported_font_success
 import navic.composeapp.generated.resources.info_ebook_reader_import_font_success
 import navic.composeapp.generated.resources.info_error
+import navic.composeapp.generated.resources.option_ebook_reader_clear_imported_font
 import navic.composeapp.generated.resources.option_ebook_reader_font_family
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_book
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_dyslexic
@@ -34,6 +36,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_source_navi
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_system
 import navic.composeapp.generated.resources.option_ebook_reader_import_font
+import navic.composeapp.generated.resources.option_ebook_reader_imported_font_storage
 import navic.composeapp.generated.resources.option_ebook_reader_font_size
 import navic.composeapp.generated.resources.option_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.option_ebook_reader_direction
@@ -78,9 +81,11 @@ import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
 import navic.composeapp.generated.resources.option_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.option_off
+import navic.composeapp.generated.resources.subtitle_ebook_reader_clear_imported_font
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_source
 import navic.composeapp.generated.resources.subtitle_ebook_reader_import_font
+import navic.composeapp.generated.resources.subtitle_ebook_reader_imported_font_storage
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
@@ -170,6 +175,7 @@ fun SettingsEbooksScreen() {
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
 	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
 	val importFontSuccessMessage = stringResource(Res.string.info_ebook_reader_import_font_success)
+	val clearImportedFontSuccessMessage = stringResource(Res.string.info_ebook_reader_clear_imported_font_success)
 	val importFontErrorFallback = stringResource(Res.string.info_error)
 	val importedFontValue = settings.customFontFamily?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.option_off)
 	val fontImporter = rememberReaderFontImporter(
@@ -187,6 +193,14 @@ fun SettingsEbooksScreen() {
 			}
 		}
 	)
+	val importedFontStorageValue = if (fontImporter.cachedFontBytes > 0L) {
+		storageSizeText(fontImporter.cachedFontBytes)
+	} else {
+		stringResource(Res.string.option_off)
+	}
+	val hasImportedFont = !settings.customFontFamily.isNullOrBlank() ||
+		!settings.customFontUrl.isNullOrBlank() ||
+		fontImporter.cachedFontBytes > 0L
 
 	Scaffold(
 		topBar = {
@@ -228,6 +242,27 @@ fun SettingsEbooksScreen() {
 							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_import_font)) },
 							onClick = { fontImporter.launch() }
 						)
+						SettingValueRow(
+							title = { Text(stringResource(Res.string.option_ebook_reader_imported_font_storage)) },
+							value = importedFontStorageValue,
+							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_imported_font_storage)) }
+						)
+						if (hasImportedFont) {
+							SettingValueRow(
+								title = { Text(stringResource(Res.string.option_ebook_reader_clear_imported_font)) },
+								value = "",
+								subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_clear_imported_font)) },
+								onClick = {
+									fontImporter.clearImportedFonts()
+									preferenceManager.readerFontSource = ReaderFontSourceNavic
+									preferenceManager.readerCustomFontFamily = ""
+									preferenceManager.readerCustomFontUrl = ""
+									coroutineScope.launch {
+										snackbarState.showSnackbar(clearImportedFontSuccessMessage)
+									}
+								}
+							)
+						}
 					}
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_font_size)) },

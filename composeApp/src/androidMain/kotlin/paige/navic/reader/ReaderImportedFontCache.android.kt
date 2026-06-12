@@ -11,6 +11,23 @@ class ReaderImportedFontCache(
 	private val cacheRoot: File,
 	private val maxBytes: Long = ReaderImportedFontMaxBytes
 ) {
+	fun cachedFontsByteSize(): Long =
+		fontDirectory()
+			.listFiles()
+			.orEmpty()
+			.filter { file -> file.isFile && !file.name.endsWith(".part") }
+			.sumOf { file -> file.length().coerceAtLeast(0L) }
+
+	fun clearImportedFonts(): Int {
+		val directory = fontDirectory()
+		if (!directory.exists()) return 0
+		var deleted = 0
+		directory.listFiles().orEmpty().forEach { file ->
+			if (file.deleteRecursively()) deleted++
+		}
+		return deleted
+	}
+
 	fun importFont(
 		input: InputStream,
 		displayName: String?,
@@ -19,7 +36,7 @@ class ReaderImportedFontCache(
 		val extension = readerImportedFontExtension(displayName, mimeType)
 			?: throw IllegalArgumentException("Selected file is not a supported font.")
 		val family = readerImportedFontFamilyFromDisplayName(displayName)
-		val fontDirectory = File(cacheRoot, ReaderImportedFontDirectoryName)
+		val fontDirectory = fontDirectory()
 		fontDirectory.mkdirs()
 		val tempFile = File(fontDirectory, "import-${System.nanoTime()}.$extension.part")
 		val digest = MessageDigest.getInstance("SHA-256")
@@ -62,6 +79,9 @@ class ReaderImportedFontCache(
 			throw error
 		}
 	}
+
+	private fun fontDirectory(): File =
+		File(cacheRoot, ReaderImportedFontDirectoryName)
 }
 
 private fun ByteArray.toHexString(): String =

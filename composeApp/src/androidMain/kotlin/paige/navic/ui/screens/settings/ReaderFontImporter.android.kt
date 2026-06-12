@@ -7,9 +7,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +29,12 @@ actual fun rememberReaderFontImporter(
 	val scope = rememberCoroutineScope()
 	val currentOnImported by rememberUpdatedState(onImported)
 	val currentOnError by rememberUpdatedState(onError)
+	val fontCache = remember(context) {
+		ReaderImportedFontCache(readerPublicationCacheRoot(context))
+	}
+	var cachedFontBytesState by remember(fontCache) {
+		mutableLongStateOf(fontCache.cachedFontsByteSize())
+	}
 	val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
 		if (uri == null) return@rememberLauncherForActivityResult
 		scope.launch {
@@ -35,14 +43,19 @@ actual fun rememberReaderFontImporter(
 					val resolver = context.contentResolver
 					val input = resolver.openInputStream(uri)
 						?: throw IllegalArgumentException("Unable to open selected font.")
-					ReaderImportedFontCache(readerPublicationCacheRoot(context)).importFont(
+					fontCache.importFont(
 						input = input,
 						displayName = resolver.readerFontDisplayName(uri),
 						mimeType = resolver.getType(uri)
 					)
 				}
 			}.fold(
-				onSuccess = currentOnImported,
+				onSuccess = { imported ->
+					cachedFontBytesState = withContext(Dispatchers.IO) {
+						fontCache.cachedFontsByteSize()
+					}
+					currentOnImported(imported)
+				},
 				onFailure = { error ->
 					currentOnError(error.message ?: "Unable to import selected font.")
 				}
@@ -50,12 +63,23 @@ actual fun rememberReaderFontImporter(
 		}
 	}
 
-	return remember(launcher) {
+	return remember(launcher, fontCache) {
 		object : ReaderFontImporter {
 			override val supported: Boolean = true
+			override val cachedFontBytes: Long
+				get() = cachedFontBytesState
 
 			override fun launch() {
 				launcher.launch(arrayOf("*/*"))
+			}
+
+			override fun clearImportedFonts() {
+				scope.launch {
+					cachedFontBytesState = withContext(Dispatchers.IO) {
+						fontCache.clearImportedFonts()
+						fontCache.cachedFontsByteSize()
+					}
+				}
 			}
 		}
 	}

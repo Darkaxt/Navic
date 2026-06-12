@@ -71,4 +71,26 @@ class ReaderImportedFontCacheTest {
 			)
 		}
 	}
+
+	@Test
+	fun importedFontCacheReportsStorageAndCanBeCleared() {
+		val cacheRoot = createTempDirectory("navic-reader-fonts-clear").toFile()
+		val cache = ReaderImportedFontCache(cacheRoot)
+
+		val first = cache.importFont(
+			input = ByteArrayInputStream("FONT_ONE".encodeToByteArray()),
+			displayName = "First.ttf",
+			mimeType = "font/ttf"
+		)
+		val second = cache.importFont(
+			input = ByteArrayInputStream("FONT_TWO_LONGER".encodeToByteArray()),
+			displayName = "Second.otf",
+			mimeType = "font/otf"
+		)
+
+		assertEquals(first.byteSize + second.byteSize, cache.cachedFontsByteSize())
+		assertEquals(2, cache.clearImportedFonts())
+		assertEquals(0L, cache.cachedFontsByteSize())
+		assertTrue(cacheRoot.resolve("fonts").listFiles().isNullOrEmpty())
+	}
 }

@@ -158,6 +158,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonSettingsEbooksScreenCanClearImportedFontAndShowsFontCacheStorage() {
+		val ebooksScreenText = settingsFile("EbooksScreen.kt").readText()
+		val fontImporterText = settingsFile("ReaderFontImporter.kt").readText()
+		val androidImporterText = listOf(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/settings/ReaderFontImporter.android.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/settings/ReaderFontImporter.android.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Android ReaderFontImporter.android.kt")
+
+		assertContains(fontImporterText, "val cachedFontBytes: Long")
+		assertContains(fontImporterText, "fun clearImportedFonts()")
+		assertContains(androidImporterText, "ReaderImportedFontCache(readerPublicationCacheRoot(context))")
+		assertContains(androidImporterText, "fontCache.cachedFontsByteSize()")
+		assertContains(androidImporterText, "fontCache.clearImportedFonts()")
+		assertContains(ebooksScreenText, "storageSizeText(fontImporter.cachedFontBytes)")
+		assertContains(ebooksScreenText, "option_ebook_reader_imported_font_storage")
+		assertContains(ebooksScreenText, "option_ebook_reader_clear_imported_font")
+		assertContains(ebooksScreenText, "fontImporter.clearImportedFonts()")
+		assertContains(ebooksScreenText, "preferenceManager.readerFontSource = ReaderFontSourceNavic")
+		assertContains(ebooksScreenText, "preferenceManager.readerCustomFontFamily = \"\"")
+		assertContains(ebooksScreenText, "preferenceManager.readerCustomFontUrl = \"\"")
+	}
+
+	@Test
 	fun commonReaderChromeUsesKomikkuStyleOptionsSheetInsteadOfDockedSettingsList() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
