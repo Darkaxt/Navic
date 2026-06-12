@@ -44,6 +44,30 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun progressSaveGateIgnoresRepeatedPostReadyCoverPlaceholdersBeforeSavingResumeLocation() {
+		val coverLocator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0)
+		val navLocator = ReaderLocator(href = "EPUB/nav.xhtml", progress = 0.01)
+		val resumedLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.62
+		)
+		val ready = ReaderProgressSaveGate()
+			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
+			.state
+
+		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+		val startupNav = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(navLocator))
+		val resumed = startupNav.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+		val laterCover = resumed.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+
+		assertEquals(null, startupCover.locatorToSave)
+		assertEquals(null, startupNav.locatorToSave)
+		assertEquals(resumedLocator, resumed.locatorToSave)
+		assertEquals(coverLocator, laterCover.locatorToSave)
+	}
+
+	@Test
 	fun progressSaveGateTreatsLowProgressCoverHrefAsStartupPlaceholder() {
 		val coverLocator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.012)
 		val resumedLocator = ReaderLocator(
