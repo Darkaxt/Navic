@@ -1174,6 +1174,7 @@ class NavicReaderRuntime {
       if (!rawHref) return
       const section = this.view?.book?.sections?.[index]
       const href = section?.resolveHref?.(rawHref) ?? rawHref
+      post({ type: 'readerContentTapHandled', source: 'link' })
       event.preventDefault()
       event.stopPropagation()
       try {

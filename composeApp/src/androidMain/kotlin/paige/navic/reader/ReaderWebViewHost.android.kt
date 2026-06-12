@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
 private const val ReaderContentTapHandledSuppressMs = 450L
+private const val ReaderCenterTapDelayMs = 120L
 
 @Composable
 actual fun ReaderWebViewHost(
@@ -375,6 +376,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var tapCandidate: Boolean = false
 	@Volatile
 	private var contentTapHandledUntilMs: Long = 0L
+	private var pendingCenterTap: Runnable? = null
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val childHandled = super.dispatchTouchEvent(event)
@@ -387,6 +389,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun handleReaderSurfaceTouch(event: MotionEvent) {
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
+				cancelPendingReaderCenterTap()
 				tapCandidatePointerId = event.getPointerId(0)
 				tapDownX = event.x
 				tapDownY = event.y
@@ -463,18 +466,43 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				"hitType=$contentHitType shellCover=$shellCoverVisible"
 		)
 		if (command != null) {
+			cancelPendingReaderCenterTap()
 			dispatchReaderPageTurnCommand(command)
 		} else {
-			onReaderCenterTap()
+			scheduleReaderCenterTap(event.x.toInt(), event.y.toInt(), contentHitType)
 		}
 	}
 
 	fun markContentTapHandled() {
+		cancelPendingReaderCenterTap()
 		contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs
 	}
 
 	private fun readerContentTapHandled(): Boolean =
 		SystemClock.uptimeMillis() <= contentTapHandledUntilMs
+
+	private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {
+		cancelPendingReaderCenterTap()
+		val pending = Runnable {
+			pendingCenterTap = null
+			if (!shellCoverVisible && readerContentTapHandled()) {
+				Logger.i(
+					ReaderWebViewHostTag,
+					"Reader surface tap ignored for explicit content handler x=$x y=$y hitType=$hitType"
+				)
+				return@Runnable
+			}
+			Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$hitType")
+			onReaderCenterTap()
+		}
+		pendingCenterTap = pending
+		postDelayed(pending, ReaderCenterTapDelayMs)
+	}
+
+	private fun cancelPendingReaderCenterTap() {
+		pendingCenterTap?.let(::removeCallbacks)
+		pendingCenterTap = null
+	}
 
 	fun updateShellCover(coverUrl: String?, title: String) {
 		val nextCoverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }

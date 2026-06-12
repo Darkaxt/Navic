@@ -349,6 +349,47 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun readerNormalLinksReportContentTapHandledBeforeNavigation() {
+		val bridgeText = readerBridgeText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val normalLinkNavigation = linkNavigation
+			.substringAfter("const rawHref = anchor.getAttribute('href')")
+			.substringBefore("await this.goTo(href)")
+
+		assertContains(normalLinkNavigation, "post({ type: 'readerContentTapHandled', source: 'link' })")
+		assertTrue(
+			normalLinkNavigation.indexOf("post({ type: 'readerContentTapHandled', source: 'link' })") <
+				normalLinkNavigation.indexOf("event.preventDefault()"),
+			"Normal EPUB links must notify native content ownership before navigation work can race with reader center-menu dispatch."
+		)
+	}
+
+	@Test
+	fun androidReaderCancelsPendingCenterChromeWhenContentHandlesTap() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val dispatchWideTap = webViewHostText
+			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
+			.substringBefore("\n\tfun markContentTapHandled()")
+		val markContentTapHandled = webViewHostText
+			.substringAfter("fun markContentTapHandled() {")
+			.substringBefore("\n\tprivate fun readerContentTapHandled()")
+
+		assertContains(webViewHostText, "private const val ReaderCenterTapDelayMs")
+		assertContains(webViewHostText, "private var pendingCenterTap: Runnable? = null")
+		assertContains(webViewHostText, "private fun scheduleReaderCenterTap(")
+		assertContains(webViewHostText, "private fun cancelPendingReaderCenterTap()")
+		assertContains(markContentTapHandled, "cancelPendingReaderCenterTap()")
+		assertContains(dispatchWideTap, "dispatchReaderPageTurnCommand(command)")
+		assertContains(dispatchWideTap, "scheduleReaderCenterTap(")
+		assertFalse(
+			dispatchWideTap.contains("else {\n\t\t\tonReaderCenterTap()\n\t\t}"),
+			"Interactive image/content taps report readerContentTapHandled asynchronously, so center chrome dispatch must be delayed and cancelable instead of immediate."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

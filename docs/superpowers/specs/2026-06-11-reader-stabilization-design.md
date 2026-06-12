@@ -1119,3 +1119,93 @@ powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package d
 ```
 
 Result with no connected phone: failed early with `No adb devices are connected`; the preset does not run without a connected device.
+
+## ADB Diagnosis: 2026-06-12 eta40 Reader Interaction Results
+
+Installed app:
+
+- Device: `SM_F966B`, package `darkaxt.navic`.
+- Installed version: `versionCode=373`, `versionName=v1.0.11-eta40`.
+- Current reader state: Hobbit EPUB open in the reader.
+
+Confirmed fixed:
+
+- Tapping the cover works.
+- A cover image right-side tap no longer logs `Reader surface tap ignored for content hitType=5`.
+- The same tap logs `Reader surface tap action=Right command=nextPage ... hitType=5 shellCover=false` and dispatches `nextPage`.
+- Taps and drag gestures work on normal readable pages.
+
+Still broken:
+
+- Dragging does not work on the cover.
+- The paper texture transition still inverts when moving from the maps into the Author's Note and stays inverted after that transition.
+- Center-tapping interactive images toggles the image behavior, but it also brings back the reader menu bar.
+- Chapter-selection links have the same ownership bug: interacting with the link can also surface reader chrome.
+
+Root-cause diagnosis for the interactive-tap bug:
+
+- The old eta39 blocker was blanket suppression of `WebView.HitTestResult.IMAGE_TYPE`; eta40 correctly removed that blocker.
+- The remaining bug is event ordering. ADB logs show native `readerCenterTap` dispatch before the WebView bridge posts `readerContentTapHandled` from the image.
+- Restoring `IMAGE_TYPE` suppression would regress cover/image page turns, so the fix must be narrower.
+
+Next release-candidate slice:
+
+- Keep edge page-turn taps immediate.
+- Delay only center/menu dispatch briefly.
+- Cancel that pending center/menu dispatch if WebView posts `readerContentTapHandled` during the delay window.
+- Make normal link navigation post `readerContentTapHandled`, not only media/image link handling.
+- Validate that image taps and chapter-selection links do not open reader chrome, while cover/image/text edge taps still turn pages.
+
+Deferred follow-up slices:
+
+- Cover drag support should be handled separately after the interactive-tap race is fixed.
+- Texture inversion at the maps -> Author's Note transition should be handled separately as a renderer transition/sign bug.
+
+## Release Candidate: 2026-06-12 eta41 Interactive Content Tap Ownership
+
+Scope:
+
+- Keep native left/right edge page-turn taps immediate so cover/image/text pages still turn without waiting for the WebView.
+- Delay only the center/menu tap dispatch long enough for the WebView bridge to claim interactive content taps.
+- Cancel the pending center/menu dispatch when the reader runtime posts `readerContentTapHandled`.
+- Make regular EPUB links post `readerContentTapHandled` before navigation so chapter-selection links do not also open reader chrome.
+
+Expected eta41 validation:
+
+- Center-tapping an image should toggle the image sepia handling without surfacing the bottom reader menu.
+- Tapping a chapter-selection link should navigate without surfacing the bottom reader menu.
+- Right/left edge taps should still page on the shell cover, image pages, text pages, and PDF pages.
+- The old `hitType=5` image suppression regression must remain absent.
+
+Out of scope for eta41:
+
+- Cover drag gestures still need a native gesture-forwarding slice.
+- The paper texture sign inversion at maps -> Author's Note still needs a renderer transition/sign fix.
+
+Fresh eta41 pre-release validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderCancelsPendingCenterChromeWhenContentHandlesTap" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerNormalLinksReportContentTapHandledBeforeNavigation"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 1 executed, 1 from cache, 22 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 1 executed, 1 from cache, 22 up-to-date.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 13 checks`; included EPUB shell-cover checks, native tap-zone open checks, texture page-turn checks, full EPUB traversal over 505 harness pages, PDF smoke, PDF fast sequential turns, and PDF image settings.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta41
+git diff --check
+```
+
+Result: all commands exited `0`; release verifier printed `Android versionName matches v1.0.11-eta41`.
