@@ -1335,3 +1335,43 @@ Release publication status:
 - Asset size: `13,171,889` bytes
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta42/Navic.apk`
 - Asset SHA-256 digest: `ec4dae1bcca833402a5a94c73c27b2595b99da65b3e417f40f04041e9303c748`
+
+## Release Candidate: 2026-06-13 eta43 Shell Cover Drag Support
+
+Scope:
+
+- Add a native shell-cover horizontal swipe fallback in `ReaderSurfaceHost`.
+- Keep readable WebView drags child-first: `dispatchTouchEvent` still calls `super.dispatchTouchEvent(event)` and returns the child result.
+- Restrict the new swipe fallback to `shellCoverVisible`; normal EPUB/PDF drag streams remain renderer-owned.
+- Use the same direction semantics as existing reader page turns: swipe left maps through `ReaderTapZoneAction.Right`, swipe right maps through `ReaderTapZoneAction.Left`, and `readerTapZonePageTurnCommand` applies RTL/LTR direction.
+- Ignore vertical or short movements using `ViewConfiguration.scaledPagingTouchSlop`.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Initial result: failed while no native shell-cover swipe path existed.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Result: `BUILD SUCCESSFUL` after Kotlin daemon fallback compilation.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+Phone validation required after release:
+
+- Verify dragging left on the shell cover advances into the first readable page.
+- Verify dragging right on the shell cover does not accidentally advance in LTR.
+- Verify cover taps still work.
+- Verify normal readable EPUB drags still work.
+- Verify PDF/fixed-layout swipes still work.

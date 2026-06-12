@@ -212,6 +212,34 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val handleTouch = webViewHostText
+			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
+			.substringBefore("\n\tprivate fun clearTapCandidate()")
+		val shellCoverSwipe = webViewHostText
+			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
+
+		assertContains(webViewHostText, "private val shellCoverSwipeThresholdPx")
+		assertContains(handleTouch, "dispatchReaderShellCoverSwipe(")
+		assertContains(handleTouch, "MotionEvent.ACTION_UP")
+		assertContains(shellCoverSwipe, "if (!shellCoverVisible) return false")
+		assertContains(shellCoverSwipe, "kotlin.math.abs(deltaX)")
+		assertContains(shellCoverSwipe, "kotlin.math.abs(deltaY)")
+		assertContains(shellCoverSwipe, "ReaderTapZoneAction.Left")
+		assertContains(shellCoverSwipe, "ReaderTapZoneAction.Right")
+		assertContains(shellCoverSwipe, "readerTapZonePageTurnCommand(")
+		assertContains(shellCoverSwipe, "dispatchReaderPageTurnCommand(command)")
+		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
+		assertContains(webViewHostText, "return childHandled")
+		assertFalse(
+			webViewHostText.contains("return dispatchReaderShellCoverSwipe"),
+			"Shell-cover swipe detection must observe the already-dispatched child stream, not consume readable WebView drags."
+		)
+	}
+
+	@Test
 	fun nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val contentHandledTap = webViewHostText

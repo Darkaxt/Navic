@@ -35,6 +35,7 @@ import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderSettings
+import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
@@ -370,6 +371,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var shellCoverTitle: String = ""
 	private var shellCoverVisible: Boolean = false
 	private val tapSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+	private val shellCoverSwipeThresholdPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
 	private var tapCandidatePointerId: Int = MotionEvent.INVALID_POINTER_ID
 	private var tapDownX: Float = 0f
 	private var tapDownY: Float = 0f
@@ -402,6 +404,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			}
 			MotionEvent.ACTION_POINTER_DOWN -> {
 				tapCandidate = false
+				tapCandidatePointerId = MotionEvent.INVALID_POINTER_ID
 			}
 			MotionEvent.ACTION_MOVE -> {
 				if (!tapCandidate) return
@@ -419,6 +422,11 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			MotionEvent.ACTION_UP -> {
 				if (tapCandidate) {
 					dispatchReaderWideTap(event)
+				} else if (tapCandidatePointerId != MotionEvent.INVALID_POINTER_ID) {
+					dispatchReaderShellCoverSwipe(
+						deltaX = event.x - tapDownX,
+						deltaY = event.y - tapDownY
+					)
 				}
 				clearTapCandidate()
 			}
@@ -429,6 +437,25 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun clearTapCandidate() {
 		tapCandidatePointerId = MotionEvent.INVALID_POINTER_ID
 		tapCandidate = false
+	}
+
+	private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {
+		if (!shellCoverVisible) return false
+		if (kotlin.math.abs(deltaX) < shellCoverSwipeThresholdPx) return false
+		if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return false
+		val action = if (deltaX < 0f) {
+			ReaderTapZoneAction.Right
+		} else {
+			ReaderTapZoneAction.Left
+		}
+		val command = readerTapZonePageTurnCommand(action, readerSettings.direction) ?: return false
+		Logger.i(
+			ReaderWebViewHostTag,
+			"Reader shell cover swipe action=$action command=${command.debugLabel()} " +
+				"delta=${deltaX.toInt()},${deltaY.toInt()}"
+		)
+		dispatchReaderPageTurnCommand(command)
+		return true
 	}
 
 	private fun dispatchReaderWideTap(event: MotionEvent) {
