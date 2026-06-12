@@ -188,6 +188,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderOptionsSupportKomikkuStylePerBookSettingsScope() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerOptionsPanelText = readerOptionsPanelFile().readText()
+		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
+		val preferenceManagerText = listOf(
+			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate PreferenceManager.kt")
+
+		assertContains(preferenceManagerText, "readerBookSettingsJson")
+		assertContains(preferenceText, "readerSettingsForBook")
+		assertContains(preferenceText, "setReaderBookSettings")
+		assertContains(preferenceText, "clearReaderBookSettings")
+		assertContains(readerScreenText, "readerSettingsForBook(reader.bookId)")
+		assertContains(readerScreenText, "readerBookSettingsJson")
+		assertContains(readerScreenText, "setReaderBookSettings(reader.bookId")
+		assertContains(readerScreenText, "clearReaderBookSettings(reader.bookId)")
+		assertContains(readerOptionsPanelText, "For this book")
+		assertContains(readerOptionsPanelText, "Global")
+		assertContains(readerOptionsPanelText, "Reset book")
+	}
+
+	@Test
 	fun commonReadaloudChromeSurfacesAudioMetadataLabels() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()

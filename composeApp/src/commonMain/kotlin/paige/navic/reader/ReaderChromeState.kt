@@ -118,6 +118,16 @@ val ReaderSupportedOrientations: List<String> = listOf(
 	ReaderOrientationReversePortrait
 )
 
+enum class ReaderSettingsScope {
+	Global,
+	Book
+}
+
+val ReaderSupportedSettingsScopes: List<ReaderSettingsScope> = listOf(
+	ReaderSettingsScope.Global,
+	ReaderSettingsScope.Book
+)
+
 fun normalizedReaderFontFamily(fontFamily: String?): String =
 	when (fontFamily) {
 		LegacyReaderBookFontFamily -> ReaderBookFontFamily
@@ -421,6 +431,12 @@ fun readerDirectionShortLabel(direction: String?): String =
 		ReaderDirectionLtr -> "LTR"
 		ReaderDirectionRtl -> "RTL"
 		else -> "Default"
+	}
+
+fun readerSettingsScopeLabel(scope: ReaderSettingsScope): String =
+	when (scope) {
+		ReaderSettingsScope.Global -> "Global"
+		ReaderSettingsScope.Book -> "For this book"
 	}
 
 fun defaultReaderSettings(): ReaderSettings =

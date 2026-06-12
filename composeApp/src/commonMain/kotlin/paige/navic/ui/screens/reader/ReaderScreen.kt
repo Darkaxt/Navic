@@ -101,6 +101,7 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSearchResult
+import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedDirections
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
@@ -113,6 +114,7 @@ import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.bestReaderStartLocator
+import paige.navic.reader.clearReaderBookSettings
 import paige.navic.reader.decodeReaderAnnotations
 import paige.navic.reader.decodeReaderBookmarks
 import paige.navic.reader.decodeReaderReadingProgress
@@ -134,10 +136,13 @@ import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerShouldReturnToNativeShellCover
 import paige.navic.reader.ReaderTapZoneRegion
 import paige.navic.reader.readerBookmarkFromLocator
+import paige.navic.reader.readerBookSettings
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDirectionShortLabel
 import paige.navic.reader.readerReadaloudControlsVisible
+import paige.navic.reader.readerSettingsForBook
 import paige.navic.reader.readerTapZoneShortLabel
+import paige.navic.reader.setReaderBookSettings
 import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
 import paige.navic.reader.toReaderStartLocatorForReader
@@ -170,8 +175,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var readerCommandKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
 	var lastReaderEvent by remember(reader.publicationUrl) { mutableStateOf<ReaderBridgeEvent?>(null) }
 	var readerEventKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
+	val hasReaderBookSettings = preferenceManager.readerBookSettings(reader.bookId) != null
+	var readerSettingsScope by remember(reader.publicationUrl, reader.bookId) {
+		mutableStateOf(
+			if (hasReaderBookSettings) {
+				ReaderSettingsScope.Book
+			} else {
+				ReaderSettingsScope.Global
+			}
+		)
+	}
 	val defaultReaderSettings = remember(
 		reader.publicationUrl,
+		reader.bookId,
+		readerSettingsScope,
 		preferenceManager.readerFontFamily,
 		preferenceManager.readerFontSource,
 		preferenceManager.readerFontSizePercent,
@@ -192,9 +209,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerKeepScreenOn,
 		preferenceManager.readerReadaloudSyncEnabled,
 		preferenceManager.readerVolumeKeyPageTurns,
-		preferenceManager.readerWebContentsDebuggingEnabled
+		preferenceManager.readerWebContentsDebuggingEnabled,
+		preferenceManager.readerBookSettingsJson
 	) {
-		preferenceManager.readerDefaultSettings()
+		if (readerSettingsScope == ReaderSettingsScope.Book) {
+			preferenceManager.readerSettingsForBook(reader.bookId)
+		} else {
+			preferenceManager.readerDefaultSettings()
+		}
 	}
 	var chromeState by remember(reader.publicationUrl, defaultReaderSettings) {
 		mutableStateOf(ReaderChromeState(settings = defaultReaderSettings))
@@ -342,8 +364,36 @@ fun ReaderScreen(reader: Screen.Reader) {
 	fun updateChromeSettings(nextState: ReaderChromeState) {
 		val normalizedState = nextState.copy(settings = nextState.settings.normalizedReaderSettings())
 		chromeState = normalizedState
-		preferenceManager.setReaderDefaultSettings(normalizedState.settings)
+		if (readerSettingsScope == ReaderSettingsScope.Book) {
+			preferenceManager.setReaderBookSettings(reader.bookId, normalizedState.settings)
+		} else {
+			preferenceManager.setReaderDefaultSettings(normalizedState.settings)
+		}
 		dispatchReaderCommand(normalizedState.toSettingsCommand())
+	}
+
+	fun selectReaderSettingsScope(scope: ReaderSettingsScope) {
+		readerSettingsScope = scope
+		val nextSettings = when (scope) {
+			ReaderSettingsScope.Global -> preferenceManager.readerDefaultSettings()
+			ReaderSettingsScope.Book -> {
+				if (!hasReaderBookSettings) {
+					preferenceManager.setReaderBookSettings(reader.bookId, chromeState.settings)
+				}
+				preferenceManager.readerSettingsForBook(reader.bookId)
+			}
+		}
+		val nextState = chromeState.copy(settings = nextSettings)
+		chromeState = nextState
+		dispatchReaderCommand(nextState.toSettingsCommand())
+	}
+
+	fun resetReaderBookSettings() {
+		preferenceManager.clearReaderBookSettings(reader.bookId)
+		readerSettingsScope = ReaderSettingsScope.Global
+		val nextState = chromeState.copy(settings = preferenceManager.readerDefaultSettings())
+		chromeState = nextState
+		dispatchReaderCommand(nextState.toSettingsCommand())
 	}
 
 	fun dispatchReadaloudCommand(command: ReaderReadaloudPlaybackCommand) {
@@ -353,7 +403,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 				readaloudPlayback = chromeState.readaloudPlayback.copy(syncEnabled = command.enabled)
 			)
 			chromeState = updated
-			preferenceManager.setReaderDefaultSettings(updated.settings)
+			if (readerSettingsScope == ReaderSettingsScope.Book) {
+				preferenceManager.setReaderBookSettings(reader.bookId, updated.settings)
+			} else {
+				preferenceManager.setReaderDefaultSettings(updated.settings)
+			}
 		}
 		platformContext.clickSound()
 		readaloudCommand = command
@@ -744,7 +798,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 				kind = reader.kind,
 				mediaOverlayEnabled = reader.mediaOverlayEnabled
 			),
+			settingsScope = readerSettingsScope,
+			hasBookSettings = hasReaderBookSettings,
 			onDismissRequest = { optionsVisible = false },
+			onSettingsScopeChange = { scope ->
+				platformContext.clickSound()
+				selectReaderSettingsScope(scope)
+			},
+			onResetBookSettings = {
+				platformContext.clickSound()
+				resetReaderBookSettings()
+			},
 			onSettingsChange = { nextState ->
 				platformContext.clickSound()
 				updateChromeSettings(nextState)
@@ -1105,7 +1169,11 @@ private fun ReaderBottomChrome(
 private fun ReaderKomikkuOptionsSheet(
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
 	onDismissRequest: () -> Unit,
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
 	onSettingsChange: (ReaderChromeState) -> Unit,
 	onReadaloudToggle: () -> Unit,
 	onReadaloudSpeedChange: (ReaderReadaloudPlaybackCommand) -> Unit,
@@ -1137,8 +1205,12 @@ private fun ReaderKomikkuOptionsSheet(
 				ReaderOptionsPanel(
 					state = state,
 					showReadaloudControls = showReadaloudControls,
+					settingsScope = settingsScope,
+					hasBookSettings = hasBookSettings,
 					selectedTab = safeSelectedOptionsTab,
 					onTabSelected = { tab -> selectedOptionsTab = tab },
+					onSettingsScopeChange = onSettingsScopeChange,
+					onResetBookSettings = onResetBookSettings,
 					onSettingsChange = onSettingsChange,
 					onReadaloudToggle = onReadaloudToggle,
 					onReadaloudSpeedChange = onReadaloudSpeedChange,

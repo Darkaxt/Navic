@@ -4,6 +4,7 @@ import com.russhwolf.settings.MapSettings
 import paige.navic.domain.manager.PreferenceManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class ReaderPreferenceSettingsTest {
 	@Test
@@ -228,5 +229,59 @@ class ReaderPreferenceSettingsTest {
 		)
 
 		assertEquals(false, preferences.readerVolumeKeyPageTurns)
+	}
+
+	@Test
+	fun readerBookSettingsOverrideMergesOverGlobalDefaultsWithoutMutatingThem() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerTheme = ReaderDarkTheme
+		preferences.readerFontSizePercent = 100
+		preferences.readerDirection = ReaderDirectionDefault
+
+		preferences.setReaderBookSettings(
+			bookId = "book-1",
+			settings = ReaderSettings(
+				theme = ReaderSepiaTheme,
+				fontSizePercent = 128,
+				direction = ReaderDirectionRtl
+			)
+		)
+
+		val bookSettings = preferences.readerSettingsForBook("book-1")
+		assertEquals(ReaderSepiaTheme, bookSettings.theme)
+		assertEquals(128, bookSettings.fontSizePercent)
+		assertEquals(ReaderDirectionRtl, bookSettings.direction)
+		assertEquals(ReaderDarkTheme, preferences.readerDefaultSettings().theme)
+		assertEquals(100, preferences.readerDefaultSettings().fontSizePercent)
+	}
+
+	@Test
+	fun readerBookSettingsOverrideIsScopedToTheRequestedBook() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerTheme = ReaderDarkTheme
+
+		preferences.setReaderBookSettings(
+			bookId = "book-1",
+			settings = ReaderSettings(theme = ReaderSepiaTheme)
+		)
+
+		assertEquals(ReaderSepiaTheme, preferences.readerSettingsForBook("book-1").theme)
+		assertEquals(ReaderDarkTheme, preferences.readerSettingsForBook("book-2").theme)
+		assertNull(preferences.readerBookSettings("book-2"))
+	}
+
+	@Test
+	fun readerBookSettingsOverrideCanBeCleared() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerTheme = ReaderDarkTheme
+		preferences.setReaderBookSettings(
+			bookId = "book-1",
+			settings = ReaderSettings(theme = ReaderSepiaTheme)
+		)
+
+		preferences.clearReaderBookSettings("book-1")
+
+		assertEquals(ReaderDarkTheme, preferences.readerSettingsForBook("book-1").theme)
+		assertNull(preferences.readerBookSettings("book-1"))
 	}
 }

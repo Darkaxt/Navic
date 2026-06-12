@@ -91,11 +91,13 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSearchResult
+import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedDirections
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedSettingsScopes
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderTocItem
@@ -136,8 +138,12 @@ import paige.navic.util.core.Logger
 internal fun ReaderOptionsPanel(
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
 	selectedTab: ReaderOptionsTab,
 	onTabSelected: (ReaderOptionsTab) -> Unit,
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
 	onSettingsChange: (ReaderChromeState) -> Unit,
 	onReadaloudToggle: () -> Unit,
 	onReadaloudSpeedChange: (ReaderReadaloudPlaybackCommand) -> Unit,
@@ -168,6 +174,10 @@ internal fun ReaderOptionsPanel(
 		when (selectedTab) {
 			ReaderOptionsTab.Reading -> ReaderReadingOptions(
 				state = state,
+				settingsScope = settingsScope,
+				hasBookSettings = hasBookSettings,
+				onSettingsScopeChange = onSettingsScopeChange,
+				onResetBookSettings = onResetBookSettings,
 				onSettingsChange = onSettingsChange
 			)
 			ReaderOptionsTab.General -> ReaderGeneralOptions(
@@ -183,6 +193,12 @@ internal fun ReaderOptionsPanel(
 		}
 	}
 }
+
+private fun readerSettingsScopeOptionLabel(scope: ReaderSettingsScope): String =
+	when (scope) {
+		ReaderSettingsScope.Global -> "Global"
+		ReaderSettingsScope.Book -> "For this book"
+	}
 
 @Composable
 private fun ReaderOptionsTabChip(
@@ -217,9 +233,29 @@ private fun ReaderOptionsTabChip(
 @Composable
 private fun ReaderReadingOptions(
 	state: ReaderChromeState,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
 	onSettingsChange: (ReaderChromeState) -> Unit
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		ReaderSettingsChipRow("Scope") {
+			ReaderSupportedSettingsScopes.forEach { scope ->
+				ReaderOptionChip(
+					label = readerSettingsScopeOptionLabel(scope),
+					selected = settingsScope == scope,
+					onClick = { onSettingsScopeChange(scope) }
+				)
+			}
+			if (hasBookSettings) {
+				ReaderOptionChip(
+					label = "Reset book",
+					selected = false,
+					onClick = onResetBookSettings
+				)
+			}
+		}
 		ReaderSettingsChipRow("Reading mode") {
 			ReaderSupportedFlowModes.forEach { flowMode ->
 				ReaderOptionChip(

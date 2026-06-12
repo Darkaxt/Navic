@@ -268,6 +268,7 @@ class PreferenceManager(
 	var readerReadaloudSyncEnabled by preference(true)
 	var readerVolumeKeyPageTurns by preference(false)
 	var readerWebContentsDebuggingEnabled by preference(false)
+	var readerBookSettingsJson by preference("")
 	var readerBookmarksJson by preference("")
 	var readerAnnotationsJson by preference("")
 	var readerReadingProgressJson by preference("")
