@@ -211,6 +211,30 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidWebViewKeepsFoliateDragStreamOwnedByWebViewParentsCannotIntercept() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val observerText = webViewHostText
+			.substringAfter("private class ReaderAndroidTapZoneObserver(")
+			.substringBefore("\nprivate fun readerWebViewHitTestShouldStayInContent")
+
+		assertContains(
+			observerText,
+			"webView.parent?.requestDisallowInterceptTouchEvent(true)",
+			message = "Readable page drags need the full WebView touch stream so Foliate can animate them."
+		)
+		assertContains(
+			observerText,
+			"webView.parent?.requestDisallowInterceptTouchEvent(false)",
+			message = "The WebView parent interception guard must be released after each gesture."
+		)
+		assertContains(
+			webViewHostText,
+			"return@setOnTouchListener false",
+			message = "The observer may protect the gesture stream but must still let WebView/Foliate receive it."
+		)
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()

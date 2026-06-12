@@ -365,6 +365,7 @@ private class ReaderAndroidTapZoneObserver(
 	fun onTouch(webView: WebView, event: MotionEvent) {
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
+				webView.parent?.requestDisallowInterceptTouchEvent(true)
 				touchState = TouchState(
 					pointerId = event.getPointerId(event.actionIndex),
 					startX = event.x,
@@ -373,13 +374,16 @@ private class ReaderAndroidTapZoneObserver(
 			}
 			MotionEvent.ACTION_POINTER_DOWN,
 			MotionEvent.ACTION_CANCEL -> {
+				webView.parent?.requestDisallowInterceptTouchEvent(false)
 				touchState = null
 			}
 			MotionEvent.ACTION_MOVE -> {
+				webView.parent?.requestDisallowInterceptTouchEvent(true)
 				val state = touchState ?: return
 				val pointerIndex = event.findPointerIndex(state.pointerId)
 				if (pointerIndex < 0) {
 					touchState = null
+					webView.parent?.requestDisallowInterceptTouchEvent(false)
 					return
 				}
 				if (
@@ -390,6 +394,7 @@ private class ReaderAndroidTapZoneObserver(
 				}
 			}
 			MotionEvent.ACTION_UP -> {
+				webView.parent?.requestDisallowInterceptTouchEvent(false)
 				val state = touchState ?: return
 				touchState = null
 				if (state.moved || readerWebViewHitTestShouldStayInContent(webView.hitTestResult)) return
