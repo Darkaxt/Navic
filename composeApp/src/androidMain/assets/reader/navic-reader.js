@@ -1145,6 +1145,7 @@ class NavicReaderRuntime {
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
       if (mediaTapTarget) {
+        post({ type: 'readerContentTapHandled', source: 'media-anchor' })
         const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
         if (!toggled) {
           event.preventDefault()
@@ -1207,6 +1208,7 @@ class NavicReaderRuntime {
     }
     const image = readerImageFromMediaTarget(mediaTapTarget)
     if (!image) return false
+    post({ type: 'readerContentTapHandled', source: 'image' })
     event.preventDefault?.()
     event.stopPropagation?.()
     event.stopImmediatePropagation?.()

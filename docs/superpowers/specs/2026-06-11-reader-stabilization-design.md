@@ -2,15 +2,15 @@
 
 Date: 2026-06-11
 
-Status: approved design anchor. Implementation starts with WebView renderer stabilization only.
+Status: active reader stabilization anchor. All EPUB/PDF/WebView/native-touch reader stabilization work is tracked here.
 
 ## Objective
 
-Stabilize Navic's ebook reader by making the WebView-rendered reader testable from the laptop before further APK behavior is changed.
+Stabilize Navic's ebook reader with a laptop-testable WebView renderer, a native Android touch surface that owns reader-wide gestures, and release-sized microdeliverables that can be validated on the phone.
 
-The first priority is fixing EPUB/WebView pagination defects: unstable page numbers, area-transition jumps, cover rendering/suppression, texture transitions, hyperlink handling, and renderer CSS behavior. Native APK refactoring is happening in another thread and must not be blocked by this work.
+The original first priority was fixing EPUB/WebView pagination defects: unstable page numbers, area-transition jumps, cover rendering/suppression, texture transitions, hyperlink handling, and renderer CSS behavior. That work now has local harness coverage and remains part of this plan.
 
-After WebView pagination is stable, this thread can move into APK integration work: native touch controls above the WebView, shell cover behavior, and continued reader upgrades from Anx Reader, Komikku, Readest, Colibrio, and LibreraReader references.
+The current priority is the native APK integration boundary: native touch controls above the WebView, shell-cover behavior, explicit content-action suppression, and phone validation of cover/EPUB/PDF taps. Continued reader upgrades from Anx Reader, Komikku, Readest, Colibrio, and LibreraReader references remain sequenced behind this stabilization work.
 
 The page-curl mockup work, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are explicitly lowest priority. They must not displace reader correctness, native tap ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud support, or core settings work.
 
@@ -21,6 +21,52 @@ The page-curl mockup work, drag-to-turn animation, dual-page/spread animation, a
 - Do not render the EPUB cover in the WebView when Navic has a shell cover surface.
 - Do not treat Foliate's raw relocation events as final page state during spine/area transitions.
 - Do not batch unrelated reader improvements into opaque releases.
+
+## Active Register: 2026-06-12
+
+This document is the single source of truth for the current reader objective, including the previous fix and the pending phone-evaluable objective.
+
+Previous fix registered here:
+
+- Plain image taps are no longer blanket-suppressed as content-owned WebView taps.
+- Real content actions now use an explicit `readerContentTapHandled` bridge signal.
+- The Android native reader surface suppresses the paired native tap only after that explicit content-handled signal.
+- Harness and host-test evidence is recorded in `Microdeliverable Checkpoint: 2026-06-12 Plain Image Tap Ownership Fix`.
+
+Pending objective registered here:
+
+- Build/release the next APK containing the plain-image tap ownership fix.
+- Validate on the connected phone with ADB that cover image taps, cover margin taps, EPUB image taps, EPUB text taps, and PDF taps dispatch expected previous / next / center-menu behavior.
+- Confirm image sepia-tint toggles still post `readerContentTapHandled` and do not accidentally turn pages or open chrome.
+- Keep the implementation aligned to the Komikku three-layer model: native gesture owner, visual-only tap-zone overlay, separate Compose chrome/settings.
+
+## Current Active Objective: Native Reader Surface Ownership
+
+As of the eta39 ADB validation, this document is the single active reader plan. The immediate priority is no longer generic WebView pagination: Phase 1 renderer stabilization has useful harness coverage, and the current blocker is the native interaction boundary between the shell cover, WebView content, and Komikku-style tap-zone ownership.
+
+The active objective is to unify the reader around Komikku's three-layer model:
+
+1. The Android reader surface owns confirmed reader-wide gestures for shell cover, EPUB, PDF, and image-heavy pages.
+2. The tap-zone overlay is visual/debug only and never decides navigation.
+3. Compose reader chrome/settings are separate UI layers triggered by the native center/menu action.
+
+The ADB-proven failure to fix first:
+
+- Installed app: `v1.0.11-eta39`, `versionCode=372`.
+- Navic receives injected taps and `ReaderSurfaceHost` logs `ACTION_DOWN` / `ACTION_UP`.
+- The tap manager discards cover taps before zone mapping with `Reader surface tap ignored for content hitType=5`.
+- `hitType=5` is `WebView.HitTestResult.IMAGE_TYPE`.
+- The visible cover logs as `shellCover=false`, so the cover is effectively still WebView/image content for input purposes.
+
+This must be fixed before more reader chrome, settings, PDF polish, page-curl animation, spread mode, or other reader enhancements. The fix must not be a narrow one-off for the current cover screenshot. The target behavior is:
+
+- EPUB cover content is suppressed from the WebView reader path.
+- The visible cover is rendered as the native shell-cover surface, or any fallback image-heavy first page is still governed by the native tap-zone manager.
+- Plain image hits do not blanket-block native previous / next / center-menu tap zones.
+- Anchors, image anchors, editable fields, media controls, text selection, and explicit image-tint toggles remain protected content actions.
+- Drag/swipe ownership is explicit: Foliate/PDF.js keeps smooth child drag streams where needed, while native confirmed taps remain reliable.
+
+The next microdeliverable starts with the failing focused test `ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch`, then fixes only this input ownership bug and validates it with ADB over cover image, cover margins, EPUB image pages, EPUB text pages, and PDF pages.
 
 ## Phase 1 Scope: WebView Renderer Stabilization
 
@@ -874,3 +920,158 @@ Release evidence:
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta37/Navic.apk`
 - Asset SHA-256 digest: `bcae9e4da51a95f1815b90657bf1d2030c3f9e97f027c04ee68a19e3c2d29000`
 - Local APK install attempt: downloaded release APK and verified SHA-256; `adb install -r` could not run because adb reported no connected devices.
+
+## Microdeliverable Checkpoint: 2026-06-12 eta38 and eta39 Native Surface Iterations
+
+Scope already shipped:
+
+- eta38 moved reader-wide tap handling into `ReaderSurfaceHost` so shell-cover and WebView children live under a single native Android surface.
+- eta39 removed delayed `GestureDetector` dependence and switched to direct `ACTION_DOWN` / `ACTION_MOVE` / `ACTION_UP` tap recognition with `ViewConfiguration.scaledTouchSlop`.
+- Android bridge commands continue forcing `nativeTapZones=true` so JavaScript does not dispatch duplicate reader-wide page/menu taps.
+
+Release and install evidence:
+
+- eta39 local commit: `037dc8e0 fix(reader): handle native taps directly`.
+- eta39 remote release tag: `v1.0.11-eta39`.
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta39`
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta39/Navic.apk`
+- Installed package check showed `versionCode=372` and `versionName=v1.0.11-eta39`.
+
+ADB validation result:
+
+```text
+Reader surface touch down x=1600 y=1100 shellCover=false
+Reader surface tap ignored for content hitType=5 x=1600 y=1100
+Reader surface touch down x=984 y=1100 shellCover=false
+Reader surface tap ignored for content hitType=5 x=984 y=1100
+Reader surface touch down x=80 y=1100 shellCover=false
+Reader surface tap ignored for content hitType=5 x=80 y=1100
+```
+
+Interpretation:
+
+- The native reader surface receives the tap stream.
+- The remaining failure is inside Navic's own content hit-test gate.
+- `WebView.HitTestResult.IMAGE_TYPE` currently suppresses reader-wide tap-zone dispatch, so image-heavy content and cover-like pages block page turns and center-menu taps.
+- Because the visible cover reports `shellCover=false`, the shell-cover handoff is not yet fully authoritative for input.
+
+Pending objective registered from this checkpoint:
+
+1. Make the native reader surface the authoritative tap-zone owner across shell cover, WebView EPUB, WebView PDF/fixed-layout, and image-heavy pages.
+2. Remove plain `IMAGE_TYPE` from the blanket content-handled tap suppression path.
+3. Preserve explicit content actions for anchors, image anchors, editable/media controls, text selection, and image tint toggling.
+4. Verify with ADB that cover image taps, cover margin taps, EPUB image taps, EPUB text taps, and PDF taps all dispatch the expected previous / next / center-menu behavior.
+5. Keep the Komikku three-layer model as the implementation standard: native gesture owner, visual-only tap-zone overlay, separate Compose chrome/settings.
+
+TDD starting point:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch"
+```
+
+Expected initial result: fail while `readerContentHandledTap` still includes `WebView.HitTestResult.IMAGE_TYPE`.
+
+## Microdeliverable Checkpoint: 2026-06-12 Plain Image Tap Ownership Fix
+
+Scope:
+
+- Remove `WebView.HitTestResult.IMAGE_TYPE` from the blanket native content-hit suppression path.
+- Keep `SRC_ANCHOR_TYPE`, `SRC_IMAGE_ANCHOR_TYPE`, editable fields, phone, email, and geo hits protected as content-owned taps.
+- Add explicit `readerContentTapHandled` bridge signaling for real media/image interactions such as sepia image-tint toggles and media-anchor taps.
+- Let the Android native reader surface suppress only the paired native tap dispatch after that explicit content-handled signal.
+- Preserve the current Komikku three-layer objective: native surface owns reader-wide tap zones, visible tap-zone overlay is diagnostic only, and Compose chrome/settings remain separate.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch"
+```
+
+Initial result: failed at `ReaderRuntimeShellProgressTest.kt:225`, proving plain `IMAGE_TYPE` was still part of the blanket suppression path.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderLetsMediaTogglesWinOverReadableTapZones"
+```
+
+Initial result after tightening the media contract: failed at `ReaderRuntimeImageLinkTest.kt:338`, proving the explicit content-handled bridge path did not exist yet.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderLetsMediaTogglesWinOverReadableTapZones"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 7 executed and 17 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+git diff --check
+```
+
+Result: both commands exited `0`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-tap-zone-open --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result: `reader harness epub-native-tap-zone-open passed`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 13 checks`.
+
+Phone validation requirement before release claim:
+
+- Build and install a new APK containing this slice.
+- With ADB logcat, verify cover image taps no longer log `Reader surface tap ignored for content hitType=5`.
+- Verify cover image right/left/center taps, cover margin taps, EPUB image taps, EPUB text taps, and PDF taps dispatch expected previous / next / center-menu behavior.
+- Verify image sepia-tint toggles post `readerContentTapHandled` and suppress the paired native page/menu tap.
+
+## Microdeliverable Checkpoint: 2026-06-12 eta40 Release Preparation
+
+Scope:
+
+- Package the plain-image tap ownership fix as the next phone-evaluable Android release.
+- Align local `master` with remote eta39 before committing because remote `v1.0.11-eta39` and local `v1.0.11-eta39` had different commit IDs but identical trees.
+- Bump Android release metadata to `versionCode=373` and `versionName=v1.0.11-eta40`.
+
+Fresh pre-release validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderLetsMediaTogglesWinOverReadableTapZones"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 1 executed, 1 from cache, 22 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 1 executed, 1 from cache, 22 up-to-date.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta40
+git diff --check
+```
+
+Result: all commands exited `0`; release verifier printed `Android versionName matches v1.0.11-eta40`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 13 checks`.
+
+Release and ADB validation status:
+
+- Pending GitHub release tag: `v1.0.11-eta40`.
+- Pending phone validation: install release APK, verify native cover/EPUB/PDF tap zones with ADB logs, and verify explicit image/media content handling still suppresses paired native taps.

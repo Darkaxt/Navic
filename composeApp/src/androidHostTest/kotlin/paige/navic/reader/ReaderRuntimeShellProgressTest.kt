@@ -212,6 +212,23 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val contentHandledTap = webViewHostText
+			.substringAfter("private fun readerContentHandledTap(hitType: Int): Boolean =")
+			.substringBefore("\n}")
+
+		assertContains(webViewHostText, "Reader surface tap ignored for content hitType=")
+		assertContains(webViewHostText, "readerTapZoneActionAt(")
+		assertContains(contentHandledTap, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
+		assertContains(contentHandledTap, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
+		assertFalse(
+			contentHandledTap.contains("WebView.HitTestResult.IMAGE_TYPE"),
+			"Plain image hits, including image-heavy EPUB cover pages, must not blanket-block native previous/next/menu tap zones."
+		)
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()

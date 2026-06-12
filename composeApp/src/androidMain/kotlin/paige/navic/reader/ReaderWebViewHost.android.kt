@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.content.Context
 import android.graphics.Color
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -42,8 +43,10 @@ import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
+import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
+private const val ReaderContentTapHandledSuppressMs = 450L
 
 @Composable
 actual fun ReaderWebViewHost(
@@ -113,6 +116,7 @@ actual fun ReaderWebViewHost(
 	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
+	val surfaceHostRef = remember { AtomicReference<ReaderSurfaceHost?>(null) }
 	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
 		Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()}")
 		if (event == ReaderBridgeEvent.Ready) {
@@ -123,7 +127,12 @@ actual fun ReaderWebViewHost(
 	val bridge = remember {
 		ReaderJavascriptBridge(
 			onEvent = { event ->
-				webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
+				if (event == ReaderBridgeEvent.ContentTapHandled) {
+					surfaceHostRef.get()?.markContentTapHandled()
+					Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()}")
+				} else {
+					webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
+				}
 			},
 			onRawMessage = { message ->
 				Logger.i(ReaderWebViewHostTag, "Reader bridge raw: ${message.take(500)}")
@@ -164,6 +173,7 @@ actual fun ReaderWebViewHost(
 
 	DisposableEffect(Unit) {
 		onDispose {
+			surfaceHostRef.set(null)
 			webView?.destroy()
 			webView = null
 			coverWebView?.destroy()
@@ -274,6 +284,7 @@ actual fun ReaderWebViewHost(
 					}
 				}
 				ReaderSurfaceHost(context).apply {
+					surfaceHostRef.set(this)
 					this.readerWebView = readerWebView
 					this.shellCoverWebView = readerCoverWebView
 					readerSettings = currentSettings
@@ -362,6 +373,8 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var tapDownX: Float = 0f
 	private var tapDownY: Float = 0f
 	private var tapCandidate: Boolean = false
+	@Volatile
+	private var contentTapHandledUntilMs: Long = 0L
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val childHandled = super.dispatchTouchEvent(event)
@@ -418,6 +431,14 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun dispatchReaderWideTap(event: MotionEvent) {
 		if (width <= 0 || height <= 0) return
 		val contentHitType = readerWebView?.hitTestResult?.type ?: WebView.HitTestResult.UNKNOWN_TYPE
+		if (!shellCoverVisible && readerContentTapHandled()) {
+			Logger.i(
+				ReaderWebViewHostTag,
+				"Reader surface tap ignored for explicit content handler " +
+					"x=${event.x.toInt()} y=${event.y.toInt()} hitType=$contentHitType"
+			)
+			return
+		}
 		if (!shellCoverVisible && readerContentHandledTap(contentHitType)) {
 			Logger.i(
 				ReaderWebViewHostTag,
@@ -447,6 +468,13 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			onReaderCenterTap()
 		}
 	}
+
+	fun markContentTapHandled() {
+		contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs
+	}
+
+	private fun readerContentTapHandled(): Boolean =
+		SystemClock.uptimeMillis() <= contentTapHandledUntilMs
 
 	fun updateShellCover(coverUrl: String?, title: String) {
 		val nextCoverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }
@@ -513,7 +541,6 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			WebView.HitTestResult.PHONE_TYPE,
 			WebView.HitTestResult.GEO_TYPE,
 			WebView.HitTestResult.EMAIL_TYPE,
-			WebView.HitTestResult.IMAGE_TYPE,
 			WebView.HitTestResult.SRC_ANCHOR_TYPE,
 			WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE,
 			WebView.HitTestResult.EDIT_TEXT_TYPE -> true
@@ -593,6 +620,7 @@ private fun ReaderBridgeEvent.debugLabel(): String =
 		ReaderBridgeEvent.Ready -> "ready"
 		ReaderBridgeEvent.PublicationReady -> "publicationReady"
 		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
+		ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled"
 		is ReaderBridgeEvent.LocationChanged -> "locationChanged(${locator.href?.readerUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.readerUrlLabel().orEmpty()})"
