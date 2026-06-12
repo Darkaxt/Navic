@@ -862,3 +862,15 @@ Result: all commands exited `0`.
 Known follow-up:
 
 - `phase1-stabilization` currently reaches `epub-texture-page-turns` and fails on an existing texture counter-motion assertion. That check is outside this Kotlin touch-manager change and needs a separate texture-focused pass before it is used as a release gate again.
+
+Release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta37`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27419438894`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,171,633` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta37/Navic.apk`
+- Asset SHA-256 digest: `bcae9e4da51a95f1815b90657bf1d2030c3f9e97f027c04ee68a19e3c2d29000`
+- Local APK install attempt: downloaded release APK and verified SHA-256; `adb install -r` could not run because adb reported no connected devices.
