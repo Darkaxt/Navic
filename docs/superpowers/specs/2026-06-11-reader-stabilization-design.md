@@ -708,3 +708,59 @@ Release evidence:
 - Asset size: `13,170,669` bytes
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta34/Navic.apk`
 - Asset SHA-256 digest: `66eddc97e5144179060af8dbe6501f8291d60f5f535f38ef3fa4a044557c06c0`
+
+## Microdeliverable Checkpoint: 2026-06-12 PDF/Image Settings Runtime Wiring
+
+Scope:
+
+- Continue the reader stabilization thread after the Whispersync discussion was moved out of scope for this thread.
+- Wire the existing PDF/Image settings foundation into the WebView/Foliate fixed-layout renderer.
+- Map PDF fit modes to renderer zoom values: width -> `fit-width`, page -> `fit-page`, height -> `fit-height`, original -> `1`.
+- Convert `pdfPageGapPercent` into a viewport-relative fixed-layout page gap.
+- Apply `pdfCropBorders` to image-backed fixed-layout pages by slightly scaling the page image inside its clipped page frame.
+- Extend the Phase 1 harness with `pdf-image-settings` so PDF/Image settings are verified locally instead of only through APK inspection.
+
+TDD evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pdf-image-settings --fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Initial result: failed with `Expected PDF fit height to set fixed-layout zoom=fit-height; observed unset`, proving the renderer ignored the PDF/Image settings bridge fields.
+
+Fresh validation evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pdf-image-settings --fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness pdf-image-settings passed`.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\fixed-layout.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+```
+
+Result: all commands exited `0`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pdf-smoke --fixture "D:\Downloads\Trash\movements-2032026.pdf"
+node tools\reader-harness\src\run-reader-harness.mjs --mode pdf-fast-sequential-turns --fixture "D:\Downloads\Trash\movements-2032026.pdf"
+node tools\reader-harness\src\run-reader-harness.mjs --mode pdf-image-settings --fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: all three PDF harness checks passed.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 12 checks`.
+
+```powershell
+git diff --check
+```
+
+Result: command exited `0`.

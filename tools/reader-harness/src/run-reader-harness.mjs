@@ -13,6 +13,7 @@ import {
   assertNoConsecutiveDuplicateLocations,
   assertNoConsecutiveDuplicateVisiblePageLabels,
   assertPdfFastSequentialTurns,
+  assertPdfImageSettings,
   assertPdfSmoke,
   assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
@@ -70,6 +71,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-full-traversal', fixture: epubFixturePath },
     { mode: 'pdf-smoke', fixture: pdfFixturePath },
     { mode: 'pdf-fast-sequential-turns', fixture: pdfFixturePath },
+    { mode: 'pdf-image-settings', fixture: pdfFixturePath },
   ]
 
   for (const step of steps) {
@@ -1098,6 +1100,155 @@ if (mode === 'pdf-smoke') {
     assertNoConsoleErrors(errors)
     assertPdfSmoke(result)
     console.log(`reader harness pdf-smoke passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'pdf-image-settings') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('pdf-image-settings mode requires --fixture <path-to-pdf>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.pdf'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'dark',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          pdfFitMode: 'height',
+          pdfCropBorders: true,
+          pdfPageGapPercent: 12,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 20000 })
+    await page.waitForTimeout(1000)
+
+    const pageBounds = await page.screenshot({ type: 'png' }).then(buffer => {
+      const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`
+      return page.evaluate(async imageUrl => {
+        const image = new Image()
+        image.src = imageUrl
+        await image.decode()
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        context.drawImage(image, 0, 0)
+        const { width, height } = canvas
+        const data = context.getImageData(0, 0, width, height).data
+        let left = width
+        let right = -1
+        let top = height
+        let bottom = -1
+        let hits = 0
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            const offset = (y * width + x) * 4
+            const red = data[offset]
+            const green = data[offset + 1]
+            const blue = data[offset + 2]
+            const alpha = data[offset + 3]
+            const brightPagePixel = alpha > 240 && red > 210 && green > 210 && blue > 210
+            if (!brightPagePixel) continue
+            hits += 1
+            if (x < left) left = x
+            if (x > right) right = x
+            if (y < top) top = y
+            if (y > bottom) bottom = y
+          }
+        }
+        return {
+          width,
+          height,
+          left,
+          right,
+          top,
+          bottom,
+          coverage: hits / (width * height),
+        }
+      }, dataUrl)
+    })
+
+    const rendererState = await page.evaluate(() => {
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      const pageGapPx = Number.parseFloat(renderer?.getAttribute('data-navic-pdf-page-gap-px') || '')
+      return {
+        zoom: renderer?.getAttribute('zoom'),
+        cropBorders: renderer?.getAttribute('data-navic-pdf-crop-borders'),
+        pageGapPx,
+        rootPageGap: getComputedStyle(document.documentElement).getPropertyValue('--reader-pdf-page-gap'),
+      }
+    })
+
+    const result = {
+      pageBounds,
+      rendererState,
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'pdf-image-settings.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertPdfImageSettings(result)
+    console.log(`reader harness pdf-image-settings passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

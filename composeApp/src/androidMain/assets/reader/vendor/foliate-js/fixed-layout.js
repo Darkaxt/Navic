@@ -59,6 +59,12 @@ const normalizedFitWidthRatio = (value, fallback = 1) => {
     return fallback
 }
 
+const normalizedPageGap = value => {
+    const gap = parseFloat(value)
+    if (Number.isFinite(gap) && gap >= 0 && gap <= 512) return gap
+    return 0
+}
+
 const hostStyles = `:host {
     width: 100%;
     height: 100%;
@@ -98,7 +104,7 @@ const visibleViewport = rect => {
 }
 
 export class FixedLayout extends HTMLElement {
-    static observedAttributes = ['zoom']
+    static observedAttributes = ['zoom', 'page-gap', 'crop-borders']
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.#render())
     #spreads
@@ -111,6 +117,8 @@ export class FixedLayout extends HTMLElement {
     #center
     #side
     #zoom
+    #pageGap = 0
+    #cropBorders = false
     constructor() {
         super()
 
@@ -121,8 +129,16 @@ export class FixedLayout extends HTMLElement {
     attributeChangedCallback(name, _, value) {
         switch (name) {
             case 'zoom':
-                this.#zoom = value !== 'fit-width' && value !== 'fit-page'
+                this.#zoom = value !== 'fit-width' && value !== 'fit-page' && value !== 'fit-height'
                     ? parseFloat(value) : value
+                this.#render()
+                break
+            case 'page-gap':
+                this.#pageGap = normalizedPageGap(value)
+                this.#render()
+                break
+            case 'crop-borders':
+                this.#cropBorders = value === '' || value === 'true'
                 this.#render()
                 break
         }
@@ -231,6 +247,9 @@ export class FixedLayout extends HTMLElement {
             : this.#zoom === 'fit-width' ? (portrait || this.#center
                 ? viewportFitWidth / targetWidth
                 : viewportWidth / (leftWidth + rightWidth))
+            : this.#zoom === 'fit-height' ? (portrait || this.#center
+                ? viewportHeight / targetHeight
+                : viewportHeight / Math.max(leftHeight, rightHeight))
             : (portrait || this.#center
                 ? Math.min(
                     viewportFitWidth / targetWidth,
@@ -254,11 +273,14 @@ export class FixedLayout extends HTMLElement {
             let { element, iframe, image, width, height, blank, onZoom, inlineImage } = frame
             const frameWidth = normalizeFrameSize(width, blankWidth)
             const frameHeight = normalizeFrameSize(height, blankHeight)
+            const cropScale = this.#cropBorders ? 1.045 : 1
             if (inlineImage && image) {
                 Object.assign(image.style, {
                     width: `${frameWidth * safeScale}px`,
                     height: `${frameHeight * safeScale}px`,
                     display: blank ? 'none' : 'block',
+                    transform: this.#cropBorders ? `scale(${cropScale})` : 'none',
+                    transformOrigin: 'center center',
                 })
             } else {
                 if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale: safeScale })
@@ -277,7 +299,7 @@ export class FixedLayout extends HTMLElement {
                 overflow: 'hidden',
                 display: 'block',
                 flexShrink: '0',
-                marginBlock: '0',
+                marginBlock: `${this.#pageGap}px`,
                 marginInline: this.#center || portrait ? 'auto' : '0',
             })
             if (portrait && frame !== target) {

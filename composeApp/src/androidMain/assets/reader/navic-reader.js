@@ -139,6 +139,36 @@ import {
 } from './navic-reader-helpers.js'
 
 const ReaderRelocationCommitDelayMs = 180
+const ReaderPdfFitWidth = 'width'
+const ReaderPdfFitPage = 'page'
+const ReaderPdfFitHeight = 'height'
+const ReaderPdfFitOriginal = 'original'
+const ReaderPdfPageGapMaxPercent = 48
+
+const normalizedReaderPdfFitMode = value =>
+  [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
+    ? value
+    : ReaderPdfFitWidth
+
+const readerPdfZoomAttribute = value => {
+  switch (normalizedReaderPdfFitMode(value)) {
+    case ReaderPdfFitPage:
+      return 'fit-page'
+    case ReaderPdfFitHeight:
+      return 'fit-height'
+    case ReaderPdfFitOriginal:
+      return '1'
+    case ReaderPdfFitWidth:
+    default:
+      return 'fit-width'
+  }
+}
+
+const normalizedReaderPdfPageGapPercent = value => {
+  const gap = Number.parseInt(value, 10)
+  if (!Number.isFinite(gap)) return 0
+  return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))
+}
 
 class NavicReaderRuntime {
   view = null
@@ -604,6 +634,7 @@ class NavicReaderRuntime {
       'min-height': heightPx,
       overflow: fixedLayout ? 'auto' : 'hidden',
     })
+    this.applyPdfImageSettings(this.readerSettings)
     if (renderer) requestAnimationFrame(() => renderer?.render?.())
     if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
       updateReaderShellCoverLayer(
@@ -616,6 +647,33 @@ class NavicReaderRuntime {
     this.renderSurfacePaperTextureLayers()
     this.renderTapZoneOverlayLayer()
     log('viewport-layout', `label=${label}`, `${width}x${height}`)
+  }
+
+  applyPdfImageSettings(settings = this.readerSettings) {
+    const renderer = this.view?.renderer
+    if (!renderer || this.view?.isFixedLayout !== true) return
+    const fitMode = normalizedReaderPdfFitMode(settings?.pdfFitMode)
+    const cropBorders = settings?.pdfCropBorders === true
+    const gapPercent = normalizedReaderPdfPageGapPercent(settings?.pdfPageGapPercent)
+    const viewport = readerViewportSize()
+    const gapPx = Math.round(Math.max(1, viewport.height || 0) * gapPercent / 100)
+    renderer.setAttribute('zoom', readerPdfZoomAttribute(fitMode))
+    renderer.setAttribute('page-gap', String(gapPx))
+    if (cropBorders) renderer.setAttribute('crop-borders', 'true')
+    else renderer.removeAttribute('crop-borders')
+    renderer.setAttribute('data-navic-pdf-fit-mode', fitMode)
+    renderer.setAttribute('data-navic-pdf-crop-borders', cropBorders ? 'true' : 'false')
+    renderer.setAttribute('data-navic-pdf-page-gap-percent', String(gapPercent))
+    renderer.setAttribute('data-navic-pdf-page-gap-px', String(gapPx))
+    renderer.style.setProperty('--reader-pdf-page-gap', `${gapPx}px`)
+    renderer.style.setProperty('--reader-pdf-crop-scale', cropBorders ? '1.045' : '1')
+    readerTrace('pdf-settings:apply', {
+      fitMode,
+      zoom: renderer.getAttribute('zoom'),
+      cropBorders,
+      gapPercent,
+      gapPx,
+    })
   }
 
   async goTo(locator) {

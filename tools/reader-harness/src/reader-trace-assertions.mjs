@@ -236,6 +236,31 @@ export const assertPdfFastSequentialTurns = result => {
   }
 }
 
+export const assertPdfImageSettings = result => {
+  if (!result?.rendererState) {
+    throw new Error('Expected PDF/Image settings test to collect renderer state')
+  }
+  if (result.rendererState.zoom !== 'fit-height') {
+    throw new Error(`Expected PDF fit height to set fixed-layout zoom=fit-height; observed ${result.rendererState.zoom || 'unset'}`)
+  }
+  if (result.rendererState.cropBorders !== 'true') {
+    throw new Error(`Expected PDF crop borders to reach fixed-layout renderer; observed ${result.rendererState.cropBorders || 'unset'}`)
+  }
+  const pageGapPx = Number(result.rendererState.pageGapPx)
+  if (!Number.isFinite(pageGapPx) || pageGapPx < 40) {
+    throw new Error(`Expected PDF page gap to be converted into visible pixels; observed ${result.rendererState.pageGapPx}`)
+  }
+  if (!result?.pageBounds || !Number.isFinite(result.pageBounds.top)) {
+    throw new Error('Expected PDF/Image settings test to measure visible page bounds')
+  }
+  if (result.pageBounds.top < pageGapPx * 0.45) {
+    throw new Error(
+      `Expected PDF page gap to move the rendered page down; ` +
+      `top=${result.pageBounds.top} gap=${pageGapPx}`
+    )
+  }
+}
+
 export const assertFullEpubTraversal = result => {
   if (!result || !Array.isArray(result.pages) || result.pages.length === 0) {
     throw new Error('Expected full EPUB traversal to collect rendered pages')
