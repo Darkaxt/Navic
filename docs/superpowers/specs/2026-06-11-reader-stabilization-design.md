@@ -661,3 +661,50 @@ Release evidence:
 - Asset size: `13,170,669` bytes
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta33/Navic.apk`
 - Asset SHA-256 digest: `1b9a59de4b8e17c59c4a8d23df23fc2d71cb51aee75dcf8577d14c7da343f78a`
+
+## Microdeliverable Checkpoint: 2026-06-12 Preserve WebView Page Drag Gestures
+
+Scope:
+
+- Keep Android-native readable tap-zone dispatch from eta33.
+- Protect the active Android WebView gesture stream with `requestDisallowInterceptTouchEvent(true)` so parent Compose/AndroidView interception cannot break Foliate's page-following drag animation.
+- Release the interception guard on `ACTION_UP`, `ACTION_CANCEL`, multi-touch, or lost tracked pointer.
+- Keep `setOnTouchListener` returning `false` so WebView/Foliate still receive every touch event.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidWebViewKeepsFoliateDragStreamOwnedByWebViewParentsCannotIntercept"
+```
+
+Initial result: failed in `ReaderRuntimeShellProgressTest.kt`, proving the native observer did not yet protect the WebView drag stream from parent interception.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidWebViewKeepsFoliateDragStreamOwnedByWebViewParentsCannotIntercept"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 24 executed.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName "v1.0.11-eta34"
+git diff --check
+```
+
+Result: both commands exited `0`.
+
+Release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta34`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27411506764`
+- Asset: `Navic.apk`
+- Asset size: `13,170,669` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta34/Navic.apk`
+- Asset SHA-256 digest: `66eddc97e5144179060af8dbe6501f8291d60f5f535f38ef3fa4a044557c06c0`
