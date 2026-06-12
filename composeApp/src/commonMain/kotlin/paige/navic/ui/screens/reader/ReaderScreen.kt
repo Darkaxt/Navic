@@ -181,13 +181,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerDimOverlayPercent,
 		preferenceManager.readerOrientation,
 		preferenceManager.readerTheme,
+		preferenceManager.readerDirection,
 		preferenceManager.readerFlowMode,
 		preferenceManager.readerPaged,
 		preferenceManager.readerTapZone,
 		preferenceManager.readerSmallerTapZone,
+		preferenceManager.readerShowTapZones,
 		preferenceManager.readerPublisherStylesEnabled,
 		preferenceManager.readerFullscreen,
 		preferenceManager.readerKeepScreenOn,
+		preferenceManager.readerReadaloudSyncEnabled,
+		preferenceManager.readerVolumeKeyPageTurns,
 		preferenceManager.readerWebContentsDebuggingEnabled
 	) {
 		preferenceManager.readerDefaultSettings()

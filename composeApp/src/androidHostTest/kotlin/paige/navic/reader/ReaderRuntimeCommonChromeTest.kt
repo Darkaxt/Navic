@@ -103,6 +103,45 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderDefaultSettingsRememberKeyTracksReaderPreferenceInputs() {
+		val readerScreenText = readerScreenFile().readText()
+		val defaultSettingsRemember = readerScreenText
+			.substringAfter("val defaultReaderSettings = remember(")
+			.substringBefore("\n\t) {\n\t\tpreferenceManager.readerDefaultSettings()")
+		val expectedPreferenceInputs = listOf(
+			"readerFontFamily",
+			"readerFontSource",
+			"readerFontSizePercent",
+			"readerLineHeightPercent",
+			"readerParagraphSpacingPercent",
+			"readerMarginPercent",
+			"readerDimOverlayPercent",
+			"readerOrientation",
+			"readerTheme",
+			"readerDirection",
+			"readerFlowMode",
+			"readerPaged",
+			"readerTapZone",
+			"readerSmallerTapZone",
+			"readerShowTapZones",
+			"readerPublisherStylesEnabled",
+			"readerFullscreen",
+			"readerKeepScreenOn",
+			"readerReadaloudSyncEnabled",
+			"readerVolumeKeyPageTurns",
+			"readerWebContentsDebuggingEnabled"
+		)
+
+		expectedPreferenceInputs.forEach { preferenceName ->
+			assertContains(
+				defaultSettingsRemember,
+				"preferenceManager.$preferenceName",
+				message = "ReaderScreen default settings must refresh when $preferenceName changes."
+			)
+		}
+	}
+
+	@Test
 	fun commonReaderChromeUsesKomikkuStyleOptionsSheetInsteadOfDockedSettingsList() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
