@@ -148,6 +148,7 @@ class NavicReaderRuntime {
   readerFlowModeValue = ReaderFlowPaged
   readerDirectionModeValue = ReaderDirectionDefault
   smallerTapZone = false
+  nativeTapZones = false
   originalBookDir = null
   publicationUrl = ''
   surfaceTextureLayer = null
@@ -306,6 +307,7 @@ class NavicReaderRuntime {
     this.view?.remove?.()
     this.view = null
     this.readerSettings = {}
+    this.nativeTapZones = false
     this.originalBookDir = null
     this.publicationUrl = ''
     this.externalShellCover = false
@@ -1014,6 +1016,10 @@ class NavicReaderRuntime {
     const host = this.readerTapZoneGestureHost(target)
     if (!target || !host || host.__navicReaderTapZoneGestureAttached) return
     host.__navicReaderTapZoneGestureAttached = true
+    if (this.nativeTapZones === true) {
+      this.updateTapZoneOverlayLayer()
+      return
+    }
     let touchState = null
     target.addEventListener('touchstart', event => {
       const touch = event.changedTouches?.[0]
@@ -1684,6 +1690,7 @@ class NavicReaderRuntime {
     const rootStyle = document.documentElement.style
     if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
     this.smallerTapZone = settings.smallerTapZone === true
+    this.nativeTapZones = settings.nativeTapZones === true
     if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
     if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
     rootStyle.setProperty('--reader-page-number-font-family', this.readerPageNumberFontFamily(settings))

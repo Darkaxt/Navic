@@ -614,3 +614,42 @@ Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.
 ```
 
 Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.
+
+Release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta32`
+- Asset: `Navic.apk`
+- Asset size: `13,154,253` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta32/Navic.apk`
+- Asset SHA-256 digest: `de65fe5b16ae310e6b9e61ed80a0bd744d16dda9d413f4e5a4e026b4c2afe010`
+
+## Microdeliverable Checkpoint: 2026-06-12 Android WebView Native Tap Observer
+
+Scope:
+
+- Move readable-content page/menu tap classification back into Android-native code without restoring the Compose overlay that blocked Foliate drag gestures.
+- Add a `WebView.setOnTouchListener` observer that always returns `false`, allowing WebView/Foliate/PDF.js to keep the full drag stream.
+- Stamp `nativeTapZones=true` onto Android reader `openPublication` and `applySettings` bridge commands so JavaScript visible tap-zone diagnostics can remain active without dispatching duplicate page/menu taps.
+- Keep native tap dispatch conservative around WebView hit-test results for anchors and images so link navigation and image tint toggles are not obviously hijacked.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidWebViewObservesReadableTapsNativelyWithoutConsumingDrags" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeObserverOwnsTaps"
+```
+
+Initial result: failed in both tests, proving Android did not yet install a native non-consuming WebView tap observer and the reader bridge had no `nativeTapZones` guard.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidWebViewObservesReadableTapsNativelyWithoutConsumingDrags" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeObserverOwnsTaps"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 7 executed and 17 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 6 executed and 18 up-to-date.

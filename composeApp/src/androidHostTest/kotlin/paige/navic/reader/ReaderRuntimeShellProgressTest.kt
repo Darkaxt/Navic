@@ -190,6 +190,27 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidWebViewObservesReadableTapsNativelyWithoutConsumingDrags() {
+		val webViewHostText = readerWebViewHostFile().readText()
+
+		assertContains(webViewHostText, "setOnTouchListener")
+		assertContains(webViewHostText, "ReaderAndroidTapZoneObserver")
+		assertContains(webViewHostText, "MotionEvent.ACTION_MOVE")
+		assertContains(
+			webViewHostText,
+			"return@setOnTouchListener false",
+			message = "Android native tap observation must not consume the WebView gesture stream needed by Foliate drags."
+		)
+		assertContains(webViewHostText, "readerTapZoneActionAt(")
+		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
+		assertContains(webViewHostText, "dispatchReaderTapZoneCommand(")
+		assertContains(webViewHostText, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
+		assertContains(webViewHostText, "WebView.HitTestResult.IMAGE_TYPE")
+		assertContains(webViewHostText, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()

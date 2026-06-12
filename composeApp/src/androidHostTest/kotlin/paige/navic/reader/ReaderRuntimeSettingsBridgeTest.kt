@@ -90,6 +90,28 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeObserverOwnsTaps() {
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val webViewHostText = readerWebViewHostFile().readText()
+		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+		val tapHandler = runtimeText
+			.substringAfter("attachReaderTapZoneGesture(target) {")
+			.substringBefore("\n  attachScrolledEdgeTurnGestures")
+
+		assertContains(bridgeProtocolText, "val nativeTapZones: Boolean? = null")
+		assertContains(bridgeProtocolText, "nativeTapZones?.let { put(\"nativeTapZones\", it) }")
+		assertContains(webViewHostText, "settings.copy(nativeTapZones = true)")
+		assertContains(runtimeText, "this.nativeTapZones = settings.nativeTapZones === true")
+		assertContains(tapHandler, "if (this.nativeTapZones === true)")
+		assertContains(tapHandler, "this.updateTapZoneOverlayLayer()")
+		assertContains(
+			tapHandler,
+			"return",
+			message = "Android native tap ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
+		)
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
