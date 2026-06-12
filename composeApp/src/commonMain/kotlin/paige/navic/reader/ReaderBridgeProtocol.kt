@@ -93,6 +93,7 @@ sealed interface ReaderBridgeCommand {
 	data class OpenPublication(
 		val url: String,
 		val mediaOverlayEnabled: Boolean = false,
+		val externalShellCover: Boolean = false,
 		val startLocator: ReaderLocator? = null,
 		val settings: ReaderSettings? = null
 	) : ReaderBridgeCommand {
@@ -103,6 +104,7 @@ sealed interface ReaderBridgeCommand {
 				put("type", type)
 				put("url", url)
 				put("mediaOverlayEnabled", mediaOverlayEnabled)
+				put("externalShellCover", externalShellCover)
 				startLocator?.let { put("startLocator", it.toJsonObject()) }
 				settings?.let { put("settings", it.toJsonObject()) }
 			}

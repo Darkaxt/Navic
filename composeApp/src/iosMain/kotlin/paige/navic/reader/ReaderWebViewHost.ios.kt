@@ -17,6 +17,7 @@ actual fun ReaderWebViewHost(
 	title: String,
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
+	externalShellCover: Boolean,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,

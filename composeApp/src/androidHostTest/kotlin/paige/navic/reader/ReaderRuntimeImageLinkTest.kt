@@ -64,7 +64,7 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(bridgeText, "const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)")
 		assertContains(
 			bridgeText,
-			"const shellCoverUrl = await this.loadShellCover()",
+			"const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()",
 			message = "Every EPUB open should try to show the program-level cover before revealing reader content."
 		)
 		assertContains(
@@ -83,6 +83,52 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(bridgeText, "detailTargetsCover")
 		assertContains(bridgeText, "location-changed:cover-skipped")
+	}
+
+	@Test
+	fun androidReaderSkipsWebShellCoverWhenNativeCoverSurfaceIsAvailable() {
+		val bridgeText = readerBridgeText()
+
+		assertContains(bridgeText, "externalShellCover = false")
+		assertContains(bridgeText, "this.externalShellCover = Boolean(externalShellCover)")
+		assertContains(
+			bridgeText,
+			"this.close()\n      this.externalShellCover = Boolean(externalShellCover)",
+			message = "The external shell-cover flag must be applied after close() resets runtime state."
+		)
+		assertContains(
+			bridgeText,
+			"const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()",
+			message = "Native cover mode must not create a second WebView shell-cover layer underneath the Compose cover surface."
+		)
+		assertContains(bridgeText, "const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)")
+		assertContains(bridgeText, "} else if (hasShellCoverSurface) {")
+		assertContains(
+			bridgeText,
+			"if (shellCoverUrl) this.showShellCover()",
+			message = "Only the JS fallback cover layer should be shown by the WebView runtime."
+		)
+	}
+
+	@Test
+	fun commonReaderUsesNativeShellCoverSurfaceWhenResolverProvidesCoverUrl() {
+		val readerScreenText = readerScreenFile().readText()
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val webViewHostText = readerWebViewHostFile().readText()
+
+		assertContains(
+			runtimeHostText,
+			"resolved.shellCoverUrl",
+			message = "The Android resolver's EPUB cover URL must be surfaced to common reader UI."
+		)
+		assertContains(readerScreenText, "nativeShellCoverUrl")
+		assertContains(readerScreenText, "nativeShellCoverVisible")
+		assertContains(readerScreenText, "ReaderNativeShellCoverSurface(")
+		assertContains(readerScreenText, "externalShellCover = nativeShellCoverUrl != null")
+		assertContains(readerScreenText, "ReaderBridgeCommand.NextPage -> nativeShellCoverVisible = false")
+		assertContains(readerScreenText, "readerShouldReturnToNativeShellCover(")
+		assertContains(webViewHostText, "externalShellCover: Boolean")
+		assertContains(webViewHostText, "externalShellCover = externalShellCover")
 	}
 
 	@Test

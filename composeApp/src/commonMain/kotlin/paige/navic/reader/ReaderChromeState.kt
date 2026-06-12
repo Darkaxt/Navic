@@ -261,6 +261,16 @@ fun readerTapZonePageTurnCommand(
 		ReaderTapZoneAction.Menu -> null
 	}
 
+fun readerShouldReturnToNativeShellCover(
+	shellCoverUrl: String?,
+	shellCoverVisible: Boolean,
+	locator: ReaderLocator?
+): Boolean =
+	!shellCoverVisible &&
+		!shellCoverUrl.isNullOrBlank() &&
+		(locator?.pageIndex ?: -1) <= 0 &&
+		(locator?.pageCount ?: 0) > 0
+
 enum class ReaderOptionsTab {
 	Reading,
 	General,

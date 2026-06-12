@@ -153,6 +153,7 @@ class NavicReaderRuntime {
   shellCoverLayer = null
   shellCoverBlobUrl = null
   shellCoverVisible = false
+  externalShellCover = false
   shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
@@ -216,7 +217,7 @@ class NavicReaderRuntime {
     }
   }
 
-  async openPublication({ url, mediaOverlayEnabled = false, startLocator = null, settings = null }) {
+  async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {
     if (!url) {
       logError('openPublication:missing-url')
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
@@ -226,6 +227,7 @@ class NavicReaderRuntime {
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.externalShellCover = Boolean(externalShellCover)
       this.publicationUrl = url
       this.lastRelocateDetail = null
       if (settings) this.readerSettings = settings
@@ -242,7 +244,8 @@ class NavicReaderRuntime {
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
       const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)
-      const shellCoverUrl = await this.loadShellCover()
+      const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()
+      const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
@@ -252,7 +255,7 @@ class NavicReaderRuntime {
         await this.view.goTo(locator)
       } else if (Number.isFinite(progress)) {
         await this.goToProgress(progress)
-      } else if (shellCoverUrl) {
+      } else if (hasShellCoverSurface) {
         await this.goToFirstReadableContent()
       } else {
         await this.view.init?.({ showTextStart: true })
@@ -282,6 +285,7 @@ class NavicReaderRuntime {
     this.readerSettings = {}
     this.originalBookDir = null
     this.publicationUrl = ''
+    this.externalShellCover = false
     this.pageTurnPromise = null
     this.pageTurnInProgress = false
     this.pageTurnDirection = null

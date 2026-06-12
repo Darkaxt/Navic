@@ -7,10 +7,10 @@ import paige.navic.ui.navigation.Screen
 @Composable
 actual fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String) -> Unit,
+	onPublicationReady: (String, String?) -> Unit,
 	onError: (String) -> Unit
 ) {
 	LaunchedEffect(reader.publicationUrl) {
-		onPublicationReady(reader.publicationUrl)
+		onPublicationReady(reader.publicationUrl, null)
 	}
 }

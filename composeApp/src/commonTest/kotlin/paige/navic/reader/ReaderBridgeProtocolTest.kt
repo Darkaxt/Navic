@@ -12,6 +12,7 @@ class ReaderBridgeProtocolTest {
 		val script = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/opds/books/3693/resources/readaloud-1?title=\"Alcatraz\"",
 			mediaOverlayEnabled = true,
+			externalShellCover = true,
 			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)"),
 			settings = ReaderSettings(
 				fontFamily = ReaderBookFontFamily,
@@ -41,6 +42,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "epubcfi(/6/2!/4/1:0)")
 		assertContains(script, "\"type\":\"openPublication\"")
 		assertContains(script, "\"mediaOverlayEnabled\":true")
+		assertContains(script, "\"externalShellCover\":true")
 		assertContains(script, "Navic Literata")
 		assertContains(script, "Bookerly, Georgia, serif")
 		assertContains(script, "\"fontSource\":\"system\"")

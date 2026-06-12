@@ -2,7 +2,15 @@ package paige.navic.reader
 
 import android.content.Context
 import java.io.File
+import java.io.InputStream
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.zip.ZipFile
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
+import org.w3c.dom.NodeList
 
 internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
 private const val ReaderPublicationCacheDirectoryName = "reader"
@@ -25,6 +33,7 @@ data class ReaderResolvedPublicationResource(
 	val sourceUrl: String,
 	val cacheKey: String,
 	val fromCache: Boolean,
+	val shellCoverUrl: String? = null,
 	val requestHeaders: Map<String, String> = emptyMap()
 )
 
@@ -99,8 +108,13 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 	cacheKey: String,
 	fromCache: Boolean,
 	publicationExtension: String
-): ReaderResolvedPublicationResource =
-	ReaderResolvedPublicationResource(
+): ReaderResolvedPublicationResource {
+	val shellCoverUrl = if (publicationExtension == "epub") {
+		publicationFile.extractReaderShellCoverUrl(cacheKey)
+	} else {
+		null
+	}
+	return ReaderResolvedPublicationResource(
 		publicationUrl = readerPublicationAssetUrl(
 			"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
 		),
@@ -109,8 +123,142 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 		sourceUrl = sourceUrl,
 		cacheKey = cacheKey,
 		fromCache = fromCache,
+		shellCoverUrl = shellCoverUrl,
 		requestHeaders = emptyMap()
 	)
+}
+
+private data class ReaderOpfManifestItem(
+	val id: String,
+	val href: String,
+	val mediaType: String,
+	val properties: String
+) {
+	val isImage: Boolean
+		get() = mediaType.lowercase().startsWith("image/")
+}
+
+private fun File.extractReaderShellCoverUrl(cacheKey: String): String? =
+	runCatching {
+		ZipFile(this).use { zip ->
+			val cover = zip.findReaderCoverEntry() ?: return@use null
+			val extension = cover.item.readerCoverImageExtension()
+			val coverDirectory = parentFile ?: return@use null
+			val coverFile = coverDirectory.resolve("cover.$extension")
+			if (!coverFile.isFile || coverFile.length() <= 0L) {
+				zip.getInputStream(cover.entry).use { input ->
+					coverFile.outputStream().use(input::copyTo)
+				}
+			}
+			readerPublicationAssetUrl("$ReaderPublicationCachePublicationDirectory/$cacheKey/${coverFile.name}")
+		}
+	}.getOrNull()
+
+private data class ReaderCoverZipEntry(
+	val item: ReaderOpfManifestItem,
+	val entry: java.util.zip.ZipEntry
+)
+
+private fun ZipFile.findReaderCoverEntry(): ReaderCoverZipEntry? {
+	val containerEntry = getEntry("META-INF/container.xml") ?: return null
+	val container = getInputStream(containerEntry).use(::parseReaderXml)
+	val opfPath = container
+		.getElementsByTagName("rootfile")
+		.asElements()
+		.firstNotNullOfOrNull { it.getAttribute("full-path").trim().takeIf(String::isNotEmpty) }
+		?.readerSafeZipPath()
+		?: return null
+	val opfEntry = getEntry(opfPath) ?: return null
+	val opfDocument = getInputStream(opfEntry).use(::parseReaderXml)
+	val manifestItems = opfDocument
+		.getElementsByTagName("item")
+		.asElements()
+		.mapNotNull { element ->
+			val href = element.getAttribute("href").trim()
+			if (href.isBlank()) return@mapNotNull null
+			ReaderOpfManifestItem(
+				id = element.getAttribute("id").trim(),
+				href = href,
+				mediaType = element.getAttribute("media-type").trim(),
+				properties = element.getAttribute("properties").trim()
+			)
+		}
+		.filter(ReaderOpfManifestItem::isImage)
+	if (manifestItems.isEmpty()) return null
+	val coverMetaItemId = opfDocument
+		.getElementsByTagName("meta")
+		.asElements()
+		.firstOrNull { it.getAttribute("name").equals("cover", ignoreCase = true) }
+		?.getAttribute("content")
+		?.trim()
+		?.takeIf(String::isNotEmpty)
+	val coverItem = manifestItems.firstOrNull { item ->
+		item.properties.splitToSequence(' ', '\t', '\n', '\r')
+			.any { it.equals("cover-image", ignoreCase = true) }
+	} ?: coverMetaItemId?.let { coverId ->
+		manifestItems.firstOrNull { it.id == coverId }
+	} ?: manifestItems.firstOrNull { item ->
+		item.id.contains("cover", ignoreCase = true) ||
+			item.href.substringAfterLast('/').contains("cover", ignoreCase = true)
+	} ?: manifestItems.firstOrNull()
+		?: return null
+	val coverPath = readerResolveZipHref(opfPath, coverItem.href) ?: return null
+	val coverEntry = getEntry(coverPath) ?: return null
+	return ReaderCoverZipEntry(coverItem, coverEntry)
+}
+
+private fun parseReaderXml(input: InputStream) =
+	DocumentBuilderFactory.newInstance()
+		.apply {
+			isNamespaceAware = false
+			setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+			setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+			setFeature("http://xml.org/sax/features/external-general-entities", false)
+			setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+		}
+		.newDocumentBuilder()
+		.parse(input)
+
+private fun NodeList.asElements(): List<Element> =
+	(0 until length).mapNotNull { index -> item(index) as? Element }
+
+private fun readerResolveZipHref(opfPath: String, href: String): String? {
+	val opfDirectory = opfPath.substringBeforeLast('/', missingDelimiterValue = "")
+	val cleanHref = href
+		.substringBefore('#')
+		.substringBefore('?')
+		.trim()
+		.replace('\\', '/')
+		.readerUrlDecodedPath()
+	val candidate = if (opfDirectory.isBlank()) cleanHref else "$opfDirectory/$cleanHref"
+	return candidate.readerSafeZipPath()
+}
+
+private fun String.readerUrlDecodedPath(): String =
+	runCatching { URLDecoder.decode(this, StandardCharsets.UTF_8.name()) }.getOrElse { this }
+
+private fun String.readerSafeZipPath(): String? {
+	val parts = replace('\\', '/')
+		.split('/')
+		.filter { it.isNotBlank() && it != "." }
+	if (parts.isEmpty() || parts.any { it == ".." }) return null
+	return parts.joinToString("/")
+}
+
+private fun ReaderOpfManifestItem.readerCoverImageExtension(): String =
+	when (mediaType.lowercase()) {
+		"image/png" -> "png"
+		"image/jpeg", "image/jpg" -> "jpg"
+		"image/webp" -> "webp"
+		"image/gif" -> "gif"
+		"image/svg+xml" -> "svg"
+		else -> href.substringAfterLast('.', missingDelimiterValue = "img")
+			.substringBefore('?')
+			.substringBefore('#')
+			.lowercase()
+			.takeIf { it.matches(Regex("[a-z0-9]{2,5}")) }
+			?: "img"
+	}
 
 private fun String.sha256Hex(): String =
 	MessageDigest.getInstance("SHA-256")

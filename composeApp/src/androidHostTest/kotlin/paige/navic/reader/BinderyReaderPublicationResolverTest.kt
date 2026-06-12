@@ -5,7 +5,10 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class BinderyReaderPublicationResolverTest {
 	@Test
@@ -93,6 +96,35 @@ class BinderyReaderPublicationResolverTest {
 		assertTrue(resolved.publicationUrl.endsWith("/publication.pdf"))
 		assertTrue(resolved.publicationFile.name.endsWith(".pdf"))
 		assertEquals("%PDF-1.7", resolved.publicationFile.readText())
+		assertNull(resolved.shellCoverUrl)
+	}
+
+	@Test
+	fun extractsEpubCoverImageForNativeShellCoverSurface() = runBlocking {
+		val coverBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { minimalEpubWithCover(coverBytes) },
+			cacheRoot = createTempDirectory("navic-reader-cover-publications").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3816",
+			title = "The Hobbit",
+			resourceHref = "/opds/books/3816/resources/ebook-epub",
+			sourceUrl = "https://bindery.local/opds/books/3816/resources/ebook-epub",
+			kind = ReaderPublicationKind.Ebook,
+			format = ReaderPublicationFormat.Epub,
+			mediaOverlayEnabled = false
+		)
+
+		val resolved = resolver.resolve(request)
+
+		assertEquals(
+			"https://appassets.androidplatform.net/reader-cache/reader-publications/${resolved.cacheKey}/cover.png",
+			resolved.shellCoverUrl
+		)
+		val coverFile = resolved.publicationFile.parentFile!!.resolve("cover.png")
+		assertTrue(coverFile.isFile)
+		assertEquals(coverBytes.toList(), coverFile.readBytes().toList())
 	}
 
 	@Test
@@ -169,4 +201,42 @@ class BinderyReaderPublicationResolverTest {
 		assertEquals(first.publicationFile.absolutePath, second.publicationFile.absolutePath)
 		assertEquals("EPUB_BYTES_1", second.publicationFile.readText())
 	}
+}
+
+private fun minimalEpubWithCover(coverBytes: ByteArray): ByteArray {
+	val output = java.io.ByteArrayOutputStream()
+	ZipOutputStream(output).use { zip ->
+		zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+		zip.write(
+			"""
+			<?xml version="1.0" encoding="UTF-8"?>
+			<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+				<rootfiles>
+					<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+				</rootfiles>
+			</container>
+			""".trimIndent().encodeToByteArray()
+		)
+		zip.closeEntry()
+		zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+		zip.write(
+			"""
+			<?xml version="1.0" encoding="UTF-8"?>
+			<package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+				<manifest>
+					<item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>
+					<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+				</manifest>
+				<spine>
+					<itemref idref="chapter"/>
+				</spine>
+			</package>
+			""".trimIndent().encodeToByteArray()
+		)
+		zip.closeEntry()
+		zip.putNextEntry(ZipEntry("OEBPS/images/cover.png"))
+		zip.write(coverBytes)
+		zip.closeEntry()
+	}
+	return output.toByteArray()
 }

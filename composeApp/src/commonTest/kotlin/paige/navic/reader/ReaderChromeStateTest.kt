@@ -206,6 +206,38 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeShellCoverBoundaryInterceptsPreviousOnlyFromFirstReadablePage() {
+		assertTrue(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(pageIndex = 0, pageCount = 411)
+			)
+		)
+		assertFalse(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(pageIndex = 4, pageCount = 411)
+			)
+		)
+		assertFalse(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = null,
+				shellCoverVisible = false,
+				locator = ReaderLocator(pageIndex = 0, pageCount = 411)
+			)
+		)
+		assertFalse(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = true,
+				locator = ReaderLocator(pageIndex = 0, pageCount = 411)
+			)
+		)
+	}
+
+	@Test
 	fun fullscreenControlDefaultsToKomikkuStyleImmersiveReading() {
 		val initial = ReaderChromeState()
 		val updated = initial.toggleFullscreen()

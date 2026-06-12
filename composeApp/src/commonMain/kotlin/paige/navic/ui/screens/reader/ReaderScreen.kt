@@ -59,10 +59,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
@@ -129,6 +131,7 @@ import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerTapZoneActionAt
 import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerTapZoneRegions
+import paige.navic.reader.readerShouldReturnToNativeShellCover
 import paige.navic.reader.readerBookmarkFromLocator
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDirectionShortLabel
@@ -155,6 +158,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var lastReaderError by remember(reader.publicationUrl) { mutableStateOf<String?>(null) }
 	var preparedPublicationUrl by remember(reader.publicationUrl, reader.kind, reader.mediaOverlayEnabled) {
 		mutableStateOf<String?>(null)
+	}
+	var nativeShellCoverUrl by remember(reader.publicationUrl, reader.resourceHref, reader.kind) {
+		mutableStateOf<String?>(null)
+	}
+	var nativeShellCoverVisible by remember(reader.publicationUrl, reader.resourceHref, reader.kind) {
+		mutableStateOf(false)
 	}
 	var readerCommand by remember(reader.publicationUrl) { mutableStateOf<ReaderBridgeCommand?>(null) }
 	var readerCommandKey by remember(reader.publicationUrl) { mutableStateOf(0L) }
@@ -298,6 +307,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	fun dispatchReaderCommand(command: ReaderBridgeCommand) {
 		readerCommand = command
 		readerCommandKey += 1L
+	}
+
+	fun handlePublicationPrepared(publicationUrl: String, shellCoverUrl: String?) {
+		lastReaderError = null
+		preparedPublicationUrl = publicationUrl
+		nativeShellCoverUrl = shellCoverUrl
+		nativeShellCoverVisible = !shellCoverUrl.isNullOrBlank()
 	}
 
 	fun hideReaderPanels() {
@@ -585,9 +601,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		) {
 			ReaderPublicationRuntimeHost(
 				reader = reader,
-				onPublicationReady = { publicationUrl ->
-					lastReaderError = null
-					preparedPublicationUrl = publicationUrl
+				onPublicationReady = { publicationUrl, shellCoverUrl ->
+					handlePublicationPrepared(publicationUrl, shellCoverUrl)
 				},
 				onError = { message -> lastReaderError = message }
 			)
@@ -596,10 +611,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 				readaloudSyncEnabled = chromeState.settings.readaloudSyncEnabled != false,
 				readerEvent = lastReaderEvent,
 				readerEventKey = readerEventKey,
-				onPublicationReady = { publicationUrl ->
-					lastReaderError = null
-					preparedPublicationUrl = publicationUrl
-				},
 				onReaderCommand = { command, key ->
 					readerCommand = command
 					readerCommandKey = key
@@ -609,7 +620,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 				onPlaybackState = { playbackState ->
 					chromeState = chromeState.onReadaloudPlaybackState(playbackState)
 				},
-				onError = { message -> lastReaderError = message }
+				onError = { message -> lastReaderError = message },
+				onPublicationReady = { publicationUrl ->
+					handlePublicationPrepared(publicationUrl, null)
+				}
 			)
 			if (progressResumeLoaded) preparedPublicationUrl?.let { publicationUrl ->
 				val handleReaderEvent: (ReaderBridgeEvent) -> Unit = { event ->
@@ -654,6 +668,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					title = reader.title,
 					kind = reader.kind,
 					mediaOverlayEnabled = reader.mediaOverlayEnabled,
+					externalShellCover = nativeShellCoverUrl != null,
 					settings = chromeState.settings,
 					startCfi = resumeStartLocator?.cfi,
 					startHref = resumeStartLocator?.href,
@@ -667,6 +682,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 					dimOverlayPercent = chromeState.settings.dimOverlayPercent ?: 0,
 					modifier = Modifier.matchParentSize()
 				)
+				nativeShellCoverUrl?.takeIf { nativeShellCoverVisible }?.let { coverUrl ->
+					ReaderNativeShellCoverSurface(
+						coverUrl = coverUrl,
+						title = reader.title,
+						modifier = Modifier.matchParentSize()
+					)
+				}
 				ReaderNativeTapOverlay(
 					settings = chromeState.settings,
 					enabled = !optionsVisible,
@@ -676,7 +698,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 					},
 					onPageTurn = { command ->
 						platformContext.clickSound()
-						dispatchReaderCommand(command)
+						when {
+							nativeShellCoverVisible -> when (command) {
+								ReaderBridgeCommand.NextPage -> nativeShellCoverVisible = false
+								ReaderBridgeCommand.PreviousPage -> Unit
+								else -> dispatchReaderCommand(command)
+							}
+							command == ReaderBridgeCommand.PreviousPage &&
+								readerShouldReturnToNativeShellCover(
+									shellCoverUrl = nativeShellCoverUrl,
+									shellCoverVisible = nativeShellCoverVisible,
+									locator = chromeState.currentLocator
+								) -> nativeShellCoverVisible = true
+							else -> dispatchReaderCommand(command)
+						}
 					},
 					modifier = Modifier.matchParentSize()
 				)
@@ -719,6 +754,25 @@ fun ReaderScreen(reader: Screen.Reader) {
 			onReadaloudSyncChange = { command ->
 				dispatchReadaloudCommand(command)
 			}
+		)
+	}
+}
+
+@Composable
+private fun ReaderNativeShellCoverSurface(
+	coverUrl: String,
+	title: String,
+	modifier: Modifier = Modifier
+) {
+	Box(
+		modifier = modifier.background(Color.Black),
+		contentAlignment = Alignment.Center
+	) {
+		AsyncImage(
+			model = coverUrl,
+			contentDescription = title,
+			contentScale = ContentScale.Fit,
+			modifier = Modifier.fillMaxSize()
 		)
 	}
 }
@@ -1399,6 +1453,7 @@ expect fun ReaderWebViewHost(
 	title: String,
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
+	externalShellCover: Boolean,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
@@ -1421,7 +1476,7 @@ expect fun ReaderSystemBarsEffect(
 @Composable
 expect fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String) -> Unit,
+	onPublicationReady: (String, String?) -> Unit,
 	onError: (String) -> Unit
 )
 
