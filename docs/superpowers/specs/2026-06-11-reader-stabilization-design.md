@@ -653,3 +653,11 @@ Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 7 executed and 17 up-to-date.
 ```
 
 Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 6 executed and 18 up-to-date.
+
+Release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta33`
+- Asset: `Navic.apk`
+- Asset size: `13,170,669` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta33/Navic.apk`
+- Asset SHA-256 digest: `1b9a59de4b8e17c59c4a8d23df23fc2d71cb51aee75dcf8577d14c7da343f78a`
