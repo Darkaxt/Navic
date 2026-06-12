@@ -11,11 +11,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import kotlinx.coroutines.launch
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.info_ebook_reader_import_font_success
+import navic.composeapp.generated.resources.info_error
 import navic.composeapp.generated.resources.option_ebook_reader_font_family
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_book
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_dyslexic
@@ -29,6 +33,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_source_cust
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_navic
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_system
+import navic.composeapp.generated.resources.option_ebook_reader_import_font
 import navic.composeapp.generated.resources.option_ebook_reader_font_size
 import navic.composeapp.generated.resources.option_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.option_ebook_reader_direction
@@ -75,6 +80,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_source
+import navic.composeapp.generated.resources.subtitle_ebook_reader_import_font
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
@@ -98,6 +104,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderBookFontFamily
@@ -142,6 +149,7 @@ import paige.navic.ui.components.common.FormTitle
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
+import paige.navic.ui.screens.settings.components.SettingValueRow
 import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
@@ -149,6 +157,8 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsEbooksScreen() {
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
+	val coroutineScope = rememberCoroutineScope()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val settings = preferenceManager.readerDefaultSettings()
 	val fontFamily = ReaderFontFamilyOption.forFontFamily(settings.fontFamily)
@@ -159,6 +169,24 @@ fun SettingsEbooksScreen() {
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
 	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
+	val importFontSuccessMessage = stringResource(Res.string.info_ebook_reader_import_font_success)
+	val importFontErrorFallback = stringResource(Res.string.info_error)
+	val importedFontValue = settings.customFontFamily?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.option_off)
+	val fontImporter = rememberReaderFontImporter(
+		onImported = { imported ->
+			preferenceManager.readerFontSource = ReaderFontSourceCustom
+			preferenceManager.readerCustomFontFamily = imported.family
+			preferenceManager.readerCustomFontUrl = imported.url
+			coroutineScope.launch {
+				snackbarState.showSnackbar(importFontSuccessMessage)
+			}
+		},
+		onError = { message ->
+			coroutineScope.launch {
+				snackbarState.showSnackbar(message.takeIf { it.isNotBlank() } ?: importFontErrorFallback)
+			}
+		}
+	)
 
 	Scaffold(
 		topBar = {
@@ -193,6 +221,14 @@ fun SettingsEbooksScreen() {
 						selection = fontSource,
 						onSelect = { option -> preferenceManager.readerFontSource = option.fontSource }
 					)
+					if (fontImporter.supported) {
+						SettingValueRow(
+							title = { Text(stringResource(Res.string.option_ebook_reader_import_font)) },
+							value = importedFontValue,
+							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_import_font)) },
+							onClick = { fontImporter.launch() }
+						)
+					}
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_font_size)) },
 						items = readerFontSizeOptions.toImmutableList(),

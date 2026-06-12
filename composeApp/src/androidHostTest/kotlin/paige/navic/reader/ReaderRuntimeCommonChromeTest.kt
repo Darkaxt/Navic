@@ -146,6 +146,18 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonSettingsEbooksScreenCanImportCustomFontIntoPreferences() {
+		val ebooksScreenText = settingsFile("EbooksScreen.kt").readText()
+
+		assertContains(ebooksScreenText, "rememberReaderFontImporter(")
+		assertContains(ebooksScreenText, "fontImporter.launch()")
+		assertContains(ebooksScreenText, "readerFontSource = ReaderFontSourceCustom")
+		assertContains(ebooksScreenText, "readerCustomFontFamily = imported.family")
+		assertContains(ebooksScreenText, "readerCustomFontUrl = imported.url")
+		assertContains(ebooksScreenText, "option_ebook_reader_import_font")
+	}
+
+	@Test
 	fun commonReaderChromeUsesKomikkuStyleOptionsSheetInsteadOfDockedSettingsList() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()

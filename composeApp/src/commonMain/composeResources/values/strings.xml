@@ -212,7 +212,8 @@
 	<string name="subtitle_bindery_book_grid_columns">Minimum columns used by Bindery book and collection grids.</string>
 	<string name="subtitle_ebook_reader">Reader fonts, layout, and Storyteller media overlay defaults</string>
 	<string name="subtitle_ebook_reader_font_family">Default font source used inside EPUB publications.</string>
-	<string name="subtitle_ebook_reader_font_source">Choose whether EPUB text uses bundled reader fonts, Android system fonts, or publication-provided fonts.</string>
+	<string name="subtitle_ebook_reader_font_source">Choose whether EPUB text uses bundled reader fonts, Android system fonts, publication-provided fonts, or an imported file.</string>
+	<string name="subtitle_ebook_reader_import_font">Choose a TTF, OTF, WOFF, WOFF2, or TTC file for ebook rendering.</string>
 	<string name="subtitle_ebook_reader_font_size">Default text scale for EPUB content.</string>
 	<string name="subtitle_ebook_reader_line_height">Default spacing between lines in the reader.</string>
 	<string name="subtitle_ebook_reader_paragraph_spacing">Extra space after EPUB paragraphs.</string>
@@ -541,6 +542,7 @@
 	<string name="option_ebook_reader_font_source_system">System</string>
 	<string name="option_ebook_reader_font_source_publisher">Book fonts</string>
 	<string name="option_ebook_reader_font_source_custom">Imported file</string>
+	<string name="option_ebook_reader_import_font">Import font file</string>
 	<string name="option_ebook_reader_font_size">Font size</string>
 	<string name="option_ebook_reader_line_height">Line height</string>
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>
@@ -926,6 +928,7 @@
 	<string name="info_clear_ebook_cache_confirmation">Cached ebook and PDF files will be removed and downloaded again when opened.</string>
 	<string name="info_clear_musicbrainz_cache_confirmation">Cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries will be removed and resolved again during playback.</string>
 	<string name="info_clear_lidaclips_video_cache_confirmation">Cached LidaClips videos will be removed. Saved/offline clips kept with downloaded songs are not deleted by this action.</string>
+	<string name="info_ebook_reader_import_font_success">Imported ebook font.</string>
 	<string name="info_clear_pending_actions_confirmation">Pending offline sync actions will be discarded. Changes that have not reached your server may be lost.</string>
 	<string name="info_clear_downloads_confirmation">Downloaded songs will be removed from this device. You can download them again later.</string>
 	<string name="info_rebuild_database_confirmation">Local library data will be cleared and rebuilt from the server. Offline-only cached state may be removed.</string>

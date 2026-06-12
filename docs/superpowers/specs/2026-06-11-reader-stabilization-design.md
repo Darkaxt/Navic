@@ -462,3 +462,43 @@ git diff --check
 ```
 
 Result: all commands exited `0`.
+
+## Microdeliverable Checkpoint: 2026-06-12 Android Imported Font Picker
+
+Scope:
+
+- Add a Settings > Ebooks import row for Android that opens a document picker for ebook font files.
+- Copy selected TTF, OTF, WOFF, WOFF2, or TTC files into `context.cacheDir/reader/fonts`.
+- Store the imported font family and `https://appassets.androidplatform.net/reader-cache/fonts/...` URL in the reader preferences, then switch the default font source to `custom`.
+- Keep iOS as an explicit unsupported no-op for this Android-only slice.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontTest" --tests "paige.navic.reader.ReaderImportedFontCacheTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonSettingsEbooksScreenCanImportCustomFontIntoPreferences"
+```
+
+Initial result: failed at compile time with unresolved `ReaderImportedFontCache`, `readerImportedFontFamilyFromDisplayName`, and `readerImportedFontExtension`, proving the importer and cache path were not implemented.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontTest" --tests "paige.navic.reader.ReaderImportedFontCacheTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonSettingsEbooksScreenCanImportCustomFontIntoPreferences"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 13 executed and 11 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderImportedFontTest" --tests "paige.navic.reader.ReaderImportedFontCacheTest" --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Result: all commands exited `0`.
