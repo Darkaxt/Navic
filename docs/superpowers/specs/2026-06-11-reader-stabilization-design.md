@@ -1209,3 +1209,21 @@ git diff --check
 ```
 
 Result: all commands exited `0`; release verifier printed `Android versionName matches v1.0.11-eta41`.
+
+Release publication status:
+
+- Commit: `f332dd6b8aa49c31e9a7b5c32df541a2be244fcb`
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta41`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27443030348`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,171,673` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta41/Navic.apk`
+- Asset SHA-256 digest: `8cc5144b4427b6d4c66cd31608c1bbe3cabd0a3722b53998004fd239c22b06b6`
+- Local download verification: `Get-FileHash releases\v1.0.11-eta41\Navic.apk -Algorithm SHA256` produced `8CC5144B4427B6D4C66CD31608C1BBE3CABD0A3722B53998004FD239C22B06B6`.
+
+ADB validation status:
+
+- `adb devices -l` returned no connected devices after `adb start-server`.
+- eta41 phone validation is still pending: install `releases\v1.0.11-eta41\Navic.apk`, verify image center taps do not surface chrome, verify chapter-selection links do not surface chrome, and verify edge page-turn taps still work.
