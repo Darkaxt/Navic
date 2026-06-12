@@ -289,3 +289,51 @@ Published release evidence:
 - Asset: `Navic.apk`
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta30/Navic.apk`
 - Asset SHA-256 digest: `28255470f6c209bd8247808d03c5d8cbd6ba79c62fe326e1da09601fe7b9bf45`
+
+## Microdeliverable Checkpoint: 2026-06-12 eta31
+
+Scope:
+
+- Add a Komikku-style reader-settings scope foundation with `Global`, `For this book`, and `Reset book` controls in the reader options sheet.
+- Persist book-scoped reader settings in `PreferenceManager.readerBookSettingsJson`.
+- Resolve reader settings from the selected book override when present, while leaving global defaults unchanged for other books.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerBookSettingsOverrideMergesOverGlobalDefaultsWithoutMutatingThem" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerBookSettingsOverrideIsScopedToTheRequestedBook" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerBookSettingsOverrideCanBeCleared" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsSupportKomikkuStylePerBookSettingsScope"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 7 executed and 17 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+git diff --check
+```
+
+Result: no whitespace errors.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta31
+```
+
+Result: `Android versionName matches v1.0.11-eta31`.
+
+```powershell
+gh run watch 27396083569 --repo Darkaxt/Navic --exit-status
+```
+
+Result: `v1.0.11-eta31 Build Navic` completed successfully. `Build Android APK` completed in 6m33s, `Verify release APK signing` passed, `Build iOS IPA` was skipped, and `Create GitHub Release` completed.
+
+Published release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta31`
+- Asset: `Navic.apk`
+- Asset size: `13,152,601` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta31/Navic.apk`
+- Asset SHA-256 digest: `2c2709378a6698e59a3ce1d5a287da619947d73742729488d6f9e85436251bbf`
