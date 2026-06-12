@@ -830,3 +830,35 @@ Release evidence:
 - Asset size: `13,171,633` bytes
 - Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta36/Navic.apk`
 - Asset SHA-256 digest: `1be8030ffb9fe3e40c014343604819fc217b939964d53d39713bb923377ab8d9`
+
+## Microdeliverable Checkpoint: 2026-06-12 Single Top Tap Manager
+
+Scope:
+
+- Restore one reader-wide native tap manager above both the native shell cover and the WebView.
+- Remove the Android WebView tap-zone observer that split touch ownership between cover and readable EPUB content.
+- Keep Android `nativeTapZones=true` so the JavaScript runtime does not also dispatch reader-wide page/menu taps.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderUsesOneTopTapManagerAboveCoverAndWebView"
+```
+
+Initial result: failed because the reader overlay was still gated to `nativeShellCoverVisible && !optionsVisible`, and the Android WebView still installed `ReaderAndroidTapZoneObserver`.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderUsesOneTopTapManagerAboveCoverAndWebView" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderDisablesJavaScriptReadableTapDispatchWhenTopOverlayOwnsTaps"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Result: all commands exited `0`.
+
+Known follow-up:
+
+- `phase1-stabilization` currently reaches `epub-texture-page-turns` and fails on an existing texture counter-motion assertion. That check is outside this Kotlin touch-manager change and needs a separate texture-focused pass before it is used as a release gate again.

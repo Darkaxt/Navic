@@ -1,7 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import android.view.MotionEvent
-import android.view.ViewConfiguration
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -33,11 +31,8 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerPublicationCacheRoot
-import paige.navic.reader.readerTapZoneActionAt
-import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
-import kotlin.math.abs
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
 
@@ -153,29 +148,6 @@ actual fun ReaderWebViewHost(
 		}
 	}
 
-	fun WebView.dispatchReaderTapZoneCommand(command: ReaderBridgeCommand) {
-		if (
-			!shouldDispatchReaderCommandsToWebRuntime(
-				runtimeReady = readerRuntimeReady,
-				currentUrl = url,
-				entrypointUrl = ReaderWebRuntime.entrypointUrl
-			)
-		) {
-			return
-		}
-		Logger.i(ReaderWebViewHostTag, "Dispatching native reader tap-zone command: ${command.debugLabel()}")
-		evaluateJavascript(ReaderWebRuntime.commandScript(command), null)
-	}
-
-	val readerTapZoneObserver = remember(context) {
-		ReaderAndroidTapZoneObserver(
-			touchSlop = ViewConfiguration.get(context).scaledTouchSlop,
-			currentSettings = { currentSettings },
-			dispatchReaderTapZoneCommand = { command -> webView?.dispatchReaderTapZoneCommand(command) },
-			onCenterTap = { handleReaderBridgeEvent(ReaderBridgeEvent.CenterTap) }
-		)
-	}
-
 	DisposableEffect(Unit) {
 		onDispose {
 			webView?.destroy()
@@ -189,10 +161,6 @@ actual fun ReaderWebViewHost(
 			factory = {
 				WebView(context).apply {
 					webView = this
-					setOnTouchListener { view, event ->
-						readerTapZoneObserver.onTouch(view as WebView, event)
-						return@setOnTouchListener false
-					}
 					webChromeClient = object : WebChromeClient() {
 						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
 							val logMessage =
@@ -346,86 +314,3 @@ private fun String.readerUrlLabel(): String {
 		else -> take(80)
 	}
 }
-
-private class ReaderAndroidTapZoneObserver(
-	private val touchSlop: Int,
-	private val currentSettings: () -> ReaderSettings,
-	private val dispatchReaderTapZoneCommand: (ReaderBridgeCommand) -> Unit,
-	private val onCenterTap: () -> Unit
-) {
-	private data class TouchState(
-		val pointerId: Int,
-		val startX: Float,
-		val startY: Float,
-		var moved: Boolean = false
-	)
-
-	private var touchState: TouchState? = null
-
-	fun onTouch(webView: WebView, event: MotionEvent) {
-		when (event.actionMasked) {
-			MotionEvent.ACTION_DOWN -> {
-				webView.parent?.requestDisallowInterceptTouchEvent(true)
-				touchState = TouchState(
-					pointerId = event.getPointerId(event.actionIndex),
-					startX = event.x,
-					startY = event.y
-				)
-			}
-			MotionEvent.ACTION_POINTER_DOWN,
-			MotionEvent.ACTION_CANCEL -> {
-				webView.parent?.requestDisallowInterceptTouchEvent(false)
-				touchState = null
-			}
-			MotionEvent.ACTION_MOVE -> {
-				webView.parent?.requestDisallowInterceptTouchEvent(true)
-				val state = touchState ?: return
-				val pointerIndex = event.findPointerIndex(state.pointerId)
-				if (pointerIndex < 0) {
-					touchState = null
-					webView.parent?.requestDisallowInterceptTouchEvent(false)
-					return
-				}
-				if (
-					abs(event.getX(pointerIndex) - state.startX) > touchSlop ||
-					abs(event.getY(pointerIndex) - state.startY) > touchSlop
-				) {
-					state.moved = true
-				}
-			}
-			MotionEvent.ACTION_UP -> {
-				webView.parent?.requestDisallowInterceptTouchEvent(false)
-				val state = touchState ?: return
-				touchState = null
-				if (state.moved || readerWebViewHitTestShouldStayInContent(webView.hitTestResult)) return
-				val width = webView.width.takeIf { it > 0 } ?: return
-				val height = webView.height.takeIf { it > 0 } ?: return
-				val settings = currentSettings()
-				val action = readerTapZoneActionAt(
-					tapZone = settings.tapZone,
-					xFraction = (event.x / width).coerceIn(0f, 1f),
-					yFraction = (event.y / height).coerceIn(0f, 1f),
-					smallerTapZone = settings.smallerTapZone == true,
-					flowMode = settings.flowMode
-				)
-				val command = readerTapZonePageTurnCommand(action, settings.direction)
-				if (command == null) {
-					onCenterTap()
-				} else {
-					dispatchReaderTapZoneCommand(command)
-				}
-			}
-		}
-	}
-}
-
-private fun readerWebViewHitTestShouldStayInContent(result: WebView.HitTestResult?): Boolean =
-	when (result?.type) {
-		WebView.HitTestResult.SRC_ANCHOR_TYPE,
-		WebView.HitTestResult.IMAGE_TYPE,
-		WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE,
-		WebView.HitTestResult.EMAIL_TYPE,
-		WebView.HitTestResult.PHONE_TYPE,
-		WebView.HitTestResult.GEO_TYPE -> true
-		else -> false
-	}

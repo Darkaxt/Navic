@@ -761,7 +761,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 				ReaderNativeTapOverlay(
 					settings = chromeState.settings,
-					enabled = nativeShellCoverVisible && !optionsVisible,
+					enabled = !optionsVisible,
 					onMenuTap = {
 						platformContext.clickSound()
 						toggleReaderChrome()

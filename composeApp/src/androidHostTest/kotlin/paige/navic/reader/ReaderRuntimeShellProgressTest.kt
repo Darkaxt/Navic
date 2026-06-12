@@ -98,7 +98,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(nativeOverlay, "onPageTurn")
 		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions")
 		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
-		assertContains(readerScreenText, "enabled = nativeShellCoverVisible && !optionsVisible")
+		assertContains(readerScreenText, "enabled = !optionsVisible")
 		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
@@ -167,7 +167,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readableContentDragsRemainOwnedByFoliateInsteadOfNativeTapOverlay() {
+	fun readableContentTapsRemainOwnedByTopNativeOverlay() {
 		val readerScreenText = readerScreenFile().readText()
 		val nativeRegion = readerScreenText
 			.substringAfter("private fun ReaderNativeTapRegion(")
@@ -176,12 +176,14 @@ class ReaderRuntimeShellProgressTest {
 
 		assertFalse(
 			nativeRegion.contains("down.consume()") || nativeRegion.contains("change.consume()"),
-			"Readable content drags must reach Foliate's paginator touch handlers; native tap regions may not consume the gesture stream."
+			"The top overlay only needs tap classification; it should not manually consume low-level changes."
 		)
 		assertFalse(
 			nativeRegion.contains("readerTapZoneDragPageTurnCommand("),
-			"Horizontal drag gestures should be animated by Foliate, not converted into native tap-zone page commands."
+			"Reader-wide navigation must stay tap-zone driven instead of reintroducing a second drag/page manager."
 		)
+		assertContains(readerScreenText, "enabled = !optionsVisible")
+		assertContains(nativeRegion, "readerTapZonePageTurnCommand(region.action, direction)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
 		assertContains(bridgeText, "target.addEventListener('touchstart'")
@@ -190,48 +192,20 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun androidWebViewObservesReadableTapsNativelyWithoutConsumingDrags() {
+	fun androidWebViewDoesNotInstallASecondReaderTapZoneManager() {
 		val webViewHostText = readerWebViewHostFile().readText()
 
-		assertContains(webViewHostText, "setOnTouchListener")
-		assertContains(webViewHostText, "ReaderAndroidTapZoneObserver")
-		assertContains(webViewHostText, "MotionEvent.ACTION_MOVE")
-		assertContains(
-			webViewHostText,
-			"return@setOnTouchListener false",
-			message = "Android native tap observation must not consume the WebView gesture stream needed by Foliate drags."
+		assertFalse(
+			webViewHostText.contains("setOnTouchListener"),
+			"Reader-wide tap zones must be owned by the top overlay, not by a WebView touch listener."
 		)
-		assertContains(webViewHostText, "readerTapZoneActionAt(")
-		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
-		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
-		assertContains(webViewHostText, "dispatchReaderTapZoneCommand(")
-		assertContains(webViewHostText, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
-		assertContains(webViewHostText, "WebView.HitTestResult.IMAGE_TYPE")
-		assertContains(webViewHostText, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
-	}
-
-	@Test
-	fun androidWebViewKeepsFoliateDragStreamOwnedByWebViewParentsCannotIntercept() {
-		val webViewHostText = readerWebViewHostFile().readText()
-		val observerText = webViewHostText
-			.substringAfter("private class ReaderAndroidTapZoneObserver(")
-			.substringBefore("\nprivate fun readerWebViewHitTestShouldStayInContent")
-
-		assertContains(
-			observerText,
-			"webView.parent?.requestDisallowInterceptTouchEvent(true)",
-			message = "Readable page drags need the full WebView touch stream so Foliate can animate them."
+		assertFalse(
+			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
+			"The old split manager made cover and content taps diverge; keep only the top overlay manager."
 		)
-		assertContains(
-			observerText,
-			"webView.parent?.requestDisallowInterceptTouchEvent(false)",
-			message = "The WebView parent interception guard must be released after each gesture."
-		)
-		assertContains(
-			webViewHostText,
-			"return@setOnTouchListener false",
-			message = "The observer may protect the gesture stream but must still let WebView/Foliate receive it."
-		)
+		assertFalse(webViewHostText.contains("readerTapZoneActionAt("))
+		assertFalse(webViewHostText.contains("readerTapZonePageTurnCommand("))
+		assertFalse(webViewHostText.contains("WebView.HitTestResult.IMAGE_TYPE"))
 	}
 
 	@Test

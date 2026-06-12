@@ -75,7 +75,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
 		assertContains(readerScreenText, "ReaderNativeTapRegion(")
-		assertContains(readerScreenText, "enabled = nativeShellCoverVisible && !optionsVisible")
+		assertContains(readerScreenText, "enabled = !optionsVisible")
 		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "komikkuTapAction(")
@@ -90,7 +90,30 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeObserverOwnsTaps() {
+	fun androidReaderUsesOneTopTapManagerAboveCoverAndWebView() {
+		val readerScreenText = readerScreenFile().readText()
+		val webViewHostText = readerWebViewHostFile().readText()
+		val nativeOverlayCall = readerScreenText
+			.substringAfter("ReaderNativeTapOverlay(")
+			.substringBefore("onMenuTap =")
+
+		assertContains(nativeOverlayCall, "enabled = !optionsVisible")
+		assertFalse(
+			nativeOverlayCall.contains("nativeShellCoverVisible"),
+			"The reader-wide tap manager must not be gated to the shell cover; it owns taps above the WebView too."
+		)
+		assertFalse(
+			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
+			"Android must not keep a second WebView-owned tap-zone manager when the top overlay owns reader-wide taps."
+		)
+		assertFalse(
+			webViewHostText.contains("setOnTouchListener"),
+			"WebView touch handling should stay with WebView/Foliate internals; reader-wide taps are handled by the top overlay."
+		)
+	}
+
+	@Test
+	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenTopOverlayOwnsTaps() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val webViewHostText = readerWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
@@ -103,11 +126,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(webViewHostText, "settings.copy(nativeTapZones = true)")
 		assertContains(runtimeText, "this.nativeTapZones = settings.nativeTapZones === true")
 		assertContains(tapHandler, "if (this.nativeTapZones === true)")
-		assertContains(tapHandler, "this.updateTapZoneOverlayLayer()")
+		assertContains(tapHandler, "this.renderTapZoneOverlayLayer()")
 		assertContains(
 			tapHandler,
 			"return",
-			message = "Android native tap ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
+			message = "Android top tap ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
 		)
 	}
 
