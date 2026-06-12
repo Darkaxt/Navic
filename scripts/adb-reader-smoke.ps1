@@ -3,6 +3,9 @@ param(
     [string] $ApkPath,
     [string] $ArtifactDir,
     [string[]] $Tap = @(),
+    [string[]] $TapFraction = @(),
+    [ValidateSet("None", "ReaderHorizontalZones")]
+    [string] $TapPreset = "None",
     [string] $ExpectedVersionName,
     [int] $LaunchWaitSeconds = 5,
     [int] $CaptureWaitSeconds = 0,
@@ -23,6 +26,45 @@ function Invoke-Adb {
     if ($LASTEXITCODE -ne 0) {
         throw "adb $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }
+}
+
+function Get-AdbScreenSize {
+    $wmSize = (& adb shell wm size) -join "`n"
+    if ($wmSize -notmatch '(\d+)x(\d+)') {
+        throw "Could not parse adb shell wm size output: $wmSize"
+    }
+    return [pscustomobject]@{
+        Width = [int] $Matches[1]
+        Height = [int] $Matches[2]
+    }
+}
+
+function Convert-TapFraction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $TapSpec,
+        [Parameter(Mandatory = $true)]
+        [int] $Width,
+        [Parameter(Mandatory = $true)]
+        [int] $Height
+    )
+
+    if ($TapSpec -notmatch '^\s*([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid tap fraction '$TapSpec'. Use xFraction,yFraction or xFraction,yFraction,waitMs."
+    }
+
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $xFraction = [double]::Parse($Matches[1], $culture)
+    $yFraction = [double]::Parse($Matches[2], $culture)
+    if ($xFraction -lt 0 -or $xFraction -gt 1 -or $yFraction -lt 0 -or $yFraction -gt 1) {
+        throw "Tap fractions must be between 0 and 1: $TapSpec"
+    }
+
+    $waitMs = if ($Matches[3]) { [int] $Matches[3] } else { 1000 }
+    return "{0},{1},{2}" -f `
+        [math]::Round($xFraction * $Width), `
+        [math]::Round($yFraction * $Height), `
+        $waitMs
 }
 
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
@@ -61,6 +103,17 @@ if (-not $NoLaunch) {
         throw "Failed to launch $Package"
     }
     Start-Sleep -Seconds $LaunchWaitSeconds
+}
+
+if ($TapPreset -eq "ReaderHorizontalZones") {
+    $TapFraction += @("0.10,0.50,700", "0.50,0.50,700", "0.90,0.50,1000")
+}
+
+if ($TapFraction.Count -gt 0) {
+    $screenSize = Get-AdbScreenSize
+    foreach ($tapFractionSpec in $TapFraction) {
+        $Tap += Convert-TapFraction -TapSpec $tapFractionSpec -Width $screenSize.Width -Height $screenSize.Height
+    }
 }
 
 foreach ($tapSpec in $Tap) {

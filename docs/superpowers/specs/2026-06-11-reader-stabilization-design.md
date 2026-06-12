@@ -1092,6 +1092,14 @@ powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package d
 
 Use this after opening the target reader screen on the phone. During the 20-second capture window, tap the cover/image/text/PDF zones being validated. The helper now fails immediately if no ADB device is connected, checks the installed `versionName`, captures package/screenshot/UI/logcat artifacts, fails on the known `Reader surface tap ignored for content hitType=5` regression, and can require at least one native `Reader surface tap action=` log.
 
+Repeatable tap preset:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -ApkPath releases\v1.0.11-eta40\Navic.apk -ExpectedVersionName v1.0.11-eta40 -ValidateReaderTaps -RequireReaderTapAction -NoLaunch -TapPreset ReaderHorizontalZones
+```
+
+Use the preset after manually opening each target state: shell cover, EPUB image page, EPUB text page, and PDF page. The preset reads `adb shell wm size` and injects left/center/right taps at `0.10,0.50`, `0.50,0.50`, and `0.90,0.50`, so validation does not depend on hard-coded phone coordinates.
+
 Helper validation evidence:
 
 ```powershell
@@ -1105,3 +1113,9 @@ powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package d
 ```
 
 Result with no connected phone: failed early with `No adb devices are connected`, before install, launch, or input injection.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -ExpectedVersionName v1.0.11-eta40 -ValidateReaderTaps -RequireReaderTapAction -NoLaunch -TapPreset ReaderHorizontalZones
+```
+
+Result with no connected phone: failed early with `No adb devices are connected`; the preset does not run without a connected device.
