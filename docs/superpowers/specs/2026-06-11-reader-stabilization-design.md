@@ -1478,3 +1478,17 @@ Phone validation required after release:
 - Left/right edge taps should still page on shell cover, image pages, text pages, and PDF pages.
 - Confirm normal readable EPUB drag gestures still work.
 - Texture inversion at maps -> Author's Note and cover drag remain separate open issues unless this release is later proven to affect them.
+
+Release publication status:
+
+- Commit: `1239b779992874b21a52990a4ac54003921ee9e8`
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta44`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27449235129`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,172,033` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta44/Navic.apk`
+- Asset SHA-256 digest: `734a5669f8766160d6c2795fb1788b742e650584ef8e8ef950d9e4f70e2ff23a`
+- Local download verification: `Get-FileHash releases\v1.0.11-eta44\Navic.apk -Algorithm SHA256` produced `734A5669F8766160D6C2795FB1788B742E650584EF8E8EF950D9E4F70E2FF23A`.
+- ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
