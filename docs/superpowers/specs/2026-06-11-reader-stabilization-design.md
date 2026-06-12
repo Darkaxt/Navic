@@ -1083,3 +1083,25 @@ Release and ADB validation status:
 - Asset SHA-256 digest: `9b1bb0c1c655a22f8327b38f62da06cbecfa9fd2c8ac5bb13ac733603a3de226`
 - Local download verification: `Get-FileHash releases\v1.0.11-eta40\Navic.apk -Algorithm SHA256` produced `9B1BB0C1C655A22F8327B38F62DA06CBECFA9FD2C8AC5BB13AC733603A3DE226`.
 - Pending phone validation: ADB currently reports no connected devices. When a device is available, install the release APK, verify native cover/EPUB/PDF tap zones with ADB logs, and verify explicit image/media content handling still suppresses paired native taps.
+
+ADB validation helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -ApkPath releases\v1.0.11-eta40\Navic.apk -ExpectedVersionName v1.0.11-eta40 -ValidateReaderTaps -RequireReaderTapAction -NoLaunch -CaptureWaitSeconds 20
+```
+
+Use this after opening the target reader screen on the phone. During the 20-second capture window, tap the cover/image/text/PDF zones being validated. The helper now fails immediately if no ADB device is connected, checks the installed `versionName`, captures package/screenshot/UI/logcat artifacts, fails on the known `Reader surface tap ignored for content hitType=5` regression, and can require at least one native `Reader surface tap action=` log.
+
+Helper validation evidence:
+
+```powershell
+powershell -NoProfile -Command '$script = Get-Content -Raw scripts\adb-reader-smoke.ps1; [void][scriptblock]::Create($script); "parse-ok"'
+```
+
+Result: `parse-ok`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -ExpectedVersionName v1.0.11-eta40 -ValidateReaderTaps -RequireReaderTapAction -NoLaunch
+```
+
+Result with no connected phone: failed early with `No adb devices are connected`, before install, launch, or input injection.
