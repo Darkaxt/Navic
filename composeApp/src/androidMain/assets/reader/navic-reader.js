@@ -1075,7 +1075,7 @@ class NavicReaderRuntime {
     if (!target || !host || host.__navicReaderTapZoneGestureAttached) return
     host.__navicReaderTapZoneGestureAttached = true
     if (this.nativeTapZones === true) {
-      this.updateTapZoneOverlayLayer()
+      this.renderTapZoneOverlayLayer()
       return
     }
     let touchState = null

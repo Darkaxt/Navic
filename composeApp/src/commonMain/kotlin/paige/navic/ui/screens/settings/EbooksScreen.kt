@@ -60,6 +60,13 @@ import navic.composeapp.generated.resources.option_ebook_reader_orientation_reve
 import navic.composeapp.generated.resources.option_ebook_reader_paged
 import navic.composeapp.generated.resources.option_ebook_reader_paged_vertical
 import navic.composeapp.generated.resources.option_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_crop_borders
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_height
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_original
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_page
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_width
+import navic.composeapp.generated.resources.option_ebook_reader_pdf_page_gap
 import navic.composeapp.generated.resources.option_ebook_reader_publisher_styles
 import navic.composeapp.generated.resources.option_ebook_reader_scroll
 import navic.composeapp.generated.resources.option_ebook_reader_scroll_gaps
@@ -97,6 +104,9 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_crop_borders
+import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_fit
+import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_page_gap
 import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styles
 import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_show_tap_zones
@@ -138,6 +148,10 @@ import paige.navic.reader.ReaderOrientationLockedLandscape
 import paige.navic.reader.ReaderOrientationLockedPortrait
 import paige.navic.reader.ReaderOrientationPortrait
 import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPdfFitHeight
+import paige.navic.reader.ReaderPdfFitOriginal
+import paige.navic.reader.ReaderPdfFitPage
+import paige.navic.reader.ReaderPdfFitWidth
 import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSansFontFamily
 import paige.navic.reader.ReaderSepiaTheme
@@ -173,6 +187,7 @@ fun SettingsEbooksScreen() {
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
+	val pdfFit = ReaderPdfFitOption.forPdfFitMode(settings.pdfFitMode)
 	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
 	val importFontSuccessMessage = stringResource(Res.string.info_ebook_reader_import_font_success)
 	val clearImportedFontSuccessMessage = stringResource(Res.string.info_ebook_reader_clear_imported_font_success)
@@ -346,6 +361,28 @@ fun SettingsEbooksScreen() {
 						}
 					)
 					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_pdf_fit)) },
+						items = ReaderPdfFitOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_pdf_fit),
+						selection = pdfFit,
+						onSelect = { option -> preferenceManager.readerPdfFitMode = option.pdfFitMode }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_pdf_crop_borders)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_pdf_crop_borders)) },
+						value = preferenceManager.readerPdfCropBorders,
+						onSetValue = { enabled -> preferenceManager.readerPdfCropBorders = enabled }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_pdf_page_gap)) },
+						items = readerPdfPageGapOptions.toImmutableList(),
+						label = { percent -> "$percent%" },
+						description = stringResource(Res.string.subtitle_ebook_reader_pdf_page_gap),
+						selection = settings.pdfPageGapPercent ?: 0,
+						onSelect = { percent -> preferenceManager.readerPdfPageGapPercent = percent }
+					)
+					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_tap_zone)) },
 						items = ReaderTapZoneOption.entries.toImmutableList(),
 						label = { option -> stringResource(option.title) },
@@ -469,6 +506,21 @@ private enum class ReaderFlowOption(
 	}
 }
 
+private enum class ReaderPdfFitOption(
+	val pdfFitMode: String,
+	val title: StringResource
+) {
+	Width(ReaderPdfFitWidth, Res.string.option_ebook_reader_pdf_fit_width),
+	Page(ReaderPdfFitPage, Res.string.option_ebook_reader_pdf_fit_page),
+	Height(ReaderPdfFitHeight, Res.string.option_ebook_reader_pdf_fit_height),
+	Original(ReaderPdfFitOriginal, Res.string.option_ebook_reader_pdf_fit_original);
+
+	companion object {
+		fun forPdfFitMode(pdfFitMode: String?): ReaderPdfFitOption =
+			entries.firstOrNull { option -> option.pdfFitMode == pdfFitMode } ?: Width
+	}
+}
+
 private enum class ReaderDirectionOption(
 	val direction: String,
 	val title: StringResource
@@ -523,6 +575,7 @@ private val readerLineHeightOptions = listOf(120, 135, 155, 170, 190, 220)
 private val readerParagraphSpacingOptions = listOf(0, 25, 50, 75, 100, 150, 200)
 private val readerMarginOptions = listOf(0, 4, 8, 12, 16, 24)
 private val readerDimOverlayOptions = listOf(0, 10, 20, 30, 40, 50, 60, 70, 80)
+private val readerPdfPageGapOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 
 @Composable
 private fun readerLineHeightLabel(percent: Int): String =

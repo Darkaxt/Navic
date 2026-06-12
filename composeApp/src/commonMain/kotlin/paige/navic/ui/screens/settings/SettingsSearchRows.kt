@@ -52,10 +52,14 @@ import paige.navic.reader.ReaderOrientationLockedLandscape
 import paige.navic.reader.ReaderOrientationLockedPortrait
 import paige.navic.reader.ReaderOrientationPortrait
 import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPdfFitHeight
+import paige.navic.reader.ReaderPdfFitOriginal
+import paige.navic.reader.ReaderPdfFitPage
 import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
@@ -283,6 +287,8 @@ internal val readerThemeSearchOptions = ReaderSupportedThemes
 internal val readerOrientationSearchOptions = ReaderSupportedOrientations
 internal val readerDirectionSearchOptions = ReaderSupportedDirections
 internal val readerFlowSearchOptions = ReaderSupportedFlowModes
+internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
+internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 internal val readerTapZoneSearchOptions = ReaderSupportedTapZones
 
 @Composable
@@ -343,6 +349,15 @@ internal fun readerFlowSearchLabel(flowMode: String): String =
 		ReaderFlowScrolled -> stringResource(Res.string.option_ebook_reader_scroll)
 		ReaderFlowScrolledGaps -> stringResource(Res.string.option_ebook_reader_scroll_gaps)
 		else -> stringResource(Res.string.option_ebook_reader_paged)
+	}
+
+@Composable
+internal fun readerPdfFitSearchLabel(pdfFitMode: String): String =
+	when (pdfFitMode) {
+		ReaderPdfFitPage -> stringResource(Res.string.option_ebook_reader_pdf_fit_page)
+		ReaderPdfFitHeight -> stringResource(Res.string.option_ebook_reader_pdf_fit_height)
+		ReaderPdfFitOriginal -> stringResource(Res.string.option_ebook_reader_pdf_fit_original)
+		else -> stringResource(Res.string.option_ebook_reader_pdf_fit_width)
 	}
 
 @Composable

@@ -65,6 +65,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-page-boundary', fixture: epubFixturePath },
     { mode: 'epub-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
+    { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
     { mode: 'epub-texture-page-turns', fixture: epubFixturePath },
@@ -398,6 +399,103 @@ if (mode === 'epub-page-boundary') {
     assertTextureUpdatesAreCommittedPageBounded(result.trace)
 
     console.log(`reader harness epub-page-boundary passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-native-tap-zone-open') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-native-tap-zone-open mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage: message => {
+          let parsed = message
+          try {
+            parsed = JSON.parse(message)
+          } catch {
+            parsed = { type: 'unparseable', message }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          nativeTapZones: true,
+          showTapZones: true,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 20000 })
+    const result = await page.evaluate(() => ({
+      trace: window.__navicReaderTrace || [],
+      messages: window.__navicReaderPostedMessages || [],
+      tapOverlayExists: Boolean(document.querySelector('[data-navic-tap-zone-overlay-layer="true"]')),
+    }))
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-tap-zone-open.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      ...result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertBridgePostType(result.messages, 'publicationReady')
+    assertBridgePostType(result.messages, 'locationChanged')
+    if (!result.tapOverlayExists) {
+      throw new Error('Expected visible tap-zone overlay layer in native tap-zone diagnostic mode')
+    }
+    console.log(`reader harness epub-native-tap-zone-open passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

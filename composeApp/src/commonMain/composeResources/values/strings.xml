@@ -233,6 +233,9 @@
 	<string name="subtitle_ebook_reader_keep_screen_on">Prevent the display from sleeping while the reader is open.</string>
 	<string name="subtitle_ebook_reader_volume_keys">Use volume up and down to turn reader pages without changing system volume.</string>
 	<string name="subtitle_ebook_reader_media_overlay">Enable synced Storyteller audiobook labels and media-overlay playback when a readaloud EPUB provides them.</string>
+	<string name="subtitle_ebook_reader_pdf_fit">Default scaling for PDF and fixed image pages.</string>
+	<string name="subtitle_ebook_reader_pdf_crop_borders">Slightly enlarge image-backed pages to hide scanned borders.</string>
+	<string name="subtitle_ebook_reader_pdf_page_gap">Extra vertical spacing between PDF or image pages.</string>
 	<string name="subtitle_ebook_reader_web_debugging">Expose the Android reader WebView to Chrome DevTools for EPUB rendering diagnostics.</string>
 	<string name="subtitle_aurral">Connect artist discovery, acquisition requests, and dynamic Flows from Aurral</string>
 	<string name="subtitle_aurral_hub">Open the native Aurral hub for discovery, requests, and Flows</string>
@@ -589,6 +592,13 @@
 	<string name="option_ebook_reader_keep_screen_on">Keep screen on</string>
 	<string name="option_ebook_reader_volume_keys">Volume key page turns</string>
 	<string name="option_ebook_reader_media_overlay">Synced audio overlay</string>
+	<string name="option_ebook_reader_pdf_fit">PDF/Image fit</string>
+	<string name="option_ebook_reader_pdf_fit_width">Width</string>
+	<string name="option_ebook_reader_pdf_fit_page">Page</string>
+	<string name="option_ebook_reader_pdf_fit_height">Height</string>
+	<string name="option_ebook_reader_pdf_fit_original">Original</string>
+	<string name="option_ebook_reader_pdf_crop_borders">Crop PDF/Image borders</string>
+	<string name="option_ebook_reader_pdf_page_gap">PDF/Image page gap</string>
 	<string name="option_ebook_reader_web_debugging">WebView debugging</string>
 	<string name="option_aurral_enabled">Enable Aurral</string>
 	<string name="option_aurral_base_url">Aurral URL</string>

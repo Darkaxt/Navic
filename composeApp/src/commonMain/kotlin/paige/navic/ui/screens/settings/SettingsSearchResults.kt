@@ -78,6 +78,7 @@ import paige.navic.reader.ReaderOrientationLockedLandscape
 import paige.navic.reader.ReaderOrientationLockedPortrait
 import paige.navic.reader.ReaderOrientationPortrait
 import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPdfFitWidth
 import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSansFontFamily
 import paige.navic.reader.ReaderSepiaTheme
@@ -861,6 +862,37 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 				preferenceManager.readerPaged = flowMode != ReaderFlowScrolled &&
 					flowMode != ReaderFlowScrolledGaps
 			}
+		))
+		add(selectionRow(
+			id = "ebooks.pdf-fit",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_pdf_fit),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_pdf_fit),
+			keywords = ebookReaderSettingDescriptor("ebooks.pdf-fit").keywords,
+			items = readerPdfFitSearchOptions,
+			label = { pdfFitMode -> readerPdfFitSearchLabel(pdfFitMode) },
+			selection = readerSettings.pdfFitMode ?: ReaderPdfFitWidth,
+			onSelect = { pdfFitMode -> preferenceManager.readerPdfFitMode = pdfFitMode }
+		))
+		add(switchRow(
+			id = "ebooks.pdf-crop-borders",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_pdf_crop_borders),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_pdf_crop_borders),
+			keywords = ebookReaderSettingDescriptor("ebooks.pdf-crop-borders").keywords,
+			value = preferenceManager.readerPdfCropBorders,
+			onSetValue = { enabled -> preferenceManager.readerPdfCropBorders = enabled }
+		))
+		add(selectionRow(
+			id = "ebooks.pdf-page-gap",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_pdf_page_gap),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_pdf_page_gap),
+			keywords = ebookReaderSettingDescriptor("ebooks.pdf-page-gap").keywords,
+			items = readerPdfPageGapSearchOptions,
+			label = { percent -> "$percent%" },
+			selection = readerSettings.pdfPageGapPercent ?: 0,
+			onSelect = { percent -> preferenceManager.readerPdfPageGapPercent = percent }
 		))
 		add(selectionRow(
 			id = "ebooks.tap-zone",
