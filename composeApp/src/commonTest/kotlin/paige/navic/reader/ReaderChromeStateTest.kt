@@ -242,55 +242,6 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
-	fun nativeTapOverlayDragCommandsRespectReadingDirection() {
-		assertEquals(
-			ReaderBridgeCommand.NextPage,
-			readerTapZoneDragPageTurnCommand(
-				deltaX = -96f,
-				deltaY = 12f,
-				direction = ReaderDirectionLtr,
-				thresholdPx = 48f
-			)
-		)
-		assertEquals(
-			ReaderBridgeCommand.PreviousPage,
-			readerTapZoneDragPageTurnCommand(
-				deltaX = 96f,
-				deltaY = 12f,
-				direction = ReaderDirectionLtr,
-				thresholdPx = 48f
-			)
-		)
-		assertEquals(
-			ReaderBridgeCommand.PreviousPage,
-			readerTapZoneDragPageTurnCommand(
-				deltaX = -96f,
-				deltaY = 12f,
-				direction = ReaderDirectionRtl,
-				thresholdPx = 48f
-			)
-		)
-		assertEquals(
-			null,
-			readerTapZoneDragPageTurnCommand(
-				deltaX = -24f,
-				deltaY = 4f,
-				direction = ReaderDirectionLtr,
-				thresholdPx = 48f
-			)
-		)
-		assertEquals(
-			null,
-			readerTapZoneDragPageTurnCommand(
-				deltaX = -96f,
-				deltaY = 128f,
-				direction = ReaderDirectionLtr,
-				thresholdPx = 48f
-			)
-		)
-	}
-
-	@Test
 	fun nativeShellCoverBoundaryInterceptsPreviousOnlyFromFirstReadablePage() {
 		assertTrue(
 			readerShouldReturnToNativeShellCover(

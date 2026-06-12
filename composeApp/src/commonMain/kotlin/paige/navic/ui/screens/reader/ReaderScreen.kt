@@ -134,7 +134,6 @@ import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerTapZoneInteractiveRegions
-import paige.navic.reader.readerTapZoneDragPageTurnCommand
 import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerShouldReturnToNativeShellCover
 import paige.navic.reader.ReaderTapZoneRegion
@@ -706,6 +705,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 					if (event is ReaderBridgeEvent.Toc) {
 						tocItems = event.items
 					}
+					if (event is ReaderBridgeEvent.CenterTap) {
+						platformContext.clickSound()
+						toggleReaderChrome()
+					}
 					if (event is ReaderBridgeEvent.SelectionChanged) {
 						readerSelection = event.takeIf { selection ->
 							selection.cfi?.isNotBlank() == true &&
@@ -758,7 +761,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 				ReaderNativeTapOverlay(
 					settings = chromeState.settings,
-					enabled = !optionsVisible,
+					enabled = nativeShellCoverVisible && !optionsVisible,
 					onMenuTap = {
 						platformContext.clickSound()
 						toggleReaderChrome()
@@ -905,13 +908,10 @@ private fun ReaderNativeTapRegion(
 	modifier: Modifier = Modifier
 ) {
 	val touchSlop = LocalViewConfiguration.current.touchSlop
-	val pageDragThresholdPx = touchSlop * 3f
 	Box(
-		modifier.pointerInput(region, direction, pageDragThresholdPx, touchSlop) {
+		modifier.pointerInput(region, direction, touchSlop) {
 			awaitEachGesture {
 				val down = awaitFirstDown(requireUnconsumed = false)
-				down.consume()
-				var dragCommand: ReaderBridgeCommand? = null
 				var movedBeyondTapSlop = false
 				while (true) {
 					val event = awaitPointerEvent()
@@ -921,20 +921,9 @@ private fun ReaderNativeTapRegion(
 					if (abs(delta.x) > touchSlop || abs(delta.y) > touchSlop) {
 						movedBeyondTapSlop = true
 					}
-					readerTapZoneDragPageTurnCommand(
-						deltaX = delta.x,
-						deltaY = delta.y,
-						direction = direction,
-						thresholdPx = pageDragThresholdPx
-					)?.let { command ->
-						dragCommand = dragCommand ?: command
-						change.consume()
-					}
 					if (!change.pressed) {
-						change.consume()
 						val command = readerTapZonePageTurnCommand(region.action, direction)
 						when {
-							dragCommand != null -> onPageTurn(dragCommand)
 							command != null && !movedBeyondTapSlop -> onPageTurn(command)
 							command == null && !movedBeyondTapSlop -> onMenuTap()
 						}

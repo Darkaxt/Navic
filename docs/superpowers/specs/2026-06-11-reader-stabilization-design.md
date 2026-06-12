@@ -582,3 +582,35 @@ git diff --check
 ```
 
 Result: command exited `0`.
+
+## Microdeliverable Checkpoint: 2026-06-12 Restore Foliate-Owned Page Drags
+
+Scope:
+
+- Supersede the native horizontal-drag fallback from the prior checkpoint because it made page turns fire only after release and blocked Foliate's page-following drag animation.
+- Keep the native tap overlay for the separate native cover surface only.
+- Restore readable EPUB/PDF WebView tap-zone handling so taps still trigger previous/next/menu actions while `touchmove` remains owned by Foliate/PDF.js.
+- Keep image/media taps and native cover taps from being hijacked by readable tap zones.
+- Move visible tap-zone diagnostics back into the WebView layer for readable content, while native cover diagnostics remain native.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readerChromeIsImmersiveAndDrivenByNativeTapOverlay" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readableContentDragsRemainOwnedByFoliateInsteadOfNativeTapOverlay" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderNormalizesReadableTapZonesInWebViewLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl"
+```
+
+Initial result: failed in all four tests, proving readable tap zones were still modeled as native overlay ownership and JS tap-zone handling was not active.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readerChromeIsImmersiveAndDrivenByNativeTapOverlay" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readableContentDragsRemainOwnedByFoliateInsteadOfNativeTapOverlay" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderNormalizesReadableTapZonesInWebViewLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.

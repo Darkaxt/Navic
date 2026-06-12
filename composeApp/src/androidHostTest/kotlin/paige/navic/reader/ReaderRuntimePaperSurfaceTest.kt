@@ -231,20 +231,22 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderSurfaceTapGesturesDoNotOwnReaderWideEpubTaps() {
+	fun androidReaderSurfaceSwipeGestureStaysSeparateFromReadableTapZones() {
 		val bridgeText = readerBridgeText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
-			.substringBefore("\n  attachLinkNavigation")
+			.substringBefore("\n  readerTapZoneActionForPoint")
 
 		assertFalse(
 			surfaceGesture.contains("handleReaderTapZone"),
-			"EPUB/PDF surface tap zones must be owned by the native ReaderTouchOverlay above the WebView."
+			"Fixed-layout swipe handling must stay separate from readable WebView tap-zone classification."
 		)
 		assertFalse(
 			surfaceGesture.contains("surface-touch"),
 			"Surface touch taps must not dispatch reader-wide page/menu actions from JavaScript."
 		)
+		assertContains(bridgeText, "attachReaderTapZoneGesture")
+		assertContains(bridgeText, "handleReaderTapZoneTap")
 		assertFalse(
 			surfaceGesture.contains("if (this.view?.isFixedLayout !== true) return\n      const touch"),
 			"Surface gesture setup must still allow fixed-layout swipe handling without gating the whole listener away."

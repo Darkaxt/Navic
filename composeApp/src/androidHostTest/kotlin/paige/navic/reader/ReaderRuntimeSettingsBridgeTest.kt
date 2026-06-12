@@ -66,7 +66,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderNormalizesTapZonesInNativeOverlayLikeKomikku() {
+	fun androidReaderNormalizesReadableTapZonesInWebViewLikeKomikku() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val nativeOverlay = readerScreenText
@@ -75,21 +75,18 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
 		assertContains(readerScreenText, "ReaderNativeTapRegion(")
+		assertContains(readerScreenText, "enabled = nativeShellCoverVisible && !optionsVisible")
+		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
+		assertContains(runtimeText, "attachReaderTapZoneGesture")
+		assertContains(runtimeText, "komikkuTapAction(")
+		assertContains(runtimeText, "readerTapZoneCommand(")
 		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions(")
 		assertFalse(
 			nativeOverlay.contains("modifier.pointerInput("),
-			"Native reader tap ownership must use discrete region targets so non-zone WebView content remains interactive."
+			"Native cover tap ownership must use discrete region targets so readable WebView content remains interactive."
 		)
 		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
 		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
-		assertFalse(
-			runtimeText.contains("readerTapSurfaceRect") || runtimeText.contains("readerRootTapPoint"),
-			"Reader-wide tap-zone dispatch must normalize in the native overlay, not in Foliate iframe/WebView JavaScript."
-		)
-		assertFalse(
-			runtimeText.contains("readerTapZoneResult") || runtimeText.contains("tap-zone"),
-			"WebView JavaScript must not own reader-wide tap-zone classification."
-		)
 	}
 
 	@Test
@@ -130,10 +127,9 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(readerScreenText, "settings.showTapZones == true")
 		assertContains(readerScreenText, "readerTapZoneInteractiveRegions(")
 		assertContains(readerScreenText, "drawRect(")
-		assertFalse(
-			runtimeText.contains("updateTapZoneOverlayLayer") || runtimeText.contains("settings.showTapZones === true"),
-			"Visible tap-zone diagnostics must be rendered by the native overlay above the WebView."
-		)
+		assertContains(runtimeText, "ensureTapZoneOverlayLayer()")
+		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
+		assertContains(runtimeText, "settings.showTapZones !== true")
 		assertContains(readerOptionsPanelText, "Show tap zones")
 		assertContains(readerOptionsPanelText, "toggleShowTapZones()")
 		assertContains(ebooksSettingsText, "readerShowTapZones")

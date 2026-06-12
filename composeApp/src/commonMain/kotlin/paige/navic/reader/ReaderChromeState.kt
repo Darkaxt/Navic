@@ -1,6 +1,5 @@
 package paige.navic.reader
 
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val MinReaderFontSizePercent = 80
@@ -323,23 +322,6 @@ fun readerTapZonePageTurnCommand(
 			}
 		ReaderTapZoneAction.Menu -> null
 	}
-
-fun readerTapZoneDragPageTurnCommand(
-	deltaX: Float,
-	deltaY: Float,
-	direction: String?,
-	thresholdPx: Float
-): ReaderBridgeCommand? {
-	val threshold = thresholdPx.coerceAtLeast(1f)
-	if (abs(deltaX) < threshold || abs(deltaX) <= abs(deltaY)) return null
-	val swipedLeft = deltaX < 0f
-	val rtl = normalizedReaderDirection(direction) == ReaderDirectionRtl
-	return if (swipedLeft == rtl) {
-		ReaderBridgeCommand.PreviousPage
-	} else {
-		ReaderBridgeCommand.NextPage
-	}
-}
 
 fun readerShouldReturnToNativeShellCover(
 	shellCoverUrl: String?,

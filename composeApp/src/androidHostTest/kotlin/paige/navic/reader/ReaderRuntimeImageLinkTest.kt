@@ -299,13 +299,15 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderLetsNativePageTurnOverlayWinOverImageTintToggles() {
+	fun androidReaderLetsMediaTogglesWinOverReadableTapZones() {
 		val bridgeText = readerBridgeText()
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val nativeOverlay = readerScreenText
 			.substringAfter("private fun ReaderNativeTapOverlay(")
 			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+		val tapZoneTargetGuard = bridgeText
+			.substringAfter("shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {")
+			.substringBefore("\n  handleReaderTapZoneTap")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
@@ -314,14 +316,16 @@ class ReaderRuntimeImageLinkTest {
 			.substringBefore("\n  effectiveReaderDirection")
 
 		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
-		assertContains(nativeOverlay, "down.consume()")
+		assertFalse(
+			nativeOverlay.contains("down.consume()") || nativeOverlay.contains("change.consume()"),
+			"Readable media taps must not depend on a native overlay consuming the WebView gesture stream."
+		)
 		assertContains(nativeOverlay, "onPageTurn(command)")
+		assertContains(tapZoneTargetGuard, "readerPointInsideAnchorText(anchor, event)")
+		assertContains(tapZoneTargetGuard, "readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(bridgeText, "this.shouldIgnoreReaderTapZoneTarget(event, sourceTarget)")
 		assertContains(linkNavigation, "const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(sepiaToggle, "this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)")
-		assertFalse(
-			runtimeText.contains("readerTapZoneWouldTurnPage") || runtimeText.contains("handleReaderTapZone"),
-			"Image/link JavaScript must not arbitrate page-turn zones after native overlay ownership."
-		)
 	}
 
 	@Test

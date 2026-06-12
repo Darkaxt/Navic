@@ -96,22 +96,13 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(readerScreenText, "ReaderNativeTapOverlay(")
 		assertContains(nativeOverlay, "onMenuTap")
 		assertContains(nativeOverlay, "onPageTurn")
-		assertContains(nativeOverlay, "settings.showTapZones")
 		assertContains(nativeOverlay, "readerTapZoneInteractiveRegions")
 		assertContains(nativeOverlay, "ReaderNativeTapRegion(")
+		assertContains(readerScreenText, "enabled = nativeShellCoverVisible && !optionsVisible")
 		assertContains(readerScreenText, "readerTapZonePageTurnCommand(region.action, direction)")
-		assertFalse(
-			runtimeText.contains("attachCenterTapGesture"),
-			"Reader-wide menu taps must be owned by the native overlay, not iframe/WebView content."
-		)
-		assertFalse(
-			runtimeText.contains("handleReaderTapZone"),
-			"Reader-wide page taps must be owned by the native overlay, not iframe/WebView content."
-		)
-		assertFalse(
-			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
-			"Native tap overlay should toggle reader chrome directly instead of depending on WebView bridge center taps."
-		)
+		assertContains(runtimeText, "attachReaderTapZoneGesture")
+		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
+		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
 		assertContains(readerScreenText, "chromeVisible")
 		assertContains(readerScreenText, "if (chromeVisible)")
 		assertFalse(
@@ -126,10 +117,11 @@ class ReaderRuntimeShellProgressTest {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
-			.substringBefore("\n  attachLinkNavigation")
+			.substringBefore("\n  readerTapZoneActionForPoint")
 
 		assertContains(bridgeText, "attachSurfaceTapGesture")
 		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
+		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.view?.isFixedLayout === true")
 		assertContains(bridgeText, "overflow: fixedLayout ? 'auto' : 'hidden'")
 		assertContains(bridgeText, "FixedLayoutSurfaceSwipeThreshold")
@@ -142,8 +134,8 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(surfaceGesture, "await this.turnFixedLayoutSwipePage(deltaX)")
 		assertContains(surfaceGesture, "markReaderSurfaceTapHandled(element, event)")
 		assertFalse(
-			surfaceGesture.contains("handleReaderTapZone") || runtimeText.contains("handleReaderTapZone"),
-			"PDF/WebView surface gestures may keep drag/swipe handling, but reader-wide tap zones belong to the native overlay."
+			surfaceGesture.contains("handleReaderTapZone"),
+			"PDF/WebView surface swipe handling must stay separate from readable tap-zone classification."
 		)
 		assertContains(bridgeText, "startLocator?.progress")
 		assertContains(bridgeText, "await this.goToProgress(progress)")
@@ -175,17 +167,26 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeTapOverlayTurnsHorizontalDragsWithoutDependingOnWebViewSwipeHandlers() {
+	fun readableContentDragsRemainOwnedByFoliateInsteadOfNativeTapOverlay() {
 		val readerScreenText = readerScreenFile().readText()
 		val nativeRegion = readerScreenText
 			.substringAfter("private fun ReaderNativeTapRegion(")
 			.substringBefore("\n@Composable\nprivate fun ReaderNativeTapZoneDebugOverlay")
+		val bridgeText = readerBridgeText()
 
-		assertContains(nativeRegion, "awaitPointerEvent()")
-		assertContains(nativeRegion, "readerTapZoneDragPageTurnCommand(")
-		assertContains(nativeRegion, "delta.x")
-		assertContains(nativeRegion, "delta.y")
-		assertContains(nativeRegion, "onPageTurn(dragCommand)")
+		assertFalse(
+			nativeRegion.contains("down.consume()") || nativeRegion.contains("change.consume()"),
+			"Readable content drags must reach Foliate's paginator touch handlers; native tap regions may not consume the gesture stream."
+		)
+		assertFalse(
+			nativeRegion.contains("readerTapZoneDragPageTurnCommand("),
+			"Horizontal drag gestures should be animated by Foliate, not converted into native tap-zone page commands."
+		)
+		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
+		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
+		assertContains(bridgeText, "target.addEventListener('touchstart'")
+		assertContains(bridgeText, "target.addEventListener('touchend'")
+		assertContains(bridgeText, "CenterTapMovementSlop")
 	}
 
 	@Test
