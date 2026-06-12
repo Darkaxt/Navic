@@ -255,3 +255,37 @@ Verified high-priority contracts:
 - Music and audiobook mini-player visibility is scoped by app area, and Android playback managers use `AudioPlaybackArbitrator` so starting one owner pauses the other.
 
 No new high-priority stabilization fix is currently confirmed by local evidence. The next implementation slice should start with a failing focused test only after a concrete gap is observed or selected from the Phase 4 reader-upgrade backlog.
+
+## Microdeliverable Checkpoint: 2026-06-12 eta30
+
+Scope:
+
+- Keep the page-curl HTML mockup, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode at the lowest priority backlog floor.
+- Fix stale default reader settings propagation in `ReaderScreen` by keying the default-settings `remember` block on every reader preference consumed by `readerDefaultSettings()`.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks executed.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta30
+```
+
+Result: `Android versionName matches v1.0.11-eta30`.
+
+```powershell
+gh run watch 27394239177 --repo Darkaxt/Navic --exit-status
+```
+
+Result: `v1.0.11-eta30 Build Navic` completed successfully. `Build Android APK` completed in 7m21s, `Verify release APK signing` passed, `Build iOS IPA` was skipped, and `Create GitHub Release` completed.
+
+Published release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta30`
+- Asset: `Navic.apk`
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta30/Navic.apk`
+- Asset SHA-256 digest: `28255470f6c209bd8247808d03c5d8cbd6ba79c62fe326e1da09601fe7b9bf45`
