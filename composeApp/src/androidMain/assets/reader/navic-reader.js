@@ -171,8 +171,11 @@ class NavicReaderRuntime {
   reflowableLastLocationProgress = null
   lastRelocateDetail = null
   pageTurnPromise = null
+  pageTurnQueue = []
   pageTurnInProgress = false
   pageTurnDirection = null
+  fixedLayoutNavigationPageIndex = null
+  fixedLayoutNavigationDirection = null
   suppressedCoverSectionIndexes = new Set()
   embeddedCoverSuppressedSectionIndexes = new Set()
   embeddedCoverRerenderScheduled = false
@@ -186,6 +189,7 @@ class NavicReaderRuntime {
 
   dispatch(command) {
     log('dispatch', command?.type || 'invalid')
+    readerTrace('dispatch', { type: command?.type || 'invalid' })
     if (!command || typeof command !== 'object') return
     switch (command.type) {
       case 'openPublication':
@@ -197,8 +201,16 @@ class NavicReaderRuntime {
       case 'goToProgress':
         return this.goToProgress(command.progress)
       case 'nextPage':
+        readerTrace('dispatch:nextPage', {
+          hasPromise: Boolean(this.pageTurnPromise),
+          queueLength: this.pageTurnQueue.length,
+        })
         return this.nextPage()
       case 'previousPage':
+        readerTrace('dispatch:previousPage', {
+          hasPromise: Boolean(this.pageTurnPromise),
+          queueLength: this.pageTurnQueue.length,
+        })
         return this.previousPage()
       case 'applyHighlight':
         return this.applyHighlight(command)
@@ -287,8 +299,11 @@ class NavicReaderRuntime {
     this.publicationUrl = ''
     this.externalShellCover = false
     this.pageTurnPromise = null
+    this.pageTurnQueue = []
     this.pageTurnInProgress = false
     this.pageTurnDirection = null
+    this.fixedLayoutNavigationPageIndex = null
+    this.fixedLayoutNavigationDirection = null
     this.suppressedCoverSectionIndexes = new Set()
     this.embeddedCoverSuppressedSectionIndexes = new Set()
     this.embeddedCoverRerenderScheduled = false
@@ -617,9 +632,31 @@ class NavicReaderRuntime {
     }
   }
 
+  fixedLayoutNavigationBasePageIndex() {
+    if (this.view?.isFixedLayout !== true) return null
+    const navigationIndex = Number(this.fixedLayoutNavigationPageIndex)
+    if (Number.isFinite(navigationIndex)) return Math.floor(navigationIndex)
+    const committedPageIndex = Number(this.currentPagePosition?.pageIndex)
+    if (Number.isFinite(committedPageIndex)) return Math.floor(committedPageIndex)
+    return this.fixedLayoutCurrentPageIndex()
+  }
+
+  syncFixedLayoutNavigationPageIndex(pagePosition) {
+    if (this.view?.isFixedLayout !== true) return
+    const pageIndex = Number(pagePosition?.pageIndex)
+    if (!Number.isFinite(pageIndex)) return
+    const pendingIndex = Number(this.fixedLayoutNavigationPageIndex)
+    if (Number.isFinite(pendingIndex)) {
+      if (this.fixedLayoutNavigationDirection === 'next' && pageIndex < pendingIndex) return
+      if (this.fixedLayoutNavigationDirection === 'previous' && pageIndex > pendingIndex) return
+    }
+    this.fixedLayoutNavigationPageIndex = Math.floor(pageIndex)
+    this.fixedLayoutNavigationDirection = null
+  }
+
   fixedLayoutAdjacentPageTarget(direction) {
     if (this.view?.isFixedLayout !== true) return null
-    const current = this.fixedLayoutCurrentPageIndex()
+    const current = this.fixedLayoutNavigationBasePageIndex()
     const sectionCount = Number(this.view?.book?.sections?.length)
     if (!Number.isFinite(current) || !Number.isFinite(sectionCount) || sectionCount <= 0) return null
     const forward = direction === 'next'
@@ -659,15 +696,15 @@ class NavicReaderRuntime {
     }
   }
 
-  async nextPage() {
+  nextPage() {
     return this.turnPage('next')
   }
 
-  async previousPage() {
+  previousPage() {
     return this.turnPage('previous')
   }
 
-  async turnPage(direction) {
+  turnPage(direction) {
     if (this.shellCoverVisible && direction === 'next') {
       log('page-turn:shell-cover-hide', direction)
       this.hideShellCover()
@@ -683,21 +720,53 @@ class NavicReaderRuntime {
       return
     }
     if (this.pageTurnPromise) {
-      log('page-turn:coalesced', direction)
-      return this.pageTurnPromise
+      log('page-turn:queued', direction)
+      readerTrace('page-turn:queued', {
+        direction,
+        navigationIndex: this.fixedLayoutNavigationPageIndex,
+        rendererIndex: this.fixedLayoutCurrentPageIndex(),
+      })
+      return new Promise((resolve, reject) => {
+        this.pageTurnQueue.push({ direction, resolve, reject })
+      })
     }
+    return this.startPageTurn(direction)
+  }
+
+  startPageTurn(direction) {
+    readerTrace('page-turn:start-request', {
+      direction,
+      hasPromise: Boolean(this.pageTurnPromise),
+      queueLength: this.pageTurnQueue.length,
+    })
     this.cancelPendingCommittedRelocation()
     this.pageTurnInProgress = true
     this.pageTurnDirection = direction
-    const turnPromise = this.performPageTurn(direction)
-    this.pageTurnPromise = turnPromise
-    try {
-      return await turnPromise
-    } finally {
-      if (this.pageTurnPromise === turnPromise) this.pageTurnPromise = null
+    const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))
+    let completionPromise = null
+    completionPromise = turnPromise.finally(() => {
+      if (this.pageTurnPromise === completionPromise) this.pageTurnPromise = null
       this.pageTurnInProgress = false
       if (this.pageTurnDirection === direction) this.pageTurnDirection = null
-    }
+      readerTrace('page-turn:settled', {
+        direction,
+        navigationIndex: this.fixedLayoutNavigationPageIndex,
+        rendererIndex: this.fixedLayoutCurrentPageIndex(),
+      })
+      this.startNextQueuedPageTurn()
+    })
+    this.pageTurnPromise = completionPromise
+    readerTrace('page-turn:promise-set', {
+      direction,
+      queueLength: this.pageTurnQueue.length,
+    })
+    return completionPromise
+  }
+
+  startNextQueuedPageTurn() {
+    if (this.pageTurnPromise || this.pageTurnQueue.length === 0) return
+    const next = this.pageTurnQueue.shift()
+    this.startPageTurn(next.direction).then(next.resolve, next.reject)
   }
 
   async performPageTurn(direction) {
@@ -707,6 +776,14 @@ class NavicReaderRuntime {
       const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
       if (directFixedLayoutPageTarget != null) {
         log('page-turn:fixed-direct', direction, directFixedLayoutPageTarget)
+        readerTrace('page-turn:fixed-direct', {
+          direction,
+          target: directFixedLayoutPageTarget,
+          navigationIndex: this.fixedLayoutNavigationPageIndex,
+          rendererIndex: this.fixedLayoutCurrentPageIndex(),
+        })
+        this.fixedLayoutNavigationPageIndex = directFixedLayoutPageTarget
+        this.fixedLayoutNavigationDirection = direction
         await this.view.goTo(directFixedLayoutPageTarget)
       } else if (direction === 'next') {
         await this.view?.next?.()
@@ -1314,6 +1391,7 @@ class NavicReaderRuntime {
 
   committedPageTurnPosition(pagePosition, reason) {
     if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
+    if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
     const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
     const candidatePageIndex = Number(pagePosition.pageIndex)
     const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
@@ -1347,6 +1425,9 @@ class NavicReaderRuntime {
   updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     const pageNumberPosition = readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)
     this.currentPagePosition = pageNumberPosition || null
+    if (pageNumberPosition?.pageCountSource === 'fixed-layout') {
+      this.syncFixedLayoutNavigationPageIndex(pageNumberPosition)
+    }
     if (this.shellCoverVisible) {
       this.pageNumberLayer?.remove?.()
       this.pageNumberLayer = null

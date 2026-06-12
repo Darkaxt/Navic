@@ -68,7 +68,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderUsesSectionIndexTargetForFixedLayoutPageTurns() {
 		val bridgeText = readerBridgeText()
 		val turnPage = bridgeText
-			.substringAfter("async turnPage(direction) {")
+			.substringAfter("turnPage(direction) {")
 			.substringBefore("\n  attachScrolledEdgeTurnGestures")
 
 		assertContains(bridgeText, "fixedLayoutAdjacentPageTarget(direction)")
@@ -84,28 +84,49 @@ class ReaderRuntimeNavigationFlowTest {
 	}
 
 	@Test
-	fun androidReaderSerializesFixedLayoutPageTurnTaps() {
+	fun androidReaderQueuesRapidFixedLayoutPageTurnTaps() {
 		val bridgeText = readerBridgeText()
 		val turnPage = bridgeText
-			.substringAfter("async turnPage(direction) {")
+			.substringAfter("turnPage(direction) {")
 			.substringBefore("\n  async performPageTurn(direction) {")
+		val startPageTurn = bridgeText
+			.substringAfter("startPageTurn(direction) {")
+			.substringBefore("\n  startNextQueuedPageTurn()")
 		val performPageTurn = bridgeText
 			.substringAfter("async performPageTurn(direction) {")
 			.substringBefore("\n  attachScrolledEdgeTurnGestures")
 
 		assertContains(bridgeText, "this.pageTurnPromise = null")
+		assertContains(bridgeText, "pageTurnQueue = []")
 		assertContains(turnPage, "if (this.pageTurnPromise)")
-		assertContains(turnPage, "page-turn:coalesced")
-		assertContains(turnPage, "const turnPromise = this.performPageTurn(direction)")
-		assertContains(turnPage, "this.pageTurnPromise = turnPromise")
-		assertContains(turnPage, "if (this.pageTurnPromise === turnPromise)")
-		assertContains(turnPage, "this.pageTurnPromise = null")
+		assertContains(turnPage, "page-turn:queued")
+		assertContains(turnPage, "this.pageTurnQueue.push({ direction, resolve, reject })")
+		assertContains(startPageTurn, "const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))")
+		assertContains(startPageTurn, "this.pageTurnPromise = completionPromise")
+		assertContains(startPageTurn, "if (this.pageTurnPromise === completionPromise)")
+		assertContains(startPageTurn, "this.pageTurnPromise = null")
+		assertContains(bridgeText, "startNextQueuedPageTurn()")
 		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(performPageTurn, "await this.view.goTo(directFixedLayoutPageTarget)")
 		assertTrue(
-			turnPage.indexOf("if (this.pageTurnPromise)") <
-				turnPage.indexOf("this.pageTurnPromise = turnPromise"),
-			"Duplicated tap/click page-turn events must be coalesced before starting a second fixed-layout turn."
+			startPageTurn.indexOf("this.pageTurnPromise = completionPromise") <
+				startPageTurn.indexOf("return completionPromise"),
+			"Rapid fixed-layout taps must mark the active turn before returning to the bridge."
+		)
+	}
+
+	@Test
+	fun androidReaderDoesNotClampCommittedFixedLayoutPageTurnsAgainstStaleDisplayState() {
+		val bridgeText = readerBridgeText()
+		val committedPageTurnPosition = bridgeText
+			.substringAfter("committedPageTurnPosition(pagePosition, reason) {")
+			.substringBefore("\n  readerPageNumberFontFamily")
+
+		assertContains(committedPageTurnPosition, "if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition")
+		assertTrue(
+			committedPageTurnPosition.indexOf("pagePosition.pageCountSource === 'fixed-layout'") <
+				committedPageTurnPosition.indexOf("const currentPageIndex = Number(this.currentPagePosition?.pageIndex)"),
+			"PDF/fixed-layout page positions are exact and must not be rewritten by stale reflowable page-turn clamping."
 		)
 	}
 

@@ -11,6 +11,7 @@ import {
   assertNoConsoleErrors,
   assertNoConsecutiveDuplicateLocations,
   assertNoConsecutiveDuplicateVisiblePageLabels,
+  assertPdfFastSequentialTurns,
   assertPdfSmoke,
   assertRendererCssSmoke,
   assertShellCoverDoesNotNavigateWebViewToCover,
@@ -993,6 +994,109 @@ if (mode === 'pdf-smoke') {
     assertNoConsoleErrors(errors)
     assertPdfSmoke(result)
     console.log(`reader harness pdf-smoke passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'pdf-fast-sequential-turns') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('pdf-fast-sequential-turns mode requires --fixture <path-to-pdf>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.pdf'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'dark',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 20000 })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
+    }
+    await page.waitForTimeout(500)
+
+    const currentLocation = async () => page.evaluate(() => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      return messages.at(-1) || null
+    })
+
+    const initialLocation = await currentLocation()
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.waitForTimeout(1000)
+    const finalLocation = await currentLocation()
+    const result = {
+      initialLocation,
+      finalLocation,
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'pdf-fast-sequential-turns.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertPdfFastSequentialTurns(result)
+    console.log(`reader harness pdf-fast-sequential-turns passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

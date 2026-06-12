@@ -212,6 +212,30 @@ export const assertPdfSmoke = result => {
   }
 }
 
+export const assertPdfFastSequentialTurns = result => {
+  if (!result?.initialLocation || !Number.isFinite(result.initialLocation.pageIndex)) {
+    throw new Error('Expected PDF fast-turn test to receive an initial page location')
+  }
+  if (!Number.isFinite(result.initialLocation.pageCount) || result.initialLocation.pageCount < 3) {
+    throw new Error(`Expected PDF fast-turn fixture to expose at least 3 pages; observed ${result.initialLocation.pageCount}`)
+  }
+  if (result.finalLocation?.pageIndex !== result.initialLocation.pageIndex + 2) {
+    throw new Error(
+      `Expected two sequential fast PDF nextPage commands to advance two pages; ` +
+      `observed ${result.initialLocation.pageIndex} -> ${result.finalLocation?.pageIndex}`
+    )
+  }
+  const postedIndexes = (result.trace || [])
+    .filter(event => event?.type === 'location:post')
+    .map(event => event?.payload?.message?.pageIndex)
+    .filter(Number.isFinite)
+  for (let index = 1; index < postedIndexes.length; index += 1) {
+    if (postedIndexes[index] < postedIndexes[index - 1]) {
+      throw new Error(`Expected PDF posted page indexes to be monotonic; observed ${postedIndexes.join(', ')}`)
+    }
+  }
+}
+
 export const assertFullEpubTraversal = result => {
   if (!result || !Array.isArray(result.pages) || result.pages.length === 0) {
     throw new Error('Expected full EPUB traversal to collect rendered pages')

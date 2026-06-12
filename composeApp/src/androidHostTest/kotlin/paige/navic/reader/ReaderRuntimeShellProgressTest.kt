@@ -35,8 +35,8 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(bridgeText, "case 'nextPage'")
 		assertContains(bridgeText, "case 'previousPage'")
-		assertContains(bridgeText, "async nextPage()")
-		assertContains(bridgeText, "async previousPage()")
+		assertContains(bridgeText, "nextPage()")
+		assertContains(bridgeText, "previousPage()")
 		assertContains(bridgeText, "this.view?.next?.()")
 		assertContains(bridgeText, "this.view?.prev?.()")
 		assertContains(bridgeText, "page-turn:start")
