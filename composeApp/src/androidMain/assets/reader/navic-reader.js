@@ -98,6 +98,7 @@ import {
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
+  readerSurfacePaperTextureScrollOffset,
   readerSurfacePaperTextureOpacity,
   readerSurfacePageBorderOverlayOpacity,
   readerPageNumberPageCount,
@@ -1881,17 +1882,15 @@ class NavicReaderRuntime {
       this.surfaceTextureScrollOffset = { x: 0, y: 0 }
       return this.surfaceTextureScrollOffset
     }
-    const delta = position - this.surfacePaperTextureBaseOffset
     const { width, height } = readerViewportSize()
-    const maxOffset = this.readerFlowModeValue === ReaderFlowPagedVertical ? height : width
-    const wrapsForwardBoundary = this.pageTurnDirection === 'next' && delta < -maxOffset * 0.5
-    const wrapsBackwardBoundary = this.pageTurnDirection === 'previous' && delta > maxOffset * 0.5
-    const bounded = wrapsForwardBoundary || wrapsBackwardBoundary
-      ? 0
-      : Math.max(-maxOffset, Math.min(maxOffset, delta))
-    this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
-      ? { x: 0, y: -bounded }
-      : { x: -bounded, y: 0 }
+    this.surfaceTextureScrollOffset = readerSurfacePaperTextureScrollOffset({
+      position,
+      baseOffset: this.surfacePaperTextureBaseOffset,
+      viewportWidth: width,
+      viewportHeight: height,
+      flowMode: this.readerFlowModeValue,
+      pageTurnDirection: this.pageTurnDirection,
+    })
     return this.surfaceTextureScrollOffset
   }
 

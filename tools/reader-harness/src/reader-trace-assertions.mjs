@@ -123,11 +123,20 @@ export const assertTextureTracksRealPageTurnSamples = result => {
         positionDelta: Number(sample.position) - Number(before.position),
         textureDelta: textureOffsetForSample(sample) - textureOffsetForSample(before),
       }))
-      .filter(({ positionDelta, textureDelta }) =>
-        Number.isFinite(positionDelta) &&
-        Math.abs(positionDelta) > 1 &&
-        Number.isFinite(textureDelta)
-      )
+      .filter(({ sample, positionDelta, textureDelta }) => {
+        const viewportSpan = Math.max(
+          1,
+          Number(sample?.viewportWidth),
+          Number(sample?.viewportHeight),
+          Number(before?.viewportWidth),
+          Number(before?.viewportHeight)
+        )
+        const rendererWrapJump = Math.abs(positionDelta) > viewportSpan * 2
+        return Number.isFinite(positionDelta) &&
+          Math.abs(positionDelta) > 1 &&
+          Number.isFinite(textureDelta) &&
+          !rendererWrapJump
+      })
     if (movedSamples.length === 0) {
       throw new Error(`Expected probe ${probe.name || 'unknown'} to observe renderer movement with texture CSS samples`)
     }

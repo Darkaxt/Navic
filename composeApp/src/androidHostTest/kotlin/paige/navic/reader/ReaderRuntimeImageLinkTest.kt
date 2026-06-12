@@ -390,6 +390,30 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderGivesWebViewContentEnoughTimeToCancelCenterChrome() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
+			.find(webViewHostText)
+			?.groupValues
+			?.get(1)
+			?.toLong()
+			?: error("ReaderCenterTapDelayMs constant not found")
+		val markContentTapHandled = webViewHostText
+			.substringAfter("fun markContentTapHandled() {")
+			.substringBefore("\n\tprivate fun readerContentTapHandled()")
+
+		assertTrue(
+			delayMs >= 280L,
+			"Android WebView can deliver content click/touch JS bridge messages after ACTION_UP; center chrome delay must allow that without delaying edge page turns."
+		)
+		assertTrue(
+			markContentTapHandled.indexOf("contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs") <
+				markContentTapHandled.indexOf("cancelPendingReaderCenterTap()"),
+			"Content ownership must be marked before canceling pending center chrome so the runnable suppresses itself even if cancellation races."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

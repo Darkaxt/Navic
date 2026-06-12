@@ -1227,3 +1227,99 @@ ADB validation status:
 
 - `adb devices -l` returned no connected devices after `adb start-server`.
 - eta41 phone validation is still pending: install `releases\v1.0.11-eta41\Navic.apk`, verify image center taps do not surface chrome, verify chapter-selection links do not surface chrome, and verify edge page-turn taps still work.
+
+## ADB/User Validation Feedback: 2026-06-13 eta41 Reader Interaction Results
+
+User-tested behavior from the installed eta41 release must be treated as the current bug register before any more reader work:
+
+Confirmed working:
+
+- Cover taps work.
+- Normal readable EPUB page taps work.
+- Normal readable EPUB drag gestures work.
+- Image sepia-tint toggling works after interaction, although the initial image can load without the expected sepia filter applied.
+
+Still broken:
+
+- Dragging does not work on the cover.
+- The paper texture transition still inverts when moving from the maps into the Author's Note and stays inverted after that transition.
+- Center-tapping interactive images still also brings back the reader menu bar.
+- Tapping links in the chapter-selection/frontmatter area still also brings back the reader menu bar.
+
+Current priority order:
+
+1. Fix interactive content center-tap ownership so image interactions and links do not surface reader chrome.
+2. Fix the texture movement sign across the maps -> Author's Note area transition.
+3. Fix cover dragging without regressing cover taps or normal-page drag gestures.
+4. Re-run host harnesses first; only then publish a new Android release candidate for phone validation.
+
+## Release Candidate: 2026-06-13 eta42 Reader Interaction And Texture Stabilization
+
+Scope:
+
+- Extend the Android native center/menu tap delay from `120ms` to `320ms`, while keeping left/right edge page-turn taps immediate.
+- Mark `readerContentTapHandled` ownership before canceling pending center chrome so the delayed runnable suppresses itself even if callback cancellation races.
+- Extract surface-paper texture offset math into `readerSurfacePaperTextureScrollOffset`.
+- Clamp impossible directionless renderer coordinate wrap jumps to zero texture offset so they cannot become persistent inverted paper movement.
+- Add the `texture-offset-logic` harness mode and include it in `phase1-stabilization`.
+- Add the real EPUB `epub-texture-frontmatter-transition` harness mode over the cover -> maps -> Author's Note path.
+- Tighten texture page-turn assertions so Foliate internal coordinate wraps are ignored only when the renderer jump is larger than two visible viewports; real forward texture inversion still fails.
+
+TDD evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+```
+
+Initial result: failed with `readerSurfacePaperTextureScrollOffset helper is not exported`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderGivesWebViewContentEnoughTimeToCancelCenterChrome"
+```
+
+Initial result: failed while `ReaderCenterTapDelayMs` was still `120L`.
+
+Fresh validation evidence:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+```
+
+Result: all commands exited `0`; texture-offset harness printed `reader harness texture-offset-logic passed`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result: both commands exited `0` and wrote fresh trace JSON files under `tools\reader-harness\output`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 15 checks`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta42
+git diff --check
+```
+
+Result: both commands exited `0`; release verifier printed `Android versionName matches v1.0.11-eta42`.
+
+Phone validation required after release:
+
+- Verify center-tapping interactive images toggles sepia image behavior without surfacing reader chrome.
+- Verify chapter-selection/frontmatter links navigate without surfacing reader chrome.
+- Verify left/right edge taps still page on shell cover, image pages, text pages, and PDF pages.
+- Verify maps -> Author's Note texture movement no longer flips direction or remains inverted.
+- Cover drag remains a known follow-up unless explicitly fixed in a later slice.

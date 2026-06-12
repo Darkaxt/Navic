@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from 'playwright'
 import {
   assertBridgePostType,
@@ -67,8 +67,10 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
+    { mode: 'texture-offset-logic' },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
     { mode: 'epub-texture-page-turns', fixture: epubFixturePath },
+    { mode: 'epub-texture-frontmatter-transition', fixture: epubFixturePath },
     { mode: 'epub-full-traversal', fixture: epubFixturePath },
     { mode: 'pdf-smoke', fixture: pdfFixturePath },
     { mode: 'pdf-fast-sequential-turns', fixture: pdfFixturePath },
@@ -91,6 +93,69 @@ if (mode === 'phase1-stabilization') {
   }
 
   console.log(`reader harness phase1-stabilization passed: ${steps.length} checks`)
+  process.exit(0)
+}
+
+if (mode === 'texture-offset-logic') {
+  globalThis.document = globalThis.document || {
+    body: {},
+    documentElement: { clientWidth: 560, clientHeight: 873 },
+  }
+  globalThis.window = globalThis.window || {
+    innerWidth: 560,
+    innerHeight: 873,
+    visualViewport: { width: 560, height: 873 },
+    location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
+  }
+  const helpers = await import(`${pathToFileURL(readerHelpers).href}?texture-offset-logic=${Date.now()}`)
+  if (typeof helpers.readerSurfacePaperTextureScrollOffset !== 'function') {
+    throw new Error('readerSurfacePaperTextureScrollOffset helper is not exported')
+  }
+
+  const assertOffset = (name, actual, expected) => {
+    if (actual?.x !== expected.x || actual?.y !== expected.y) {
+      throw new Error(`${name} expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}`)
+    }
+  }
+
+  assertOffset(
+    'forward movement offsets texture left',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 280,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: 'next',
+    }),
+    { x: -280, y: 0 }
+  )
+  assertOffset(
+    'directionless area-wrap jump does not invert texture',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 120,
+      baseOffset: 2604,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+    }),
+    { x: 0, y: 0 }
+  )
+  assertOffset(
+    'directionless reverse area-wrap jump does not invert texture',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 2604,
+      baseOffset: 120,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+    }),
+    { x: 0, y: 0 }
+  )
+
+  console.log('reader harness texture-offset-logic passed')
   process.exit(0)
 }
 
@@ -897,6 +962,8 @@ if (mode === 'epub-texture-page-turns') {
       return {
         label: sampleLabel,
         timestamp: performance.now(),
+        viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+        viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,
@@ -923,6 +990,8 @@ if (mode === 'epub-texture-page-turns') {
         return {
           label,
           timestamp: performance.now(),
+          viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+          viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
           location,
           href: location?.href || '',
           pageIndex: location?.pageIndex,
@@ -1014,6 +1083,164 @@ if (mode === 'epub-texture-page-turns') {
     assertNoConsoleErrors(errors)
     assertTextureTracksRealPageTurnSamples(result)
     console.log(`reader harness epub-texture-page-turns passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-texture-frontmatter-transition') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('epub-texture-frontmatter-transition mode requires --fixture <path-to-epub>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 15000 })
+    await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+    await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
+    let currentLocation = await page.evaluate(() => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      return messages.at(-1) || null
+    })
+    while (Number(currentLocation?.pageIndex) < 4) {
+      await page.evaluate(async () => {
+        document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
+        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      })
+      await page.waitForFunction(previousPageIndex => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const location = messages.at(-1)
+        return location && location.pageIndex > previousPageIndex
+      }, currentLocation?.pageIndex ?? -1, { timeout: 8000 })
+      currentLocation = await page.evaluate(() => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        return messages.at(-1) || null
+      })
+    }
+    await page.waitForTimeout(300)
+
+    const collectState = async label => page.evaluate(sampleLabel => {
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const location = messages.at(-1) || null
+      return {
+        label: sampleLabel,
+        timestamp: performance.now(),
+        viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+        viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        location,
+        href: location?.href || '',
+        pageIndex: location?.pageIndex,
+        pageCount: location?.pageCount,
+        position: Number(renderer?.containerPosition),
+        rendererPage: Number(renderer?.page),
+        rendererPages: Number(renderer?.pages),
+        textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+        textureBackgroundPosition: layer?.style.backgroundPosition || '',
+        computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
+      }
+    }, label)
+
+    const bridgeProbe = async name => {
+      const samples = [await collectState('before')]
+      await page.evaluate(() => {
+        const renderer = document.querySelector('foliate-view')?.renderer
+        renderer?.setAttribute?.('animated', '')
+        window.__navicTextureFrontmatterTurnPromise = window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      })
+      for (const delay of [40, 80, 120, 180, 260]) {
+        await page.waitForTimeout(delay)
+        samples.push(await collectState(`t+${delay}`))
+      }
+      await page.evaluate(async () => {
+        await window.__navicTextureFrontmatterTurnPromise
+      })
+      await page.waitForTimeout(260)
+      samples.push(await collectState('settled'))
+      return { name, direction: 'forward', samples }
+    }
+
+    const authorEntryProbe = await bridgeProbe('frontmatter-map-to-author-note')
+    const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
+    const result = {
+      probes: [authorEntryProbe, postAuthorProbe],
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-texture-frontmatter-transition.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      result,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    assertTextureTracksRealPageTurnSamples(result)
+    console.log(`reader harness epub-texture-frontmatter-transition passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

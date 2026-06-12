@@ -787,6 +787,38 @@ export const readerPaperTextureBackgroundPosition = scrollOffset => {
   return `calc(50% ${readerPaperTextureCssOffset(xPx)}) calc(50% ${readerPaperTextureCssOffset(yPx)})`
 }
 
+export const readerSurfacePaperTextureScrollOffset = ({
+  position,
+  baseOffset,
+  viewportWidth,
+  viewportHeight,
+  flowMode,
+  pageTurnDirection,
+} = {}) => {
+  const currentPosition = Number(position)
+  const basePosition = Number(baseOffset)
+  if (!Number.isFinite(currentPosition) || !Number.isFinite(basePosition)) return { x: 0, y: 0 }
+  const width = Number(viewportWidth)
+  const height = Number(viewportHeight)
+  const maxOffset = Math.max(
+    1,
+    flowMode === ReaderFlowPagedVertical
+      ? (Number.isFinite(height) ? height : 0)
+      : (Number.isFinite(width) ? width : 0)
+  )
+  const delta = currentPosition - basePosition
+  const hasKnownDirection = pageTurnDirection === 'next' || pageTurnDirection === 'previous'
+  const wrapsForwardBoundary = pageTurnDirection === 'next' && delta < -maxOffset * 0.5
+  const wrapsBackwardBoundary = pageTurnDirection === 'previous' && delta > maxOffset * 0.5
+  const wrapsDirectionlessBoundary = !hasKnownDirection && Math.abs(delta) > maxOffset
+  const bounded = wrapsForwardBoundary || wrapsBackwardBoundary || wrapsDirectionlessBoundary
+    ? 0
+    : Math.max(-maxOffset, Math.min(maxOffset, delta))
+  return flowMode === ReaderFlowPagedVertical
+    ? { x: 0, y: -bounded }
+    : { x: -bounded, y: 0 }
+}
+
 export const readerSurfacePaperTextureOpacity = settings => {
   switch (readerThemeKey(settings?.theme)) {
     case 'black':

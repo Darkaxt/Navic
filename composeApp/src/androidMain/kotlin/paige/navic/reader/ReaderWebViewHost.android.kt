@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
 private const val ReaderContentTapHandledSuppressMs = 450L
-private const val ReaderCenterTapDelayMs = 120L
+private const val ReaderCenterTapDelayMs = 320L
 
 @Composable
 actual fun ReaderWebViewHost(
@@ -474,8 +474,8 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	}
 
 	fun markContentTapHandled() {
-		cancelPendingReaderCenterTap()
 		contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs
+		cancelPendingReaderCenterTap()
 	}
 
 	private fun readerContentTapHandled(): Boolean =
