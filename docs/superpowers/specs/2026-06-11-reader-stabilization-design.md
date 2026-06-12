@@ -1073,5 +1073,13 @@ Result: `reader harness phase1-stabilization passed: 13 checks`.
 
 Release and ADB validation status:
 
-- Pending GitHub release tag: `v1.0.11-eta40`.
-- Pending phone validation: install release APK, verify native cover/EPUB/PDF tap zones with ADB logs, and verify explicit image/media content handling still suppresses paired native taps.
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta40`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27438260692`
+- Android job: `Build Android APK` completed successfully; `Verify release APK signing` passed.
+- iOS job: skipped.
+- Asset: `Navic.apk`
+- Asset size: `13,171,669` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta40/Navic.apk`
+- Asset SHA-256 digest: `9b1bb0c1c655a22f8327b38f62da06cbecfa9fd2c8ac5bb13ac733603a3de226`
+- Local download verification: `Get-FileHash releases\v1.0.11-eta40\Navic.apk -Algorithm SHA256` produced `9B1BB0C1C655A22F8327B38F62DA06CBECFA9FD2C8AC5BB13AC733603A3DE226`.
+- Pending phone validation: ADB currently reports no connected devices. When a device is available, install the release APK, verify native cover/EPUB/PDF tap zones with ADB logs, and verify explicit image/media content handling still suppresses paired native taps.
