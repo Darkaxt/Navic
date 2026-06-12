@@ -368,3 +368,18 @@ Observed harness details:
 - Shell-cover handoff starts with native shell cover visible, suppresses the WebView cover, advances to page `1/505` on the second next action, and returns to shell cover on previous from the first visible page.
 - Texture scroll produced a positive renderer movement delta of `98` with `calc(50% - 98px)` background counter-movement.
 - PDF smoke and fast sequential turn checks passed against a `3` page fixture, ending at page index `2`.
+
+## Validation Checkpoint: 2026-06-12 Native Interaction Coverage
+
+Scope:
+
+- Verify current `master` includes the APK/native reader interaction refactor contracts before adding more native changes.
+- Confirm reader-wide tap-zone ownership is native, shell-cover surfaces are covered by the native overlay, PDF/fixed-layout navigation guards remain green, and media/image/link tap guards still compile.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
