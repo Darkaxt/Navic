@@ -383,3 +383,33 @@ Fresh validation evidence:
 ```
 
 Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+## Microdeliverable Checkpoint: 2026-06-12 Readaloud Media3 Metadata Extras
+
+Scope:
+
+- Strengthen the Storyteller/readaloud metadata boundary between parser/runtime models and Android Media3 playback items.
+- Add a common `ReadaloudMediaExtras` projection so readaloud-specific labels stay available as structured fields before Android Bundle serialization.
+- Populate Media3 extras with `href`, `title`, `chapterLabel`, `sectionLabel`, `narrator`, `author`, `trackNumber`, `discNumber`, `durationMs`, audio format labels, source provider, source release, and source URL.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReadaloudMediaItemTest.mediaItemExtrasPreserveReadaloudSpecificMetadataLabels"
+```
+
+Initial result: failed at compile time with unresolved `toReadaloudMediaExtras`, proving the metadata-extras contract was not implemented.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReadaloudMediaItemTest" --tests "paige.navic.reader.StorytellerMediaOverlayParserTest" --tests "paige.navic.reader.StorytellerReadaloudRuntimeLoaderTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReadaloudModelsTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.

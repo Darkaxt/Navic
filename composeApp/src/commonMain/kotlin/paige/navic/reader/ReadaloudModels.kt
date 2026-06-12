@@ -68,6 +68,27 @@ data class ReadaloudMediaItemDescriptor(
 	val durationMs: Long? = null
 )
 
+data class ReadaloudMediaExtras(
+	val resourceKey: String?,
+	val href: String,
+	val title: String,
+	val chapterLabel: String?,
+	val sectionLabel: String?,
+	val narrator: String?,
+	val author: String?,
+	val trackNumber: Int?,
+	val discNumber: Int?,
+	val durationMs: Long?,
+	val codec: String?,
+	val bitrateKbps: Int?,
+	val sampleRateHz: Long?,
+	val channels: Int?,
+	val qualityLabel: String?,
+	val sourceProvider: String?,
+	val sourceRelease: String?,
+	val sourceUrl: String?
+)
+
 data class ReadaloudPlaybackMetadataLabels(
 	val chapterLabel: String? = null,
 	val sectionLabel: String? = null,
@@ -126,6 +147,28 @@ fun ReadaloudAudioTrack.toReadaloudMediaItemDescriptor(
 		sampleRateHz = sampleRateHz,
 		channels = channels,
 		durationMs = durationMs
+	)
+
+fun ReadaloudMediaItemDescriptor.toReadaloudMediaExtras(): ReadaloudMediaExtras =
+	ReadaloudMediaExtras(
+		resourceKey = resourceKey,
+		href = uri,
+		title = title,
+		chapterLabel = title,
+		sectionLabel = subtitle,
+		narrator = artist,
+		author = albumArtist,
+		trackNumber = trackNumber,
+		discNumber = discNumber,
+		durationMs = durationMs,
+		codec = codec,
+		bitrateKbps = bitrateKbps,
+		sampleRateHz = sampleRateHz,
+		channels = channels,
+		qualityLabel = qualityLabel,
+		sourceProvider = sourceProviderLabel,
+		sourceRelease = sourceReleaseLabel,
+		sourceUrl = sourceUrl
 	)
 
 fun ReadaloudAudioSession.toReadaloudPlaybackPlan(

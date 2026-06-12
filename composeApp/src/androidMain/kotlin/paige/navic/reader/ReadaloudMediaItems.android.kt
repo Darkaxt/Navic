@@ -48,17 +48,26 @@ fun ReadaloudMediaItemDescriptor.toReadaloudMediaItem(): MediaItem {
 }
 
 private fun Bundle.putReadaloudMediaExtras(descriptor: ReadaloudMediaItemDescriptor) {
+	val extras = descriptor.toReadaloudMediaExtras()
 	putStringMap("headers", descriptor.requestHeaders)
-	putString("resourceKey", descriptor.resourceKey)
-	putString("qualityLabel", descriptor.qualityLabel)
-	putString("sourceProvider", descriptor.sourceProviderLabel)
-	putString("sourceRelease", descriptor.sourceReleaseLabel)
-	putString("sourceUrl", descriptor.sourceUrl)
-	putString("codec", descriptor.codec)
-	descriptor.bitrateKbps?.let { putInt("bitrateKbps", it) }
-	descriptor.sampleRateHz?.let { putLong("sampleRateHz", it) }
-	descriptor.channels?.let { putInt("channels", it) }
-	descriptor.durationMs?.let { putLong("durationMs", it) }
+	putString("resourceKey", extras.resourceKey)
+	putString("href", extras.href)
+	putString("title", extras.title)
+	putString("chapterLabel", extras.chapterLabel)
+	putString("sectionLabel", extras.sectionLabel)
+	putString("narrator", extras.narrator)
+	putString("author", extras.author)
+	extras.trackNumber?.let { putInt("trackNumber", it) }
+	extras.discNumber?.let { putInt("discNumber", it) }
+	extras.durationMs?.let { putLong("durationMs", it) }
+	putString("codec", extras.codec)
+	extras.bitrateKbps?.let { putInt("bitrateKbps", it) }
+	extras.sampleRateHz?.let { putLong("sampleRateHz", it) }
+	extras.channels?.let { putInt("channels", it) }
+	putString("qualityLabel", extras.qualityLabel)
+	putString("sourceProvider", extras.sourceProvider)
+	putString("sourceRelease", extras.sourceRelease)
+	putString("sourceUrl", extras.sourceUrl)
 }
 
 fun Bundle.putStringMap(key: String, value: Map<String, String>) {
