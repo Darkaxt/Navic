@@ -12,7 +12,7 @@ The first priority is fixing EPUB/WebView pagination defects: unstable page numb
 
 After WebView pagination is stable, this thread can move into APK integration work: native touch controls above the WebView, shell cover behavior, and continued reader upgrades from Anx Reader, Komikku, Readest, Colibrio, and LibreraReader references.
 
-Page-curl drag animation, dual-page/spread animation, and rotation-triggered spread mode are explicitly lowest priority. They must not displace reader correctness, native tap ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud support, or core settings work.
+The page-curl mockup work, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are explicitly lowest priority. They must not displace reader correctness, native tap ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud support, or core settings work.
 
 ## Non-Negotiable Direction
 
@@ -183,12 +183,12 @@ Continue upgrading the reader in small deliverables:
 - Storyteller-generated readaloud EPUB support, including media overlays and audio metadata labels.
 - Colibrio-inspired synced audiobook/ebook media support where it maps cleanly to Navic's architecture.
 
-Lowest priority:
+Lowest priority backlog floor:
 
-- Page-curl drag animation is deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud media support, and core reader settings.
+- The page-curl HTML mockup, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud media support, and core reader settings.
 - Dual-page/spread animation is also deferred. Rotation-triggered spread mode should not be implemented during stabilization unless all higher-priority reader issues are already closed.
 - If implemented later, page-curl should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
-- Do not spend active stabilization time on page-curl, dual-page, or spread animation work until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
+- Do not spend active stabilization time on page-curl, dual-page, spread, or rotation-mode animation work until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
 
 ## Delivery Protocol
 
@@ -222,7 +222,7 @@ Current branch status:
 
 - `master` is clean against `fork/master`, excluding untracked local `releases/` and `tmp/` folders.
 - `v1.0.11-eta29` has been pushed and its `Navic.apk` release asset was produced by GitHub Actions.
-- Page-curl drag animation, dual-page/spread animation, and rotation-triggered spread mode remain lowest priority.
+- Page-curl mockup work, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode remain the lowest priority backlog item.
 
 Fresh validation evidence:
 
