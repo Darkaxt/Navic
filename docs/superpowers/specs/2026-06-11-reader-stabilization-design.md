@@ -186,7 +186,7 @@ Continue upgrading the reader in small deliverables:
 Lowest priority backlog floor:
 
 - The page-curl HTML mockup, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud media support, and core reader settings.
-- Dual-page/spread animation is also deferred. Rotation-triggered spread mode should not be implemented during stabilization unless all higher-priority reader issues are already closed.
+- Dual-page/spread animation is also deferred. Rotation-triggered spread mode, including switching to the spread animation model after phone rotation, should not be implemented during stabilization unless all higher-priority reader issues are already closed.
 - If implemented later, page-curl should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
 - Do not spend active stabilization time on page-curl, dual-page, spread, or rotation-mode animation work until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
 

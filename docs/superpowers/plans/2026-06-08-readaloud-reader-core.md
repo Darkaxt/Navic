@@ -166,6 +166,14 @@ Proposed reader-settings tabs:
 - **Readaloud:** narrator/source labels, clip label display, sync on/off, auto-scroll/highlight behavior, audio quality/source release metadata, compact controls visibility.
 - **PDF/Image:** fit width/height/page, crop borders, page gap, background, orientation, continuous strip behavior.
 
+### Lowest Priority / Deferred Animation Work
+
+The page-curl mockup, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are explicitly the lowest-priority reader backlog item.
+
+Rotation can eventually switch the reader into a dual-page/spread-capable layout, and that layout should use the spread animation model when page-curl work is revisited. That does not move it into the active stabilization or core reader queue.
+
+Do not spend implementation time on page-curl, drag animation, dual-page animation, or rotation-triggered spread behavior until the higher-priority reader work is stable: EPUB pagination/resume, shell cover behavior, native tap ownership, PDF navigation, cache/progress, Storyteller/readaloud metadata, audio sync, and core reader settings.
+
 ### Required Next Steps
 
 1. Stabilize the signed-release phone test loop: build in CI, install the signed APK over the existing release package, and run an adb smoke script for EPUB, PDF, and readaloud EPUB. `scripts/adb-reader-smoke.ps1` exists, but live validation still depends on an attached device.
