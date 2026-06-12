@@ -12,6 +12,8 @@ The first priority is fixing EPUB/WebView pagination defects: unstable page numb
 
 After WebView pagination is stable, this thread can move into APK integration work: native touch controls above the WebView, shell cover behavior, and continued reader upgrades from Anx Reader, Komikku, Readest, Colibrio, and LibreraReader references.
 
+Page-curl drag animation, dual-page/spread animation, and rotation-triggered spread mode are explicitly lowest priority. They must not displace reader correctness, native tap ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud support, or core settings work.
+
 ## Non-Negotiable Direction
 
 - Do not debug renderer behavior primarily by repeatedly deploying phone builds.
@@ -183,9 +185,10 @@ Continue upgrading the reader in small deliverables:
 
 Lowest priority:
 
-- Page-curl drag animation and rotation-aware spread animation are deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, and readaloud/media support.
+- Page-curl drag animation is deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud media support, and core reader settings.
+- Dual-page/spread animation is also deferred. Rotation-triggered spread mode should not be implemented during stabilization unless all higher-priority reader issues are already closed.
 - If implemented later, page-curl should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
-- Do not spend active stabilization time on the page-curl/spread animation until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
+- Do not spend active stabilization time on page-curl, dual-page, or spread animation work until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
 
 ## Delivery Protocol
 
