@@ -11,15 +11,29 @@ class ReaderPreferenceSettingsTest {
 	fun readerDefaultSettingsRoundTripFontSourcePreference() {
 		val preferences = PreferenceManager(MapSettings())
 
-		preferences.readerFontSource = ReaderFontSourceSystem
+		preferences.readerFontSource = ReaderFontSourceCustom
+		preferences.readerCustomFontFamily = "Storyteller Serif"
+		preferences.readerCustomFontUrl = "https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf"
 
-		assertEquals(ReaderFontSourceSystem, preferences.readerDefaultSettings().fontSource)
-
-		preferences.setReaderDefaultSettings(
-			ReaderSettings(fontSource = ReaderFontSourcePublisher)
+		val defaults = preferences.readerDefaultSettings()
+		assertEquals(ReaderFontSourceCustom, defaults.fontSource)
+		assertEquals("Storyteller Serif", defaults.customFontFamily)
+		assertEquals(
+			"https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf",
+			defaults.customFontUrl
 		)
 
-		assertEquals(ReaderFontSourcePublisher, preferences.readerFontSource)
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(
+				fontSource = ReaderFontSourceSystem,
+				customFontFamily = "Ignored",
+				customFontUrl = "https://appassets.androidplatform.net/reader-cache/fonts/ignored.ttf"
+			)
+		)
+
+		assertEquals(ReaderFontSourceSystem, preferences.readerFontSource)
+		assertEquals("", preferences.readerCustomFontFamily)
+		assertEquals("", preferences.readerCustomFontUrl)
 	}
 
 	@Test

@@ -37,6 +37,7 @@ export const ReaderDirectionRtl = 'rtl'
 export const ReaderFontSourceNavic = 'navic'
 export const ReaderFontSourceSystem = 'system'
 export const ReaderFontSourcePublisher = 'publisher'
+export const ReaderFontSourceCustom = 'custom'
 export const ReaderReflowableReadableUnitsPerSyntheticPage = 1500
 export const ReaderReflowableStartProgressPageOffsetThreshold = 0.006
 export const ReaderReflowableProgressEpsilon = 0.0000001
@@ -183,12 +184,53 @@ export const readerDirectionMode = settings => {
 export const readerFontSource = settings => {
   if (settings?.fontSource === ReaderFontSourceSystem) return ReaderFontSourceSystem
   if (settings?.fontSource === ReaderFontSourcePublisher) return ReaderFontSourcePublisher
+  if (settings?.fontSource === ReaderFontSourceCustom) return ReaderFontSourceCustom
   return ReaderFontSourceNavic
+}
+
+export const readerCustomFontFamily = settings => {
+  const sanitized = String(settings?.customFontFamily || '')
+    .replace(/[^A-Za-z0-9 _-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+  return sanitized || 'Navic Custom Font'
+}
+
+export const readerCustomFontUrl = settings => {
+  const raw = String(settings?.customFontUrl || '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw, document.baseURI)
+    const extensionAllowed = /\.(?:ttf|otf|woff2?|ttc)$/i.test(parsed.pathname)
+    if (!extensionAllowed) return ''
+    const isAppAsset = parsed.origin === 'https://appassets.androidplatform.net' &&
+      parsed.pathname.startsWith('/reader-cache/fonts/')
+    const isSameOriginReaderFont = parsed.origin === window.location.origin &&
+      parsed.pathname.startsWith('/reader-cache/fonts/')
+    return isAppAsset || isSameOriginReaderFont ? parsed.href : ''
+  } catch {
+    return ''
+  }
+}
+
+export const readerCssQuotedString = value =>
+  `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
+export const readerFontFormat = url => {
+  const path = String(url || '').toLowerCase()
+  if (path.endsWith('.otf')) return 'opentype'
+  if (path.endsWith('.woff')) return 'woff'
+  if (path.endsWith('.woff2')) return 'woff2'
+  return 'truetype'
 }
 
 export const readerEffectiveFontFamily = settings => {
   const fontFamily = settings?.fontFamily || 'system-ui, sans-serif'
   if (readerFontSource(settings) === ReaderFontSourcePublisher || fontFamily === 'inherit') return ''
+  if (readerFontSource(settings) === ReaderFontSourceCustom) {
+    return `${readerCssQuotedString(readerCustomFontFamily(settings))}, system-ui, sans-serif`
+  }
   if (readerFontSource(settings) !== ReaderFontSourceSystem) return fontFamily
   if (fontFamily.includes('ui-monospace') || fontFamily.includes('Consolas')) {
     return 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
@@ -833,6 +875,16 @@ export const readerFontFaceCss = settings => readerFontSource(settings) === Read
   @font-face {
     font-family: 'Navic OpenDyslexic';
     src: url('${readerAssetUrl('fonts/navic-opendyslexic-regular.otf')}') format('opentype');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+  }
+`
+  : readerFontSource(settings) === ReaderFontSourceCustom && readerCustomFontUrl(settings)
+    ? `
+  @font-face {
+    font-family: ${readerCssQuotedString(readerCustomFontFamily(settings))};
+    src: url('${readerCustomFontUrl(settings)}') format('${readerFontFormat(readerCustomFontUrl(settings))}');
     font-style: normal;
     font-weight: 400;
     font-display: swap;

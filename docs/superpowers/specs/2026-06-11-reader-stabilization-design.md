@@ -187,6 +187,7 @@ Lowest priority backlog floor:
 
 - The page-curl HTML mockup, drag-to-turn animation, dual-page/spread animation, and rotation-triggered spread mode are deferred behind reader correctness, native touch ownership, shell-cover behavior, PDF navigation, cache/progress, Storyteller/readaloud media support, and core reader settings.
 - Dual-page/spread animation is also deferred. Rotation-triggered spread mode, including switching to the spread animation model after phone rotation, should not be implemented during stabilization unless all higher-priority reader issues are already closed.
+- The 2026-06-12 request to enter dual-page mode on phone rotation and use the spread-mode animation is explicitly part of this deferred backlog item, not an active stabilization task.
 - If implemented later, page-curl should be a reader-owned snapshot overlay: portrait/single-page layout uses the clipped single-page model, and rotation into dual-page layout uses the spread model with real content on both sides.
 - Do not spend active stabilization time on page-curl, dual-page, spread, or rotation-mode animation work until the core reader can reliably paginate, resume, render themes/textures, and handle native tap zones.
 
@@ -413,3 +414,51 @@ Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
 ```
 
 Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+## Microdeliverable Checkpoint: 2026-06-12 Imported Font Source Contract
+
+Scope:
+
+- Add a `custom` reader font source that can carry an imported font family and app-local font URL through settings, preferences, and the reader bridge.
+- Keep imported font URLs constrained to the app-local reader-cache font path before WebView CSS emits an `@font-face` rule.
+- Surface the imported source label in Settings > Ebooks and reader settings search.
+
+Current limitation:
+
+- This checkpoint does not implement the Android file picker or font-cache importer. It creates the safe runtime/settings contract that a later importer can populate.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepExpandedFontSources" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripFontSourcePreference" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.androidReaderPackagesBundledFontSourcesForWebViewRendering" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderDefaultSettingsRememberKeyTracksReaderPreferenceInputs"
+```
+
+Initial result: failed at compile time with unresolved `ReaderFontSourceCustom`, missing custom font settings fields, and missing preference keys.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+```
+
+Initial result: failed with `Expected custom font source; observed navic`, proving the WebView helper did not yet honor the custom font-source contract.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 3 executed and 21 up-to-date.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+```
+
+Result: `reader harness font-css-smoke passed`.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Result: all commands exited `0`.

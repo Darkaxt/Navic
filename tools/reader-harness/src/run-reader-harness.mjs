@@ -140,6 +140,64 @@ if (mode === 'trace-smoke') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'font-css-smoke') {
+  const server = await startReaderAssetServer({ repoRoot })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    const result = await page.evaluate(async helperUrl => {
+      const helpers = await import(helperUrl)
+      const safeSettings = {
+        fontSource: 'custom',
+        customFontFamily: 'Storyteller Serif',
+        customFontUrl: 'https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf',
+      }
+      const unsafeSettings = {
+        fontSource: 'custom',
+        customFontFamily: 'Bad Font"; color:red;/*',
+        customFontUrl: 'https://evil.example/fonts/bad.ttf',
+      }
+      return {
+        customSource: helpers.readerFontSource(safeSettings),
+        customFamily: helpers.readerEffectiveFontFamily(safeSettings),
+        safeCss: helpers.readerFontFaceCss(safeSettings),
+        unsafeCss: helpers.readerFontFaceCss(unsafeSettings),
+        navicCss: helpers.readerFontFaceCss({ fontSource: 'navic' }),
+      }
+    }, `${server.origin}/navic-reader-helpers.js`)
+    assertNoConsoleErrors(errors)
+    if (result.customSource !== 'custom') {
+      throw new Error(`Expected custom font source; observed ${result.customSource}`)
+    }
+    if (!String(result.customFamily || '').includes('Storyteller Serif')) {
+      throw new Error(`Expected custom effective font family; observed ${result.customFamily || 'unset'}`)
+    }
+    if (!String(result.safeCss || '').includes('@font-face') || !String(result.safeCss || '').includes('storyteller-serif.ttf')) {
+      throw new Error(`Expected safe custom font CSS; observed ${result.safeCss || 'unset'}`)
+    }
+    if (String(result.unsafeCss || '').includes('@font-face') || String(result.unsafeCss || '').includes('evil.example')) {
+      throw new Error(`Expected unsafe custom font URL to be rejected; observed ${result.unsafeCss || 'unset'}`)
+    }
+    if (!String(result.navicCss || '').includes('Navic Literata')) {
+      throw new Error('Expected bundled Navic font CSS to remain available')
+    }
+    console.log('reader harness font-css-smoke passed')
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'epub-frontmatter') {
   const fixture = argValue('--fixture')
   if (!fixture) {

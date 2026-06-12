@@ -54,6 +54,8 @@ data class ReaderTocItem(
 data class ReaderSettings(
 	val fontFamily: String? = null,
 	val fontSource: String? = null,
+	val customFontFamily: String? = null,
+	val customFontUrl: String? = null,
 	val fontSizePercent: Int? = null,
 	val lineHeight: Double? = null,
 	val paragraphSpacingPercent: Int? = null,
@@ -351,6 +353,8 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 	buildJsonObject {
 		fontFamily?.let { put("fontFamily", it) }
 		fontSource?.let { put("fontSource", it) }
+		customFontFamily?.let { put("customFontFamily", it) }
+		customFontUrl?.let { put("customFontUrl", it) }
 		fontSizePercent?.let { put("fontSizePercent", it) }
 		lineHeight?.let { put("lineHeight", it) }
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }

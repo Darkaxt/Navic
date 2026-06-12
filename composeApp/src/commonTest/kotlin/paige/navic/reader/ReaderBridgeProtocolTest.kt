@@ -14,11 +14,13 @@ class ReaderBridgeProtocolTest {
 			mediaOverlayEnabled = true,
 			externalShellCover = true,
 			startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)"),
-			settings = ReaderSettings(
-				fontFamily = ReaderBookFontFamily,
-				fontSource = ReaderFontSourceSystem,
-				fontSizePercent = 112,
-				lineHeight = 1.7,
+				settings = ReaderSettings(
+					fontFamily = ReaderBookFontFamily,
+					fontSource = ReaderFontSourceCustom,
+					customFontFamily = "Storyteller Serif",
+					customFontUrl = "https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf",
+					fontSizePercent = 112,
+					lineHeight = 1.7,
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
 				dimOverlayPercent = 30,
@@ -45,7 +47,9 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"externalShellCover\":true")
 		assertContains(script, "Navic Literata")
 		assertContains(script, "Bookerly, Georgia, serif")
-		assertContains(script, "\"fontSource\":\"system\"")
+		assertContains(script, "\"fontSource\":\"custom\"")
+		assertContains(script, "\"customFontFamily\":\"Storyteller Serif\"")
+		assertContains(script, "\"customFontUrl\":\"https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf\"")
 		assertContains(script, "\"fontSizePercent\":112")
 		assertContains(script, "\"lineHeight\":1.7")
 		assertContains(script, "\"paragraphSpacingPercent\":75")

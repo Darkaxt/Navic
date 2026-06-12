@@ -119,7 +119,7 @@ The checked tasks below mean first-pass Navic implementation exists. They do not
 | Media3 readaloud playback | Supported in tests, partial on device | Use Media3 for audio. Do not play embedded audio through WebView. |
 | Synced audio/text highlighting | Partial | Existing bridge and sync coordinator exist; validate with real Storyteller audio clips and visible label metadata. |
 | Audio metadata labels | Supported in models/playback, partial on device | Bindery and Storyteller OPF labels now flow into readaloud tracks, Media3 item descriptors, playback logs, and reader chrome metadata; still requires signed-release smoke tests with real synced packages. |
-| Custom/downloaded/book fonts | Partial | Reader now separates font family from font source: Navic bundled fonts, Android system fallbacks, and publication-provided book fonts are exposed in reader chrome and Settings > Ebooks. Downloaded/imported custom font files remain pending. |
+| Custom/downloaded/book fonts | Partial | Reader now separates font family from font source: Navic bundled fonts, Android system fallbacks, publication-provided book fonts, and a sanitized `custom` font-source contract are exposed through reader settings. Downloaded/imported custom font file picker and cache population remain pending. |
 | Rich themes/background images | Partial | Named reader palettes, dim overlay, sepia image tint toggle, paper texture, and border overlays exist. User-imported/background-image themes remain pending. |
 | Paragraph spacing and publisher style override | Supported in code/tests | `ReaderSettings`, Settings > Ebooks, search, and the JS runtime apply paragraph spacing and publisher-style override. Continue validating on real EPUBs because publisher CSS can still be hostile. |
 | Custom CSS editor | Missing | Adapt Anx's custom CSS concept only after sanitizing/injection boundaries in the Foliate runtime. |
@@ -180,7 +180,7 @@ Do not spend implementation time on page-curl, drag animation, dual-page animati
 2. Add Storyteller fixture coverage from real generated EPUBs and assert the required audio labels reach parser output, Media3 metadata, reader UI state, and sync logs.
 3. Separate EPUB/readaloud settings from PDF/image settings. EPUB stays Foliate/WebView; PDF/image options should borrow Komikku's scaling, crop, brightness, orientation, and navigation patterns.
 4. Add a compact readaloud metadata surface in the reader that can show chapter, section, narrator, source release, quality label, and current clip label without making the ebook layout feel like an audiobook player.
-5. Add imported/downloaded custom font files and a sanitized custom CSS path after renderer stability is proven on real EPUB/PDF/readaloud packages.
+5. Add the Android imported/downloaded custom font picker and cache writer that populates the existing sanitized custom CSS path.
 
 ### Recent Release Checkpoints
 

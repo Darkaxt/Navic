@@ -191,6 +191,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readerSettingsScope,
 		preferenceManager.readerFontFamily,
 		preferenceManager.readerFontSource,
+		preferenceManager.readerCustomFontFamily,
+		preferenceManager.readerCustomFontUrl,
 		preferenceManager.readerFontSizePercent,
 		preferenceManager.readerLineHeightPercent,
 		preferenceManager.readerParagraphSpacingPercent,

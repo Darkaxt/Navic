@@ -25,6 +25,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_family_publ
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_sans
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_serif
 import navic.composeapp.generated.resources.option_ebook_reader_font_source
+import navic.composeapp.generated.resources.option_ebook_reader_font_source_custom
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_navic
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_system
@@ -111,6 +112,7 @@ import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderFontSourceCustom
 import paige.navic.reader.ReaderFontSourceNavic
 import paige.navic.reader.ReaderFontSourcePublisher
 import paige.navic.reader.ReaderFontSourceSystem
@@ -354,7 +356,8 @@ private enum class ReaderFontSourceOption(
 ) {
 	Navic(ReaderFontSourceNavic, Res.string.option_ebook_reader_font_source_navic),
 	System(ReaderFontSourceSystem, Res.string.option_ebook_reader_font_source_system),
-	Publisher(ReaderFontSourcePublisher, Res.string.option_ebook_reader_font_source_publisher);
+	Publisher(ReaderFontSourcePublisher, Res.string.option_ebook_reader_font_source_publisher),
+	Custom(ReaderFontSourceCustom, Res.string.option_ebook_reader_font_source_custom);
 
 	companion object {
 		fun forFontSource(fontSource: String?): ReaderFontSourceOption =

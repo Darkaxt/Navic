@@ -37,6 +37,8 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
 		fontSource = readerFontSource,
+		customFontFamily = readerCustomFontFamily,
+		customFontUrl = readerCustomFontUrl,
 		fontSizePercent = readerFontSizePercent,
 		lineHeightPercent = readerLineHeightPercent,
 		paragraphSpacingPercent = paragraphSpacingPercent,
@@ -63,6 +65,8 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	val normalized = settings.normalizedReaderSettings()
 	readerFontFamily = normalized.fontFamily ?: ReaderSansFontFamily
 	readerFontSource = normalized.fontSource ?: ReaderFontSourceNavic
+	readerCustomFontFamily = normalized.customFontFamily.orEmpty()
+	readerCustomFontUrl = normalized.customFontUrl.orEmpty()
 	readerFontSizePercent = normalized.fontSizePercent ?: 100
 	readerLineHeightPercent = (((normalized.lineHeight ?: 1.55) * 100.0).roundToInt())
 	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent
@@ -118,6 +122,8 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 	copy(
 		fontFamily = override.fontFamily ?: fontFamily,
 		fontSource = override.fontSource ?: fontSource,
+		customFontFamily = override.customFontFamily ?: customFontFamily,
+		customFontUrl = override.customFontUrl ?: customFontUrl,
 		fontSizePercent = override.fontSizePercent ?: fontSizePercent,
 		lineHeight = override.lineHeight ?: lineHeight,
 		paragraphSpacingPercent = override.paragraphSpacingPercent ?: paragraphSpacingPercent,
@@ -146,6 +152,8 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 	return ReaderSettings(
 		fontFamily = if (fontFamily != null) normalized.fontFamily else null,
 		fontSource = if (fontSource != null) normalized.fontSource else null,
+		customFontFamily = if (customFontFamily != null) normalized.customFontFamily else null,
+		customFontUrl = if (customFontUrl != null) normalized.customFontUrl else null,
 		fontSizePercent = if (fontSizePercent != null) normalized.fontSizePercent else null,
 		lineHeight = if (lineHeight != null) normalized.lineHeight else null,
 		paragraphSpacingPercent = if (paragraphSpacingPercent != null) normalized.paragraphSpacingPercent else null,
@@ -209,6 +217,8 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 	ReaderSettings(
 		fontFamily = stringValue("fontFamily"),
 		fontSource = stringValue("fontSource"),
+		customFontFamily = stringValue("customFontFamily"),
+		customFontUrl = stringValue("customFontUrl"),
 		fontSizePercent = intValue("fontSizePercent"),
 		lineHeight = doubleValue("lineHeight"),
 		paragraphSpacingPercent = intValue("paragraphSpacingPercent"),
@@ -234,6 +244,8 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 	buildJsonObject {
 		fontFamily?.let { put("fontFamily", it) }
 		fontSource?.let { put("fontSource", it) }
+		customFontFamily?.let { put("customFontFamily", it) }
+		customFontUrl?.let { put("customFontUrl", it) }
 		fontSizePercent?.let { put("fontSizePercent", it) }
 		lineHeight?.let { put("lineHeight", it) }
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }

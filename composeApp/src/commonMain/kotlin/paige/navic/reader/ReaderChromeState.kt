@@ -31,6 +31,7 @@ private const val LegacyReaderDyslexicFontFamily = "OpenDyslexic, Atkinson Hyper
 const val ReaderFontSourceNavic = "navic"
 const val ReaderFontSourceSystem = "system"
 const val ReaderFontSourcePublisher = "publisher"
+const val ReaderFontSourceCustom = "custom"
 const val ReaderLightTheme = "light"
 const val ReaderSepiaTheme = "sepia"
 const val ReaderDuskTheme = "dusk"
@@ -75,7 +76,8 @@ val ReaderSupportedFontFamilies: List<String> = listOf(
 val ReaderSupportedFontSources: List<String> = listOf(
 	ReaderFontSourceNavic,
 	ReaderFontSourceSystem,
-	ReaderFontSourcePublisher
+	ReaderFontSourcePublisher,
+	ReaderFontSourceCustom
 )
 
 val ReaderSupportedTapZones: List<String> = listOf(
@@ -138,6 +140,19 @@ fun normalizedReaderFontFamily(fontFamily: String?): String =
 
 fun normalizedReaderFontSource(fontSource: String?): String =
 	ReaderSupportedFontSources.firstOrNull { supported -> supported == fontSource } ?: ReaderFontSourceNavic
+
+fun normalizedReaderCustomFontFamily(customFontFamily: String?): String? =
+	customFontFamily
+		?.replace(Regex("[^A-Za-z0-9 _-]"), " ")
+		?.replace(Regex("\\s+"), " ")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.take(80)
+
+fun normalizedReaderCustomFontUrl(customFontUrl: String?): String? =
+	customFontUrl
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
 
 fun normalizedReaderTheme(theme: String?): String =
 	ReaderSupportedThemes.firstOrNull { supported -> supported == theme } ?: ReaderLightTheme
@@ -385,6 +400,7 @@ fun readerFontSourceShortLabel(fontSource: String?): String =
 	when (normalizedReaderFontSource(fontSource)) {
 		ReaderFontSourceSystem -> "System"
 		ReaderFontSourcePublisher -> "Book"
+		ReaderFontSourceCustom -> "Imported"
 		else -> "Navic"
 	}
 
@@ -467,6 +483,8 @@ fun defaultReaderSettings(): ReaderSettings =
 fun normalizedReaderSettings(
 	fontFamily: String?,
 	fontSource: String? = ReaderFontSourceNavic,
+	customFontFamily: String? = null,
+	customFontUrl: String? = null,
 	fontSizePercent: Int,
 	lineHeightPercent: Int,
 	paragraphSpacingPercent: Int = DefaultReaderParagraphSpacingPercent,
@@ -486,10 +504,23 @@ fun normalizedReaderSettings(
 	readaloudSyncEnabled: Boolean = true,
 	volumeKeyPageTurns: Boolean = false,
 	webContentsDebuggingEnabled: Boolean = false
-): ReaderSettings =
-	ReaderSettings(
+): ReaderSettings {
+	val source = normalizedReaderFontSource(fontSource)
+	val normalizedCustomFontFamily = if (source == ReaderFontSourceCustom) {
+		normalizedReaderCustomFontFamily(customFontFamily)
+	} else {
+		null
+	}
+	val normalizedCustomFontUrl = if (source == ReaderFontSourceCustom) {
+		normalizedReaderCustomFontUrl(customFontUrl)
+	} else {
+		null
+	}
+	return ReaderSettings(
 		fontFamily = normalizedReaderFontFamily(fontFamily),
-		fontSource = normalizedReaderFontSource(fontSource),
+		fontSource = source,
+		customFontFamily = normalizedCustomFontFamily,
+		customFontUrl = normalizedCustomFontUrl,
 		fontSizePercent = fontSizePercent.coerceIn(MinReaderFontSizePercent, MaxReaderFontSizePercent),
 		lineHeight = (lineHeightPercent.coerceIn(
 			(MinReaderLineHeight * 100).roundToInt(),
@@ -520,11 +551,14 @@ fun normalizedReaderSettings(
 		volumeKeyPageTurns = volumeKeyPageTurns,
 		webContentsDebuggingEnabled = webContentsDebuggingEnabled
 	)
+}
 
 fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 	normalizedReaderSettings(
 		fontFamily = fontFamily,
 		fontSource = fontSource,
+		customFontFamily = customFontFamily,
+		customFontUrl = customFontUrl,
 		fontSizePercent = fontSizePercent ?: DefaultReaderFontSizePercent,
 		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
 		paragraphSpacingPercent = paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,

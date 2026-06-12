@@ -37,6 +37,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(bridgeText, "ReaderFontSourceNavic")
 		assertContains(bridgeText, "ReaderFontSourceSystem")
 		assertContains(bridgeText, "ReaderFontSourcePublisher")
+		assertContains(bridgeText, "ReaderFontSourceCustom")
+		assertContains(bridgeText, "readerCustomFontUrl")
 		assertContains(bridgeText, "readerFontFaceCss(settings)")
 		assertContains(bridgeText, "readerEffectiveFontFamily(settings)")
 		assertContains(bridgeText, "settings?.fontSource")
@@ -111,6 +113,8 @@ class ReaderRuntimeCommonChromeTest {
 		val expectedPreferenceInputs = listOf(
 			"readerFontFamily",
 			"readerFontSource",
+			"readerCustomFontFamily",
+			"readerCustomFontUrl",
 			"readerFontSizePercent",
 			"readerLineHeightPercent",
 			"readerParagraphSpacingPercent",
@@ -236,9 +240,12 @@ class ReaderRuntimeCommonChromeTest {
 	fun androidReadaloudMediaItemsPreserveSourceReleaseMetadataInMedia3Extras() {
 		val mediaItemsText = readerAndroidPackageFile("ReadaloudMediaItems.android.kt").readText()
 
-		assertContains(mediaItemsText, "putString(\"sourceProvider\", descriptor.sourceProviderLabel)")
-		assertContains(mediaItemsText, "putString(\"sourceRelease\", descriptor.sourceReleaseLabel)")
-		assertContains(mediaItemsText, "putString(\"sourceUrl\", descriptor.sourceUrl)")
+		assertContains(mediaItemsText, "descriptor.toReadaloudMediaExtras()")
+		assertContains(mediaItemsText, "putString(\"chapterLabel\", extras.chapterLabel)")
+		assertContains(mediaItemsText, "putString(\"sectionLabel\", extras.sectionLabel)")
+		assertContains(mediaItemsText, "putString(\"sourceProvider\", extras.sourceProvider)")
+		assertContains(mediaItemsText, "putString(\"sourceRelease\", extras.sourceRelease)")
+		assertContains(mediaItemsText, "putString(\"sourceUrl\", extras.sourceUrl)")
 	}
 
 	@Test

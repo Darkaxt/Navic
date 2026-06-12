@@ -540,6 +540,7 @@
 	<string name="option_ebook_reader_font_source_navic">Navic bundled</string>
 	<string name="option_ebook_reader_font_source_system">System</string>
 	<string name="option_ebook_reader_font_source_publisher">Book fonts</string>
+	<string name="option_ebook_reader_font_source_custom">Imported file</string>
 	<string name="option_ebook_reader_font_size">Font size</string>
 	<string name="option_ebook_reader_line_height">Line height</string>
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>

@@ -113,12 +113,14 @@ class ReaderSettingsDefaultsTest {
 	fun readerSettingsDefaultsKeepExpandedFontSources() {
 		assertEquals(ReaderFontSourceNavic, defaultReaderSettings().fontSource)
 		assertEquals(
-			listOf(ReaderFontSourceNavic, ReaderFontSourceSystem, ReaderFontSourcePublisher),
+			listOf(ReaderFontSourceNavic, ReaderFontSourceSystem, ReaderFontSourcePublisher, ReaderFontSourceCustom),
 			ReaderSupportedFontSources
 		)
 		assertEquals(ReaderFontSourceNavic, normalizedReaderFontSource("missing"))
 		assertEquals(ReaderFontSourceSystem, normalizedReaderFontSource(ReaderFontSourceSystem))
 		assertEquals(ReaderFontSourcePublisher, normalizedReaderFontSource(ReaderFontSourcePublisher))
+		assertEquals(ReaderFontSourceCustom, normalizedReaderFontSource(ReaderFontSourceCustom))
+		assertEquals("Imported", readerFontSourceShortLabel(ReaderFontSourceCustom))
 		assertEquals("\"Navic Literata\", Literata, Bookerly, Georgia, serif", ReaderBookFontFamily)
 		assertEquals(
 			"\"Navic Atkinson Hyperlegible\", \"Atkinson Hyperlegible\", Lexend, system-ui, sans-serif",
@@ -173,6 +175,23 @@ class ReaderSettingsDefaultsTest {
 				theme = "light",
 				paged = true
 			).fontFamily
+		)
+		val custom = normalizedReaderSettings(
+			fontFamily = ReaderSansFontFamily,
+			fontSource = ReaderFontSourceCustom,
+			customFontFamily = "Storyteller Serif",
+			customFontUrl = "https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf",
+			fontSizePercent = 100,
+			lineHeightPercent = 155,
+			marginPercent = 0,
+			theme = "light",
+			paged = true
+		)
+		assertEquals(ReaderFontSourceCustom, custom.fontSource)
+		assertEquals("Storyteller Serif", custom.customFontFamily)
+		assertEquals(
+			"https://appassets.androidplatform.net/reader-cache/fonts/storyteller-serif.ttf",
+			custom.customFontUrl
 		)
 	}
 

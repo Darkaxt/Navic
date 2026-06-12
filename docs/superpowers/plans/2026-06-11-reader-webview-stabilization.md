@@ -37,6 +37,7 @@ Current execution priority, registered 2026-06-11:
 - Do not continue APK-native touch or cover work from this thread until the WebView pagination path is stable and committed.
 - Before any later APK work, fetch `fork/master`, inspect the other thread's changes, and only then continue from the merged state.
 - Keep page-curl drag animation, including phone-rotation dual-page/spread mode and the spread animation model, at the lowest priority. It must not displace pagination correctness, cover suppression, native tap ownership, PDF navigation, cache/progress, Storyteller/readaloud metadata, audio sync, or core reader settings.
+- The specific rotation behavior requested on 2026-06-12, where rotating the phone enters dual-page mode and applies the spread-mode page animation, belongs to that same lowest-priority backlog floor.
 
 ---
 

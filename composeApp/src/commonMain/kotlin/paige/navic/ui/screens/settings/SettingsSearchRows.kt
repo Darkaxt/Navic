@@ -41,6 +41,7 @@ import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderFontSourceCustom
 import paige.navic.reader.ReaderFontSourcePublisher
 import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
@@ -301,6 +302,7 @@ internal fun readerFontSourceSearchLabel(fontSource: String): String =
 	when (fontSource) {
 		ReaderFontSourceSystem -> stringResource(Res.string.option_ebook_reader_font_source_system)
 		ReaderFontSourcePublisher -> stringResource(Res.string.option_ebook_reader_font_source_publisher)
+		ReaderFontSourceCustom -> stringResource(Res.string.option_ebook_reader_font_source_custom)
 		else -> stringResource(Res.string.option_ebook_reader_font_source_navic)
 	}
 
