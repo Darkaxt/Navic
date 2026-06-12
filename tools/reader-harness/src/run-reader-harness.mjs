@@ -1104,6 +1104,104 @@ if (mode === 'epub-shell-cover') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-external-shell-cover') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('epub-external-shell-cover mode requires --fixture <path-to-epub>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(phoneViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          try {
+            window.__navicReaderPostedMessages.push(JSON.parse(value))
+          } catch {
+            window.__navicReaderPostedMessages.push({ raw: value })
+          }
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        externalShellCover: true,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacing: 0.35,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    }, null, { timeout: 15000 })
+    const result = await page.evaluate(async () => {
+      const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+      const shellVisible = () => document.body.dataset.navicShellCoverVisible === 'true'
+      const shellLayerExists = () => Boolean(document.querySelector('[data-navic-shell-cover-layer="true"]'))
+      const location = () => {
+        const messages = window.__navicReaderPostedMessages || []
+        return [...messages].reverse().find(message => message?.type === 'locationChanged') || null
+      }
+      const initial = {
+        shellVisible: shellVisible(),
+        shellLayerExists: shellLayerExists(),
+        location: location(),
+      }
+      await window.NavicReaderBridge.dispatch({ type: 'previousPage' })
+      await wait(900)
+      const afterPrevious = {
+        shellVisible: shellVisible(),
+        shellLayerExists: shellLayerExists(),
+        location: location(),
+      }
+      return { initial, afterPrevious }
+    })
+    assertNoConsoleErrors(errors)
+    if (result.initial.shellVisible || result.initial.shellLayerExists) {
+      throw new Error(`Expected external shell-cover mode not to show a WebView shell cover initially; observed ${JSON.stringify(result.initial)}`)
+    }
+    if (result.initial.location?.pageIndex !== 0) {
+      throw new Error(`Expected external shell-cover mode to start WebView on first readable pageIndex 0; observed ${JSON.stringify(result.initial.location)}`)
+    }
+    if (result.afterPrevious.shellVisible || result.afterPrevious.shellLayerExists) {
+      throw new Error(`Expected previousPage in external shell-cover mode not to show the WebView fallback cover; observed ${JSON.stringify(result.afterPrevious)}`)
+    }
+    console.log(`reader harness epub-external-shell-cover passed: ${JSON.stringify(result)}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'css-smoke') {
   const fixturePath = path.resolve(argValue('--fixture') || '')
   if (!fixturePath || !fs.existsSync(fixturePath)) {
