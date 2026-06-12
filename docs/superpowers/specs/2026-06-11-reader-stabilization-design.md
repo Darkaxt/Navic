@@ -764,3 +764,69 @@ git diff --check
 ```
 
 Result: command exited `0`.
+
+## Microdeliverable Checkpoint: 2026-06-12 Native Tap-Zone Crash Fix And PDF/Image Defaults
+
+Scope:
+
+- Fix the phone-visible WebView error `this.updateTapZoneOverlayLayer is not a function` when Android opens the reader with `nativeTapZones=true`.
+- Add `epub-native-tap-zone-open` to the reader harness and Phase 1 gate so the Android/native tap-zone bridge path is exercised locally.
+- Expose PDF/Image defaults in Settings > Ebooks: fit mode, crop borders, and page gap.
+- Add searchable Settings rows for those PDF/Image defaults.
+
+TDD evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-tap-zone-open --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Initial result: failed with `this.updateTapZoneOverlayLayer is not a function`, matching the phone screenshot and proving the harness covered the Android/native tap-zone open path.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.ui.screens.settings.EbookReaderSettingsPolicyTest"
+```
+
+Initial result: failed at compile time with unresolved `ebookReaderSettingDescriptors` and `toSearchEntry`, proving the app-level PDF/Image settings/search descriptor contract did not exist yet.
+
+Fresh validation evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-tap-zone-open --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result: `reader harness epub-native-tap-zone-open passed`.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+```
+
+Result: both commands exited `0`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.ui.screens.settings.EbookReaderSettingsPolicyTest" --tests "paige.navic.ui.screens.settings.SettingsSearchPolicyTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripPdfImagePreferences"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks, 2 executed and 22 up-to-date.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 13 checks`.
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName "v1.0.11-eta36"
+git diff --check
+```
+
+Result: both commands exited `0`.
+
+Release evidence:
+
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta36`
+- Workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27415696224`
+- Asset: `Navic.apk`
+- Asset size: `13,171,633` bytes
+- Asset URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta36/Navic.apk`
+- Asset SHA-256 digest: `1be8030ffb9fe3e40c014343604819fc217b939964d53d39713bb923377ab8d9`
