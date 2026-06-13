@@ -247,7 +247,11 @@ class ReaderRuntimeShellProgressTest {
 		assertEquals(null, readerShellCoverSwipeAction(deltaX = -9f, deltaY = 1f, thresholdPx = 10f))
 		assertEquals(ReaderTapZoneAction.Right, readerShellCoverSwipeAction(deltaX = -11f, deltaY = 2f, thresholdPx = 10f))
 		assertEquals(ReaderTapZoneAction.Left, readerShellCoverSwipeAction(deltaX = 11f, deltaY = 2f, thresholdPx = 10f))
-		assertEquals(null, readerShellCoverSwipeAction(deltaX = -11f, deltaY = 13f, thresholdPx = 10f))
+		assertEquals(
+			ReaderTapZoneAction.Right,
+			readerShellCoverSwipeAction(deltaX = -11f, deltaY = 13f, thresholdPx = 10f),
+			"Shell-cover drags should tolerate natural vertical drift because there is no readable WebView scroll stream to protect."
+		)
 
 		val webViewHostText = readerWebViewHostFile().readText()
 		val shellCoverSwipe = webViewHostText

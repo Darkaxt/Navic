@@ -2437,3 +2437,54 @@ Phone validation target after eta54 release:
 - Dragging from maps/frontmatter into Author's Note should not invert texture movement or leave later pages inverted.
 - Normal EPUB taps/drags and cover taps should remain working.
 - Cover dragging remains pending and should still be diagnosed separately with `shellCoverDragCandidate` / `shellCoverSwipe`.
+
+## Implementation Checkpoint: 2026-06-13 eta55 Candidate Shell-Cover Swipe Tolerance
+
+Scope:
+
+- Continue the native shell-cover interaction work after eta54 without touching normal EPUB/PDF drag ownership.
+- Make shell-cover swipe recognition less brittle for real finger movement over the cover image.
+- Keep phone validation explicit: eta55 should be tested on the cover with a leftward drag, but this checkpoint does not claim cover drag is proven until the APK is installed and observed.
+
+Root-cause update:
+
+- No eta52/eta53 ADB artifact with `Reader shell cover drag candidate` deltas was available in the repo, so stream receipt versus threshold rejection is still not proven from device logs.
+- The code-level gap is concrete: `readerShellCoverSwipeAction()` required horizontal movement to be greater than vertical movement. That is too strict for the shell-cover-only path because there is no readable WebView scroll stream to protect while the shell cover is visible.
+- Normal readable-page drags remain separated: `ReaderSurfaceHost.dispatchTouchEvent()` still lets child WebView/Foliate receive the stream when `shellCoverVisible` is false.
+
+Implementation:
+
+- `readerShellCoverSwipeAction()` now treats horizontal movement past tap slop as the shell-cover swipe intent, even when the finger path has natural vertical drift.
+- The existing direction mapping remains unchanged: leftward drag maps to the right/next action in LTR/default direction, and rightward drag maps to left/previous.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSwipeUsesTapSlopSizedHorizontalDragContract"
+```
+
+Initial result:
+
+- Failed after the test was updated to require `readerShellCoverSwipeAction(deltaX = -11f, deltaY = 13f, thresholdPx = 10f)` to return `ReaderTapZoneAction.Right`.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSwipeUsesTapSlopSizedHorizontalDragContract"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderChromeStateTest"
+git diff --check
+```
+
+Result:
+
+- The focused shell-cover swipe contract passed after the minimal change.
+- The affected reader shell/tap-zone host tests passed.
+- `git diff --check` exited `0`.
+
+Phone validation target after eta55 release:
+
+- Shell cover leftward drags with natural vertical drift should dismiss the cover / advance to the first readable page.
+- Shell cover taps should remain working.
+- Normal EPUB page taps and drags should remain working.
+- Image taps and chapter/frontmatter links should still be checked against eta54 behavior: they should not surface reader chrome.
+- Texture movement across maps/frontmatter into Author's Note should still be checked against eta54 behavior.

@@ -329,7 +329,6 @@ fun readerShellCoverSwipeAction(
 	thresholdPx: Float
 ): ReaderTapZoneAction? {
 	if (kotlin.math.abs(deltaX) <= thresholdPx) return null
-	if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
 	return if (deltaX < 0f) {
 		ReaderTapZoneAction.Right
 	} else {
