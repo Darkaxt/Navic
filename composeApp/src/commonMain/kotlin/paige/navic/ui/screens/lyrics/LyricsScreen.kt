@@ -70,6 +70,7 @@ import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lyricsLineScale
 import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
+import paige.navic.domain.models.shouldDismissLyricsPanel
 import paige.navic.domain.models.shouldShowLyricsArtwork
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -117,6 +118,18 @@ fun LyricsScreen(
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val state by viewModel.lyricsState.collectAsState()
+	val shouldAutoDismiss = shouldDismissLyricsPanel(
+		hasCurrentSong = song != null,
+		lyricsState = state
+	)
+
+	LaunchedEffect(shouldAutoDismiss) {
+		if (shouldAutoDismiss) {
+			backStack.remove(Screen.Lyrics)
+		}
+	}
+
+	if (shouldAutoDismiss) return
 
 	if (preferenceManager.lyricsKeepAlive) {
 		KeepScreenOn()
