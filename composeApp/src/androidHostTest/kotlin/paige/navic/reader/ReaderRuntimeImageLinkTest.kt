@@ -639,6 +639,69 @@ class ReaderRuntimeImageLinkTest {
 			"Expected styled text link touch to send readerContentTapHandled",
 			message = "The renderer assertion must fail when link touch events do not notify native content ownership before Android chrome."
 		)
+		assertContains(
+			harnessText,
+			"imageNativeCenterContentHit",
+			message = "CSS smoke must simulate Android's delayed center-menu hit test for image taps, not only count bridge posts."
+		)
+		assertContains(
+			harnessText,
+			"textLinkNativeCenterContentHit",
+			message = "CSS smoke must simulate Android's delayed center-menu hit test for link taps, not only count bridge posts."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native center hit-test to suppress image chrome",
+			message = "The renderer assertion must fail when Android-style center chrome would still open over an image interaction."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native center hit-test to suppress link chrome",
+			message = "The renderer assertion must fail when Android-style center chrome would still open over a link interaction."
+		)
+	}
+
+	@Test
+	fun androidReaderUsesCoordinateContentHitTestBeforeDelayedCenterChrome() {
+		val bridgeText = readerBridgeText()
+		val webViewHostText = readerWebViewHostFile().readText()
+		val scheduleCenterTap = webViewHostText
+			.substringAfter("private fun scheduleReaderCenterTap(")
+			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
+		val exportedBridge = bridgeText
+			.substringAfter("window.NavicReaderBridge = {")
+			.substringBefore("\n}")
+
+		assertContains(
+			bridgeText,
+			"readerContentActionAtRootPoint",
+			message = "Android native center chrome needs a coordinate hit-test into Foliate content documents when WebView hitTestResult is UNKNOWN."
+		)
+		assertContains(
+			exportedBridge,
+			"readerContentActionAtPoint",
+			message = "The Android WebView host must be able to ask the reader runtime whether a pending center tap landed on a link/image."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"evaluateJavascript",
+			message = "Delayed center chrome must query the Web runtime before opening, because bridge content-tap posts can race native ACTION_UP."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"readerContentActionAtPoint",
+			message = "The native query must call the coordinate content hit-test exposed by NavicReaderBridge."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"Reader surface delayed center tap ignored for runtime content hit",
+			message = "ADB logs need to distinguish runtime coordinate suppression from ordinary WebView hitTestResult suppression."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"centerTapSequence",
+			message = "Asynchronous evaluateJavascript callbacks must not open chrome for stale canceled center taps."
+		)
 	}
 
 	@Test

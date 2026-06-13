@@ -467,6 +467,15 @@ export const assertRendererCssSmoke = result => {
       `Expected styled text link touch to send readerContentTapHandled from link-touch source; observed ${JSON.stringify(result.textLinkTouchContentTapHandledSources || [])}`
     )
   }
+  if (result.imageNativeCenterContentHit !== true) {
+    throw new Error('Expected native center hit-test to suppress image chrome')
+  }
+  if (result.textLinkNativeCenterContentHit !== true) {
+    throw new Error('Expected native center hit-test to suppress link chrome')
+  }
+  if (result.paragraphNativeCenterContentHit !== false) {
+    throw new Error('Expected native center hit-test not to suppress ordinary paragraph text')
+  }
   if (!String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
     throw new Error(`Expected surface paper texture layer background image; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)
   }

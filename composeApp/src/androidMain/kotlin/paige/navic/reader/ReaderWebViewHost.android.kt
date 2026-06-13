@@ -389,6 +389,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	@Volatile
 	private var contentTapHandledUntilMs: Long = 0L
 	private var pendingCenterTap: Runnable? = null
+	private var centerTapSequence: Long = 0L
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		if (readerWideTapsEnabled && shellCoverVisible) {
@@ -546,7 +547,9 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {
 		cancelPendingReaderCenterTap()
+		val centerTapToken = ++centerTapSequence
 		val pending = Runnable {
+			if (centerTapToken != centerTapSequence) return@Runnable
 			pendingCenterTap = null
 			val latestHitType = readerWebView?.hitTestResult?.type ?: hitType
 			if (!shellCoverVisible && readerContentTapHandled()) {
@@ -563,14 +566,50 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				)
 				return@Runnable
 			}
-			Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$latestHitType")
-			onReaderCenterTap()
+			val webView = readerWebView
+			if (webView == null) {
+				Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$latestHitType")
+				onReaderCenterTap()
+				return@Runnable
+			}
+			webView.evaluateJavascript(
+				"Boolean(window.NavicReaderBridge && " +
+					"window.NavicReaderBridge.readerContentActionAtPoint && " +
+					"window.NavicReaderBridge.readerContentActionAtPoint($x,$y))"
+			) { value ->
+				if (centerTapToken != centerTapSequence) return@evaluateJavascript
+				val callbackHitType = readerWebView?.hitTestResult?.type ?: latestHitType
+				if (!shellCoverVisible && readerContentTapHandled()) {
+					Logger.i(
+						ReaderWebViewHostTag,
+						"Reader surface tap ignored for explicit content handler x=$x y=$y hitType=$callbackHitType"
+					)
+					return@evaluateJavascript
+				}
+				if (!shellCoverVisible && readerContentHandledCenterTap(callbackHitType)) {
+					Logger.i(
+						ReaderWebViewHostTag,
+						"Reader surface delayed center tap ignored for content hitType=$callbackHitType x=$x y=$y"
+					)
+					return@evaluateJavascript
+				}
+				if (!shellCoverVisible && value.equals("true", ignoreCase = true)) {
+					Logger.i(
+						ReaderWebViewHostTag,
+						"Reader surface delayed center tap ignored for runtime content hit x=$x y=$y hitType=$callbackHitType"
+					)
+					return@evaluateJavascript
+				}
+				Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$callbackHitType")
+				onReaderCenterTap()
+			}
 		}
 		pendingCenterTap = pending
 		postDelayed(pending, ReaderCenterTapDelayMs)
 	}
 
 	private fun cancelPendingReaderCenterTap() {
+		centerTapSequence += 1
 		pendingCenterTap?.let(::removeCallbacks)
 		pendingCenterTap = null
 	}

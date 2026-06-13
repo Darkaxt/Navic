@@ -1068,6 +1068,69 @@ class NavicReaderRuntime {
     return false
   }
 
+  readerContentActionInDocumentAtPoint(doc, rootX, rootY, index = null) {
+    if (!doc?.elementFromPoint) return null
+    const frame = doc.defaultView?.frameElement
+    const frameRect = frame?.getBoundingClientRect?.()
+    const x = Number(rootX) - (frameRect?.left || 0)
+    const y = Number(rootY) - (frameRect?.top || 0)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+    if (frameRect && (x < 0 || y < 0 || x > frameRect.width || y > frameRect.height)) return null
+    const target = doc.elementFromPoint(x, y)
+    if (!target) return null
+    const event = {
+      target,
+      clientX: x,
+      clientY: y,
+      button: 0,
+      defaultPrevented: false,
+    }
+    const anchor = closestElement(target, 'a[href]')
+    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    if (mediaTapTarget) {
+      return {
+        handled: true,
+        kind: 'media',
+        href: anchor?.getAttribute?.('href') || '',
+        index,
+      }
+    }
+    if (anchor) {
+      return {
+        handled: true,
+        kind: 'link',
+        href: anchor.getAttribute('href') || '',
+        textHit: readerPointInsideAnchorText(anchor, event),
+        index,
+      }
+    }
+    const formTarget = closestElement(target, 'button,input,textarea,select,summary,[role="button"],[contenteditable="true"]')
+    if (formTarget) {
+      return {
+        handled: true,
+        kind: 'control',
+        index,
+      }
+    }
+    return null
+  }
+
+  readerContentActionAtRootPoint(rootX, rootY) {
+    for (const entry of this.contentEntries()) {
+      const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootX, rootY, entry.index)
+      if (!hit?.handled) continue
+      readerTrace('content-hit-test', {
+        kind: hit.kind,
+        href: hit.href || '',
+        index: hit.index,
+        x: Math.round(Number(rootX) || 0),
+        y: Math.round(Number(rootY) || 0),
+      })
+      return hit
+    }
+    return { handled: false }
+  }
+
   handleReaderTapZoneTap(event, sourceTarget) {
     if (!event || event.defaultPrevented || event.button > 0) return false
     const doc = event?.target?.ownerDocument || sourceTarget?.ownerDocument || sourceTarget
@@ -2477,6 +2540,7 @@ const runtime = new NavicReaderRuntime()
 
 window.NavicReaderBridge = {
   dispatch: command => runtime.dispatch(command),
+  readerContentActionAtPoint: (x, y) => runtime.readerContentActionAtRootPoint(x, y)?.handled === true,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
   postOverlayFragmentInactive: fragmentId => post({ type: 'overlayFragmentInactive', fragmentId }),
 }

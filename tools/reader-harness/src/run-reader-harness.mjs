@@ -47,6 +47,53 @@ const phoneViewport = {
   hasTouch: true,
 }
 
+const performReaderTouchDrag = async (
+  page,
+  {
+    startX,
+    startY,
+    endX,
+    endY,
+    steps = 8,
+    durationMs = 420,
+  }
+) => {
+  const client = await page.context().newCDPSession(page)
+  const point = (x, y) => ({
+    x: Math.round(x),
+    y: Math.round(y),
+    radiusX: 1,
+    radiusY: 1,
+    force: 1,
+    id: 1,
+  })
+  const stepCount = Math.max(2, Number(steps) || 8)
+  const delay = Math.max(8, Math.round((Number(durationMs) || 420) / stepCount))
+  try {
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [point(startX, startY)],
+    })
+    for (let index = 1; index <= stepCount; index += 1) {
+      const progress = index / stepCount
+      const x = startX + (endX - startX) * progress
+      const y = startY + (endY - startY) * progress
+      await page.waitForTimeout(delay)
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [point(x, y)],
+      })
+    }
+    await page.waitForTimeout(delay)
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchEnd',
+      touchPoints: [],
+    })
+  } finally {
+    await client.detach().catch(() => {})
+  }
+}
+
 if (mode === 'phase1-stabilization') {
   const epubFixturePath = path.resolve(argValue('--epub-fixture') || '')
   const pdfFixturePath = path.resolve(argValue('--pdf-fixture') || '')
@@ -1404,17 +1451,42 @@ if (mode === 'epub-texture-frontmatter-transition') {
       return { name, direction: 'forward', samples }
     }
 
-    const authorEntryProbe = await bridgeProbe('author-note-boundary')
-    if (Number(authorEntryProbe.samples.at(-1)?.pageIndex) < Number(authorNoteState?.pageIndex)) {
+    const dragProbe = async name => {
+      const samples = [await collectState('before')]
+      await page.evaluate(() => {
+        const renderer = document.querySelector('foliate-view')?.renderer
+        renderer?.setAttribute?.('animated', '')
+      })
+      const viewport = page.viewportSize() || phoneViewport.viewport
+      const dragPromise = performReaderTouchDrag(page, {
+        startX: viewport.width * 0.82,
+        startY: viewport.height * 0.52,
+        endX: viewport.width * 0.18,
+        endY: viewport.height * 0.52,
+        durationMs: 520,
+        steps: 10,
+      })
+      for (const delay of [40, 80, 120, 180, 260, 360]) {
+        await page.waitForTimeout(delay)
+        samples.push(await collectState(`t+${delay}`))
+      }
+      await dragPromise
+      await page.waitForTimeout(520)
+      samples.push(await collectState('settled'))
+      return { name, direction: 'forward', samples }
+    }
+
+    const dragAuthorEntryProbe = await dragProbe('drag-author-note-boundary')
+    if (Number(dragAuthorEntryProbe.samples.at(-1)?.pageIndex) < Number(authorNoteState?.pageIndex)) {
       throw new Error(
-        `Expected author-note-boundary probe to settle on the visible AUTHOR'S NOTE page; ` +
-        `settled=${authorEntryProbe.samples.at(-1)?.pageIndex}/${authorEntryProbe.samples.at(-1)?.pageCount} ` +
+        `Expected drag-author-note-boundary probe to settle on the visible AUTHOR'S NOTE page; ` +
+        `settled=${dragAuthorEntryProbe.samples.at(-1)?.pageIndex}/${dragAuthorEntryProbe.samples.at(-1)?.pageCount} ` +
         `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
       )
     }
     const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
     const result = {
-      probes: [authorEntryProbe, postAuthorProbe],
+      probes: [dragAuthorEntryProbe, postAuthorProbe],
       authorBoundarySearch: {
         first: firstState,
         searchResult: authorSearchResult,
@@ -1422,6 +1494,9 @@ if (mode === 'epub-texture-frontmatter-transition') {
         author: authorNoteState,
       },
       trace: await page.evaluate(() => window.__navicReaderTrace || []),
+    }
+    if (!result.trace.some(event => event?.type === 'texture:drag-direction')) {
+      throw new Error('Expected drag-author-note-boundary to emit texture:drag-direction before checking texture movement')
     }
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
     fs.mkdirSync(outputDir, { recursive: true })
@@ -2198,6 +2273,14 @@ if (mode === 'css-smoke') {
           screenY: clientY,
         }
       }
+      const rootPointFor = element => {
+        const rect = element.getBoundingClientRect()
+        const frameRect = win.frameElement?.getBoundingClientRect?.()
+        return {
+          x: Math.round((frameRect?.left || 0) + rect.left + rect.width / 2),
+          y: Math.round((frameRect?.top || 0) + rect.top + rect.height / 2),
+        }
+      }
       const dispatchTouchEvent = (element, type, touches, changedTouches) => {
         const event = new win.Event(type, { bubbles: true, cancelable: true })
         Object.defineProperty(event, 'touches', { value: touches, configurable: true })
@@ -2251,6 +2334,21 @@ if (mode === 'css-smoke') {
       const postedAfterTextLinkTouch = postedMessages().slice(postedLengthBeforeTextLinkTouch)
       const imageTouchContentTapHandledSources = contentTapHandledSources(postedAfterImageTouch)
       const textLinkTouchContentTapHandledSources = contentTapHandledSources(postedAfterTextLinkTouch)
+      const imageRootPoint = rootPointFor(image)
+      const textLinkRootPoint = rootPointFor(textLink)
+      const paragraphRootPoint = rootPointFor(paragraph)
+      const imageNativeCenterContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        imageRootPoint.x,
+        imageRootPoint.y
+      )
+      const textLinkNativeCenterContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        textLinkRootPoint.x,
+        textLinkRootPoint.y
+      )
+      const paragraphNativeCenterContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        paragraphRootPoint.x,
+        paragraphRootPoint.y
+      )
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
@@ -2285,6 +2383,9 @@ if (mode === 'css-smoke') {
         textLinkContentTapHandledSources,
         textLinkTouchContentTapHandledCount: textLinkTouchContentTapHandledSources.length,
         textLinkTouchContentTapHandledSources,
+        imageNativeCenterContentHit,
+        textLinkNativeCenterContentHit,
+        paragraphNativeCenterContentHit,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',

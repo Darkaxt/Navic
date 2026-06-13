@@ -2366,3 +2366,74 @@ Phone validation target after eta53 release:
 - Dragging from maps/frontmatter into Author's Note should not invert the texture movement or leave later pages inverted.
 - Normal EPUB taps/drags and cover taps should remain working.
 - Cover dragging remains pending and should be diagnosed with eta52/eta53 ADB `shellCoverDragCandidate` / `shellCoverSwipe` output before changing that path further.
+
+## Phone Validation: 2026-06-13 eta53 Reader Behavior Baseline
+
+Observed on device after installing eta53:
+
+- Cover tapping works.
+- Cover dragging still does not work.
+- Normal EPUB page tapping works.
+- Normal EPUB page dragging works.
+- Center-tapping interactive images toggles image state, but still surfaces reader chrome.
+- Tapping chapter-selection/frontmatter links also still surfaces reader chrome.
+- The paper texture transition still inverts when moving from the maps into the Author's Note and stays inverted after that area transition.
+
+Current diagnosis constraints:
+
+- eta53 did not close the content-action chrome leak. The next fix must prove that native center-menu dispatch is suppressed after actual image/link interactions, not only after synthetic document-level handlers.
+- eta53 did not close the maps -> Author's Note texture inversion. The next fix must prove the visible page turn direction remains stable through the real frontmatter area transition and does not depend on transient Foliate relocation signs.
+- Cover drag remains a separate native shell-cover issue. Cover tapping success is not evidence that shell-cover drag works.
+- Normal page taps/drags are working and must remain green.
+
+Current implementation priority:
+
+1. Add stronger laptop-testable coverage that simulates Android native center-tap timing around real image and link interactions.
+2. Add stronger texture-transition coverage for the real maps -> Author's Note path that detects persistent direction inversion after the boundary.
+3. Fix only the root causes proven by those tests.
+4. Release only after the next build contains a phone-evaluable behavior change, then validate against this eta53 baseline.
+
+## Implementation Checkpoint: 2026-06-13 eta54 Candidate Runtime Content Hit-Test And Drag Boundary Probe
+
+Scope:
+
+- Address the eta53 phone result where image taps and chapter/frontmatter links still surfaced reader chrome.
+- Strengthen local texture validation so the maps -> Author's Note boundary is exercised with a real touch-drag page turn, not only a bridge `nextPage` command.
+- Keep shell-cover drag as a separate pending phone issue. eta54 does not claim cover dragging is fixed.
+
+Root-cause update:
+
+- eta53 relied on `readerContentTapHandled` bridge posts from content document handlers. That proves content JavaScript ran, but it does not prove Android's delayed center-menu path will suppress itself when `WebView.hitTestResult` is `UNKNOWN` or stale.
+- The native center-menu path now needs a direct coordinate hit-test into the current Foliate documents before opening chrome.
+- eta53's frontmatter texture harness used bridge-driven page turns, while the phone regression happens during finger dragging. The harness now includes a named `drag-author-note-boundary` probe driven through browser touch events.
+
+Implementation:
+
+- `NavicReaderBridge.readerContentActionAtPoint(x, y)` now asks the reader runtime to map root/WebView coordinates into loaded Foliate content documents and classify links, media/images, and form controls.
+- Android `ReaderSurfaceHost.scheduleReaderCenterTap()` now queries that runtime hit-test with `evaluateJavascript()` before dispatching reader chrome.
+- Asynchronous center-tap callbacks are guarded by `centerTapSequence`, so canceled/stale center taps cannot open chrome later.
+- CSS smoke now checks `imageNativeCenterContentHit`, `textLinkNativeCenterContentHit`, and `paragraphNativeCenterContentHit` so it verifies Android-style center suppression, not just bridge message counts.
+- The frontmatter transition harness now performs a real touch drag across the Author's Note boundary and requires a `texture:drag-direction` trace.
+
+Focused validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderUsesCoordinateContentHitTestBeforeDelayedCenterChrome" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionIncludesRealDragProbe"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result:
+
+- Focused host tests passed after the initial RED failures.
+- CSS smoke passed and verifies native-center image/link suppression with ordinary paragraph text left unsuppressed.
+- Real Hobbit frontmatter transition passed with `drag-author-note-boundary`.
+- Trace summary: drag probe settled from page `3` to `4`, emitted repeated `texture:drag-direction` events with `direction=next`, and texture scroll samples stayed counter-moving through the Author's Note boundary.
+
+Phone validation target after eta54 release:
+
+- Center-tapping an image should toggle the image sepia state without surfacing reader chrome.
+- Tapping chapter-selection/frontmatter links should navigate without surfacing reader chrome.
+- Dragging from maps/frontmatter into Author's Note should not invert texture movement or leave later pages inverted.
+- Normal EPUB taps/drags and cover taps should remain working.
+- Cover dragging remains pending and should still be diagnosed separately with `shellCoverDragCandidate` / `shellCoverSwipe`.

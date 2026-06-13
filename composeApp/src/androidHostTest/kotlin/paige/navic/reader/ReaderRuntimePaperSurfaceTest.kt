@@ -436,6 +436,34 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun readerHarnessTextureFrontmatterTransitionIncludesRealDragProbe() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val frontmatterMode = harnessFile.readText()
+			.substringAfter("if (mode === 'epub-texture-frontmatter-transition') {")
+			.substringBefore("\nif (mode === 'pdf-smoke')")
+
+		assertContains(
+			frontmatterMode,
+			"performReaderTouchDrag",
+			message = "The texture boundary harness must exercise real drag-driven Foliate page turns, not only bridge nextPage commands."
+		)
+		assertContains(
+			frontmatterMode,
+			"drag-author-note-boundary",
+			message = "The maps/frontmatter -> Author's Note texture inversion must have a named drag probe for phone-equivalent behavior."
+		)
+		assertContains(
+			frontmatterMode,
+			"texture:drag-direction",
+			message = "The drag probe must verify that runtime touch tracking actually seeded texture direction."
+		)
+	}
+
+	@Test
 	fun readerHarnessFullTraversalUsesLightweightPerPageSnapshots() {
 		val harnessFile = listOf(
 			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
