@@ -274,9 +274,15 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "renderer.addEventListener('scroll'")
 		assertContains(runtimeFields, "surfacePaperTextureBaseOffset")
 		assertContains(runtimeFields, "surfaceTextureScrollOffset")
+		assertContains(bridgeText, "surfacePaperTextureDiagnosticState(reason = 'scroll')")
+		assertContains(bridgeText, "position: this.currentRendererContainerPosition()")
+		assertContains(bridgeText, "baseOffset: this.surfacePaperTextureBaseOffset")
+		assertContains(bridgeText, "delta: position - this.surfacePaperTextureBaseOffset")
+		assertContains(bridgeText, "pageTurnDirection: this.pageTurnDirection || ''")
+		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
+		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
 		assertContains(bridgeText, "? { x: 0, y: -bounded }")
 		assertContains(bridgeText, ": { x: -bounded, y: 0 }")
-		assertContains(bridgeText, "readerTrace('texture:scroll'")
 		assertFalse(
 			bridgeText.contains("? { x: 0, y: bounded }") || bridgeText.contains(": { x: bounded, y: 0 }"),
 			"Surface paper texture movement must use the inverted paginator delta so the fixed texture moves with the page content."

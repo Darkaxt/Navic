@@ -1621,3 +1621,46 @@ Current conclusion:
 
 - Do not flip texture sign globally from the desktop harness result; that would likely regress the path that is already correct.
 - The next texture slice needs Android WebView evidence: either ADB/WebView inspection while reproducing the maps -> Author's Note transition, or richer `console.debug` texture logs that include page index, href, `renderer.containerPosition`, `surfacePaperTextureBaseOffset`, `pageTurnDirection`, and computed offset.
+
+## Release Candidate: 2026-06-13 eta47 Texture Transition Diagnostics
+
+Scope:
+
+- Add Android-visible texture diagnostics without changing texture movement behavior.
+- Enrich `surface-texture-scroll` console logs with computed offset, renderer position, base offset, delta, page-turn direction, current page label, and href.
+- Add `surface-texture-update` console logs when a committed page selects a new texture variant.
+- Enrich `texture:scroll` and `texture:update` harness trace payloads with the same diagnostic fields.
+
+Reason:
+
+- Local Chromium real-touch probing did not reproduce the phone-reported maps -> Author's Note inversion.
+- The phone failure still needs evidence showing whether the inverted movement comes from Android WebView reporting a reversed `renderer.containerPosition`, a late `surfacePaperTextureBaseOffset` reset, or an unexpected `pageTurnDirection` state.
+
+Phone validation target:
+
+- Install eta47.
+- Open the Hobbit EPUB in sepia mode.
+- Move from the maps into Author's Note and then one or two pages after the inversion.
+- Capture logcat lines containing `surface-texture-scroll` and `surface-texture-update`.
+- A useful failing trace must include at least one scroll line around the inversion with `x=`, `pos=`, `base=`, `delta=`, `dir=`, `page=`, and `href=`.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSyncsSurfaceTextureWithPaginatorScrollDrags"
+```
+
+Initial result: failed at `ReaderRuntimePaperSurfaceTest.kt:277` because no structured texture diagnostic state existed.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+powershell -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta47
+git diff --check
+```
+
+Result: all commands passed. The generated `epub-texture-frontmatter-transition.trace.json` includes `texture:scroll` and `texture:update` payloads with `offset`, `position`, `baseOffset`, `delta`, `pageTurnDirection`, `flowMode`, `pageIndex`, `pageCount`, `href`, and `textureKey`.

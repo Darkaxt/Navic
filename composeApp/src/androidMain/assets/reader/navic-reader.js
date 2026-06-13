@@ -1922,6 +1922,26 @@ class NavicReaderRuntime {
     return this.surfaceTextureScrollOffset
   }
 
+  surfacePaperTextureDiagnosticState(reason = 'scroll') {
+    const position = this.currentRendererContainerPosition()
+    const pageIndex = Number(this.currentPagePosition?.pageIndex)
+    const pageCount = Number(this.currentPagePosition?.pageCount)
+    const detail = this.lastRelocateDetail || {}
+    return {
+      reason,
+      offset: this.surfaceTextureScrollOffset || { x: 0, y: 0 },
+      position: this.currentRendererContainerPosition(),
+      baseOffset: this.surfacePaperTextureBaseOffset,
+      delta: position - this.surfacePaperTextureBaseOffset,
+      pageTurnDirection: this.pageTurnDirection || '',
+      flowMode: this.readerFlowModeValue,
+      pageIndex: Number.isFinite(pageIndex) ? pageIndex : null,
+      pageCount: Number.isFinite(pageCount) ? pageCount : null,
+      href: detail.href || this.sectionHrefForDetail(detail) || '',
+      textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || '',
+    }
+  }
+
   attachSurfacePaperTextureScrollSync() {
     const renderer = this.view?.renderer
     if (!renderer || renderer === this.surfacePaperTextureScrollRenderer) return
@@ -1944,8 +1964,20 @@ class NavicReaderRuntime {
     this.renderSurfacePaperTextureLayers()
     const offset = this.surfaceTextureScrollOffset
     if (Math.abs(offset.x || 0) > 1 || Math.abs(offset.y || 0) > 1) {
-      log('surface-texture-scroll', reason, `x=${Math.round(offset.x || 0)}`, `y=${Math.round(offset.y || 0)}`)
-      readerTrace('texture:scroll', { reason, offset })
+      const diagnostic = this.surfacePaperTextureDiagnosticState(reason)
+      log(
+        'surface-texture-scroll',
+        reason,
+        `x=${Math.round(offset.x || 0)}`,
+        `y=${Math.round(offset.y || 0)}`,
+        `pos=${Math.round(diagnostic.position)}`,
+        `base=${Math.round(diagnostic.baseOffset)}`,
+        `delta=${Math.round(diagnostic.delta)}`,
+        `dir=${diagnostic.pageTurnDirection || 'none'}`,
+        `page=${diagnostic.pageIndex ?? ''}/${diagnostic.pageCount ?? ''}`,
+        `href=${diagnostic.href}`
+      )
+      readerTrace('texture:scroll', diagnostic)
     }
   }
 
@@ -2009,13 +2041,21 @@ class NavicReaderRuntime {
     readerRoot.dataset.navicSurfacePaperTextureAsset = textureVariant.asset
     readerRoot.dataset.navicSurfacePageBorderOverlayAsset = borderOverlayVariant.asset
     readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
+    const diagnostic = this.surfacePaperTextureDiagnosticState('update')
+    log(
+      'surface-texture-update',
+      `page=${diagnostic.pageIndex ?? ''}/${diagnostic.pageCount ?? ''}`,
+      `href=${diagnostic.href}`,
+      `pos=${Math.round(diagnostic.position)}`,
+      `base=${Math.round(diagnostic.baseOffset)}`,
+      `key=${textureKey}`
+    )
     readerTrace('texture:update', {
+      ...diagnostic,
       index,
       key: textureKey,
       baseAsset: textureVariant.asset,
       borderAsset: borderOverlayVariant.asset,
-      baseOffset: this.surfacePaperTextureBaseOffset,
-      scrollOffset: this.surfaceTextureScrollOffset,
     })
     this.renderSurfacePaperTextureLayers()
   }
