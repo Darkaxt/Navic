@@ -1607,3 +1607,17 @@ Release publication status:
 - Android build job: success.
 - iOS jobs: skipped by workflow.
 - ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
+
+## Investigation Checkpoint: 2026-06-13 Texture Inversion Reproduction
+
+Latest local reproduction attempt:
+
+- Ran the existing `epub-texture-frontmatter-transition` harness against `D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub`; it passed, but still only sampled shallow frontmatter bridge turns.
+- Ran a temporary real-touch Chromium probe over the same EPUB, swiping through frontmatter pages `0 -> 13`.
+- Every forward drag produced negative texture X offsets (`-35px` through about `-280px`) and monotonically increasing `renderer.containerPosition`.
+- The desktop Chromium path therefore did not reproduce the phone-reported inversion where maps -> Author's Note flips texture movement and stays inverted.
+
+Current conclusion:
+
+- Do not flip texture sign globally from the desktop harness result; that would likely regress the path that is already correct.
+- The next texture slice needs Android WebView evidence: either ADB/WebView inspection while reproducing the maps -> Author's Note transition, or richer `console.debug` texture logs that include page index, href, `renderer.containerPosition`, `surfacePaperTextureBaseOffset`, `pageTurnDirection`, and computed offset.
