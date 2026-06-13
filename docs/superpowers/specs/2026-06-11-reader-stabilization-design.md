@@ -1664,3 +1664,15 @@ git diff --check
 ```
 
 Result: all commands passed. The generated `epub-texture-frontmatter-transition.trace.json` includes `texture:scroll` and `texture:update` payloads with `offset`, `position`, `baseOffset`, `delta`, `pageTurnDirection`, `flowMode`, `pageIndex`, `pageCount`, `href`, and `textureKey`.
+
+Release publication status:
+
+- Published release tag: `v1.0.11-eta47`
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta47`
+- APK URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta47/Navic.apk`
+- GitHub asset digest: `sha256:fbb6050692aae31628ab4f98da637a29c53ced27b4dbe83f376e763634256b2d`
+- GitHub workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27451669574`
+- Android build job: success.
+- iOS jobs: skipped by workflow.
+- Local download verification: `Get-FileHash releases\v1.0.11-eta47\Navic.apk -Algorithm SHA256` produced `FBB6050692AAE31628AB4F98DA637A29C53CED27B4DBE83F376E763634256B2D`.
+- ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
