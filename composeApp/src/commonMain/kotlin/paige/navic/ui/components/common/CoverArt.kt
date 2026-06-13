@@ -190,6 +190,7 @@ fun CoverArt(
 	shape: Shape? = null,
 	colorFilter: ColorFilter? = null,
 	artworkResolving: Boolean = false,
+	normalization: CoverArtNormalization = CoverArtNormalization.None,
 	contentScale: ContentScale = ContentScale.Crop
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -200,7 +201,10 @@ fun CoverArt(
 	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
 	val usesServerCoverArt = resolvedImageUrl == null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
-	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
+	val resolvedImageCacheKey = normalizedCoverArtCacheKey(
+		cacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId,
+		normalization = normalization
+	)
 	LaunchedEffect(
 		imageDiagnosticLabel,
 		coverArtId,
@@ -228,6 +232,7 @@ fun CoverArt(
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.crossfade(crossfadeMs)
+			.applyCoverArtNormalization(normalization)
 			.apply {
 				if (resolvedRequestHeaders.isNotEmpty()) {
 					httpHeaders(resolvedRequestHeaders.toNetworkHeaders())
