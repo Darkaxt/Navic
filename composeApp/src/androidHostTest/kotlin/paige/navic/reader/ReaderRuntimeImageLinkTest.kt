@@ -445,6 +445,29 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting() {
+		val bridgeText = readerBridgeText()
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  handleReaderTapZoneTap")
+
+		assertContains(
+			claimInteractiveTouch,
+			"if (anchor) {",
+			message = "Any actual anchor touch target should claim content ownership before native center chrome can fire."
+		)
+		assertFalse(
+			claimInteractiveTouch.contains("if (anchor && readerPointInsideAnchorText(anchor, event))"),
+			"Text-rect hit testing can gate link navigation, but must not delay the touch-phase content ownership signal."
+		)
+		assertContains(
+			claimInteractiveTouch,
+			"textHit: readerPointInsideAnchorText(anchor, event)",
+			message = "Anchor diagnostics should still record whether the touch was inside rendered link text."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

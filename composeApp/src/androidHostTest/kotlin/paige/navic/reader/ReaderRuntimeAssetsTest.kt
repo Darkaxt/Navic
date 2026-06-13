@@ -132,6 +132,22 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeCapturesFocusedReaderDiagnostics() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+
+		assertContains(scriptText, "[switch] \$CaptureReaderDiagnostics")
+		assertContains(scriptText, "surface-texture-scroll")
+		assertContains(scriptText, "surface-texture-update")
+		assertContains(scriptText, "Reader surface touch down")
+		assertContains(scriptText, "Reader surface tap action=")
+		assertContains(scriptText, "Reader bridge raw")
+		assertContains(scriptText, "readerContentTapHandled")
+		assertContains(scriptText, "reader-diagnostics-summary.txt")
+		assertContains(scriptText, "reader-texture-diagnostics.log")
+		assertContains(scriptText, "reader-touch-diagnostics.log")
+	}
+
+	@Test
 	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
 		val hostText = readerWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()

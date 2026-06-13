@@ -245,6 +245,25 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeShellCoverTouchStreamIsOwnedBeforeCoverWebViewChildDispatch() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val dispatchTouchEvent = webViewHostText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate fun handleReaderSurfaceTouch")
+
+		assertContains(dispatchTouchEvent, "if (readerWideTapsEnabled && shellCoverVisible)")
+		assertContains(dispatchTouchEvent, "handleReaderSurfaceTouch(event)")
+		assertContains(dispatchTouchEvent, "return true")
+		assertTrue(
+			dispatchTouchEvent.indexOf("if (readerWideTapsEnabled && shellCoverVisible)") <
+				dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)"),
+			"Native shell-cover taps and drags must be owned above the cover WebView child surface."
+		)
+		assertContains(dispatchTouchEvent, "val childHandled = super.dispatchTouchEvent(event)")
+		assertContains(dispatchTouchEvent, "return childHandled")
+	}
+
+	@Test
 	fun nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val contentHandledTap = webViewHostText

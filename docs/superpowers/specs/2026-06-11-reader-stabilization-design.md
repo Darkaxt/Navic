@@ -1676,3 +1676,99 @@ Release publication status:
 - iOS jobs: skipped by workflow.
 - Local download verification: `Get-FileHash releases\v1.0.11-eta47\Navic.apk -Algorithm SHA256` produced `FBB6050692AAE31628AB4F98DA637A29C53CED27B4DBE83F376E763634256B2D`.
 - ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
+
+## ADB/User Validation Feedback: 2026-06-13 eta47 Reader Interaction Results
+
+This feedback supersedes the pending eta45/eta46/eta47 phone-validation assumptions. It is the current behavior register before any eta48 implementation.
+
+Confirmed working:
+
+- Cover tapping works.
+- Normal readable EPUB taps work.
+- Normal readable EPUB drag gestures work.
+- Image sepia-tint toggling works visually: interacting with the image can bring the tint back and toggle it out again.
+
+Still broken:
+
+- Dragging does not work on the native cover surface.
+- Tapping interactive images in the center still also surfaces reader chrome.
+- Tapping links in the chapter/frontmatter selection flow still also surfaces reader chrome.
+- The paper texture transition works from the cover through the map pages, then inverts specifically while moving from the maps into the Author's Note and remains inverted after that area transition.
+
+Diagnosis constraints:
+
+- Do not explain the texture inversion as a generic mid-motion relocation reset unless ADB/WebView evidence proves that path. The observed failure is area-transition-specific.
+- Do not fix cover drag by reintroducing WebView-owned page-zone handling. Cover taps and drags must be owned above the rendered cover surface.
+- Do not treat image/link content actions as reader-center taps. If an EPUB image tint toggle or link navigation is the intended content action, it must claim content ownership before native chrome can toggle.
+
+Next eta48 target:
+
+1. Strengthen diagnostics so ADB/logcat can capture touch ownership and texture state in one repeatable command.
+2. Harden interactive content ownership so image and link actions cancel native center chrome even when Android WebView hit testing reports an iframe/unknown target.
+3. Rework cover drag ownership only after a focused test proves the native cover surface receives or loses the drag stream.
+4. Keep texture movement production code unchanged until the maps -> Author's Note transition trace identifies whether the sign flip comes from renderer position, base offset, page-turn direction, or area-transition coordinate wrapping.
+
+## Release Candidate: 2026-06-13 eta48 Shell-Cover Touch Ownership And Reader Diagnostics
+
+Scope:
+
+- Add a focused `adb-reader-smoke.ps1 -CaptureReaderDiagnostics` mode that writes touch, content-ownership, and texture diagnostics into separate artifact files.
+- Keep the normal reader smoke capture path intact while adding `reader-touch-diagnostics.log`, `reader-texture-diagnostics.log`, and `reader-diagnostics-summary.txt`.
+- Let `ReaderSurfaceHost` own touch streams before child dispatch only while the native shell cover is visible, so cover taps and cover drags are above the cover WebView surface.
+- Keep readable EPUB/PDF touch streams child-first so Foliate/PDF drag behavior remains renderer-owned.
+- Claim real EPUB anchor touches during `touchstart` / `touchend` before text-rectangle navigation hit testing, so intended link interactions can cancel native center chrome even when Android hit testing reports an iframe/unknown target.
+- Do not change paper texture movement production code in this slice; eta48 is intended to collect decisive ADB texture evidence for the maps -> Author's Note inversion.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics"
+```
+
+Initial result: failed because `adb-reader-smoke.ps1` did not expose `-CaptureReaderDiagnostics` or focused touch/texture artifact files.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting"
+```
+
+Initial result: failed because touch-phase link ownership still depended on `readerPointInsideAnchorText(anchor, event)`.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverTouchStreamIsOwnedBeforeCoverWebViewChildDispatch"
+```
+
+Initial result: failed because shell-cover touch streams were still dispatched to the cover WebView child before native reader handling.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverTouchStreamIsOwnedBeforeCoverWebViewChildDispatch"
+```
+
+Result: each focused test passed after its corresponding implementation. The shell-cover focused test needed a rerun with a larger command timeout; the rerun completed successfully.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeAssetsTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+```
+
+Result: all commands exited `0`; the harness checks passed.
+
+Phone validation required after release:
+
+- Drag left on the native cover should advance into the first readable page.
+- Cover taps should still work.
+- Normal readable EPUB taps and drags should still work.
+- Center tapping an image should toggle sepia tint without surfacing reader chrome.
+- Tapping a chapter/frontmatter link should navigate without surfacing reader chrome.
+- Run `scripts\adb-reader-smoke.ps1 -ExpectedVersionName v1.0.11-eta48 -NoLaunch -CaptureReaderDiagnostics` after reproducing the maps -> Author's Note transition; inspect `reader-texture-diagnostics.log` and `reader-diagnostics-summary.txt` for `surface-texture-scroll` lines with `pos`, `base`, `delta`, `dir`, `page`, and `href`.

@@ -381,6 +381,10 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var pendingCenterTap: Runnable? = null
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+		if (readerWideTapsEnabled && shellCoverVisible) {
+			handleReaderSurfaceTouch(event)
+			return true
+		}
 		val childHandled = super.dispatchTouchEvent(event)
 		if (readerWideTapsEnabled) {
 			handleReaderSurfaceTouch(event)

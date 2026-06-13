@@ -11,6 +11,7 @@ param(
     [int] $CaptureWaitSeconds = 0,
     [switch] $ValidateReaderTaps,
     [switch] $RequireReaderTapAction,
+    [switch] $CaptureReaderDiagnostics,
     [switch] $NoLaunch
 )
 
@@ -172,6 +173,47 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-reader.log")
 
 $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader.log") -Raw
+
+if ($CaptureReaderDiagnostics) {
+    $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover swipe|Reader shell cover command|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+
+    $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
+    $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
+    $summaryPath = Join-Path $ArtifactDir "reader-diagnostics-summary.txt"
+
+    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
+        Select-String -Pattern $textureDiagnosticPattern -CaseSensitive:$false |
+        ForEach-Object { $_.Line } |
+        Out-File -Encoding utf8 $textureDiagnosticsPath
+
+    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
+        Select-String -Pattern $touchDiagnosticPattern -CaseSensitive:$false |
+        ForEach-Object { $_.Line } |
+        Out-File -Encoding utf8 $touchDiagnosticsPath
+
+    $textureDiagnosticsText = Get-Content -LiteralPath $textureDiagnosticsPath -Raw
+    $touchDiagnosticsText = Get-Content -LiteralPath $touchDiagnosticsPath -Raw
+    $summaryLines = @(
+        "textureScrollLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false).Count)",
+        "textureUpdateLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false).Count)",
+        "readerSurfaceTouchDown=$($touchDiagnosticsText -match 'Reader surface touch down')",
+        "readerSurfaceTapAction=$($touchDiagnosticsText -match 'Reader surface tap action=')",
+        "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
+        "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
+        "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
+        "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
+        "shellCoverSwipe=$($touchDiagnosticsText -match 'Reader shell cover swipe')",
+        "textureHasPosition=$($textureDiagnosticsText -match 'pos=')",
+        "textureHasBase=$($textureDiagnosticsText -match 'base=')",
+        "textureHasDelta=$($textureDiagnosticsText -match 'delta=')",
+        "textureHasDirection=$($textureDiagnosticsText -match 'dir=')",
+        "textureHasPage=$($textureDiagnosticsText -match 'page=')",
+        "textureHasHref=$($textureDiagnosticsText -match 'href=')"
+    )
+    $summaryLines | Out-File -Encoding utf8 $summaryPath
+}
+
 if ($ValidateReaderTaps) {
     $validationLines = New-Object System.Collections.Generic.List[string]
     $hasPlainImageRegression = $readerLogText -match "Reader surface tap ignored for content hitType=5"

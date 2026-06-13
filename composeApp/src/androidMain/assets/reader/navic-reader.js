@@ -1053,10 +1053,11 @@ class NavicReaderRuntime {
       })
       return true
     }
-    if (anchor && readerPointInsideAnchorText(anchor, event)) {
+    if (anchor) {
       post({ type: 'readerContentTapHandled', source: 'link-touch' })
       readerTrace('content-touch:link', {
         href: anchor.getAttribute('href') || '',
+        textHit: readerPointInsideAnchorText(anchor, event),
       })
       return true
     }

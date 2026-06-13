@@ -75,6 +75,13 @@ internal fun readerCommonFile(fileName: String): File =
 	).firstOrNull { it.isFile }
 		?: error("Could not locate common reader file $fileName")
 
+internal fun repoScriptFile(fileName: String): File =
+	listOf(
+		File("scripts/$fileName"),
+		File("../scripts/$fileName")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate script $fileName")
+
 internal fun File.hasPngAlphaChannel(): Boolean {
 	val bytes = readBytes()
 	require(bytes.size > 25) { "PNG file is too small: $this" }
