@@ -262,6 +262,25 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeReaderSurfaceSuppressesCenterChromeForInteractiveImageHitsOnly() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val dispatchWideTap = webViewHostText
+			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
+			.substringBefore("\n\tfun markContentTapHandled()")
+		val centerHandledTap = webViewHostText
+			.substringAfter("private fun readerContentHandledCenterTap(hitType: Int): Boolean =")
+			.substringBefore("\n\n\tprivate fun scheduleReaderCenterTap")
+
+		assertContains(dispatchWideTap, "readerContentHandledCenterTap(contentHitType)")
+		assertContains(centerHandledTap, "WebView.HitTestResult.IMAGE_TYPE")
+		assertTrue(
+			dispatchWideTap.indexOf("readerTapZoneActionAt(") <
+				dispatchWideTap.indexOf("readerContentHandledCenterTap(contentHitType)"),
+			"Image hit suppression must be center/menu-only so edge image taps can still turn pages."
+		)
+	}
+
+	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()

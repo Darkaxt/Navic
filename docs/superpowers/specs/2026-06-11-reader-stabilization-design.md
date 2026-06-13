@@ -1550,3 +1550,49 @@ Phone validation required after release:
 - Cover taps should still work.
 - Normal readable EPUB drags should still work.
 - PDF/fixed-layout swipes should still work.
+
+Release publication status:
+
+- Published release tag: `v1.0.11-eta45`
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta45`
+- APK URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta45/Navic.apk`
+- GitHub asset digest: `sha256:343654220aa0a3f76d6b48fda0137a45e22198174709921df472e39464528428`
+- ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
+
+## Release Candidate: 2026-06-13 eta46 Interactive Image Center-Tap Suppression
+
+Scope:
+
+- Fix the phone-reported image interaction leak where tapping an image center toggles sepia tint but also brings the reader menu bar back.
+- Keep edge taps over image content available for page turns.
+- Add center/menu-only suppression for native `WebView.HitTestResult.IMAGE_TYPE` so the native overlay does not depend entirely on a racing JavaScript bridge message for image taps.
+- Leave anchor/link handling unchanged in this slice; link menu leakage remains open unless eta46 phone validation proves it was the same native center-hit race.
+
+Root-cause evidence:
+
+- eta44 posts `readerContentTapHandled` from JS touch/click handlers, but phone validation still showed image center taps surfacing chrome.
+- Android native tap-zone dispatch deliberately does not treat `IMAGE_TYPE` as a blanket content hit because plain image hits must not block edge previous/next zones.
+- The missing distinction was center/menu-only content handling: images can be page-turn surfaces at the edges but must be treated as interactive content in the center.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceSuppressesCenterChromeForInteractiveImageHitsOnly"
+```
+
+Initial result: failed at `ReaderRuntimeShellProgressTest.kt:274` because no `readerContentHandledCenterTap` path existed.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceSuppressesCenterChromeForInteractiveImageHitsOnly"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks executed.
+
+Phone validation required after release:
+
+- Center tapping a sepia-tinted image should toggle the image tint only.
+- The same image tap should not open the reader menu bar.
+- Edge taps over image content should still page-turn when the configured tap zone maps that edge to previous/next.
+- Text links and table-of-contents links still need explicit validation; if they still open chrome, the next slice must target the link-specific path.

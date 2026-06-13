@@ -499,6 +499,12 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		if (command != null) {
 			cancelPendingReaderCenterTap()
 			dispatchReaderPageTurnCommand(command)
+		} else if (!shellCoverVisible && readerContentHandledCenterTap(contentHitType)) {
+			Logger.i(
+				ReaderWebViewHostTag,
+				"Reader surface center tap ignored for content hitType=$contentHitType " +
+					"x=${event.x.toInt()} y=${event.y.toInt()}"
+			)
 		} else {
 			scheduleReaderCenterTap(event.x.toInt(), event.y.toInt(), contentHitType)
 		}
@@ -511,6 +517,9 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun readerContentTapHandled(): Boolean =
 		SystemClock.uptimeMillis() <= contentTapHandledUntilMs
+
+	private fun readerContentHandledCenterTap(hitType: Int): Boolean =
+		readerContentHandledTap(hitType) || hitType == WebView.HitTestResult.IMAGE_TYPE
 
 	private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {
 		cancelPendingReaderCenterTap()
