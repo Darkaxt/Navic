@@ -2054,3 +2054,50 @@ Current conclusion:
 - The Phase 1 gate is now laptop-verifiable again with explicit per-step evidence.
 - It is not a quick smoke test; it is a full real-EPUB traversal gate and currently takes about five minutes end to end on this machine.
 - No APK release is required for this checkpoint because it changes the local validation harness and plan documentation, not packaged reader runtime behavior.
+
+## Verification Refresh: 2026-06-13 Current Branch Stabilization Gates
+
+Scope:
+
+- Re-verify the current `master` branch after eta50 publication and the release-status documentation commit.
+- Treat current command output as authoritative rather than relying on older checkpoint notes.
+- Keep phone validation explicitly separate from laptop validation.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest" --tests "paige.navic.reader.StorytellerReadaloudRuntimeLoaderTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderProgressSyncTest" --tests "paige.navic.ui.components.layouts.MiniPlayerVisibilityPolicyTest" --tests "paige.navic.domain.models.AudioPlaybackOwnershipPolicyTest"
+```
+
+Result: `BUILD SUCCESSFUL`.
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result: `reader harness phase1-stabilization passed: 15 checks`.
+
+Observed sub-checks:
+
+- `trace-smoke`
+- `epub-frontmatter`
+- `epub-page-boundary`
+- `epub-shell-cover`
+- `epub-external-shell-cover`
+- `epub-native-tap-zone-open`
+- `css-smoke`
+- `texture-offset-logic`
+- `epub-texture-scroll`
+- `epub-texture-page-turns`
+- `epub-texture-frontmatter-transition`
+- `epub-full-traversal`
+- `pdf-smoke`
+- `pdf-fast-sequential-turns`
+- `pdf-image-settings`
+
+The full traversal reached `501/505` progress logging and completed in `176.4s`; the full gate completed in `292.9s`.
+
+Phone validation status:
+
+- `adb devices -l` returned no connected devices in this session.
+- eta50 remains the current phone-testable release for shell-cover drag, normal-page taps/drags, image/link chrome suppression, and maps/frontmatter -> Author's Note texture movement.
