@@ -81,7 +81,10 @@ import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.CoverArtNormalization
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.applyCoverArtNormalization
+import paige.navic.ui.components.common.normalizedCoverArtCacheKey
 import paige.navic.ui.components.common.playPauseIconPainter
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
@@ -134,12 +137,17 @@ fun MiniPlayer(
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val model = remember(song?.coverArtId, musicBrainzFallbackArtworkUrl, musicBrainzFallbackArtworkCacheKey, serverRequestHeaders) {
 		val usesServerCoverArt = musicBrainzFallbackArtworkUrl.isNullOrBlank()
+		val imageCacheKey = normalizedCoverArtCacheKey(
+			cacheKey = musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId,
+			normalization = CoverArtNormalization.TrimWhitespace
+		)
 		ImageRequest.Builder(coilPlatformContext)
 			.data(musicBrainzFallbackArtworkUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
-			.memoryCacheKey(musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId)
-			.diskCacheKey(musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId)
+			.memoryCacheKey(imageCacheKey)
+			.diskCacheKey(imageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
+			.applyCoverArtNormalization(CoverArtNormalization.TrimWhitespace)
 			.apply {
 				if (usesServerCoverArt) {
 					httpHeaders(serverRequestHeaders.toNetworkHeaders())

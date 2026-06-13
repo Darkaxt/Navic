@@ -48,6 +48,7 @@ import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.CoverArtNormalization
 import kotlin.math.min
 
 @Composable
@@ -121,6 +122,7 @@ fun NowPlayingArtwork(
 				musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 				musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
 			},
+			normalization = CoverArtNormalization.TrimWhitespace,
 			modifier = artworkModifier
 				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
 			shadowElevation = 8.dp,

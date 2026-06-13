@@ -35,6 +35,7 @@ import paige.navic.domain.models.nowPlayingUpNextItems
 import paige.navic.domain.models.shouldShowNowPlayingUpNextArtwork
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.CoverArtNormalization
 import paige.navic.ui.navigation.Screen
 
 internal fun nowPlayingUpNextItemWidth(showArtwork: Boolean): Dp =
@@ -140,6 +141,7 @@ private fun NowPlayingUpNextItem(
 					coverArtId = song.coverArtId,
 					contentDescription = null,
 					modifier = Modifier.size(36.dp),
+					normalization = CoverArtNormalization.TrimWhitespace,
 					crossfadeMs = 200
 				)
 				Column(
