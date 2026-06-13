@@ -1867,6 +1867,18 @@ Phone validation target after release:
 - Edge taps should still turn pages without the center-menu delay.
 - Cover drag and the maps -> Author's Note texture inversion remain separate unresolved issues.
 
+Release publication status:
+
+- Published release tag: `v1.0.11-eta49`.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta49`.
+- APK URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta49/Navic.apk`.
+- GitHub asset digest: `sha256:d74b1a71ec8d597af7d82a694be3b2d6c45b178034b478d7726bf7b0d25c9396`.
+- GitHub workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27455175041`.
+- Android build job: success; release APK signing verification passed.
+- iOS jobs: skipped by workflow.
+- Local download verification: `Get-FileHash releases\v1.0.11-eta49\Navic.apk -Algorithm SHA256` produced `D74B1A71EC8D597AF7D82A694BE3B2D6C45B178034B478D7726BF7B0D25C9396`.
+- ADB validation status: pending; no device was available during this session.
+
 ## Harness Checkpoint: 2026-06-13 Author's Note Texture Boundary Coverage
 
 Scope:
