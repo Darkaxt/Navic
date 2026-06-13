@@ -205,16 +205,16 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
-    'backward movement keeps texture direction across inverted renderer coordinates',
+    'previous area boundary follows renderer wrap instead of inverting texture',
     helpers.readerSurfacePaperTextureScrollOffset({
-      position: 280,
-      baseOffset: 0,
-      viewportWidth: 560,
+      position: 1395,
+      baseOffset: 697,
+      viewportWidth: 698,
       viewportHeight: 873,
       flowMode: 'paged',
       pageTurnDirection: 'previous',
     }),
-    { x: 280, y: 0 }
+    { x: -698, y: 0 }
   )
   assertOffset(
     'directionless area-wrap jump does not invert texture',
@@ -1452,7 +1452,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
       return { name, direction: 'forward', samples }
     }
 
-    const dragProbe = async name => {
+    const dragProbe = async (name, direction = 'forward') => {
       const traceStart = await page.evaluate(() => (window.__navicReaderTrace || []).length)
       const samples = [await collectState('before')]
       await page.evaluate(() => {
@@ -1460,10 +1460,11 @@ if (mode === 'epub-texture-frontmatter-transition') {
         renderer?.setAttribute?.('animated', '')
       })
       const viewport = page.viewportSize() || phoneViewport.viewport
+      const reverse = direction === 'backward'
       const dragPromise = performReaderTouchDrag(page, {
-        startX: viewport.width * 0.82,
+        startX: viewport.width * (reverse ? 0.18 : 0.82),
         startY: viewport.height * 0.52,
-        endX: viewport.width * 0.18,
+        endX: viewport.width * (reverse ? 0.82 : 0.18),
         endY: viewport.height * 0.52,
         durationMs: 520,
         steps: 10,
@@ -1476,7 +1477,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
       await page.waitForTimeout(520)
       samples.push(await collectState('settled'))
       const trace = await page.evaluate(start => (window.__navicReaderTrace || []).slice(start), traceStart)
-      return { name, direction: 'forward', samples, trace }
+      return { name, direction, samples, trace }
     }
 
     const dragAuthorEntryProbe = await dragProbe('drag-author-note-boundary')
@@ -1497,9 +1498,18 @@ if (mode === 'epub-texture-frontmatter-transition') {
         `settled=${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageIndex}/${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageCount}`
       )
     }
+    const dragReverseAuthorBoundaryProbe = await dragProbe('drag-reverse-author-note-boundary', 'backward')
+    const dragReverseAuthorPage = Number(dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageIndex)
+    if (!Number.isFinite(dragReverseAuthorPage) || dragReverseAuthorPage >= dragPostAuthorPage) {
+      throw new Error(
+        `Expected drag-reverse-author-note-boundary probe to move back across the AUTHOR'S NOTE boundary; ` +
+        `before=${dragPostAuthorPage}/${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageCount} ` +
+        `settled=${dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageIndex}/${dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageCount}`
+      )
+    }
     const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
     const result = {
-      probes: [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, postAuthorProbe],
+      probes: [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, dragReverseAuthorBoundaryProbe, postAuthorProbe],
       authorBoundarySearch: {
         first: firstState,
         searchResult: authorSearchResult,
@@ -1508,7 +1518,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
       },
       trace: await page.evaluate(() => window.__navicReaderTrace || []),
     }
-    const dragProbeMissingDirection = [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe]
+    const dragProbeMissingDirection = [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, dragReverseAuthorBoundaryProbe]
       .find(probe => !probe.trace?.some(event => event?.type === 'texture:drag-direction'))
     if (dragProbeMissingDirection) {
       throw new Error(`Expected ${dragProbeMissingDirection.name} to emit texture:drag-direction before checking texture movement`)

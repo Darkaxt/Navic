@@ -2788,3 +2788,55 @@ Phone validation target after eta59 release:
 - Run shell-cover drag smoke with `-RequireShellCoverDragDiagnostic -RequireShellCoverSwipe -RequireShellCoverCommand`.
 - If `shellCover=missing` still appears while WebView logs `shell-cover:loaded`, the remaining root cause is native extraction coverage for that EPUB structure, not tap-zone thresholds.
 - Texture inversion around `Hobbit_chap-1.html` / `Hobbit_author-1.html` remains open and must be validated separately.
+
+## Implementation Checkpoint: 2026-06-13 Texture Boundary Wrap Regression
+
+Scope:
+
+- Treat the eta58 ADB texture trace as the root reproduction for the last-page / area-transition texture issue.
+- Extend the local frontmatter harness with a reverse drag probe named `drag-reverse-author-note-boundary`.
+- Add a focused helper regression using the exact Android boundary values: `dir=previous`, `base=697`, `pos=1395`, `viewportWidth=698`.
+- Change surface texture offset math only for full-page known-direction boundary wraps where Android's renderer position sign contradicts the requested page-turn direction.
+
+Diagnosis:
+
+- Desktop Chromium reverse drag across the Author's Note boundary behaved correctly: previous drag decreased renderer position and moved texture right.
+- The phone trace differed: during the same logical previous transition, Android reported a full-page positive renderer jump while the page-turn direction remained `previous`.
+- The old helper trusted `pageTurnDirection` for every known-direction sample, so that Android wrap produced `x=+698` even though the renderer delta was also positive. That is same-sign texture/content movement and matches the observed inversion.
+- The fix keeps gesture direction for normal smaller in-flight deltas, but lets raw bounded renderer movement drive texture offset when the sign conflict is approximately one full viewport.
+
+RED evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+```
+
+Initial result:
+
+```text
+previous area boundary follows renderer wrap instead of inverting texture expected {"x":-698,"y":0} but got {"x":698,"y":0}
+```
+
+Fresh validation evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+.\gradlew.bat --no-daemon "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Result:
+
+- `texture-offset-logic` passed with the exact eta58 Android boundary values.
+- The real Hobbit frontmatter harness passed and now includes `drag-reverse-author-note-boundary`.
+- `ReaderRuntimePaperSurfaceTest` passed.
+- JS syntax checks passed.
+- `git diff --check` exited `0`.
+
+Phone validation target:
+
+- The next Android release must be validated on the same maps/frontmatter -> Author's Note and chapter -> Author's Note transitions.
+- ADB texture diagnostics should no longer show known-direction boundary samples with the same sign for renderer delta and texture offset, especially `dir=previous` with both positive `delta` and positive `x`.

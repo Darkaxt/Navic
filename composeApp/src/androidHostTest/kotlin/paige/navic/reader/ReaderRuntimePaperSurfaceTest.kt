@@ -282,12 +282,15 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
 		assertContains(bridgeText, "const signedOffset = hasKnownDirection")
+		assertContains(bridgeText, "const wrapsKnownDirectionBoundary = hasKnownDirection")
+		assertContains(bridgeText, "deltaSign !== expectedDirectionSign")
+		assertContains(bridgeText, "hasKnownDirection && !wrapsKnownDirectionBoundary")
 		assertContains(bridgeText, "(pageTurnDirection === 'next' ? 1 : -1) * Math.min(maxOffset, Math.abs(delta))")
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
 		assertFalse(
 			bridgeText.contains("? { x: 0, y: bounded }") || bridgeText.contains(": { x: bounded, y: 0 }"),
-			"Surface paper texture movement must not depend on raw renderer delta sign after area transitions."
+			"Surface paper texture movement must still counter-move through signedOffset, with raw bounded movement only feeding full-page boundary wraps."
 		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
 	}
@@ -460,6 +463,11 @@ class ReaderRuntimePaperSurfaceTest {
 			frontmatterMode,
 			"drag-post-author-note-boundary",
 			message = "The texture harness must prove texture direction remains correct after the frontmatter boundary, not just while entering it."
+		)
+		assertContains(
+			frontmatterMode,
+			"drag-reverse-author-note-boundary",
+			message = "The texture harness must reproduce the phone-side reverse transition from chapter content back into Author's Note."
 		)
 		assertContains(
 			frontmatterMode,
