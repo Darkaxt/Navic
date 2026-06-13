@@ -2282,3 +2282,87 @@ Interpretation:
 - If `shellCoverDragCandidate=False`, the native surface is not receiving the drag stream on the shell cover.
 - If `shellCoverDragCandidate=True` and `shellCoverSwipe=False`, the stream reaches native code but fails the swipe-decision threshold/direction filter.
 - If both are `True` but the cover does not dismiss, the failure is in command dispatch or cover visibility state after dispatch.
+
+## Phone Validation: 2026-06-13 eta52 Reader Behavior Baseline
+
+Observed on device:
+
+- Cover tapping works.
+- Cover dragging does not work.
+- Normal EPUB page tapping works.
+- Normal EPUB page dragging works.
+- Center-tapping interactive images toggles the image state but also surfaces reader chrome.
+- Tapping chapter-selection/frontmatter links also surfaces reader chrome.
+- The paper texture transition still inverts when moving from the maps into the Author's Note and stays inverted after that area transition.
+
+Current diagnosis constraints:
+
+- Do not treat shell-cover tapping success as proof that cover dragging is fixed.
+- Do not treat normal EPUB page drag success as proof that the shell-cover drag path is fixed; the cover path is a separate native shell-cover surface state.
+- Do not declare the content-interaction fix complete until image taps and chapter/frontmatter links claim content ownership early enough to prevent the native center-menu action.
+- Do not declare the texture fix complete until the maps -> Author's Note boundary is validated on the real device and the renderer trace shows stable forward direction across that area transition.
+
+Current implementation priority:
+
+1. Fix interactive content center-tap ownership so image interactions and chapter/frontmatter links do not surface reader chrome.
+2. Fix the paper-texture sign inversion across the maps -> Author's Note area transition.
+3. Re-check shell-cover drag with ADB diagnostics; use `shellCoverDragCandidate` and `shellCoverSwipe` to localize whether the failure is stream capture, threshold/direction filtering, or command/cover-state dispatch.
+4. Keep normal page taps/drags and cover taps green while making the fixes above.
+
+## Implementation Checkpoint: 2026-06-13 eta53 Candidate Content Ownership And Drag Texture Direction
+
+Scope:
+
+- Address the eta52 phone baseline where image taps and chapter/frontmatter links still surfaced reader chrome.
+- Address the texture inversion hypothesis that real finger drags can let Foliate move pages without Navic seeding `pageTurnDirection`, so texture motion falls back to raw renderer coordinate sign at the maps -> Author's Note boundary.
+- Keep shell-cover drag as an explicitly pending phone-validation item; eta53 does not claim that cover dragging is fixed.
+
+Implementation:
+
+- Link/navigation documents now claim `readerContentTapHandled` on `pointerdown` and `mousedown`, in addition to the existing touch and click phases.
+- Sepia image gestures now claim interactive content ownership during `touchstart`, before waiting for `touchend` or synthetic click.
+- Added `readerPaperTextureDragDirection` to map physical finger movement to `next` / `previous` texture direction.
+- EPUB content documents now install a passive texture drag-direction tracker. Horizontal left drags seed `next`, horizontal right drags seed `previous`, and vertical paged mode uses up/down movement.
+- The drag tracker writes the same sticky `surfacePaperTextureTurnDirection` used by explicit Navic page-turn commands, so frontmatter/page-boundary renderer coordinate sign changes cannot invert texture motion during a real drag.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsInteractiveContentOnPointerAndMouseDownBeforeNativeCenterChrome" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsSepiaImageTouchAtGestureStart"
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSeedsTextureTurnDirectionFromReaderDocumentDrags"
+```
+
+Initial result:
+
+- The image/link tests failed because link documents did not claim pointer/mouse-down ownership and sepia image touchstart did not claim ownership before gesture bookkeeping.
+- The texture logic check failed because `readerPaperTextureDragDirection` was not exported.
+- The paper-surface wiring test failed because no reader document drag tracker was attached.
+
+Fresh validation evidence:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result:
+
+- JavaScript syntax checks exited `0`.
+- `ReaderRuntimeImageLinkTest` and `ReaderRuntimePaperSurfaceTest` passed.
+- CSS smoke passed and still verifies image/link bridge ownership.
+- Real Hobbit frontmatter texture transition passed.
+- Full Phase 1 reader harness passed all `15` checks, including the `505` page full EPUB traversal and PDF smoke/fast-turn checks.
+
+Phone validation target after eta53 release:
+
+- Center-tapping an image should toggle the image sepia state without surfacing reader chrome.
+- Tapping chapter-selection/frontmatter links should navigate without surfacing reader chrome.
+- Dragging from maps/frontmatter into Author's Note should not invert the texture movement or leave later pages inverted.
+- Normal EPUB taps/drags and cover taps should remain working.
+- Cover dragging remains pending and should be diagnosed with eta52/eta53 ADB `shellCoverDragCandidate` / `shellCoverSwipe` output before changing that path further.

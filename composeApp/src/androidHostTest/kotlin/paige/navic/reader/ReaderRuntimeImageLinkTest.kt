@@ -537,6 +537,57 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderClaimsInteractiveContentOnPointerAndMouseDownBeforeNativeCenterChrome() {
+		val bridgeText = readerBridgeText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+
+		assertContains(
+			linkNavigation,
+			"doc.addEventListener('pointerdown', event => {",
+			message = "Android WebView can expose content interaction before click through pointer events; interactive content must claim ownership before native center chrome can fire."
+		)
+		assertContains(
+			linkNavigation,
+			"doc.addEventListener('mousedown', event => {",
+			message = "Mouse-style WebView click paths must also claim content ownership before native center chrome can fire."
+		)
+		assertTrue(
+			linkNavigation.indexOf("doc.addEventListener('pointerdown'") <
+				linkNavigation.indexOf("doc.addEventListener('click'"),
+			"Pointer ownership must run before final click navigation/toggle work."
+		)
+		assertTrue(
+			linkNavigation.indexOf("doc.addEventListener('mousedown'") <
+				linkNavigation.indexOf("doc.addEventListener('click'"),
+			"Mouse ownership must run before final click navigation/toggle work."
+		)
+	}
+
+	@Test
+	fun androidReaderClaimsSepiaImageTouchAtGestureStart() {
+		val bridgeText = readerBridgeText()
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  effectiveReaderDirection")
+		val sepiaTouchStart = sepiaToggle
+			.substringAfter("doc.addEventListener('touchstart', event => {")
+			.substringBefore("}, { capture: true, passive: true })")
+
+		assertContains(
+			sepiaTouchStart,
+			"this.claimReaderInteractiveContentTouch(doc, event)",
+			message = "Image gestures must claim content ownership at touchstart; waiting for click/touchend still lets native center chrome leak on Android."
+		)
+		assertTrue(
+			sepiaTouchStart.indexOf("this.claimReaderInteractiveContentTouch(doc, event)") <
+				sepiaTouchStart.indexOf("touchState = {"),
+			"The image touch claim should happen before gesture bookkeeping so early Android bridge delivery is not gated by later toggle logic."
+		)
+	}
+
+	@Test
 	fun readerHarnessCssSmokeRequiresContentActionBridgeOwnership() {
 		val harnessText = listOf(
 			File("tools/reader-harness/src/run-reader-harness.mjs"),

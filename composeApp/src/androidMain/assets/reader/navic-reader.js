@@ -98,6 +98,7 @@ import {
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
+  readerPaperTextureDragDirection,
   readerSurfacePaperTextureScrollOffset,
   readerSurfacePaperTextureOpacity,
   readerSurfacePageBorderOverlayOpacity,
@@ -1162,6 +1163,12 @@ class NavicReaderRuntime {
     doc.addEventListener('touchend', event => {
       this.claimReaderInteractiveContentTouch(doc, event)
     }, { capture: true, passive: true })
+    doc.addEventListener('pointerdown', event => {
+      this.claimReaderInteractiveContentTouch(doc, event)
+    }, { capture: true, passive: true })
+    doc.addEventListener('mousedown', event => {
+      this.claimReaderInteractiveContentTouch(doc, event)
+    }, { capture: true, passive: true })
     doc.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button > 0) return
       const anchor = closestElement(event.target, 'a[href]')
@@ -1272,6 +1279,7 @@ class NavicReaderRuntime {
         return
       }
       const anchor = closestElement(event.target, 'a[href]')
+      this.claimReaderInteractiveContentTouch(doc, event)
       touchState = {
         target: event.target,
         x: touch.screenX ?? touch.clientX ?? 0,
@@ -1926,6 +1934,45 @@ class NavicReaderRuntime {
     return this.surfaceTextureScrollOffset
   }
 
+  attachSurfacePaperTextureDragDirection(doc) {
+    if (!doc?.defaultView || doc.defaultView.__navicSurfacePaperTextureDragDirectionAttached) return
+    doc.defaultView.__navicSurfacePaperTextureDragDirectionAttached = true
+    let touchState = null
+    doc.addEventListener('touchstart', event => {
+      const touch = event.changedTouches?.[0]
+      if (!touch || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      touchState = {
+        x: touch.screenX ?? touch.clientX ?? 0,
+        y: touch.screenY ?? touch.clientY ?? 0,
+      }
+    }, { capture: true, passive: true })
+    doc.addEventListener('touchmove', event => {
+      if (!touchState || event.touches?.length > 1) {
+        touchState = null
+        return
+      }
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      const direction = readerPaperTextureDragDirection({
+        deltaX: (touch.screenX ?? touch.clientX ?? touchState.x) - touchState.x,
+        deltaY: (touch.screenY ?? touch.clientY ?? touchState.y) - touchState.y,
+        flowMode: this.readerFlowModeValue,
+      })
+      if (!direction) return
+      this.surfacePaperTextureTurnDirection = direction
+      readerTrace('texture:drag-direction', { direction })
+    }, { capture: true, passive: true })
+    doc.addEventListener('touchend', () => {
+      touchState = null
+    }, { capture: true, passive: true })
+    doc.addEventListener('touchcancel', () => {
+      touchState = null
+    }, { capture: true, passive: true })
+  }
+
   surfacePaperTextureDiagnosticState(reason = 'scroll') {
     const position = this.currentRendererContainerPosition()
     const pageIndex = Number(this.currentPagePosition?.pageIndex)
@@ -2293,6 +2340,7 @@ class NavicReaderRuntime {
     this.attachSepiaImageOverlayToggle(doc)
     this.attachLinkNavigation(doc, index)
     this.attachScrolledEdgeTurnGestures(doc)
+    this.attachSurfacePaperTextureDragDirection(doc)
     this.attachReaderTapZoneGesture(doc)
     if (doc.defaultView?.__navicSelectionBridgeAttached) return
     doc.defaultView.__navicSelectionBridgeAttached = true

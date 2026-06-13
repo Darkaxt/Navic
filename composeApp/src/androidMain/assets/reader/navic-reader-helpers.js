@@ -787,6 +787,24 @@ export const readerPaperTextureBackgroundPosition = scrollOffset => {
   return `calc(50% ${readerPaperTextureCssOffset(xPx)}) calc(50% ${readerPaperTextureCssOffset(yPx)})`
 }
 
+export const readerPaperTextureDragDirection = ({
+  deltaX,
+  deltaY,
+  flowMode,
+  threshold = 24,
+} = {}) => {
+  const x = Number(deltaX)
+  const y = Number(deltaY)
+  const min = Math.max(1, Number(threshold) || 24)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  if (flowMode === ReaderFlowPagedVertical) {
+    if (Math.abs(y) < min || Math.abs(y) <= Math.abs(x)) return null
+    return y < 0 ? 'next' : 'previous'
+  }
+  if (Math.abs(x) < min || Math.abs(x) <= Math.abs(y)) return null
+  return x < 0 ? 'next' : 'previous'
+}
+
 export const readerSurfacePaperTextureScrollOffset = ({
   position,
   baseOffset,

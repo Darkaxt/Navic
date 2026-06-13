@@ -122,6 +122,9 @@ if (mode === 'texture-offset-logic') {
   if (typeof helpers.readerSurfacePaperTextureScrollOffset !== 'function') {
     throw new Error('readerSurfacePaperTextureScrollOffset helper is not exported')
   }
+  if (typeof helpers.readerPaperTextureDragDirection !== 'function') {
+    throw new Error('readerPaperTextureDragDirection helper is not exported')
+  }
 
   const assertOffset = (name, actual, expected) => {
     if (actual?.x !== expected.x || actual?.y !== expected.y) {
@@ -188,6 +191,47 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
     }),
     { x: 0, y: 0 }
+  )
+  const assertDirection = (name, actual, expected) => {
+    if (actual !== expected) {
+      throw new Error(`${name} expected ${expected} but got ${actual}`)
+    }
+  }
+  assertDirection(
+    'horizontal left drag seeds next texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: -84,
+      deltaY: 8,
+      flowMode: 'paged',
+    }),
+    'next'
+  )
+  assertDirection(
+    'horizontal right drag seeds previous texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: 84,
+      deltaY: 8,
+      flowMode: 'paged',
+    }),
+    'previous'
+  )
+  assertDirection(
+    'vertical paged upward drag seeds next texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: 4,
+      deltaY: -84,
+      flowMode: 'paged-vertical',
+    }),
+    'next'
+  )
+  assertDirection(
+    'small drag does not seed texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: 8,
+      deltaY: 3,
+      flowMode: 'paged',
+    }),
+    null
   )
 
   console.log('reader harness texture-offset-logic passed')

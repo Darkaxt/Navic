@@ -335,6 +335,38 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderSeedsTextureTurnDirectionFromReaderDocumentDrags() {
+		val bridgeText = readerBridgeText()
+		val textureDragDirection = bridgeText
+			.substringAfter("attachSurfacePaperTextureDragDirection(doc) {")
+			.substringBefore("\n  surfacePaperTextureScrollOffset")
+		val contentDocumentBehaviors = bridgeText
+			.substringAfter("attachContentDocumentBehaviors(doc, index) {")
+			.substringBefore("\n  contentEntries")
+
+		assertContains(
+			bridgeText,
+			"readerPaperTextureDragDirection",
+			message = "Directionless Foliate drag gestures need explicit texture direction instead of raw renderer coordinate sign."
+		)
+		assertContains(
+			textureDragDirection,
+			"doc.addEventListener('touchmove'",
+			message = "Reader content documents must watch drag motion because Foliate can turn pages without Navic nextPage/previousPage commands."
+		)
+		assertContains(
+			textureDragDirection,
+			"this.surfacePaperTextureTurnDirection = direction",
+			message = "A detected finger drag must seed the same sticky texture direction used by explicit page-turn commands."
+		)
+		assertContains(
+			contentDocumentBehaviors,
+			"this.attachSurfacePaperTextureDragDirection(doc)",
+			message = "Every loaded EPUB content document must install the texture drag-direction tracker."
+		)
+	}
+
+	@Test
 	fun androidReaderPaperTextureDoesNotAbortFixedLayoutOpenWhenPageIndexIsUnavailable() {
 		val bridgeText = readerBridgeText()
 		val fixedLayoutIndex = bridgeText
