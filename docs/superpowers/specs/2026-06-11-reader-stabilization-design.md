@@ -1772,3 +1772,15 @@ Phone validation required after release:
 - Center tapping an image should toggle sepia tint without surfacing reader chrome.
 - Tapping a chapter/frontmatter link should navigate without surfacing reader chrome.
 - Run `scripts\adb-reader-smoke.ps1 -ExpectedVersionName v1.0.11-eta48 -NoLaunch -CaptureReaderDiagnostics` after reproducing the maps -> Author's Note transition; inspect `reader-texture-diagnostics.log` and `reader-diagnostics-summary.txt` for `surface-texture-scroll` lines with `pos`, `base`, `delta`, `dir`, `page`, and `href`.
+
+Release publication status:
+
+- Published release tag: `v1.0.11-eta48`.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta48`.
+- APK URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta48/Navic.apk`.
+- GitHub asset digest: `sha256:2686b1e9a14238945805c7057b4b6891bf0b890f96a27404edac6a1c23981b30`.
+- GitHub workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27452637945`.
+- Android build job: success; release APK signing verification passed.
+- iOS jobs: skipped by workflow.
+- Local download verification: `Get-FileHash releases\v1.0.11-eta48\Navic.apk -Algorithm SHA256` produced `2686B1E9A14238945805C7057B4B6891BF0B890F96A27404EDAC6A1C23981B30`.
+- ADB validation status: pending; eta48 is published for phone validation and diagnostic capture.
