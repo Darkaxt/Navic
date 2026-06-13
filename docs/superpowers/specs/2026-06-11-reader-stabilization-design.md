@@ -2677,3 +2677,14 @@ Phone validation target after eta58 release:
 - Cover taps should still work.
 - Cover drag remains an open shell-cover issue unless separately proven by ADB diagnostics.
 - Texture inversion across maps/frontmatter -> Author's Note remains open unless the phone test proves the structured payload guard changed the behavior.
+
+Release result:
+
+- Commit: `d2600df0 Improve reader content touch ownership`.
+- Tag: `v1.0.11-eta58`.
+- GitHub release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta58`.
+- APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta58/Navic.apk`.
+- GitHub Actions run: `https://github.com/Darkaxt/Navic/actions/runs/27465074286`.
+- Android release build, release APK signing verification, artifact upload, and GitHub release creation completed successfully.
+- iOS IPA build and attach jobs were skipped for this eta tag.
+- GitHub asset digest and local downloaded APK hash both matched SHA256 `E411A361394217E0C01270A7E7CEE28CC98D044F4447C76180DAF16BDC4ECC71`.
