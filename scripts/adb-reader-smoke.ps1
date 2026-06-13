@@ -14,6 +14,7 @@ param(
     [switch] $ValidateReaderTaps,
     [switch] $RequireReaderTapAction,
     [switch] $RequireShellCoverSwipe,
+    [switch] $RequireShellCoverDragDiagnostic,
     [switch] $RequireContentTapHandled,
     [switch] $RequireTextureDiagnostics,
     [switch] $CaptureReaderDiagnostics,
@@ -240,7 +241,7 @@ $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
-    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover swipe|Reader shell cover command|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe|Reader shell cover command|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
 
     $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
     $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
@@ -267,6 +268,7 @@ if ($CaptureReaderDiagnostics) {
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
         "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
+        "shellCoverDragCandidate=$($touchDiagnosticsText -match 'Reader shell cover drag candidate')",
         "shellCoverSwipe=$($touchDiagnosticsText -match 'Reader shell cover swipe')",
         "textureHasPosition=$($textureDiagnosticsText -match 'pos=')",
         "textureHasBase=$($textureDiagnosticsText -match 'base=')",
@@ -279,6 +281,9 @@ if ($CaptureReaderDiagnostics) {
 
     if ($RequireShellCoverSwipe -and -not ($touchDiagnosticsText -match 'Reader shell cover swipe')) {
         throw "Reader diagnostics validation failed: no shell-cover swipe was captured. See $ArtifactDir"
+    }
+    if ($RequireShellCoverDragDiagnostic -and -not ($touchDiagnosticsText -match 'Reader shell cover drag candidate')) {
+        throw "Reader diagnostics validation failed: no shell-cover drag candidate was captured. See $ArtifactDir"
     }
     if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"

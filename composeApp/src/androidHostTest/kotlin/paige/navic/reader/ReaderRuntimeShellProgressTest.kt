@@ -267,6 +267,31 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeShellCoverLogsDragCandidatesBeforeSwipeDispatch() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val handleTouch = webViewHostText
+			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
+			.substringBefore("\n\tprivate fun clearTapCandidate()")
+		val actionDown = handleTouch
+			.substringAfter("MotionEvent.ACTION_DOWN -> {")
+			.substringBefore("\n\t\t\tMotionEvent.ACTION_POINTER_DOWN")
+		val actionMove = handleTouch
+			.substringAfter("MotionEvent.ACTION_MOVE -> {")
+			.substringBefore("\n\t\t\tMotionEvent.ACTION_UP -> {")
+
+		assertContains(webViewHostText, "private var shellCoverDragDiagnosticLogged: Boolean = false")
+		assertContains(actionDown, "shellCoverDragDiagnosticLogged = false")
+		assertContains(actionMove, "logReaderShellCoverDragCandidate(dx, dy)")
+		assertContains(webViewHostText, "private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float)")
+		assertContains(webViewHostText, "Reader shell cover drag candidate")
+		assertTrue(
+			actionMove.indexOf("logReaderShellCoverDragCandidate(dx, dy)") <
+				actionMove.indexOf("dispatchReaderShellCoverSwipe(dx, dy)"),
+			"Cover drag diagnostics must run before swipe dispatch so failed drags still leave ADB evidence."
+		)
+	}
+
+	@Test
 	fun nativeShellCoverTouchStreamIsOwnedBeforeCoverWebViewChildDispatch() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val dispatchTouchEvent = webViewHostText

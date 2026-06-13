@@ -46,6 +46,7 @@ import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
 private const val ReaderContentTapHandledSuppressMs = 1000L
@@ -384,6 +385,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var tapDownX: Float = 0f
 	private var tapDownY: Float = 0f
 	private var tapCandidate: Boolean = false
+	private var shellCoverDragDiagnosticLogged: Boolean = false
 	@Volatile
 	private var contentTapHandledUntilMs: Long = 0L
 	private var pendingCenterTap: Runnable? = null
@@ -408,6 +410,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				tapDownX = event.x
 				tapDownY = event.y
 				tapCandidate = true
+				shellCoverDragDiagnosticLogged = false
 				Logger.i(
 					ReaderWebViewHostTag,
 					"Reader surface touch down x=${event.x.toInt()} y=${event.y.toInt()} " +
@@ -427,6 +430,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				}
 				val dx = event.getX(pointerIndex) - tapDownX
 				val dy = event.getY(pointerIndex) - tapDownY
+				logReaderShellCoverDragCandidate(dx, dy)
 				if (dispatchReaderShellCoverSwipe(dx, dy)) {
 					clearTapCandidate()
 					return
@@ -453,6 +457,19 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun clearTapCandidate() {
 		tapCandidatePointerId = MotionEvent.INVALID_POINTER_ID
 		tapCandidate = false
+	}
+
+	private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float) {
+		if (!shellCoverVisible || shellCoverDragDiagnosticLogged) return
+		if (abs(deltaX) <= tapSlopPx && abs(deltaY) <= tapSlopPx) return
+		shellCoverDragDiagnosticLogged = true
+		val action = readerShellCoverSwipeAction(deltaX, deltaY, shellCoverSwipeThresholdPx)
+		Logger.i(
+			ReaderWebViewHostTag,
+			"Reader shell cover drag candidate action=${action?.name.orEmpty()} " +
+				"delta=${deltaX.toInt()},${deltaY.toInt()} " +
+				"threshold=${shellCoverSwipeThresholdPx.toInt()}"
+		)
 	}
 
 	private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {

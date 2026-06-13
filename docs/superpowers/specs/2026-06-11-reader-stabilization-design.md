@@ -2237,3 +2237,48 @@ Phone validation target after release:
 - Paper texture movement should not invert when crossing from maps/frontmatter into Author's Note.
 - Normal EPUB page taps and drags should remain working.
 - Shell-cover tapping should remain working; shell-cover dragging still needs explicit phone validation with the updated ADB swipe tooling.
+
+## Implementation Checkpoint: 2026-06-13 eta52 Candidate Shell-Cover Drag Diagnostics
+
+Scope:
+
+- Continue the native interaction boundary work without pretending laptop tests can prove Android phone drag behavior.
+- Preserve eta51 behavior and add stronger evidence for the unresolved shell-cover drag failure.
+- Add native shell-cover drag-candidate logging before swipe dispatch so failed cover drags still leave ADB evidence.
+- Extend `scripts\adb-reader-smoke.ps1` so the phone run distinguishes `shellCoverDragCandidate` from `shellCoverSwipe`.
+
+Root-cause status:
+
+- Current code already owns shell-cover touch streams before child WebView dispatch and routes successful cover swipes through `readerShellCoverSwipeAction`.
+- The remaining reported failure is therefore not proven from the laptop. It may be a device-only state/timing issue, a stream not reaching `ReaderSurfaceHost`, a movement-threshold issue, or a command/visibility issue after dispatch.
+- eta52 intentionally improves observability first: a phone log can now show whether native received cover movement at all, whether that movement crossed the shell-cover swipe decision, and whether a shell-cover page command was dispatched.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverLogsDragCandidatesBeforeSwipeDispatch" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics"
+```
+
+Initial result:
+
+- Failed because `ReaderWebViewHost.android.kt` had no shell-cover drag-candidate diagnostic state/log.
+- Failed because `scripts\adb-reader-smoke.ps1` had no `-RequireShellCoverDragDiagnostic` flag or `shellCoverDragCandidate=` summary field.
+
+Implementation:
+
+- `ReaderSurfaceHost` now resets `shellCoverDragDiagnosticLogged` on `ACTION_DOWN`.
+- On shell-cover `ACTION_MOVE`, it logs one `Reader shell cover drag candidate` line once movement exceeds touch slop, before attempting swipe dispatch.
+- The log includes the candidate action, delta, and threshold.
+- ADB smoke diagnostics now capture that line, write `shellCoverDragCandidate=...`, and can require it with `-RequireShellCoverDragDiagnostic`.
+
+Phone validation target after release:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -ExpectedVersionName v1.0.11-eta52 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.80,0.50,0.20,0.50,350,1200" -RequireShellCoverDragDiagnostic -RequireShellCoverSwipe
+```
+
+Interpretation:
+
+- If `shellCoverDragCandidate=False`, the native surface is not receiving the drag stream on the shell cover.
+- If `shellCoverDragCandidate=True` and `shellCoverSwipe=False`, the stream reaches native code but fails the swipe-decision threshold/direction filter.
+- If both are `True` but the cover does not dismiss, the failure is in command dispatch or cover visibility state after dispatch.
