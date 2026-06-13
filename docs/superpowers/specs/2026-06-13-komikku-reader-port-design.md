@@ -709,3 +709,35 @@ Host-side release gates for this candidate:
 - `git diff --check`
 - Android version metadata check for `v1.0.11-eta62`
 - `:androidApp:assembleDebug` as the local compile gate; local `assembleRelease` requires signing secrets and is expected to be built by the GitHub release workflow.
+
+## Eta63 Candidate Scope
+
+`v1.0.11-eta63` is the next candidate prepared while the phone is unavailable. It keeps the Komikku-port direction and only includes host-testable reader-shell fixes:
+
+- Native/JS shell-cover ownership now gates EPUB-cover resume locators explicitly. If a saved locator points at the EPUB cover and a shell cover exists, Foliate is sent to the first readable content instead of rendering the EPUB cover behind the reader-managed cover surface.
+- Non-cover saved locators still load normally behind the shell cover.
+- Initial resume snapshots are not posted for EPUB-cover locators converted into the shell-cover virtual page.
+- Paper texture movement now distinguishes normal small inverted renderer coordinates from full-page Android area-boundary wraps. Normal movement still trusts the known next/previous direction, but full-page sign conflicts follow bounded renderer delta so the texture counter-moves the rendered page at frontmatter/chapter boundaries.
+- The texture trace assertion layer now allows those full-page renderer-wrap samples while still failing ordinary forward/previous inversions.
+
+Fresh local evidence before release:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderShowsShellCoverBeforeSavedResumeLocationWithoutLoadingEpubCoverBehindIt"
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSyncsSurfaceTextureWithPaginatorScrollDrags" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionValidatesTracePayloadDirection"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Results so far:
+
+- Shell-cover resume locator red check failed before implementation and passed after the runtime started using `shouldStartAtShellCover`.
+- Texture offset logic red check failed on the exact Android boundary shape and passed after boundary-wrap handling.
+- Focused paper-surface host tests passed.
+- Real Hobbit frontmatter texture transition harness passed.
+
+Phone validation target after eta63:
+
+- Reopen the Hobbit EPUB from a saved cover/frontmatter locator and confirm the WebView does not show the EPUB cover behind the native shell cover.
+- Move from maps/frontmatter into Author's Note and back; ADB `surface-texture-scroll` logs should no longer show same-sign renderer delta and texture x/y offset for known-direction full-page boundary wraps.
+- Re-check center tap/menu and cover drag separately; eta63 does not claim phone validation for native touch ownership because no device was attached during local work.

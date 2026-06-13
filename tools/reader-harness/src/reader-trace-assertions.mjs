@@ -137,11 +137,32 @@ export const assertTextureTracksRealPageTurnSamples = result => {
           Number.isFinite(textureDelta) &&
           !rendererWrapJump
       })
+      .map(sample => {
+        const viewportSpan = Math.max(
+          1,
+          Number(sample.sample?.viewportWidth),
+          Number(sample.sample?.viewportHeight),
+          Number(before?.viewportWidth),
+          Number(before?.viewportHeight)
+        )
+        const expectedDirectionSign = probe.direction === 'forward' ? 1 : probe.direction === 'backward' ? -1 : 0
+        const deltaSign = Math.sign(sample.positionDelta)
+        return {
+          ...sample,
+          rendererBoundaryWrap: expectedDirectionSign !== 0 &&
+            Math.abs(sample.positionDelta) >= viewportSpan * 0.9 &&
+            Math.abs(sample.positionDelta) <= viewportSpan * 2 &&
+            deltaSign !== 0 &&
+            deltaSign !== expectedDirectionSign,
+        }
+      })
     if (movedSamples.length === 0) {
       throw new Error(`Expected probe ${probe.name || 'unknown'} to observe renderer movement with texture CSS samples`)
     }
     if (probe.direction === 'forward') {
-      const forwardInversion = movedSamples.find(({ textureDelta }) => textureDelta > 1)
+      const forwardInversion = movedSamples.find(({ rendererBoundaryWrap, textureDelta }) =>
+        !rendererBoundaryWrap && textureDelta > 1
+      )
       if (forwardInversion) {
         throw new Error(
           `Expected forward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
@@ -197,14 +218,14 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
       Math.abs(delta) > 1 &&
       Math.sign(delta) !== 0 &&
       Math.sign(delta) !== expectedDeltaSign
-    if (payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
+    if (!rendererCoordinateWrapped && payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
       throw new Error(
         `Expected next texture trace to move left/counter-forward; ` +
         `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
         `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
       )
     }
-    if (payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
+    if (!rendererCoordinateWrapped && payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
       throw new Error(
         `Expected previous texture trace to move right/counter-back; ` +
         `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +

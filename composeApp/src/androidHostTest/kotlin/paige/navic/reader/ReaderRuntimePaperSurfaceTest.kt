@@ -281,22 +281,39 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || ''")
 		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
-		assertContains(bridgeText, "const signedOffset = hasKnownDirection")
-		assertContains(bridgeText, "(pageTurnDirection === 'next' ? 1 : -1) * Math.min(maxOffset, Math.abs(delta))")
-		assertFalse(
-			bridgeText.contains("wrapsKnownDirectionBoundary"),
-			"Known next/previous turns must dominate renderer coordinate wraps at EPUB area boundaries."
+		assertContains(
+			bridgeText,
+			"const expectedDirectionSign = pageTurnDirection === 'next' ? 1 : -1",
+			message = "Texture movement needs the logical turn sign for normal in-flight movement."
 		)
-		assertFalse(
-			bridgeText.contains("deltaSign !== expectedDirectionSign"),
-			"Area-boundary renderer coordinate sign must not invert a known texture turn direction."
+		assertContains(
+			bridgeText,
+			"const deltaSign = Math.sign(delta)",
+			message = "Texture movement must compare Android renderer coordinate jumps against the logical turn direction."
+		)
+		assertContains(
+			bridgeText,
+			"const knownDirectionBoundaryWrap =",
+			message = "Full-page area-boundary wraps must be detected even when a next/previous direction is known."
+		)
+		assertContains(bridgeText, "hasKnownDirection &&")
+		assertContains(
+			bridgeText,
+			"deltaSign !== expectedDirectionSign",
+			message = "The maps/frontmatter boundary bug is a known-direction renderer sign conflict."
+		)
+		assertContains(
+			bridgeText,
+			"? bounded",
+			message = "Known-direction boundary wraps must follow the bounded renderer delta so texture still counter-moves the rendered page."
+		)
+		assertContains(
+			bridgeText,
+			": expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
+			message = "Normal known-direction movement must still ignore small inverted renderer coordinates."
 		)
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
-		assertFalse(
-			bridgeText.contains("? { x: 0, y: bounded }") || bridgeText.contains(": { x: bounded, y: 0 }"),
-			"Surface paper texture movement must still counter-move through signedOffset, with raw bounded movement only feeding full-page boundary wraps."
-		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
 	}
 
@@ -517,6 +534,16 @@ class ReaderRuntimePaperSurfaceTest {
 			assertions,
 			"pageTurnDirection === 'next'",
 			message = "Forward texture traces must be checked by explicit runtime turn direction."
+		)
+		assertContains(
+			assertions,
+			"!rendererCoordinateWrapped && payload.pageTurnDirection === 'next'",
+			message = "Trace assertions must not reject full-page Android renderer wraps that intentionally counter-move by raw renderer delta."
+		)
+		assertContains(
+			assertions,
+			"!rendererBoundaryWrap && textureDelta > 1",
+			message = "Real page-turn sample assertions must allow full-page renderer-wrap samples while still catching ordinary forward inversions."
 		)
 		assertContains(
 			frontmatterMode,

@@ -57,15 +57,40 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderShowsShellCoverBeforeSavedResumeLocation() {
+	fun androidReaderShowsShellCoverBeforeSavedResumeLocationWithoutLoadingEpubCoverBehindIt() {
 		val bridgeText = readerBridgeText()
+		val openPublication = bridgeText
+			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {")
+			.substringBefore("\n  close()")
 
 		assertContains(bridgeText, "startLocatorTargetsShellCover")
-		assertContains(bridgeText, "const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)")
 		assertContains(
 			bridgeText,
 			"const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()",
 			message = "Every EPUB open should try to show the program-level cover before revealing reader content."
+		)
+		assertContains(
+			openPublication,
+			"const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)"
+		)
+		assertContains(
+			openPublication,
+			"const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)",
+			message = "A start locator that points at the EPUB cover must be treated as the shell cover, so Foliate never renders the EPUB cover behind the native cover surface."
+		)
+		assertContains(
+			openPublication,
+			"if (shouldStartAtShellCover) {"
+		)
+		assertTrue(
+			openPublication.indexOf("const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)") <
+				openPublication.indexOf("const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)"),
+			"The cover-start decision must know whether a native or JS shell cover exists before suppressing EPUB cover navigation."
+		)
+		assertTrue(
+			openPublication.indexOf("if (shouldStartAtShellCover)") <
+				openPublication.indexOf("} else if (locator) {"),
+			"Cover-targeting resume locators must be bypassed before generic locator navigation."
 		)
 		assertContains(
 			bridgeText,
@@ -77,9 +102,10 @@ class ReaderRuntimeImageLinkTest {
 			"await this.view.goTo(locator)",
 			message = "The saved location should be preserved behind the initial cover overlay."
 		)
-		assertFalse(
-			bridgeText.contains("const shouldStartAtShellCover ="),
-			"Shell cover loading should not be gated by the absence of a saved locator."
+		assertContains(
+			openPublication,
+			"readerStartLocatorHasPosition(startLocator) && !shouldStartAtShellCover",
+			message = "Initial resume snapshots must not be posted for EPUB cover locators that were converted into the native shell-cover page."
 		)
 		assertContains(bridgeText, "detailTargetsCover")
 		assertContains(bridgeText, "location-changed:cover-skipped")

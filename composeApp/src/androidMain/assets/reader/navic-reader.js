@@ -301,13 +301,13 @@ class NavicReaderRuntime {
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
-      const startLocatorIsShellCover = this.startLocatorTargetsShellCover(startLocator)
       const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()
       const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)
+      const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
-      if (startLocatorIsShellCover) {
+      if (shouldStartAtShellCover) {
         await this.goToFirstReadableContent()
       } else if (locator) {
         await this.view.goTo(locator)
@@ -326,7 +326,7 @@ class NavicReaderRuntime {
       this.logContentLayout('ready')
       post({ type: 'ready' })
       post({ type: 'publicationReady' })
-      if (readerStartLocatorHasPosition(startLocator) && !startLocatorIsShellCover) {
+      if (readerStartLocatorHasPosition(startLocator) && !shouldStartAtShellCover) {
         requestAnimationFrame(() => this.postCurrentLocationSnapshot('initial-resume'))
       }
     } catch (error) {
