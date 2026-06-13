@@ -19,6 +19,7 @@ import {
   assertShellCoverDoesNotNavigateWebViewToCover,
   assertSurfaceTextureTracksForwardContentMovement,
   assertTextureTracksRealPageTurnSamples,
+  assertTextureTracePayloadsTrackTurnDirection,
   assertTextureUpdatesAreCommittedPageBounded,
   assertTraceType,
 } from './reader-trace-assertions.mjs'
@@ -1522,6 +1523,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
     }, null, 2))
     assertNoConsoleErrors(errors)
     assertTextureTracksRealPageTurnSamples(result)
+    assertTextureTracePayloadsTrackTurnDirection(result.trace)
     console.log(`reader harness epub-texture-frontmatter-transition passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
@@ -2384,6 +2386,33 @@ if (mode === 'css-smoke') {
         nativeViewWidth,
         nativeViewHeight
       )
+      const recentTouchContentHitAfterRemoval = async (html, selector) => {
+        const wrapper = doc.createElement('span')
+        wrapper.setAttribute('data-navic-css-smoke-transient-touch', 'true')
+        wrapper.innerHTML = html
+        doc.body.prepend(wrapper)
+        await new Promise(resolve => win.requestAnimationFrame(resolve))
+        const target = wrapper.querySelector(selector)
+        if (!target) throw new Error(`Missing transient target for ${selector}`)
+        const rootPoint = rootPointFor(target)
+        dispatchSyntheticTouchTap(target)
+        wrapper.remove()
+        await new Promise(resolve => win.setTimeout(resolve, 25))
+        return win.parent.NavicReaderBridge.readerContentActionAtPoint(
+          Math.round(rootPoint.x * nativeCoordinateScale),
+          Math.round(rootPoint.y * nativeCoordinateScale),
+          nativeViewWidth,
+          nativeViewHeight
+        )
+      }
+      const imageRecentTouchContentHitAfterRemoval = await recentTouchContentHitAfterRemoval(
+        `<img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='white'/%3E%3C/svg%3E">`,
+        'img'
+      )
+      const textLinkRecentTouchContentHitAfterRemoval = await recentTouchContentHitAfterRemoval(
+        `<a href="#navic-css-smoke-target">Transient link</a>`,
+        'a'
+      )
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
@@ -2424,6 +2453,8 @@ if (mode === 'css-smoke') {
         textLinkNativeScaledContentHit,
         paragraphNativeCenterContentHit,
         paragraphNativeScaledContentHit,
+        imageRecentTouchContentHitAfterRemoval,
+        textLinkRecentTouchContentHitAfterRemoval,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',

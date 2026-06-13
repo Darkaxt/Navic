@@ -474,6 +474,45 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun readerHarnessTextureFrontmatterTransitionValidatesTracePayloadDirection() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val assertionsFile = listOf(
+			java.io.File("tools/reader-harness/src/reader-trace-assertions.mjs"),
+			java.io.File("../tools/reader-harness/src/reader-trace-assertions.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader trace assertions")
+		val frontmatterMode = harnessFile.readText()
+			.substringAfter("if (mode === 'epub-texture-frontmatter-transition') {")
+			.substringBefore("\nif (mode === 'pdf-smoke')")
+		val assertions = assertionsFile.readText()
+
+		assertContains(
+			assertions,
+			"assertTextureTracePayloadsTrackTurnDirection",
+			message = "Texture trace assertions must inspect structured texture:scroll payloads, not only sampled CSS strings."
+		)
+		assertContains(
+			assertions,
+			"event?.payload",
+			message = "Texture trace assertions must read the payload emitted by readerTrace('texture:scroll', diagnostic)."
+		)
+		assertContains(
+			assertions,
+			"pageTurnDirection === 'next'",
+			message = "Forward texture traces must be checked by explicit runtime turn direction."
+		)
+		assertContains(
+			frontmatterMode,
+			"assertTextureTracePayloadsTrackTurnDirection(result.trace)",
+			message = "The Author's Note boundary harness must fail if texture:scroll payloads invert after the boundary."
+		)
+	}
+
+	@Test
 	fun readerHarnessFullTraversalUsesLightweightPerPageSnapshots() {
 		val harnessFile = listOf(
 			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),

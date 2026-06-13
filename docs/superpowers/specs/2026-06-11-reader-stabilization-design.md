@@ -2619,3 +2619,61 @@ Phone validation target after eta57 release:
 - Cover taps should remain working.
 - Cover drag remains open unless separately proven by ADB diagnostics.
 - Texture inversion across maps/frontmatter -> Author's Note remains open unless separately proven on device.
+
+## Phone Validation: 2026-06-13 eta57 Reader Behavior Baseline
+
+Observed on device after installing eta57:
+
+- Image sepia state toggling works once the image is interacted with, although the initial image load can appear without the expected sepia filter.
+- Interacting with images by tapping center still surfaces reader chrome; this is incorrect because content-owned actions should not open the menu bar.
+- Tapping links in the chapter-selection/frontmatter area still surfaces reader chrome; this is incorrect because link navigation should not open the menu bar.
+- Cover tapping works.
+- Cover dragging still does not work.
+- Normal EPUB page taps work.
+- Normal EPUB page drags work.
+- The paper texture transition still inverts when moving from the maps/frontmatter area into the Author's Note and stays inverted afterward.
+
+Current diagnosis constraints:
+
+- The working normal readable-page tap and drag paths must remain green.
+- Cover dragging is still isolated to the shell-cover surface path; do not change normal readable-page dragging to fix it.
+- Content interactions must be treated as content-owned at the native reader surface before center chrome can dispatch. A visible content action, such as image sepia toggle or link navigation, must suppress the paired menu/chrome action.
+- The texture inversion is tied to the maps/frontmatter -> Author's Note area transition and persists after the boundary. A local harness pass is not sufficient unless the harness proves structured `texture:scroll` payload direction through and after that exact boundary.
+- ADB was not attached during the next local implementation pass, so any no-device slice must be limited to harness/host-test hardening or a production change backed by local evidence. Phone behavior remains unproven until a connected-device run.
+
+Current implementation priority:
+
+1. Make the laptop texture harness fail on structured `texture:scroll` payload direction if the Author's Note transition produces persistent inverted movement.
+2. Reproduce or instrument the native content-interaction chrome leak with timing/coordinate evidence; do not ship another content suppression guess without a failing test.
+3. Re-check shell-cover drag with ADB diagnostics once a device is attached.
+4. Release only after the APK contains a phone-evaluable behavior change, not for harness-only hardening.
+
+## Implementation Checkpoint: 2026-06-13 eta58 Candidate Recent Content Touch Ownership
+
+Scope:
+
+- Keep eta57's working normal EPUB page taps/drags and cover taps untouched.
+- Add a local runtime memory of the most recent content-owned touch for image/media/link targets.
+- Query that remembered point before Android's delayed native center-menu hit test falls back to the current DOM tree.
+- Model the Android race where an image or frontmatter link touch mutates/removes its DOM node before the native center-chrome check runs.
+- Tighten the Author's Note texture harness so structured `texture:scroll` payload direction is checked, even though the phone-side texture inversion remains unproven locally.
+
+Verification performed before release candidate:
+
+- The focused Android host test initially failed because the runtime had no `rememberReaderContentActionTouch` / `recentReaderContentActionAtRootPoint` path.
+- After the implementation, the focused Android host test passed.
+- The real Hobbit EPUB CSS/content-action smoke harness passed with recent image/link ownership after DOM removal.
+- The real Hobbit EPUB frontmatter texture harness passed with structured texture payload direction checks.
+- The affected Android host test classes passed.
+- `git diff --check` passed.
+- The full `phase1-stabilization` gate timed out after 244 seconds during this pass, so it is not counted as passing or failing for eta58.
+- ADB was not attached during the local pass; phone behavior is still pending.
+
+Phone validation target after eta58 release:
+
+- Image center taps should toggle sepia/image state without surfacing the reader chrome.
+- Chapter/frontmatter link taps should navigate without surfacing the reader chrome.
+- Normal EPUB page taps and drags should still work.
+- Cover taps should still work.
+- Cover drag remains an open shell-cover issue unless separately proven by ADB diagnostics.
+- Texture inversion across maps/frontmatter -> Author's Note remains open unless the phone test proves the structured payload guard changed the behavior.

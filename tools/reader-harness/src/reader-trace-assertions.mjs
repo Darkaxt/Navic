@@ -166,6 +166,66 @@ export const assertTextureTracksRealPageTurnSamples = result => {
   }
 }
 
+export const assertTextureTracePayloadsTrackTurnDirection = trace => {
+  if (!Array.isArray(trace)) {
+    throw new Error('Expected reader trace to be an array')
+  }
+  const scrollEvents = trace
+    .filter(event => event?.type === 'texture:scroll')
+    .map(event => event?.payload)
+    .filter(payload => payload && typeof payload === 'object')
+  if (scrollEvents.length === 0) {
+    throw new Error('Expected texture:scroll trace payloads')
+  }
+  const directedScrollEvents = scrollEvents.filter(payload =>
+    payload.pageTurnDirection === 'next' || payload.pageTurnDirection === 'previous'
+  )
+  if (directedScrollEvents.length === 0) {
+    throw new Error('Expected directed texture:scroll payloads')
+  }
+  for (const payload of directedScrollEvents) {
+    const xOffset = Number(payload.offset?.x)
+    const yOffset = Number(payload.offset?.y)
+    const position = Number(payload.position)
+    const baseOffset = Number(payload.baseOffset)
+    const delta = Number.isFinite(position) && Number.isFinite(baseOffset)
+      ? position - baseOffset
+      : Number(payload.delta)
+    if (payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
+      throw new Error(
+        `Expected next texture trace to move left/counter-forward; ` +
+        `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
+        `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
+      )
+    }
+    if (payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
+      throw new Error(
+        `Expected previous texture trace to move right/counter-back; ` +
+        `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
+        `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
+      )
+    }
+    if (Number.isFinite(delta) && Number.isFinite(xOffset) && Math.abs(delta) > 1 && Math.abs(xOffset) > 1) {
+      if (Math.sign(delta) === Math.sign(xOffset)) {
+        throw new Error(
+          `Expected texture trace to counter-move renderer; ` +
+          `observed x=${xOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +
+          `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
+        )
+      }
+    }
+    if (payload.flowMode === 'paged-vertical' && Number.isFinite(delta) && Number.isFinite(yOffset) && Math.abs(yOffset) > 1) {
+      if (Math.sign(delta) === Math.sign(yOffset)) {
+        throw new Error(
+          `Expected vertical texture trace to counter-move renderer; ` +
+          `observed y=${yOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +
+          `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
+        )
+      }
+    }
+  }
+}
+
 export const assertTextureUpdatesAreCommittedPageBounded = trace => {
   if (!Array.isArray(trace)) {
     throw new Error('Expected reader trace to be an array')
@@ -484,6 +544,12 @@ export const assertRendererCssSmoke = result => {
   }
   if (result.paragraphNativeScaledContentHit !== false) {
     throw new Error('Expected scaled native center hit-test not to suppress ordinary paragraph text')
+  }
+  if (result.imageRecentTouchContentHitAfterRemoval !== true) {
+    throw new Error('Expected recent image touch ownership to suppress native chrome after DOM removal')
+  }
+  if (result.textLinkRecentTouchContentHitAfterRemoval !== true) {
+    throw new Error('Expected recent text link touch ownership to suppress native chrome after DOM removal')
   }
   if (!String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
     throw new Error(`Expected surface paper texture layer background image; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)

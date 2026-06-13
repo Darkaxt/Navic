@@ -753,6 +753,66 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderRemembersRecentContentTouchForNativeCenterChromeAfterDocumentMutation() {
+		val bridgeText = readerBridgeText()
+		val harnessText = listOf(
+			File("tools/reader-harness/src/run-reader-harness.mjs"),
+			File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).first { it.exists() }.readText()
+		val assertionsText = listOf(
+			File("tools/reader-harness/src/reader-trace-assertions.mjs"),
+			File("../tools/reader-harness/src/reader-trace-assertions.mjs")
+		).first { it.exists() }.readText()
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+		val contentActionAtRootPoint = bridgeText
+			.substringAfter("readerContentActionAtRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {")
+			.substringBefore("\n  handleReaderTapZoneTap")
+
+		assertContains(
+			bridgeText,
+			"rememberReaderContentActionTouch",
+			message = "Touch-phase image/link ownership must be remembered locally so Android delayed center chrome still suppresses after DOM mutation or navigation."
+		)
+		assertContains(
+			bridgeText,
+			"recentReaderContentActionAtRootPoint",
+			message = "Native coordinate hit testing must check recent content-owned touch points before falling back to the current DOM."
+		)
+		assertTrue(
+			claimInteractiveTouch.indexOf("rememberReaderContentActionTouch") <
+				claimInteractiveTouch.indexOf("post({ type: 'readerContentTapHandled'"),
+			"Content touch ownership should be remembered before posting to Android so the local fallback survives bridge timing races."
+		)
+		assertTrue(
+			contentActionAtRootPoint.indexOf("recentReaderContentActionAtRootPoint(rootPoint)") <
+				contentActionAtRootPoint.indexOf("for (const entry of this.contentEntries())"),
+			"Recent content-owned touch points must be checked before querying the mutated current document tree."
+		)
+		assertContains(
+			harnessText,
+			"imageRecentTouchContentHitAfterRemoval",
+			message = "CSS smoke must model an image touch whose DOM node disappears before Android's delayed center hit test."
+		)
+		assertContains(
+			harnessText,
+			"textLinkRecentTouchContentHitAfterRemoval",
+			message = "CSS smoke must model a link touch whose DOM node disappears before Android's delayed center hit test."
+		)
+		assertContains(
+			assertionsText,
+			"Expected recent image touch ownership",
+			message = "Renderer assertions must fail when recent image touch ownership does not suppress native chrome."
+		)
+		assertContains(
+			assertionsText,
+			"Expected recent text link touch ownership",
+			message = "Renderer assertions must fail when recent link touch ownership does not suppress native chrome."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

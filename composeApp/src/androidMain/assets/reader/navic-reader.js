@@ -223,6 +223,7 @@ class NavicReaderRuntime {
   suppressedCoverSectionIndexes = new Set()
   embeddedCoverSuppressedSectionIndexes = new Set()
   embeddedCoverRerenderScheduled = false
+  recentContentActionTouch = null
   viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
@@ -353,6 +354,7 @@ class NavicReaderRuntime {
     this.suppressedCoverSectionIndexes = new Set()
     this.embeddedCoverSuppressedSectionIndexes = new Set()
     this.embeddedCoverRerenderScheduled = false
+    this.recentContentActionTouch = null
     this.readerDirectionModeValue = ReaderDirectionDefault
     this.surfaceTextureLayer?.remove?.()
     this.surfaceTextureLayer = null
@@ -1045,11 +1047,66 @@ class NavicReaderRuntime {
     return false
   }
 
+  rememberReaderContentActionTouch(doc, event, detail = {}) {
+    const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
+    const x = Number(rootPoint?.x ?? rootPoint?.clientX)
+    const y = Number(rootPoint?.y ?? rootPoint?.clientY)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    this.recentContentActionTouch = {
+      x,
+      y,
+      kind: detail.kind || 'content',
+      href: detail.href || '',
+      source: detail.source || '',
+      expiresAt: performance.now() + ReaderMediaSyntheticClickSuppressMs,
+    }
+    readerTrace('content-hit-test:remember', {
+      kind: this.recentContentActionTouch.kind,
+      href: this.recentContentActionTouch.href,
+      source: this.recentContentActionTouch.source,
+      x: Math.round(x),
+      y: Math.round(y),
+    })
+  }
+
+  recentReaderContentActionAtRootPoint(rootPoint) {
+    const recent = this.recentContentActionTouch
+    if (!recent) return null
+    if (performance.now() > Number(recent.expiresAt || 0)) {
+      this.recentContentActionTouch = null
+      return null
+    }
+    const x = Number(rootPoint?.x)
+    const y = Number(rootPoint?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+    const slop = CenterTapMovementSlop * 3
+    if (Math.abs(x - recent.x) > slop || Math.abs(y - recent.y) > slop) return null
+    readerTrace('content-hit-test:recent', {
+      kind: recent.kind,
+      href: recent.href,
+      source: recent.source,
+      x: Math.round(x),
+      y: Math.round(y),
+    })
+    return {
+      handled: true,
+      kind: recent.kind,
+      href: recent.href,
+      source: recent.source,
+      recent: true,
+    }
+  }
+
   claimReaderInteractiveContentTouch(doc, event) {
     if (!doc || event?.defaultPrevented || event?.touches?.length > 1) return false
     const anchor = closestElement(event.target, 'a[href]')
     const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
     if (mediaTapTarget) {
+      this.rememberReaderContentActionTouch(doc, event, {
+        kind: 'media',
+        href: anchor?.getAttribute?.('href') || '',
+        source: 'media-touch',
+      })
       post({ type: 'readerContentTapHandled', source: 'media-touch' })
       readerTrace('content-touch:media', {
         tagName: mediaTapTarget.tagName || 'media',
@@ -1058,6 +1115,11 @@ class NavicReaderRuntime {
       return true
     }
     if (anchor) {
+      this.rememberReaderContentActionTouch(doc, event, {
+        kind: 'link',
+        href: anchor.getAttribute('href') || '',
+        source: 'link-touch',
+      })
       post({ type: 'readerContentTapHandled', source: 'link-touch' })
       readerTrace('content-touch:link', {
         href: anchor.getAttribute('href') || '',
@@ -1161,6 +1223,8 @@ class NavicReaderRuntime {
 
   readerContentActionAtRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {
     const rootPoint = this.normalizeReaderContentRootPoint(rootX, rootY, viewWidth, viewHeight)
+    const recentHit = this.recentReaderContentActionAtRootPoint(rootPoint)
+    if (recentHit?.handled) return recentHit
     for (const entry of this.contentEntries()) {
       const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)
       if (!hit?.handled) continue
@@ -1293,6 +1357,11 @@ class NavicReaderRuntime {
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
       if (mediaTapTarget) {
+        this.rememberReaderContentActionTouch(doc, event, {
+          kind: 'media',
+          href: anchor?.getAttribute?.('href') || '',
+          source: 'media-anchor',
+        })
         post({ type: 'readerContentTapHandled', source: 'media-anchor' })
         const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
         if (!toggled) {
@@ -1322,6 +1391,11 @@ class NavicReaderRuntime {
       if (!rawHref) return
       const section = this.view?.book?.sections?.[index]
       const href = section?.resolveHref?.(rawHref) ?? rawHref
+      this.rememberReaderContentActionTouch(doc, event, {
+        kind: 'link',
+        href,
+        source: 'link',
+      })
       post({ type: 'readerContentTapHandled', source: 'link' })
       event.preventDefault()
       event.stopPropagation()
@@ -1357,6 +1431,10 @@ class NavicReaderRuntime {
     }
     const image = readerImageFromMediaTarget(mediaTapTarget)
     if (!image) return false
+    this.rememberReaderContentActionTouch(doc, event, {
+      kind: 'media',
+      source: 'image',
+    })
     post({ type: 'readerContentTapHandled', source: 'image' })
     event.preventDefault?.()
     event.stopPropagation?.()
