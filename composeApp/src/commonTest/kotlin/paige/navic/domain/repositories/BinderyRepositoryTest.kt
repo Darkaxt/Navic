@@ -26,6 +26,14 @@ class BinderyRepositoryTest {
 			"https://bindery.example.com/bindery/opds/books/1/manifest",
 			binderyEndpoint(" https://bindery.example.com/bindery/opds/ ", "books/1/manifest")
 		)
+		assertEquals(
+			"https://bindery.example.com/api/v1/audiobooks?bookId=3816&limit=100",
+			binderyApiEndpoint(" https://bindery.example.com/opds/ ", "audiobooks?bookId=3816&limit=100")
+		)
+		assertEquals(
+			"https://bindery.example.com/bindery/api/v1/audiobooks/88",
+			binderyApiEndpoint(" https://bindery.example.com/bindery/opds/ ", "/api/v1/audiobooks/88")
+		)
 	}
 
 	@Test
@@ -198,6 +206,43 @@ class BinderyRepositoryTest {
 		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.resourceBaseUrls)
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.resourceHeaders)
 		assertEquals(listOf("/opds/books/3693/resources/readaloud-1"), apiClient.resourcePaths)
+	}
+
+	@Test
+	fun audiobookVersionsUseConfiguredOpdsUrlAndApiKeyHeaderAndCache() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 88,
+					bookId = 3816,
+					bookFileId = 791,
+					title = "The Hobbit",
+					narrator = "Rob Inglis",
+					coverUrl = "https://m.media-amazon.com/images/I/61-hOsUyOZL._SL500_.jpg"
+				)
+			)
+		)
+		val metadataCache = RecordingBinderyMetadataCache()
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L }
+		)
+
+		val first = repository.getAudiobookVersions("3816").getOrThrow()
+		val second = repository.getAudiobookVersions("3816").getOrThrow()
+
+		assertEquals(first, second)
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.audiobookVersionBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.audiobookVersionHeaders)
+		assertEquals(listOf("3816"), apiClient.audiobookVersionBookIds)
+		assertEquals(listOf(100), apiClient.audiobookVersionLimits)
+		assertTrue(
+			metadataCache.records.values.any { record ->
+				record.payloadType == BinderyMetadataPayloadType.AudiobookVersions &&
+					record.path == "book:3816:limit:100"
+			}
+		)
 	}
 
 }

@@ -3,6 +3,8 @@ package paige.navic.ui.screens.bindery
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
 import paige.navic.domain.repositories.BinderyAvailabilityCombination
+import paige.navic.domain.repositories.BinderyAudiobookVersion
+import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyFindingFile
 import paige.navic.domain.repositories.BinderyFindingMapping
@@ -12,6 +14,8 @@ import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderyFindingMetadata
+import paige.navic.domain.repositories.BinderySyncPair
+import paige.navic.domain.repositories.BinderyWhispersyncArtifact
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
@@ -26,6 +30,140 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class BinderyBookVersionPolicyTest {
+	@Test
+	fun bookVersionRowsPreferAudiobookVersionsOverManifestAudioRows() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3816/resources/audio-old",
+					title = "Old resource row",
+					type = "audio/mpeg",
+					properties = mapOf("bookFileId" to "791")
+				)
+			)
+		)
+		val audiobookVersions = listOf(
+			BinderyAudiobookVersion(
+				id = 88,
+				bookId = 3816,
+				bookFileId = 791,
+				title = "The Hobbit",
+				language = "English",
+				narrator = "Rob Inglis, Martin Shaw, Derek Jacobi",
+				editionType = "unabridged",
+				durationMs = 79_139_972,
+				sizeBytes = 1_803_441_713,
+				resourceCount = 27,
+				codec = "mixed"
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "audiobook-version:88",
+					kind = BinderyBookVersionKind.Audiobook,
+					title = "Rob Inglis, Martin Shaw, Derek Jacobi",
+					subtitle = "Unabridged / MIXED / 27 parts / 21h 59m / 1.67 GB",
+					audiobookId = "88",
+					audiobookBookFileId = "791"
+				)
+			),
+			binderyBookVersionRows(
+				manifest = manifest,
+				resourceCatalog = null,
+				languageFilter = "eng",
+				audiobookVersions = audiobookVersions
+			)
+		)
+	}
+
+	@Test
+	fun bookVersionRowsAttachReadyWhispersyncPairsToMatchingOppositeRows() {
+		val resources = BinderyResourceCatalog(
+			title = "The Hobbit Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-435",
+					title = "Houghton Mifflin Harcourt",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf(
+						"bookFileId" to "435",
+						"language" to "eng",
+						"format" to "epub",
+						"publisher" to "Houghton Mifflin Harcourt"
+					)
+				)
+			)
+		)
+		val sync = BinderyBookSync(
+			bookId = 3816,
+			syncPairs = listOf(
+				BinderySyncPair(
+					bookId = 3816,
+					ebookBookFileId = 435,
+					audiobookBookFileId = 694,
+					whispersync = BinderyWhispersyncArtifact(
+						status = "ready",
+						artifactId = 3,
+						artifactHref = "/opds/books/3816/sync/3",
+						score = .989,
+						coverage = .96
+					)
+				),
+				BinderySyncPair(
+					bookId = 3816,
+					ebookBookFileId = 435,
+					audiobookBookFileId = 607,
+					whispersync = BinderyWhispersyncArtifact(
+						status = "pending",
+						artifactId = 4
+					)
+				)
+			)
+		)
+
+		val rows = binderyBookVersionRows(
+			manifest = BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit"),
+			resourceCatalog = resources,
+			languageFilter = "eng",
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 69,
+					bookId = 3816,
+					bookFileId = 694,
+					title = "The Hobbit",
+					language = "English",
+					narrator = "Andy Serkis"
+				),
+				BinderyAudiobookVersion(
+					id = 20,
+					bookId = 3816,
+					bookFileId = 607,
+					title = "The Hobbit",
+					language = "English",
+					narrator = "NPR Radio Drama Cast"
+				)
+			),
+			bookSync = sync
+		)
+
+		val andy = rows.first { row -> row.audiobookId == "69" }
+		val npr = rows.first { row -> row.audiobookId == "20" }
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+
+		assertEquals(1, andy.syncMatches.size)
+		assertEquals("Houghton Mifflin Harcourt", andy.syncMatches.single().oppositeTitle)
+		assertEquals(96, andy.syncMatches.single().coveragePercent)
+		assertEquals(99, andy.syncMatches.single().scorePercent)
+		assertTrue(npr.syncMatches.isEmpty())
+		assertEquals(1, ebook.syncMatches.size)
+		assertEquals("Andy Serkis", ebook.syncMatches.single().oppositeTitle)
+	}
+
 	@Test
 	fun bookVersionRowsAggregateAudioAndListEbooks() {
 		val manifest = BinderyManifest(

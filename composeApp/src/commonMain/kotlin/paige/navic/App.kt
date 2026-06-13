@@ -76,6 +76,7 @@ import paige.navic.ui.screens.aurral.AurralDiscoverListScreen
 import paige.navic.ui.screens.aurral.AurralHubScreen
 import paige.navic.ui.screens.aurral.AurralMissingAlbumScreen
 import paige.navic.ui.screens.bindery.BinderyAudiobookPlayerScreen
+import paige.navic.ui.screens.bindery.BinderyAudiobookDetailScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogScreen
 import paige.navic.ui.screens.bindery.BinderyCatalogTab
 import paige.navic.ui.screens.bindery.BinderyBookScreen
@@ -355,7 +356,13 @@ private fun entryProvider(
 			BinderyAudiobookPlayerScreen(
 				bookId = key.bookId,
 				title = key.title,
-				versionRowId = key.versionRowId
+				audiobookId = key.audiobookId
+			)
+		}
+		entry<Screen.BinderyAudiobookDetail>(metadata = navtabMetadata) { key ->
+			BinderyAudiobookDetailScreen(
+				audiobookId = key.audiobookId,
+				title = key.title
 			)
 		}
 		entry<Screen.BinderyFinding>(metadata = navtabMetadata) { key ->

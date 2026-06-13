@@ -6,6 +6,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.repositories.BinderyAudiobookVersion
+import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
@@ -16,6 +18,8 @@ import paige.navic.ui.core.UiState
 data class BinderyBookData(
 	val manifest: BinderyManifest,
 	val resources: BinderyResourceCatalog = BinderyResourceCatalog(title = "Resources"),
+	val audiobooks: List<BinderyAudiobookVersion> = emptyList(),
+	val sync: BinderyBookSync = BinderyBookSync(),
 	val findings: BinderyCatalog = BinderyCatalog(title = "Findings")
 )
 
@@ -41,17 +45,21 @@ class BinderyBookViewModel(
 			}
 			repository.getManifest(bookId).fold(
 				onSuccess = { manifest ->
-					val findings = repository.getBookFindings(bookId).getOrElse {
-						BinderyCatalog(title = "Findings")
+					val audiobooks = repository.getAudiobookVersions(bookId).getOrElse {
+						emptyList()
 					}
 					val resources = repository.getBookResources(bookId).getOrElse {
 						BinderyResourceCatalog(title = "Resources")
+					}
+					val sync = repository.getBookSync(bookId).getOrElse {
+						BinderyBookSync(bookId = bookId.toLongOrNull())
 					}
 					_bookState.value = UiState.Success(
 						BinderyBookData(
 							manifest = manifest,
 							resources = resources,
-							findings = findings
+							audiobooks = audiobooks,
+							sync = sync
 						)
 					)
 				},

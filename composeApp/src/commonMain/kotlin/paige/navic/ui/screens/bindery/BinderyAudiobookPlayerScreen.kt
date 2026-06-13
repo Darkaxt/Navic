@@ -102,56 +102,48 @@ import kotlin.time.Duration.Companion.milliseconds
 fun BinderyAudiobookPlayerScreen(
 	bookId: String,
 	title: String,
-	versionRowId: String
+	audiobookId: String
 ) {
 	val viewModel = koinViewModel<BinderyAudiobookPlayerViewModel>(
-		key = "bindery-audiobook-player-$bookId-$versionRowId",
-		parameters = { parametersOf(bookId) }
+		key = "bindery-audiobook-player-$bookId-$audiobookId",
+		parameters = { parametersOf(bookId, audiobookId) }
 	)
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
 	val manifestState by viewModel.manifestState.collectAsStateWithLifecycle()
 	val manifest = manifestState.data
-	val providerCoverUrlState by viewModel.providerCoverUrlState.collectAsStateWithLifecycle()
+	val detailState by viewModel.detailState.collectAsStateWithLifecycle()
+	val detail = detailState.data
 	val binderyConfigured = shouldLoadBinderyUi(
 		binderyEnabled = preferenceManager.binderyEnabled,
 		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 		apiKey = preferenceManager.binderyApiKey
 	)
 	val binderyRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
-	val findingsState by viewModel.findingsState.collectAsStateWithLifecycle()
-	val findingsCatalog = findingsState.data
-	val chapters = remember(manifest, versionRowId) {
-		manifest?.let { binderyAudiobookChapters(it, versionRowId) }.orEmpty()
+	val chapters = remember(manifest, audiobookId) {
+		manifest?.let { binderyAudiobookChapters(it, audiobookId) }.orEmpty()
 	}
-	val resumeProgress = remember(bookId, versionRowId) {
-		viewModel.rememberedProgress(versionRowId)
+	val resumeProgress = remember(bookId, audiobookId) {
+		viewModel.rememberedProgress(audiobookId)
 	}
-	val playbackPlan = remember(manifest, versionRowId, preferenceManager.binderyOpdsBaseUrl, binderyRequestHeaders, resumeProgress) {
+	val playbackPlan = remember(manifest, audiobookId, preferenceManager.binderyOpdsBaseUrl, binderyRequestHeaders, resumeProgress) {
 		manifest?.takeIf { chapters.isNotEmpty() }?.let {
 			binderyAudiobookPlaybackPlan(
 				manifest = it,
-				versionRowId = versionRowId,
+				versionRowId = audiobookId,
 				opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 				requestHeaders = binderyRequestHeaders,
-				resumeProgress = resumeProgress
+				resumeProgress = resumeProgress,
+				progressBookId = bookId
 			)
 		}
 	}
-	val coverSelection = remember(manifest, bookId, versionRowId, findingsCatalog) {
-		manifest?.let {
-			binderyAudiobookCoverSelection(
-				manifest = it,
-				versionRowId = versionRowId,
-				findingsCatalog = findingsCatalog,
-				routeBookId = bookId
-			)
-		}
+	val fallbackCoverHref = detail?.coverUrl
+		?: manifest?.images?.firstOrNull()?.href
+		?: manifest?.properties?.firstNonBlankValue("image", "cover")
+	val coverUrl = remember(fallbackCoverHref, preferenceManager.binderyOpdsBaseUrl) {
+		fallbackCoverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
 	}
-	val fallbackCoverUrl = remember(coverSelection?.fallbackCoverHref, preferenceManager.binderyOpdsBaseUrl) {
-		coverSelection?.fallbackCoverHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) }
-	}
-	val coverUrl = providerCoverUrlState.data?.takeIf { it.isNotBlank() } ?: fallbackCoverUrl
 	val imageRequestHeaders = remember(coverUrl, preferenceManager.binderyOpdsBaseUrl, binderyRequestHeaders) {
 		binderyRequestHeadersForUrl(
 			baseUrl = preferenceManager.binderyOpdsBaseUrl,
@@ -159,8 +151,8 @@ fun BinderyAudiobookPlayerScreen(
 			requestHeaders = binderyRequestHeaders
 		)
 	}
-	val coverCacheKey = remember(manifest?.id, versionRowId, coverUrl) {
-		"bindery-audiobook:${manifest?.id.orEmpty()}:$versionRowId:${coverUrl.orEmpty()}"
+	val coverCacheKey = remember(manifest?.id, audiobookId, coverUrl) {
+		"bindery-audiobook:${manifest?.id.orEmpty()}:$audiobookId:${coverUrl.orEmpty()}"
 	}
 	var playbackState by remember {
 		mutableStateOf(ReaderReadaloudPlaybackUiState())
@@ -171,25 +163,16 @@ fun BinderyAudiobookPlayerScreen(
 	var speedSheetOpen by rememberSaveable { mutableStateOf(false) }
 	var chaptersSheetOpen by rememberSaveable { mutableStateOf(false) }
 	var sleepTimerSheetOpen by rememberSaveable { mutableStateOf(false) }
-	val screen = Screen.BinderyAudiobookPlayer(bookId, title, versionRowId)
+	val screen = Screen.BinderyAudiobookPlayer(bookId, title, audiobookId)
 
 	fun dispatch(command: ReaderReadaloudPlaybackCommand) {
 		playbackCommand = command
 		playbackCommandKey++
 	}
 
-	LaunchedEffect(binderyConfigured, bookId) {
+	LaunchedEffect(binderyConfigured, bookId, audiobookId) {
 		if (binderyConfigured) {
 			viewModel.refreshManifest(fullRefresh = false)
-		}
-	}
-
-	LaunchedEffect(coverSelection?.finding, coverSelection?.fallbackCoverHref) {
-		if (coverSelection != null) {
-			viewModel.refreshProviderCover(
-				finding = coverSelection.finding,
-				fallbackCoverHref = coverSelection.fallbackCoverHref
-			)
 		}
 	}
 
@@ -197,14 +180,14 @@ fun BinderyAudiobookPlayerScreen(
 		playbackPlan = playbackPlan,
 		bookId = bookId,
 		bookTitle = title,
-		versionRowId = versionRowId,
+		versionRowId = audiobookId,
 		coverUrl = coverUrl,
 		coverCacheKey = coverCacheKey,
 		imageRequestHeaders = imageRequestHeaders,
 		playbackCommand = playbackCommand,
 		playbackCommandKey = playbackCommandKey,
 		onPlaybackState = { playbackState = it },
-		onPlaybackPosition = { position -> viewModel.savePlaybackProgress(versionRowId, position) },
+		onPlaybackPosition = { position -> viewModel.savePlaybackProgress(audiobookId, position) },
 		onError = { runtimeError = it }
 	)
 
@@ -934,3 +917,10 @@ private fun Long.audiobookTimeLabel(): String {
 		"$minutes:${seconds.toString().padStart(2, '0')}"
 	}
 }
+
+private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
+	keys.firstNotNullOfOrNull { desiredKey ->
+		entries.firstOrNull { (key, value) ->
+			key.equals(desiredKey, ignoreCase = true) && value.isNotBlank()
+		}?.value?.trim()
+	}

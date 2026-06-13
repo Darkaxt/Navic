@@ -139,7 +139,8 @@ fun binderyAudiobookPlaybackPlan(
 	opdsBaseUrl: String,
 	requestHeaders: Map<String, String>,
 	playbackSpeed: Float = 1f,
-	resumeProgress: BinderyAudiobookPlaybackProgress? = null
+	resumeProgress: BinderyAudiobookPlaybackProgress? = null,
+	progressBookId: String? = null
 ): ReadaloudPlaybackPlan {
 	val absoluteReadingOrder = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
 		.map { item -> item.copy(href = binderyEndpoint(opdsBaseUrl, item.href)) }
@@ -151,8 +152,12 @@ fun binderyAudiobookPlaybackPlan(
 		requestHeaders = requestHeaders,
 		playbackSpeed = playbackSpeed
 	)
+	val progressBookIds = listOfNotNull(
+		manifest.id?.trim()?.takeIf { it.isNotEmpty() },
+		progressBookId?.trim()?.takeIf { it.isNotEmpty() }
+	).toSet()
 	val start = resumeProgress
-		?.takeIf { progress -> progress.bookId == manifest.id && progress.versionRowId == versionRowId }
+		?.takeIf { progress -> progress.bookId in progressBookIds && progress.versionRowId == versionRowId }
 		?.let { progress -> binderyAudiobookStartPosition(progress, basePlan.mediaItems) }
 	return start?.let { target ->
 		basePlan.copy(

@@ -50,6 +50,115 @@ data class BinderyReadingProgress(
 )
 
 @Serializable
+data class BinderyAudiobookVersion(
+	val id: Long? = null,
+	val bookId: Long? = null,
+	val bookFileId: Long? = null,
+	val providerFindingId: Long? = null,
+	val providerMappingId: Long? = null,
+	val title: String? = null,
+	val versionLabel: String? = null,
+	val language: String? = null,
+	val narrator: String? = null,
+	val publisher: String? = null,
+	val editionType: String? = null,
+	val audibleAsin: String? = null,
+	val audibleSourceUrl: String? = null,
+	val audibleTitle: String? = null,
+	val audibleAuthor: String? = null,
+	val seriesTitle: String? = null,
+	val seriesPosition: String? = null,
+	val releaseDate: String? = null,
+	val formatLabel: String? = null,
+	val description: String? = null,
+	val copyright: String? = null,
+	val categories: List<String> = emptyList(),
+	val sourceUrl: String? = null,
+	val coverUrl: String? = null,
+	val coverSource: String? = null,
+	val metadataStatus: String? = null,
+	val durationMs: Long? = null,
+	val sizeBytes: Long? = null,
+	val resourceCount: Int? = null,
+	val codec: String? = null,
+	val bitrateBps: Long? = null,
+	val sampleRateHz: Long? = null,
+	val channels: Int? = null,
+	val resources: List<BinderyAudiobookResource> = emptyList(),
+	val provenance: BinderyAudiobookProvenance? = null,
+	val createdAt: String? = null,
+	val updatedAt: String? = null,
+	val book: JsonElement? = null
+)
+
+@Serializable
+data class BinderyAudiobookResource(
+	val id: Long? = null,
+	val resourceKey: String? = null,
+	val relativePath: String? = null,
+	val displayTitle: String? = null,
+	val trackNumber: Int? = null,
+	val discNumber: Int? = null,
+	val durationMs: Long? = null,
+	val sizeBytes: Long? = null,
+	val mimeType: String? = null,
+	val codec: String? = null,
+	val bitrateBps: Long? = null,
+	val sampleRateHz: Long? = null,
+	val channels: Int? = null,
+	val deliveryPolicy: String? = null
+)
+
+@Serializable
+data class BinderyAudiobookProvenance(
+	val source: String? = null,
+	val sourceUrl: String? = null,
+	val providerSourceUrl: String? = null,
+	val coverHref: String? = null
+)
+
+@Serializable
+data class BinderyBookSync(
+	val bookId: Long? = null,
+	val whispersyncStatus: String? = null,
+	val syncPairCounts: Map<String, Int> = emptyMap(),
+	val syncPairs: List<BinderySyncPair> = emptyList()
+)
+
+@Serializable
+data class BinderySyncPair(
+	val bookId: Long? = null,
+	val ebookBookFileId: Long? = null,
+	val audiobookBookFileId: Long? = null,
+	val ebookLanguage: String? = null,
+	val audiobookLanguage: String? = null,
+	val language: String? = null,
+	val whispersync: BinderyWhispersyncArtifact? = null
+)
+
+@Serializable
+data class BinderyWhispersyncArtifact(
+	val status: String? = null,
+	val artifactId: Long? = null,
+	val artifactHref: String? = null,
+	val reportHref: String? = null,
+	val score: Double? = null,
+	val coverage: Double? = null,
+	val audioCoverage: Double? = null,
+	val ebookCoverage: Double? = null,
+	val lastJob: BinderyWhispersyncJob? = null
+)
+
+@Serializable
+data class BinderyWhispersyncJob(
+	val id: Long? = null,
+	val status: String? = null,
+	val phase: String? = null,
+	val progressPercent: Int? = null,
+	val message: String? = null
+)
+
+@Serializable
 enum class BinderyReadingProgressKind {
 	@SerialName("ebook")
 	Ebook,

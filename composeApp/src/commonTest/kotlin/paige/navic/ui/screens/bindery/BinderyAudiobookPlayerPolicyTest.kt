@@ -106,6 +106,38 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun playbackPlanUsesRouteBookIdForAudiobookScopedManifestProgress() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Book One - Chapter 1", "file-one"),
+				audioItem("one-b", "Book One - Chapter 2", "file-one")
+			)
+		)
+
+		val plan = binderyAudiobookPlaybackPlan(
+			manifest = manifest,
+			versionRowId = "69",
+			opdsBaseUrl = "https://bindery.test/opds",
+			requestHeaders = emptyMap(),
+			resumeProgress = BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 1,
+				mediaId = "readaloud:one-b",
+				positionMs = 42_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 100L
+			),
+			progressBookId = "book-1"
+		)
+
+		assertEquals(1, plan.startTrackIndex)
+		assertEquals(42_000L, plan.startPositionMs)
+	}
+
+	@Test
 	fun progressStoreKeepsIndependentPositionsPerEdition() {
 		val first = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

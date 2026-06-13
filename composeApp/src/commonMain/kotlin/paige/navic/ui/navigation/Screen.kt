@@ -127,7 +127,14 @@ sealed interface Screen : NavKey {
 	data class BinderyAudiobookPlayer(
 		val bookId: String,
 		val title: String,
-		val versionRowId: String
+		val audiobookId: String
+	) : Screen
+
+	@Immutable
+	@Serializable
+	data class BinderyAudiobookDetail(
+		val audiobookId: String,
+		val title: String
 	) : Screen
 
 	@Immutable

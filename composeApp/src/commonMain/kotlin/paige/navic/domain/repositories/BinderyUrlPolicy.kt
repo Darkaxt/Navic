@@ -43,6 +43,23 @@ internal fun binderyEndpoint(baseUrl: String, path: String): String =
 		path
 	)
 
+internal fun binderyApiEndpoint(baseUrl: String, path: String): String {
+	val normalizedBaseUrl = normalizeBinderyOpdsBaseUrl(baseUrl)
+	val trimmedPath = path.trim()
+	if (trimmedPath.startsWith("http://", ignoreCase = true) ||
+		trimmedPath.startsWith("https://", ignoreCase = true)
+	) {
+		return trimmedPath
+	}
+	val apiRoot = binderyApiRoot(normalizedBaseUrl)
+	val relativePath = trimmedPath.trimStart('/')
+	return if (relativePath.startsWith("api/v1/") || relativePath == "api/v1") {
+		"$apiRoot/$relativePath"
+	} else {
+		"$apiRoot/api/v1/$relativePath"
+	}
+}
+
 private fun binderyEndpointFromNormalizedBase(baseUrl: String, path: String): String {
 	val trimmedPath = path.trim()
 	if (trimmedPath.startsWith("http://", ignoreCase = true) ||
@@ -53,10 +70,19 @@ private fun binderyEndpointFromNormalizedBase(baseUrl: String, path: String): St
 	val relativePath = trimmedPath.trimStart('/')
 	return if (relativePath.startsWith("opds/")) {
 		"${binderyOrigin(baseUrl)}/$relativePath"
+	} else if (relativePath.startsWith("api/v1/") || relativePath == "api/v1") {
+		"${binderyApiRoot(baseUrl)}/$relativePath"
 	} else {
 		"$baseUrl/$relativePath"
 	}
 }
+
+private fun binderyApiRoot(normalizedOpdsBaseUrl: String): String =
+	if (normalizedOpdsBaseUrl.endsWith("/opds", ignoreCase = true)) {
+		normalizedOpdsBaseUrl.dropLast("/opds".length)
+	} else {
+		binderyOrigin(normalizedOpdsBaseUrl)
+	}
 
 internal fun binderyReadingProgressPath(bookId: String, alias: String?): String {
 	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }

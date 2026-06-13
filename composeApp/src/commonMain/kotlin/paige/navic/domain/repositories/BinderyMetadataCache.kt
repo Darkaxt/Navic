@@ -9,6 +9,10 @@ internal object BinderyMetadataPayloadType {
 	const val Catalog = "catalog"
 	const val Manifest = "manifest"
 	const val Resources = "resources"
+	const val AudiobookVersions = "audiobook-versions"
+	const val AudiobookDetail = "audiobook-detail"
+	const val AudiobookManifest = "audiobook-manifest"
+	const val BookSync = "book-sync"
 	const val BookFindings = "book-findings"
 	const val ProviderCover = "provider-cover"
 }

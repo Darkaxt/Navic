@@ -84,7 +84,7 @@ fun AudiobookMiniPlayer(
 			paige.navic.ui.navigation.Screen.BinderyAudiobookPlayer(
 				bookId = bookId,
 				title = state.bookTitle ?: bookId,
-				versionRowId = versionRowId
+				audiobookId = versionRowId
 			)
 		}
 	}

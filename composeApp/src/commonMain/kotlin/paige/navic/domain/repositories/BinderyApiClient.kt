@@ -43,6 +43,31 @@ interface BinderyApiClient {
 		bookId: String
 	): BinderyResourceCatalog
 
+	suspend fun fetchAudiobookVersions(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String,
+		limit: Int = 100
+	): List<BinderyAudiobookVersion>
+
+	suspend fun fetchAudiobookVersion(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyAudiobookVersion
+
+	suspend fun fetchAudiobookManifest(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyManifest
+
+	suspend fun fetchBookSync(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyBookSync
+
 	suspend fun fetchResourceBytes(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -142,6 +167,81 @@ internal class KtorBinderyApiClient : BinderyApiClient {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS resources", response.status))
 		}
 		return response.body<BinderyResourceCatalogDto>().toResourceCatalog()
+	}
+
+	override suspend fun fetchAudiobookVersions(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String,
+		limit: Int
+	): List<BinderyAudiobookVersion> {
+		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery book id is required.")
+		val safeLimit = limit.coerceIn(1, 500)
+		val response = client.get(
+			binderyApiEndpoint(
+				baseUrl,
+				"audiobooks?bookId=${safeBookId.encodeURLQueryComponent()}&limit=$safeLimit"
+			)
+		) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery audiobook versions", response.status))
+		}
+		return response.body<List<BinderyAudiobookVersion>>()
+	}
+
+	override suspend fun fetchAudiobookVersion(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyAudiobookVersion {
+		val safeAudiobookId = audiobookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery audiobook id is required.")
+		val response = client.get(binderyApiEndpoint(baseUrl, "audiobooks/${encodeUrlPathSegment(safeAudiobookId)}")) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery audiobook version", response.status))
+		}
+		return response.body<BinderyAudiobookVersion>()
+	}
+
+	override suspend fun fetchAudiobookManifest(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyManifest {
+		val safeAudiobookId = audiobookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery audiobook id is required.")
+		val response = client.get(binderyEndpoint(baseUrl, "audiobooks/${encodeUrlPathSegment(safeAudiobookId)}")) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType("application", "audiobook+json"))
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery audiobook manifest", response.status))
+		}
+		return response.body<BinderyPublicationDto>().toManifest()
+	}
+
+	override suspend fun fetchBookSync(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyBookSync {
+		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery book id is required.")
+		val response = client.get(binderyEndpoint(baseUrl, "books/${encodeUrlPathSegment(safeBookId)}/sync")) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery book sync", response.status))
+		}
+		return response.body<BinderyBookSync>()
 	}
 
 	override suspend fun fetchResourceBytes(

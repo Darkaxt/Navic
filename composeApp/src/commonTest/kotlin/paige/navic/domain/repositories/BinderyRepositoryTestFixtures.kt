@@ -15,6 +15,10 @@ internal class FakeBinderyApiClient(
 	private val rootCatalog: BinderyCatalog = BinderyCatalog(title = "Bindery"),
 	private val catalog: BinderyCatalog = rootCatalog,
 	private val bookFindings: BinderyCatalog = BinderyCatalog(title = "Findings"),
+	private val audiobookVersions: List<BinderyAudiobookVersion> = emptyList(),
+	private val audiobookVersion: BinderyAudiobookVersion = BinderyAudiobookVersion(id = 1),
+	private val audiobookManifest: BinderyManifest = BinderyManifest(id = "urn:bindery:audiobook:1", title = "Audiobook"),
+	private val bookSync: BinderyBookSync = BinderyBookSync(),
 	private val resourceBytes: ByteArray = ByteArray(0),
 	private val progress: BinderyReadingProgress = BinderyReadingProgress(
 		bookId = "book",
@@ -37,6 +41,19 @@ internal class FakeBinderyApiClient(
 	val bookFindingBaseUrls = mutableListOf<String>()
 	val bookFindingHeaders = mutableListOf<Map<String, String>>()
 	val bookFindingIds = mutableListOf<String>()
+	val audiobookVersionBaseUrls = mutableListOf<String>()
+	val audiobookVersionHeaders = mutableListOf<Map<String, String>>()
+	val audiobookVersionBookIds = mutableListOf<String>()
+	val audiobookVersionLimits = mutableListOf<Int>()
+	val audiobookDetailBaseUrls = mutableListOf<String>()
+	val audiobookDetailHeaders = mutableListOf<Map<String, String>>()
+	val audiobookDetailIds = mutableListOf<String>()
+	val audiobookManifestBaseUrls = mutableListOf<String>()
+	val audiobookManifestHeaders = mutableListOf<Map<String, String>>()
+	val audiobookManifestIds = mutableListOf<String>()
+	val bookSyncBaseUrls = mutableListOf<String>()
+	val bookSyncHeaders = mutableListOf<Map<String, String>>()
+	val bookSyncIds = mutableListOf<String>()
 	val resourceBaseUrls = mutableListOf<String>()
 	val resourceHeaders = mutableListOf<Map<String, String>>()
 	val resourcePaths = mutableListOf<String>()
@@ -86,6 +103,52 @@ internal class FakeBinderyApiClient(
 		requestHeaders: Map<String, String>,
 		bookId: String
 	): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
+
+	override suspend fun fetchAudiobookVersions(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String,
+		limit: Int
+	): List<BinderyAudiobookVersion> {
+		audiobookVersionBaseUrls += baseUrl
+		audiobookVersionHeaders += requestHeaders
+		audiobookVersionBookIds += bookId
+		audiobookVersionLimits += limit
+		return audiobookVersions
+	}
+
+	override suspend fun fetchAudiobookVersion(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyAudiobookVersion {
+		audiobookDetailBaseUrls += baseUrl
+		audiobookDetailHeaders += requestHeaders
+		audiobookDetailIds += audiobookId
+		return audiobookVersion
+	}
+
+	override suspend fun fetchAudiobookManifest(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		audiobookId: String
+	): BinderyManifest {
+		audiobookManifestBaseUrls += baseUrl
+		audiobookManifestHeaders += requestHeaders
+		audiobookManifestIds += audiobookId
+		return audiobookManifest
+	}
+
+	override suspend fun fetchBookSync(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: String
+	): BinderyBookSync {
+		bookSyncBaseUrls += baseUrl
+		bookSyncHeaders += requestHeaders
+		bookSyncIds += bookId
+		return bookSync
+	}
 
 	override suspend fun fetchResourceBytes(
 		baseUrl: String,

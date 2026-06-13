@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,11 +34,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -47,10 +51,12 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.ic_whispersync
 import navic.composeapp.generated.resources.info_bindery_no_versions
 import navic.composeapp.generated.resources.title_audiobook_ebooks
 import navic.composeapp.generated.resources.title_audiobooks
 import navic.composeapp.generated.resources.title_audiobook_subjects
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -79,6 +85,7 @@ import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
+import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -119,13 +126,15 @@ fun BinderyBookScreen(
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	var syncSheetRow by remember { mutableStateOf<BinderyBookVersionRow?>(null) }
 	val versionRows = data?.let { bookData ->
 		binderyBookVersionRows(
 			manifest = bookData.manifest,
 			resourceCatalog = bookData.resources,
 			languageFilter = languageFilter,
-			findingsCatalog = bookData.findings,
-			bookId = bookId
+			bookId = bookId,
+			audiobookVersions = bookData.audiobooks,
+			bookSync = bookData.sync
 		)
 	}.orEmpty()
 	val versionGroups = binderyBookVersionGroups(versionRows)
@@ -147,16 +156,18 @@ fun BinderyBookScreen(
 		data?.manifest?.id,
 		data?.manifest?.readingOrder?.size,
 		data?.resources?.resources?.size,
-		data?.findings?.publications?.size,
+		data?.audiobooks?.size,
+		data?.sync?.syncPairs?.size,
 		versionRows.size
 	) {
 		val bookData = data ?: return@LaunchedEffect
 		Logger.i(
 			BinderyBookScreenTag,
-			"Bindery book loaded bookId=$bookId " +
+				"Bindery book loaded bookId=$bookId " +
 				"readingOrder=${bookData.manifest.readingOrder.size} " +
 				"resources=${bookData.resources.resources.size} " +
-				"findings=${bookData.findings.publications.size} " +
+				"audiobooks=${bookData.audiobooks.size} " +
+				"syncPairs=${bookData.sync.syncPairs.size} " +
 				"versions=${versionRows.size} " +
 				"audiobookRows=${versionGroups.audiobooks.size} " +
 				"ebookRows=${versionGroups.ebooks.size}"
@@ -263,9 +274,13 @@ fun BinderyBookScreen(
 											platformContext.clickSound()
 											backStack.add(destination)
 										},
-										onOpenFinding = { finding ->
+										onOpenAudiobookDetail = { destination ->
 											platformContext.clickSound()
-											backStack.add(binderyDestinationForCard(finding))
+											backStack.add(destination)
+										},
+										onOpenWhispersync = { row ->
+											platformContext.clickSound()
+											syncSheetRow = row
 										}
 									)
 								}
@@ -292,9 +307,13 @@ fun BinderyBookScreen(
 											platformContext.clickSound()
 											backStack.add(destination)
 										},
-										onOpenFinding = { finding ->
+										onOpenAudiobookDetail = { destination ->
 											platformContext.clickSound()
-											backStack.add(binderyDestinationForCard(finding))
+											backStack.add(destination)
+										},
+										onOpenWhispersync = { row ->
+											platformContext.clickSound()
+											syncSheetRow = row
 										}
 									)
 								}
@@ -324,6 +343,16 @@ fun BinderyBookScreen(
 			viewModel.clearError()
 		}
 	)
+
+	syncSheetRow?.let { row ->
+		BinderyWhispersyncMatchesSheet(
+			row = row,
+			onDismissRequest = { syncSheetRow = null },
+			onOpenSidecar = {
+				// The timing layer is not wired yet; this keeps the pairing UI discoverable without starting partial playback.
+			}
+		)
+	}
 }
 
 @Composable
@@ -472,7 +501,8 @@ private fun BinderyBookVersionListItem(
 	readaloudMediaOverlayEnabled: Boolean,
 	onOpenReader: (Screen.Reader) -> Unit,
 	onOpenAudiobook: (Screen.BinderyAudiobookPlayer) -> Unit,
-	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
+	onOpenAudiobookDetail: (Screen.BinderyAudiobookDetail) -> Unit,
+	onOpenWhispersync: (BinderyBookVersionRow) -> Unit
 ) {
 	val readerDestination = binderyReaderDestinationForVersionRow(
 		row = row,
@@ -482,13 +512,21 @@ private fun BinderyBookVersionListItem(
 		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled
 	)
 	val audiobookDestination = if (row.routingAction() == BinderyBookVersionRoutingAction.OpenAudiobook) {
-		Screen.BinderyAudiobookPlayer(
-			bookId = bookId,
-			title = bookTitle,
-			versionRowId = row.id
-		)
+		row.audiobookId?.let { audiobookId ->
+			Screen.BinderyAudiobookPlayer(
+				bookId = bookId,
+				title = bookTitle,
+				audiobookId = audiobookId
+			)
+		}
 	} else {
 		null
+	}
+	val audiobookDetailDestination = row.audiobookId?.let { audiobookId ->
+		Screen.BinderyAudiobookDetail(
+			audiobookId = audiobookId,
+			title = row.title
+		)
 	}
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
@@ -514,12 +552,31 @@ private fun BinderyBookVersionListItem(
 				modifier = Modifier.weight(1f),
 				verticalArrangement = Arrangement.spacedBy(2.dp)
 			) {
-				Text(
-					text = row.title,
-					style = MaterialTheme.typography.titleSmall,
-					maxLines = 2,
-					overflow = TextOverflow.Ellipsis
-				)
+				Row(
+					horizontalArrangement = Arrangement.spacedBy(6.dp),
+					verticalAlignment = Alignment.CenterVertically
+				) {
+					Text(
+						text = row.title,
+						style = MaterialTheme.typography.titleSmall,
+						maxLines = 2,
+						overflow = TextOverflow.Ellipsis,
+						modifier = Modifier.weight(1f, fill = false)
+					)
+					if (row.syncMatches.isNotEmpty()) {
+						IconButton(
+							onClick = { onOpenWhispersync(row) },
+							modifier = Modifier.size(32.dp)
+						) {
+							Icon(
+								painter = painterResource(Res.drawable.ic_whispersync),
+								contentDescription = "Whispersync matches",
+								tint = Color.Unspecified,
+								modifier = Modifier.size(26.dp)
+							)
+						}
+					}
+				}
 				row.subtitle?.let {
 					Text(
 						text = it,
@@ -530,8 +587,8 @@ private fun BinderyBookVersionListItem(
 					)
 				}
 			}
-			row.finding?.let { finding ->
-				IconButton(onClick = { onOpenFinding(finding) }) {
+			audiobookDetailDestination?.let { destination ->
+				IconButton(onClick = { onOpenAudiobookDetail(destination) }) {
 					Icon(
 						imageVector = Icons.Outlined.Info,
 						contentDescription = null,
@@ -552,6 +609,79 @@ private fun BinderyBookVersionListItem(
 					imageVector = Icons.Filled.Play,
 					contentDescription = stringResource(Res.string.action_play)
 				)
+			}
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BinderyWhispersyncMatchesSheet(
+	row: BinderyBookVersionRow,
+	onDismissRequest: () -> Unit,
+	onOpenSidecar: (BinderyWhispersyncMatch) -> Unit
+) {
+	ModalBottomSheet(onDismissRequest = onDismissRequest) {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 20.dp, vertical = 8.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp)
+		) {
+			Text(
+				text = "Whispersync matches",
+				style = MaterialTheme.typography.titleMedium,
+				fontWeight = FontWeight.SemiBold
+			)
+			Text(
+				text = row.title,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+			row.syncMatches.forEach { match ->
+				Surface(
+					modifier = Modifier.fillMaxWidth(),
+					shape = RoundedCornerShape(8.dp),
+					color = MaterialTheme.colorScheme.surfaceContainerHighest
+				) {
+					Row(
+						modifier = Modifier.padding(12.dp),
+						horizontalArrangement = Arrangement.spacedBy(12.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Column(
+							modifier = Modifier.weight(1f),
+							verticalArrangement = Arrangement.spacedBy(3.dp)
+						) {
+							Text(
+								text = match.oppositeTitle,
+								style = MaterialTheme.typography.titleSmall,
+								maxLines = 2,
+								overflow = TextOverflow.Ellipsis
+							)
+							Text(
+								text = listOfNotNull(
+									"Ready",
+									match.coveragePercent?.let { "Coverage $it%" },
+									match.scorePercent?.let { "Score $it%" }
+								).joinToString("  "),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						OutlinedButton(onClick = { onOpenSidecar(match) }) {
+							Text("Sidecar")
+						}
+					}
+				}
+			}
+			Button(
+				onClick = onDismissRequest,
+				modifier = Modifier.align(Alignment.End)
+			) {
+				Text("Done")
 			}
 		}
 	}

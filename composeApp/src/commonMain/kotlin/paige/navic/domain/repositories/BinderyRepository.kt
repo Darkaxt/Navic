@@ -170,6 +170,45 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyResourceCatalog>(json) }
 		)
 
+	suspend fun getAudiobookVersions(
+		bookId: String,
+		limit: Int = 100
+	): Result<List<BinderyAudiobookVersion>> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookVersions,
+			path = "book:${bookId.trim()}:limit:${limit.coerceIn(1, 500)}",
+			fetch = { baseUrl, headers -> apiClient.fetchAudiobookVersions(baseUrl, headers, bookId, limit) },
+			encode = { versions -> BinderyJson.encodeToString(versions) },
+			decode = { json -> BinderyJson.decodeFromString<List<BinderyAudiobookVersion>>(json) }
+		)
+
+	suspend fun getAudiobookDetail(audiobookId: String): Result<BinderyAudiobookVersion> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookDetail,
+			path = audiobookId,
+			fetch = { baseUrl, headers -> apiClient.fetchAudiobookVersion(baseUrl, headers, audiobookId) },
+			encode = { version -> BinderyJson.encodeToString(version) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyAudiobookVersion>(json) }
+		)
+
+	suspend fun getAudiobookManifest(audiobookId: String): Result<BinderyManifest> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
+			path = audiobookId,
+			fetch = { baseUrl, headers -> apiClient.fetchAudiobookManifest(baseUrl, headers, audiobookId) },
+			encode = { manifest -> BinderyJson.encodeToString(manifest) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
+		)
+
+	suspend fun getBookSync(bookId: String): Result<BinderyBookSync> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.BookSync,
+			path = bookId,
+			fetch = { baseUrl, headers -> apiClient.fetchBookSync(baseUrl, headers, bookId) },
+			encode = { sync -> BinderyJson.encodeToString(sync) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyBookSync>(json) }
+		)
+
 	suspend fun getResourceBytes(path: String): Result<ByteArray> {
 		val label = readerPublicationResourceLogLabel(path)
 		Logger.i(TAG, "Bindery resource request path=$label")

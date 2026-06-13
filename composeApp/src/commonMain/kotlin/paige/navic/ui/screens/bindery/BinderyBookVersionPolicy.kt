@@ -2,8 +2,10 @@ package paige.navic.ui.screens.bindery
 
 import io.ktor.http.encodeURLParameter
 import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.repositories.BinderyAudiobookVersion
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
+import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyFindingFile
 import paige.navic.domain.repositories.BinderyFindingMapping
@@ -13,6 +15,7 @@ import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.domain.repositories.BinderySyncPair
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.models.queueTotalDurationLabel
@@ -22,6 +25,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
 import paige.navic.util.core.toFileSize
 import kotlin.math.roundToLong
+import kotlin.math.roundToInt
 
 enum class BinderyBookVersionKind {
 	Audiobook,
@@ -288,7 +292,20 @@ data class BinderyBookVersionRow(
 	val title: String,
 	val subtitle: String?,
 	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
-	val finding: BinderyCatalogCard.Finding? = null
+	val finding: BinderyCatalogCard.Finding? = null,
+	val audiobookId: String? = null,
+	val audiobookBookFileId: String? = null,
+	val ebookBookFileId: String? = null,
+	val syncMatches: List<BinderyWhispersyncMatch> = emptyList()
+)
+
+data class BinderyWhispersyncMatch(
+	val oppositeTitle: String,
+	val oppositeKind: BinderyBookVersionKind,
+	val artifactId: String,
+	val sidecarHref: String,
+	val coveragePercent: Int?,
+	val scorePercent: Int?
 )
 
 data class BinderyBookVersionGroups(
@@ -358,7 +375,9 @@ fun binderyBookVersionRows(
 	resourceCatalog: BinderyResourceCatalog?,
 	languageFilter: String? = null,
 	findingsCatalog: BinderyCatalog? = null,
-	bookId: String? = manifest?.id
+	bookId: String? = manifest?.id,
+	audiobookVersions: List<BinderyAudiobookVersion> = emptyList(),
+	bookSync: BinderyBookSync? = null
 ): List<BinderyBookVersionRow> {
 	val language = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
 	val findingByBookFileId = findingsCatalog.findingCardsByBookFileId(
@@ -392,15 +411,26 @@ fun binderyBookVersionRows(
 		.filter { resource -> resource.matchesLanguage(language) }
 		.distinctBy { resource -> resource.href }
 
-	val audioRows = audioItems
-		.groupBy { item -> item.audioEditionKey() }
-		.values
+	val audiobookVersionRows = audiobookVersions
+		.filter { version -> version.matchesLanguage(language) }
 		.sortedWith(
-			compareByDescending<List<BinderyReadingOrderItem>> { items -> items.audioFormatQualityRank() }
-				.thenByDescending { items -> items.audioBytesPerSecond() }
-				.thenByDescending { items -> items.totalSizeBytes() }
+			compareByDescending<BinderyAudiobookVersion> { version -> version.audioFormatQualityRank() }
+				.thenByDescending { version -> version.audioBytesPerSecond() }
+				.thenByDescending { version -> version.sizeBytes ?: 0L }
+				.thenBy { version -> version.audiobookTitleLabel().lowercase() }
 		)
-		.map { items -> items.toAudiobookVersionRow(findingByBookFileId) }
+		.map(BinderyAudiobookVersion::toAudiobookVersionRow)
+	val audioRows = audiobookVersionRows.ifEmpty {
+		audioItems
+			.groupBy { item -> item.audioEditionKey() }
+			.values
+			.sortedWith(
+				compareByDescending<List<BinderyReadingOrderItem>> { items -> items.audioFormatQualityRank() }
+					.thenByDescending { items -> items.audioBytesPerSecond() }
+					.thenByDescending { items -> items.totalSizeBytes() }
+			)
+			.map { items -> items.toAudiobookVersionRow(findingByBookFileId) }
+	}
 	val readaloudRows = readaloudResources
 		.sortedWith(
 			compareByDescending<BinderyBookResource> { resource -> resource.sizeBytes ?: 0L }
@@ -415,7 +445,9 @@ fun binderyBookVersionRows(
 		)
 		.map { resource -> resource.toEbookVersionRow(findingByBookFileId) }
 
-	return (readaloudRows + audioRows + ebookRows).collapsedDuplicateVersionRows()
+	return (readaloudRows + audioRows + ebookRows)
+		.collapsedDuplicateVersionRows()
+		.withWhispersyncMatches(bookSync)
 }
 
 private fun List<BinderyBookVersionRow>.collapsedDuplicateVersionRows(): List<BinderyBookVersionRow> {
@@ -429,6 +461,84 @@ private fun List<BinderyBookVersionRow>.collapsedDuplicateVersionRows(): List<Bi
 	}
 	return rowsByVisibleIdentity.values.toList()
 }
+
+private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
+	bookSync: BinderyBookSync?
+): List<BinderyBookVersionRow> {
+	val readyPairs = bookSync?.syncPairs.orEmpty()
+		.filter(BinderySyncPair::hasReadyWhispersync)
+	if (readyPairs.isEmpty()) return this
+
+	val ebookRowsByBookFileId = filter { row -> row.kind == BinderyBookVersionKind.Ebook }
+		.mapNotNull { row -> row.ebookBookFileId?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() }?.let { it to row } }
+		.toMap()
+	val audiobookRowsByBookFileId = filter { row -> row.kind == BinderyBookVersionKind.Audiobook }
+		.mapNotNull { row -> row.audiobookBookFileId?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() }?.let { it to row } }
+		.toMap()
+
+	return map { row ->
+		val matches = when (row.kind) {
+			BinderyBookVersionKind.Audiobook -> {
+				val audioBookFileId = row.audiobookBookFileId.normalizedBookFileId() ?: return@map row
+				readyPairs
+					.filter { pair -> pair.audiobookBookFileId?.toString() == audioBookFileId }
+					.mapNotNull { pair ->
+						val ebookBookFileId = pair.ebookBookFileId?.toString()?.normalizedBookFileId() ?: return@mapNotNull null
+						pair.toWhispersyncMatch(
+							oppositeRow = ebookRowsByBookFileId[ebookBookFileId],
+							oppositeKind = BinderyBookVersionKind.Ebook
+						)
+					}
+			}
+			BinderyBookVersionKind.Ebook -> {
+				val ebookBookFileId = row.ebookBookFileId.normalizedBookFileId() ?: return@map row
+				readyPairs
+					.filter { pair -> pair.ebookBookFileId?.toString() == ebookBookFileId }
+					.mapNotNull { pair ->
+						val audioBookFileId = pair.audiobookBookFileId?.toString()?.normalizedBookFileId() ?: return@mapNotNull null
+						pair.toWhispersyncMatch(
+							oppositeRow = audiobookRowsByBookFileId[audioBookFileId],
+							oppositeKind = BinderyBookVersionKind.Audiobook
+						)
+					}
+			}
+			BinderyBookVersionKind.Readaloud -> emptyList()
+		}
+		if (matches.isEmpty()) row else row.copy(syncMatches = matches)
+	}
+}
+
+private fun BinderySyncPair.hasReadyWhispersync(): Boolean =
+	whispersync?.status?.trim()?.equals("ready", ignoreCase = true) == true &&
+	whispersync.artifactId != null
+
+private fun BinderySyncPair.toWhispersyncMatch(
+	oppositeRow: BinderyBookVersionRow?,
+	oppositeKind: BinderyBookVersionKind
+): BinderyWhispersyncMatch? {
+	val artifact = whispersync ?: return null
+	val artifactId = artifact.artifactId?.toString() ?: return null
+	return BinderyWhispersyncMatch(
+		oppositeTitle = oppositeRow?.title?.takeIf { it.isNotBlank() }
+			?: when (oppositeKind) {
+				BinderyBookVersionKind.Audiobook -> "Audiobook"
+				BinderyBookVersionKind.Ebook -> "Ebook"
+				BinderyBookVersionKind.Readaloud -> "Readaloud"
+			},
+		oppositeKind = oppositeKind,
+		artifactId = artifactId,
+		sidecarHref = artifact.artifactHref?.trim()?.takeIf { it.isNotEmpty() }
+			?: "/opds/books/${bookId ?: ""}/sync/$artifactId",
+		coveragePercent = artifact.coverage.toPercent(),
+		scorePercent = artifact.score.toPercent()
+	)
+}
+
+private fun Double?.toPercent(): Int? =
+	this?.takeIf { it >= 0.0 }?.let { (it.coerceAtMost(1.0) * 100.0).roundToInt() }
+
+private fun String?.normalizedBookFileId(): String? =
+	this?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() && it != "0" }
 
 private fun BinderyBookVersionRow.visibleIdentityKey(): String =
 	listOf(
@@ -503,7 +613,29 @@ private fun List<BinderyReadingOrderItem>.toAudiobookVersionRow(
 		kind = BinderyBookVersionKind.Audiobook,
 		title = "Audiobook",
 		subtitle = subtitle,
-		finding = bookFileId?.let(findingByBookFileId::get)
+		finding = bookFileId?.let(findingByBookFileId::get),
+		audiobookBookFileId = bookFileId
+	)
+}
+
+private fun BinderyAudiobookVersion.toAudiobookVersionRow(): BinderyBookVersionRow {
+	val partsText = resourceCount
+		?.takeIf { it > 0 }
+		?.let { count -> if (count == 1) "1 part" else "$count parts" }
+	val subtitle = listOfNotNull(
+		editionType?.displayToken(),
+		displayCodec(),
+		partsText,
+		durationMs?.takeIf { it > 0L }?.let(::audiobookDurationLabel),
+		sizeBytes?.takeIf { it > 0L }?.toFileSize()
+	).joinToString(separator = " / ")
+	return BinderyBookVersionRow(
+		id = id?.let { "audiobook-version:$it" } ?: bookFileId?.let { "audiobook-book-file:$it" } ?: "audiobook-version",
+		kind = BinderyBookVersionKind.Audiobook,
+		title = audiobookTitleLabel(),
+		subtitle = subtitle.takeIf { it.isNotBlank() },
+		audiobookId = id?.toString(),
+		audiobookBookFileId = bookFileId?.toString()
 	)
 }
 
@@ -521,7 +653,8 @@ private fun BinderyBookResource.toEbookVersionRow(
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
 		format = readerPublicationFormat(),
-		finding = bookFileId()?.let(findingByBookFileId::get)
+		finding = bookFileId()?.let(findingByBookFileId::get),
+		ebookBookFileId = bookFileId()
 	)
 }
 
@@ -537,8 +670,51 @@ private fun BinderyBookResource.toReadaloudVersionRow(
 			displayFormat(),
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
-		finding = bookFileId()?.let(findingByBookFileId::get)
+		finding = bookFileId()?.let(findingByBookFileId::get),
+		ebookBookFileId = bookFileId()
 	)
+
+private fun BinderyAudiobookVersion.matchesLanguage(language: String?): Boolean =
+	language == null || this.language?.normalizedBinderyAvailabilityLanguage() == language
+
+private fun BinderyAudiobookVersion.audiobookTitleLabel(): String =
+	narrator
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: versionLabel?.trim()?.takeIf { it.isNotEmpty() }
+		?: audibleTitle?.trim()?.takeIf { it.isNotEmpty() }
+		?: title?.trim()?.takeIf { it.isNotEmpty() }
+		?: "Audiobook"
+
+private fun BinderyAudiobookVersion.displayCodec(): String? =
+	codec
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.uppercase()
+		?: formatLabel?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun BinderyAudiobookVersion.audioFormatQualityRank(): Int =
+	displayCodec().audioFormatQualityRank()
+
+private fun BinderyAudiobookVersion.audioBytesPerSecond(): Double {
+	val durationSeconds = durationMs?.takeIf { it > 0L }?.toDouble()?.div(1000.0) ?: return 0.0
+	return (sizeBytes ?: 0L).toDouble() / durationSeconds
+}
+
+private fun audiobookDurationLabel(durationMs: Long): String {
+	val totalSeconds = (durationMs / 1000.0).roundToLong().coerceAtLeast(0L)
+	val hours = totalSeconds / 3600L
+	val minutes = (totalSeconds % 3600L) / 60L
+	val seconds = totalSeconds % 60L
+	return buildString {
+		if (hours > 0L) append("${hours}h")
+		if (minutes > 0L || hours > 0L) {
+			if (isNotEmpty()) append(' ')
+			append("${minutes}m")
+		}
+		if (hours == 0L && minutes == 0L) append("${seconds}s")
+	}
+}
 
 private fun BinderyBookResource.isAudioResource(): Boolean =
 	kind?.normalizedBinderyMediaFormat() == "audiobook" ||
