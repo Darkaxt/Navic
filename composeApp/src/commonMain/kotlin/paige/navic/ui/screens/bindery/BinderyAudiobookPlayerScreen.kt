@@ -369,7 +369,7 @@ private fun BinderyAudiobookPortraitLayout(
 			modifier = Modifier
 				.widthIn(max = 260.dp)
 				.fillMaxWidth(.64f)
-				.aspectRatio(2f / 3f)
+				.aspectRatio(BinderyAudiobookCoverAspectRatio)
 				.binderyAudiobookEntrance(delayMillis = 50L)
 		)
 		Spacer(Modifier.height(28.dp))
@@ -418,7 +418,7 @@ private fun BinderyAudiobookLandscapeLayout(
 				requestHeaders = requestHeaders,
 				modifier = Modifier
 					.fillMaxHeight(.74f)
-					.aspectRatio(2f / 3f)
+					.aspectRatio(BinderyAudiobookCoverAspectRatio)
 					.binderyAudiobookEntrance(delayMillis = 50L)
 			)
 		}
@@ -496,9 +496,11 @@ private fun BinderyAudiobookArtwork(
 		square = false,
 		shadowElevation = 8.dp,
 		shape = shape,
-		contentScale = ContentScale.Fit
+		contentScale = ContentScale.Crop
 	)
 }
+
+private const val BinderyAudiobookCoverAspectRatio = 1f
 
 @Composable
 private fun Modifier.binderyAudiobookEntrance(delayMillis: Long): Modifier {
