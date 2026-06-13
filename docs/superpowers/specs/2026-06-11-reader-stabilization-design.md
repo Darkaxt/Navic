@@ -1492,3 +1492,61 @@ Release publication status:
 - Asset SHA-256 digest: `734a5669f8766160d6c2795fb1788b742e650584ef8e8ef950d9e4f70e2ff23a`
 - Local download verification: `Get-FileHash releases\v1.0.11-eta44\Navic.apk -Algorithm SHA256` produced `734A5669F8766160D6C2795FB1788B742E650584EF8E8EF950D9E4F70E2FF23A`.
 - ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
+
+## Release Candidate: 2026-06-13 eta45 Shell Cover Move-Phase Swipe Dispatch
+
+Latest phone behavior register before eta45 release:
+
+- Cover state: tapping works, but dragging on the cover does not.
+- Cover touch ownership: taps only work reliably outside the cover image area, which means the current overlay is still not behaving like a true top-level touch layer over the whole visual reader surface.
+- Normal EPUB pages: taps and drags work on readable pages.
+- Image interaction: tapping an image center toggles the image tint as expected, but it also brings the menu bar back. Interactable content must not toggle reader chrome.
+- Link interaction: tapping links in the chapter/table-of-contents flow also brings the menu bar back. Real link activation must not toggle reader chrome.
+- Texture transition: texture movement is correct from the cover through the maps, then inverts at the maps -> Author's Note area transition and stays inverted afterwards.
+- Priority order: first restore reliable touch ownership, then fix texture sign/area transition behavior, then continue the larger reader stabilization plan.
+
+Scope:
+
+- Fix the phone-reported shell-cover drag failure without changing readable EPUB/PDF drag ownership.
+- Keep `ReaderSurfaceHost.dispatchTouchEvent()` child-first and return the WebView child result.
+- Continue to observe the child touch stream natively.
+- Dispatch shell-cover horizontal swipes during `ACTION_MOVE` once the movement crosses the paging threshold, instead of depending only on receiving `ACTION_UP`.
+- Preserve the `ACTION_UP` fallback for streams that do complete normally.
+
+Root-cause evidence:
+
+- eta43 added shell-cover swipe dispatch only after `ACTION_UP`.
+- The latest phone test still reported: cover taps work, but dragging the cover does not.
+- Code inspection showed `ACTION_MOVE` stopped tracking after regular tap slop, then deferred the shell-cover swipe until `ACTION_UP`.
+- If the child WebView/gesture pipeline cancels or disrupts the stream during cover drag, the native fallback never fires.
+
+Texture investigation evidence:
+
+- A local Chromium touch probe against the real Hobbit EPUB exercised Foliate drag gestures through early frontmatter pages and the first spine boundary.
+- During those local forward drags, `renderer.containerPosition` increased and surface texture CSS moved left (`calc(50% - Npx)`), including across `OEBPS/Text/1.html -> OEBPS/Text/2.html`.
+- That did not reproduce the phone-reported maps -> Author's Note texture inversion, so no texture production code was changed in eta45.
+- The texture issue remains open until a harness/ADB trace reproduces the failing transition.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Initial result: failed at `ReaderRuntimeShellProgressTest.kt:229` because `ACTION_MOVE` did not call `dispatchReaderShellCoverSwipe`.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Result: `BUILD SUCCESSFUL`; 24 actionable tasks executed.
+
+Phone validation required after release:
+
+- Drag left on the shell cover should advance into the first readable page.
+- Drag right on the shell cover should not accidentally advance in LTR.
+- Cover taps should still work.
+- Normal readable EPUB drags should still work.
+- PDF/fixed-layout swipes should still work.

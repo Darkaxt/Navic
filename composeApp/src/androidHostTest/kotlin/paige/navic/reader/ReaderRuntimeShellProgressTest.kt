@@ -217,12 +217,17 @@ class ReaderRuntimeShellProgressTest {
 		val handleTouch = webViewHostText
 			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
 			.substringBefore("\n\tprivate fun clearTapCandidate()")
+		val actionMove = handleTouch
+			.substringAfter("MotionEvent.ACTION_MOVE -> {")
+			.substringBefore("\n\t\t\tMotionEvent.ACTION_UP -> {")
 		val shellCoverSwipe = webViewHostText
 			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
 			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
 
 		assertContains(webViewHostText, "private val shellCoverSwipeThresholdPx")
 		assertContains(handleTouch, "dispatchReaderShellCoverSwipe(")
+		assertContains(actionMove, "dispatchReaderShellCoverSwipe(")
+		assertContains(actionMove, "clearTapCandidate()")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "if (!shellCoverVisible) return false")
 		assertContains(shellCoverSwipe, "kotlin.math.abs(deltaX)")

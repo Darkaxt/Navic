@@ -407,14 +407,18 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				tapCandidatePointerId = MotionEvent.INVALID_POINTER_ID
 			}
 			MotionEvent.ACTION_MOVE -> {
-				if (!tapCandidate) return
+				if (tapCandidatePointerId == MotionEvent.INVALID_POINTER_ID) return
 				val pointerIndex = event.findPointerIndex(tapCandidatePointerId)
 				if (pointerIndex < 0) {
-					tapCandidate = false
+					clearTapCandidate()
 					return
 				}
 				val dx = event.getX(pointerIndex) - tapDownX
 				val dy = event.getY(pointerIndex) - tapDownY
+				if (dispatchReaderShellCoverSwipe(dx, dy)) {
+					clearTapCandidate()
+					return
+				}
 				if ((dx * dx) + (dy * dy) > tapSlopPx * tapSlopPx) {
 					tapCandidate = false
 				}
