@@ -1992,6 +1992,17 @@ Phone validation target for eta50:
 - Image tint toggles and chapter links should not surface reader chrome.
 - Paper texture movement should not invert when crossing from maps/frontmatter into Author's Note.
 
+Release publication status:
+
+- Commit: `1fe8b32abe650ec3f8dd09059baf1340c9b565e5`.
+- Tag: `v1.0.11-eta50`.
+- GitHub Actions run: `27456542836` (`https://github.com/Darkaxt/Navic/actions/runs/27456542836`).
+- GitHub release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta50`.
+- APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta50/Navic.apk`.
+- Android job: success.
+- iOS jobs: skipped by workflow.
+- Local download verification: `Get-FileHash releases\v1.0.11-eta50\Navic.apk -Algorithm SHA256` produced `E6C942753E75D8C31250A282B33CFD9092746E0B7B5D75EFE1B7CFBF0ADEB7FA`.
+
 ## Harness Checkpoint: 2026-06-13 Phase 1 Gate Reliability
 
 Scope:
