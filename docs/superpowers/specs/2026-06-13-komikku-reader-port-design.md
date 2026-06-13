@@ -656,3 +656,56 @@ The port is not considered aligned until these are true:
 - Tap-zone debug visualization can be enabled without changing input ownership.
 - The old `Scaffold(bottomBar = ...)` reader-shell pattern is gone.
 - A phone release demonstrates tap/drag/chrome/settings behavior that matches Komikku's interaction model closely enough for further EPUB/PDF polishing to happen on top.
+
+## Eta61 Phone Feedback
+
+Validated release: `v1.0.11-eta61`, `versionCode=394`, installed on device at `2026-06-13 19:15`.
+
+User feedback after installing the release:
+
+- Book load appears faster.
+- Shortcut/link interactions and image interactions still work.
+- Center tap does not show/hide the reader menu.
+- Touching the cover immediately discards it, without finger feedback.
+- There is no way to return to the reader-managed cover after it is dismissed.
+- Texture transitions are still broken.
+- The current layout is only an early adaptation and is still far from a proper Komikku clone.
+- The right-side progress rail is wrong for large EPUB page counts: for roughly 400 pages, the handle becomes about 1 cm tall instead of behaving like Komikku's usable chapter/page rail.
+- The menu shows duplicate bookmark/star controls: one at the bottom and one at the top right.
+- The bottom menu layout still does not match Komikku: Komikku centers the lower action row and distributes the buttons evenly around the center, while Navic still reads like a stretched control strip.
+
+These are not polish issues. They show the port is still failing the Komikku ownership model:
+
+- The reader shell does not yet treat cover as a real navigable state.
+- The native gesture layer is not consistently converting center taps into menu toggles.
+- The progress rail is still using a generic scrollbar mental model rather than Komikku's reader navigator model.
+- The chrome action model has duplicate affordances instead of one coherent overlay.
+- The bottom chrome layout is still structurally different from Komikku's centered/distributed action row.
+
+Next debugging priority:
+
+1. Reproduce center tap failure and cover dismissal with adb logs on `eta61`.
+2. Trace the native touch path from `ReaderSurfaceHost` to reader chrome state.
+3. Add failing tests for menu toggle, cover state, and duplicate bookmark affordance.
+4. Fix the ownership model before touching texture animation or visual polish again.
+
+## Eta62 Candidate Scope
+
+`v1.0.11-eta62` is the next phone candidate after `eta61`. The phone is not expected to be connected while this candidate is prepared, so the release must be judged first by host-side gates and then by a later device test.
+
+Changes to validate on device:
+
+- Center taps on image-heavy EPUB pages should no longer be suppressed by raw Android WebView `IMAGE_TYPE` hits. Only explicit content-side interactive handling should block the chrome toggle.
+- The reader-managed cover should become a returnable shell state: tapping/turning next from the shell cover arms a previous action back to the shell cover before Foliate/location state catches up.
+- The right progress rail should stop behaving like a tiny rotated Material scrollbar. It should use a fixed-size vertical handle and tap/drag mapping closer to Komikku's reader rail.
+- The bottom menu action row should be centered/distributed and should no longer duplicate the bookmark/star action already shown in top chrome.
+- Paper texture movement should not invert at EPUB area/frontmatter boundaries when the renderer coordinate system wraps. Known `next`/`previous` direction now dominates raw renderer coordinate sign.
+
+Host-side release gates for this candidate:
+
+- `node tools/reader-harness/src/run-reader-harness.mjs --mode texture-offset-logic`
+- `:composeApp:testAndroidHost` focused on reader shell/chrome/image-link/paper-surface tests
+- JS syntax checks for changed reader harness/runtime files
+- `git diff --check`
+- Android version metadata check for `v1.0.11-eta62`
+- `:androidApp:assembleDebug` as the local compile gate; local `assembleRelease` requires signing secrets and is expected to be built by the GitHub release workflow.

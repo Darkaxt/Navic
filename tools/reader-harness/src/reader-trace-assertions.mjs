@@ -191,6 +191,12 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
     const delta = Number.isFinite(position) && Number.isFinite(baseOffset)
       ? position - baseOffset
       : Number(payload.delta)
+    const expectedDeltaSign = payload.pageTurnDirection === 'next' ? 1 : -1
+    const rendererCoordinateWrapped =
+      Number.isFinite(delta) &&
+      Math.abs(delta) > 1 &&
+      Math.sign(delta) !== 0 &&
+      Math.sign(delta) !== expectedDeltaSign
     if (payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
       throw new Error(
         `Expected next texture trace to move left/counter-forward; ` +
@@ -206,7 +212,7 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
       )
     }
     if (Number.isFinite(delta) && Number.isFinite(xOffset) && Math.abs(delta) > 1 && Math.abs(xOffset) > 1) {
-      if (Math.sign(delta) === Math.sign(xOffset)) {
+      if (!rendererCoordinateWrapped && Math.sign(delta) === Math.sign(xOffset)) {
         throw new Error(
           `Expected texture trace to counter-move renderer; ` +
           `observed x=${xOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +
@@ -215,7 +221,7 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
       }
     }
     if (payload.flowMode === 'paged-vertical' && Number.isFinite(delta) && Number.isFinite(yOffset) && Math.abs(yOffset) > 1) {
-      if (Math.sign(delta) === Math.sign(yOffset)) {
+      if (!rendererCoordinateWrapped && Math.sign(delta) === Math.sign(yOffset)) {
         throw new Error(
           `Expected vertical texture trace to counter-move renderer; ` +
           `observed y=${yOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +

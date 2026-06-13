@@ -379,7 +379,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeReaderSurfaceSuppressesCenterChromeForInteractiveImageHitsOnly() {
+	fun nativeReaderSurfaceCenterMenuIsNotSuppressedByRawImageHitType() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val dispatchWideTap = webViewHostText
 			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
@@ -389,11 +389,44 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\n\n\tprivate fun scheduleReaderCenterTap")
 
 		assertContains(dispatchWideTap, "readerContentHandledCenterTap(contentHitType)")
-		assertContains(centerHandledTap, "WebView.HitTestResult.IMAGE_TYPE")
+		assertContains(dispatchWideTap, "scheduleReaderCenterTap(")
+		assertFalse(
+			centerHandledTap.contains("WebView.HitTestResult.IMAGE_TYPE"),
+			"Raw WebView IMAGE_TYPE is too broad: image-heavy pages and covers must still let center taps toggle chrome unless the content JS explicitly claims the interaction."
+		)
 		assertTrue(
 			dispatchWideTap.indexOf("readerTapZoneActionAt(") <
 				dispatchWideTap.indexOf("readerContentHandledCenterTap(contentHitType)"),
 			"Image hit suppression must be center/menu-only so edge image taps can still turn pages."
+		)
+	}
+
+	@Test
+	fun nativeShellCoverReturnUsesReaderShellStateBeforeLocatorStateCatchesUp() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val pageTurn = webViewHostText
+			.substringAfter("private fun dispatchReaderPageTurnCommand(command: ReaderBridgeCommand) {")
+			.substringBefore("\n\tprivate fun showShellCover()")
+
+		assertContains(
+			webViewHostText,
+			"private var shellCoverReturnAvailable: Boolean = false",
+			message = "The native shell cover must be a real virtual reader page, not only a locator-derived condition from Compose."
+		)
+		assertContains(
+			pageTurn,
+			"shellCoverReturnAvailable = true",
+			message = "Next from the native cover must arm a one-step return before location events or recomposition catch up."
+		)
+		assertContains(
+			pageTurn,
+			"command == ReaderBridgeCommand.PreviousPage && (shellCoverReturnAvailable || canReturnToShellCover)",
+			message = "Previous from the first readable page must return to the native cover using shell-owned state before delegating to Foliate."
+		)
+		assertContains(
+			pageTurn,
+			"shellCoverReturnAvailable = false",
+			message = "Leaving the first readable page must clear the shell-cover return affordance."
 		)
 	}
 

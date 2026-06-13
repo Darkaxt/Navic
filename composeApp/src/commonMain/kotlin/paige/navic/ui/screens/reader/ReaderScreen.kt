@@ -2,6 +2,8 @@ package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +21,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -48,11 +51,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -140,6 +145,10 @@ import paige.navic.util.core.Logger
 import kotlin.math.roundToInt
 
 private const val ReaderScreenTag = "ReaderScreen"
+private val ReaderProgressRailHeight = 300.dp
+private val ReaderProgressRailTrackWidth = 10.dp
+private val ReaderProgressRailThumbHeight = 44.dp
+private val ReaderProgressRailThumbWidth = 34.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -928,22 +937,15 @@ private fun ReaderSideProgressRail(
 				style = MaterialTheme.typography.labelMedium,
 				maxLines = 1
 			)
-			Box(
+			ReaderVerticalProgressRailTrack(
+				value = progressSliderValue,
+				enabled = state.progressFraction != null,
+				onValueChange = { value -> progressSliderValue = value.coerceIn(0f, 1f) },
+				onValueChangeFinished = { onProgressSeek(progressSliderValue.coerceIn(0f, 1f)) },
 				modifier = Modifier
-					.height(220.dp)
+					.height(ReaderProgressRailHeight)
 					.width(48.dp)
-			) {
-				ReaderProgressSeekControl(
-					value = progressSliderValue,
-					enabled = state.progressFraction != null,
-					onValueChange = { value -> progressSliderValue = value.coerceIn(0f, 1f) },
-					onValueChangeFinished = { onProgressSeek(progressSliderValue.coerceIn(0f, 1f)) },
-					modifier = Modifier
-						.align(Alignment.Center)
-						.width(220.dp)
-						.rotate(-90f)
-				)
-			}
+			)
 			Text(
 				text = readerProgressTotalLabel(state),
 				style = MaterialTheme.typography.labelSmall,
@@ -1016,59 +1018,55 @@ private fun ReaderBottomChrome(
 		color = MaterialTheme.colorScheme.surface
 	) {
 		Column(Modifier.fillMaxWidth()) {
-			Row(
+			Box(
 				modifier = Modifier
 					.fillMaxWidth()
-					.horizontalScroll(rememberScrollState())
-					.padding(horizontal = 8.dp),
-				horizontalArrangement = Arrangement.spacedBy(2.dp),
-				verticalAlignment = Alignment.CenterVertically
+					.testTag("data-navic-reader-bottom-actions")
+					.padding(horizontal = 28.dp),
+				contentAlignment = Alignment.Center
 			) {
-				if (showReadaloudControls) {
-					ReaderReadaloudButton(
-						state = state.readaloudPlayback,
-						onClick = onReadaloudToggle
-					)
-				}
-				IconButton(
-					onClick = onToggleToc,
-					enabled = tocItems.isNotEmpty()
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.SpaceEvenly,
+					verticalAlignment = Alignment.CenterVertically
 				) {
-					Icon(
-						imageVector = Icons.Outlined.DataTable,
-						contentDescription = null
-					)
-				}
-				IconButton(
-					onClick = onToggleAnnotations,
-					enabled = canHighlightSelection || annotations.isNotEmpty()
-				) {
-					Text(
-						text = "HL",
-						style = MaterialTheme.typography.labelSmall,
-						fontWeight = FontWeight.SemiBold
-					)
-				}
-				IconButton(
-					onClick = onToggleBookmarks,
-					enabled = canBookmarkCurrentLocation || bookmarks.isNotEmpty()
-				) {
-					Icon(
-						imageVector = if (currentLocationBookmarked) Icons.Filled.Star else Icons.Outlined.Star,
-						contentDescription = null
-					)
-				}
-				IconButton(onClick = onToggleSearch) {
-					Icon(
-						imageVector = Icons.Outlined.Search,
-						contentDescription = null
-					)
-				}
-				IconButton(onClick = onToggleOptions) {
-					Icon(
-						imageVector = Icons.Filled.Settings,
-						contentDescription = null
-					)
+					if (showReadaloudControls) {
+						ReaderReadaloudButton(
+							state = state.readaloudPlayback,
+							onClick = onReadaloudToggle
+						)
+					}
+					IconButton(
+						onClick = onToggleToc,
+						enabled = tocItems.isNotEmpty()
+					) {
+						Icon(
+							imageVector = Icons.Outlined.DataTable,
+							contentDescription = null
+						)
+					}
+					IconButton(
+						onClick = onToggleAnnotations,
+						enabled = canHighlightSelection || annotations.isNotEmpty()
+					) {
+						Text(
+							text = "HL",
+							style = MaterialTheme.typography.labelSmall,
+							fontWeight = FontWeight.SemiBold
+						)
+					}
+					IconButton(onClick = onToggleSearch) {
+						Icon(
+							imageVector = Icons.Outlined.Search,
+							contentDescription = null
+						)
+					}
+					IconButton(onClick = onToggleOptions) {
+						Icon(
+							imageVector = Icons.Filled.Settings,
+							contentDescription = null
+						)
+					}
 				}
 			}
 			if (annotationsVisible) {
@@ -1179,6 +1177,73 @@ private fun ReaderSettingsOverlayPanel(
 					)
 				}
 			}
+		}
+	}
+}
+
+@Composable
+private fun ReaderVerticalProgressRailTrack(
+	value: Float,
+	enabled: Boolean,
+	onValueChange: (Float) -> Unit,
+	onValueChangeFinished: () -> Unit,
+	modifier: Modifier = Modifier
+) {
+	val progress = value.coerceIn(0f, 1f)
+	Box(
+		modifier = modifier
+			.pointerInput(enabled) {
+				if (!enabled) return@pointerInput
+				detectTapGestures { offset ->
+					if (size.height <= 0) return@detectTapGestures
+					onValueChange((offset.y / size.height.toFloat()).coerceIn(0f, 1f))
+					onValueChangeFinished()
+				}
+			}
+			.pointerInput(enabled) {
+				if (!enabled) return@pointerInput
+				fun updateProgressFromY(y: Float) {
+					if (size.height <= 0) return
+					onValueChange((y / size.height.toFloat()).coerceIn(0f, 1f))
+				}
+				detectDragGestures(
+					onDragStart = { offset -> updateProgressFromY(offset.y) },
+					onDragEnd = onValueChangeFinished,
+					onDragCancel = onValueChangeFinished,
+					onDrag = { change, _ ->
+						updateProgressFromY(change.position.y)
+						change.consume()
+					}
+				)
+			},
+		contentAlignment = Alignment.Center
+	) {
+		Surface(
+			modifier = Modifier
+				.width(ReaderProgressRailTrackWidth)
+				.fillMaxHeight(),
+			shape = MaterialTheme.shapes.extraLarge,
+			color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f)
+		) {}
+		Column(
+			modifier = Modifier
+				.fillMaxSize()
+				.padding(vertical = 4.dp),
+			horizontalAlignment = Alignment.CenterHorizontally
+		) {
+			Spacer(Modifier.weight(progress.coerceAtLeast(0.001f)))
+			Surface(
+				modifier = Modifier
+					.width(ReaderProgressRailThumbWidth)
+					.height(ReaderProgressRailThumbHeight),
+				shape = MaterialTheme.shapes.extraLarge,
+				color = if (enabled) {
+					MaterialTheme.colorScheme.primary
+				} else {
+					MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+				}
+			) {}
+			Spacer(Modifier.weight((1f - progress).coerceAtLeast(0.001f)))
 		}
 	}
 }

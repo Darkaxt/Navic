@@ -205,7 +205,19 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
-    'previous area boundary follows renderer wrap instead of inverting texture',
+    'forward area boundary keeps texture direction across renderer coordinate wrap',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: -750,
+      baseOffset: 423,
+      viewportWidth: 698,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: 'next',
+    }),
+    { x: -698, y: 0 }
+  )
+  assertOffset(
+    'previous area boundary keeps texture direction across renderer coordinate wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 1395,
       baseOffset: 697,
@@ -214,7 +226,7 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'previous',
     }),
-    { x: -698, y: 0 }
+    { x: 698, y: 0 }
   )
   assertOffset(
     'directionless area-wrap jump does not invert texture',

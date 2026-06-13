@@ -208,7 +208,9 @@ class ReaderRuntimeImageLinkTest {
 			webViewHostText.contains("readerShellCoverHtml"),
 			"Shell cover should not be an HTML/CSS wrapper now that cover is a reader-owned surface."
 		)
-		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage -> hideShellCover()")
+		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage -> {")
+		assertContains(webViewHostText, "hideShellCover()")
+		assertContains(webViewHostText, "shellCoverReturnAvailable = true")
 		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage -> Unit")
 		assertContains(webViewHostText, "dispatchReaderWideTap")
 		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")

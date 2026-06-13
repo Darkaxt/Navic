@@ -373,6 +373,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var shellCoverUrl: String? = null
 	private var shellCoverTitle: String = ""
 	private var shellCoverVisible: Boolean = false
+	private var shellCoverReturnAvailable: Boolean = false
 	private val tapSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val shellCoverSwipeThresholdPx = tapSlopPx
 	private var tapCandidatePointerId: Int = MotionEvent.INVALID_POINTER_ID
@@ -558,7 +559,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		SystemClock.uptimeMillis() <= contentTapHandledUntilMs
 
 	private fun readerContentHandledCenterTap(hitType: Int): Boolean =
-		readerContentHandledTap(hitType) || hitType == WebView.HitTestResult.IMAGE_TYPE
+		readerContentHandledTap(hitType)
 
 	private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {
 		cancelPendingReaderCenterTap()
@@ -659,6 +660,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		if (nextCoverUrl == null) {
 			shellCoverUrl = null
 			shellCoverTitle = ""
+			shellCoverReturnAvailable = false
 			hideShellCover()
 			shellCoverView?.updateCover(null, "")
 			return
@@ -667,6 +669,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		shellCoverUrl = nextCoverUrl
 		shellCoverTitle = title
 		if (changed) {
+			shellCoverReturnAvailable = false
 			shellCoverVisible = true
 			shellCoverView?.visibility = View.VISIBLE
 			shellCoverView?.updateCover(nextCoverUrl, title)
@@ -683,16 +686,23 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 					"canReturn=$canReturnToShellCover"
 			)
 			when (command) {
-				ReaderBridgeCommand.NextPage -> hideShellCover()
+				ReaderBridgeCommand.NextPage -> {
+					hideShellCover()
+					shellCoverReturnAvailable = true
+				}
 				ReaderBridgeCommand.PreviousPage -> Unit
 				else -> onReaderCommand(command)
 			}
 			return
 		}
-		if (command == ReaderBridgeCommand.PreviousPage && canReturnToShellCover && !shellCoverUrl.isNullOrBlank()) {
+		if (command == ReaderBridgeCommand.PreviousPage && (shellCoverReturnAvailable || canReturnToShellCover) && !shellCoverUrl.isNullOrBlank()) {
 			Logger.i(ReaderWebViewHostTag, "Reader surface returning to shell cover")
+			shellCoverReturnAvailable = false
 			showShellCover()
 			return
+		}
+		if (command != ReaderBridgeCommand.PreviousPage) {
+			shellCoverReturnAvailable = false
 		}
 		Logger.i(ReaderWebViewHostTag, "Reader surface dispatch command=${command.debugLabel()}")
 		onReaderCommand(command)
@@ -700,6 +710,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun showShellCover() {
 		shellCoverVisible = !shellCoverUrl.isNullOrBlank()
+		if (shellCoverVisible) shellCoverReturnAvailable = false
 		shellCoverView?.visibility = if (shellCoverVisible) View.VISIBLE else View.GONE
 	}
 

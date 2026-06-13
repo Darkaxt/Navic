@@ -231,12 +231,17 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(readerScreenText, "ReaderSideProgressRail(")
 		assertContains(overlayBody, "Modifier.align(Alignment.CenterEnd)")
-		assertContains(sideRailBody, "ReaderProgressSeekControl(")
+		assertContains(sideRailBody, "ReaderVerticalProgressRailTrack(")
+		assertContains(readerScreenText, "ReaderProgressRailThumbHeight")
 		assertContains(sideRailBody, "onProgressSeek(progressSliderValue.coerceIn(0f, 1f))")
 		assertContains(sideRailBody, "readerProgressCurrentLabel(")
 		assertContains(sideRailBody, "readerProgressTotalLabel(")
 		assertContains(sideRailBody, "Icons.Filled.SkipPrevious")
 		assertContains(sideRailBody, "Icons.Filled.SkipNext")
+		assertFalse(
+			sideRailBody.contains("ReaderProgressSeekControl("),
+			"The Komikku-like side rail needs a readable fixed-size handle; a rotated Material slider makes large books look like a tiny scrollbar."
+		)
 		assertFalse(
 			bottomChromeBody.contains("ReaderProgressSeekControl(") ||
 				bottomChromeBody.contains("LinearProgressIndicator("),
@@ -264,6 +269,27 @@ class ReaderRuntimeCommonChromeTest {
 			bottomChromeBody.contains("state.currentSectionTitle ?: title") ||
 				bottomChromeBody.contains("state.progressLabel"),
 			"Bottom chrome must be an action strip; title/progress belongs in the top panel and side rail."
+		)
+	}
+
+	@Test
+	fun commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction() {
+		val readerScreenText = readerScreenFile().readText()
+		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
+			.substringBefore("private fun ReaderSettingsOverlayPanel(")
+		val bottomActionRow = bottomChromeBody
+			.substringAfter("data-navic-reader-bottom-actions")
+			.substringBefore("if (annotationsVisible)")
+
+		assertContains(bottomActionRow, "horizontalArrangement = Arrangement.SpaceEvenly")
+		assertContains(bottomActionRow, "contentAlignment = Alignment.Center")
+		assertFalse(
+			bottomActionRow.contains("horizontalScroll("),
+			"Komikku's bottom actions are centered/distributed, not a left-aligned horizontally scrolling toolbar."
+		)
+		assertFalse(
+			bottomActionRow.contains("Icons.Filled.Star") || bottomActionRow.contains("Icons.Outlined.Star"),
+			"The bookmark/star affordance belongs in the top chrome; duplicating it in the bottom action row makes the menu feel inconsistent."
 		)
 	}
 

@@ -282,10 +282,15 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
 		assertContains(bridgeText, "const signedOffset = hasKnownDirection")
-		assertContains(bridgeText, "const wrapsKnownDirectionBoundary = hasKnownDirection")
-		assertContains(bridgeText, "deltaSign !== expectedDirectionSign")
-		assertContains(bridgeText, "hasKnownDirection && !wrapsKnownDirectionBoundary")
 		assertContains(bridgeText, "(pageTurnDirection === 'next' ? 1 : -1) * Math.min(maxOffset, Math.abs(delta))")
+		assertFalse(
+			bridgeText.contains("wrapsKnownDirectionBoundary"),
+			"Known next/previous turns must dominate renderer coordinate wraps at EPUB area boundaries."
+		)
+		assertFalse(
+			bridgeText.contains("deltaSign !== expectedDirectionSign"),
+			"Area-boundary renderer coordinate sign must not invert a known texture turn direction."
+		)
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
 		assertFalse(
