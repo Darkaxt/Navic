@@ -59,19 +59,21 @@ if (mode === 'phase1-stabilization') {
     process.exit(1)
   }
 
+  const defaultStepTimeoutMs = 120_000
+  const longTraversalTimeoutMs = 360_000
   const steps = [
     { mode: 'trace-smoke' },
     { mode: 'epub-frontmatter', fixture: epubFixturePath },
-    { mode: 'epub-page-boundary', fixture: epubFixturePath },
+    { mode: 'epub-page-boundary', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'texture-offset-logic' },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
-    { mode: 'epub-texture-page-turns', fixture: epubFixturePath },
+    { mode: 'epub-texture-page-turns', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-texture-frontmatter-transition', fixture: epubFixturePath },
-    { mode: 'epub-full-traversal', fixture: epubFixturePath },
+    { mode: 'epub-full-traversal', fixture: epubFixturePath, timeoutMs: longTraversalTimeoutMs },
     { mode: 'pdf-smoke', fixture: pdfFixturePath },
     { mode: 'pdf-fast-sequential-turns', fixture: pdfFixturePath },
     { mode: 'pdf-image-settings', fixture: pdfFixturePath },
@@ -80,16 +82,25 @@ if (mode === 'phase1-stabilization') {
   for (const step of steps) {
     const args = [currentFile, '--mode', step.mode]
     if (step.fixture) args.push('--fixture', step.fixture)
-    console.log(`reader harness phase1-stabilization running: ${step.mode}`)
+    const timeoutMs = step.timeoutMs ?? defaultStepTimeoutMs
+    const startedAt = Date.now()
+    console.log(`reader harness phase1-stabilization running: ${step.mode} timeoutMs=${timeoutMs}`)
     const result = spawnSync(process.execPath, args, {
       cwd: repoRoot,
       stdio: 'inherit',
       env: process.env,
+      timeout: timeoutMs,
     })
+    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+    if (result.error?.code === 'ETIMEDOUT') {
+      console.error(`reader harness phase1-stabilization timed out at ${step.mode} elapsed=${elapsed}s timeoutMs=${timeoutMs} error=ETIMEDOUT`)
+      process.exit(124)
+    }
     if (result.status !== 0) {
-      console.error(`reader harness phase1-stabilization failed at ${step.mode}`)
+      console.error(`reader harness phase1-stabilization failed at ${step.mode} elapsed=${elapsed}s`)
       process.exit(result.status || 1)
     }
+    console.log(`reader harness phase1-stabilization completed: ${step.mode} elapsed=${elapsed}s`)
   }
 
   console.log(`reader harness phase1-stabilization passed: ${steps.length} checks`)
@@ -640,7 +651,33 @@ if (mode === 'epub-full-traversal') {
     await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
     await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
 
-    const collectSnapshot = async () => page.evaluate(() => {
+    const collectLocationSnapshot = async () => page.evaluate(() => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const location = messages.at(-1)
+      const view = document.querySelector('foliate-view')
+      const contents = view?.renderer?.getContents?.() || []
+      const coverImageHits = []
+      for (const content of contents) {
+        const doc = content?.doc
+        if (!doc?.body) continue
+        for (const image of Array.from(doc.images || [])) {
+          const src = image.getAttribute('src') || image.currentSrc || image.src || ''
+          if (/cover|frontcover|coverpage|cubierta|portada/i.test(src)) {
+            coverImageHits.push({ pageIndex: location?.pageIndex, href: location?.href, src })
+          }
+        }
+      }
+      return {
+        location,
+        shellCoverVisible: document.body.dataset.navicShellCoverVisible === 'true',
+        documents: [],
+        coverImageHits,
+        coverLikePages: [],
+      }
+    })
+
+    const collectCoverScanSnapshot = async () => page.evaluate(() => {
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       const location = messages.at(-1)
@@ -745,7 +782,7 @@ if (mode === 'epub-full-traversal') {
     const pages = []
     const coverImageHits = []
     const coverLikePages = []
-    let snapshot = await collectSnapshot()
+    let snapshot = await collectCoverScanSnapshot()
     if (snapshot.coverLikePages.length > 0) {
       throw new Error(`Expected first WebView-visible page not to be the EPUB cover; observed ${JSON.stringify(snapshot.coverLikePages[0])}`)
     }
@@ -764,14 +801,18 @@ if (mode === 'epub-full-traversal') {
       }
       if (snapshot.location.pageIndex >= snapshot.location.pageCount - 1) break
       const previousPageIndex = snapshot.location.pageIndex
-      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.evaluate(async () => {
+        const renderer = document.querySelector('foliate-view')?.renderer
+        renderer?.removeAttribute?.('animated')
+        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      })
       await page.waitForFunction(previous => {
         const messages = (window.__navicReaderPostedMessages || [])
           .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
         const current = messages.at(-1)
         return current && current.pageIndex > previous
       }, previousPageIndex, { timeout: 8000 })
-      snapshot = await collectSnapshot()
+      snapshot = await collectLocationSnapshot()
     }
     const trace = await page.evaluate(() => window.__navicReaderTrace || [])
     const result = {

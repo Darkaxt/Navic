@@ -1824,3 +1824,55 @@ Current conclusion:
 - The old local harness coverage was falsely named and too shallow.
 - The strengthened local harness now exercises the real Author's Note heading boundary and does not reproduce the phone-reported inversion.
 - The next texture production fix still requires eta48 ADB diagnostics from Android WebView around the failing maps -> Author's Note transition.
+
+## Harness Checkpoint: 2026-06-13 Phase 1 Gate Reliability
+
+Scope:
+
+- Investigate why the full `phase1-stabilization` gate timed out from the shell after the Author's Note boundary coverage change.
+- Identify the slow sub-check instead of treating the outer timeout as a renderer failure.
+- Keep `epub-full-traversal` in the Phase 1 gate, but make it observable and bounded.
+- Split the full traversal snapshots so the expensive cover-like DOM geometry scan runs for the first visible page only; subsequent pages use lightweight location snapshots.
+- Disable renderer animation before each full-traversal `nextPage` dispatch.
+- Add explicit per-step `timeoutMs` and elapsed-time logging to the `phase1-stabilization` runner, including a longer timeout for the known 505-page full traversal.
+
+Root-cause evidence:
+
+- Per-step timing showed `epub-full-traversal` was the timeout source.
+- The check reached about `201 / 505` pages in a 90-second diagnostic run.
+- The timeout was not a blank renderer, crash, or missing fixture; the traversal loop was too slow for a 505-page real EPUB because it performed heavy DOM/image geometry work every page.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessFullTraversalUsesLightweightPerPageSnapshots"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessPhase1RunnerReportsPerStepTimeoutsAndElapsedTime"
+```
+
+Initial results:
+
+- `readerHarnessFullTraversalUsesLightweightPerPageSnapshots` failed because the full traversal loop still used the expensive `collectSnapshot()` path for every page.
+- `readerHarnessPhase1RunnerReportsPerStepTimeoutsAndElapsedTime` failed because the Phase 1 runner used `spawnSync` without per-step timeout or elapsed reporting.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessPhase1RunnerReportsPerStepTimeoutsAndElapsedTime" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessFullTraversalUsesLightweightPerPageSnapshots"
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+```
+
+Result:
+
+- Focused host tests passed.
+- Harness syntax check exited `0`.
+- `git diff --check` exited `0`.
+- Full Phase 1 gate passed: `reader harness phase1-stabilization passed: 15 checks`.
+- The runner now reports every sub-check with elapsed time. The slowest check remains `epub-full-traversal`, which completed in `179.6s` for the `505` page Hobbit EPUB.
+
+Current conclusion:
+
+- The Phase 1 gate is now laptop-verifiable again with explicit per-step evidence.
+- It is not a quick smoke test; it is a full real-EPUB traversal gate and currently takes about five minutes end to end on this machine.
+- No APK release is required for this checkpoint because it changes the local validation harness and plan documentation, not packaged reader runtime behavior.

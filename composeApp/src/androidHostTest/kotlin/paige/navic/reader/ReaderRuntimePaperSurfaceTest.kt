@@ -359,4 +359,47 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 	}
 
+	@Test
+	fun readerHarnessFullTraversalUsesLightweightPerPageSnapshots() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val harnessText = harnessFile.readText()
+		val fullTraversalMode = harnessText
+			.substringAfter("if (mode === 'epub-full-traversal') {")
+			.substringBefore("\nif (mode === 'epub-texture-scroll')")
+		val traversalLoop = fullTraversalMode
+			.substringAfter("for (let turn = 0; turn < maxTurns; turn += 1) {")
+			.substringBefore("\n    const trace =")
+
+		assertContains(fullTraversalMode, "collectCoverScanSnapshot")
+		assertContains(fullTraversalMode, "collectLocationSnapshot")
+		assertContains(traversalLoop, "snapshot = await collectLocationSnapshot()")
+		assertContains(traversalLoop, "renderer?.removeAttribute?.('animated')")
+		assertFalse(
+			traversalLoop.contains("snapshot = await collectSnapshot()"),
+			"Full traversal must not run the expensive DOM/image geometry scan on every page."
+		)
+	}
+
+	@Test
+	fun readerHarnessPhase1RunnerReportsPerStepTimeoutsAndElapsedTime() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val harnessText = harnessFile.readText()
+		val phase1Mode = harnessText
+			.substringAfter("if (mode === 'phase1-stabilization') {")
+			.substringBefore("\nif (mode === 'texture-offset-logic')")
+
+		assertContains(phase1Mode, "timeout:")
+		assertContains(phase1Mode, "ETIMEDOUT")
+		assertContains(phase1Mode, "elapsed")
+		assertContains(phase1Mode, "timeoutMs")
+	}
+
 }
