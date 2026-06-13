@@ -4,6 +4,8 @@ param(
     [string] $ArtifactDir,
     [string[]] $Tap = @(),
     [string[]] $TapFraction = @(),
+    [string[]] $Swipe = @(),
+    [string[]] $SwipeFraction = @(),
     [ValidateSet("None", "ReaderHorizontalZones")]
     [string] $TapPreset = "None",
     [string] $ExpectedVersionName,
@@ -11,6 +13,9 @@ param(
     [int] $CaptureWaitSeconds = 0,
     [switch] $ValidateReaderTaps,
     [switch] $RequireReaderTapAction,
+    [switch] $RequireShellCoverSwipe,
+    [switch] $RequireContentTapHandled,
+    [switch] $RequireTextureDiagnostics,
     [switch] $CaptureReaderDiagnostics,
     [switch] $NoLaunch
 )
@@ -68,6 +73,42 @@ function Convert-TapFraction {
         $waitMs
 }
 
+function Convert-SwipeFraction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $SwipeSpec,
+        [Parameter(Mandatory = $true)]
+        [int] $Width,
+        [Parameter(Mandatory = $true)]
+        [int] $Height
+    )
+
+    if ($SwipeSpec -notmatch '^\s*([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid swipe fraction '$SwipeSpec'. Use x1Fraction,y1Fraction,x2Fraction,y2Fraction or x1Fraction,y1Fraction,x2Fraction,y2Fraction,durationMs,waitMs."
+    }
+
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $x1Fraction = [double]::Parse($Matches[1], $culture)
+    $y1Fraction = [double]::Parse($Matches[2], $culture)
+    $x2Fraction = [double]::Parse($Matches[3], $culture)
+    $y2Fraction = [double]::Parse($Matches[4], $culture)
+    foreach ($fraction in @($x1Fraction, $y1Fraction, $x2Fraction, $y2Fraction)) {
+        if ($fraction -lt 0 -or $fraction -gt 1) {
+            throw "Swipe fractions must be between 0 and 1: $SwipeSpec"
+        }
+    }
+
+    $durationMs = if ($Matches[5]) { [int] $Matches[5] } else { 350 }
+    $waitMs = if ($Matches[6]) { [int] $Matches[6] } else { 1000 }
+    return "{0},{1},{2},{3},{4},{5}" -f `
+        [math]::Round($x1Fraction * $Width), `
+        [math]::Round($y1Fraction * $Height), `
+        [math]::Round($x2Fraction * $Width), `
+        [math]::Round($y2Fraction * $Height), `
+        $durationMs, `
+        $waitMs
+}
+
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
     throw "adb was not found on PATH"
 }
@@ -117,6 +158,13 @@ if ($TapFraction.Count -gt 0) {
     }
 }
 
+if ($SwipeFraction.Count -gt 0) {
+    $screenSize = Get-AdbScreenSize
+    foreach ($swipeFractionSpec in $SwipeFraction) {
+        $Swipe += Convert-SwipeFraction -SwipeSpec $swipeFractionSpec -Width $screenSize.Width -Height $screenSize.Height
+    }
+}
+
 foreach ($tapSpec in $Tap) {
     if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
         throw "Invalid tap spec '$tapSpec'. Use x,y or x,y,waitMs."
@@ -127,6 +175,22 @@ foreach ($tapSpec in $Tap) {
     $waitMs = if ($Matches[3]) { [int] $Matches[3] } else { 1000 }
 
     Invoke-Adb @("shell", "input", "tap", $x, $y)
+    Start-Sleep -Milliseconds $waitMs
+}
+
+foreach ($swipeSpec in $Swipe) {
+    if ($swipeSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid swipe spec '$swipeSpec'. Use x1,y1,x2,y2 or x1,y1,x2,y2,durationMs,waitMs."
+    }
+
+    $x1 = $Matches[1]
+    $y1 = $Matches[2]
+    $x2 = $Matches[3]
+    $y2 = $Matches[4]
+    $durationMs = if ($Matches[5]) { [int] $Matches[5] } else { 350 }
+    $waitMs = if ($Matches[6]) { [int] $Matches[6] } else { 1000 }
+
+    Invoke-Adb @("shell", "input", "swipe", $x1, $y1, $x2, $y2, $durationMs)
     Start-Sleep -Milliseconds $waitMs
 }
 
@@ -212,6 +276,20 @@ if ($CaptureReaderDiagnostics) {
         "textureHasHref=$($textureDiagnosticsText -match 'href=')"
     )
     $summaryLines | Out-File -Encoding utf8 $summaryPath
+
+    if ($RequireShellCoverSwipe -and -not ($touchDiagnosticsText -match 'Reader shell cover swipe')) {
+        throw "Reader diagnostics validation failed: no shell-cover swipe was captured. See $ArtifactDir"
+    }
+    if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
+        throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"
+    }
+    if ($RequireTextureDiagnostics) {
+        foreach ($requiredTextureField in @('pos=', 'base=', 'delta=', 'dir=', 'page=', 'href=')) {
+            if ($textureDiagnosticsText -notmatch [regex]::Escape($requiredTextureField)) {
+                throw "Reader diagnostics validation failed: texture diagnostics did not include '$requiredTextureField'. See $ArtifactDir"
+            }
+        }
+    }
 }
 
 if ($ValidateReaderTaps) {

@@ -464,6 +464,25 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderMarksContentHandledOnReaderSurfaceThread() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val contentHandledBranch = webViewHostText
+			.substringAfter("if (event == ReaderBridgeEvent.ContentTapHandled) {")
+			.substringBefore("\n\t\t\t\t} else {")
+
+		assertContains(
+			contentHandledBranch,
+			"surfaceHost.post",
+			message = "Android JavaScript bridge callbacks are not guaranteed to run on the UI thread; content ownership must mark the reader surface from its own thread."
+		)
+		assertContains(contentHandledBranch, "markContentTapHandled()")
+		assertFalse(
+			contentHandledBranch.contains("surfaceHostRef.get()?.markContentTapHandled()"),
+			"Content ownership must not mutate View-backed reader state directly from the JavaScript bridge thread."
+		)
+	}
+
+	@Test
 	fun androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText

@@ -148,6 +148,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+
+		assertContains(scriptText, "[string[]] \$Swipe = @()")
+		assertContains(scriptText, "[string[]] \$SwipeFraction = @()")
+		assertContains(scriptText, "Convert-SwipeFraction")
+		assertContains(scriptText, "Invoke-Adb @(\"shell\", \"input\", \"swipe\"")
+		assertContains(scriptText, "[switch] \$RequireShellCoverSwipe")
+		assertContains(scriptText, "[switch] \$RequireContentTapHandled")
+		assertContains(scriptText, "[switch] \$RequireTextureDiagnostics")
+		assertContains(scriptText, "shellCoverSwipe=")
+		assertContains(scriptText, "readerContentTapHandled=")
+		assertContains(scriptText, "textureHasDirection=")
+		assertContains(scriptText, "textureHasHref=")
+	}
+
+	@Test
 	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
 		val hostText = readerWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()

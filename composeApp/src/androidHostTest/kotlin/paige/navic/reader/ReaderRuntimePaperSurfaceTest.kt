@@ -278,7 +278,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "position: this.currentRendererContainerPosition()")
 		assertContains(bridgeText, "baseOffset: this.surfacePaperTextureBaseOffset")
 		assertContains(bridgeText, "delta: position - this.surfacePaperTextureBaseOffset")
-		assertContains(bridgeText, "pageTurnDirection: this.pageTurnDirection || ''")
+		assertContains(bridgeText, "pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || ''")
 		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
 		assertContains(bridgeText, "const signedOffset = hasKnownDirection")
@@ -290,6 +290,48 @@ class ReaderRuntimePaperSurfaceTest {
 			"Surface paper texture movement must not depend on raw renderer delta sign after area transitions."
 		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
+	}
+
+	@Test
+	fun androidReaderKeepsTextureTurnDirectionUntilCommittedTextureUpdate() {
+		val bridgeText = readerBridgeText()
+		val runtimeFields = bridgeText
+			.substringAfter("class NavicReaderRuntime {")
+			.substringBefore("\n  constructor()")
+		val startPageTurn = bridgeText
+			.substringAfter("startPageTurn(direction) {")
+			.substringBefore("\n  startNextQueuedPageTurn")
+		val surfaceOffset = bridgeText
+			.substringAfter("surfacePaperTextureScrollOffset() {")
+			.substringBefore("\n  surfacePaperTextureDiagnosticState")
+		val surfaceTextureUpdate = bridgeText
+			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertContains(
+			runtimeFields,
+			"surfacePaperTextureTurnDirection = null",
+			message = "Texture motion needs a direction state that can outlive pageTurnPromise settlement at area boundaries."
+		)
+		assertContains(
+			startPageTurn,
+			"this.surfacePaperTextureTurnDirection = direction",
+			message = "Every explicit next/previous action must seed texture movement direction before Foliate emits delayed scroll/relocate events."
+		)
+		assertContains(
+			surfaceOffset,
+			"pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection",
+			message = "Texture offset must prefer the sticky surface direction, not only the transient pageTurnDirection cleared in finally."
+		)
+		assertContains(
+			surfaceTextureUpdate,
+			"this.surfacePaperTextureTurnDirection = null",
+			message = "The sticky texture direction should be cleared only after the committed page texture has been updated."
+		)
+		assertFalse(
+			startPageTurn.substringAfter("completionPromise = turnPromise.finally(() => {").contains("this.surfacePaperTextureTurnDirection = null"),
+			"Clearing texture direction in the page-turn finally races Foliate's delayed relocation at area transitions."
+		)
 	}
 
 	@Test

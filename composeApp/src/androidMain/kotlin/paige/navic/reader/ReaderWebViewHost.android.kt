@@ -131,8 +131,15 @@ actual fun ReaderWebViewHost(
 		ReaderJavascriptBridge(
 			onEvent = { event ->
 				if (event == ReaderBridgeEvent.ContentTapHandled) {
-					surfaceHostRef.get()?.markContentTapHandled()
-					Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()}")
+					val surfaceHost = surfaceHostRef.get()
+					if (surfaceHost == null) {
+						Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()} surface=missing")
+					} else {
+						surfaceHost.post {
+							surfaceHost.markContentTapHandled()
+							Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()} surface=marked")
+						}
+					}
 				} else {
 					webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
 				}

@@ -1992,6 +1992,33 @@ Phone validation target for eta50:
 - Image tint toggles and chapter links should not surface reader chrome.
 - Paper texture movement should not invert when crossing from maps/frontmatter into Author's Note.
 
+## Phone Checkpoint: 2026-06-13 eta50 Reader Interaction Validation
+
+Observed eta50 behavior:
+
+- Tapping works on the shell cover.
+- Dragging does not work on the shell cover.
+- Taps and drags work on normal EPUB pages.
+- Interacting with images by tapping center still surfaces the reader chrome, even when the intended content action is only the sepia image-tint toggle.
+- Interacting with links in the chapter selection still surfaces the reader chrome.
+- The texture transition behaves correctly from the shell cover through the early map/frontmatter pages, then inverts when moving from the maps/frontmatter area into Author's Note.
+- After that maps -> Author's Note transition, texture movement remains inverted.
+
+Immediate conclusions:
+
+- The native reader surface is not globally dead: normal-page taps/drags and shell-cover taps work.
+- The shell-cover failure is isolated to drag/swipe behavior on the native cover surface.
+- The content-action chrome leak still happens despite renderer-side `readerContentTapHandled` posts, so Android bridge delivery/threading/timing must be treated as suspect until ADB logs prove otherwise.
+- The texture inversion is not random mid-page noise; it begins at the frontmatter area transition and persists after that transition.
+
+Next phone-testable microdeliverable:
+
+- Keep eta50's working normal-page taps and drags intact.
+- Harden Android content-action ownership so image tint toggles and chapter links cannot surface center chrome.
+- Keep texture page-turn direction stable through delayed area-transition relocation/scroll events.
+- Preserve shell-cover tap behavior while improving shell-cover drag diagnostics and handoff.
+- Publish the next APK release after focused host tests pass, because this slice changes packaged Android/WebView reader behavior.
+
 Release publication status:
 
 - Commit: `1fe8b32abe650ec3f8dd09059baf1340c9b565e5`.
@@ -2101,3 +2128,112 @@ Phone validation status:
 
 - `adb devices -l` returned no connected devices in this session.
 - eta50 remains the current phone-testable release for shell-cover drag, normal-page taps/drags, image/link chrome suppression, and maps/frontmatter -> Author's Note texture movement.
+
+## Tooling Checkpoint: 2026-06-13 eta50 ADB Swipe Validation Support
+
+Scope:
+
+- Close a validation-tooling gap for eta50: the pending phone checks require shell-cover drag and normal-page drag evidence, but `scripts\adb-reader-smoke.ps1` only injected taps.
+- Add repeatable swipe injection without changing packaged Android reader behavior.
+- Add optional assertions for the eta50 diagnostic signals that must be present when a connected device is used for validation.
+
+Implementation:
+
+- `scripts\adb-reader-smoke.ps1` now accepts `-Swipe` and `-SwipeFraction`.
+- Absolute swipe format: `x1,y1,x2,y2` or `x1,y1,x2,y2,durationMs,waitMs`.
+- Fractional swipe format: `x1Fraction,y1Fraction,x2Fraction,y2Fraction` or `x1Fraction,y1Fraction,x2Fraction,y2Fraction,durationMs,waitMs`.
+- The script now supports `-RequireShellCoverSwipe`, `-RequireContentTapHandled`, and `-RequireTextureDiagnostics`.
+- The required diagnostic checks use the same captured log files as `-CaptureReaderDiagnostics`: `reader-touch-diagnostics.log`, `reader-texture-diagnostics.log`, and `reader-diagnostics-summary.txt`.
+
+Example eta50 device command once a phone is connected and Navic is already open in the reader:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -ExpectedVersionName v1.0.11-eta50 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.80,0.50,0.20,0.50,350,1000" -TapFraction "0.50,0.50,1200" -RequireShellCoverSwipe -RequireContentTapHandled -RequireTextureDiagnostics
+```
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics"
+```
+
+Initial result: failed because the script had no swipe input support or eta50-required diagnostic assertions.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics"
+$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts\adb-reader-smoke.ps1), [ref]$tokens, [ref]$errors)
+git diff --check
+```
+
+Result:
+
+- Focused ADB smoke host tests passed.
+- PowerShell parser found no syntax errors.
+- `git diff --check` exited `0`.
+
+Release status:
+
+- No APK release is required for this checkpoint because it changes only the local ADB validation script and host-test coverage.
+
+## Implementation Checkpoint: 2026-06-13 eta51 Candidate Interaction And Texture Hardening
+
+Scope:
+
+- Register the eta50 phone validation results as the current behavior baseline.
+- Keep eta50's working normal-page taps and drags intact.
+- Make Android `readerContentTapHandled` ownership mark the `ReaderSurfaceHost` from the surface/UI thread instead of directly from the JavaScript bridge callback thread.
+- Keep paper texture page-turn direction alive through delayed Foliate relocation/scroll events at area transitions, then clear it only after the committed page texture update.
+- Preserve the eta50 ADB swipe-validation script additions so the next phone pass can inject cover/normal-page swipes and assert captured diagnostics.
+
+Root-cause evidence:
+
+- The current Android bridge branch handled `ReaderBridgeEvent.ContentTapHandled` by calling `surfaceHostRef.get()?.markContentTapHandled()` directly from the JavaScript interface callback. Android does not guarantee that callback is on the UI thread, while `markContentTapHandled()` mutates `View`-owned state and cancels pending callbacks.
+- `pageTurnDirection` was cleared in the page-turn `finally` block before the delayed `requestAnimationFrame` relocation path could commit texture state. At frontmatter/area boundaries, late scroll/relocation samples could therefore fall back to raw renderer coordinate signs.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderMarksContentHandledOnReaderSurfaceThread"
+```
+
+Initial result: failed because the content-handled branch did not post back to the reader surface thread.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsTextureTurnDirectionUntilCommittedTextureUpdate"
+```
+
+Initial result: failed because there was no sticky surface texture turn direction state.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderMarksContentHandledOnReaderSurfaceThread" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsTextureTurnDirectionUntilCommittedTextureUpdate"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeAssetsTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub" --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf"
+git diff --check
+```
+
+Result:
+
+- Focused and affected host test groups passed.
+- The JavaScript syntax checks exited `0`.
+- Texture offset logic passed.
+- The real Hobbit Author's Note boundary harness passed and wrote `tools\reader-harness\output\epub-texture-frontmatter-transition.trace.json`.
+- The real Hobbit CSS/content-action smoke harness passed and wrote `tools\reader-harness\output\css-smoke.trace.json`.
+- The full Phase 1 gate passed all `15` checks. The full EPUB traversal reached `501/505` progress logging and completed in `176.9s`; the whole gate completed in about `290s`.
+- `git diff --check` exited `0`.
+
+Phone validation target after release:
+
+- Image tint toggles and chapter links should not surface reader chrome.
+- Paper texture movement should not invert when crossing from maps/frontmatter into Author's Note.
+- Normal EPUB page taps and drags should remain working.
+- Shell-cover tapping should remain working; shell-cover dragging still needs explicit phone validation with the updated ADB swipe tooling.

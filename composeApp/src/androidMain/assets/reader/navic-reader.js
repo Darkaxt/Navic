@@ -190,6 +190,7 @@ class NavicReaderRuntime {
   surfaceTextureScrollOffset = { x: 0, y: 0 }
   surfacePaperTextureScrollRenderer = null
   surfacePaperTextureScrollListener = null
+  surfacePaperTextureTurnDirection = null
   tapZoneOverlayLayer = null
   pageNumberLayer = null
   shellCoverLayer = null
@@ -380,6 +381,7 @@ class NavicReaderRuntime {
     this.surfaceBorderOverlayVariant = null
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
+    this.surfacePaperTextureTurnDirection = null
     this.lastRelocateDetail = null
   }
 
@@ -815,6 +817,7 @@ class NavicReaderRuntime {
     this.cancelPendingCommittedRelocation()
     this.pageTurnInProgress = true
     this.pageTurnDirection = direction
+    this.surfacePaperTextureTurnDirection = direction
     const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))
     let completionPromise = null
     completionPromise = turnPromise.finally(() => {
@@ -1918,7 +1921,7 @@ class NavicReaderRuntime {
       viewportWidth: width,
       viewportHeight: height,
       flowMode: this.readerFlowModeValue,
-      pageTurnDirection: this.pageTurnDirection,
+      pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection,
     })
     return this.surfaceTextureScrollOffset
   }
@@ -1934,7 +1937,7 @@ class NavicReaderRuntime {
       position: this.currentRendererContainerPosition(),
       baseOffset: this.surfacePaperTextureBaseOffset,
       delta: position - this.surfacePaperTextureBaseOffset,
-      pageTurnDirection: this.pageTurnDirection || '',
+      pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || '',
       flowMode: this.readerFlowModeValue,
       pageIndex: Number.isFinite(pageIndex) ? pageIndex : null,
       pageCount: Number.isFinite(pageCount) ? pageCount : null,
@@ -2059,6 +2062,7 @@ class NavicReaderRuntime {
       borderAsset: borderOverlayVariant.asset,
     })
     this.renderSurfacePaperTextureLayers()
+    this.surfacePaperTextureTurnDirection = null
   }
 
   applyReaderDirection(direction, rerender = true) {
