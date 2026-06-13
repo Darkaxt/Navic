@@ -1452,6 +1452,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
     }
 
     const dragProbe = async name => {
+      const traceStart = await page.evaluate(() => (window.__navicReaderTrace || []).length)
       const samples = [await collectState('before')]
       await page.evaluate(() => {
         const renderer = document.querySelector('foliate-view')?.renderer
@@ -1473,7 +1474,8 @@ if (mode === 'epub-texture-frontmatter-transition') {
       await dragPromise
       await page.waitForTimeout(520)
       samples.push(await collectState('settled'))
-      return { name, direction: 'forward', samples }
+      const trace = await page.evaluate(start => (window.__navicReaderTrace || []).slice(start), traceStart)
+      return { name, direction: 'forward', samples, trace }
     }
 
     const dragAuthorEntryProbe = await dragProbe('drag-author-note-boundary')
@@ -1484,9 +1486,19 @@ if (mode === 'epub-texture-frontmatter-transition') {
         `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
       )
     }
+    const dragPostAuthorBoundaryProbe = await dragProbe('drag-post-author-note-boundary')
+    const dragAuthorEntryPage = Number(dragAuthorEntryProbe.samples.at(-1)?.pageIndex)
+    const dragPostAuthorPage = Number(dragPostAuthorBoundaryProbe.samples.at(-1)?.pageIndex)
+    if (!Number.isFinite(dragPostAuthorPage) || dragPostAuthorPage <= dragAuthorEntryPage) {
+      throw new Error(
+        `Expected drag-post-author-note-boundary probe to advance after the AUTHOR'S NOTE page; ` +
+        `before=${dragAuthorEntryPage}/${dragAuthorEntryProbe.samples.at(-1)?.pageCount} ` +
+        `settled=${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageIndex}/${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageCount}`
+      )
+    }
     const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
     const result = {
-      probes: [dragAuthorEntryProbe, postAuthorProbe],
+      probes: [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, postAuthorProbe],
       authorBoundarySearch: {
         first: firstState,
         searchResult: authorSearchResult,
@@ -1495,8 +1507,10 @@ if (mode === 'epub-texture-frontmatter-transition') {
       },
       trace: await page.evaluate(() => window.__navicReaderTrace || []),
     }
-    if (!result.trace.some(event => event?.type === 'texture:drag-direction')) {
-      throw new Error('Expected drag-author-note-boundary to emit texture:drag-direction before checking texture movement')
+    const dragProbeMissingDirection = [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe]
+      .find(probe => !probe.trace?.some(event => event?.type === 'texture:drag-direction'))
+    if (dragProbeMissingDirection) {
+      throw new Error(`Expected ${dragProbeMissingDirection.name} to emit texture:drag-direction before checking texture movement`)
     }
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
     fs.mkdirSync(outputDir, { recursive: true })
@@ -2341,13 +2355,34 @@ if (mode === 'css-smoke') {
         imageRootPoint.x,
         imageRootPoint.y
       )
+      const nativeCoordinateScale = Number(win.parent.devicePixelRatio || win.devicePixelRatio || 1)
+      const nativeViewWidth = Math.round((win.parent.visualViewport?.width || win.parent.innerWidth) * nativeCoordinateScale)
+      const nativeViewHeight = Math.round((win.parent.visualViewport?.height || win.parent.innerHeight) * nativeCoordinateScale)
+      const imageNativeScaledContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        Math.round(imageRootPoint.x * nativeCoordinateScale),
+        Math.round(imageRootPoint.y * nativeCoordinateScale),
+        nativeViewWidth,
+        nativeViewHeight
+      )
       const textLinkNativeCenterContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
         textLinkRootPoint.x,
         textLinkRootPoint.y
       )
+      const textLinkNativeScaledContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        Math.round(textLinkRootPoint.x * nativeCoordinateScale),
+        Math.round(textLinkRootPoint.y * nativeCoordinateScale),
+        nativeViewWidth,
+        nativeViewHeight
+      )
       const paragraphNativeCenterContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
         paragraphRootPoint.x,
         paragraphRootPoint.y
+      )
+      const paragraphNativeScaledContentHit = win.parent.NavicReaderBridge.readerContentActionAtPoint(
+        Math.round(paragraphRootPoint.x * nativeCoordinateScale),
+        Math.round(paragraphRootPoint.y * nativeCoordinateScale),
+        nativeViewWidth,
+        nativeViewHeight
       )
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
@@ -2384,8 +2419,11 @@ if (mode === 'css-smoke') {
         textLinkTouchContentTapHandledCount: textLinkTouchContentTapHandledSources.length,
         textLinkTouchContentTapHandledSources,
         imageNativeCenterContentHit,
+        imageNativeScaledContentHit,
         textLinkNativeCenterContentHit,
+        textLinkNativeScaledContentHit,
         paragraphNativeCenterContentHit,
+        paragraphNativeScaledContentHit,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',

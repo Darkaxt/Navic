@@ -646,8 +646,18 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			harnessText,
+			"imageNativeScaledContentHit",
+			message = "CSS smoke must simulate Android MotionEvent view-pixel coordinates, not only browser CSS coordinates."
+		)
+		assertContains(
+			harnessText,
 			"textLinkNativeCenterContentHit",
 			message = "CSS smoke must simulate Android's delayed center-menu hit test for link taps, not only count bridge posts."
+		)
+		assertContains(
+			harnessText,
+			"textLinkNativeScaledContentHit",
+			message = "CSS smoke must prove link hit-testing survives Android view-pixel to CSS-pixel normalization."
 		)
 		assertContains(
 			assertionsText,
@@ -656,8 +666,18 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			assertionsText,
+			"Expected scaled native center hit-test to suppress image chrome",
+			message = "The renderer assertion must fail when native Android view-pixel coordinates miss image content."
+		)
+		assertContains(
+			assertionsText,
 			"Expected native center hit-test to suppress link chrome",
 			message = "The renderer assertion must fail when Android-style center chrome would still open over a link interaction."
+		)
+		assertContains(
+			assertionsText,
+			"Expected scaled native center hit-test to suppress link chrome",
+			message = "The renderer assertion must fail when native Android view-pixel coordinates miss link content."
 		)
 	}
 
@@ -691,6 +711,11 @@ class ReaderRuntimeImageLinkTest {
 			scheduleCenterTap,
 			"readerContentActionAtPoint",
 			message = "The native query must call the coordinate content hit-test exposed by NavicReaderBridge."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"readerContentActionAtPoint(\$x,\$y,\${webView.width},\${webView.height})",
+			message = "Android must pass native WebView dimensions so JavaScript can normalize MotionEvent pixels to CSS viewport pixels."
 		)
 		assertContains(
 			scheduleCenterTap,

@@ -2556,3 +2556,66 @@ Phone validation target after eta56 release:
 - Cover drag should be diagnosed with `-RequireShellCoverDragDiagnostic -RequireShellCoverSwipe -RequireShellCoverCommand`.
 - Image/link chrome suppression should be diagnosed with `-RequireContentTapHandled -RequireNoReaderCenterDispatch`.
 - Texture movement across maps/frontmatter into Author's Note remains an open phone validation item; if still inverted, capture texture diagnostics because the current local harness is not reproducing that persistent state.
+
+## Phone Validation: 2026-06-13 eta56 Reader Behavior Baseline
+
+Observed on device after installing eta56:
+
+- Cover tapping works.
+- Cover dragging still does not work.
+- Normal EPUB page tapping works.
+- Normal EPUB page dragging works.
+- Center-tapping interactive images toggles the image state, but still surfaces reader chrome.
+- Tapping links in the chapter-selection/frontmatter area also surfaces reader chrome.
+- The paper texture transition still inverts when moving from the maps/frontmatter area into the Author's Note and remains inverted afterward.
+
+Current diagnosis constraints:
+
+- The working normal-page tap and drag path must remain untouched unless a failing test proves it is involved.
+- The shell-cover drag failure is isolated from normal readable-page dragging; cover tap success is not evidence that cover drag works.
+- Content interactions must not surface reader chrome. The acceptance behavior is content action only: image center taps toggle sepia state, and chapter/frontmatter links navigate, without paired menu/chrome dispatch.
+- The texture inversion begins at the maps/frontmatter -> Author's Note area transition and persists after the transition. Local harnesses that only pass shallow page turns are not sufficient evidence.
+
+Current implementation priority:
+
+1. Strengthen laptop-testable coverage for the real frontmatter texture boundary until it can detect persistent post-boundary inversion, then fix only the proven texture direction/state bug.
+2. Strengthen content-interaction chrome suppression so image/link ownership wins before native center-menu dispatch for the actual Android timing path.
+3. Re-check shell-cover drag using ADB diagnostics that prove drag candidate, swipe recognition, and command dispatch; do not mix this with normal readable-page drag behavior.
+4. Release only after the next APK contains a phone-evaluable behavior change and host/harness validation is green.
+
+## Implementation Checkpoint: 2026-06-13 eta57 Candidate Native Coordinate Content Ownership
+
+Root cause hypothesis for the eta56 image/link chrome leak:
+
+- Android delivers touch coordinates in native WebView view pixels.
+- The reader runtime content hit-test uses `elementFromPoint()`, which expects CSS viewport coordinates.
+- The previous local CSS smoke harness only checked CSS-coordinate taps, so it could pass while a high-density Android WebView still missed image/link ownership and allowed delayed center-menu dispatch.
+
+Scope of this slice:
+
+- Pass native WebView width and height into `readerContentActionAtPoint()`.
+- Normalize native touch coordinates into CSS viewport coordinates before hit-testing EPUB iframe content.
+- Add harness checks for scaled native image/link taps and paragraph non-content taps.
+- Strengthen the real frontmatter texture harness with a second touch-drag probe after the Author's Note boundary, but keep texture production code unchanged because local Chromium still does not reproduce the phone-side persistent inversion.
+
+Verification evidence:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderUsesCoordinateContentHitTestBeforeDelayedCenterChrome" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderQueriesRuntimeContentHitBeforeDelayedCenterChromeCanMutateDocument"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+git diff --check
+```
+
+Phone validation target after eta57 release:
+
+- Center-tapping interactive images should toggle sepia/image state without surfacing reader chrome.
+- Tapping chapter/frontmatter links should navigate without surfacing reader chrome.
+- Normal EPUB page taps and drags should remain working.
+- Cover taps should remain working.
+- Cover drag remains open unless separately proven by ADB diagnostics.
+- Texture inversion across maps/frontmatter -> Author's Note remains open unless separately proven on device.

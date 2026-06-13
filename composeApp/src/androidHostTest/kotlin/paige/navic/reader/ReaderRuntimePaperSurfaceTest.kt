@@ -458,6 +458,16 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			frontmatterMode,
+			"drag-post-author-note-boundary",
+			message = "The texture harness must prove texture direction remains correct after the frontmatter boundary, not just while entering it."
+		)
+		assertContains(
+			frontmatterMode,
+			"traceStart",
+			message = "Drag-direction evidence must be scoped per probe so a pre-boundary drag event cannot mask a post-boundary regression."
+		)
+		assertContains(
+			frontmatterMode,
 			"texture:drag-direction",
 			message = "The drag probe must verify that runtime touch tracking actually seeded texture direction."
 		)

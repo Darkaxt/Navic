@@ -627,7 +627,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		webView.evaluateJavascript(
 			"Boolean(window.NavicReaderBridge && " +
 				"window.NavicReaderBridge.readerContentActionAtPoint && " +
-				"window.NavicReaderBridge.readerContentActionAtPoint($x,$y))"
+				"window.NavicReaderBridge.readerContentActionAtPoint($x,$y,${webView.width},${webView.height}))"
 		) { value ->
 			onResult(value.equals("true", ignoreCase = true))
 		}

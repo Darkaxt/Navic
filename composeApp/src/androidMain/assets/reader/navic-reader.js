@@ -1115,16 +1115,61 @@ class NavicReaderRuntime {
     return null
   }
 
-  readerContentActionAtRootPoint(rootX, rootY) {
+  normalizeReaderContentRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {
+    const rawX = Number(rootX)
+    const rawY = Number(rootY)
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return { x: rawX, y: rawY }
+    const viewportWidth = Number(window.visualViewport?.width || window.innerWidth || document.documentElement?.clientWidth || 0)
+    const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || document.documentElement?.clientHeight || 0)
+    const nativeWidth = Number(viewWidth)
+    const nativeHeight = Number(viewHeight)
+    const scaleX = Number.isFinite(nativeWidth) && nativeWidth > 0 && viewportWidth > 0
+      ? nativeWidth / viewportWidth
+      : 1
+    const scaleY = Number.isFinite(nativeHeight) && nativeHeight > 0 && viewportHeight > 0
+      ? nativeHeight / viewportHeight
+      : scaleX
+    const deviceScale = Number(window.devicePixelRatio || 1)
+    let x = rawX
+    let y = rawY
+    let source = 'css'
+    if (scaleX > 1.01 || scaleY > 1.01) {
+      x = rawX / scaleX
+      y = rawY / scaleY
+      source = 'native-view'
+    } else if (deviceScale > 1.01 && (rawX > viewportWidth || rawY > viewportHeight)) {
+      x = rawX / deviceScale
+      y = rawY / deviceScale
+      source = 'device-pixel-ratio'
+    }
+    if (source !== 'css') {
+      readerTrace('content-hit-test:normalize', {
+        source,
+        rawX: Math.round(rawX),
+        rawY: Math.round(rawY),
+        x: Math.round(x),
+        y: Math.round(y),
+        viewWidth: Number.isFinite(nativeWidth) ? Math.round(nativeWidth) : null,
+        viewHeight: Number.isFinite(nativeHeight) ? Math.round(nativeHeight) : null,
+        viewportWidth: Math.round(viewportWidth),
+        viewportHeight: Math.round(viewportHeight),
+        deviceScale,
+      })
+    }
+    return { x, y }
+  }
+
+  readerContentActionAtRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {
+    const rootPoint = this.normalizeReaderContentRootPoint(rootX, rootY, viewWidth, viewHeight)
     for (const entry of this.contentEntries()) {
-      const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootX, rootY, entry.index)
+      const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)
       if (!hit?.handled) continue
       readerTrace('content-hit-test', {
         kind: hit.kind,
         href: hit.href || '',
         index: hit.index,
-        x: Math.round(Number(rootX) || 0),
-        y: Math.round(Number(rootY) || 0),
+        x: Math.round(Number(rootPoint.x) || 0),
+        y: Math.round(Number(rootPoint.y) || 0),
       })
       return hit
     }
@@ -2540,7 +2585,8 @@ const runtime = new NavicReaderRuntime()
 
 window.NavicReaderBridge = {
   dispatch: command => runtime.dispatch(command),
-  readerContentActionAtPoint: (x, y) => runtime.readerContentActionAtRootPoint(x, y)?.handled === true,
+  readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
+    runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),
   postOverlayFragmentInactive: fragmentId => post({ type: 'overlayFragmentInactive', fragmentId }),
 }
