@@ -1596,3 +1596,14 @@ Phone validation required after release:
 - The same image tap should not open the reader menu bar.
 - Edge taps over image content should still page-turn when the configured tap zone maps that edge to previous/next.
 - Text links and table-of-contents links still need explicit validation; if they still open chrome, the next slice must target the link-specific path.
+
+Release publication status:
+
+- Published release tag: `v1.0.11-eta46`
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta46`
+- APK URL: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta46/Navic.apk`
+- GitHub asset digest: `sha256:b38a31f3ba8136f04d025b902ea2b60bf2a10db1f9430e7ddf951ad32b7d570a`
+- GitHub workflow run: `https://github.com/Darkaxt/Navic/actions/runs/27451039284`
+- Android build job: success.
+- iOS jobs: skipped by workflow.
+- ADB validation status: `adb devices -l` returned no connected devices from this session, so phone validation is pending.
