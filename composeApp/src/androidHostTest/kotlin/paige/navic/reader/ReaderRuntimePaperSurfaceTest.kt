@@ -338,4 +338,25 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 	}
 
+	@Test
+	fun readerHarnessTextureFrontmatterTransitionTargetsVisibleAuthorNoteBoundary() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val frontmatterModeText = harnessFile.readText()
+		val frontmatterMode = frontmatterModeText
+			.substringAfter("if (mode === 'epub-texture-frontmatter-transition') {")
+			.substringBefore("\nif (mode === 'pdf-smoke')")
+
+		assertContains(frontmatterMode, "visibleText")
+		assertContains(frontmatterMode, "AUTHOR")
+		assertContains(frontmatterMode, "author-note-boundary")
+		assertFalse(
+			frontmatterMode.contains("while (Number(currentLocation?.pageIndex) < 4)"),
+			"Texture frontmatter coverage must seek the real visible Author's Note boundary, not hard-code a shallow page index."
+		)
+	}
+
 }

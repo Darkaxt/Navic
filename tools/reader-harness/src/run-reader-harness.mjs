@@ -1156,30 +1156,6 @@ if (mode === 'epub-texture-frontmatter-transition') {
     }, null, { timeout: 15000 })
     await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
     await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true', null, { timeout: 5000 })
-    let currentLocation = await page.evaluate(() => {
-      const messages = (window.__navicReaderPostedMessages || [])
-        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
-      return messages.at(-1) || null
-    })
-    while (Number(currentLocation?.pageIndex) < 4) {
-      await page.evaluate(async () => {
-        document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
-        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
-      })
-      await page.waitForFunction(previousPageIndex => {
-        const messages = (window.__navicReaderPostedMessages || [])
-          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
-        const location = messages.at(-1)
-        return location && location.pageIndex > previousPageIndex
-      }, currentLocation?.pageIndex ?? -1, { timeout: 8000 })
-      currentLocation = await page.evaluate(() => {
-        const messages = (window.__navicReaderPostedMessages || [])
-          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
-        return messages.at(-1) || null
-      })
-    }
-    await page.waitForTimeout(300)
-
     const collectState = async label => page.evaluate(sampleLabel => {
       const view = document.querySelector('foliate-view')
       const renderer = view?.renderer
@@ -1187,11 +1163,59 @@ if (mode === 'epub-texture-frontmatter-transition') {
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       const location = messages.at(-1) || null
+      const viewportWidth = Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
+      const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
+      const visibleDocuments = []
+      const contents = view?.renderer?.getContents?.() || []
+      for (const content of contents) {
+        const doc = content?.doc
+        if (!doc?.body) continue
+        const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect?.()
+        const screenRectFor = rect => ({
+          left: (frameRect?.left || 0) + rect.left,
+          top: (frameRect?.top || 0) + rect.top,
+          right: (frameRect?.left || 0) + rect.right,
+          bottom: (frameRect?.top || 0) + rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        })
+        const intersectionArea = rect => {
+          const left = Math.max(0, rect.left)
+          const right = Math.min(viewportWidth, rect.right)
+          const top = Math.max(0, rect.top)
+          const bottom = Math.min(viewportHeight, rect.bottom)
+          return Math.max(0, right - left) * Math.max(0, bottom - top)
+        }
+        const visibleText = Array.from(doc.body.querySelectorAll('body *'))
+          .filter(element => {
+            const rect = screenRectFor(element.getBoundingClientRect())
+            const area = intersectionArea(rect)
+            const elementArea = Math.max(1, rect.width * rect.height)
+            return area > 48 && area / elementArea > 0.15
+          })
+          .map(element => element.textContent?.replace(/\s+/g, ' ').trim() || '')
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        if (visibleText) {
+          visibleDocuments.push({
+            index: content.index,
+            href: content.section?.href || '',
+            visibleText: visibleText.slice(0, 600),
+          })
+        }
+      }
+      const visibleText = visibleDocuments
+        .map(document => document.visibleText)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
       return {
         label: sampleLabel,
         timestamp: performance.now(),
-        viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
-        viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        viewportWidth,
+        viewportHeight,
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,
@@ -1202,8 +1226,55 @@ if (mode === 'epub-texture-frontmatter-transition') {
         textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
         textureBackgroundPosition: layer?.style.backgroundPosition || '',
         computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
+        visibleText: visibleText.slice(0, 1000),
+        visibleDocuments,
       }
     }, label)
+
+    const firstState = await collectState('author-search-start')
+    const authorSearch = await page.evaluate(async () => {
+      const query = "Author's Note"
+      const before = (window.__navicReaderPostedMessages || []).length
+      await window.NavicReaderBridge.dispatch({ type: 'search', query })
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.slice(before).find(message => message?.type === 'searchResults' && message.query === query) || null
+    })
+    const authorSearchResult =
+      authorSearch?.results?.find(result =>
+        (result?.cfi || result?.href) &&
+        /Author's Note/i.test(result?.excerpt || '') &&
+        !/AUTHOR’S NOTE/.test(result?.excerpt || '')
+      ) ||
+      authorSearch?.results?.find(result => result?.cfi || result?.href)
+    if (!authorSearchResult) {
+      throw new Error(`Expected search to locate the visible AUTHOR'S NOTE heading; observed ${JSON.stringify(authorSearch)}`)
+    }
+    await page.evaluate(async result => {
+      document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
+      if (result.cfi) {
+        await window.NavicReaderBridge.dispatch({ type: 'goToCfi', cfi: result.cfi })
+      } else {
+        await window.NavicReaderBridge.dispatch({ type: 'goToHref', href: result.href })
+      }
+    }, authorSearchResult)
+    await page.waitForTimeout(500)
+    const authorNoteState = await collectState('author-note-search-hit')
+    if (!Number.isFinite(Number(authorNoteState?.pageIndex))) {
+      throw new Error(`Expected AUTHOR'S NOTE search locator to produce a page location; observed ${JSON.stringify(authorNoteState)}`)
+    }
+    await page.evaluate(async () => {
+      document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
+      await window.NavicReaderBridge.dispatch({ type: 'previousPage' })
+    })
+    await page.waitForTimeout(420)
+    const beforeAuthorNoteState = await collectState('author-note-boundary-before')
+    if (Number(beforeAuthorNoteState?.pageIndex) >= Number(authorNoteState?.pageIndex)) {
+      throw new Error(
+        `Expected previousPage to return before AUTHOR'S NOTE before probing; ` +
+        `before=${beforeAuthorNoteState?.pageIndex}/${beforeAuthorNoteState?.pageCount} ` +
+        `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
+      )
+    }
 
     const bridgeProbe = async name => {
       const samples = [await collectState('before')]
@@ -1224,10 +1295,23 @@ if (mode === 'epub-texture-frontmatter-transition') {
       return { name, direction: 'forward', samples }
     }
 
-    const authorEntryProbe = await bridgeProbe('frontmatter-map-to-author-note')
+    const authorEntryProbe = await bridgeProbe('author-note-boundary')
+    if (Number(authorEntryProbe.samples.at(-1)?.pageIndex) < Number(authorNoteState?.pageIndex)) {
+      throw new Error(
+        `Expected author-note-boundary probe to settle on the visible AUTHOR'S NOTE page; ` +
+        `settled=${authorEntryProbe.samples.at(-1)?.pageIndex}/${authorEntryProbe.samples.at(-1)?.pageCount} ` +
+        `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
+      )
+    }
     const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
     const result = {
       probes: [authorEntryProbe, postAuthorProbe],
+      authorBoundarySearch: {
+        first: firstState,
+        searchResult: authorSearchResult,
+        before: beforeAuthorNoteState,
+        author: authorNoteState,
+      },
       trace: await page.evaluate(() => window.__navicReaderTrace || []),
     }
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')

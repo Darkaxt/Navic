@@ -1784,3 +1784,43 @@ Release publication status:
 - iOS jobs: skipped by workflow.
 - Local download verification: `Get-FileHash releases\v1.0.11-eta48\Navic.apk -Algorithm SHA256` produced `2686B1E9A14238945805C7057B4B6891BF0B890F96A27404EDAC6A1C23981B30`.
 - ADB validation status: pending; eta48 is published for phone validation and diagnostic capture.
+
+## Harness Checkpoint: 2026-06-13 Author's Note Texture Boundary Coverage
+
+Scope:
+
+- Fix the local `epub-texture-frontmatter-transition` harness so it actually targets the reported frontmatter boundary instead of sampling shallow pages `4 -> 6`.
+- Use the reader's real `search` bridge command to locate the second `Author's Note` search hit, which is the rendered heading, not the table-of-contents entry.
+- Seek to that heading, step back one page, and animate forward through `author-note-boundary`.
+- Record `authorBoundarySearch.first`, `authorBoundarySearch.searchResult`, `authorBoundarySearch.before`, and `authorBoundarySearch.author` in the emitted trace.
+- Keep production texture code unchanged because the stronger Chromium harness still does not reproduce the Android-only inversion.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionTargetsVisibleAuthorNoteBoundary"
+```
+
+Initial result: failed because the harness still hard-coded `while (Number(currentLocation?.pageIndex) < 4)` and did not contain a visible/text/search target for the real Author's Note boundary.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionTargetsVisibleAuthorNoteBoundary"
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result:
+
+- The focused host test passed.
+- The harness syntax check exited `0`.
+- The real EPUB boundary harness passed and wrote `tools\reader-harness\output\epub-texture-frontmatter-transition.trace.json`.
+- The trace now targets the actual heading boundary: search result `epubcfi(/6/2!/4/180/2,/1:0,/1:13)`, before page `3 / 505`, author heading page `4 / 505`, href `OEBPS/Text/1.html`.
+- Texture deltas during the animated forward boundary remained negative on desktop Chromium, for example `posDelta=112` with `texDelta=-77`, `posDelta=253` with `texDelta=-229`, and `posDelta=366` with `texDelta=-366`.
+
+Current conclusion:
+
+- The old local harness coverage was falsely named and too shallow.
+- The strengthened local harness now exercises the real Author's Note heading boundary and does not reproduce the phone-reported inversion.
+- The next texture production fix still requires eta48 ADB diagnostics from Android WebView around the failing maps -> Author's Note transition.
