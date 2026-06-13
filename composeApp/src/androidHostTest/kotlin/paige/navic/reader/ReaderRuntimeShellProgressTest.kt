@@ -230,10 +230,8 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(actionMove, "clearTapCandidate()")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "if (!shellCoverVisible) return false")
-		assertContains(shellCoverSwipe, "kotlin.math.abs(deltaX)")
-		assertContains(shellCoverSwipe, "kotlin.math.abs(deltaY)")
-		assertContains(shellCoverSwipe, "ReaderTapZoneAction.Left")
-		assertContains(shellCoverSwipe, "ReaderTapZoneAction.Right")
+		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
+		assertContains(shellCoverSwipe, "shellCoverSwipeThresholdPx")
 		assertContains(shellCoverSwipe, "readerTapZonePageTurnCommand(")
 		assertContains(shellCoverSwipe, "dispatchReaderPageTurnCommand(command)")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
@@ -241,6 +239,30 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(
 			webViewHostText.contains("return dispatchReaderShellCoverSwipe"),
 			"Shell-cover swipe detection must observe the already-dispatched child stream, not consume readable WebView drags."
+		)
+	}
+
+	@Test
+	fun nativeShellCoverSwipeUsesTapSlopSizedHorizontalDragContract() {
+		assertEquals(null, readerShellCoverSwipeAction(deltaX = -9f, deltaY = 1f, thresholdPx = 10f))
+		assertEquals(ReaderTapZoneAction.Right, readerShellCoverSwipeAction(deltaX = -11f, deltaY = 2f, thresholdPx = 10f))
+		assertEquals(ReaderTapZoneAction.Left, readerShellCoverSwipeAction(deltaX = 11f, deltaY = 2f, thresholdPx = 10f))
+		assertEquals(null, readerShellCoverSwipeAction(deltaX = -11f, deltaY = 13f, thresholdPx = 10f))
+
+		val webViewHostText = readerWebViewHostFile().readText()
+		val shellCoverSwipe = webViewHostText
+			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
+
+		assertContains(
+			webViewHostText,
+			"private val shellCoverSwipeThresholdPx = tapSlopPx",
+			message = "Cover-only drags should trigger once they exceed normal tap slop, not Android's larger paging slop."
+		)
+		assertContains(
+			shellCoverSwipe,
+			"readerShellCoverSwipeAction(",
+			message = "Android cover-drag handling must use the behavior-tested shell-cover swipe decision."
 		)
 	}
 

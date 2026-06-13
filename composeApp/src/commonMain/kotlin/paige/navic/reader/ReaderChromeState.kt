@@ -323,6 +323,20 @@ fun readerTapZonePageTurnCommand(
 		ReaderTapZoneAction.Menu -> null
 	}
 
+fun readerShellCoverSwipeAction(
+	deltaX: Float,
+	deltaY: Float,
+	thresholdPx: Float
+): ReaderTapZoneAction? {
+	if (kotlin.math.abs(deltaX) <= thresholdPx) return null
+	if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
+	return if (deltaX < 0f) {
+		ReaderTapZoneAction.Right
+	} else {
+		ReaderTapZoneAction.Left
+	}
+}
+
 fun readerShouldReturnToNativeShellCover(
 	shellCoverUrl: String?,
 	shellCoverVisible: Boolean,

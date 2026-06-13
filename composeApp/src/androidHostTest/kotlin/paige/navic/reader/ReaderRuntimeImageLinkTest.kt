@@ -440,6 +440,30 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderRechecksLatestContentHitBeforeDelayedCenterChromeDispatch() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val scheduleCenterTap = webViewHostText
+			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
+			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
+
+		assertContains(
+			scheduleCenterTap,
+			"val latestHitType = readerWebView?.hitTestResult?.type ?: hitType",
+			message = "Android WebView hit testing can update after ACTION_UP, so delayed center chrome must re-read the content hit before opening."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"readerContentHandledCenterTap(latestHitType)",
+			message = "Delayed center chrome must still be suppressible by image/link hit types discovered after the native tap was classified."
+		)
+		assertTrue(
+			scheduleCenterTap.indexOf("readerContentHandledCenterTap(latestHitType)") <
+				scheduleCenterTap.indexOf("onReaderCenterTap()"),
+			"Latest image/link hit suppression must run before center chrome dispatch."
+		)
+	}
+
+	@Test
 	fun androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText

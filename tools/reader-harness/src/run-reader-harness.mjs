@@ -142,6 +142,30 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
+    'forward movement keeps texture direction across inverted renderer coordinates',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: -280,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: 'next',
+    }),
+    { x: -280, y: 0 }
+  )
+  assertOffset(
+    'backward movement keeps texture direction across inverted renderer coordinates',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 280,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: 'previous',
+    }),
+    { x: 280, y: 0 }
+  )
+  assertOffset(
     'directionless area-wrap jump does not invert texture',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 120,

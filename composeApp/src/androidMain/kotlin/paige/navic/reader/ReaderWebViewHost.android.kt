@@ -42,6 +42,7 @@ import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerTapZoneActionAt
 import paige.navic.reader.readerTapZonePageTurnCommand
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
 import java.util.concurrent.atomic.AtomicReference
@@ -371,7 +372,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var shellCoverTitle: String = ""
 	private var shellCoverVisible: Boolean = false
 	private val tapSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-	private val shellCoverSwipeThresholdPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
+	private val shellCoverSwipeThresholdPx = tapSlopPx
 	private var tapCandidatePointerId: Int = MotionEvent.INVALID_POINTER_ID
 	private var tapDownX: Float = 0f
 	private var tapDownY: Float = 0f
@@ -449,13 +450,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {
 		if (!shellCoverVisible) return false
-		if (kotlin.math.abs(deltaX) < shellCoverSwipeThresholdPx) return false
-		if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return false
-		val action = if (deltaX < 0f) {
-			ReaderTapZoneAction.Right
-		} else {
-			ReaderTapZoneAction.Left
-		}
+		val action = readerShellCoverSwipeAction(deltaX, deltaY, shellCoverSwipeThresholdPx) ?: return false
 		val command = readerTapZonePageTurnCommand(action, readerSettings.direction) ?: return false
 		Logger.i(
 			ReaderWebViewHostTag,
@@ -529,14 +524,22 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		cancelPendingReaderCenterTap()
 		val pending = Runnable {
 			pendingCenterTap = null
+			val latestHitType = readerWebView?.hitTestResult?.type ?: hitType
 			if (!shellCoverVisible && readerContentTapHandled()) {
 				Logger.i(
 					ReaderWebViewHostTag,
-					"Reader surface tap ignored for explicit content handler x=$x y=$y hitType=$hitType"
+					"Reader surface tap ignored for explicit content handler x=$x y=$y hitType=$latestHitType"
 				)
 				return@Runnable
 			}
-			Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$hitType")
+			if (!shellCoverVisible && readerContentHandledCenterTap(latestHitType)) {
+				Logger.i(
+					ReaderWebViewHostTag,
+					"Reader surface delayed center tap ignored for content hitType=$latestHitType x=$x y=$y"
+				)
+				return@Runnable
+			}
+			Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$latestHitType")
 			onReaderCenterTap()
 		}
 		pendingCenterTap = pending

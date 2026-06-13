@@ -808,15 +808,16 @@ export const readerSurfacePaperTextureScrollOffset = ({
   )
   const delta = currentPosition - basePosition
   const hasKnownDirection = pageTurnDirection === 'next' || pageTurnDirection === 'previous'
-  const wrapsForwardBoundary = pageTurnDirection === 'next' && delta < -maxOffset * 0.5
-  const wrapsBackwardBoundary = pageTurnDirection === 'previous' && delta > maxOffset * 0.5
   const wrapsDirectionlessBoundary = !hasKnownDirection && Math.abs(delta) > maxOffset
-  const bounded = wrapsForwardBoundary || wrapsBackwardBoundary || wrapsDirectionlessBoundary
+  const bounded = wrapsDirectionlessBoundary
     ? 0
     : Math.max(-maxOffset, Math.min(maxOffset, delta))
+  const signedOffset = hasKnownDirection
+    ? (pageTurnDirection === 'next' ? 1 : -1) * Math.min(maxOffset, Math.abs(delta))
+    : bounded
   return flowMode === ReaderFlowPagedVertical
-    ? { x: 0, y: -bounded }
-    : { x: -bounded, y: 0 }
+    ? { x: 0, y: -signedOffset }
+    : { x: -signedOffset, y: 0 }
 }
 
 export const readerSurfacePaperTextureOpacity = settings => {

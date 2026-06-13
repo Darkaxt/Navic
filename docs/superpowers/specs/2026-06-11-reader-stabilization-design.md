@@ -1877,7 +1877,33 @@ Release publication status:
 - Android build job: success; release APK signing verification passed.
 - iOS jobs: skipped by workflow.
 - Local download verification: `Get-FileHash releases\v1.0.11-eta49\Navic.apk -Algorithm SHA256` produced `D74B1A71EC8D597AF7D82A694BE3B2D6C45B178034B478D7726BF7B0D25C9396`.
-- ADB validation status: pending; no device was available during this session.
+- ADB validation status: initially pending because no device was available during release publication; user phone validation results are now registered below.
+
+## Phone Checkpoint: 2026-06-13 eta49 Reader Interaction Validation
+
+Observed eta49 behavior:
+
+- Tapping works on the shell cover.
+- Dragging does not work on the shell cover.
+- Taps and drags work on normal EPUB pages.
+- Interacting with images by tapping center still surfaces the reader chrome, even when the intended content action is only the sepia image-tint toggle.
+- Interacting with links in the chapter selection still surfaces the reader chrome.
+- The texture transition behaves correctly from the shell cover through early pages, then inverts when moving from the maps/frontmatter area into Author's Note.
+- After that maps -> Author's Note transition, texture movement remains inverted.
+
+Immediate conclusions:
+
+- The cover failure is not a global native tap failure; it is specific to cover drag recognition or cover drag routing.
+- The content-action chrome leak is still a native/WebView timing or ownership boundary issue for explicit image/link actions, not a complete loss of content action handling.
+- The texture problem is not a random mid-motion relocation reset throughout the whole book; the user-visible break happens at an area/section transition and persists afterward.
+
+Next phone-testable microdeliverable:
+
+- Harden shell-cover drag recognition without changing normal-page tap/drag behavior.
+- Keep normal EPUB edge taps and drags working.
+- Add diagnostics or a focused production fix for the maps -> Author's Note texture sign/area transition.
+- Suppress reader chrome when image tint toggles or chapter links handle the interaction.
+- Publish the next APK release only after focused host tests pass, because this slice changes packaged Android reader behavior.
 
 ## Harness Checkpoint: 2026-06-13 Author's Note Texture Boundary Coverage
 
@@ -1918,6 +1944,53 @@ Current conclusion:
 - The old local harness coverage was falsely named and too shallow.
 - The strengthened local harness now exercises the real Author's Note heading boundary and does not reproduce the phone-reported inversion.
 - The next texture production fix still requires eta48 ADB diagnostics from Android WebView around the failing maps -> Author's Note transition.
+
+## Implementation Checkpoint: 2026-06-13 eta50 Candidate Interaction Hardening
+
+Scope:
+
+- Keep eta49's working normal-page taps and drags intact.
+- Make shell-cover horizontal drags use the same tap-slop-sized recognition threshold as the rest of the native reader surface, instead of Android's larger paging slop.
+- Make paper texture movement use the known page-turn direction when available, so inverted renderer coordinate signs at area/section transitions cannot invert the perceived paper movement.
+- Make delayed native center-menu dispatch re-read the latest WebView hit type before opening reader chrome, so image and chapter-link hits that become visible after `ACTION_UP` can still suppress the menu.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderRechecksLatestContentHitBeforeDelayedCenterChromeDispatch"
+```
+
+Initial result: failed because delayed center chrome used the `ACTION_UP` hit type captured before Android WebView had a chance to update image/link hit testing.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+git diff --check
+```
+
+Result:
+
+- The image/link, shell progress, and paper surface host test classes passed.
+- The syntax checks and diff whitespace check exited `0`.
+- The pure texture-offset harness passed.
+- The real EPUB Author's Note boundary harness passed and wrote `tools\reader-harness\output\epub-texture-frontmatter-transition.trace.json`.
+- The real EPUB CSS/content-action smoke harness passed and wrote `tools\reader-harness\output\css-smoke.trace.json`.
+
+Phone validation target for eta50:
+
+- Shell cover: dragging horizontally should move from cover to first readable page.
+- Normal pages: existing taps and drags should still work.
+- Image tint toggles and chapter links should not surface reader chrome.
+- Paper texture movement should not invert when crossing from maps/frontmatter into Author's Note.
 
 ## Harness Checkpoint: 2026-06-13 Phase 1 Gate Reliability
 
