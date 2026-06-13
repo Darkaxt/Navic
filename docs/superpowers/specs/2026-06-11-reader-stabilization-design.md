@@ -4,6 +4,13 @@ Date: 2026-06-11
 
 Status: active reader stabilization anchor. All EPUB/PDF/WebView/native-touch reader stabilization work is tracked here.
 
+Supersession note, 2026-06-13: reader-shell architecture work is now governed by
+`docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`.
+This older stabilization document remains historical evidence for renderer bugs,
+ADB traces, release checkpoints, and known regressions. It must not be used to
+justify further micro-fixes to the current reader shell when the requested work is
+the Komikku-equivalent reader port.
+
 ## Objective
 
 Stabilize Navic's ebook reader with a laptop-testable WebView renderer, a native Android touch surface that owns reader-wide gestures, and release-sized microdeliverables that can be validated on the phone.

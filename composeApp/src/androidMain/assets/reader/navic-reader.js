@@ -294,6 +294,7 @@ class NavicReaderRuntime {
       this.view.addEventListener('load', event => this.onLoad(event.detail || {}))
       this.view.addEventListener('external-link', event => event.preventDefault())
       readerRoot.replaceChildren(this.view)
+      if (settings) this.applySettings(settings)
       this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
       this.attachSurfacePaperTextureScrollSync()

@@ -130,7 +130,8 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(webViewHostText, "nativeShellCoverUrl: String?")
 		assertContains(webViewHostText, "canReturnToShellCover: Boolean")
 		assertContains(webViewHostText, "externalShellCover = externalShellCover")
-		assertContains(webViewHostText, "shellCoverWebView")
+		assertContains(webViewHostText, "ReaderShellCoverView")
+		assertContains(webViewHostText, "shellCoverView")
 		assertContains(webViewHostText, "updateShellCover(nativeShellCoverUrl, title)")
 	}
 
@@ -197,8 +198,16 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(readerScreenText, "nativeShellCoverUrl = nativeShellCoverUrl")
 		assertContains(webViewHostText, "ReaderSurfaceHost")
-		assertContains(webViewHostText, "shellCoverWebView")
-		assertContains(webViewHostText, "readerShellCoverHtml")
+		assertContains(webViewHostText, "ReaderShellCoverView")
+		assertContains(webViewHostText, "shellCoverView")
+		assertFalse(
+			webViewHostText.contains("shellCoverWebView"),
+			"Cover image taps must be owned by the reader surface over a native cover view, not by a second WebView."
+		)
+		assertFalse(
+			webViewHostText.contains("readerShellCoverHtml"),
+			"Shell cover should not be an HTML/CSS wrapper now that cover is a reader-owned surface."
+		)
 		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage -> hideShellCover()")
 		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage -> Unit")
 		assertContains(webViewHostText, "dispatchReaderWideTap")

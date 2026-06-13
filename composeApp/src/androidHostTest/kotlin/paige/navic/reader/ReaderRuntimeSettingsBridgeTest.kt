@@ -40,28 +40,31 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderPrioritizesCenterMenuTapZoneOverPageTurns() {
+	fun androidReaderUsesKomikkuRegionPriorityAndMenuFallback() {
 		val bridgeText = readerBridgeText()
 		val tapAction = bridgeText
 			.substringAfter("const komikkuTapAction = (")
 			.substringBefore("\n\nconst readerAssetUrl")
 
-		assertContains(bridgeText, "ReaderCenterMenuRegionSize")
-		assertContains(bridgeText, "readerCenterMenuRegion")
-		assertContains(bridgeText, "smallerTapZone ? 0.2 : 0.25")
+		assertContains(bridgeText, "smallerTapZone ? 0.25 : 0.33")
 		assertFalse(
-			bridgeText.contains("smallerTapZone ? 0.25 : 0.33"),
-			"Komikku's one-third tap bands are too large once mapped onto Navic's WebView reader surface."
+			bridgeText.contains("ReaderCenterMenuRegionSize") ||
+				bridgeText.contains("readerCenterMenuRegion"),
+			"Tap-zone dispatch must use Komikku region maps plus menu fallback, not Navic's old explicit center box."
+		)
+		assertFalse(
+			bridgeText.contains("smallerTapZone ? 0.2 : 0.25"),
+			"Komikku's normal/smaller tap bands are one third and one quarter of the reader surface."
 		)
 		assertTrue(
-			tapAction.indexOf("readerCenterMenuRegion") <
-				tapAction.indexOf("regions.find"),
-			"Center/menu taps must win before previous/next regions consume the visual page center."
+			tapAction.indexOf("regions.find") <
+				tapAction.indexOf("komikkuConstantMenuRegion"),
+			"Komikku checks explicit navigation regions before the constant menu fallback."
 		)
 		assertTrue(
 			tapAction.indexOf("komikkuConstantMenuRegion") <
-				tapAction.indexOf("regions.find"),
-			"The always-visible menu strip must still be checked before page-turn regions."
+				tapAction.indexOf("return KomikkuNavigationRegionMenu"),
+			"Unassigned areas must fall back to menu after explicit region checks."
 		)
 	}
 
@@ -87,25 +90,31 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderUsesChildFirstNativeReaderSurfaceAboveWebView() {
+	fun androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()
+		val dispatchTouchEvent = webViewHostText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate val readerGestureDetector")
 
 		assertContains(webViewHostText, "private class ReaderSurfaceHost")
 		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "handleReaderSurfaceTouch(event)")
-		assertContains(webViewHostText, "return childHandled")
-		assertContains(webViewHostText, "MotionEvent.ACTION_DOWN")
-		assertContains(webViewHostText, "MotionEvent.ACTION_UP")
+		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(webViewHostText, "childHandled")
+		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
+		assertContains(webViewHostText, "GestureDetector.SimpleOnGestureListener()")
+		assertContains(webViewHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
+		assertContains(webViewHostText, "dispatchReaderWideTap(event)")
 		assertContains(webViewHostText, "ViewConfiguration.get(context).scaledTouchSlop")
+		assertTrue(
+			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
+			"Komikku's pager dispatches to the child/page first, then observes the same stream for confirmed reader-wide taps."
+		)
 		assertFalse(
 			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
 			"Android must not keep the old split WebView-only tap-zone observer."
-		)
-		assertFalse(
-			webViewHostText.contains("GestureDetector.SimpleOnGestureListener()"),
-			"The native reader surface must classify taps directly instead of relying on delayed GestureDetector callbacks."
 		)
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapRegion("),
@@ -118,6 +127,9 @@ class ReaderRuntimeSettingsBridgeTest {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val webViewHostText = readerWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+		val openPublication = runtimeText
+			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {")
+			.substringBefore("\n  close()")
 		val tapHandler = runtimeText
 			.substringAfter("attachReaderTapZoneGesture(target) {")
 			.substringBefore("\n  attachScrolledEdgeTurnGestures")
@@ -126,6 +138,12 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(bridgeProtocolText, "nativeTapZones?.let { put(\"nativeTapZones\", it) }")
 		assertContains(webViewHostText, "settings.copy(nativeTapZones = true)")
 		assertContains(runtimeText, "this.nativeTapZones = settings.nativeTapZones === true")
+		assertContains(openPublication, "if (settings) this.applySettings(settings)")
+		assertTrue(
+			openPublication.indexOf("if (settings) this.applySettings(settings)") <
+				openPublication.indexOf("await this.view.open(url)"),
+			"Native tap-zone settings must be applied before Foliate loads content documents; otherwise onLoad can attach JS reader-wide tap handlers before Android owns taps."
+		)
 		assertContains(tapHandler, "if (this.nativeTapZones === true)")
 		assertContains(tapHandler, "this.renderTapZoneOverlayLayer()")
 		assertContains(

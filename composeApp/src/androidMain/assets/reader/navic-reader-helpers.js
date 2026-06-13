@@ -474,17 +474,7 @@ export const komikkuConstantMenuRegion = komikkuNavigationRegion(
 export const komikkuRegionContains = (region, x, y) =>
   x >= region.left && x <= region.right && y >= region.top && y <= region.bottom
 
-export const ReaderCenterMenuRegionSize = 0.42
-
-export const readerCenterMenuRegion = komikkuNavigationRegion(
-  (1 - ReaderCenterMenuRegionSize) / 2,
-  (1 - ReaderCenterMenuRegionSize) / 2,
-  (1 + ReaderCenterMenuRegionSize) / 2,
-  (1 + ReaderCenterMenuRegionSize) / 2,
-  KomikkuNavigationRegionMenu
-)
-
-export const komikkuRegionSize = smallerTapZone => smallerTapZone ? 0.2 : 0.25
+export const komikkuRegionSize = smallerTapZone => smallerTapZone ? 0.25 : 0.33
 
 export const komikkuDefaultNavigationMode = flowMode =>
   flowMode === ReaderFlowPagedVertical ||
@@ -542,10 +532,9 @@ export const komikkuTapAction = (
   flowMode = ReaderFlowPaged
 ) => {
   const regions = komikkuNavigationRegions(tapZoneMode, smallerTapZone, flowMode)
-  if (komikkuRegionContains(komikkuConstantMenuRegion, x, y)) return KomikkuNavigationRegionMenu
-  if (komikkuRegionContains(readerCenterMenuRegion, x, y)) return KomikkuNavigationRegionMenu
   const region = regions.find(candidate => komikkuRegionContains(candidate, x, y))
   if (region) return region.type
+  if (komikkuRegionContains(komikkuConstantMenuRegion, x, y)) return KomikkuNavigationRegionMenu
   return KomikkuNavigationRegionMenu
 }
 
@@ -1177,8 +1166,6 @@ export const readerTapZoneOverlayColor = type => {
 
 export const readerTapZoneOverlayRegions = (tapZoneMode, smallerTapZone, flowMode) => [
   ...komikkuNavigationRegions(tapZoneMode, smallerTapZone, flowMode),
-  komikkuConstantMenuRegion,
-  readerCenterMenuRegion,
 ]
 
 export const ensureTapZoneOverlayLayer = () => {

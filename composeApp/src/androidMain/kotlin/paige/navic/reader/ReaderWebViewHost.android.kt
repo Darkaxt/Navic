@@ -1,8 +1,14 @@
 package paige.navic.ui.screens.reader
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.os.SystemClock
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -45,8 +51,12 @@ import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
+import java.io.File
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.min
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
 private const val ReaderContentTapHandledSuppressMs = 1000L
@@ -116,7 +126,6 @@ actual fun ReaderWebViewHost(
 	val currentNativeShellCoverUrl by rememberUpdatedState(nativeShellCoverUrl)
 	val currentCanReturnToShellCover by rememberUpdatedState(canReturnToShellCover)
 	var webView by remember { mutableStateOf<WebView?>(null) }
-	var coverWebView by remember { mutableStateOf<WebView?>(null) }
 	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
@@ -187,8 +196,6 @@ actual fun ReaderWebViewHost(
 			surfaceHostRef.set(null)
 			webView?.destroy()
 			webView = null
-			coverWebView?.destroy()
-			coverWebView = null
 		}
 	}
 
@@ -280,24 +287,11 @@ actual fun ReaderWebViewHost(
 						enableDebugging = settings.webContentsDebuggingEnabled == true
 					)
 				}
-				val readerCoverWebView = WebView(context).apply {
-					coverWebView = this
-					setBackgroundColor(Color.BLACK)
-					isVerticalScrollBarEnabled = false
-					isHorizontalScrollBarEnabled = false
-					webViewClient = object : WebViewClient() {
-						override fun shouldInterceptRequest(
-							view: WebView,
-							request: WebResourceRequest
-						): WebResourceResponse? =
-							readerAssetLoader.shouldInterceptRequest(request.url)
-								?: super.shouldInterceptRequest(view, request)
-					}
-				}
+				val readerShellCoverView = ReaderShellCoverView(context)
 				ReaderSurfaceHost(context).apply {
 					surfaceHostRef.set(this)
 					this.readerWebView = readerWebView
-					this.shellCoverWebView = readerCoverWebView
+					this.shellCoverView = readerShellCoverView
 					readerSettings = currentSettings
 					readerWideTapsEnabled = true
 					this.canReturnToShellCover = currentCanReturnToShellCover
@@ -323,7 +317,7 @@ actual fun ReaderWebViewHost(
 						)
 					)
 					addView(
-						readerCoverWebView,
+						readerShellCoverView,
 						FrameLayout.LayoutParams(
 							ViewGroup.LayoutParams.MATCH_PARENT,
 							ViewGroup.LayoutParams.MATCH_PARENT
@@ -370,7 +364,7 @@ actual fun ReaderWebViewHost(
 
 private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	var readerWebView: WebView? = null
-	var shellCoverWebView: WebView? = null
+	var shellCoverView: ReaderShellCoverView? = null
 	var readerSettings: ReaderSettings = ReaderSettings()
 	var readerWideTapsEnabled: Boolean = true
 	var canReturnToShellCover: Boolean = false
@@ -392,21 +386,38 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private var centerTapSequence: Long = 0L
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-		if (readerWideTapsEnabled && shellCoverVisible) {
-			handleReaderSurfaceTouch(event)
-			return true
+		val shellCoverWasVisible = shellCoverVisible
+		if (readerWideTapsEnabled) {
+			cancelPendingReaderCenterTapOnNewGesture(event)
 		}
 		val childHandled = super.dispatchTouchEvent(event)
 		if (readerWideTapsEnabled) {
 			handleReaderSurfaceTouch(event)
+			readerGestureDetector.onTouchEvent(event)
 		}
-		return childHandled
+		return if (readerWideTapsEnabled && shellCoverWasVisible) {
+			true
+		} else {
+			childHandled
+		}
 	}
 
+	private val readerGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+		override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+			dispatchReaderWideTap(event)
+			return true
+		}
+	})
+
 	private fun handleReaderSurfaceTouch(event: MotionEvent) {
+		if (!shellCoverVisible) {
+			if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+				clearTapCandidate()
+			}
+			return
+		}
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
-				cancelPendingReaderCenterTap()
 				tapCandidatePointerId = event.getPointerId(0)
 				tapDownX = event.x
 				tapDownY = event.y
@@ -441,9 +452,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				}
 			}
 			MotionEvent.ACTION_UP -> {
-				if (tapCandidate) {
-					dispatchReaderWideTap(event)
-				} else if (tapCandidatePointerId != MotionEvent.INVALID_POINTER_ID) {
+				if (!tapCandidate && tapCandidatePointerId != MotionEvent.INVALID_POINTER_ID) {
 					dispatchReaderShellCoverSwipe(
 						deltaX = event.x - tapDownX,
 						deltaY = event.y - tapDownY
@@ -452,6 +461,12 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				clearTapCandidate()
 			}
 			MotionEvent.ACTION_CANCEL -> clearTapCandidate()
+		}
+	}
+
+	private fun cancelPendingReaderCenterTapOnNewGesture(event: MotionEvent) {
+		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+			cancelPendingReaderCenterTap()
 		}
 	}
 
@@ -645,7 +660,7 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			shellCoverUrl = null
 			shellCoverTitle = ""
 			hideShellCover()
-			shellCoverWebView?.loadUrl("about:blank")
+			shellCoverView?.updateCover(null, "")
 			return
 		}
 		val changed = shellCoverUrl != nextCoverUrl || shellCoverTitle != title
@@ -653,16 +668,10 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		shellCoverTitle = title
 		if (changed) {
 			shellCoverVisible = true
-			shellCoverWebView?.visibility = View.VISIBLE
-			shellCoverWebView?.loadDataWithBaseURL(
-				ReaderWebRuntime.AssetLoaderOrigin,
-				readerShellCoverHtml(nextCoverUrl, title),
-				"text/html",
-				"UTF-8",
-				null
-			)
+			shellCoverView?.visibility = View.VISIBLE
+			shellCoverView?.updateCover(nextCoverUrl, title)
 		} else if (shellCoverVisible) {
-			shellCoverWebView?.visibility = View.VISIBLE
+			shellCoverView?.visibility = View.VISIBLE
 		}
 	}
 
@@ -691,12 +700,12 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 
 	private fun showShellCover() {
 		shellCoverVisible = !shellCoverUrl.isNullOrBlank()
-		shellCoverWebView?.visibility = if (shellCoverVisible) View.VISIBLE else View.GONE
+		shellCoverView?.visibility = if (shellCoverVisible) View.VISIBLE else View.GONE
 	}
 
 	private fun hideShellCover() {
 		shellCoverVisible = false
-		shellCoverWebView?.visibility = View.GONE
+		shellCoverView?.visibility = View.GONE
 	}
 
 	private fun readerContentHandledTap(hitType: Int): Boolean =
@@ -711,55 +720,97 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		}
 }
 
-private fun readerShellCoverHtml(coverUrl: String, title: String): String =
-	"""
-	<!doctype html>
-	<html>
-	<head>
-	  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-	  <style>
-	    html, body {
-	      width: 100%;
-	      height: 100%;
-	      margin: 0;
-	      padding: 0;
-	      overflow: hidden;
-	      background: #000000;
-	    }
-	    body {
-	      display: flex;
-	      align-items: center;
-	      justify-content: center;
-	    }
-	    img {
-	      display: block;
-	      width: auto;
-	      height: auto;
-	      max-width: 100vw;
-	      max-height: 100vh;
-	      object-fit: contain;
-	    }
-	  </style>
-	</head>
-	<body>
-	  <img src="${coverUrl.readerHtmlAttributeEscape()}" alt="${title.readerHtmlAttributeEscape()}">
-	</body>
-	</html>
-	""".trimIndent()
-
-private fun String.readerHtmlAttributeEscape(): String =
-	buildString(length) {
-		this@readerHtmlAttributeEscape.forEach { char ->
-			when (char) {
-				'&' -> append("&amp;")
-				'"' -> append("&quot;")
-				'\'' -> append("&#39;")
-				'<' -> append("&lt;")
-				'>' -> append("&gt;")
-				else -> append(char)
-			}
-		}
+private class ReaderShellCoverView(context: Context) : View(context) {
+	private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+		isDither = true
 	}
+	private val bitmapDestination = RectF()
+	private var coverUrl: String? = null
+	private var coverTitle: String = ""
+	private var coverBitmap: Bitmap? = null
+
+	init {
+		setBackgroundColor(Color.BLACK)
+		visibility = GONE
+	}
+
+	fun updateCover(coverUrl: String?, title: String) {
+		val nextCoverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+		if (this.coverUrl == nextCoverUrl && coverTitle == title) return
+		this.coverUrl = nextCoverUrl
+		coverTitle = title
+		contentDescription = title.takeIf { it.isNotBlank() } ?: "Book cover"
+		coverBitmap?.recycle()
+		coverBitmap = nextCoverUrl
+			?.let { readerPublicationCacheFileForAssetUrl(context, it) }
+			?.takeIf { it.isFile && it.length() > 0L }
+			?.let { coverFile ->
+				BitmapFactory.decodeFile(coverFile.absolutePath).also { decoded ->
+					if (decoded == null) {
+						Logger.w(
+							ReaderWebViewHostTag,
+							"Reader shell cover decode failed file=${coverFile.name} url=${nextCoverUrl.readerUrlLabel()}"
+						)
+					}
+				}
+			}
+		invalidate()
+	}
+
+	override fun onDraw(canvas: Canvas) {
+		super.onDraw(canvas)
+		canvas.drawColor(Color.BLACK)
+		val bitmap = coverBitmap ?: return
+		if (width <= 0 || height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) return
+		val scale = min(
+			width.toFloat() / bitmap.width.toFloat(),
+			height.toFloat() / bitmap.height.toFloat()
+		)
+		val drawWidth = bitmap.width.toFloat() * scale
+		val drawHeight = bitmap.height.toFloat() * scale
+		val left = (width.toFloat() - drawWidth) / 2f
+		val top = (height.toFloat() - drawHeight) / 2f
+		bitmapDestination.set(left, top, left + drawWidth, top + drawHeight)
+		canvas.drawBitmap(bitmap, null, bitmapDestination, bitmapPaint)
+	}
+
+	override fun onDetachedFromWindow() {
+		coverBitmap?.recycle()
+		coverBitmap = null
+		super.onDetachedFromWindow()
+	}
+}
+
+private fun readerPublicationCacheFileForAssetUrl(context: Context, coverUrl: String): File? {
+	val prefix = ReaderWebRuntime.AssetLoaderOrigin + ReaderPublicationCachePathPrefix
+	if (!coverUrl.startsWith(prefix)) return null
+	val encodedRelativePath = coverUrl
+		.removePrefix(prefix)
+		.substringBefore('?')
+		.substringBefore('#')
+		.trimStart('/')
+		.takeIf { it.isNotBlank() }
+		?: return null
+	val relativePath = URLDecoder
+		.decode(encodedRelativePath, StandardCharsets.UTF_8.name())
+		.replace('\\', '/')
+	if (
+		relativePath == ".." ||
+		relativePath.startsWith("../") ||
+		relativePath.contains("/../")
+	) {
+		Logger.w(ReaderWebViewHostTag, "Reader shell cover rejected unsafe path=${relativePath.take(120)}")
+		return null
+	}
+	val cacheRoot = readerPublicationCacheRoot(context).canonicalFile
+	val coverFile = File(cacheRoot, relativePath).canonicalFile
+	val cacheRootPrefix = cacheRoot.path + File.separator
+	if (coverFile != cacheRoot && !coverFile.path.startsWith(cacheRootPrefix)) {
+		Logger.w(ReaderWebViewHostTag, "Reader shell cover rejected outside cache path=${coverFile.path.take(160)}")
+		return null
+	}
+	return coverFile
+}
 
 private fun ReaderBridgeCommand.debugLabel(): String =
 	when (this) {

@@ -183,23 +183,87 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun commonReaderChromeUsesKomikkuStyleOptionsSheetInsteadOfDockedSettingsList() {
+	fun commonReaderShellUsesKomikkuEquivalentOverlayStack() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
-			.substringBefore("private fun ReaderKomikkuOptionsSheet(")
+			.substringBefore("private fun ReaderSettingsOverlayPanel(")
 
 		assertContains(readerScreenText, "optionsVisible")
 		assertContains(readerScreenText, "onToggleOptions: () -> Unit")
 		assertContains(readerScreenText, "Icons.Filled.Settings")
-		assertContains(readerScreenText, "ReaderKomikkuOptionsSheet(")
-		assertContains(readerScreenText, "skipPartiallyExpanded = false")
+		assertContains(readerScreenText, "ReaderContentSurfaceLayer(")
+		assertContains(readerScreenText, "ReaderChromeOverlayLayer(")
+		assertContains(readerScreenText, "ReaderTopChrome(")
+		assertContains(readerScreenText, "ReaderSettingsOverlayPanel(")
 		assertContains(readerScreenText, "BoxWithConstraints")
 		assertContains(readerScreenText, "heightIn(max = maxHeight * 0.75f)")
+		assertContains(readerScreenText, "Modifier.matchParentSize()")
+		assertContains(readerScreenText, "Modifier.align(Alignment.BottomCenter)")
 		assertContains(readerOptionsPanelText, "ReaderOptionsTabChip")
 		assertFalse(
+			readerScreenText.contains("Scaffold(") || readerScreenText.contains("bottomBar ="),
+			"Reader shell must follow Komikku's overlay stack; chrome cannot be hosted as a Scaffold bottomBar that resizes content."
+		)
+		assertFalse(
+			readerScreenText.contains("ModalBottomSheet(") || readerScreenText.contains("rememberModalBottomSheetState"),
+			"Reader settings must be an overlay panel above the full-window reader, not a modal bottom sheet tied to app chrome behavior."
+		)
+		assertFalse(
+			readerScreenText.contains(".padding(innerPadding)"),
+			"Reader content must remain full-window; chrome/settings padding must never be applied to the content host."
+		)
+		assertFalse(
 			bottomChromeBody.contains("ReaderOptionsPanel("),
-			"Bottom reader chrome must stay compact; settings belong in the Komikku-style modal sheet."
+			"Bottom reader chrome must stay compact; settings belong in the Komikku-equivalent overlay panel."
+		)
+	}
+
+	@Test
+	fun commonReaderChromeUsesKomikkuEquivalentSideProgressRail() {
+		val readerScreenText = readerScreenFile().readText()
+		val overlayBody = readerScreenText.substringAfter("ReaderChromeOverlayLayer(modifier = Modifier.matchParentSize())")
+			.substringBefore("\n\t\tif (optionsVisible)")
+		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
+			.substringBefore("private fun ReaderSettingsOverlayPanel(")
+		val sideRailBody = readerScreenText.substringAfter("private fun ReaderSideProgressRail(")
+			.substringBefore("private fun ReaderBottomChrome(")
+
+		assertContains(readerScreenText, "ReaderSideProgressRail(")
+		assertContains(overlayBody, "Modifier.align(Alignment.CenterEnd)")
+		assertContains(sideRailBody, "ReaderProgressSeekControl(")
+		assertContains(sideRailBody, "onProgressSeek(progressSliderValue.coerceIn(0f, 1f))")
+		assertContains(sideRailBody, "readerProgressCurrentLabel(")
+		assertContains(sideRailBody, "readerProgressTotalLabel(")
+		assertContains(sideRailBody, "Icons.Filled.SkipPrevious")
+		assertContains(sideRailBody, "Icons.Filled.SkipNext")
+		assertFalse(
+			bottomChromeBody.contains("ReaderProgressSeekControl(") ||
+				bottomChromeBody.contains("LinearProgressIndicator("),
+			"Komikku-equivalent progress belongs in the side rail overlay, not inside the bottom chrome surface."
+		)
+	}
+
+	@Test
+	fun commonReaderChromeSeparatesTopPanelFromBottomActions() {
+		val readerScreenText = readerScreenFile().readText()
+		val overlayBody = readerScreenText.substringAfter("ReaderChromeOverlayLayer(modifier = Modifier.matchParentSize())")
+			.substringBefore("\n\t\tif (optionsVisible)")
+		val topChromeBody = readerScreenText.substringAfter("private fun ReaderTopChrome(")
+			.substringBefore("private fun ReaderSideProgressRail(")
+		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
+			.substringBefore("private fun ReaderSettingsOverlayPanel(")
+
+		assertContains(overlayBody, "Modifier.align(Alignment.TopCenter)")
+		assertContains(topChromeBody, "currentLocationBookmarked")
+		assertContains(topChromeBody, "canBookmarkCurrentLocation")
+		assertContains(topChromeBody, "onToggleCurrentBookmark")
+		assertContains(topChromeBody, "Icons.Filled.Star")
+		assertContains(topChromeBody, "state.progressLabel")
+		assertFalse(
+			bottomChromeBody.contains("state.currentSectionTitle ?: title") ||
+				bottomChromeBody.contains("state.progressLabel"),
+			"Bottom chrome must be an action strip; title/progress belongs in the top panel and side rail."
 		)
 	}
 

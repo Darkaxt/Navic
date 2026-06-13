@@ -133,6 +133,8 @@ class ReaderChromeStateTest {
 
 	@Test
 	fun nativeTapZonesMatchKomikkuRightLeftPagedDefault() {
+		assertEquals(0.33f, readerTapZoneSize(smallerTapZone = false))
+		assertEquals(0.25f, readerTapZoneSize(smallerTapZone = true))
 		assertEquals(
 			ReaderTapZoneAction.Left,
 			readerTapZoneActionAt(
@@ -163,21 +165,14 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
-	fun nativeTapOverlayRegionsLeaveContentInteractionGaps() {
+	fun nativeTapOverlayRegionsAreVisualOnlyKomikkuNavigationRegions() {
 		val regions = readerTapZoneInteractiveRegions(
 			tapZone = ReaderTapZoneDefault,
 			smallerTapZone = false,
 			flowMode = ReaderFlowPaged
 		)
 
-		assertTrue(regions.any { region ->
-			region.action == ReaderTapZoneAction.Menu &&
-				region.contains(0.5f, 0.02f)
-		})
-		assertTrue(regions.any { region ->
-			region.action == ReaderTapZoneAction.Menu &&
-				region.contains(0.5f, 0.5f)
-		})
+		assertEquals(2, regions.size)
 		assertTrue(regions.any { region ->
 			region.action == ReaderTapZoneAction.Left &&
 				region.contains(0.05f, 0.5f)
@@ -188,7 +183,11 @@ class ReaderChromeStateTest {
 		})
 		assertFalse(
 			regions.any { region -> region.contains(0.5f, 0.12f) },
-			"Native overlay must leave non-zone content areas available for WebView links, images, and text selection."
+			"Visual tap-zone overlay must leave fallback menu areas unpainted, matching Komikku's diagnostic overlay."
+		)
+		assertFalse(
+			regions.any { region -> region.action == ReaderTapZoneAction.Menu },
+			"Visible tap-zone overlay must not model menu fallback as an input authority."
 		)
 		assertFalse(
 			regions.any { region ->
@@ -216,6 +215,55 @@ class ReaderChromeStateTest {
 				xFraction = 0.5f,
 				yFraction = 0.9f,
 				flowMode = ReaderFlowScrolled
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Menu,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneDefault,
+				xFraction = 0.5f,
+				yFraction = 0.5f,
+				flowMode = ReaderFlowScrolled
+			)
+		)
+	}
+
+	@Test
+	fun nativeTapZonesUseKomikkuRegionPriorityBeforeMenuFallback() {
+		assertEquals(
+			ReaderTapZoneAction.Previous,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneLShaped,
+				xFraction = 0.5f,
+				yFraction = 0.02f,
+				flowMode = ReaderFlowScrolled
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Menu,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneKindle,
+				xFraction = 0.5f,
+				yFraction = 0.02f,
+				flowMode = ReaderFlowPaged
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Next,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneEdge,
+				xFraction = 0.05f,
+				yFraction = 0.5f,
+				flowMode = ReaderFlowPaged
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Previous,
+			readerTapZoneActionAt(
+				tapZone = ReaderTapZoneEdge,
+				xFraction = 0.5f,
+				yFraction = 0.9f,
+				flowMode = ReaderFlowPaged
 			)
 		)
 	}

@@ -65,9 +65,8 @@ const val ReaderPdfFitPage = "page"
 const val ReaderPdfFitHeight = "height"
 const val ReaderPdfFitOriginal = "original"
 
-private const val ReaderTapZoneNormalSize = 0.25f
-private const val ReaderTapZoneSmallerSize = 0.2f
-private const val ReaderTapZoneCenterMenuSize = 0.42f
+private const val ReaderTapZoneNormalSize = 0.33f
+private const val ReaderTapZoneSmallerSize = 0.25f
 private const val ReaderTapZoneConstantMenuHeight = 0.05f
 
 val ReaderSupportedFontFamilies: List<String> = listOf(
@@ -255,15 +254,6 @@ fun readerTapZoneRegions(
 	}
 }
 
-fun readerTapZoneMenuRegions(): List<ReaderTapZoneRegion> {
-	val centerStart = (1f - ReaderTapZoneCenterMenuSize) / 2f
-	val centerEnd = (1f + ReaderTapZoneCenterMenuSize) / 2f
-	return listOf(
-		ReaderTapZoneRegion(0f, 0f, 1f, ReaderTapZoneConstantMenuHeight, ReaderTapZoneAction.Menu),
-		ReaderTapZoneRegion(centerStart, centerStart, centerEnd, centerEnd, ReaderTapZoneAction.Menu)
-	)
-}
-
 fun readerTapZoneInteractiveRegions(
 	tapZone: String?,
 	smallerTapZone: Boolean = false,
@@ -272,7 +262,7 @@ fun readerTapZoneInteractiveRegions(
 	if (normalizedReaderTapZone(tapZone) == ReaderTapZoneDisabled) {
 		emptyList()
 	} else {
-		readerTapZoneRegions(tapZone, smallerTapZone, flowMode) + readerTapZoneMenuRegions()
+		readerTapZoneRegions(tapZone, smallerTapZone, flowMode)
 	}
 
 fun readerTapZoneActionAt(
@@ -284,15 +274,12 @@ fun readerTapZoneActionAt(
 ): ReaderTapZoneAction {
 	val x = xFraction.coerceIn(0f, 1f)
 	val y = yFraction.coerceIn(0f, 1f)
-	if (y <= ReaderTapZoneConstantMenuHeight) return ReaderTapZoneAction.Menu
-	val centerStart = (1f - ReaderTapZoneCenterMenuSize) / 2f
-	val centerEnd = (1f + ReaderTapZoneCenterMenuSize) / 2f
-	if (x >= centerStart && x <= centerEnd && y >= centerStart && y <= centerEnd) {
-		return ReaderTapZoneAction.Menu
-	}
-	return readerTapZoneRegions(tapZone, smallerTapZone, flowMode)
+	val regionAction = readerTapZoneRegions(tapZone, smallerTapZone, flowMode)
 		.firstOrNull { region -> region.contains(x, y) }
-		?.action ?: ReaderTapZoneAction.Menu
+		?.action
+	if (regionAction != null) return regionAction
+	if (y <= ReaderTapZoneConstantMenuHeight) return ReaderTapZoneAction.Menu
+	return ReaderTapZoneAction.Menu
 }
 
 fun readerTapZoneActionTurnsPage(action: ReaderTapZoneAction): Boolean =

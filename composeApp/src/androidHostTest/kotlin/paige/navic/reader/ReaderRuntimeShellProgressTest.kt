@@ -167,24 +167,30 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatch() {
+	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val bridgeText = readerBridgeText()
+		val dispatchTouchEvent = webViewHostText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate val readerGestureDetector")
 
 		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "handleReaderSurfaceTouch(event)")
+		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
 		assertContains(webViewHostText, "MotionEvent.ACTION_DOWN")
-		assertContains(webViewHostText, "MotionEvent.ACTION_UP")
-		assertContains(webViewHostText, "return childHandled")
+		assertContains(webViewHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
+		assertContains(webViewHostText, "dispatchReaderWideTap(event)")
+		assertContains(webViewHostText, "childHandled")
+		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
 		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertTrue(
+			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
+			"Komikku's pager gives the child/page stream first, then observes confirmed taps without stealing drags."
+		)
 		assertFalse(
 			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
 			"The native surface must observe the child touch stream without rewriting WebView/Foliate events."
-		)
-		assertFalse(
-			webViewHostText.contains("GestureDetector.SimpleOnGestureListener()"),
-			"The native surface tap manager must not depend on delayed GestureDetector callbacks."
 		)
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
@@ -200,7 +206,8 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "addView(")
 		assertContains(webViewHostText, "readerWebView,")
-		assertContains(webViewHostText, "shellCoverWebView")
+		assertContains(webViewHostText, "ReaderShellCoverView")
+		assertContains(webViewHostText, "shellCoverView")
 		assertContains(webViewHostText, "readerWideTapsEnabled")
 		assertContains(webViewHostText, "onReaderCommand")
 		assertContains(webViewHostText, "onReaderCenterTap")
@@ -209,6 +216,38 @@ class ReaderRuntimeShellProgressTest {
 			"The old split manager made cover and content taps diverge; keep only the reader surface manager."
 		)
 		assertFalse(webViewHostText.contains("setOnTouchListener"))
+	}
+
+	@Test
+	fun nativeShellCoverIsRenderedByReaderShellViewNotWebViewHtml() {
+		val webViewHostText = readerWebViewHostFile().readText()
+
+		assertContains(
+			webViewHostText,
+			"private class ReaderShellCoverView",
+			message = "The shell cover must be an Android view owned by the reader shell, not an HTML page in a second WebView."
+		)
+		assertContains(webViewHostText, "fun updateCover(coverUrl: String?, title: String)")
+		assertContains(webViewHostText, "readerPublicationCacheFileForAssetUrl(")
+		assertContains(webViewHostText, "BitmapFactory.decodeFile")
+		assertContains(webViewHostText, "canvas.drawBitmap")
+		assertContains(webViewHostText, "Paint(Paint.ANTI_ALIAS_FLAG")
+		assertFalse(
+			webViewHostText.contains("shellCoverWebView"),
+			"Keeping a second cover WebView preserves the cover-only input/sizing bug class."
+		)
+		assertFalse(
+			webViewHostText.contains("readerCoverWebView"),
+			"Reader cover creation must not instantiate a WebView."
+		)
+		assertFalse(
+			webViewHostText.contains("readerShellCoverHtml"),
+			"The native shell cover must not be fixed by editing shell-cover HTML/CSS."
+		)
+		assertFalse(
+			webViewHostText.contains("loadDataWithBaseURL"),
+			"The shell cover must draw a decoded cover image, not load an HTML wrapper."
+		)
 	}
 
 	@Test
@@ -234,8 +273,9 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(shellCoverSwipe, "shellCoverSwipeThresholdPx")
 		assertContains(shellCoverSwipe, "readerTapZonePageTurnCommand(")
 		assertContains(shellCoverSwipe, "dispatchReaderPageTurnCommand(command)")
+		assertContains(webViewHostText, "val shellCoverWasVisible = shellCoverVisible")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "return childHandled")
+		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
 		assertFalse(
 			webViewHostText.contains("return dispatchReaderShellCoverSwipe"),
 			"Shell-cover swipe detection must observe the already-dispatched child stream, not consume readable WebView drags."
@@ -296,22 +336,29 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeShellCoverTouchStreamIsOwnedBeforeCoverWebViewChildDispatch() {
+	fun nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val dispatchTouchEvent = webViewHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleReaderSurfaceTouch")
+			.substringBefore("\n\tprivate val readerGestureDetector")
 
-		assertContains(dispatchTouchEvent, "if (readerWideTapsEnabled && shellCoverVisible)")
-		assertContains(dispatchTouchEvent, "handleReaderSurfaceTouch(event)")
-		assertContains(dispatchTouchEvent, "return true")
-		assertTrue(
-			dispatchTouchEvent.indexOf("if (readerWideTapsEnabled && shellCoverVisible)") <
-				dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)"),
-			"Native shell-cover taps and drags must be owned above the cover WebView child surface."
-		)
+		assertContains(dispatchTouchEvent, "val shellCoverWasVisible = shellCoverVisible")
+		assertContains(dispatchTouchEvent, "if (readerWideTapsEnabled)")
 		assertContains(dispatchTouchEvent, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "return childHandled")
+		assertContains(dispatchTouchEvent, "handleReaderSurfaceTouch(event)")
+		assertContains(dispatchTouchEvent, "readerGestureDetector.onTouchEvent(event)")
+		assertContains(dispatchTouchEvent, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
+		assertTrue(
+			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("handleReaderSurfaceTouch(event)"),
+			"Shell-cover drags must observe the same child-dispatched stream instead of bypassing the cover renderer."
+		)
+		assertTrue(
+			dispatchTouchEvent.indexOf("handleReaderSurfaceTouch(event)") <
+				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
+			"Shell-cover drag observation and reader tap detection must share the same native surface stream."
+		)
+		assertContains(dispatchTouchEvent, "childHandled")
 	}
 
 	@Test

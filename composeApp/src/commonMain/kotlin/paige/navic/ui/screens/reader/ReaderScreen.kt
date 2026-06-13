@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,19 +24,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -134,9 +135,9 @@ import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toBinderyReadingProgress
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
+import kotlin.math.roundToInt
 
 private const val ReaderScreenTag = "ReaderScreen"
 
@@ -511,148 +512,34 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	}
 
-	Scaffold(
-		bottomBar = {
-			if (chromeVisible) {
-				ReaderBottomChrome(
-					title = reader.title,
-					state = chromeState,
-					showReadaloudControls = readerReadaloudControlsVisible(
-						kind = reader.kind,
-						mediaOverlayEnabled = reader.mediaOverlayEnabled
-					),
-					onPreviousPage = {
-						platformContext.clickSound()
-						dispatchReaderCommand(ReaderBridgeCommand.PreviousPage)
-					},
-					onNextPage = {
-						platformContext.clickSound()
-						dispatchReaderCommand(ReaderBridgeCommand.NextPage)
-					},
-					onProgressSeek = { progress ->
-						platformContext.clickSound()
-						dispatchReaderCommand(ReaderBridgeCommand.GoToProgress(progress.toDouble()))
-					},
-					onToggleOptions = {
-						platformContext.clickSound()
-						optionsVisible = true
-					},
-					tocVisible = tocVisible,
-					tocItems = tocItems,
-					onToggleToc = {
-						platformContext.clickSound()
-						tocVisible = !tocVisible
-						if (tocVisible) searchVisible = false
-						if (tocVisible) annotationsVisible = false
-						if (tocVisible) bookmarksVisible = false
-					},
-					onOpenTocItem = { item ->
-						platformContext.clickSound()
-						openTocItem(item)
-						hideReaderChrome()
-					},
-					annotationsVisible = annotationsVisible,
-					annotations = currentBookAnnotations,
-					canHighlightSelection = canHighlightSelection,
-					onToggleAnnotations = {
-						platformContext.clickSound()
-						annotationsVisible = !annotationsVisible
-						if (annotationsVisible) tocVisible = false
-						if (annotationsVisible) bookmarksVisible = false
-						if (annotationsVisible) searchVisible = false
-					},
-					onAddSelectionHighlight = {
-						platformContext.clickSound()
-						addSelectionHighlight()
-						annotationsVisible = true
-					},
-					onOpenAnnotation = { annotation ->
-						platformContext.clickSound()
-						openAnnotation(annotation)
-						hideReaderChrome()
-					},
-					bookmarksVisible = bookmarksVisible,
-					bookmarks = currentBookBookmarks,
-					currentLocationBookmarked = currentLocationBookmarked,
-					canBookmarkCurrentLocation = canBookmarkCurrentLocation,
-					onToggleBookmarks = {
-						platformContext.clickSound()
-						bookmarksVisible = !bookmarksVisible
-						if (bookmarksVisible) tocVisible = false
-						if (bookmarksVisible) annotationsVisible = false
-						if (bookmarksVisible) searchVisible = false
-					},
-					onToggleCurrentBookmark = {
-						platformContext.clickSound()
-						toggleCurrentBookmark()
-					},
-					onOpenBookmark = { bookmark ->
-						platformContext.clickSound()
-						openBookmark(bookmark)
-						hideReaderChrome()
-					},
-					searchVisible = searchVisible,
-					searchQuery = searchQuery,
-					searchResults = searchResults,
-					onToggleSearch = {
-						platformContext.clickSound()
-						searchVisible = !searchVisible
-						if (searchVisible) tocVisible = false
-						if (searchVisible) annotationsVisible = false
-						if (searchVisible) bookmarksVisible = false
-					},
-					onSearchQueryChange = { query -> searchQuery = query },
-					onSubmitSearch = {
-						platformContext.clickSound()
-						submitReaderSearch()
-					},
-					onOpenSearchResult = { result ->
-						platformContext.clickSound()
-						openSearchResult(result)
-						hideReaderChrome()
-					},
-					onReadaloudToggle = {
-						val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderBottomChrome
-						dispatchReadaloudCommand(command)
-					},
-					onReadaloudSpeedChange = { command ->
-						dispatchReadaloudCommand(command)
-					},
-					onReadaloudSyncChange = { command ->
-						dispatchReadaloudCommand(command)
-					}
-				)
-			}
-		}
-	) { innerPadding ->
-		Box(
-			Modifier
-				.padding(innerPadding)
-				.fillMaxSize()
-				.focusRequester(readerFocusRequester)
-				.focusable()
-				.onPreviewKeyEvent { event ->
-					if (chromeState.settings.volumeKeyPageTurns != true) {
-						return@onPreviewKeyEvent false
-					}
-					when (event.key) {
-						Key.VolumeUp, Key.VolumeDown -> {
-							if (event.type == KeyEventType.KeyUp) {
-								platformContext.clickSound()
-								dispatchReaderCommand(
-									if (event.key == Key.VolumeUp) {
-										ReaderBridgeCommand.NextPage
-									} else {
-										ReaderBridgeCommand.PreviousPage
-									}
-								)
-							}
-							true
-						}
-						else -> false
-					}
+	Box(
+		Modifier
+			.fillMaxSize()
+			.focusRequester(readerFocusRequester)
+			.focusable()
+			.onPreviewKeyEvent { event ->
+				if (chromeState.settings.volumeKeyPageTurns != true) {
+					return@onPreviewKeyEvent false
 				}
-		) {
+				when (event.key) {
+					Key.VolumeUp, Key.VolumeDown -> {
+						if (event.type == KeyEventType.KeyUp) {
+							platformContext.clickSound()
+							dispatchReaderCommand(
+								if (event.key == Key.VolumeUp) {
+									ReaderBridgeCommand.NextPage
+								} else {
+									ReaderBridgeCommand.PreviousPage
+								}
+							)
+						}
+						true
+					}
+					else -> false
+				}
+			}
+	) {
+		ReaderContentSurfaceLayer(modifier = Modifier.matchParentSize()) {
 			ReaderPublicationRuntimeHost(
 				reader = reader,
 				onPublicationReady = { publicationUrl, shellCoverUrl ->
@@ -762,42 +649,188 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		}
-	}
-	if (optionsVisible) {
-		ReaderKomikkuOptionsSheet(
-			state = chromeState,
-			showReadaloudControls = readerReadaloudControlsVisible(
-				kind = reader.kind,
-				mediaOverlayEnabled = reader.mediaOverlayEnabled
-			),
-			publicationFormat = reader.publicationFormat,
-			settingsScope = readerSettingsScope,
-			hasBookSettings = hasReaderBookSettings,
-			onDismissRequest = { optionsVisible = false },
-			onSettingsScopeChange = { scope ->
-				platformContext.clickSound()
-				selectReaderSettingsScope(scope)
-			},
-			onResetBookSettings = {
-				platformContext.clickSound()
-				resetReaderBookSettings()
-			},
-			onSettingsChange = { nextState ->
-				platformContext.clickSound()
-				updateChromeSettings(nextState)
-			},
-			onReadaloudToggle = {
-				val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderKomikkuOptionsSheet
-				dispatchReadaloudCommand(command)
-			},
-			onReadaloudSpeedChange = { command ->
-				dispatchReadaloudCommand(command)
-			},
-			onReadaloudSyncChange = { command ->
-				dispatchReadaloudCommand(command)
+		if (chromeVisible) {
+			ReaderChromeOverlayLayer(modifier = Modifier.matchParentSize()) {
+				val onPreviousReaderPage = {
+					platformContext.clickSound()
+					dispatchReaderCommand(ReaderBridgeCommand.PreviousPage)
+				}
+				val onNextReaderPage = {
+					platformContext.clickSound()
+					dispatchReaderCommand(ReaderBridgeCommand.NextPage)
+				}
+				val onReaderProgressSeek = { progress: Float ->
+					platformContext.clickSound()
+					dispatchReaderCommand(ReaderBridgeCommand.GoToProgress(progress.toDouble()))
+				}
+				ReaderTopChrome(
+					title = reader.title,
+					state = chromeState,
+					currentLocationBookmarked = currentLocationBookmarked,
+					canBookmarkCurrentLocation = canBookmarkCurrentLocation,
+					onToggleCurrentBookmark = {
+						platformContext.clickSound()
+						toggleCurrentBookmark()
+					},
+					modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+				)
+				ReaderSideProgressRail(
+					state = chromeState,
+					onPreviousPage = onPreviousReaderPage,
+					onNextPage = onNextReaderPage,
+					onProgressSeek = onReaderProgressSeek,
+					modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
+				)
+				ReaderBottomChrome(
+					state = chromeState,
+					showReadaloudControls = readerReadaloudControlsVisible(
+						kind = reader.kind,
+						mediaOverlayEnabled = reader.mediaOverlayEnabled
+					),
+					onToggleOptions = {
+						platformContext.clickSound()
+						optionsVisible = true
+					},
+					tocVisible = tocVisible,
+					tocItems = tocItems,
+					onToggleToc = {
+						platformContext.clickSound()
+						tocVisible = !tocVisible
+						if (tocVisible) searchVisible = false
+						if (tocVisible) annotationsVisible = false
+						if (tocVisible) bookmarksVisible = false
+					},
+					onOpenTocItem = { item ->
+						platformContext.clickSound()
+						openTocItem(item)
+						hideReaderChrome()
+					},
+					annotationsVisible = annotationsVisible,
+					annotations = currentBookAnnotations,
+					canHighlightSelection = canHighlightSelection,
+					onToggleAnnotations = {
+						platformContext.clickSound()
+						annotationsVisible = !annotationsVisible
+						if (annotationsVisible) tocVisible = false
+						if (annotationsVisible) bookmarksVisible = false
+						if (annotationsVisible) searchVisible = false
+					},
+					onAddSelectionHighlight = {
+						platformContext.clickSound()
+						addSelectionHighlight()
+						annotationsVisible = true
+					},
+					onOpenAnnotation = { annotation ->
+						platformContext.clickSound()
+						openAnnotation(annotation)
+						hideReaderChrome()
+					},
+					bookmarksVisible = bookmarksVisible,
+					bookmarks = currentBookBookmarks,
+					currentLocationBookmarked = currentLocationBookmarked,
+					canBookmarkCurrentLocation = canBookmarkCurrentLocation,
+					onToggleBookmarks = {
+						platformContext.clickSound()
+						bookmarksVisible = !bookmarksVisible
+						if (bookmarksVisible) tocVisible = false
+						if (bookmarksVisible) annotationsVisible = false
+						if (bookmarksVisible) searchVisible = false
+					},
+					onToggleCurrentBookmark = {
+						platformContext.clickSound()
+						toggleCurrentBookmark()
+					},
+					onOpenBookmark = { bookmark ->
+						platformContext.clickSound()
+						openBookmark(bookmark)
+						hideReaderChrome()
+					},
+					searchVisible = searchVisible,
+					searchQuery = searchQuery,
+					searchResults = searchResults,
+					onToggleSearch = {
+						platformContext.clickSound()
+						searchVisible = !searchVisible
+						if (searchVisible) tocVisible = false
+						if (searchVisible) annotationsVisible = false
+						if (searchVisible) bookmarksVisible = false
+					},
+					onSearchQueryChange = { query -> searchQuery = query },
+					onSubmitSearch = {
+						platformContext.clickSound()
+						submitReaderSearch()
+					},
+					onOpenSearchResult = { result ->
+						platformContext.clickSound()
+						openSearchResult(result)
+						hideReaderChrome()
+					},
+					onReadaloudToggle = {
+						val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderBottomChrome
+						dispatchReadaloudCommand(command)
+					},
+					onReadaloudSpeedChange = { command ->
+						dispatchReadaloudCommand(command)
+					},
+					onReadaloudSyncChange = { command ->
+						dispatchReadaloudCommand(command)
+					},
+					modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+				)
 			}
-		)
+		}
+		if (optionsVisible) {
+			ReaderSettingsOverlayPanel(
+				state = chromeState,
+				showReadaloudControls = readerReadaloudControlsVisible(
+					kind = reader.kind,
+					mediaOverlayEnabled = reader.mediaOverlayEnabled
+				),
+				publicationFormat = reader.publicationFormat,
+				settingsScope = readerSettingsScope,
+				hasBookSettings = hasReaderBookSettings,
+				onDismissRequest = { optionsVisible = false },
+				onSettingsScopeChange = { scope ->
+					platformContext.clickSound()
+					selectReaderSettingsScope(scope)
+				},
+				onResetBookSettings = {
+					platformContext.clickSound()
+					resetReaderBookSettings()
+				},
+				onSettingsChange = { nextState ->
+					platformContext.clickSound()
+					updateChromeSettings(nextState)
+				},
+				onReadaloudToggle = {
+					val command = chromeState.readaloudPlayback.toggleCommand() ?: return@ReaderSettingsOverlayPanel
+					dispatchReadaloudCommand(command)
+				},
+				onReadaloudSpeedChange = { command ->
+					dispatchReadaloudCommand(command)
+				},
+				onReadaloudSyncChange = { command ->
+					dispatchReadaloudCommand(command)
+				}
+			)
+		}
 	}
+}
+
+@Composable
+private fun ReaderContentSurfaceLayer(
+	modifier: Modifier = Modifier,
+	content: @Composable BoxScope.() -> Unit
+) {
+	Box(modifier = modifier, content = content)
+}
+
+@Composable
+private fun ReaderChromeOverlayLayer(
+	modifier: Modifier = Modifier,
+	content: @Composable BoxScope.() -> Unit
+) {
+	Box(modifier = modifier, content = content)
 }
 
 @Composable
@@ -810,13 +843,142 @@ private fun ReaderDimOverlay(
 }
 
 @Composable
-private fun ReaderBottomChrome(
+private fun ReaderTopChrome(
 	title: String,
 	state: ReaderChromeState,
-	showReadaloudControls: Boolean,
+	currentLocationBookmarked: Boolean,
+	canBookmarkCurrentLocation: Boolean,
+	onToggleCurrentBookmark: () -> Unit,
+	modifier: Modifier = Modifier
+) {
+	Surface(
+		modifier = modifier,
+		tonalElevation = 3.dp,
+		shadowElevation = 2.dp,
+		color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 16.dp, vertical = 12.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
+			verticalAlignment = Alignment.CenterVertically
+		) {
+			Column(Modifier.weight(1f)) {
+				Text(
+					text = title,
+					style = MaterialTheme.typography.titleLarge,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+				ReaderReadaloudMetadataLabel(state.readaloudPlayback.activeAudioLabel)
+				Text(
+					text = state.currentSectionTitle ?: state.progressLabel,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis
+				)
+			}
+			IconButton(
+				onClick = onToggleCurrentBookmark,
+				enabled = canBookmarkCurrentLocation
+			) {
+				Icon(
+					imageVector = if (currentLocationBookmarked) Icons.Filled.Star else Icons.Outlined.Star,
+					contentDescription = null
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun ReaderSideProgressRail(
+	state: ReaderChromeState,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onProgressSeek: (Float) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	var progressSliderValue by remember(state.progressFraction) {
+		mutableStateOf(state.progressFraction ?: 0f)
+	}
+	Surface(
+		modifier = modifier.width(64.dp),
+		tonalElevation = 3.dp,
+		shadowElevation = 2.dp,
+		shape = MaterialTheme.shapes.extraLarge,
+		color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+	) {
+		Column(
+			modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
+			verticalArrangement = Arrangement.spacedBy(6.dp)
+		) {
+			IconButton(onClick = onPreviousPage) {
+				Icon(
+					imageVector = Icons.Filled.SkipPrevious,
+					contentDescription = null,
+					modifier = Modifier.rotate(90f)
+				)
+			}
+			Text(
+				text = readerProgressCurrentLabel(state),
+				style = MaterialTheme.typography.labelMedium,
+				maxLines = 1
+			)
+			Box(
+				modifier = Modifier
+					.height(220.dp)
+					.width(48.dp)
+			) {
+				ReaderProgressSeekControl(
+					value = progressSliderValue,
+					enabled = state.progressFraction != null,
+					onValueChange = { value -> progressSliderValue = value.coerceIn(0f, 1f) },
+					onValueChangeFinished = { onProgressSeek(progressSliderValue.coerceIn(0f, 1f)) },
+					modifier = Modifier
+						.align(Alignment.Center)
+						.width(220.dp)
+						.rotate(-90f)
+				)
+			}
+			Text(
+				text = readerProgressTotalLabel(state),
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1
+			)
+			IconButton(onClick = onNextPage) {
+				Icon(
+					imageVector = Icons.Filled.SkipNext,
+					contentDescription = null,
+					modifier = Modifier.rotate(90f)
+				)
+			}
+		}
+	}
+}
+
+private fun readerProgressCurrentLabel(state: ReaderChromeState): String {
+	val pageIndex = state.currentLocator?.pageIndex?.takeIf { it >= 0 }
+	if (pageIndex != null) return (pageIndex + 1).toString()
+	return state.progressFraction
+		?.let { progress -> "${(progress.coerceIn(0f, 1f) * 100f).roundToInt()}%" }
+		?: "-"
+}
+
+private fun readerProgressTotalLabel(state: ReaderChromeState): String =
+	state.currentLocator?.pageCount
+		?.takeIf { it > 0 }
+		?.toString()
+		?: if (state.progressFraction != null) "100%" else "-"
+
+@Composable
+private fun ReaderBottomChrome(
+	state: ReaderChromeState,
+	showReadaloudControls: Boolean,
 	onToggleOptions: () -> Unit,
 	tocVisible: Boolean,
 	tocItems: List<ReaderTocItem>,
@@ -844,73 +1006,16 @@ private fun ReaderBottomChrome(
 	onOpenSearchResult: (ReaderSearchResult) -> Unit,
 	onReadaloudToggle: () -> Unit,
 	onReadaloudSpeedChange: (ReaderReadaloudPlaybackCommand) -> Unit,
-	onReadaloudSyncChange: (ReaderReadaloudPlaybackCommand) -> Unit
+	onReadaloudSyncChange: (ReaderReadaloudPlaybackCommand) -> Unit,
+	modifier: Modifier = Modifier
 ) {
-	var progressSliderValue by remember(state.progressFraction) {
-		mutableStateOf(state.progressFraction ?: 0f)
-	}
 	Surface(
+		modifier = modifier,
 		tonalElevation = 3.dp,
 		shadowElevation = 2.dp,
 		color = MaterialTheme.colorScheme.surface
 	) {
 		Column(Modifier.fillMaxWidth()) {
-			LinearProgressIndicator(
-				progress = { state.progressFraction ?: 0f },
-				modifier = Modifier
-					.fillMaxWidth()
-					.height(3.dp)
-			)
-			Row(
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(horizontal = 12.dp, vertical = 6.dp),
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-				verticalAlignment = Alignment.CenterVertically
-			) {
-				IconButton(onClick = onPreviousPage) {
-					Icon(
-						imageVector = Icons.Filled.SkipPrevious,
-						contentDescription = null
-					)
-				}
-				Column(Modifier.weight(1f)) {
-					Text(
-						text = state.currentSectionTitle ?: title,
-						style = MaterialTheme.typography.labelLarge,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-					ReaderReadaloudMetadataLabel(state.readaloudPlayback.activeAudioLabel)
-					Text(
-						text = state.progressLabel,
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1
-					)
-				}
-				IconButton(onClick = onNextPage) {
-					Icon(
-						imageVector = Icons.Filled.SkipNext,
-						contentDescription = null
-					)
-				}
-				if (showReadaloudControls) {
-					ReaderReadaloudButton(
-						state = state.readaloudPlayback,
-						onClick = onReadaloudToggle
-					)
-				}
-			}
-			ReaderProgressSeekControl(
-				value = progressSliderValue,
-				enabled = state.progressFraction != null,
-				onValueChange = { value -> progressSliderValue = value.coerceIn(0f, 1f) },
-				onValueChangeFinished = { onProgressSeek(progressSliderValue.coerceIn(0f, 1f)) },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(horizontal = 16.dp)
-			)
 			Row(
 				modifier = Modifier
 					.fillMaxWidth()
@@ -919,6 +1024,12 @@ private fun ReaderBottomChrome(
 				horizontalArrangement = Arrangement.spacedBy(2.dp),
 				verticalAlignment = Alignment.CenterVertically
 			) {
+				if (showReadaloudControls) {
+					ReaderReadaloudButton(
+						state = state.readaloudPlayback,
+						onClick = onReadaloudToggle
+					)
+				}
 				IconButton(
 					onClick = onToggleToc,
 					enabled = tocItems.isNotEmpty()
@@ -1011,7 +1122,7 @@ private fun ReaderBottomChrome(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderKomikkuOptionsSheet(
+private fun ReaderSettingsOverlayPanel(
 	state: ReaderChromeState,
 	showReadaloudControls: Boolean,
 	publicationFormat: ReaderPublicationFormat,
@@ -1025,7 +1136,6 @@ private fun ReaderKomikkuOptionsSheet(
 	onReadaloudSpeedChange: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onReadaloudSyncChange: (ReaderReadaloudPlaybackCommand) -> Unit
 ) {
-	val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 	var selectedOptionsTab by remember(showReadaloudControls, publicationFormat) {
 		mutableStateOf(ReaderOptionsTab.Reading)
 	}
@@ -1034,37 +1144,40 @@ private fun ReaderKomikkuOptionsSheet(
 		showReadaloudControls = showReadaloudControls,
 		publicationFormat = publicationFormat
 	)
-	ModalBottomSheet(
-		onDismissRequest = onDismissRequest,
-		sheetState = sheetState,
-		containerColor = MaterialTheme.colorScheme.surface,
-		tonalElevation = 4.dp
-	) {
+	BasicAlertDialog(onDismissRequest = onDismissRequest) {
 		BoxWithConstraints {
-			Column(
+			Surface(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = maxHeight * 0.75f)
-					.verticalScroll(rememberScrollState())
-					.padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
-				verticalArrangement = Arrangement.spacedBy(12.dp)
+					.heightIn(max = maxHeight * 0.75f),
+				shape = MaterialTheme.shapes.extraLarge,
+				tonalElevation = 4.dp,
+				color = MaterialTheme.colorScheme.surface
 			) {
-				ReaderOptionsPanel(
-					state = state,
-					showReadaloudControls = showReadaloudControls,
-					publicationFormat = publicationFormat,
-					settingsScope = settingsScope,
-					hasBookSettings = hasBookSettings,
-					selectedTab = safeSelectedOptionsTab,
-					onTabSelected = { tab -> selectedOptionsTab = tab },
-					onSettingsScopeChange = onSettingsScopeChange,
-					onResetBookSettings = onResetBookSettings,
-					onSettingsChange = onSettingsChange,
-					onReadaloudToggle = onReadaloudToggle,
-					onReadaloudSpeedChange = onReadaloudSpeedChange,
-					onReadaloudSyncChange = onReadaloudSyncChange,
-					modifier = Modifier.fillMaxWidth()
-				)
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.verticalScroll(rememberScrollState())
+						.padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+					verticalArrangement = Arrangement.spacedBy(12.dp)
+				) {
+					ReaderOptionsPanel(
+						state = state,
+						showReadaloudControls = showReadaloudControls,
+						publicationFormat = publicationFormat,
+						settingsScope = settingsScope,
+						hasBookSettings = hasBookSettings,
+						selectedTab = safeSelectedOptionsTab,
+						onTabSelected = { tab -> selectedOptionsTab = tab },
+						onSettingsScopeChange = onSettingsScopeChange,
+						onResetBookSettings = onResetBookSettings,
+						onSettingsChange = onSettingsChange,
+						onReadaloudToggle = onReadaloudToggle,
+						onReadaloudSpeedChange = onReadaloudSpeedChange,
+						onReadaloudSyncChange = onReadaloudSyncChange,
+						modifier = Modifier.fillMaxWidth()
+					)
+				}
 			}
 		}
 	}
