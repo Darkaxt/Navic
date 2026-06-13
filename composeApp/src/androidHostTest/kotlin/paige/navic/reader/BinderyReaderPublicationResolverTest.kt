@@ -128,6 +128,34 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun extractsEpubCoverImageWhenOpfParserRejectsDoctype() = runBlocking {
+		val coverBytes = byteArrayOf(0x42, 0x49, 0x4e, 0x44, 0x45, 0x52, 0x59)
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { minimalEpubWithCover(coverBytes, opfDoctype = true) },
+			cacheRoot = createTempDirectory("navic-reader-cover-doctype-publications").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3816",
+			title = "The Hobbit",
+			resourceHref = "/opds/books/3816/resources/ebook-doctype-cover",
+			sourceUrl = "https://bindery.local/opds/books/3816/resources/ebook-doctype-cover",
+			kind = ReaderPublicationKind.Ebook,
+			format = ReaderPublicationFormat.Epub,
+			mediaOverlayEnabled = false
+		)
+
+		val resolved = resolver.resolve(request)
+
+		assertEquals(
+			"https://appassets.androidplatform.net/reader-cache/reader-publications/${resolved.cacheKey}/cover.jpg",
+			resolved.shellCoverUrl
+		)
+		val coverFile = resolved.publicationFile.parentFile!!.resolve("cover.jpg")
+		assertTrue(coverFile.isFile)
+		assertEquals(coverBytes.toList(), coverFile.readBytes().toList())
+	}
+
+	@Test
 	fun localCacheContractIsStableAcrossBinderyBaseUrlChanges() = runBlocking {
 		val cacheRoot = createTempDirectory("navic-reader-publications").toFile()
 		val resolver = BinderyReaderPublicationResolver(
@@ -203,7 +231,10 @@ class BinderyReaderPublicationResolverTest {
 	}
 }
 
-private fun minimalEpubWithCover(coverBytes: ByteArray): ByteArray {
+private fun minimalEpubWithCover(
+	coverBytes: ByteArray,
+	opfDoctype: Boolean = false
+): ByteArray {
 	val output = java.io.ByteArrayOutputStream()
 	ZipOutputStream(output).use { zip ->
 		zip.putNextEntry(ZipEntry("META-INF/container.xml"))
@@ -219,12 +250,26 @@ private fun minimalEpubWithCover(coverBytes: ByteArray): ByteArray {
 		)
 		zip.closeEntry()
 		zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+		val opfDoctypeLine = if (opfDoctype) {
+			"""<!DOCTYPE package [ <!ENTITY navic "cover"> ]>"""
+		} else {
+			""
+		}
+		val coverManifestItem = if (opfDoctype) {
+			"""<item id="cover.jpg" href="images/cover.jpg" media-type="image/jpeg"/>"""
+		} else {
+			"""<item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>"""
+		}
 		zip.write(
 			"""
 			<?xml version="1.0" encoding="UTF-8"?>
+			$opfDoctypeLine
 			<package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+				<metadata>
+					<meta name="cover" content="cover.jpg"/>
+				</metadata>
 				<manifest>
-					<item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>
+					$coverManifestItem
 					<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
 				</manifest>
 				<spine>
@@ -234,7 +279,8 @@ private fun minimalEpubWithCover(coverBytes: ByteArray): ByteArray {
 			""".trimIndent().encodeToByteArray()
 		)
 		zip.closeEntry()
-		zip.putNextEntry(ZipEntry("OEBPS/images/cover.png"))
+		val coverPath = if (opfDoctype) "OEBPS/images/cover.jpg" else "OEBPS/images/cover.png"
+		zip.putNextEntry(ZipEntry(coverPath))
 		zip.write(coverBytes)
 		zip.closeEntry()
 	}

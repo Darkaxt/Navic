@@ -328,7 +328,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 	fun handlePublicationPrepared(publicationUrl: String, shellCoverUrl: String?) {
 		lastReaderError = null
 		preparedPublicationUrl = publicationUrl
-		nativeShellCoverUrl = shellCoverUrl
+		if (shellCoverUrl != null || nativeShellCoverUrl == null) {
+			nativeShellCoverUrl = shellCoverUrl
+		}
+	}
+
+	fun handleReadaloudPublicationPrepared(publicationUrl: String) {
+		lastReaderError = null
+		preparedPublicationUrl = publicationUrl
 	}
 
 	fun hideReaderPanels() {
@@ -669,7 +676,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				},
 				onError = { message -> lastReaderError = message },
 				onPublicationReady = { publicationUrl ->
-					handlePublicationPrepared(publicationUrl, null)
+					handleReadaloudPublicationPrepared(publicationUrl)
 				}
 			)
 			if (progressResumeLoaded) preparedPublicationUrl?.let { publicationUrl ->

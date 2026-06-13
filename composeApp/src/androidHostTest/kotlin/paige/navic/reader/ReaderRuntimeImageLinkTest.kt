@@ -135,6 +135,40 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun commonReaderDoesNotLetSecondaryPublicationPreparationClearNativeShellCover() {
+		val readerScreenText = readerScreenFile().readText()
+		val handlePublicationPrepared = readerScreenText
+			.substringAfter("fun handlePublicationPrepared(publicationUrl: String, shellCoverUrl: String?) {")
+			.substringBefore("\n\tfun hideReaderPanels")
+
+		assertContains(
+			handlePublicationPrepared,
+			"if (shellCoverUrl != null || nativeShellCoverUrl == null)",
+			message = "A secondary readaloud/runtime preparation with no cover URL must not clear an already resolved native shell cover."
+		)
+		assertFalse(
+			readerScreenText.contains("handlePublicationPrepared(publicationUrl, null)"),
+			"Passing a literal null cover from a secondary runtime can force the reader back to the JS/WebView shell-cover layer."
+		)
+	}
+
+	@Test
+	fun androidPublicationRuntimeLogsNativeShellCoverResolution() {
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+
+		assertContains(
+			runtimeHostText,
+			"""shellCover=${'$'}{if (resolved.shellCoverUrl.isNullOrBlank()) "missing" else "present"}""",
+			message = "ADB logs must expose whether EPUB native shell-cover extraction succeeded before the WebView opens."
+		)
+		assertContains(
+			runtimeHostText,
+			"shellCover=unavailable",
+			message = "Direct/local publication opens must log that no resolver cover extraction ran."
+		)
+	}
+
+	@Test
 	fun androidReaderShellCoverUsesFullscreenBlackSurface() {
 		val bridgeText = readerBridgeText()
 		val shellCoverLayer = bridgeText

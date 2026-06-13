@@ -2688,3 +2688,103 @@ Release result:
 - Android release build, release APK signing verification, artifact upload, and GitHub release creation completed successfully.
 - iOS IPA build and attach jobs were skipped for this eta tag.
 - GitHub asset digest and local downloaded APK hash both matched SHA256 `E411A361394217E0C01270A7E7CEE28CC98D044F4447C76180DAF16BDC4ECC71`.
+
+## Phone Validation: 2026-06-13 eta58 ADB Diagnosis
+
+Observed on device with `v1.0.11-eta58`, `versionCode=391`:
+
+- Package state: `lastUpdateTime=2026-06-13 14:21:07`.
+- Focused activity: `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- A shell-cover drag smoke run against the visible cover failed with no native cover drag stream:
+
+```text
+readerSurfaceTouchDown=True
+readerSurfaceTapAction=False
+shellCoverDragCandidate=False
+shellCoverSwipe=False
+shellCoverCommand=False
+```
+
+- Center tap on the visible cover logged `Reader surface tap action=Menu ... hitType=5 shellCover=false`.
+- Right-edge tap on the visible cover logged `Reader surface tap action=Right command=nextPage ... hitType=5 shellCover=false`, followed by WebView runtime logs:
+
+```text
+page-turn:shell-cover-hide next
+shell-cover:hide animated
+```
+
+Conclusion: the visible cover in eta58 was still the WebView/JS shell-cover fallback, not the native shell-cover surface. Cover dragging cannot work in this state because `ReaderSurfaceHost` only owns shell-cover drag streams while `shellCoverVisible=true`, and ADB showed `shellCover=false`.
+
+Additional device log from reopening the book:
+
+```text
+Reader publication prepared ... cache=hit cacheKey=reader-99c6f0ddfe443b040249e42a fileBytes=24480455
+openPublication(url=https:publication.epub, overlay=false)
+shell-cover:loaded image/jpeg 81694
+shell-cover:show animated
+```
+
+That proves the EPUB contains a cover that Foliate/WebView can load, but eta58 did not expose whether native cover extraction returned a shell-cover URL. The next slice must log `shellCover=present/missing/unavailable` at the resolver boundary and preserve an already resolved native shell-cover URL when a later runtime-preparation callback has no cover.
+
+Last-page / transition texture issue also reproduced in ADB trace:
+
+```text
+surface-texture-scroll scroll x=697 y=0 pos=0 base=697 delta=-697 dir=previous page=5/357 href=OEBPS/Text/Hobbit_chap-1.html
+surface-texture-scroll scroll x=698 y=0 pos=1395 base=697 delta=698 dir=previous page=5/357 href=OEBPS/Text/Hobbit_author-1.html
+```
+
+The same previous-page action crossed `Hobbit_chap-1.html` and `Hobbit_author-1.html` while keeping the same display page. This remains an open texture-state bug; it must not be described as fixed until a harness or ADB validation catches and proves the transition behavior.
+
+## Implementation Checkpoint: 2026-06-13 eta59 Candidate Native Shell-Cover State Preservation
+
+Scope:
+
+- Preserve `nativeShellCoverUrl` in `ReaderScreen` when a later publication-prepared callback has no cover URL.
+- Route readaloud-only publication preparation through a separate handler so it does not clear native EPUB cover state.
+- Add resolver-boundary logging for `shellCover=present`, `shellCover=missing`, and `shellCover=unavailable` so the next phone run can separate native extractor failure from common-state overwrite.
+- Do not change tap-zone math, texture production behavior, or normal EPUB/PDF drag ownership in this slice.
+
+RED tests added:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.commonReaderDoesNotLetSecondaryPublicationPreparationClearNativeShellCover" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidPublicationRuntimeLogsNativeShellCoverResolution"
+```
+
+Initial result:
+
+- `commonReaderDoesNotLetSecondaryPublicationPreparationClearNativeShellCover` failed because `handlePublicationPrepared()` always assigned `nativeShellCoverUrl = shellCoverUrl`.
+- `androidPublicationRuntimeLogsNativeShellCoverResolution` failed because eta58 did not log native shell-cover resolution state.
+- `extractsEpubCoverImageWhenOpfParserRejectsDoctype` failed because native cover extraction returned `null` when hardened XML parsing rejected the OPF before reading `meta name="cover"`.
+
+Implementation:
+
+- `ReaderScreen` now preserves an existing native shell-cover URL when a later preparation callback has no cover URL.
+- Readaloud-only preparation updates the prepared publication without passing a literal null shell-cover URL through the common EPUB preparation path.
+- `ReaderPublicationRuntimeHost` logs `shellCover=present`, `shellCover=missing`, or `shellCover=unavailable`.
+- `ReaderPublicationResource` keeps the structured XML cover extraction path, then falls back to a constrained OPF text scan for manifest image items and `meta name="cover"` when hardened XML parsing fails.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.commonReaderDoesNotLetSecondaryPublicationPreparationClearNativeShellCover" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidPublicationRuntimeLogsNativeShellCoverResolution"
+.\gradlew.bat --no-daemon "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest.extractsEpubCoverImageWhenOpfParserRejectsDoctype"
+.\gradlew.bat --no-daemon "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta59
+git diff --check
+```
+
+Result:
+
+- Focused shell-cover state/logging tests passed after implementation.
+- Focused OPF fallback cover extraction test passed after implementation.
+- Affected resolver, image/link, and shell-progress host test classes passed.
+- Android versionName matches `v1.0.11-eta59`.
+- `git diff --check` exited `0`.
+
+Phone validation target after eta59 release:
+
+- Reopen the same EPUB and check `ReaderPublicationRuntime` for `shellCover=present` or `shellCover=missing`.
+- If `shellCover=present`, the first visible cover should be the native shell-cover surface and ADB touch logs should show `shellCover=true`.
+- Run shell-cover drag smoke with `-RequireShellCoverDragDiagnostic -RequireShellCoverSwipe -RequireShellCoverCommand`.
+- If `shellCover=missing` still appears while WebView logs `shell-cover:loaded`, the remaining root cause is native extraction coverage for that EPUB structure, not tap-zone thresholds.
+- Texture inversion around `Hobbit_chap-1.html` / `Hobbit_author-1.html` remains open and must be validated separately.

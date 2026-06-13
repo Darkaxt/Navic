@@ -40,7 +40,8 @@ actual fun ReaderPublicationRuntimeHost(
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
 				"Reader publication uses direct url kind=${reader.kind} " +
-					"url=${readerPublicationResourceLogLabel(directUrl)}"
+					"url=${readerPublicationResourceLogLabel(directUrl)} " +
+					"shellCover=unavailable"
 			)
 			currentOnPublicationReady(directUrl, null)
 			return@LaunchedEffect
@@ -83,6 +84,7 @@ actual fun ReaderPublicationRuntimeHost(
 				"Reader publication prepared url=${readerPublicationResourceLogLabel(resolved.publicationUrl)} " +
 					"cache=${if (resolved.fromCache) "hit" else "miss"} " +
 					"cacheKey=${resolved.cacheKey} " +
+					"shellCover=${if (resolved.shellCoverUrl.isNullOrBlank()) "missing" else "present"} " +
 					"fileBytes=${resolved.publicationFile.length()}"
 			)
 			resolved
