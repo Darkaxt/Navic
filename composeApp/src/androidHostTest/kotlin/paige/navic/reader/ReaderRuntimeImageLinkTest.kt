@@ -414,6 +414,32 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderAllowsSlowWebViewBridgeDeliveryBeforeOpeningCenterChrome() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
+			.find(webViewHostText)
+			?.groupValues
+			?.get(1)
+			?.toLong()
+			?: error("ReaderCenterTapDelayMs constant not found")
+		val suppressMs = Regex("""private const val ReaderContentTapHandledSuppressMs = (\d+)L""")
+			.find(webViewHostText)
+			?.groupValues
+			?.get(1)
+			?.toLong()
+			?: error("ReaderContentTapHandledSuppressMs constant not found")
+
+		assertTrue(
+			delayMs >= 650L,
+			"Center chrome must wait long enough for real Android WebView bridge delivery from image/link content actions before opening."
+		)
+		assertTrue(
+			suppressMs >= delayMs + 200L,
+			"Content-handled suppression must outlive the delayed center chrome runnable so late bridge delivery cannot leak a menu."
+		)
+	}
+
+	@Test
 	fun androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
@@ -464,6 +490,60 @@ class ReaderRuntimeImageLinkTest {
 			claimInteractiveTouch,
 			"textHit: readerPointInsideAnchorText(anchor, event)",
 			message = "Anchor diagnostics should still record whether the touch was inside rendered link text."
+		)
+	}
+
+	@Test
+	fun readerHarnessCssSmokeRequiresContentActionBridgeOwnership() {
+		val harnessText = listOf(
+			File("tools/reader-harness/src/run-reader-harness.mjs"),
+			File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).first { it.exists() }.readText()
+		val assertionsText = listOf(
+			File("tools/reader-harness/src/reader-trace-assertions.mjs"),
+			File("../tools/reader-harness/src/reader-trace-assertions.mjs")
+		).first { it.exists() }.readText()
+
+		assertContains(harnessText, "__navicReaderPostedMessages")
+		assertContains(
+			harnessText,
+			"imageContentTapHandledCount",
+			message = "CSS smoke must record native bridge ownership for image tint toggles, otherwise Android chrome races are invisible locally."
+		)
+		assertContains(
+			harnessText,
+			"textLinkContentTapHandledCount",
+			message = "CSS smoke must record native bridge ownership for text link navigation, otherwise Android chrome races are invisible locally."
+		)
+		assertContains(
+			harnessText,
+			"imageTouchContentTapHandledCount",
+			message = "CSS smoke must record touch-phase bridge ownership for image taps, because Android chrome races the touch sequence."
+		)
+		assertContains(
+			harnessText,
+			"textLinkTouchContentTapHandledCount",
+			message = "CSS smoke must record touch-phase bridge ownership for link taps, because Android chrome races the touch sequence."
+		)
+		assertContains(
+			assertionsText,
+			"Expected image tint toggle to send readerContentTapHandled",
+			message = "The renderer assertion must fail when image actions do not notify native content ownership."
+		)
+		assertContains(
+			assertionsText,
+			"Expected styled text link click to send readerContentTapHandled",
+			message = "The renderer assertion must fail when text links do not notify native content ownership."
+		)
+		assertContains(
+			assertionsText,
+			"Expected image touch to send readerContentTapHandled",
+			message = "The renderer assertion must fail when image touch events do not notify native content ownership before Android chrome."
+		)
+		assertContains(
+			assertionsText,
+			"Expected styled text link touch to send readerContentTapHandled",
+			message = "The renderer assertion must fail when link touch events do not notify native content ownership before Android chrome."
 		)
 	}
 

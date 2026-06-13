@@ -2099,6 +2099,12 @@ if (mode === 'css-smoke') {
       const mediaLinkAfterStyle = win.getComputedStyle(mediaLink, '::after')
       const image = doc.querySelector('[data-navic-css-smoke-media-image="true"]')
       const imageMixBlendModeBefore = win.getComputedStyle(image).mixBlendMode
+      const postedMessages = () => Array.isArray(win.parent.__navicReaderPostedMessages)
+        ? win.parent.__navicReaderPostedMessages
+        : []
+      const contentTapHandledSources = messages => messages
+        .filter(message => message?.type === 'readerContentTapHandled')
+        .map(message => message?.source || '')
       const clickOptionsFor = element => {
         const rect = element.getBoundingClientRect()
         return {
@@ -2109,9 +2115,37 @@ if (mode === 'css-smoke') {
           clientY: Math.round(rect.top + rect.height / 2),
         }
       }
+      const touchPointFor = element => {
+        const rect = element.getBoundingClientRect()
+        const clientX = Math.round(rect.left + rect.width / 2)
+        const clientY = Math.round(rect.top + rect.height / 2)
+        return {
+          identifier: 1,
+          target: element,
+          clientX,
+          clientY,
+          pageX: clientX + win.scrollX,
+          pageY: clientY + win.scrollY,
+          screenX: clientX,
+          screenY: clientY,
+        }
+      }
+      const dispatchTouchEvent = (element, type, touches, changedTouches) => {
+        const event = new win.Event(type, { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'touches', { value: touches, configurable: true })
+        Object.defineProperty(event, 'targetTouches', { value: touches, configurable: true })
+        Object.defineProperty(event, 'changedTouches', { value: changedTouches, configurable: true })
+        element.dispatchEvent(event)
+      }
+      const dispatchSyntheticTouchTap = element => {
+        const touch = touchPointFor(element)
+        dispatchTouchEvent(element, 'touchstart', [touch], [touch])
+        dispatchTouchEvent(element, 'touchend', [], [touch])
+      }
       const traceLengthBeforeImageClicks = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.length
         : 0
+      const postedLengthBeforeImageClicks = postedMessages().length
       image.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(image)))
       await new Promise(resolve => win.requestAnimationFrame(resolve))
       const imageOverlayDatasetAfterFirstClick = image.dataset.navicSepiaOverlay || ''
@@ -2124,9 +2158,11 @@ if (mode === 'css-smoke') {
       const traceAfterImageClicks = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.slice(traceLengthBeforeImageClicks)
         : []
+      const postedAfterImageClicks = postedMessages().slice(postedLengthBeforeImageClicks)
       const traceLengthBeforeTextLinkClick = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.length
         : 0
+      const postedLengthBeforeTextLinkClick = postedMessages().length
       win.__navicLastMediaTapHandledAt = 0
       win.__navicSuppressNextMediaClickUntil = 0
       textLink.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(textLink)))
@@ -2134,6 +2170,19 @@ if (mode === 'css-smoke') {
       const traceAfterTextLinkClick = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.slice(traceLengthBeforeTextLinkClick)
         : []
+      const postedAfterTextLinkClick = postedMessages().slice(postedLengthBeforeTextLinkClick)
+      const imageContentTapHandledSources = contentTapHandledSources(postedAfterImageClicks)
+      const textLinkContentTapHandledSources = contentTapHandledSources(postedAfterTextLinkClick)
+      const postedLengthBeforeImageTouch = postedMessages().length
+      dispatchSyntheticTouchTap(image)
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const postedAfterImageTouch = postedMessages().slice(postedLengthBeforeImageTouch)
+      const postedLengthBeforeTextLinkTouch = postedMessages().length
+      dispatchSyntheticTouchTap(textLink)
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const postedAfterTextLinkTouch = postedMessages().slice(postedLengthBeforeTextLinkTouch)
+      const imageTouchContentTapHandledSources = contentTapHandledSources(postedAfterImageTouch)
+      const textLinkTouchContentTapHandledSources = contentTapHandledSources(postedAfterTextLinkTouch)
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
@@ -2158,8 +2207,16 @@ if (mode === 'css-smoke') {
         imageMixBlendModeAfterSecondClick,
         imageOverlayTraceCount: traceAfterImageClicks.filter(event => event?.type === 'image:sepia-overlay').length,
         imageNavigationTraceCount: traceAfterImageClicks.filter(event => event?.type === 'link:navigate').length,
+        imageContentTapHandledCount: imageContentTapHandledSources.length,
+        imageContentTapHandledSources,
+        imageTouchContentTapHandledCount: imageTouchContentTapHandledSources.length,
+        imageTouchContentTapHandledSources,
         textLinkNavigationTraceCount: traceAfterTextLinkClick.filter(event => event?.type === 'link:navigate').length,
         textLinkHitMissTraceCount: traceAfterTextLinkClick.filter(event => event?.type === 'link:text-hit-miss').length,
+        textLinkContentTapHandledCount: textLinkContentTapHandledSources.length,
+        textLinkContentTapHandledSources,
+        textLinkTouchContentTapHandledCount: textLinkTouchContentTapHandledSources.length,
+        textLinkTouchContentTapHandledSources,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',
@@ -2169,6 +2226,7 @@ if (mode === 'css-smoke') {
       }
     })
     const trace = await page.evaluate(() => window.__navicReaderTrace || [])
+    const postedMessages = await page.evaluate(() => window.__navicReaderPostedMessages || [])
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
     fs.mkdirSync(outputDir, { recursive: true })
     const outputPath = path.join(outputDir, 'css-smoke.trace.json')
@@ -2177,6 +2235,7 @@ if (mode === 'css-smoke') {
       generatedAt: new Date().toISOString(),
       result,
       trace,
+      postedMessages,
     }, null, 2))
     assertNoConsoleErrors(errors)
     assertTraceType(trace, 'runtime:ready')

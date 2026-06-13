@@ -47,8 +47,8 @@ import paige.navic.util.core.Logger
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderWebViewHostTag = "ReaderWebViewHost"
-private const val ReaderContentTapHandledSuppressMs = 450L
-private const val ReaderCenterTapDelayMs = 320L
+private const val ReaderContentTapHandledSuppressMs = 1000L
+private const val ReaderCenterTapDelayMs = 700L
 
 @Composable
 actual fun ReaderWebViewHost(

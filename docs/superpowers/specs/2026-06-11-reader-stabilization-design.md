@@ -1785,6 +1785,88 @@ Release publication status:
 - Local download verification: `Get-FileHash releases\v1.0.11-eta48\Navic.apk -Algorithm SHA256` produced `2686B1E9A14238945805C7057B4B6891BF0B890F96A27404EDAC6A1C23981B30`.
 - ADB validation status: pending; eta48 is published for phone validation and diagnostic capture.
 
+## ADB/User Validation Feedback: 2026-06-13 eta48 Reader Interaction Results
+
+This feedback supersedes the pending eta48 phone-validation assumptions. It is the current behavior register before any eta49 implementation.
+
+Confirmed working:
+
+- Cover tapping works.
+- Normal readable EPUB taps work.
+- Normal readable EPUB drag gestures work.
+- Image sepia-tint toggling works visually: image interaction can restore and remove the sepia tint as expected.
+
+Still broken:
+
+- Dragging does not work on the native cover surface.
+- Tapping interactive images in the center still also surfaces reader chrome.
+- Tapping links in the chapter/frontmatter selection flow still also surfaces reader chrome.
+- The paper texture transition works from the cover through the map pages, then inverts specifically while moving from the maps into the Author's Note and remains inverted after that area transition.
+
+Priority order:
+
+1. Fix explicit content-action ownership so image tint toggles and link navigation do not also toggle reader chrome.
+2. Fix shell-cover drag ownership without regressing normal EPUB/PDF drags.
+3. Diagnose the maps -> Author's Note texture inversion with Android/WebView evidence before changing texture movement production code.
+
+Diagnosis constraints:
+
+- Do not explain the texture inversion as a generic mid-motion relocation reset unless Android/WebView evidence proves that path. The observed failure is area-transition-specific.
+- Do not fix cover drag by reintroducing WebView-owned reader-wide gesture zones.
+- Do not treat image/link content actions as reader-center taps. Intended content actions must claim content ownership before native chrome can toggle.
+- Do not ship another phone-facing APK without either a focused local regression test or ADB trace proving what changed.
+
+## Microdeliverable Checkpoint: 2026-06-13 eta49 Content-Action Chrome Suppression Hardening
+
+Scope:
+
+- Register eta48 phone feedback as the current behavior baseline.
+- Strengthen the local `css-smoke` harness so image tint toggles and text-link navigation must emit `readerContentTapHandled` through the Android bridge.
+- Add touch-phase `css-smoke` coverage for `media-touch` and `link-touch`, because Android native chrome races the WebView touch sequence, not just synthetic click handlers.
+- Harden native center-menu scheduling so center chrome waits longer for slow Android WebView bridge delivery before opening.
+- Keep edge page-turn taps immediate; the delay only applies to center-menu dispatch.
+
+Root-cause evidence:
+
+- The real Hobbit EPUB fixture passes the new renderer ownership smoke: image click sources are `image`, image touch sources include `media-touch`, text-link click source is `link`, and text-link touch sources include `link-touch`.
+- Because renderer bridge ownership is present locally while eta48 still opened chrome on image/link actions, the remaining likely gap is native timing/dispatch, not missing renderer messages.
+- No ADB device was available in this session, so this slice does not claim phone validation.
+
+TDD evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+```
+
+Initial result: failed because `css-smoke` did not record or assert image/link content-ownership bridge messages.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsSlowWebViewBridgeDeliveryBeforeOpeningCenterChrome"
+```
+
+Initial result: failed because native center chrome still used `ReaderCenterTapDelayMs = 320L`.
+
+Fresh validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsSlowWebViewBridgeDeliveryBeforeOpeningCenterChrome" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderGivesWebViewContentEnoughTimeToCancelCenterChrome" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderCancelsPendingCenterChromeWhenContentHandlesTap"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+git diff --check
+```
+
+Result: all commands exited `0`. One grouped Gradle run needed a longer shell timeout and passed on rerun.
+
+Phone validation target after release:
+
+- Center tapping an image should toggle sepia tint without surfacing reader chrome.
+- Tapping a chapter/frontmatter link should navigate without surfacing reader chrome.
+- Normal readable-page center taps should still open chrome, with a slightly longer delay.
+- Edge taps should still turn pages without the center-menu delay.
+- Cover drag and the maps -> Author's Note texture inversion remain separate unresolved issues.
+
 ## Harness Checkpoint: 2026-06-13 Author's Note Texture Boundary Coverage
 
 Scope:

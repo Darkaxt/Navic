@@ -422,9 +422,49 @@ export const assertRendererCssSmoke = result => {
   if (result.imageNavigationTraceCount !== 0) {
     throw new Error(`Expected image tint toggles not to emit link navigation traces; observed ${result.imageNavigationTraceCount}`)
   }
+  if (!Number.isFinite(Number(result.imageContentTapHandledCount)) || result.imageContentTapHandledCount < 2) {
+    throw new Error(
+      `Expected image tint toggle to send readerContentTapHandled for native chrome suppression; observed ${result.imageContentTapHandledCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.imageContentTapHandledSources) || !result.imageContentTapHandledSources.includes('image')) {
+    throw new Error(
+      `Expected image tint toggle to send readerContentTapHandled from image source; observed ${JSON.stringify(result.imageContentTapHandledSources || [])}`
+    )
+  }
+  if (!Number.isFinite(Number(result.imageTouchContentTapHandledCount)) || result.imageTouchContentTapHandledCount < 1) {
+    throw new Error(
+      `Expected image touch to send readerContentTapHandled before native chrome dispatch; observed ${result.imageTouchContentTapHandledCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.imageTouchContentTapHandledSources) || !result.imageTouchContentTapHandledSources.includes('media-touch')) {
+    throw new Error(
+      `Expected image touch to send readerContentTapHandled from media-touch source; observed ${JSON.stringify(result.imageTouchContentTapHandledSources || [])}`
+    )
+  }
   if (result.imageOverlayDatasetAfterSecondClick === 'off' || result.imageMixBlendModeAfterSecondClick !== 'multiply') {
     throw new Error(
       `Expected clicking the image again to restore sepia overlay; observed dataset=${result.imageOverlayDatasetAfterSecondClick || 'unset'} blend=${result.imageMixBlendModeAfterSecondClick}`
+    )
+  }
+  if (result.textLinkContentTapHandledCount !== 1) {
+    throw new Error(
+      `Expected styled text link click to send readerContentTapHandled for native chrome suppression; observed ${result.textLinkContentTapHandledCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.textLinkContentTapHandledSources) || !result.textLinkContentTapHandledSources.includes('link')) {
+    throw new Error(
+      `Expected styled text link click to send readerContentTapHandled from link source; observed ${JSON.stringify(result.textLinkContentTapHandledSources || [])}`
+    )
+  }
+  if (!Number.isFinite(Number(result.textLinkTouchContentTapHandledCount)) || result.textLinkTouchContentTapHandledCount < 1) {
+    throw new Error(
+      `Expected styled text link touch to send readerContentTapHandled before native chrome dispatch; observed ${result.textLinkTouchContentTapHandledCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.textLinkTouchContentTapHandledSources) || !result.textLinkTouchContentTapHandledSources.includes('link-touch')) {
+    throw new Error(
+      `Expected styled text link touch to send readerContentTapHandled from link-touch source; observed ${JSON.stringify(result.textLinkTouchContentTapHandledSources || [])}`
     )
   }
   if (!String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
