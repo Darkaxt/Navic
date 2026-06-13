@@ -15,7 +15,9 @@ param(
     [switch] $RequireReaderTapAction,
     [switch] $RequireShellCoverSwipe,
     [switch] $RequireShellCoverDragDiagnostic,
+    [switch] $RequireShellCoverCommand,
     [switch] $RequireContentTapHandled,
+    [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
     [switch] $CaptureReaderDiagnostics,
     [switch] $NoLaunch
@@ -270,6 +272,7 @@ if ($CaptureReaderDiagnostics) {
         "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
         "shellCoverDragCandidate=$($touchDiagnosticsText -match 'Reader shell cover drag candidate')",
         "shellCoverSwipe=$($touchDiagnosticsText -match 'Reader shell cover swipe')",
+        "shellCoverCommand=$($touchDiagnosticsText -match 'Reader shell cover command')",
         "textureHasPosition=$($textureDiagnosticsText -match 'pos=')",
         "textureHasBase=$($textureDiagnosticsText -match 'base=')",
         "textureHasDelta=$($textureDiagnosticsText -match 'delta=')",
@@ -285,8 +288,14 @@ if ($CaptureReaderDiagnostics) {
     if ($RequireShellCoverDragDiagnostic -and -not ($touchDiagnosticsText -match 'Reader shell cover drag candidate')) {
         throw "Reader diagnostics validation failed: no shell-cover drag candidate was captured. See $ArtifactDir"
     }
+    if ($RequireShellCoverCommand -and -not ($touchDiagnosticsText -match 'Reader shell cover command')) {
+        throw "Reader diagnostics validation failed: no shell-cover command was captured. See $ArtifactDir"
+    }
     if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"
+    }
+    if ($RequireNoReaderCenterDispatch -and ($touchDiagnosticsText -match 'Reader surface dispatch center tap')) {
+        throw "Reader diagnostics validation failed: reader center dispatch was captured. See $ArtifactDir"
     }
     if ($RequireTextureDiagnostics) {
         foreach ($requiredTextureField in @('pos=', 'base=', 'delta=', 'dir=', 'page=', 'href=')) {

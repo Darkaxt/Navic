@@ -157,13 +157,18 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "Invoke-Adb @(\"shell\", \"input\", \"swipe\"")
 		assertContains(scriptText, "[switch] \$RequireShellCoverSwipe")
 		assertContains(scriptText, "[switch] \$RequireShellCoverDragDiagnostic")
+		assertContains(scriptText, "[switch] \$RequireShellCoverCommand")
 		assertContains(scriptText, "[switch] \$RequireContentTapHandled")
+		assertContains(scriptText, "[switch] \$RequireNoReaderCenterDispatch")
 		assertContains(scriptText, "[switch] \$RequireTextureDiagnostics")
 		assertContains(scriptText, "shellCoverSwipe=")
 		assertContains(scriptText, "shellCoverDragCandidate=")
+		assertContains(scriptText, "shellCoverCommand=")
 		assertContains(scriptText, "readerContentTapHandled=")
 		assertContains(scriptText, "textureHasDirection=")
 		assertContains(scriptText, "textureHasHref=")
+		assertContains(scriptText, "no shell-cover command was captured")
+		assertContains(scriptText, "reader center dispatch was captured")
 	}
 
 	@Test

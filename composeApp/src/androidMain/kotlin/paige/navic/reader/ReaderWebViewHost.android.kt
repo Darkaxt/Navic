@@ -548,6 +548,21 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {
 		cancelPendingReaderCenterTap()
 		val centerTapToken = ++centerTapSequence
+		val webView = readerWebView
+		if (webView != null) {
+			queryReaderContentActionAtPoint(webView, x, y) { handled ->
+				if (centerTapToken != centerTapSequence) return@queryReaderContentActionAtPoint
+				if (!handled || shellCoverVisible) return@queryReaderContentActionAtPoint
+				val callbackHitType = readerWebView?.hitTestResult?.type ?: hitType
+				contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs
+				pendingCenterTap?.let(::removeCallbacks)
+				pendingCenterTap = null
+				Logger.i(
+					ReaderWebViewHostTag,
+					"Reader surface center tap ignored for immediate runtime content hit x=$x y=$y hitType=$callbackHitType"
+				)
+			}
+		}
 		val pending = Runnable {
 			if (centerTapToken != centerTapSequence) return@Runnable
 			pendingCenterTap = null
@@ -566,39 +581,34 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 				)
 				return@Runnable
 			}
-			val webView = readerWebView
 			if (webView == null) {
 				Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$latestHitType")
 				onReaderCenterTap()
 				return@Runnable
 			}
-			webView.evaluateJavascript(
-				"Boolean(window.NavicReaderBridge && " +
-					"window.NavicReaderBridge.readerContentActionAtPoint && " +
-					"window.NavicReaderBridge.readerContentActionAtPoint($x,$y))"
-			) { value ->
-				if (centerTapToken != centerTapSequence) return@evaluateJavascript
+			queryReaderContentActionAtPoint(webView, x, y) { handled ->
+				if (centerTapToken != centerTapSequence) return@queryReaderContentActionAtPoint
 				val callbackHitType = readerWebView?.hitTestResult?.type ?: latestHitType
 				if (!shellCoverVisible && readerContentTapHandled()) {
 					Logger.i(
 						ReaderWebViewHostTag,
 						"Reader surface tap ignored for explicit content handler x=$x y=$y hitType=$callbackHitType"
 					)
-					return@evaluateJavascript
+					return@queryReaderContentActionAtPoint
 				}
 				if (!shellCoverVisible && readerContentHandledCenterTap(callbackHitType)) {
 					Logger.i(
 						ReaderWebViewHostTag,
 						"Reader surface delayed center tap ignored for content hitType=$callbackHitType x=$x y=$y"
 					)
-					return@evaluateJavascript
+					return@queryReaderContentActionAtPoint
 				}
-				if (!shellCoverVisible && value.equals("true", ignoreCase = true)) {
+				if (!shellCoverVisible && handled) {
 					Logger.i(
 						ReaderWebViewHostTag,
 						"Reader surface delayed center tap ignored for runtime content hit x=$x y=$y hitType=$callbackHitType"
 					)
-					return@evaluateJavascript
+					return@queryReaderContentActionAtPoint
 				}
 				Logger.i(ReaderWebViewHostTag, "Reader surface dispatch center tap x=$x y=$y hitType=$callbackHitType")
 				onReaderCenterTap()
@@ -606,6 +616,21 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 		}
 		pendingCenterTap = pending
 		postDelayed(pending, ReaderCenterTapDelayMs)
+	}
+
+	private fun queryReaderContentActionAtPoint(
+		webView: WebView,
+		x: Int,
+		y: Int,
+		onResult: (Boolean) -> Unit
+	) {
+		webView.evaluateJavascript(
+			"Boolean(window.NavicReaderBridge && " +
+				"window.NavicReaderBridge.readerContentActionAtPoint && " +
+				"window.NavicReaderBridge.readerContentActionAtPoint($x,$y))"
+		) { value ->
+			onResult(value.equals("true", ignoreCase = true))
+		}
 	}
 
 	private fun cancelPendingReaderCenterTap() {

@@ -705,6 +705,29 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderQueriesRuntimeContentHitBeforeDelayedCenterChromeCanMutateDocument() {
+		val webViewHostText = readerWebViewHostFile().readText()
+		val scheduleCenterTap = webViewHostText
+			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
+			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
+
+		assertContains(
+			webViewHostText,
+			"private fun queryReaderContentActionAtPoint(",
+			message = "Runtime content hit-test JavaScript should be a reusable native helper, not buried inside the delayed chrome runnable."
+		)
+		assertTrue(
+			scheduleCenterTap.indexOf("queryReaderContentActionAtPoint(") in 0 until scheduleCenterTap.indexOf("val pending = Runnable"),
+			"Image/link center taps must start the runtime content hit-test before delayed chrome dispatch can run or link navigation can mutate the document."
+		)
+		assertContains(
+			scheduleCenterTap,
+			"Reader surface center tap ignored for immediate runtime content hit",
+			message = "ADB logs need to distinguish immediate coordinate suppression from the delayed fallback query."
+		)
+	}
+
+	@Test
 	fun androidReaderConsumesTouchImageTogglesBeforeSyntheticLinkClicks() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText

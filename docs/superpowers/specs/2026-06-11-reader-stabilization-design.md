@@ -2488,3 +2488,71 @@ Phone validation target after eta55 release:
 - Normal EPUB page taps and drags should remain working.
 - Image taps and chapter/frontmatter links should still be checked against eta54 behavior: they should not surface reader chrome.
 - Texture movement across maps/frontmatter into Author's Note should still be checked against eta54 behavior.
+
+## Phone Validation: 2026-06-13 eta55 Reader Behavior Baseline
+
+Observed on device after installing eta55:
+
+- Cover tapping works.
+- Cover dragging still does not work.
+- Normal EPUB page tapping works.
+- Normal EPUB page dragging works.
+- Center-tapping interactive images toggles image state, but still surfaces reader chrome.
+- Tapping chapter-selection/frontmatter links also still surfaces reader chrome.
+- The paper texture transition still inverts when moving from the maps/frontmatter area into the Author's Note and stays inverted after that transition.
+
+Current diagnosis constraints:
+
+- Do not conflate normal readable-page drags with shell-cover drags; the readable-page path works and must remain untouched unless evidence shows it is involved.
+- Do not claim the native top-level touch layer is proven until cover dragging produces `Reader shell cover drag candidate`, `Reader shell cover swipe`, and `Reader shell cover command` diagnostics on device.
+- Do not delay image/link chrome suppression until after link navigation or image state mutation has already changed the document under the native coordinate query.
+- Do not treat the current texture harness as sufficient unless it proves the post-boundary direction remains correct after the maps/frontmatter -> Author's Note transition.
+
+Current implementation priority:
+
+1. Strengthen ADB smoke validation so shell-cover drag diagnosis requires command dispatch, not only drag/swipe recognition.
+2. Query runtime content hit ownership at native center-tap schedule time, before delayed chrome dispatch and before link/image interactions can mutate the visible document.
+3. Tighten the texture transition harness around the real Author's Note boundary so it can detect persistent post-boundary inversion, then fix the proven sign/direction issue without touching working normal page taps/drags.
+4. Release only after a phone-evaluable behavior change is committed and host/harness validation passes.
+
+## Implementation Checkpoint: 2026-06-13 eta56 Candidate Immediate Content Hit-Test And ADB Gates
+
+Scope:
+
+- Preserve the eta55 shell-cover swipe tolerance while improving diagnosis for the unresolved cover-drag failure.
+- Address the eta55 phone result where image taps and chapter/frontmatter links still toggled reader chrome.
+- Do not claim the texture inversion is fixed in this slice; the current local frontmatter harness still passes and therefore does not reproduce the persistent phone-side inversion yet.
+
+Root-cause update:
+
+- The native center-menu fallback queried `readerContentActionAtPoint()` only inside the delayed center-tap runnable.
+- For links and image interactions, that is too late: content JavaScript can navigate or mutate the visible document before the delayed native coordinate query runs.
+- The query now starts immediately when the native center tap is scheduled, while the delayed fallback query remains in place.
+- The ADB smoke script can now require all shell-cover drag stages: drag candidate, swipe recognition, and command dispatch.
+- The ADB smoke script can also require that a content interaction does not dispatch native center chrome.
+
+TDD and validation evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderQueriesRuntimeContentHitBeforeDelayedCenterChromeCanMutateDocument"
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+```
+
+Result:
+
+- The focused diagnostic test initially failed until `-RequireShellCoverCommand`, `shellCoverCommand=`, and `-RequireNoReaderCenterDispatch` were added.
+- The focused content-hit test initially failed until `ReaderSurfaceHost.scheduleReaderCenterTap()` started the runtime coordinate hit-test before delayed chrome dispatch.
+- The affected host tests passed after clearing the known Kotlin host-test incremental cache.
+- The real Hobbit frontmatter texture harness still passed, which means it is not yet sufficient evidence for the phone-side persistent texture inversion.
+
+Phone validation target after eta56 release:
+
+- Center-tapping an image should toggle the image sepia state without surfacing reader chrome.
+- Tapping chapter-selection/frontmatter links should navigate without surfacing reader chrome.
+- Normal EPUB page taps and drags should remain working.
+- Cover taps should remain working.
+- Cover drag should be diagnosed with `-RequireShellCoverDragDiagnostic -RequireShellCoverSwipe -RequireShellCoverCommand`.
+- Image/link chrome suppression should be diagnosed with `-RequireContentTapHandled -RequireNoReaderCenterDispatch`.
+- Texture movement across maps/frontmatter into Author's Note remains an open phone validation item; if still inverted, capture texture diagnostics because the current local harness is not reproducing that persistent state.
