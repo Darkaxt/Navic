@@ -127,14 +127,16 @@ class ReaderRuntimeShellProgressTest {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
-		assertContains(webViewHostText, "ReaderSurfaceHost")
-		assertContains(webViewHostText, "dispatchReaderWideTap")
-		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
-		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage")
-		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
+		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
+		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
+		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
+		assertContains(nativeFrameHostText, "navigator.getAction(")
+		assertContains(nativeFrameHostText, "onAction(action)")
+		assertContains(readerScreenText, "onViewerAction(viewer.viewerActionFor(action))")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
 		assertContains(readerScreenText, "onEngineHostEvent = { event -> applyCoordinatorStep(coordinator.onEngineHostEvent(event)) }")
@@ -143,6 +145,11 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(foliateAdapterText, "is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)")
 		assertContains(readerScreenText, "controllerState.menuVisible")
 		assertContains(readerScreenText, "visible = controllerState.menuVisible")
+		assertFalse(
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("dispatchReaderWideTap"),
+			"The renderer WebView host must not own reader-wide tap/page commands in the Komikku backbone."
+		)
 		assertFalse(
 			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
 			"ReaderScreen must not handle raw Foliate center taps; the engine host and coordinator own that boundary."
@@ -216,27 +223,32 @@ class ReaderRuntimeShellProgressTest {
 	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeText = readerBridgeText()
-		val dispatchTouchEvent = webViewHostText
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate val readerGestureDetector")
+			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
 
-		assertContains(webViewHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
-		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "readerGestureDetector.onTouchEvent(event)")
-		assertContains(webViewHostText, "MotionEvent.ACTION_DOWN")
-		assertContains(webViewHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
-		assertContains(webViewHostText, "dispatchReaderWideTap(event)")
-		assertContains(webViewHostText, "childHandled")
-		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
-		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
+		assertContains(nativeFrameHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+		assertContains(nativeFrameHostText, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(nativeFrameHostText, "handleSwipeTouchEvent(event)")
+		assertContains(nativeFrameHostText, "gestureDetector.onTouchEvent(event)")
+		assertContains(nativeFrameHostText, "MotionEvent.ACTION_DOWN")
+		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
+		assertContains(nativeFrameHostText, "navigator.getAction(")
+		assertContains(nativeFrameHostText, "val consumed = handled || nativeShortTapIntercepted")
 		assertTrue(
-			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
+			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
 			"Komikku's pager gives the child/page stream first, then observes confirmed taps without stealing drags."
 		)
 		assertFalse(
 			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
 			"The native surface must observe the child touch stream without rewriting WebView/Foliate events."
+		)
+		assertFalse(
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("dispatchReaderWideTap"),
+			"Readable content taps are observed by the native frame, not the renderer WebView host."
 		)
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
@@ -248,18 +260,23 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val readerScreenText = readerScreenFile().readText()
+		val viewerHostText = readerViewerHostFile().readText()
 
-		assertContains(webViewHostText, "ReaderSurfaceHost")
-		assertContains(webViewHostText, "addView(")
-		assertContains(webViewHostText, "readerWebView,")
-		assertContains(webViewHostText, "ReaderShellCoverView")
-		assertContains(webViewHostText, "shellCoverView")
-		assertContains(webViewHostText, "readerWideTapsEnabled")
-		assertContains(webViewHostText, "onReaderCommand")
-		assertContains(webViewHostText, "onReaderCenterTap")
+		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerScreenText, "viewerContent = {")
+		assertContains(readerScreenText, "ReaderViewerHost(")
+		assertContains(nativeFrameHostText, "private val viewerContainer = KomikkuReaderNativeViewerContainer(context)")
+		assertContains(nativeFrameHostText, "private val shellCoverView = KomikkuReaderNativeShellCoverView(context)")
+		assertContains(nativeFrameHostText, "viewerContainer.setShellCoverView(shellCoverView)")
+		assertContains(nativeFrameHostText, "viewerContainer.replaceViewerContent(viewerView)")
+		assertContains(viewerHostText, "ReaderEngineWebViewHost(")
 		assertFalse(
-			webViewHostText.contains("ReaderAndroidTapZoneObserver"),
-			"The old split manager made cover and content taps diverge; keep only the reader surface manager."
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("ReaderAndroidTapZoneObserver") ||
+				webViewHostText.contains("readerWideTapsEnabled"),
+			"The old split manager made cover and content taps diverge; keep the reader surface manager in the native frame."
 		)
 		assertFalse(webViewHostText.contains("setOnTouchListener"))
 	}
@@ -267,17 +284,19 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun nativeShellCoverIsRenderedByReaderShellViewNotWebViewHtml() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
 		assertContains(
-			webViewHostText,
-			"private class ReaderShellCoverView",
+			nativeFrameHostText,
+			"private class KomikkuReaderNativeShellCoverView",
 			message = "The shell cover must be an Android view owned by the reader shell, not an HTML page in a second WebView."
 		)
-		assertContains(webViewHostText, "fun updateCover(coverUrl: String?, title: String)")
-		assertContains(webViewHostText, "readerPublicationCacheFileForAssetUrl(")
-		assertContains(webViewHostText, "BitmapFactory.decodeFile")
-		assertContains(webViewHostText, "canvas.drawBitmap")
-		assertContains(webViewHostText, "Paint(Paint.ANTI_ALIAS_FLAG")
+		assertContains(nativeFrameHostText, "fun setShellCover(coverUrl: String?, title: String)")
+		assertContains(nativeFrameHostText, "readerShellCoverFileFor(")
+		assertContains(nativeFrameHostText, "BitmapFactory.decodeFile")
+		assertContains(nativeFrameHostText, "canvas.drawColor(Color.BLACK)")
+		assertContains(nativeFrameHostText, "canvas.drawBitmap")
+		assertContains(nativeFrameHostText, "Paint(Paint.ANTI_ALIAS_FLAG")
 		assertFalse(
 			webViewHostText.contains("shellCoverWebView"),
 			"Keeping a second cover WebView preserves the cover-only input/sizing bug class."
@@ -298,32 +317,32 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val handleTouch = webViewHostText
-			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
-			.substringBefore("\n\tprivate fun clearTapCandidate()")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val dispatchTouchEvent = nativeFrameHostText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val handleTouch = nativeFrameHostText
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
+			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
 		val actionMove = handleTouch
-			.substringAfter("MotionEvent.ACTION_MOVE -> {")
-			.substringBefore("\n\t\t\tMotionEvent.ACTION_UP -> {")
-		val shellCoverSwipe = webViewHostText
-			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
-			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
+			.substringAfter("MotionEvent.ACTION_MOVE,")
+			.substringBefore("if (event.actionMasked == MotionEvent.ACTION_UP)")
+		val shellCoverSwipe = nativeFrameHostText
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
 
-		assertContains(webViewHostText, "private val shellCoverSwipeThresholdPx")
-		assertContains(handleTouch, "dispatchReaderShellCoverSwipe(")
-		assertContains(actionMove, "dispatchReaderShellCoverSwipe(")
-		assertContains(actionMove, "clearTapCandidate()")
+		assertContains(nativeFrameHostText, "private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()")
+		assertContains(handleTouch, "if (shellCoverView?.visibility != VISIBLE) return")
+		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
+		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
-		assertContains(shellCoverSwipe, "if (!shellCoverVisible) return false")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
-		assertContains(shellCoverSwipe, "shellCoverSwipeThresholdPx")
-		assertContains(shellCoverSwipe, "readerTapZonePageTurnDirectionFor(")
-		assertContains(shellCoverSwipe, "dispatchReaderPageTurnCommand(command)")
-		assertContains(webViewHostText, "val shellCoverWasVisible = shellCoverVisible")
-		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
+		assertContains(shellCoverSwipe, "touchSlopPx")
+		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
+		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
+		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
 		assertFalse(
-			webViewHostText.contains("return dispatchReaderShellCoverSwipe"),
+			nativeFrameHostText.contains("return dispatchHorizontalSwipeViewerAction"),
 			"Shell-cover swipe detection must observe the already-dispatched child stream, not consume readable WebView drags."
 		)
 	}
@@ -339,14 +358,14 @@ class ReaderRuntimeShellProgressTest {
 			"Shell-cover drags should tolerate natural vertical drift because there is no readable WebView scroll stream to protect."
 		)
 
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val shellCoverSwipe = webViewHostText
-			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
-			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val shellCoverSwipe = nativeFrameHostText
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
 
 		assertContains(
-			webViewHostText,
-			"private val shellCoverSwipeThresholdPx = tapSlopPx",
+			nativeFrameHostText,
+			"private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()",
 			message = "Cover-only drags should trigger once they exceed normal tap slop, not Android's larger paging slop."
 		)
 		assertContains(
@@ -358,68 +377,64 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverLogsDragCandidatesBeforeSwipeDispatch() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val handleTouch = webViewHostText
-			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
-			.substringBefore("\n\tprivate fun clearTapCandidate()")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val handleTouch = nativeFrameHostText
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
+			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
 		val actionDown = handleTouch
 			.substringAfter("MotionEvent.ACTION_DOWN -> {")
 			.substringBefore("\n\t\t\tMotionEvent.ACTION_POINTER_DOWN")
 		val actionMove = handleTouch
-			.substringAfter("MotionEvent.ACTION_MOVE -> {")
-			.substringBefore("\n\t\t\tMotionEvent.ACTION_UP -> {")
+			.substringAfter("MotionEvent.ACTION_MOVE,")
+			.substringBefore("if (event.actionMasked == MotionEvent.ACTION_UP)")
 
-		assertContains(webViewHostText, "private var shellCoverDragDiagnosticLogged: Boolean = false")
+		assertContains(nativeFrameHostText, "private var shellCoverDragDiagnosticLogged: Boolean = false")
 		assertContains(actionDown, "shellCoverDragDiagnosticLogged = false")
 		assertContains(actionMove, "logReaderShellCoverDragCandidate(dx, dy)")
-		assertContains(webViewHostText, "private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float)")
-		assertContains(webViewHostText, "Reader shell cover drag candidate")
+		assertContains(nativeFrameHostText, "private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float)")
+		assertContains(nativeFrameHostText, "Reader shell cover drag candidate")
 		assertTrue(
 			actionMove.indexOf("logReaderShellCoverDragCandidate(dx, dy)") <
-				actionMove.indexOf("dispatchReaderShellCoverSwipe(dx, dy)"),
+				actionMove.indexOf("dispatchHorizontalSwipeViewerAction("),
 			"Cover drag diagnostics must run before swipe dispatch so failed drags still leave ADB evidence."
 		)
 	}
 
 	@Test
 	fun nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val dispatchTouchEvent = webViewHostText
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate val readerGestureDetector")
+			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
 
-		assertContains(dispatchTouchEvent, "val shellCoverWasVisible = shellCoverVisible")
-		assertContains(dispatchTouchEvent, "if (readerWideTapsEnabled)")
-		assertContains(dispatchTouchEvent, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "handleReaderSurfaceTouch(event)")
-		assertContains(dispatchTouchEvent, "readerGestureDetector.onTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
+		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(dispatchTouchEvent, "handleSwipeTouchEvent(event)")
+		assertContains(dispatchTouchEvent, "gestureDetector.onTouchEvent(event)")
+		assertContains(dispatchTouchEvent, "val consumed = handled || nativeShortTapIntercepted")
+		assertContains(dispatchTouchEvent, "return consumed")
 		assertTrue(
-			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("handleReaderSurfaceTouch(event)"),
+			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)"),
 			"Shell-cover drags must observe the same child-dispatched stream instead of bypassing the cover renderer."
 		)
 		assertTrue(
-			dispatchTouchEvent.indexOf("handleReaderSurfaceTouch(event)") <
-				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
+			dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
 			"Shell-cover drag observation and reader tap detection must share the same native surface stream."
 		)
-		assertContains(dispatchTouchEvent, "childHandled")
+		assertContains(dispatchTouchEvent, "handled")
 	}
 
 	@Test
 	fun nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val contentHandledTap = webViewHostText
-			.substringAfter("private fun readerContentHandledTap(hitType: Int): Boolean =")
-			.substringBefore("\n}")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
-		assertContains(webViewHostText, "Reader surface tap ignored for content hitType=")
-		assertContains(webViewHostText, "readerTapZoneActionAt(")
-		assertContains(contentHandledTap, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
-		assertContains(contentHandledTap, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
+		assertContains(nativeFrameHostText, "navigator.getAction(")
+		assertContains(nativeFrameHostText, "onAction(action)")
 		assertFalse(
-			contentHandledTap.contains("WebView.HitTestResult.IMAGE_TYPE"),
+			nativeFrameHostText.contains("WebView.HitTestResult.IMAGE_TYPE") ||
+				webViewHostText.contains("readerContentHandledTap("),
 			"Plain image hits, including image-heavy EPUB cover pages, must not blanket-block native previous/next/menu tap zones."
 		)
 	}
@@ -427,53 +442,57 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun nativeReaderSurfaceCenterMenuIsNotSuppressedByRawImageHitType() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val dispatchWideTap = webViewHostText
-			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
-			.substringBefore("\n\tfun markContentTapHandled()")
-		val centerHandledTap = webViewHostText
-			.substringAfter("private fun readerContentHandledCenterTap(hitType: Int): Boolean =")
-			.substringBefore("\n\n\tprivate fun scheduleReaderCenterTap")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val singleTap = nativeFrameHostText
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}")
 
-		assertContains(dispatchWideTap, "readerContentHandledCenterTap(contentHitType)")
-		assertContains(dispatchWideTap, "scheduleReaderCenterTap(")
+		assertContains(singleTap, "navigator.getAction(")
+		assertContains(singleTap, "onAction(action)")
 		assertFalse(
-			centerHandledTap.contains("WebView.HitTestResult.IMAGE_TYPE"),
+			singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
+				webViewHostText.contains("readerContentHandledCenterTap("),
 			"Raw WebView IMAGE_TYPE is too broad: image-heavy pages and covers must still let center taps toggle chrome unless the content JS explicitly claims the interaction."
 		)
 		assertTrue(
-			dispatchWideTap.indexOf("readerTapZoneActionAt(") <
-				dispatchWideTap.indexOf("readerContentHandledCenterTap(contentHitType)"),
-			"Image hit suppression must be center/menu-only so edge image taps can still turn pages."
+			singleTap.indexOf("navigator.getAction(") <
+				singleTap.indexOf("onAction(action)"),
+			"Native frame tap classification must decide the menu action before any renderer-side content metadata can interfere."
 		)
 	}
 
 	@Test
 	fun nativeShellCoverReturnUsesReaderShellStateBeforeLocatorStateCatchesUp() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val pageTurn = webViewHostText
-			.substringAfter("private fun dispatchReaderPageTurnCommand(command: ReaderBridgeCommand) {")
-			.substringBefore("\n\tprivate fun showShellCover()")
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+		val shellCoverViewerAction = controllerText
+			.substringAfter("private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {")
+			.substringBefore("\n\tprivate fun turnPage")
+		val pageTurn = controllerText
+			.substringAfter("private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =")
+			.substringBefore("\n\tprivate fun scrollViewport")
 
 		assertContains(
-			webViewHostText,
-			"private var shellCoverReturnAvailable: Boolean = false",
+			controllerText,
+			"nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl",
 			message = "The native shell cover must be a real virtual reader page, not only a locator-derived condition from Compose."
 		)
 		assertContains(
-			pageTurn,
-			"shellCoverReturnAvailable = true",
-			message = "Next from the native cover must arm a one-step return before location events or recomposition catch up."
+			shellCoverViewerAction,
+			"shellCoverVisible = false",
+			message = "Next from the native cover must leave the virtual cover before delegating normal page state to Foliate."
 		)
 		assertContains(
 			pageTurn,
-			"command == ReaderBridgeCommand.PreviousPage && (shellCoverReturnAvailable || canReturnToShellCover)",
-			message = "Previous from the first readable page must return to the native cover using shell-owned state before delegating to Foliate."
+			"state.canReturnToShellCover",
+			message = "Previous from the first readable page must return to the native cover using controller-owned shell state before delegating to Foliate."
 		)
 		assertContains(
 			pageTurn,
-			"shellCoverReturnAvailable = false",
-			message = "Leaving the first readable page must clear the shell-cover return affordance."
+			"readerShouldReturnToNativeShellCover(",
+			message = "The shell-cover return boundary must be decided before creating an engine page-turn command."
 		)
+		assertContains(chromeStateText, "fun readerShouldReturnToNativeShellCover(")
 	}
 
 	@Test
@@ -481,7 +500,7 @@ class ReaderRuntimeShellProgressTest {
 		val readerViewerHostText = readerViewerHostFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 
-		assertContains(readerViewerHostText, "startProgress = viewer.viewState.startLocator?.progress")
+		assertContains(readerViewerHostText, "startProgress = engineRenderer.startLocator?.progress")
 		assertContains(webViewHostText, "startProgress: Double?")
 		assertContains(webViewHostText, "startProgress?.toString().orEmpty()")
 		assertContains(webViewHostText, "progress = startProgress")

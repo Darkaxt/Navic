@@ -11,6 +11,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -54,10 +55,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +78,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.icons.Icons
@@ -81,6 +90,9 @@ import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.List
+import paige.navic.reader.DefaultReaderParagraphSpacingPercent
+import paige.navic.reader.ReaderChromeState
+import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderCoordinator
@@ -98,8 +110,17 @@ import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationIdentity
 import paige.navic.reader.ReaderSettings
+import paige.navic.reader.ReaderSettingsScope
+import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedFontFamilies
+import paige.navic.reader.ReaderSupportedFontSources
+import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedPdfFitModes
+import paige.navic.reader.ReaderSupportedSettingsScopes
+import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
@@ -110,11 +131,29 @@ import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.applyReaderCoordinatorStep
 import paige.navic.reader.bestReaderStartLocator
-import paige.navic.reader.defaultReaderSettings
+import paige.navic.reader.clearReaderBookSettings
 import paige.navic.reader.normalizedReaderDirection
 import paige.navic.reader.normalizedReaderFlowMode
+import paige.navic.reader.normalizedReaderFontFamily
+import paige.navic.reader.normalizedReaderFontSource
+import paige.navic.reader.normalizedReaderOrientation
+import paige.navic.reader.normalizedReaderPdfFitMode
+import paige.navic.reader.normalizedReaderSettings
 import paige.navic.reader.normalizedReaderTapZone
+import paige.navic.reader.normalizedReaderTheme
+import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDefaultTapZoneMode
+import paige.navic.reader.readerDirectionShortLabel
+import paige.navic.reader.readerFontFamilyShortLabel
+import paige.navic.reader.readerFontSourceShortLabel
+import paige.navic.reader.readerOrientationShortLabel
+import paige.navic.reader.readerPdfFitShortLabel
+import paige.navic.reader.readerSettingsForBook
+import paige.navic.reader.readerSettingsScopeLabel
+import paige.navic.reader.readerThemeShortLabel
+import paige.navic.reader.readerBookSettings
+import paige.navic.reader.setReaderBookSettings
+import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -127,6 +166,13 @@ private enum class KomikkuNavBarType {
 	VerticalRight,
 	VerticalLeft,
 	Bottom
+}
+
+private enum class KomikkuSettingsTab(val label: String) {
+	Reading("Reading mode"),
+	General("General"),
+	PdfImage("PDF/Image"),
+	CustomFilter("Custom filter")
 }
 
 private data class KomikkuReadingModeOption(
@@ -184,16 +230,87 @@ private val KomikkuTapZoneOptions = listOf(
 	ReaderTapZoneDisabled to "Disabled"
 )
 
+private fun komikkuSettingsTabs(publicationFormat: ReaderPublicationFormat): List<KomikkuSettingsTab> =
+	if (publicationFormat == ReaderPublicationFormat.Pdf) {
+		listOf(
+			KomikkuSettingsTab.Reading,
+			KomikkuSettingsTab.General,
+			KomikkuSettingsTab.PdfImage,
+			KomikkuSettingsTab.CustomFilter
+		)
+	} else {
+		listOf(
+			KomikkuSettingsTab.Reading,
+			KomikkuSettingsTab.General,
+			KomikkuSettingsTab.CustomFilter
+		)
+	}
+
 @Composable
 fun ReaderScreen(reader: Screen.Reader) {
-	var coordinator by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
-		mutableStateOf(ReaderCoordinator())
-	}
+	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyRepository = koinInject<BinderyRepository>()
 	val backStack = LocalNavStack.current
 	val coroutineScope = rememberCoroutineScope()
+	val hasReaderBookSettings = preferenceManager.readerBookSettings(reader.bookId) != null
+	var readerSettingsScope by remember(reader.publicationUrl, reader.bookId) {
+		mutableStateOf(
+			if (hasReaderBookSettings) {
+				ReaderSettingsScope.Book
+			} else {
+				ReaderSettingsScope.Global
+			}
+		)
+	}
+	val defaultReaderSettings = remember(
+		reader.publicationUrl,
+		reader.bookId,
+		readerSettingsScope,
+		preferenceManager.readerFontFamily,
+		preferenceManager.readerFontSource,
+		preferenceManager.readerCustomFontFamily,
+		preferenceManager.readerCustomFontUrl,
+		preferenceManager.readerFontSizePercent,
+		preferenceManager.readerLineHeightPercent,
+		preferenceManager.readerParagraphSpacingPercent,
+		preferenceManager.readerMarginPercent,
+		preferenceManager.readerDimOverlayPercent,
+		preferenceManager.readerOrientation,
+		preferenceManager.readerTheme,
+		preferenceManager.readerDirection,
+		preferenceManager.readerFlowMode,
+		preferenceManager.readerPaged,
+		preferenceManager.readerTapZone,
+		preferenceManager.readerSmallerTapZone,
+		preferenceManager.readerShowTapZones,
+		preferenceManager.readerPublisherStylesEnabled,
+		preferenceManager.readerFullscreen,
+		preferenceManager.readerKeepScreenOn,
+		preferenceManager.readerReadaloudSyncEnabled,
+		preferenceManager.readerVolumeKeyPageTurns,
+		preferenceManager.readerWebContentsDebuggingEnabled,
+		preferenceManager.readerBookSettingsJson
+	) {
+		if (readerSettingsScope == ReaderSettingsScope.Book) {
+			preferenceManager.readerSettingsForBook(reader.bookId)
+		} else {
+			preferenceManager.readerDefaultSettings()
+		}
+	}
+	var coordinator by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(
+			ReaderCoordinator(
+				controller = ReaderController(
+					state = ReaderControllerState(
+						chrome = ReaderChromeState(settings = defaultReaderSettings)
+					)
+				)
+			)
+		)
+	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
+	val readerFocusRequester = remember { FocusRequester() }
 	val navigator = remember(settings.tapZone, settings.smallerTapZone, settings.flowMode) {
 		komikkuNavigatorForReaderSettings(settings)
 	}
@@ -210,6 +327,45 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
+	}
+
+	fun persistReaderSettings(nextSettings: ReaderSettings) {
+		val normalized = nextSettings.normalizedReaderSettings()
+		if (readerSettingsScope == ReaderSettingsScope.Book) {
+			preferenceManager.setReaderBookSettings(reader.bookId, normalized)
+		} else {
+			preferenceManager.setReaderDefaultSettings(normalized)
+		}
+	}
+
+	fun applyReaderSettings(nextSettings: ReaderSettings) {
+		val normalized = nextSettings.normalizedReaderSettings()
+		persistReaderSettings(normalized)
+		applyCoordinatorStep(coordinator.applySettings(normalized))
+	}
+
+	fun selectReaderSettingsScope(scope: ReaderSettingsScope) {
+		readerSettingsScope = scope
+		val nextSettings = when (scope) {
+			ReaderSettingsScope.Global -> preferenceManager.readerDefaultSettings()
+			ReaderSettingsScope.Book -> {
+				if (!hasReaderBookSettings) {
+					preferenceManager.setReaderBookSettings(reader.bookId, settings)
+				}
+				preferenceManager.readerSettingsForBook(reader.bookId)
+			}
+		}
+		applyCoordinatorStep(coordinator.applySettings(nextSettings))
+	}
+
+	fun resetReaderBookSettings() {
+		preferenceManager.clearReaderBookSettings(reader.bookId)
+		readerSettingsScope = ReaderSettingsScope.Global
+		applyCoordinatorStep(coordinator.applySettings(preferenceManager.readerDefaultSettings()))
+	}
+
+	LaunchedEffect(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		readerFocusRequester.requestFocus()
 	}
 
 	ReaderPublicationRuntimeHost(
@@ -249,6 +405,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		controllerState = controllerState,
 		viewState = coordinator.viewState,
 		navigator = navigator,
+		settingsScope = readerSettingsScope,
+		hasBookSettings = hasReaderBookSettings,
+		publicationFormat = reader.publicationFormat,
 		onEngineHostEvent = { event -> applyCoordinatorStep(coordinator.onEngineHostEvent(event)) },
 		onViewerAction = { action -> applyCoordinatorStep(coordinator.onViewerAction(action)) },
 		onPreviousPage = {
@@ -293,11 +452,45 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
 		},
 		onSettingsChange = { settings ->
-			applyCoordinatorStep(coordinator.applySettings(settings))
+			applyReaderSettings(settings)
+		},
+		onSettingsScopeChange = { scope ->
+			selectReaderSettingsScope(scope)
+		},
+		onResetBookSettings = {
+			resetReaderBookSettings()
 		},
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.closeDialog())
-		}
+		},
+		modifier = Modifier
+			.fillMaxSize()
+			.focusRequester(readerFocusRequester)
+			.focusable()
+			.onPreviewKeyEvent { event ->
+				if (settings.volumeKeyPageTurns != true || event.type != KeyEventType.KeyDown) {
+					return@onPreviewKeyEvent false
+				}
+				when (event.key) {
+					Key.VolumeUp -> {
+						applyCoordinatorStep(
+							coordinator.onViewerAction(
+								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+							)
+						)
+						true
+					}
+					Key.VolumeDown -> {
+						applyCoordinatorStep(
+							coordinator.onViewerAction(
+								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+							)
+						)
+						true
+					}
+					else -> false
+				}
+			}
 	)
 }
 
@@ -307,6 +500,9 @@ private fun KomikkuReaderRoot(
 	controllerState: ReaderControllerState,
 	viewState: ReaderEngineViewState,
 	navigator: KomikkuReaderNavigator,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
+	publicationFormat: ReaderPublicationFormat,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPreviousPage: () -> Unit,
@@ -319,7 +515,10 @@ private fun KomikkuReaderRoot(
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
-	onDismissDialog: () -> Unit
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
+	onDismissDialog: () -> Unit,
+	modifier: Modifier = Modifier
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
@@ -340,7 +539,7 @@ private fun KomikkuReaderRoot(
 		onViewerAction = { action ->
 			onViewerAction(viewer.viewerActionFor(action))
 		},
-		modifier = Modifier.fillMaxSize(),
+		modifier = modifier,
 		viewerContent = {
 			ReaderViewerHost(
 				readerTitle = reader.title,
@@ -361,9 +560,14 @@ private fun KomikkuReaderRoot(
 				onReadingMode = onReadingMode,
 				onNavigateBack = onNavigateBack,
 				onSettings = onSettings,
+				settingsScope = settingsScope,
+				hasBookSettings = hasBookSettings,
+				publicationFormat = publicationFormat,
 				onNavigateToTocItem = onNavigateToTocItem,
 				onToggleCurrentBookmark = onToggleCurrentBookmark,
 				onSettingsChange = onSettingsChange,
+				onSettingsScopeChange = onSettingsScopeChange,
+				onResetBookSettings = onResetBookSettings,
 				onDismissDialog = onDismissDialog,
 				modifier = Modifier.fillMaxSize()
 			)
@@ -391,9 +595,14 @@ private fun KomikkuComposeOverlay(
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
+	publicationFormat: ReaderPublicationFormat,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -427,13 +636,23 @@ private fun KomikkuComposeOverlay(
 			ReaderControllerDialog.ReadingMode -> KomikkuReaderSettingsDialog(
 				settings = controllerState.chrome.settings,
 				initialTab = 0,
+				settingsScope = settingsScope,
+				hasBookSettings = hasBookSettings,
+				publicationFormat = publicationFormat,
 				onSettingsChange = onSettingsChange,
+				onSettingsScopeChange = onSettingsScopeChange,
+				onResetBookSettings = onResetBookSettings,
 				onDismissRequest = onDismissDialog
 			)
 			ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(
 				settings = controllerState.chrome.settings,
 				initialTab = 1,
+				settingsScope = settingsScope,
+				hasBookSettings = hasBookSettings,
+				publicationFormat = publicationFormat,
 				onSettingsChange = onSettingsChange,
+				onSettingsScopeChange = onSettingsScopeChange,
+				onResetBookSettings = onResetBookSettings,
 				onDismissRequest = onDismissDialog
 			)
 			null -> Unit
@@ -779,12 +998,18 @@ private fun KomikkuReaderContentsDialog(
 private fun KomikkuReaderSettingsDialog(
 	settings: ReaderSettings,
 	initialTab: Int,
+	settingsScope: ReaderSettingsScope,
+	hasBookSettings: Boolean,
+	publicationFormat: ReaderPublicationFormat,
 	onSettingsChange: (ReaderSettings) -> Unit,
+	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
+	onResetBookSettings: () -> Unit,
 	onDismissRequest: () -> Unit
 ) {
 	// Ported from Komikku ReaderSettingsDialog: tabbed overlay above content, never a docked panel.
-	val tabs = listOf("Reading mode", "General", "Custom filter")
+	val tabs = komikkuSettingsTabs(publicationFormat)
 	var selectedTab by remember(initialTab) { mutableStateOf(initialTab.coerceIn(tabs.indices)) }
+	val chromeState = ReaderChromeState(settings = settings)
 
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
 		Surface(
@@ -802,9 +1027,9 @@ private fun KomikkuReaderSettingsDialog(
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.CenterVertically
 				) {
-					tabs.forEachIndexed { index, title ->
+					tabs.forEachIndexed { index, tab ->
 						Text(
-							text = title,
+							text = tab.label,
 							style = MaterialTheme.typography.titleMedium,
 							fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.SemiBold,
 							color = if (selectedTab == index) {
@@ -819,10 +1044,25 @@ private fun KomikkuReaderSettingsDialog(
 						)
 					}
 				}
-				when (selectedTab) {
-					0 -> KomikkuSettingsDialogPage(
+				when (tabs[selectedTab]) {
+					KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
 						title = "For this book"
 					) {
+						KomikkuSettingsChipRow(
+							title = "Scope",
+							options = ReaderSupportedSettingsScopes.map { scope -> scope.name to readerSettingsScopeLabel(scope) },
+							selectedValue = settingsScope.name,
+							onSelect = { scopeName ->
+								ReaderSettingsScope.entries
+									.firstOrNull { scope -> scope.name == scopeName }
+									?.let(onSettingsScopeChange)
+							}
+						)
+						if (hasBookSettings) {
+							TextButton(onClick = onResetBookSettings) {
+								Text("Reset book")
+							}
+						}
 						KomikkuSettingsReadingModeRow(
 							settings = settings,
 							onSelect = { option ->
@@ -831,6 +1071,14 @@ private fun KomikkuReaderSettingsDialog(
 									paged = option.paged,
 									direction = option.direction
 								))
+							}
+						)
+						KomikkuSettingsChipRow(
+							title = "Direction",
+							options = ReaderSupportedDirections.map { direction -> direction to readerDirectionShortLabel(direction) },
+							selectedValue = normalizedReaderDirection(settings.direction),
+							onSelect = { direction ->
+								onSettingsChange(settings.copy(direction = direction))
 							}
 						)
 						KomikkuSettingsChipRow(
@@ -856,18 +1104,160 @@ private fun KomikkuReaderSettingsDialog(
 							}
 						)
 					}
-					1 -> KomikkuSettingsDialogPage(
+					KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(
 						title = "General"
 					) {
-						KomikkuSettingsDialogLine("Font: ${settings.fontFamily ?: "Default"}")
-						KomikkuSettingsDialogLine("Font size: ${settings.fontSizePercent ?: 100}%")
-						KomikkuSettingsDialogLine("Theme: ${settings.theme ?: "Default"}")
+						KomikkuSettingsChipRow(
+							title = "Font",
+							options = ReaderSupportedFontFamilies.map { fontFamily ->
+								fontFamily to readerFontFamilyShortLabel(fontFamily)
+							},
+							selectedValue = normalizedReaderFontFamily(settings.fontFamily),
+							onSelect = { fontFamily ->
+								onSettingsChange(settings.copy(fontFamily = fontFamily))
+							}
+						)
+						KomikkuSettingsChipRow(
+							title = "Font source",
+							options = ReaderSupportedFontSources.map { fontSource ->
+								fontSource to readerFontSourceShortLabel(fontSource)
+							},
+							selectedValue = normalizedReaderFontSource(settings.fontSource),
+							onSelect = { fontSource ->
+								onSettingsChange(settings.copy(fontSource = fontSource))
+							}
+						)
+						KomikkuSettingsStepperRow(
+							title = "Font size",
+							value = "${settings.fontSizePercent ?: 100}%",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustFontSize(-8).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustFontSize(8).settings)
+							}
+						)
+						KomikkuSettingsStepperRow(
+							title = "Line height",
+							value = "${settings.lineHeight ?: 1.55}",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustLineHeight(-0.1).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustLineHeight(0.1).settings)
+							}
+						)
+						KomikkuSettingsStepperRow(
+							title = "Paragraph spacing",
+							value = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustParagraphSpacing(-25).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustParagraphSpacing(25).settings)
+							}
+						)
+						KomikkuSettingsStepperRow(
+							title = "Margins",
+							value = "${settings.marginPercent ?: 0}%",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustMargin(-4).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustMargin(4).settings)
+							}
+						)
+						KomikkuSettingsChipRow(
+							title = "Theme",
+							options = ReaderSupportedThemes.map { theme -> theme to readerThemeShortLabel(theme) },
+							selectedValue = normalizedReaderTheme(settings.theme),
+							onSelect = { theme ->
+								onSettingsChange(settings.copy(theme = theme))
+							}
+						)
+						KomikkuSettingsChipRow(
+							title = "Rotation",
+							options = ReaderSupportedOrientations.map { orientation ->
+								orientation to readerOrientationShortLabel(orientation)
+							},
+							selectedValue = normalizedReaderOrientation(settings.orientation),
+							onSelect = { orientation ->
+								onSettingsChange(settings.copy(orientation = orientation))
+							}
+						)
+						KomikkuSettingsSwitchRow(
+							title = "Fullscreen",
+							checked = settings.fullscreen == true,
+							onCheckedChange = { fullscreen ->
+								onSettingsChange(settings.copy(fullscreen = fullscreen))
+							}
+						)
+						KomikkuSettingsSwitchRow(
+							title = "Keep screen on",
+							checked = settings.keepScreenOn == true,
+							onCheckedChange = { keepScreenOn ->
+								onSettingsChange(settings.copy(keepScreenOn = keepScreenOn))
+							}
+						)
+						KomikkuSettingsSwitchRow(
+							title = "Volume keys",
+							checked = settings.volumeKeyPageTurns == true,
+							onCheckedChange = { volumeKeyPageTurns ->
+								onSettingsChange(settings.copy(volumeKeyPageTurns = volumeKeyPageTurns))
+							}
+						)
 					}
-					else -> KomikkuSettingsDialogPage(
+					KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(
+						title = "PDF/Image"
+					) {
+						KomikkuSettingsChipRow(
+							title = "Page fit",
+							options = ReaderSupportedPdfFitModes.map { fitMode ->
+								fitMode to readerPdfFitShortLabel(fitMode)
+							},
+							selectedValue = normalizedReaderPdfFitMode(settings.pdfFitMode),
+							onSelect = { fitMode ->
+								onSettingsChange(settings.copy(pdfFitMode = fitMode))
+							}
+						)
+						KomikkuSettingsSwitchRow(
+							title = "Crop borders",
+							checked = settings.pdfCropBorders == true,
+							onCheckedChange = { cropBorders ->
+								onSettingsChange(settings.copy(pdfCropBorders = cropBorders))
+							}
+						)
+						KomikkuSettingsStepperRow(
+							title = "Page gap",
+							value = "${settings.pdfPageGapPercent ?: 0}%",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustPdfPageGap(-4).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustPdfPageGap(4).settings)
+							}
+						)
+					}
+					KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(
 						title = "Custom filter"
 					) {
-						KomikkuSettingsDialogLine("Dim overlay: ${settings.dimOverlayPercent ?: 0}%")
-						KomikkuSettingsDialogLine("Publisher styles: ${if (settings.publisherStyles == false) "Off" else "On"}")
+						KomikkuSettingsStepperRow(
+							title = "Dim overlay",
+							value = "${settings.dimOverlayPercent ?: 0}%",
+							onDecrease = {
+								onSettingsChange(chromeState.adjustDimOverlay(-10).settings)
+							},
+							onIncrease = {
+								onSettingsChange(chromeState.adjustDimOverlay(10).settings)
+							}
+						)
+						KomikkuSettingsSwitchRow(
+							title = "Publisher styles",
+							checked = settings.publisherStyles == true,
+							onCheckedChange = { publisherStyles ->
+								onSettingsChange(settings.copy(publisherStyles = publisherStyles))
+							}
+						)
 					}
 				}
 				TextButton(
@@ -995,6 +1385,43 @@ private fun KomikkuSettingsSwitchRow(
 			checked = checked,
 			onCheckedChange = onCheckedChange
 		)
+	}
+}
+
+@Composable
+private fun KomikkuSettingsStepperRow(
+	title: String,
+	value: String,
+	onDecrease: () -> Unit,
+	onIncrease: () -> Unit
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = 12.dp, vertical = 6.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Text(
+			text = title,
+			style = MaterialTheme.typography.bodyLarge,
+			color = MaterialTheme.colorScheme.onSurface,
+			modifier = Modifier.weight(1f),
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis
+		)
+		IconButton(onClick = onDecrease) {
+			Text("-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+		}
+		Text(
+			text = value,
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+			maxLines = 1
+		)
+		IconButton(onClick = onIncrease) {
+			Text("+", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+		}
 	}
 }
 

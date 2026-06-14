@@ -2662,3 +2662,105 @@ Release status:
 
 - This is a source-level controller ownership correction only. It has not been compiled into a release APK and has not been device-validated.
 - Do not publish a release for this fix alone unless it is bundled with enough major reader behavior fixes to justify the release pipeline.
+
+## 2026-06-15 Native Frame Contract Alignment And Cover Swipe Drift
+
+User clarification:
+
+- The active objective remains the Komikku-derived reader backbone, not another round of WebView-host micro-fixes.
+- Normal reader input must stay owned by the native frame/controller boundary.
+- A release candidate should wait until enough meaningful reader behavior has changed to justify the pipeline; tonight is source work only.
+
+Root cause:
+
+- Several Android host contract tests still asserted the pre-backbone design where `ReaderEngineWebViewHost.android.kt` owned `ReaderSurfaceHost`, native tap arbitration, and shell-cover input.
+- That was stale after the Komikku backbone moved input, cover, and overlay ownership into `KomikkuReaderNativeFrameHost.android.kt`.
+- While retargeting those contracts, one real native-frame mismatch surfaced: cover swipes reimplemented a strict horizontal-dominance check instead of using the shared `readerShellCoverSwipeAction(...)` behavior, so natural vertical drift could prevent cover dragging.
+
+Navic implication:
+
+- `ReaderRuntimeImageLinkTest`, `ReaderRuntimeShellProgressTest`, and `ReaderRuntimeSettingsBridgeTest` now protect the current split:
+  - `KomikkuReaderNativeFrameHost.android.kt` owns native short taps, shell cover view, cover swipe, tap-zone overlay, and viewer actions.
+  - `ReaderScreen.kt` wires the native frame and Komikku dialog/settings surface.
+  - `ReaderEngineWebViewHost.android.kt` stays renderer-only and forwards Foliate bridge events into the engine adapter.
+- `KomikkuReaderNativeViewerContainer.dispatchHorizontalSwipeViewerAction(...)` now uses `readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx)` so cover-only drags tolerate vertical drift.
+- `KomikkuReaderNativeViewerContainer` now logs one `Reader shell cover drag candidate` message when cover drag crosses touch slop, before swipe dispatch, so adb can show why cover dragging does or does not dispatch.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+```
+
+Result: failed before the native-frame change because the retargeted cover-drag contracts expected `readerShellCoverSwipeAction(...)` and drag diagnostics inside the native frame, but the native frame still used a local `absoluteX <= touchSlopPx || absoluteX <= absoluteY` gate and had no cover-drag log.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- This is source-level contract alignment plus a native cover-swipe drift correction. It has not been compiled into a release APK and has not been device-validated.
+- Do not publish a release for this slice alone. Bundle it into the next morning release candidate only after finishing enough reader-facing fixes to justify the pipeline time.
+
+## 2026-06-15 Overnight Settings And Input Restoration
+
+User direction:
+
+- Continue source work overnight.
+- Do not publish a GitHub release candidate tonight.
+- In the morning, compile one release candidate and run the full adb validation matrix against the connected device.
+
+Root cause:
+
+- The active Komikku backbone had correctly removed the old docked `ReaderOptionsPanel.kt`, but several runtime contract tests still asserted that deleted surface.
+- The active `ReaderScreen.kt` also lost useful app-boundary behavior during the reset:
+  - reader defaults were coming from `defaultReaderSettings()` instead of `PreferenceManager`;
+  - per-book settings scope was not wired through the active dialog;
+  - General/PDF/filter settings were placeholder text lines instead of real controls;
+  - volume-key page turns were no longer handled by the active reader root.
+
+Navic implication:
+
+- `ReaderScreen.kt` now initializes the controller with `PreferenceManager.readerDefaultSettings()` or `readerSettingsForBook(reader.bookId)`, depending on the selected scope.
+- Reader settings changes are normalized, persisted as either global defaults or book-scoped overrides, and then routed through `ReaderCoordinator.applySettings(...)`.
+- The active Komikku dialog now exposes real controls for:
+  - settings scope: Global / For this book / Reset book;
+  - reading mode, direction, tap zones, smaller tap zones, and visible tap zones;
+  - font family, font source, font size, line height, paragraph spacing, margins;
+  - theme, rotation, fullscreen, keep screen on, volume-key page turns;
+  - PDF/Image: page fit, crop borders, page gap;
+  - Custom filter: dim overlay and publisher styles.
+- Volume Up / Volume Down page turns are handled at the `KomikkuReaderRoot` focus boundary, not inside the WebView renderer.
+- `ReaderRuntimeCommonChromeTest` and `ReaderRuntimeNavigationFlowTest` now enforce the active Komikku backbone instead of the vaulted `ReaderOptionsPanel.kt`.
+- Readaloud runtime capability tests now verify that the runtime/controller primitives remain available, while the legacy readaloud host stays out of active `ReaderScreen.kt` until it can be mounted through the new controller adapter.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
+```
+
+Result: failed before production changes because the active reader had no preference-backed defaults, no active font/source/dim/orientation/direction/PDF controls, no volume-key page-turn handler, and no per-book settings scope in the Komikku dialog.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this overnight source slice.
+- Morning candidate should include this slice plus any additional high-priority reader fixes completed overnight, then run the adb matrix against EPUB cover, EPUB text, image/link interaction, dialog controls, texture movement, PDF navigation, and reader resume.

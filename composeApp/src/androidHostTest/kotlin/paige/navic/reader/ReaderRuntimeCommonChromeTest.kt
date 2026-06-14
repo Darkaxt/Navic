@@ -1,10 +1,8 @@
 package paige.navic.reader
 
 import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -13,7 +11,7 @@ class ReaderRuntimeCommonChromeTest {
 	fun androidReaderPackagesBundledFontSourcesForWebViewRendering() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
+		val readerScreenText = readerScreenFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 		val literata = root.resolve("fonts/navic-literata-regular.ttf")
@@ -42,8 +40,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(bridgeText, "readerFontFaceCss(settings)")
 		assertContains(bridgeText, "readerEffectiveFontFamily(settings)")
 		assertContains(bridgeText, "settings?.fontSource")
-		assertContains(readerOptionsPanelText, "Font source")
-		assertContains(readerOptionsPanelText, "ReaderSupportedFontSources")
+		assertContains(readerScreenText, "Font source")
+		assertContains(readerScreenText, "ReaderSupportedFontSources")
 		assertContains(ebooksSettingsText, "readerFontSource")
 		assertContains(ebooksSettingsText, "ReaderFontSourceOption")
 		assertContains(searchSettingsText, "ebooks.font-source")
@@ -56,9 +54,11 @@ class ReaderRuntimeCommonChromeTest {
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
-		assertContains(readerScreenText, "ReaderDimOverlay")
-		assertContains(readerScreenText, "matchParentSize()")
-		assertContains(readerScreenText, "Color.Black.copy")
+		assertContains(readerScreenText, "KomikkuReaderContentOverlay")
+		assertContains(readerScreenText, "Modifier.matchParentSize()")
+		assertContains(readerScreenText, "drawRect(Color.Black.copy")
+		assertContains(readerScreenText, "Dim overlay")
+		assertContains(readerScreenText, "adjustDimOverlay")
 		assertContains(ebooksSettingsText, "readerDimOverlayPercent")
 		assertContains(ebooksSettingsText, "option_ebook_reader_dim_overlay")
 		assertContains(searchSettingsText, "ebooks.dim-overlay")
@@ -79,7 +79,9 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_LANDSCAPE")
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_REVERSE_PORTRAIT")
 		assertContains(orientationEffectText, "activity.requestedOrientation = previousOrientation")
-		assertContains(readerScreenText, "ReaderOrientationEffect(chromeState.settings.orientation)")
+		assertContains(readerScreenText, "ReaderOrientationEffect(orientation = settings.orientation)")
+		assertContains(readerScreenText, "Rotation")
+		assertContains(readerScreenText, "ReaderSupportedOrientations")
 		assertContains(ebooksSettingsText, "readerOrientation")
 		assertContains(ebooksSettingsText, "option_ebook_reader_orientation")
 		assertContains(searchSettingsText, "ebooks.orientation")
@@ -89,7 +91,6 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderChromeExposesVolumeKeyPageTurnControl() {
 		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
@@ -97,7 +98,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "Key.VolumeUp")
 		assertContains(readerScreenText, "Key.VolumeDown")
 		assertContains(readerScreenText, "volumeKeyPageTurns")
-		assertContains(readerOptionsPanelText, "Volume keys")
+		assertContains(readerScreenText, "Volume keys")
 		assertContains(ebooksSettingsText, "readerVolumeKeyPageTurns")
 		assertContains(ebooksSettingsText, "option_ebook_reader_volume_keys")
 		assertContains(searchSettingsText, "ebooks.volume-keys")
@@ -109,7 +110,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val defaultSettingsRemember = readerScreenText
 			.substringAfter("val defaultReaderSettings = remember(")
-			.substringBefore("\n\t) {\n\t\tpreferenceManager.readerDefaultSettings()")
+			.substringBefore("\n\t) {")
 		val expectedPreferenceInputs = listOf(
 			"readerFontFamily",
 			"readerFontSource",
@@ -133,9 +134,12 @@ class ReaderRuntimeCommonChromeTest {
 			"readerKeepScreenOn",
 			"readerReadaloudSyncEnabled",
 			"readerVolumeKeyPageTurns",
-			"readerWebContentsDebuggingEnabled"
+			"readerWebContentsDebuggingEnabled",
+			"readerBookSettingsJson"
 		)
 
+		assertContains(readerScreenText, "koinInject<PreferenceManager>()")
+		assertContains(readerScreenText, "readerSettingsForBook(reader.bookId)")
 		expectedPreferenceInputs.forEach { preferenceName ->
 			assertContains(
 				defaultSettingsRemember,
@@ -185,62 +189,58 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderShellUsesKomikkuEquivalentOverlayStack() {
 		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
-		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
-			.substringBefore("private fun ReaderSettingsOverlayPanel(")
 
-		assertContains(readerScreenText, "optionsVisible")
-		assertContains(readerScreenText, "onToggleOptions: () -> Unit")
-		assertContains(readerScreenText, "Icons.Filled.Settings")
-		assertContains(readerScreenText, "ReaderContentSurfaceLayer(")
-		assertContains(readerScreenText, "ReaderChromeOverlayLayer(")
-		assertContains(readerScreenText, "ReaderTopChrome(")
-		assertContains(readerScreenText, "ReaderSettingsOverlayPanel(")
-		assertContains(readerScreenText, "BoxWithConstraints")
-		assertContains(readerScreenText, "heightIn(max = maxHeight * 0.75f)")
+		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerScreenText, "KomikkuComposeOverlay(")
+		assertContains(readerScreenText, "KomikkuReaderAppBars(")
+		assertContains(readerScreenText, "KomikkuReaderTopBar(")
+		assertContains(readerScreenText, "KomikkuReaderSettingsDialog(")
+		assertContains(readerScreenText, "BasicAlertDialog(")
 		assertContains(readerScreenText, "Modifier.matchParentSize()")
-		assertContains(readerScreenText, "Modifier.align(Alignment.BottomCenter)")
-		assertContains(readerOptionsPanelText, "ReaderOptionsTabChip")
+		assertContains(readerScreenText, "modifier = Modifier.align(Alignment.End)")
+		assertContains(readerScreenText, "Ported from Komikku ReaderAppBars")
+		assertContains(readerScreenText, "Ported from Komikku ReaderSettingsDialog")
 		assertFalse(
 			readerScreenText.contains("Scaffold(") || readerScreenText.contains("bottomBar ="),
 			"Reader shell must follow Komikku's overlay stack; chrome cannot be hosted as a Scaffold bottomBar that resizes content."
 		)
 		assertFalse(
 			readerScreenText.contains("ModalBottomSheet(") || readerScreenText.contains("rememberModalBottomSheetState"),
-			"Reader settings must be an overlay panel above the full-window reader, not a modal bottom sheet tied to app chrome behavior."
+			"Reader settings must be an overlay dialog above the full-window reader, not a modal bottom sheet tied to app chrome behavior."
 		)
 		assertFalse(
 			readerScreenText.contains(".padding(innerPadding)"),
 			"Reader content must remain full-window; chrome/settings padding must never be applied to the content host."
 		)
 		assertFalse(
-			bottomChromeBody.contains("ReaderOptionsPanel("),
-			"Bottom reader chrome must stay compact; settings belong in the Komikku-equivalent overlay panel."
+			readerScreenText.contains("ReaderOptionsPanel("),
+			"The active Komikku reader must not resurrect the old docked options panel."
 		)
 	}
 
 	@Test
 	fun commonReaderChromeUsesKomikkuEquivalentSideProgressRail() {
 		val readerScreenText = readerScreenFile().readText()
-		val overlayBody = readerScreenText.substringAfter("ReaderChromeOverlayLayer(modifier = Modifier.matchParentSize())")
-			.substringBefore("\n\t\tif (optionsVisible)")
-		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
-			.substringBefore("private fun ReaderSettingsOverlayPanel(")
-		val sideRailBody = readerScreenText.substringAfter("private fun ReaderSideProgressRail(")
-			.substringBefore("private fun ReaderBottomChrome(")
+		val appBarsBody = readerScreenText.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+		val sideRailBody = readerScreenText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
+			.substringBefore("\n}\n\ninternal fun Screen.Reader.toReaderEngineOpenRequest(")
+		val bottomChromeBody = readerScreenText.substringAfter("private fun KomikkuReaderBottomBar(")
+			.substringBefore("\n}\n\n@OptIn(ExperimentalMaterial3Api::class)")
 
-		assertContains(readerScreenText, "ReaderSideProgressRail(")
-		assertContains(overlayBody, "Modifier.align(Alignment.CenterEnd)")
-		assertContains(sideRailBody, "ReaderVerticalProgressRailTrack(")
-		assertContains(readerScreenText, "ReaderProgressRailThumbHeight")
-		assertContains(sideRailBody, "onProgressSeek(progressSliderValue.coerceIn(0f, 1f))")
-		assertContains(sideRailBody, "readerProgressCurrentLabel(")
-		assertContains(sideRailBody, "readerProgressTotalLabel(")
+		assertContains(readerScreenText, "KomikkuChapterNavigatorVertical(")
+		assertContains(appBarsBody, "KomikkuNavBarType.VerticalRight")
+		assertContains(appBarsBody, "modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)")
+		assertContains(sideRailBody, "Slider(")
+		assertContains(sideRailBody, "valueRange = 1f..totalPages.toFloat()")
+		assertContains(sideRailBody, "onPageIndexChange(value.toInt() - 1)")
+		assertContains(sideRailBody, "Text(text = currentPageText)")
+		assertContains(sideRailBody, "Text(text = totalPages.toString())")
 		assertContains(sideRailBody, "Icons.Filled.SkipPrevious")
 		assertContains(sideRailBody, "Icons.Filled.SkipNext")
 		assertFalse(
 			sideRailBody.contains("ReaderProgressSeekControl("),
-			"The Komikku-like side rail needs a readable fixed-size handle; a rotated Material slider makes large books look like a tiny scrollbar."
+			"The Komikku side rail must not reuse the old bottom progress control."
 		)
 		assertFalse(
 			bottomChromeBody.contains("ReaderProgressSeekControl(") ||
@@ -252,21 +252,21 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderChromeSeparatesTopPanelFromBottomActions() {
 		val readerScreenText = readerScreenFile().readText()
-		val overlayBody = readerScreenText.substringAfter("ReaderChromeOverlayLayer(modifier = Modifier.matchParentSize())")
-			.substringBefore("\n\t\tif (optionsVisible)")
-		val topChromeBody = readerScreenText.substringAfter("private fun ReaderTopChrome(")
-			.substringBefore("private fun ReaderSideProgressRail(")
-		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
-			.substringBefore("private fun ReaderSettingsOverlayPanel(")
+		val appBarsBody = readerScreenText.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+		val topChromeBody = readerScreenText.substringAfter("private fun KomikkuReaderTopBar(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
+		val bottomChromeBody = readerScreenText.substringAfter("private fun KomikkuReaderBottomBar(")
+			.substringBefore("\n}\n\n@OptIn(ExperimentalMaterial3Api::class)")
 
-		assertContains(overlayBody, "Modifier.align(Alignment.TopCenter)")
-		assertContains(topChromeBody, "currentLocationBookmarked")
-		assertContains(topChromeBody, "canBookmarkCurrentLocation")
-		assertContains(topChromeBody, "onToggleCurrentBookmark")
-		assertContains(topChromeBody, "Icons.Filled.Star")
-		assertContains(topChromeBody, "state.progressLabel")
+		assertContains(appBarsBody, "KomikkuReaderTopBar(")
+		assertContains(topChromeBody, "bookmarked: Boolean")
+		assertContains(topChromeBody, "canBookmark: Boolean")
+		assertContains(topChromeBody, "onToggleBookmarked")
+		assertContains(topChromeBody, "Icons.Outlined.Bookmark")
+		assertContains(topChromeBody, "chapterTitle")
 		assertFalse(
-			bottomChromeBody.contains("state.currentSectionTitle ?: title") ||
+			bottomChromeBody.contains("chapterTitle") ||
 				bottomChromeBody.contains("state.progressLabel"),
 			"Bottom chrome must be an action strip; title/progress belongs in the top panel and side rail."
 		)
@@ -275,14 +275,14 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction() {
 		val readerScreenText = readerScreenFile().readText()
-		val bottomChromeBody = readerScreenText.substringAfter("private fun ReaderBottomChrome(")
-			.substringBefore("private fun ReaderSettingsOverlayPanel(")
+		val bottomChromeBody = readerScreenText.substringAfter("private fun KomikkuReaderBottomBar(")
+			.substringBefore("\n}\n\n@OptIn(ExperimentalMaterial3Api::class)")
 		val bottomActionRow = bottomChromeBody
-			.substringAfter("data-navic-reader-bottom-actions")
-			.substringBefore("if (annotationsVisible)")
+			.substringAfter("Row(")
+			.substringBefore("}")
 
 		assertContains(bottomActionRow, "horizontalArrangement = Arrangement.SpaceEvenly")
-		assertContains(bottomActionRow, "contentAlignment = Alignment.Center")
+		assertContains(bottomActionRow, "verticalAlignment = Alignment.CenterVertically")
 		assertFalse(
 			bottomActionRow.contains("horizontalScroll("),
 			"Komikku's bottom actions are centered/distributed, not a left-aligned horizontally scrolling toolbar."
@@ -295,53 +295,50 @@ class ReaderRuntimeCommonChromeTest {
 
 	@Test
 	fun commonReaderOptionsUseKomikkuStyleChipGroups() {
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
-		val readingOptionsBody = readerOptionsPanelText.substringAfter("private fun ReaderReadingOptions(")
-			.substringBefore("private fun ReaderGeneralOptions(")
-		val generalOptionsBody = readerOptionsPanelText.substringAfter("private fun ReaderGeneralOptions(")
-			.substringBefore("private fun ReaderMediaOptions(")
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
 
-		assertContains(readerOptionsPanelText, "ReaderSettingsChipRow")
-		assertContains(readerOptionsPanelText, "ReaderOptionChip")
-		assertContains(readerOptionsPanelText, "ReaderToggleChip")
-		assertContains(readerOptionsPanelText, "FilterChip(")
-		assertContains(readerOptionsPanelText, "FlowRow(")
-		assertContains(readingOptionsBody, "ReaderSupportedFlowModes")
-		assertContains(readingOptionsBody, "ReaderSupportedDirections")
-		assertContains(readingOptionsBody, "ReaderSupportedFontFamilies")
-		assertContains(generalOptionsBody, "ReaderSupportedThemes")
-		assertContains(generalOptionsBody, "ReaderSupportedOrientations")
-		assertContains(generalOptionsBody, "ReaderSupportedTapZones")
+		assertContains(readerScreenText, "KomikkuSettingsChipRow")
+		assertContains(readerScreenText, "KomikkuSettingsSwitchRow")
+		assertContains(readerScreenText, "KomikkuSettingsStepperRow")
+		assertContains(readerScreenText, "FilterChip(")
+		assertContains(readerScreenText, "FlowRow(")
+		assertContains(readerScreenText, "KomikkuReadingModeOptions")
+		assertContains(settingsDialogBody, "ReaderSupportedDirections")
+		assertContains(settingsDialogBody, "ReaderSupportedFontFamilies")
+		assertContains(settingsDialogBody, "ReaderSupportedFontSources")
+		assertContains(settingsDialogBody, "ReaderSupportedThemes")
+		assertContains(settingsDialogBody, "ReaderSupportedOrientations")
+		assertContains(settingsDialogBody, "KomikkuTapZoneOptions")
 		assertFalse(
-			readingOptionsBody.contains("ReaderCycleRow(") || generalOptionsBody.contains("ReaderCycleRow("),
-			"Reading and General reader options should use Komikku-style selectable chip groups instead of cyclic value rows."
+			settingsDialogBody.contains("ReaderCycleRow("),
+			"Reader settings should use Komikku-style selectable chip groups instead of cyclic value rows."
 		)
 	}
 
 	@Test
 	fun commonReaderOptionsSeparatePdfImageSettingsByPublicationFormat() {
 		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val readerChromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 
 		assertContains(readerChromeStateText, "ReaderOptionsTab.PdfImage")
 		assertContains(readerChromeStateText, "publicationFormat: ReaderPublicationFormat")
 		assertContains(readerScreenText, "publicationFormat = reader.publicationFormat")
-		assertContains(readerOptionsPanelText, "publicationFormat: ReaderPublicationFormat")
-		assertContains(readerOptionsPanelText, "ReaderPdfImageOptions(")
-		assertContains(readerOptionsPanelText, "Page fit")
-		assertContains(readerOptionsPanelText, "ReaderSupportedPdfFitModes")
-		assertContains(readerOptionsPanelText, "Crop borders")
-		assertContains(readerOptionsPanelText, "Page gap")
-		assertContains(readerOptionsPanelText, "setPdfFitMode")
-		assertContains(readerOptionsPanelText, "togglePdfCropBorders")
-		assertContains(readerOptionsPanelText, "adjustPdfPageGap")
+		assertContains(readerScreenText, "publicationFormat: ReaderPublicationFormat")
+		assertContains(readerScreenText, "PDF/Image")
+		assertContains(readerScreenText, "Page fit")
+		assertContains(readerScreenText, "ReaderSupportedPdfFitModes")
+		assertContains(readerScreenText, "Crop borders")
+		assertContains(readerScreenText, "Page gap")
+		assertContains(readerScreenText, "pdfFitMode = fitMode")
+		assertContains(readerScreenText, "pdfCropBorders = cropBorders")
+		assertContains(readerScreenText, "pdfPageGapPercent")
 	}
 
 	@Test
 	fun commonReaderOptionsSupportKomikkuStylePerBookSettingsScope() {
 		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val preferenceManagerText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
@@ -358,29 +355,33 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "readerBookSettingsJson")
 		assertContains(readerScreenText, "setReaderBookSettings(reader.bookId")
 		assertContains(readerScreenText, "clearReaderBookSettings(reader.bookId)")
-		assertContains(readerOptionsPanelText, "For this book")
-		assertContains(readerOptionsPanelText, "Global")
-		assertContains(readerOptionsPanelText, "Reset book")
+		assertContains(readerScreenText, "For this book")
+		assertContains(readerScreenText, "Global")
+		assertContains(readerScreenText, "Reset book")
 	}
 
 	@Test
-	fun commonReadaloudChromeSurfacesAudioMetadataLabels() {
+	fun commonReadaloudRuntimeCapabilitiesRemainAvailableBehindControllerBoundary() {
 		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 
-		assertContains(readerScreenText, "activeAudioLabel")
-		assertContains(readerScreenText, "ReaderReadaloudMetadataLabel")
-		assertContains(readerOptionsPanelText, "activeAudioMetadata")
-		assertContains(readerOptionsPanelText, "Narrator")
-		assertContains(readerOptionsPanelText, "Quality")
-		assertContains(readerOptionsPanelText, "Source")
-		assertContains(readerOptionsPanelText, "Release")
-		assertContains(readerOptionsPanelText, "Source URL")
+		assertContains(chromeStateText, "activeAudioLabel")
+		assertContains(chromeStateText, "activeAudioMetadata")
+		assertContains(chromeStateText, "adjustSpeedCommand")
+		assertContains(chromeStateText, "toggleSyncCommand")
+		assertContains(chromeStateText, "ReaderReadaloudPlaybackCommand.SetSpeed")
+		assertContains(chromeStateText, "ReaderReadaloudPlaybackCommand.SetSyncEnabled")
 		assertContains(runtimeHostText, "activeAudioLabel =")
 		assertContains(runtimeHostText, "activeLabelForPlaybackPosition")
 		assertContains(runtimeHostText, "activeAudioMetadata =")
 		assertContains(runtimeHostText, "metadataLabelsForPlaybackPosition")
+		assertContains(runtimeHostText, "controller.setPlaybackSpeed")
+		assertContains(runtimeHostText, "setSyncEnabled")
+		assertFalse(
+			readerScreenText.contains("ReaderReadaloudRuntimeHost("),
+			"The active Komikku reader must not reattach the legacy readaloud host until it is mounted through the controller adapter."
+		)
 	}
 
 	@Test
@@ -394,36 +395,4 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(mediaItemsText, "putString(\"sourceRelease\", extras.sourceRelease)")
 		assertContains(mediaItemsText, "putString(\"sourceUrl\", extras.sourceUrl)")
 	}
-
-	@Test
-	fun commonReadaloudChromeExposesPlaybackSpeedControls() {
-		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
-		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
-
-		assertContains(readerScreenText, "onReadaloudSpeedChange")
-		assertContains(readerOptionsPanelText, "adjustSpeedCommand")
-		assertContains(readerOptionsPanelText, "ReaderControlStepper(")
-		assertContains(readerOptionsPanelText, "label = \"Speed\"")
-		assertContains(runtimeHostText, "ReaderReadaloudPlaybackCommand.SetSpeed")
-		assertContains(runtimeHostText, "controller.setPlaybackSpeed")
-	}
-
-	@Test
-	fun commonReadaloudChromeExposesSyncHighlightToggle() {
-		val readerScreenText = readerScreenFile().readText()
-		val readerOptionsPanelText = readerOptionsPanelFile().readText()
-		val runtimeHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
-		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
-
-		assertContains(readerScreenText, "onReadaloudSyncChange")
-		assertContains(readerOptionsPanelText, "toggleSyncCommand")
-		assertContains(readerOptionsPanelText, "Sync highlight")
-		assertContains(readerScreenText, "readaloudSyncEnabled")
-		assertContains(preferenceText, "readerReadaloudSyncEnabled")
-		assertContains(runtimeHostText, "ReaderReadaloudPlaybackCommand.SetSyncEnabled")
-		assertContains(runtimeHostText, "setSyncEnabled")
-		assertContains(runtimeHostText, "readaloudSyncEnabled")
-	}
-
 }

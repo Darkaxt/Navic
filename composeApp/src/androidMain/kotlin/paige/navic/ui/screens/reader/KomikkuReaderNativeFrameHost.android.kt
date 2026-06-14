@@ -24,13 +24,18 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
 import paige.navic.reader.ReaderPublicationCachePathPrefix
+import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerShellCoverSwipeAction
+import paige.navic.util.core.Logger
 import java.io.File
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import kotlin.math.abs
 import kotlin.math.min
+
+private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHost"
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -221,6 +226,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var swipeStartX: Float = 0f
 	private var swipeStartY: Float = 0f
 	private var horizontalSwipeDispatched: Boolean = false
+	private var shellCoverDragDiagnosticLogged: Boolean = false
 	private var nativeTapCandidate: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeShortTapIntercepted: Boolean = false
@@ -322,13 +328,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				swipeStartX = event.x
 				swipeStartY = event.y
 				horizontalSwipeDispatched = false
+				shellCoverDragDiagnosticLogged = false
 			}
 			MotionEvent.ACTION_MOVE,
 			MotionEvent.ACTION_UP -> {
 				if (!horizontalSwipeDispatched) {
+					val dx = event.x - swipeStartX
+					val dy = event.y - swipeStartY
+					logReaderShellCoverDragCandidate(dx, dy)
 					dispatchHorizontalSwipeViewerAction(
-						deltaX = event.x - swipeStartX,
-						deltaY = event.y - swipeStartY
+						deltaX = dx,
+						deltaY = dy
 					)
 				}
 				if (event.actionMasked == MotionEvent.ACTION_UP) {
@@ -341,16 +351,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
-		val absoluteX = abs(deltaX)
-		val absoluteY = abs(deltaY)
-		if (absoluteX <= touchSlopPx || absoluteX <= absoluteY) return false
+		val action = readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx) ?: return false
 		horizontalSwipeDispatched = true
-		if (deltaX < 0f) {
-			onAction(KomikkuNavigationRegion.NEXT)
-		} else {
-			onAction(KomikkuNavigationRegion.PREV)
+		when (action) {
+			ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
+			ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)
+			else -> return false
 		}
 		return true
+	}
+
+	private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float) {
+		if (shellCoverDragDiagnosticLogged || abs(deltaX) <= touchSlopPx) return
+		shellCoverDragDiagnosticLogged = true
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			"Reader shell cover drag candidate dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+		)
 	}
 
 	private fun nativeTapMovedBeyondSlop(x: Float, y: Float): Boolean =

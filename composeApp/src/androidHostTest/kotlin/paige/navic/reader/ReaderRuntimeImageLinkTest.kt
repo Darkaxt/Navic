@@ -140,42 +140,60 @@ class ReaderRuntimeImageLinkTest {
 	fun commonReaderUsesNativeShellCoverSurfaceWhenResolverProvidesCoverUrl() {
 		val readerScreenText = readerScreenFile().readText()
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val engineText = readerCommonFile("ReaderEngine.kt").readText()
+		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
 		assertContains(
 			runtimeHostText,
 			"resolved.shellCoverUrl",
 			message = "The Android resolver's EPUB cover URL must be surfaced to common reader UI."
 		)
-		assertContains(readerScreenText, "nativeShellCoverUrl")
-		assertContains(readerScreenText, "externalShellCover = nativeShellCoverUrl != null")
-		assertContains(readerScreenText, "nativeShellCoverUrl = nativeShellCoverUrl")
-		assertContains(readerScreenText, "canReturnToShellCover = readerShouldReturnToNativeShellCover(")
-		assertContains(readerScreenText, "readerShouldReturnToNativeShellCover(")
+		assertContains(readerScreenText, "shellCoverUrl: String?")
+		assertContains(readerScreenText, "val hasShellCover = !shellCoverUrl.isNullOrBlank()")
+		assertContains(readerScreenText, "nativeShellCoverUrl = shellCoverUrl")
+		assertContains(readerScreenText, "canReturnToShellCover = hasShellCover")
+		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerScreenText, "shellCoverVisible = controllerState.shellCoverVisible")
+		assertContains(readerScreenText, "shellCoverUrl = shellCoverUrl")
+		assertContains(engineText, "nativeShellCoverUrl: String?")
+		assertContains(engineText, "canReturnToShellCover: Boolean")
+		assertContains(foliateAdapterText, "nativeShellCoverUrl = request.nativeShellCoverUrl")
+		assertContains(foliateAdapterText, "canReturnToShellCover = request.canReturnToShellCover")
+		assertContains(controllerText, "nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl")
+		assertContains(controllerText, "shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank()")
+		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
+		assertContains(nativeFrameHostText, "setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)")
 		assertContains(webViewHostText, "externalShellCover: Boolean")
-		assertContains(webViewHostText, "nativeShellCoverUrl: String?")
-		assertContains(webViewHostText, "canReturnToShellCover: Boolean")
-		assertContains(webViewHostText, "externalShellCover = externalShellCover")
-		assertContains(webViewHostText, "ReaderShellCoverView")
-		assertContains(webViewHostText, "shellCoverView")
-		assertContains(webViewHostText, "updateShellCover(nativeShellCoverUrl, title)")
+		assertFalse(
+			webViewHostText.contains("nativeShellCoverUrl: String?") ||
+				webViewHostText.contains("ReaderShellCoverView") ||
+				webViewHostText.contains("shellCoverView"),
+			"The engine WebView host is renderer-only; native shell-cover state belongs to the controller/native frame."
+		)
 	}
 
 	@Test
-	fun commonReaderDoesNotLetSecondaryPublicationPreparationClearNativeShellCover() {
+	fun commonReaderKeepsNativeShellCoverOutOfSecondaryRendererPreparation() {
 		val readerScreenText = readerScreenFile().readText()
-		val handlePublicationPrepared = readerScreenText
-			.substringAfter("fun handlePublicationPrepared(publicationUrl: String, shellCoverUrl: String?) {")
-			.substringBefore("\n\tfun hideReaderPanels")
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val coordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 
 		assertContains(
-			handlePublicationPrepared,
-			"if (shellCoverUrl != null || nativeShellCoverUrl == null)",
-			message = "A secondary readaloud/runtime preparation with no cover URL must not clear an already resolved native shell cover."
+			readerScreenText,
+			"onPublicationReady = { publicationUrl, shellCoverUrl, savedProgress ->",
+			message = "Publication preparation should pass the resolved shell-cover URL into the controller open request once."
 		)
+		assertContains(readerScreenText, "toReaderEngineOpenRequest(")
+		assertContains(coordinatorText, "fun open(request: ReaderEngineOpenRequest): ReaderCoordinatorStep")
+		assertContains(controllerText, "state = state.copy(")
+		assertContains(controllerText, "nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl")
+		assertContains(controllerText, "canReturnToShellCover = normalizedRequest.canReturnToShellCover")
 		assertFalse(
 			readerScreenText.contains("handlePublicationPrepared(publicationUrl, null)"),
-			"Passing a literal null cover from a secondary runtime can force the reader back to the JS/WebView shell-cover layer."
+			"Secondary runtime preparation must not clear the controller-owned native cover by passing a literal null cover."
 		)
 	}
 
@@ -214,34 +232,33 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover() {
-		val bridgeText = readerBridgeText()
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val canReturnToShellCover = bridgeText
-			.substringAfter("canReturnToShellCover() {")
-			.substringBefore("\n  applyReaderViewportLayout")
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
-		assertContains(readerScreenText, "nativeShellCoverUrl = nativeShellCoverUrl")
-		assertContains(webViewHostText, "ReaderSurfaceHost")
-		assertContains(webViewHostText, "ReaderShellCoverView")
-		assertContains(webViewHostText, "shellCoverView")
+		assertContains(readerScreenText, "nativeShellCoverUrl = shellCoverUrl")
+		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
+		assertContains(nativeFrameHostText, "canvas.drawColor(Color.BLACK)")
+		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertFalse(
-			webViewHostText.contains("shellCoverWebView"),
-			"Cover image taps must be owned by the reader surface over a native cover view, not by a second WebView."
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("shellCoverWebView") ||
+				webViewHostText.contains("ReaderShellCoverView"),
+			"Cover image taps must be owned by the native Komikku frame, not by the renderer WebView host."
 		)
 		assertFalse(
 			webViewHostText.contains("readerShellCoverHtml"),
 			"Shell cover should not be an HTML/CSS wrapper now that cover is a reader-owned surface."
 		)
-		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage -> {")
-		assertContains(webViewHostText, "hideShellCover()")
-		assertContains(webViewHostText, "shellCoverReturnAvailable = true")
-		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage -> Unit")
-		assertContains(webViewHostText, "dispatchReaderWideTap")
-		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
-		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
-		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage")
+		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
+		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.NEXT)")
+		assertContains(nativeFrameHostText, "onAction(KomikkuNavigationRegion.PREV)")
+		assertContains(controllerText, "private fun onShellCoverViewerAction(action: ReaderViewerAction)")
+		assertContains(controllerText, "shellCoverVisible = false")
+		assertContains(controllerText, "readerShouldReturnToNativeShellCover(")
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapOverlay("),
 			"Reader taps must be owned by the Android reader surface host, not a Compose overlay that can sit behind the WebView surface."
@@ -251,14 +268,14 @@ class ReaderRuntimeImageLinkTest {
 			"Cover image taps must be owned above the WebView, not special-cased inside content hit testing."
 		)
 		assertContains(
-			canReturnToShellCover,
-			"const firstContent = Number(this.firstReadableContentTarget())",
-			message = "Previous from the first readable section should return to shell cover before Foliate can enter its EPUB cover."
+			chromeStateText,
+			"fun readerShouldReturnToNativeShellCover(",
+			message = "Previous from the first readable page should be decided by common controller state before Foliate can enter its EPUB cover."
 		)
 		assertContains(
-			canReturnToShellCover,
-			"Math.floor(sectionIndex) <= firstContent",
-			message = "The shell-cover boundary must be section-based, not only page-index based."
+			chromeStateText,
+			"(locator?.pageIndex ?: -1) <= 0",
+			message = "The shell-cover boundary must remain controller-owned and based on committed reader location."
 		)
 	}
 
@@ -385,13 +402,17 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderLetsMediaTogglesWinOverReadableTapZones() {
+	fun androidReaderKeepsMediaInteractionBelowNativeShortTapOwner() {
 		val bridgeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val tapZoneTargetGuard = bridgeText
-			.substringAfter("shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {")
-			.substringBefore("\n  handleReaderTapZoneTap")
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val viewerContainerBody = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
@@ -403,24 +424,30 @@ class ReaderRuntimeImageLinkTest {
 			readerScreenText.contains("ReaderNativeTapOverlay("),
 			"Readable media taps must not depend on a Compose overlay consuming the WebView gesture stream."
 		)
-		assertContains(webViewHostText, "ReaderSurfaceHost")
-		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")
-		assertContains(webViewHostText, "readerContentHandledTap(contentHitType)")
-		assertContains(webViewHostText, "ReaderBridgeEvent.ContentTapHandled")
-		assertContains(webViewHostText, "markContentTapHandled()")
-		assertContains(webViewHostText, "readerContentTapHandled()")
-		assertContains(webViewHostText, "WebView.HitTestResult.SRC_ANCHOR_TYPE")
-		assertContains(webViewHostText, "WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE")
-		assertContains(tapZoneTargetGuard, "readerPointInsideAnchorText(anchor, event)")
-		assertContains(tapZoneTargetGuard, "readerMediaTapTargetForEvent(doc, event, anchor)")
-		assertContains(bridgeText, "this.shouldIgnoreReaderTapZoneTarget(event, sourceTarget)")
-		assertContains(bridgeText, "post({ type: 'readerContentTapHandled'")
+		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
+		assertContains(viewerContainerBody, "override fun onInterceptTouchEvent(event: MotionEvent): Boolean")
+		assertContains(viewerContainerBody, "nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed")
+		assertContains(viewerContainerBody, "override fun onLongTapConfirmed(event: MotionEvent)")
+		assertContains(viewerContainerBody, "nativeTapLongConfirmed = true")
+		assertContains(viewerContainerBody, "onAction(action)")
+		assertFalse(
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("markContentTapHandled()") ||
+				webViewHostText.contains("scheduleReaderCenterTap("),
+			"The engine WebView host must not keep the legacy delayed center-tap suppression layer after Komikku native input ownership."
+		)
+		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
+		assertTrue(
+			claimInteractiveTouch.indexOf("if (this.nativeTapZones === true) return false") <
+				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
+			"Short link/image touches must not post ownership claims while the native Komikku surface owns tap zones."
+		)
 		assertContains(linkNavigation, "const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)")
 		assertContains(sepiaToggle, "this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)")
 	}
 
 	@Test
-	fun readerNormalLinksReportContentTapHandledBeforeNavigation() {
+	fun readerNormalLinksReportContentActionClaimsBeforeNavigation() {
 		val bridgeText = readerBridgeText()
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
@@ -429,158 +456,73 @@ class ReaderRuntimeImageLinkTest {
 			.substringAfter("const rawHref = anchor.getAttribute('href')")
 			.substringBefore("await this.goTo(href)")
 
-		assertContains(normalLinkNavigation, "post({ type: 'readerContentTapHandled', source: 'link' })")
+		assertContains(normalLinkNavigation, "this.rememberReaderContentActionTouch(doc, event, {")
+		assertContains(normalLinkNavigation, "post(this.readerContentActionClaimPayload(doc, event, {")
+		assertContains(normalLinkNavigation, "source: 'link'")
 		assertTrue(
-			normalLinkNavigation.indexOf("post({ type: 'readerContentTapHandled', source: 'link' })") <
+			normalLinkNavigation.indexOf("post(this.readerContentActionClaimPayload(doc, event, {") <
 				normalLinkNavigation.indexOf("event.preventDefault()"),
-			"Normal EPUB links must notify native content ownership before navigation work can race with reader center-menu dispatch."
+			"Normal EPUB links must report content action metadata before navigation mutates the document."
 		)
 	}
 
 	@Test
-	fun androidReaderCancelsPendingCenterChromeWhenContentHandlesTap() {
+	fun androidEngineWebViewHostDoesNotOwnReaderWideTapArbitration() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val dispatchWideTap = webViewHostText
-			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
-			.substringBefore("\n\tfun markContentTapHandled()")
-		val markContentTapHandled = webViewHostText
-			.substringAfter("fun markContentTapHandled() {")
-			.substringBefore("\n\tprivate fun readerContentTapHandled()")
 
-		assertContains(webViewHostText, "private const val ReaderCenterTapDelayMs")
-		assertContains(webViewHostText, "private var pendingCenterTap: Runnable? = null")
-		assertContains(webViewHostText, "private fun scheduleReaderCenterTap(")
-		assertContains(webViewHostText, "private fun cancelPendingReaderCenterTap()")
-		assertContains(markContentTapHandled, "cancelPendingReaderCenterTap()")
-		assertContains(dispatchWideTap, "dispatchReaderPageTurnCommand(command)")
-		assertContains(dispatchWideTap, "scheduleReaderCenterTap(")
 		assertFalse(
-			dispatchWideTap.contains("else {\n\t\t\tonReaderCenterTap()\n\t\t}"),
-			"Interactive image/content taps report readerContentTapHandled asynchronously, so center chrome dispatch must be delayed and cancelable instead of immediate."
+			webViewHostText.contains("ReaderSurfaceHost") ||
+				webViewHostText.contains("ReaderCenterTapDelayMs") ||
+				webViewHostText.contains("pendingCenterTap") ||
+				webViewHostText.contains("scheduleReaderCenterTap(") ||
+				webViewHostText.contains("markContentTapHandled()") ||
+				webViewHostText.contains("dispatchReaderWideTap"),
+			"The renderer WebView host must not keep the old delayed center-tap arbitration layer after native Komikku input ownership."
 		)
 	}
 
 	@Test
-	fun androidReaderGivesWebViewContentEnoughTimeToCancelCenterChrome() {
+	fun androidReaderRoutesContentClaimsAsEngineMetadataNotNativeTapCancellation() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
-			.find(webViewHostText)
-			?.groupValues
-			?.get(1)
-			?.toLong()
-			?: error("ReaderCenterTapDelayMs constant not found")
-		val markContentTapHandled = webViewHostText
-			.substringAfter("fun markContentTapHandled() {")
-			.substringBefore("\n\tprivate fun readerContentTapHandled()")
+		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
 
-		assertTrue(
-			delayMs >= 280L,
-			"Android WebView can deliver content click/touch JS bridge messages after ACTION_UP; center chrome delay must allow that without delaying edge page turns."
-		)
-		assertTrue(
-			markContentTapHandled.indexOf("contentTapHandledUntilMs = SystemClock.uptimeMillis() + ReaderContentTapHandledSuppressMs") <
-				markContentTapHandled.indexOf("cancelPendingReaderCenterTap()"),
-			"Content ownership must be marked before canceling pending center chrome so the runnable suppresses itself even if cancellation races."
-		)
-	}
-
-	@Test
-	fun androidReaderAllowsSlowWebViewBridgeDeliveryBeforeOpeningCenterChrome() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
-			.find(webViewHostText)
-			?.groupValues
-			?.get(1)
-			?.toLong()
-			?: error("ReaderCenterTapDelayMs constant not found")
-		val suppressMs = Regex("""private const val ReaderContentTapHandledSuppressMs = (\d+)L""")
-			.find(webViewHostText)
-			?.groupValues
-			?.get(1)
-			?.toLong()
-			?: error("ReaderContentTapHandledSuppressMs constant not found")
-
-		assertTrue(
-			delayMs >= 650L,
-			"Center chrome must wait long enough for real Android WebView bridge delivery from image/link content actions before opening."
-		)
-		assertTrue(
-			suppressMs >= delayMs + 200L,
-			"Content-handled suppression must outlive the delayed center chrome runnable so late bridge delivery cannot leak a menu."
-		)
-	}
-
-	@Test
-	fun androidReaderRechecksLatestContentHitBeforeDelayedCenterChromeDispatch() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val scheduleCenterTap = webViewHostText
-			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
-			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
-
+		assertContains(webViewHostText, "ReaderEngineHostEvent.FoliateBridge(event)")
+		assertContains(webViewHostText, "webView?.post { handleReaderBridgeEvent(event) }")
 		assertContains(
-			scheduleCenterTap,
-			"val latestHitType = readerWebView?.hitTestResult?.type ?: hitType",
-			message = "Android WebView hit testing can update after ACTION_UP, so delayed center chrome must re-read the content hit before opening."
+			foliateAdapterText,
+			"is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.claim)"
 		)
-		assertContains(
-			scheduleCenterTap,
-			"readerContentHandledCenterTap(latestHitType)",
-			message = "Delayed center chrome must still be suppressible by image/link hit types discovered after the native tap was classified."
-		)
-		assertTrue(
-			scheduleCenterTap.indexOf("readerContentHandledCenterTap(latestHitType)") <
-				scheduleCenterTap.indexOf("onReaderCenterTap()"),
-			"Latest image/link hit suppression must run before center chrome dispatch."
-		)
-	}
-
-	@Test
-	fun androidReaderMarksContentHandledOnReaderSurfaceThread() {
-		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val contentHandledBranch = webViewHostText
-			.substringAfter("if (event is ReaderBridgeEvent.ContentTapHandled) {")
-			.substringBefore("\n\t\t\t\t} else {")
-
-		assertContains(
-			contentHandledBranch,
-			"surfaceHost.post",
-			message = "Android JavaScript bridge callbacks are not guaranteed to run on the UI thread; content ownership must mark the reader surface from its own thread."
-		)
-		assertContains(contentHandledBranch, "markContentTapHandled()")
+		assertContains(controllerText, "is ReaderEngineEvent.ContentActionClaimed ->")
+		assertContains(controllerText, "lastContentActionClaim = event.claim")
 		assertFalse(
-			contentHandledBranch.contains("surfaceHostRef.get()?.markContentTapHandled()"),
-			"Content ownership must not mutate View-backed reader state directly from the JavaScript bridge thread."
+			webViewHostText.contains("ContentTapHandled") &&
+				webViewHostText.contains("markContentTapHandled"),
+			"Content claims are controller metadata now; the WebView host must not use them to cancel native tap dispatch."
 		)
 	}
 
 	@Test
-	fun androidReaderClaimsInteractiveTouchBeforeNativeCenterChromeCanDispatch() {
+	fun androidReaderIgnoresInteractiveTouchClaimsWhenNativeTapZonesOwnShortTaps() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  attachLinkNavigation")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 
 		assertContains(bridgeText, "claimReaderInteractiveContentTouch(doc, event)")
+		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
 		assertContains(linkNavigation, "doc.addEventListener('touchstart', event => {")
 		assertContains(linkNavigation, "this.claimReaderInteractiveContentTouch(doc, event)")
 		assertContains(linkNavigation, "doc.addEventListener('touchend', event => {")
-		assertContains(
-			claimInteractiveTouch,
-			"post({ type: 'readerContentTapHandled', source: 'media-touch' })",
-			message = "Image/media touches must claim content ownership before Android can dispatch center chrome."
-		)
-		assertContains(
-			claimInteractiveTouch,
-			"post({ type: 'readerContentTapHandled', source: 'link-touch' })",
-			message = "Chapter/frontmatter link touches must claim content ownership before Android can dispatch center chrome."
-		)
+		assertContains(claimInteractiveTouch, "source: 'media-touch'")
+		assertContains(claimInteractiveTouch, "source: 'link-touch'")
 		assertTrue(
-			linkNavigation.indexOf("doc.addEventListener('touchstart'") <
-				linkNavigation.indexOf("doc.addEventListener('click'"),
-			"Interactive content ownership must be claimed during the touch phase, not only during synthetic click handling."
+			claimInteractiveTouch.indexOf("if (this.nativeTapZones === true) return false") <
+				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
+			"Native Komikku tap zones must win before JS posts touch-phase content claims."
 		)
 	}
 
@@ -589,16 +531,17 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  handleReaderTapZoneTap")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 
+		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
 		assertContains(
 			claimInteractiveTouch,
 			"if (anchor) {",
-			message = "Any actual anchor touch target should claim content ownership before native center chrome can fire."
+			message = "Fallback/non-native touch ownership still records actual anchor targets."
 		)
 		assertFalse(
 			claimInteractiveTouch.contains("if (anchor && readerPointInsideAnchorText(anchor, event))"),
-			"Text-rect hit testing can gate link navigation, but must not delay the touch-phase content ownership signal."
+			"Text-rect hit testing can gate link navigation, but must not gate content metadata collection."
 		)
 		assertContains(
 			claimInteractiveTouch,
@@ -608,21 +551,25 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderClaimsInteractiveContentOnPointerAndMouseDownBeforeNativeCenterChrome() {
+	fun androidReaderKeepsPointerAndMouseContentClaimsBehindNativeGuard() {
 		val bridgeText = readerBridgeText()
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 
+		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
 		assertContains(
 			linkNavigation,
 			"doc.addEventListener('pointerdown', event => {",
-			message = "Android WebView can expose content interaction before click through pointer events; interactive content must claim ownership before native center chrome can fire."
+			message = "Pointer events remain instrumented for metadata/non-native fallback paths."
 		)
 		assertContains(
 			linkNavigation,
 			"doc.addEventListener('mousedown', event => {",
-			message = "Mouse-style WebView click paths must also claim content ownership before native center chrome can fire."
+			message = "Mouse-style WebView paths remain instrumented for metadata/non-native fallback paths."
 		)
 		assertTrue(
 			linkNavigation.indexOf("doc.addEventListener('pointerdown'") <
@@ -637,8 +584,11 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderClaimsSepiaImageTouchAtGestureStart() {
+	fun androidReaderKeepsSepiaImageTouchMetadataBehindNativeGuard() {
 		val bridgeText = readerBridgeText()
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 		val sepiaToggle = bridgeText
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
 			.substringBefore("\n  effectiveReaderDirection")
@@ -646,15 +596,16 @@ class ReaderRuntimeImageLinkTest {
 			.substringAfter("doc.addEventListener('touchstart', event => {")
 			.substringBefore("}, { capture: true, passive: true })")
 
+		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
 		assertContains(
 			sepiaTouchStart,
 			"this.claimReaderInteractiveContentTouch(doc, event)",
-			message = "Image gestures must claim content ownership at touchstart; waiting for click/touchend still lets native center chrome leak on Android."
+			message = "Image gestures should still record fallback content metadata before sepia toggle bookkeeping."
 		)
 		assertTrue(
 			sepiaTouchStart.indexOf("this.claimReaderInteractiveContentTouch(doc, event)") <
 				sepiaTouchStart.indexOf("touchState = {"),
-			"The image touch claim should happen before gesture bookkeeping so early Android bridge delivery is not gated by later toggle logic."
+			"The image touch metadata hook should happen before gesture bookkeeping so non-native fallback paths remain deterministic."
 		)
 	}
 
@@ -753,12 +704,9 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderUsesCoordinateContentHitTestBeforeDelayedCenterChrome() {
+	fun androidReaderKeepsRuntimeContentHitTestOutOfNativeTapDispatch() {
 		val bridgeText = readerBridgeText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val scheduleCenterTap = webViewHostText
-			.substringAfter("private fun scheduleReaderCenterTap(")
-			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
 		val exportedBridge = bridgeText
 			.substringAfter("window.NavicReaderBridge = {")
 			.substringBefore("\n}")
@@ -766,65 +714,34 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			bridgeText,
 			"readerContentActionAtRootPoint",
-			message = "Android native center chrome needs a coordinate hit-test into Foliate content documents when WebView hitTestResult is UNKNOWN."
+			message = "The runtime keeps coordinate content hit testing for diagnostics and non-native fallback paths."
 		)
 		assertContains(
 			exportedBridge,
 			"readerContentActionAtPoint",
-			message = "The Android WebView host must be able to ask the reader runtime whether a pending center tap landed on a link/image."
+			message = "The bridge can expose content hit testing without making the Android WebView host the tap owner."
 		)
-		assertContains(
-			scheduleCenterTap,
-			"evaluateJavascript",
-			message = "Delayed center chrome must query the Web runtime before opening, because bridge content-tap posts can race native ACTION_UP."
-		)
-		assertContains(
-			scheduleCenterTap,
-			"readerContentActionAtPoint",
-			message = "The native query must call the coordinate content hit-test exposed by NavicReaderBridge."
-		)
-		assertContains(
-			scheduleCenterTap,
-			"readerContentActionAtPoint(\$x,\$y,\${webView.width},\${webView.height})",
-			message = "Android must pass native WebView dimensions so JavaScript can normalize MotionEvent pixels to CSS viewport pixels."
-		)
-		assertContains(
-			scheduleCenterTap,
-			"Reader surface delayed center tap ignored for runtime content hit",
-			message = "ADB logs need to distinguish runtime coordinate suppression from ordinary WebView hitTestResult suppression."
-		)
-		assertContains(
-			scheduleCenterTap,
-			"centerTapSequence",
-			message = "Asynchronous evaluateJavascript callbacks must not open chrome for stale canceled center taps."
+		assertFalse(
+			webViewHostText.contains("readerContentActionAtPoint") ||
+				webViewHostText.contains("centerTapSequence") ||
+				webViewHostText.contains("Reader surface delayed center tap ignored for runtime content hit"),
+			"Android native tap dispatch must not depend on async WebView runtime hit testing."
 		)
 	}
 
 	@Test
-	fun androidReaderQueriesRuntimeContentHitBeforeDelayedCenterChromeCanMutateDocument() {
+	fun androidReaderDoesNotQueryRuntimeContentHitBeforeNativeViewerAction() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
-		val scheduleCenterTap = webViewHostText
-			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
-			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
 
-		assertContains(
-			webViewHostText,
-			"private fun queryReaderContentActionAtPoint(",
-			message = "Runtime content hit-test JavaScript should be a reusable native helper, not buried inside the delayed chrome runnable."
-		)
-		assertTrue(
-			scheduleCenterTap.indexOf("queryReaderContentActionAtPoint(") in 0 until scheduleCenterTap.indexOf("val pending = Runnable"),
-			"Image/link center taps must start the runtime content hit-test before delayed chrome dispatch can run or link navigation can mutate the document."
-		)
-		assertContains(
-			scheduleCenterTap,
-			"Reader surface center tap ignored for immediate runtime content hit",
-			message = "ADB logs need to distinguish immediate coordinate suppression from the delayed fallback query."
+		assertFalse(
+			webViewHostText.contains("private fun queryReaderContentActionAtPoint(") ||
+				webViewHostText.contains("readerContentActionAtPoint("),
+			"Komikku native viewer actions should not be gated by renderer-side coordinate queries."
 		)
 	}
 
 	@Test
-	fun androidReaderRemembersRecentContentTouchForNativeCenterChromeAfterDocumentMutation() {
+	fun androidReaderRemembersRecentContentTouchOnlyInsideRuntimeMetadataLayer() {
 		val bridgeText = readerBridgeText()
 		val harnessText = listOf(
 			File("tools/reader-harness/src/run-reader-harness.mjs"),
@@ -844,17 +761,17 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			bridgeText,
 			"rememberReaderContentActionTouch",
-			message = "Touch-phase image/link ownership must be remembered locally so Android delayed center chrome still suppresses after DOM mutation or navigation."
+			message = "Touch-phase image/link metadata should be remembered locally for renderer diagnostics and fallback content hit tests."
 		)
 		assertContains(
 			bridgeText,
 			"recentReaderContentActionAtRootPoint",
-			message = "Native coordinate hit testing must check recent content-owned touch points before falling back to the current DOM."
+			message = "Runtime coordinate hit testing should check recent content-owned touch points before falling back to the current DOM."
 		)
 		assertTrue(
 			claimInteractiveTouch.indexOf("rememberReaderContentActionTouch") <
-				claimInteractiveTouch.indexOf("post({ type: 'readerContentTapHandled'"),
-			"Content touch ownership should be remembered before posting to Android so the local fallback survives bridge timing races."
+				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
+			"Content touch metadata should be remembered before posting to Android so the local fallback survives document mutation."
 		)
 		assertTrue(
 			contentActionAtRootPoint.indexOf("recentReaderContentActionAtRootPoint(rootPoint)") <
@@ -864,12 +781,12 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			harnessText,
 			"imageRecentTouchContentHitAfterRemoval",
-			message = "CSS smoke must model an image touch whose DOM node disappears before Android's delayed center hit test."
+			message = "CSS smoke must model an image touch whose DOM node disappears before a later runtime hit test."
 		)
 		assertContains(
 			harnessText,
 			"textLinkRecentTouchContentHitAfterRemoval",
-			message = "CSS smoke must model a link touch whose DOM node disappears before Android's delayed center hit test."
+			message = "CSS smoke must model a link touch whose DOM node disappears before a later runtime hit test."
 		)
 		assertContains(
 			assertionsText,

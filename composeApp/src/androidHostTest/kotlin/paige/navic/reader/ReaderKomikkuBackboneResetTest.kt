@@ -887,8 +887,9 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			readerScreenText.contains("onSettingsChange = { settings ->") &&
-				readerScreenText.contains("coordinator.applySettings(settings)"),
-			"ReaderScreen must route settings changes through ReaderCoordinator.applySettings so the controller and engine stay the owners."
+				readerScreenText.contains("applyReaderSettings(settings)") &&
+				readerScreenText.contains("coordinator.applySettings(normalized)"),
+			"ReaderScreen must persist normalized settings before routing them through ReaderCoordinator.applySettings."
 		)
 		assertTrue(
 			readerScreenText.contains("Show tap zones") &&
