@@ -38,6 +38,9 @@ data class ReaderCoordinator(
 	fun navigateTo(locator: ReaderLocator): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateTo(locator))
 
+	fun navigateToChapterPage(pageIndex: Int): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToChapterPage(pageIndex))
+
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
 		applyControllerStep(controller.applyMediaOverlay(fragment))
 

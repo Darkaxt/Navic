@@ -20,10 +20,22 @@ enum class ReaderControllerDialog {
 	Settings
 }
 
+data class ReaderChapterProgressState(
+	val href: String? = null,
+	val title: String? = null,
+	val pageIndex: Int = 0,
+	val pageCount: Int = 1,
+	val progress: Double = 0.0
+) {
+	val displayPage: Int
+		get() = (pageIndex + 1).coerceIn(1, pageCount.coerceAtLeast(1))
+}
+
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
 	val chrome: ReaderChromeState = ReaderChromeState(),
+	val chapterProgress: ReaderChapterProgressState = ReaderChapterProgressState(),
 	val shellCoverVisible: Boolean = false,
 	val nativeShellCoverUrl: String? = null,
 	val canReturnToShellCover: Boolean = false,
@@ -81,6 +93,9 @@ data class ReaderController(
 						currentLocator = normalizedRequest.startLocator,
 						settings = normalizedRequest.settings
 					),
+					chapterProgress = normalizedRequest.startLocator
+						?.let { state.chapterProgress.updatedFrom(it, tocTitle = null) }
+						?: ReaderChapterProgressState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
@@ -118,6 +133,7 @@ data class ReaderController(
 						progressSaveGate = decision.state,
 						state = state.copy(
 							chrome = nextChrome,
+							chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
 							readingProgress = nextReadingProgress
 						)
 					),
@@ -214,6 +230,28 @@ data class ReaderController(
 			controller = this,
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
 		)
+
+	fun navigateToChapterPage(pageIndex: Int): ReaderControllerStep {
+		val chapter = state.chapterProgress
+		val href = chapter.href?.takeIf { it.isNotBlank() }
+			?: state.chrome.currentLocator?.href?.takeIf { it.isNotBlank() }
+			?: return ReaderControllerStep(this)
+		val pageCount = chapter.pageCount.coerceAtLeast(1)
+		val targetPageIndex = pageIndex.coerceIn(0, pageCount - 1)
+		val chapterProgress = if (pageCount > 1) {
+			(targetPageIndex.toDouble() / (pageCount - 1)).coerceIn(0.0, 1.0)
+		} else {
+			0.0
+		}
+		return navigateTo(
+			ReaderLocator(
+				href = href,
+				chapterProgress = chapterProgress,
+				chapterPageIndex = targetPageIndex,
+				chapterPageCount = pageCount
+			)
+		)
+	}
 
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
 		ReaderControllerStep(
@@ -392,4 +430,33 @@ data class ReaderController(
 			controller = this,
 			engineCommands = listOf(ReaderEngineCommand.ScrollViewport(direction))
 		)
+}
+
+private fun ReaderChapterProgressState.updatedFrom(
+	locator: ReaderLocator,
+	tocTitle: String?
+): ReaderChapterProgressState {
+	val nextPageCount = locator.chapterPageCount?.takeIf { it > 0 }
+		?: locator.pageCount?.takeIf { it > 0 }
+		?: pageCount
+	val normalizedPageCount = nextPageCount.coerceAtLeast(1)
+	val nextPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }
+		?: locator.pageIndex?.takeIf { it >= 0 }
+		?: pageIndex
+	val normalizedPageIndex = nextPageIndex.coerceIn(0, normalizedPageCount - 1)
+	val normalizedProgress = locator.chapterProgress
+		?.takeIf(Double::isFinite)
+		?.coerceIn(0.0, 1.0)
+		?: if (normalizedPageCount > 1) {
+			(normalizedPageIndex.toDouble() / (normalizedPageCount - 1)).coerceIn(0.0, 1.0)
+		} else {
+			0.0
+		}
+	return copy(
+		href = locator.href?.trim()?.takeIf { it.isNotEmpty() } ?: href,
+		title = tocTitle?.trim()?.takeIf { it.isNotEmpty() } ?: title,
+		pageIndex = normalizedPageIndex,
+		pageCount = normalizedPageCount,
+		progress = normalizedProgress
+	)
 }

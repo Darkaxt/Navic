@@ -126,6 +126,33 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun dispatchesChapterLocalRailSeekAsFoliateChapterProgressCommand() {
+		val opened = FoliateEpubEngineAdapter()
+			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+			.engine
+
+		val seek = opened.onCommand(
+			ReaderEngineCommand.NavigateTo(
+				ReaderLocator(
+					href = "chapter-01.xhtml",
+					chapterProgress = 0.375,
+					chapterPageIndex = 3,
+					chapterPageCount = 9
+				)
+			)
+		)
+
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(seek.viewState)
+		assertEquals(
+			ReaderBridgeCommand.GoToChapterProgress(
+				href = "chapter-01.xhtml",
+				progress = 0.375
+			),
+			viewState.bridgeCommand()
+		)
+	}
+
+	@Test
 	fun dispatchesTypedViewportScrollAsRendererScrollCommand() {
 		val opened = FoliateEpubEngineAdapter()
 			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))

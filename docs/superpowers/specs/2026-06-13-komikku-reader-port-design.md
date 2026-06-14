@@ -2551,3 +2551,50 @@ Release status:
 
 - This is a source-level correction only. It has not been compiled into a release APK and has not been device-validated.
 - Do not publish a release for this texture fix alone unless it is bundled with another major reader behavior fix.
+
+## 2026-06-14 Chapter-Local Komikku Rail Ownership
+
+User clarification:
+
+- The right-side Komikku rail should not behave like a whole-book mobile scrollbar.
+- The rail is a current-chapter navigator. Its previous/next arrows and slider only make sense if the rail is scoped to the current chapter/page set.
+- This does not change the organic book-surface page number preference. The visible page number should still look printed/layered into the book surface, not like a Compose/mobile overlay.
+
+Komikku source behavior used:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt`: chapter navigator takes current page, current page text, total pages, and page-index changes for the current chapter.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt`: app bars own the chapter navigator as reader chrome, not as engine/WebView content.
+
+Navic implication:
+
+- `ReaderLocator` now carries chapter-local fields independently from whole-book progress: `chapterProgress`, `chapterPageIndex`, and `chapterPageCount`.
+- `navic-reader.js` now posts `chapterProgress`, `chapterPageIndex`, and `chapterPageCount` with `locationChanged`.
+- `ReaderControllerState` now includes `ReaderChapterProgressState`, fed by engine relocation events.
+- `ReaderScreen` now wires the Komikku rail through `onGoToChapterPage(pageIndex)` and `ReaderCoordinator.navigateToChapterPage(pageIndex)`.
+- `FoliateEpubEngineAdapter` translates chapter rail seeks into `ReaderBridgeCommand.GoToChapterProgress(href, progress)`, not `GoToProgress`.
+- `navic-reader.js` resolves the chapter `href` to a Foliate section index and calls `renderer.goTo({ index, anchor: fraction })`. Do not use `view.goTo({ href, fraction })`; Foliate treats any object with `fraction` as a whole-book fraction target and ignores `href`.
+- `ReaderEngineWebViewHost.android.kt` logs `goToChapterProgress(...)` so adb traces can distinguish chapter rail seeks from full-book progress seeks.
+- The active source guard rejects reusing `locator?.pageIndex`, `locator?.pageCount`, or `onGoToProgress(...)` inside `KomikkuReaderAppBars`.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeChapterLocalPagePositionForKomikkuRail" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesChapterLocalRailSeekAsFoliateChapterProgressCommand" --tests "paige.navic.reader.ReaderControllerTest.engineRelocationFeedsChapterLocalProgressForKomikkuRail" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress"
+```
+
+Result: failed before production changes because `ReaderLocator` had no chapter-local fields, `ReaderBridgeCommand.GoToChapterProgress` did not exist, `ReaderControllerState.chapterProgress` did not exist, and the active `ReaderScreen` still converted rail page indexes into global book progress.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeChapterLocalPagePositionForKomikkuRail" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesChapterLocalRailSeekAsFoliateChapterProgressCommand" --tests "paige.navic.reader.ReaderControllerTest.engineRelocationFeedsChapterLocalProgressForKomikkuRail" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderBridgeExposesProgressSeekCommand"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+git diff --check
+```
+
+Results: passed on 2026-06-14.
+
+Release status:
+
+- This is a source-level controller/chrome correction only. It has not been compiled into a release APK and has not been device-validated.
+- Do not publish a release for this rail ownership fix alone unless it is bundled with enough major reader behavior fixes to justify the release pipeline.

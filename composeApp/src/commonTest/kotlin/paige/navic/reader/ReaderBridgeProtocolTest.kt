@@ -221,6 +221,36 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeChapterLocalPagePositionForKomikkuRail() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "locationChanged",
+			  "href": "chapter-01.xhtml",
+			  "progress": 0.12,
+			  "pageIndex": 42,
+			  "pageCount": 411,
+			  "chapterPageIndex": 3,
+			  "chapterPageCount": 18
+			}
+			""".trimIndent()
+		)
+
+		val locationChanged = assertIs<ReaderBridgeEvent.LocationChanged>(event)
+		assertEquals(
+			ReaderLocator(
+				href = "chapter-01.xhtml",
+				progress = 0.12,
+				pageIndex = 42,
+				pageCount = 411,
+				chapterPageIndex = 3,
+				chapterPageCount = 18
+			),
+			locationChanged.locator
+		)
+	}
+
+	@Test
 	fun bridgeEventsDecodeSearchResultsWithCfiHrefAndExcerpt() {
 		val event = decodeReaderBridgeEvent(
 			"""

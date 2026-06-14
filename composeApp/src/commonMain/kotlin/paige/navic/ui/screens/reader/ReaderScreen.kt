@@ -265,8 +265,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 				)
 			)
 		},
-		onGoToProgress = { progress ->
-			applyCoordinatorStep(coordinator.navigateTo(ReaderLocator(progress = progress)))
+		onGoToChapterPage = { pageIndex ->
+			applyCoordinatorStep(coordinator.navigateToChapterPage(pageIndex))
 		},
 		onContents = {
 			applyCoordinatorStep(coordinator.openContentsDialog())
@@ -311,7 +311,7 @@ private fun KomikkuReaderRoot(
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
-	onGoToProgress: (Double) -> Unit,
+	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
@@ -356,7 +356,7 @@ private fun KomikkuReaderRoot(
 				controllerState = controllerState,
 				onPreviousPage = onPreviousPage,
 				onNextPage = onNextPage,
-				onGoToProgress = onGoToProgress,
+				onGoToChapterPage = onGoToChapterPage,
 				onContents = onContents,
 				onReadingMode = onReadingMode,
 				onNavigateBack = onNavigateBack,
@@ -386,7 +386,7 @@ private fun KomikkuComposeOverlay(
 	controllerState: ReaderControllerState,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
-	onGoToProgress: (Double) -> Unit,
+	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
@@ -410,7 +410,7 @@ private fun KomikkuComposeOverlay(
 			controllerState = controllerState,
 			onPreviousPage = onPreviousPage,
 			onNextPage = onNextPage,
-			onGoToProgress = onGoToProgress,
+			onGoToChapterPage = onGoToChapterPage,
 			onContents = onContents,
 			onReadingMode = onReadingMode,
 			onNavigateBack = onNavigateBack,
@@ -472,7 +472,7 @@ private fun KomikkuReaderAppBars(
 	controllerState: ReaderControllerState,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
-	onGoToProgress: (Double) -> Unit,
+	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
@@ -481,11 +481,10 @@ private fun KomikkuReaderAppBars(
 	modifier: Modifier = Modifier
 ) {
 	// Ported from Komikku ReaderAppBars: all controls are overlays, never content padding.
-	val locator = controllerState.chrome.currentLocator
-	val pageCount = locator?.pageCount?.takeIf { it > 0 } ?: 1
-	val currentPage = locator?.pageIndex?.takeIf { it >= 0 }?.plus(1)?.coerceIn(1, pageCount) ?: 1
+	val chapterProgress = controllerState.chapterProgress
 	val chapterTitle = when {
 		controllerState.shellCoverVisible -> "Cover"
+		!chapterProgress.title.isNullOrBlank() -> chapterProgress.title
 		!controllerState.chrome.currentSectionTitle.isNullOrBlank() -> controllerState.chrome.currentSectionTitle
 		else -> controllerState.chrome.progressLabel
 	}
@@ -531,13 +530,11 @@ private fun KomikkuReaderAppBars(
 						enabledNext = true,
 						onPreviousChapter = onPreviousPage,
 						enabledPrevious = !controllerState.shellCoverVisible,
-						currentPage = currentPage,
-						currentPageText = currentPage.toString(),
-						totalPages = pageCount,
+						currentPage = chapterProgress.displayPage,
+						currentPageText = chapterProgress.displayPage.toString(),
+						totalPages = chapterProgress.pageCount,
 						onPageIndexChange = { pageIndex ->
-							if (pageCount > 1) {
-								onGoToProgress((pageIndex.toDouble() / (pageCount - 1)).coerceIn(0.0, 1.0))
-							}
+							onGoToChapterPage(pageIndex)
 						}
 					)
 				}
@@ -563,13 +560,11 @@ private fun KomikkuReaderAppBars(
 						enabledNext = true,
 						onPreviousChapter = onPreviousPage,
 						enabledPrevious = !controllerState.shellCoverVisible,
-						currentPage = currentPage,
-						currentPageText = currentPage.toString(),
-						totalPages = pageCount,
+						currentPage = chapterProgress.displayPage,
+						currentPageText = chapterProgress.displayPage.toString(),
+						totalPages = chapterProgress.pageCount,
 						onPageIndexChange = { pageIndex ->
-							if (pageCount > 1) {
-								onGoToProgress((pageIndex.toDouble() / (pageCount - 1)).coerceIn(0.0, 1.0))
-							}
+							onGoToChapterPage(pageIndex)
 						}
 					)
 				}
@@ -594,13 +589,11 @@ private fun KomikkuReaderAppBars(
 						enabledNext = true,
 						onPreviousChapter = onPreviousPage,
 						enabledPrevious = !controllerState.shellCoverVisible,
-						currentPage = currentPage,
-						currentPageText = currentPage.toString(),
-						totalPages = pageCount,
+						currentPage = chapterProgress.displayPage,
+						currentPageText = chapterProgress.displayPage.toString(),
+						totalPages = chapterProgress.pageCount,
 						onPageIndexChange = { pageIndex ->
-							if (pageCount > 1) {
-								onGoToProgress((pageIndex.toDouble() / (pageCount - 1)).coerceIn(0.0, 1.0))
-							}
+							onGoToChapterPage(pageIndex)
 						}
 					)
 				}

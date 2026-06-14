@@ -268,6 +268,38 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress() {
+		val activeText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val appBarsBody = activeText
+			.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+
+		assertTrue(
+			activeText.contains("onGoToChapterPage = { pageIndex ->") &&
+				activeText.contains("coordinator.navigateToChapterPage(pageIndex)"),
+			"ReaderScreen must route Komikku rail seeks through a controller-owned chapter-page action."
+		)
+		assertTrue(
+			appBarsBody.contains("val chapterProgress = controllerState.chapterProgress"),
+			"Komikku app bars must read chapter-local page state from the controller, not from global locator fields."
+		)
+		assertTrue(
+			appBarsBody.contains("currentPage = chapterProgress.displayPage") &&
+				appBarsBody.contains("totalPages = chapterProgress.pageCount") &&
+				appBarsBody.contains("onGoToChapterPage(pageIndex)"),
+			"The Komikku side navigator must display and seek within the current chapter."
+		)
+		assertFalse(
+			appBarsBody.contains("locator?.pageCount") ||
+				appBarsBody.contains("locator?.pageIndex") ||
+				appBarsBody.contains("onGoToProgress((pageIndex.toDouble() / (pageCount - 1))"),
+			"The Komikku side navigator must not reuse global book page count/index or convert rail seeks into book progress."
+		)
+	}
+
+	@Test
 	fun komikkuEpubEngineHostDoesNotReuseLegacySurfaceGestureLayer() {
 		val platformHosts = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"

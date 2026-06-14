@@ -126,6 +126,11 @@ sealed class FoliateWebViewEngineAdapter(
 	private fun navigateTo(locator: ReaderLocator): ReaderEngineStep {
 		val bridgeCommand = when {
 			!locator.cfi.isNullOrBlank() -> ReaderBridgeCommand.GoToCfi(locator.cfi)
+			!locator.href.isNullOrBlank() && locator.chapterProgress != null ->
+				ReaderBridgeCommand.GoToChapterProgress(
+					href = locator.href,
+					progress = locator.chapterProgress
+				)
 			!locator.href.isNullOrBlank() -> ReaderBridgeCommand.GoToHref(locator.href)
 			locator.progress != null -> ReaderBridgeCommand.GoToProgress(locator.progress)
 			else -> null

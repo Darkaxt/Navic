@@ -24,7 +24,10 @@ data class ReaderLocator(
 	val cfi: String? = null,
 	val progress: Double? = null,
 	val pageIndex: Int? = null,
-	val pageCount: Int? = null
+	val pageCount: Int? = null,
+	val chapterProgress: Double? = null,
+	val chapterPageIndex: Int? = null,
+	val chapterPageCount: Int? = null
 )
 
 data class ReaderOverlayFragment(
@@ -142,6 +145,23 @@ sealed interface ReaderBridgeCommand {
 		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
 				put("type", type)
+				put("progress", normalizedProgress)
+			}
+
+		private val normalizedProgress: Double
+			get() = progress.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
+	}
+
+	data class GoToChapterProgress(
+		val href: String,
+		val progress: Double
+	) : ReaderBridgeCommand {
+		override val type: String = "goToChapterProgress"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("href", href)
 				put("progress", normalizedProgress)
 			}
 
@@ -312,7 +332,10 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 					cfi = json.stringValue("cfi"),
 					progress = json.doubleValue("progress"),
 					pageIndex = json.intValue("pageIndex"),
-					pageCount = json.intValue("pageCount")
+					pageCount = json.intValue("pageCount"),
+					chapterProgress = json.doubleValue("chapterProgress"),
+					chapterPageIndex = json.intValue("chapterPageIndex"),
+					chapterPageCount = json.intValue("chapterPageCount")
 				),
 				tocTitle = json.stringValue("tocTitle")
 			)
@@ -384,6 +407,9 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 		progress?.let { put("progress", it) }
 		pageIndex?.let { put("pageIndex", it) }
 		pageCount?.let { put("pageCount", it) }
+		chapterProgress?.let { put("chapterProgress", it) }
+		chapterPageIndex?.let { put("chapterPageIndex", it) }
+		chapterPageCount?.let { put("chapterPageCount", it) }
 	}
 
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =

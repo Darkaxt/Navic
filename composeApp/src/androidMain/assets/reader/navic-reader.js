@@ -248,6 +248,8 @@ class NavicReaderRuntime {
         return this.goTo(command.href)
       case 'goToProgress':
         return this.goToProgress(command.progress)
+      case 'goToChapterProgress':
+        return this.goToChapterProgress(command.href, command.progress)
       case 'nextPage':
         readerTrace('dispatch:nextPage', {
           hasPromise: Boolean(this.pageTurnPromise),
@@ -778,6 +780,38 @@ class NavicReaderRuntime {
       requestAnimationFrame(() => {
         this.logContentLayout('progress-seek')
         log('progress-seek:done', fraction)
+      })
+    } catch (error) {
+      reportError(error, 'navigation_failed')
+    }
+  }
+
+  async goToChapterProgress(href, progress) {
+    if (!this.view) return
+    const targetHref = String(href || '').trim()
+    if (!targetHref) return
+    const numericProgress = Number(progress)
+    const fraction = Number.isFinite(numericProgress)
+      ? Math.min(1, Math.max(0, numericProgress))
+      : 0
+    try {
+      log('chapter-progress-seek:start', targetHref, fraction)
+      const resolved = await Promise.resolve(
+        this.view.resolveNavigation?.(targetHref) ||
+        this.view.book?.resolveHref?.(targetHref)
+      )
+      const index = Number(resolved?.index)
+      if (Number.isFinite(index) && this.view.renderer?.goTo) {
+        await this.view.renderer.goTo({ index, anchor: fraction })
+        this.view.history?.pushState?.({ href: targetHref, chapterFraction: fraction })
+      } else {
+        await this.view.goTo(targetHref)
+      }
+      this.scheduleCommittedRelocation(this.lastRelocateDetail, 'chapter-progress-seek')
+      this.applyReaderViewportLayout('chapter-progress-seek')
+      requestAnimationFrame(() => {
+        this.logContentLayout('chapter-progress-seek')
+        log('chapter-progress-seek:done', targetHref, fraction)
       })
     } catch (error) {
       reportError(error, 'navigation_failed')
@@ -1952,6 +1986,24 @@ class NavicReaderRuntime {
     return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition(detail)
   }
 
+  chapterPagePosition(detail, fallback = null) {
+    const pagePosition = this.view?.isFixedLayout === true
+      ? this.fixedLayoutPagePosition(detail)
+      : this.reflowableSectionPagePosition()
+    const resolved = pagePosition || fallback
+    if (!resolved) return null
+    const pageIndex = Number(resolved.pageIndex)
+    const pageCount = Number(resolved.pageCount)
+    if (!Number.isFinite(pageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) return null
+    return {
+      pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(pageIndex))),
+      pageCount: Math.max(1, Math.floor(pageCount)),
+      progress: pageCount > 1
+        ? Math.min(1, Math.max(0, pageIndex / (pageCount - 1)))
+        : 0,
+    }
+  }
+
   detailSectionKey(detail) {
     const index = Number(detail?.section?.current ?? detail?.index)
     if (Number.isFinite(index)) return `index:${Math.floor(index)}`
@@ -2543,6 +2595,7 @@ class NavicReaderRuntime {
       ? {}
       : rawTocItem
     const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
+    const chapterPosition = this.chapterPagePosition(detail, pagePosition)
     const message = {
       type: 'locationChanged',
       href: detail.href || sectionHref || tocItem.href,
@@ -2550,6 +2603,9 @@ class NavicReaderRuntime {
       progress: optionalNumber(detail.fraction ?? detail.progress ?? detail.totalProgress),
       pageIndex: pagePosition?.pageIndex,
       pageCount: pagePosition?.pageCount,
+      chapterProgress: chapterPosition?.progress,
+      chapterPageIndex: chapterPosition?.pageIndex,
+      chapterPageCount: chapterPosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
     }
     const locationKey = readerLocationPostKey(message)

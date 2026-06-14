@@ -65,8 +65,16 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "async goToProgress(progress)")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
+		assertContains(bridgeText, "case 'goToChapterProgress'")
+		assertContains(bridgeText, "async goToChapterProgress(href, progress)")
+		assertContains(bridgeText, "chapter-progress-seek")
+		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: fraction })")
+		assertFalse(
+			bridgeText.contains("this.view.goTo({ href: targetHref, fraction })"),
+			"Foliate treats an object with fraction as a whole-book fraction target; chapter rail seeks must resolve href to a section index and use a section-local anchor."
+		)
 		assertContains(readerScreenText, "coordinator.navigateTo(")
-		assertContains(readerScreenText, "ReaderLocator(progress = progress)")
+		assertContains(readerScreenText, "coordinator.navigateToChapterPage(pageIndex)")
 		assertFalse(
 			readerScreenText.contains("ReaderBridgeCommand.GoToProgress"),
 			"The Komikku reader shell must ask the controller to navigate, not dispatch raw Foliate bridge progress commands."
@@ -76,7 +84,7 @@ class ReaderRuntimeShellProgressTest {
 			"Progress rail gestures must remain above the engine bridge so PDF/EPUB adapters can translate them independently."
 		)
 		assertContains(readerScreenText, "Slider(")
-		assertContains(readerScreenText, "onGoToProgress: (Double) -> Unit")
+		assertContains(readerScreenText, "onGoToChapterPage: (Int) -> Unit")
 	}
 
 	@Test

@@ -90,6 +90,40 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun engineRelocationFeedsChapterLocalProgressForKomikkuRail() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+		val locator = ReaderLocator(
+			href = "chapter-01.xhtml",
+			progress = 0.25,
+			pageIndex = 42,
+			pageCount = 411,
+			chapterProgress = 0.3,
+			chapterPageIndex = 5,
+			chapterPageCount = 20
+		)
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = locator,
+				tocTitle = "Chapter 1"
+			)
+		)
+
+		assertEquals(locator, step.controller.state.chrome.currentLocator)
+		assertEquals(
+			ReaderChapterProgressState(
+				href = "chapter-01.xhtml",
+				title = "Chapter 1",
+				pageIndex = 5,
+				pageCount = 20,
+				progress = 0.3
+			),
+			step.controller.state.chapterProgress
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationsBuildControllerOwnedProgressSnapshotsAfterPublicationReady() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller

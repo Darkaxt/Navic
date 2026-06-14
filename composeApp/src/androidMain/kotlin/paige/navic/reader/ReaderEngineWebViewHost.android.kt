@@ -289,6 +289,8 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
 		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.engineUrlLabel()})"
 		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"
+		is ReaderBridgeCommand.GoToChapterProgress ->
+			"goToChapterProgress(${href.engineUrlLabel()}, ${progress.coerceIn(0.0, 1.0)})"
 		ReaderBridgeCommand.NextPage -> "nextPage"
 		ReaderBridgeCommand.PreviousPage -> "previousPage"
 		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
