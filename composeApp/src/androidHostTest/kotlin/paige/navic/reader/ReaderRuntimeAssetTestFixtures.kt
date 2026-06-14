@@ -47,6 +47,13 @@ internal fun readerScreenFile(): File =
 	).firstOrNull { it.isFile }
 		?: error("Could not locate ReaderScreen.kt")
 
+internal fun readerViewerHostFile(): File =
+	listOf(
+		File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate ReaderViewerHost.kt")
+
 internal fun readerOptionsPanelFile(): File =
 	listOf(
 		File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOptionsPanel.kt"),

@@ -116,10 +116,11 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
-		val bridgeText = readerBridgeText()
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()
+		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
+		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "dispatchReaderWideTap")
@@ -128,9 +129,16 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
-		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
-		assertContains(readerScreenText, "chromeVisible")
-		assertContains(readerScreenText, "if (chromeVisible)")
+		assertContains(readerScreenText, "onEngineHostEvent = { event -> applyCoordinatorStep(coordinator.onEngineHostEvent(event)) }")
+		assertContains(readerCoordinatorText, "fun onEngineHostEvent(event: ReaderEngineHostEvent)")
+		assertContains(foliateAdapterText, "override fun onHostEvent(event: ReaderEngineHostEvent)")
+		assertContains(foliateAdapterText, "is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)")
+		assertContains(readerScreenText, "controllerState.menuVisible")
+		assertContains(readerScreenText, "visible = controllerState.menuVisible")
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
+			"ReaderScreen must not handle raw Foliate center taps; the engine host and coordinator own that boundary."
+		)
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapOverlay("),
 			"The Komikku-style touch manager must be the native Android reader surface, not a Compose overlay."
@@ -462,10 +470,10 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
-		val readerScreenText = readerScreenFile().readText()
+		val readerViewerHostText = readerViewerHostFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()
 
-		assertContains(readerScreenText, "startProgress = resumeStartLocator?.progress")
+		assertContains(readerViewerHostText, "startProgress = viewer.viewState.startLocator?.progress")
 		assertContains(webViewHostText, "startProgress: Double?")
 		assertContains(webViewHostText, "startProgress?.toString().orEmpty()")
 		assertContains(webViewHostText, "progress = startProgress")

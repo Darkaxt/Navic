@@ -73,16 +73,25 @@ class ReaderRuntimeSettingsBridgeTest {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerWebViewHostFile().readText()
+		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
+		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "readerTapZoneActionAt(")
 		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
 		assertContains(webViewHostText, "dispatchReaderWideTap")
 		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
-		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")
+		assertContains(readerScreenText, "onEngineHostEvent = { event -> applyCoordinatorStep(coordinator.onEngineHostEvent(event)) }")
+		assertContains(readerCoordinatorText, "fun onEngineHostEvent(event: ReaderEngineHostEvent)")
+		assertContains(foliateAdapterText, "override fun onHostEvent(event: ReaderEngineHostEvent)")
+		assertContains(foliateAdapterText, "is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "komikkuTapAction(")
 		assertContains(runtimeText, "readerTapZoneCommand(")
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
+			"ReaderScreen must not handle raw Foliate center taps; readable tap normalization belongs to the native surface and engine host boundary."
+		)
 		assertFalse(
 			readerScreenText.contains("ReaderNativeTapOverlay("),
 			"Readable EPUB/PDF tap ownership must live in the Android reader surface, not a Compose sibling overlay."
@@ -222,7 +231,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(systemBarsEffectText, "controller.hide(WindowInsetsCompat.Type.systemBars())")
 		assertContains(systemBarsEffectText, "controller.show(WindowInsetsCompat.Type.systemBars())")
 		assertContains(readerScreenText, "ReaderSystemBarsEffect(")
-		assertContains(readerScreenText, "chromeVisible || optionsVisible")
+		assertContains(readerScreenText, "systemBarsVisible = controllerState.menuVisible || settings.fullscreen == false")
 		assertContains(readerOptionsPanelText, "Fullscreen")
 		assertContains(readerOptionsPanelText, "toggleFullscreen()")
 		assertContains(ebooksSettingsText, "readerFullscreen")

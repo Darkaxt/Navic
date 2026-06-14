@@ -2033,18 +2033,42 @@ node --check composeApp\src\androidMain\assets\reader\navic-reader.js
 
 Result: passed on 2026-06-14.
 
-Broader shell contract status:
+Broader shell contract status at this point in the sequence:
 
 ```powershell
 .\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest
 ```
 
-Result: still failed on two older architecture assertions:
+Result: still failed on two older architecture assertions. This status was superseded later on 2026-06-14 by the "Reader Shell Contract Realignment" slice below.
 
 - `readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps`: `ReaderScreen.kt` still contains `ReaderNativeTapOverlay(`.
 - `androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications`: the current `ReaderScreen.kt` path still does not contain the expected `startProgress = resumeStartLocator?.progress` wiring.
 
 These two failures are not fixed by the organic page-number/passive-relocation slice and remain part of the active Komikku frontend/controller backbone work.
+
+## 2026-06-14 Reader Shell Contract Realignment
+
+User direction for this slice:
+
+- Keep the page number that looks like part of the book/page surface, not a native mobile UI overlay.
+- Do not reintroduce raw Foliate bridge handling inside `ReaderScreen` as a shortcut. The Komikku shell/controller boundary must stay intact.
+
+Navic implication:
+
+- `ReaderScreen` forwards engine-host events through `coordinator.onEngineHostEvent(...)`; it must not handle `ReaderBridgeEvent.CenterTap` directly.
+- `ReaderCoordinator` and the active `ReaderEngine` adapter own the `ReaderEngineHostEvent` to `ReaderEngineEvent` boundary.
+- `ReaderViewerHost` owns the concrete renderer host wiring, including `startProgress = viewer.viewState.startLocator?.progress`, instead of pushing resume-progress plumbing back into `ReaderScreen`.
+- The fullscreen/system-bars source contract now checks the current controller model: `systemBarsVisible = controllerState.menuVisible || settings.fullscreen == false`. Opening reader settings sets `menuVisible = true`, so this preserves the Komikku-like fullscreen behavior without reviving an old `optionsVisible` variable.
+- The Compose/native page indicator remains suppressed for `WebViewPublicationReaderViewer`; EPUB/PDF WebView publications keep the organic reader-surface page number as the single visual owner.
+
+Focused checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest
+```
+
+Result: both passed on 2026-06-14 after correcting stale source-contract assertions. No release was triggered.
 
 ## 2026-06-14 Viewer-Owned Movement Actions
 
