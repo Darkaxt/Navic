@@ -53,9 +53,11 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(activeText.contains("KomikkuReaderAppBars("))
 		assertTrue(activeText.contains("KomikkuChapterNavigator("))
 		assertTrue(activeText.contains("KomikkuReaderBottomBar("))
-		assertTrue(activeText.contains("KomikkuReaderPageIndicator("))
 		assertTrue(activeText.contains("Ported from Komikku ReaderAppBars"))
-		assertTrue(activeText.contains("Ported from Komikku ReaderPageIndicator"))
+		assertFalse(
+			activeText.contains("KomikkuReaderPageIndicator("),
+			"Page numbers must stay organic inside the rendered book surface, not as a Compose/mobile overlay."
+		)
 		assertTrue(
 			activeText.contains("ReaderCoordinator("),
 			"Active ReaderScreen.kt must route shell state through ReaderCoordinator instead of local page/menu ownership."
@@ -111,6 +113,25 @@ class ReaderKomikkuBackboneResetTest {
 		assertFalse(
 			activeText.contains("private fun KomikkuReaderGestureLayer"),
 			"The active common reader must not keep Compose as the owner of reader-wide gestures."
+		)
+	}
+
+	@Test
+	fun activeSourceTreeDoesNotKeepLegacyReaderOptionsPanel() {
+		val activeOptionsPanel = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOptionsPanel.kt"
+		)
+		val vaultOptionsPanel = root.resolve(
+			"vault/reader/2026-06-13-pre-komikku-reset/composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOptionsPanel.kt"
+		)
+
+		assertTrue(
+			vaultOptionsPanel.exists(),
+			"The pre-Komikku reader options panel must remain available in the vault for reference."
+		)
+		assertFalse(
+			activeOptionsPanel.exists(),
+			"The active reader tree must not keep the legacy docked ReaderOptionsPanel; Komikku settings live in controller-owned overlay dialogs."
 		)
 	}
 
@@ -642,7 +663,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			readerScreenText.contains("KomikkuReaderSettingsDialog(") &&
-				readerScreenText.contains("controllerState.dialog == ReaderControllerDialog.Settings") &&
+				readerScreenText.contains("ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(") &&
 				readerScreenText.contains("onDismissRequest = onDismissDialog"),
 			"Settings must render as a Komikku-style overlay dialog above the viewer, not as the old docked options panel."
 		)

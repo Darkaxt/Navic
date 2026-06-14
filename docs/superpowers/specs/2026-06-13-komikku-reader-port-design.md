@@ -2311,3 +2311,34 @@ Focused green checks:
 ```
 
 Result: passed on 2026-06-14 after routing Contents, Reading mode, and Settings through controller-owned dialogs, replacing bottom-bar no-op buttons with real callbacks, and wiring top-bar Back through the app nav stack.
+
+## 2026-06-14 Legacy Options Panel Removal
+
+Komikku source behavior for this slice:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`: reader settings are overlay dialogs above the viewer.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt`: settings pages are dialog content driven by reader/controller state.
+
+Navic implication:
+
+- The pre-reset `ReaderOptionsPanel.kt` remains available in `vault/reader/2026-06-13-pre-komikku-reset/...` for reference.
+- The active common source tree no longer keeps `ReaderOptionsPanel.kt`. Keeping that file in active source preserved the old docked settings model and raw `ReaderBridgeCommand` / `ReaderBridgeEvent` imports as an easy escape hatch.
+- Current settings entrypoints stay in `ReaderControllerDialog.Contents`, `ReaderControllerDialog.ReadingMode`, and `ReaderControllerDialog.Settings`.
+- Page-number visual ownership remains unchanged: organic book-surface `# / #`, no Compose/native page-number overlay.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeSourceTreeDoesNotKeepLegacyReaderOptionsPanel"
+```
+
+Result: failed while `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOptionsPanel.kt` still existed in the active source tree.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeSourceTreeDoesNotKeepLegacyReaderOptionsPanel"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Result: passed on 2026-06-14 after deleting the active `ReaderOptionsPanel.kt` file and updating stale reset assertions so they reject Compose page-number ownership and recognize the controller-owned settings dialog route.
