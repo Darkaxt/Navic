@@ -290,6 +290,40 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun previousFromFirstReadablePageReturnsToControllerOwnedShellCoverWithoutFoliateCommand() {
+		val opened = ReaderCoordinator().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).coordinator
+		val firstReadable = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.coordinator
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/titlepage.xhtml",
+						progress = 0.0,
+						pageIndex = 0,
+						pageCount = 411
+					),
+					tocTitle = "Title Page"
+				)
+			).coordinator
+
+		val previous = firstReadable.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(previous.coordinator.viewState)
+
+		assertTrue(previous.coordinator.controller.state.shellCoverVisible)
+		assertNull(viewState.command)
+		assertEquals(0L, viewState.commandKey)
+	}
+
+	@Test
 	fun bridgeEventsFlowFromAdapterIntoControllerWithoutBridgeOwningMenu() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val locator = ReaderLocator(

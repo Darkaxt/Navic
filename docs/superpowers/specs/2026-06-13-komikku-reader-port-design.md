@@ -2411,3 +2411,45 @@ Focused green checks:
 ```
 
 Result: passed on 2026-06-14 after adding cover-scoped native horizontal swipe observation to `KomikkuReaderNativeViewerContainer`.
+
+## 2026-06-14 Controller Cover Return And Frontmatter Page-Number Clamp
+
+User/device evidence addressed in this slice:
+
+- Eta64 could go backward from the first readable EPUB page into the suppressed EPUB cover, leaving a blank reader page with only `1 / n`.
+- Eta64 frontmatter page numbers could jump nonlinearly across section boundaries, for example `2`, `3`, `5`, `6`, `15`.
+
+Navic implication:
+
+- The controller now retains `nativeShellCoverUrl` and `canReturnToShellCover` from `ReaderEngineOpenRequest`.
+- `ReaderController.turnPage(Previous)` intercepts the first-readable-page boundary using `readerShouldReturnToNativeShellCover(...)`; it shows the controller-owned shell cover and emits no Foliate/WebView `PreviousPage` command.
+- The organic page number remains the only visible page number for WebView-backed publications. No Compose/native page-number overlay was restored.
+- `navic-reader.js` now tracks one `recentPageTurnDirection` and lets the next passive `relocate-committed` event clamp across EPUB section/frontmatter boundaries after a real sequential page turn.
+- Explicit links and progress seeks still schedule `go-to` / `progress-seek`, clear the recent page-turn direction, and are allowed to jump.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderCoordinatorTest.previousFromFirstReadablePageReturnsToControllerOwnedShellCoverWithoutFoliateCommand
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns
+```
+
+Results:
+
+- The controller/coordinator test failed before the production change because the controller emitted a Foliate previous-page command instead of restoring shell-cover state.
+- The runtime shell progress test failed before the JS change because passive relocation clamping only allowed same-section clamps and did not preserve a recent sequential page-turn direction.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderCoordinatorTest.previousFromFirstReadablePageReturnsToControllerOwnedShellCoverWithoutFoliateCommand
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.ReaderChromeStateTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns
+```
+
+Results: passed on 2026-06-14.
+
+Broader status:
+
+- `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest` is still red on older source-contract assertions that target the removed pre-reset WebView host/native surface symbols. Do not make those assertions pass by restoring `ReaderWebViewHost` or the old reader surface. Migrate those assertions to the Komikku frame/controller model before treating the full class as a release gate.

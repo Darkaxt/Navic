@@ -629,14 +629,24 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "if (String(reason || '') !== 'relocate-committed') return pagePosition")
 		assertContains(bridgeText, "this.committedRelocateDetail")
 		assertContains(bridgeText, "this.detailSectionKey(detail)")
+		assertContains(bridgeText, "this.recentPageTurnDirection")
+		assertContains(bridgeText, "this.recentPageTurnDirection = direction")
+		assertContains(bridgeText, "const recentPageTurnDirection = this.recentPageTurnDirection")
+		assertContains(bridgeText, "const canClampAcrossSections")
+		assertContains(
+			bridgeText,
+			"if (!sameSection && !canClampAcrossSections) return pagePosition",
+			message = "Passive relocations after sequential page turns must clamp across frontmatter/section boundaries, but unrelated passive jumps must not."
+		)
 		assertContains(bridgeText, "Math.abs(candidatePageIndex - currentPageIndex) <= 1")
-		assertContains(bridgeText, "const direction = candidatePageIndex > currentPageIndex ? 1 : -1")
+		assertContains(bridgeText, "const direction = hasRecentPageTurn")
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))")
 		assertContains(
 			bridgeText,
 			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'go-to')",
 			message = "Link and explicit href navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
 		)
+		assertContains(bridgeText, "this.recentPageTurnDirection = null")
 		assertContains(
 			bridgeText,
 			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'progress-seek')",

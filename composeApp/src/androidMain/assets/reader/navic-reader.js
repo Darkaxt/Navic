@@ -220,6 +220,7 @@ class NavicReaderRuntime {
   pageTurnQueue = []
   pageTurnInProgress = false
   pageTurnDirection = null
+  recentPageTurnDirection = null
   fixedLayoutNavigationPageIndex = null
   fixedLayoutNavigationDirection = null
   suppressedCoverSectionIndexes = new Set()
@@ -354,6 +355,7 @@ class NavicReaderRuntime {
     this.pageTurnQueue = []
     this.pageTurnInProgress = false
     this.pageTurnDirection = null
+    this.recentPageTurnDirection = null
     this.fixedLayoutNavigationPageIndex = null
     this.fixedLayoutNavigationDirection = null
     this.suppressedCoverSectionIndexes = new Set()
@@ -914,6 +916,7 @@ class NavicReaderRuntime {
       } else {
         await this.view?.prev?.()
       }
+      this.recentPageTurnDirection = direction
       this.applyReaderViewportLayout(`page-turn:${direction}`)
       requestAnimationFrame(() => {
         this.logContentLayout(`page-turn:${direction}`)
@@ -1991,9 +1994,21 @@ class NavicReaderRuntime {
     }
     const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
     const candidateSectionKey = this.detailSectionKey(detail)
-    if (!currentSectionKey || currentSectionKey !== candidateSectionKey) return pagePosition
-    if (Math.abs(candidatePageIndex - currentPageIndex) <= 1) return pagePosition
-    const direction = candidatePageIndex > currentPageIndex ? 1 : -1
+    const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)
+    const recentPageTurnDirection = this.recentPageTurnDirection
+    const hasRecentPageTurn = recentPageTurnDirection === 'next' || recentPageTurnDirection === 'previous'
+    const canClampAcrossSections = !sameSection && hasRecentPageTurn
+    if (!sameSection && !canClampAcrossSections) return pagePosition
+    const consumeRecentPageTurn = () => {
+      if (hasRecentPageTurn) this.recentPageTurnDirection = null
+    }
+    if (Math.abs(candidatePageIndex - currentPageIndex) <= 1) {
+      consumeRecentPageTurn()
+      return pagePosition
+    }
+    const direction = hasRecentPageTurn
+      ? (recentPageTurnDirection === 'previous' ? -1 : 1)
+      : (candidatePageIndex > currentPageIndex ? 1 : -1)
     const clampedPageIndex = Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))
     log(
       'page-number:passive-relocate-clamped',
@@ -2002,6 +2017,7 @@ class NavicReaderRuntime {
       `to=${clampedPageIndex + 1}`,
       `section=${candidateSectionKey}`
     )
+    consumeRecentPageTurn()
     return {
       ...pagePosition,
       pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction)),
@@ -2071,6 +2087,9 @@ class NavicReaderRuntime {
 
   tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition, reason = '') {
     try {
+      if (String(reason || '') !== 'relocate-committed' && !String(reason || '').startsWith('page-turn:')) {
+        this.recentPageTurnDirection = null
+      }
       const candidatePagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
       const committedPagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
       const pagePosition = this.passiveCommittedRelocationPosition(committedPagePosition, detail, reason)

@@ -25,6 +25,8 @@ data class ReaderControllerState(
 	val activeEngine: ReaderPublicationFormat? = null,
 	val chrome: ReaderChromeState = ReaderChromeState(),
 	val shellCoverVisible: Boolean = false,
+	val nativeShellCoverUrl: String? = null,
+	val canReturnToShellCover: Boolean = false,
 	val menuVisible: Boolean = false,
 	val dialog: ReaderControllerDialog? = null,
 	val search: ReaderSearchState = ReaderSearchState(),
@@ -80,6 +82,8 @@ data class ReaderController(
 						settings = normalizedRequest.settings
 					),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
+					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
+					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
 					lastContentActionClaim = null
@@ -358,10 +362,30 @@ data class ReaderController(
 	}
 
 	private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =
-		ReaderControllerStep(
-			controller = this,
-			engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
-		)
+		if (
+			direction == ReaderPageTurnDirection.Previous &&
+			state.canReturnToShellCover &&
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = state.nativeShellCoverUrl,
+				shellCoverVisible = state.shellCoverVisible,
+				locator = state.chrome.currentLocator
+			)
+		) {
+			ReaderControllerStep(
+				copy(
+					state = state.copy(
+						shellCoverVisible = true,
+						menuVisible = false,
+						dialog = null
+					)
+				)
+			)
+		} else {
+			ReaderControllerStep(
+				controller = this,
+				engineCommands = listOf(ReaderEngineCommand.TurnPage(direction))
+			)
+		}
 
 	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderControllerStep =
 		ReaderControllerStep(
