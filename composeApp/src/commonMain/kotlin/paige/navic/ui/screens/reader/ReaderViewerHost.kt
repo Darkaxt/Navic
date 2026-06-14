@@ -21,14 +21,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineHostEvent
-import paige.navic.reader.ReaderEngineViewState
-import paige.navic.ui.navigation.Screen
+import paige.navic.reader.ReaderEngineRenderer
 
 @Composable
 fun ReaderViewerHost(
-	reader: Screen.Reader,
+	readerTitle: String,
 	controllerState: ReaderControllerState,
-	viewer: ReaderViewer,
+	engineRenderer: ReaderEngineRenderer,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -38,15 +37,15 @@ fun ReaderViewerHost(
 		contentAlignment = Alignment.Center
 	) {
 		ReaderEngineContent(
-			reader = reader,
-			viewer = viewer,
+			readerTitle = readerTitle,
+			engineRenderer = engineRenderer,
 			onEngineHostEvent = onEngineHostEvent,
 			modifier = Modifier.matchParentSize()
 		)
 
 		if (controllerState.errorMessage != null) {
 			ReaderViewerStatus(
-				title = reader.title,
+				title = readerTitle,
 				primary = "Reader error",
 				secondary = controllerState.errorMessage,
 				modifier = Modifier
@@ -59,18 +58,18 @@ fun ReaderViewerHost(
 
 @Composable
 private fun ReaderEngineContent(
-	reader: Screen.Reader,
-	viewer: ReaderViewer,
+	readerTitle: String,
+	engineRenderer: ReaderEngineRenderer,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	when (viewer) {
-		is EmptyReaderViewer -> Box(
+	when (engineRenderer) {
+		ReaderEngineRenderer.Empty -> Box(
 			modifier = modifier.background(Color(0xFF202329)),
 			contentAlignment = Alignment.Center
 		) {
 			ReaderViewerStatus(
-				title = reader.title,
+				title = readerTitle,
 				primary = "Preparing reader",
 				secondary = "Resolving publication resources for the engine adapter.",
 				modifier = Modifier
@@ -78,18 +77,18 @@ private fun ReaderEngineContent(
 					.padding(24.dp)
 			)
 		}
-		is WebViewPublicationReaderViewer -> ReaderEngineWebViewHost(
-			publicationUrl = viewer.viewState.publicationUrl,
-			title = viewer.viewState.title.ifBlank { reader.title },
-			kind = viewer.viewState.kind,
-			mediaOverlayEnabled = viewer.viewState.mediaOverlayEnabled,
-			externalShellCover = viewer.viewState.externalShellCover,
-			settings = viewer.viewState.settings,
-			startCfi = viewer.viewState.startLocator?.cfi,
-			startHref = viewer.viewState.startLocator?.href,
-			startProgress = viewer.viewState.startLocator?.progress,
-			command = viewer.viewState.command,
-			commandKey = viewer.viewState.commandKey,
+		is ReaderEngineRenderer.FoliatePublication -> ReaderEngineWebViewHost(
+			publicationUrl = engineRenderer.publicationUrl,
+			title = engineRenderer.title.ifBlank { readerTitle },
+			kind = engineRenderer.kind,
+			mediaOverlayEnabled = engineRenderer.mediaOverlayEnabled,
+			externalShellCover = engineRenderer.externalShellCover,
+			settings = engineRenderer.settings,
+			startCfi = engineRenderer.startLocator?.cfi,
+			startHref = engineRenderer.startLocator?.href,
+			startProgress = engineRenderer.startLocator?.progress,
+			command = engineRenderer.command,
+			commandKey = engineRenderer.commandKey,
 			onEvent = onEngineHostEvent,
 			modifier = modifier
 		)

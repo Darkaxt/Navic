@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
+import paige.navic.reader.ReaderEngineRenderer
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowScrolled
@@ -51,6 +52,7 @@ class ReaderViewerLifecycleSlotTest {
 		override var viewState: ReaderEngineViewState,
 		private val destroyed: MutableList<ReaderViewerKey>
 	) : ReaderViewer {
+		override val engineRenderer: ReaderEngineRenderer = ReaderEngineRenderer.Empty
 		override val shellCoverUrl: String? = null
 		override val shellCoverTitle: String? = null
 

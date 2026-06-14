@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderEngineRenderer
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
@@ -34,6 +35,7 @@ data class ReaderViewerKey(
 interface ReaderViewer {
 	val key: ReaderViewerKey
 	val viewState: ReaderEngineViewState
+	val engineRenderer: ReaderEngineRenderer
 	val shellCoverUrl: String?
 	val shellCoverTitle: String?
 	fun withViewState(viewState: ReaderEngineViewState): ReaderViewer
@@ -84,6 +86,7 @@ data class EmptyReaderViewer(
 	override val viewState: ReaderEngineViewState.Empty = ReaderEngineViewState.Empty
 ) : ReaderViewer {
 	override val key: ReaderViewerKey = ReaderViewerKey(ReaderViewerKind.Empty)
+	override val engineRenderer: ReaderEngineRenderer = ReaderEngineRenderer.Empty
 	override val shellCoverUrl: String? = null
 	override val shellCoverTitle: String? = null
 
@@ -105,6 +108,7 @@ sealed class WebViewPublicationReaderViewer(
 		identity = viewState.publicationUrl,
 		mode = viewerMode
 	)
+	override val engineRenderer: ReaderEngineRenderer = ReaderEngineRenderer.FoliatePublication.from(viewState)
 	override val shellCoverUrl: String? = viewState.nativeShellCoverUrl
 	override val shellCoverTitle: String? = viewState.title.takeIf { it.isNotBlank() }
 

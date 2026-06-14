@@ -318,9 +318,9 @@ private fun KomikkuReaderRoot(
 		modifier = Modifier.fillMaxSize(),
 		viewerContent = {
 			ReaderViewerHost(
-				reader = reader,
+				readerTitle = reader.title,
 				controllerState = controllerState,
-				viewer = viewer,
+				engineRenderer = viewer.engineRenderer,
 				onEngineHostEvent = onEngineHostEvent,
 				modifier = Modifier.fillMaxSize()
 			)

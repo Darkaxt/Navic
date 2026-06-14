@@ -65,12 +65,16 @@ class ReaderKomikkuBackboneResetTest {
 			"Publication resolution should be reattached as a runtime input to the controller, not bypassed."
 		)
 		assertTrue(
-			viewerHostText.contains("is WebViewPublicationReaderViewer"),
-			"ReaderViewerHost.kt should mount EPUB through the active publication viewer inside the Komikku viewer slot."
+			viewerHostText.contains("ReaderEngineRenderer.FoliatePublication"),
+			"ReaderViewerHost.kt should mount EPUB through an engine renderer descriptor supplied by the active Komikku viewer."
 		)
 		assertTrue(
 			viewerHostText.contains("ReaderEngineWebViewHost("),
 			"Komikku-mounted EPUB content must use a dedicated engine WebView host, not the legacy reader surface host."
+		)
+		assertFalse(
+			viewerHostText.contains("is WebViewPublicationReaderViewer"),
+			"ReaderViewerHost.kt must not inspect concrete viewer classes; the viewer owns lifecycle/action mapping and supplies an engine renderer descriptor."
 		)
 		assertFalse(
 			activeText.contains("ReaderEngineWebViewHost("),
@@ -107,6 +111,47 @@ class ReaderKomikkuBackboneResetTest {
 		assertFalse(
 			activeText.contains("private fun KomikkuReaderGestureLayer"),
 			"The active common reader must not keep Compose as the owner of reader-wide gestures."
+		)
+	}
+
+	@Test
+	fun readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass() {
+		val readerViewerFile = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"
+		)
+		val readerViewerHost = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
+		)
+		val readerScreen = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		)
+		val viewerText = readerViewerFile.readText()
+		val hostText = readerViewerHost.readText()
+		val screenText = readerScreen.readText()
+
+		assertTrue(
+			viewerText.contains("val engineRenderer: ReaderEngineRenderer"),
+			"Komikku viewers must expose a render-only engine descriptor as their boundary with EPUB/PDF engines."
+		)
+		assertTrue(
+			viewerText.contains("ReaderEngineRenderer.FoliatePublication.from(viewState)"),
+			"Foliate-backed EPUB/PDF viewers must adapt their view state into a renderer descriptor before the host mounts content."
+		)
+		assertTrue(
+			hostText.contains("engineRenderer: ReaderEngineRenderer"),
+			"ReaderViewerHost must consume the engine renderer descriptor, not the concrete viewer implementation."
+		)
+		assertTrue(
+			screenText.contains("engineRenderer = viewer.engineRenderer"),
+			"KomikkuReaderRoot must pass the active viewer's engine renderer descriptor into the viewer container."
+		)
+		assertFalse(
+			hostText.contains("viewer: ReaderViewer"),
+			"ReaderViewerHost must not receive the viewer object; viewer lifecycle and navigation ownership stay outside renderer mounting."
+		)
+		assertFalse(
+			hostText.contains("is WebViewPublicationReaderViewer"),
+			"Renderer mounting must not branch on concrete viewer classes."
 		)
 	}
 
@@ -484,8 +529,12 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			viewerHostText.contains("ReaderEngineWebViewHost(") &&
-				viewerHostText.contains("is WebViewPublicationReaderViewer"),
-			"ReaderViewerHost is the boundary allowed to translate the active publication viewer into a concrete renderer host."
+				viewerHostText.contains("is ReaderEngineRenderer.FoliatePublication"),
+			"ReaderViewerHost is the boundary allowed to translate the active engine renderer descriptor into a concrete renderer host."
+		)
+		assertFalse(
+			viewerHostText.contains("is WebViewPublicationReaderViewer"),
+			"ReaderViewerHost must not branch on concrete viewer classes when mounting renderer content."
 		)
 	}
 
@@ -784,7 +833,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(viewerText.contains("class ReaderViewerLifecycleSlot"))
 		assertTrue(viewerText.contains("fun readerViewerFor("))
 		assertTrue(viewerText.contains("ReaderViewerKind.WebViewPublication"))
-		assertTrue(viewerHostText.contains("viewer: ReaderViewer"))
+		assertTrue(viewerText.contains("val engineRenderer: ReaderEngineRenderer"))
+		assertTrue(viewerHostText.contains("engineRenderer: ReaderEngineRenderer"))
 		assertTrue(viewerHostText.contains("ReaderEngineContent("))
 		assertFalse(
 			viewerHostText.contains("readerViewerFor(") || viewerHostText.contains("DisposableEffect"),
@@ -821,8 +871,8 @@ class ReaderKomikkuBackboneResetTest {
 			"Native tap regions must become viewer-owned actions through the retained active viewer."
 		)
 		assertTrue(
-			readerScreenText.contains("viewer = viewer"),
-			"ReaderViewerHost must receive the retained active viewer from the reader root."
+			readerScreenText.contains("engineRenderer = viewer.engineRenderer"),
+			"ReaderViewerHost must receive the retained active viewer's engine renderer descriptor from the reader root."
 		)
 		assertFalse(
 			readerScreenText.contains("readerViewerFor(viewState).viewerActionFor(action)") ||
@@ -831,8 +881,8 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must not create a throwaway viewer or route native tap regions through the legacy navigation action path."
 		)
 		assertTrue(
-			viewerHostText.contains("viewer: ReaderViewer"),
-			"ReaderViewerHost must mount the active viewer supplied by KomikkuReaderRoot."
+			viewerHostText.contains("engineRenderer: ReaderEngineRenderer"),
+			"ReaderViewerHost must mount renderer content from the active viewer's engine descriptor supplied by KomikkuReaderRoot."
 		)
 		assertFalse(
 			viewerHostText.contains("readerViewerFor(") || viewerHostText.contains("DisposableEffect"),

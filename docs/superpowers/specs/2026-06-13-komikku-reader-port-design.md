@@ -296,6 +296,17 @@ Do not publish another release for isolated cosmetic changes from this list. The
   - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerTopChromeUsesKomikkuBookmarkPageMarkInsteadOfMusicStar`: passed.
   - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBookmarkStateTest --tests paige.navic.reader.ReaderControllerTest.currentBookmarksAreControllerOwnedAndDoNotEmitEngineCommands --tests paige.navic.reader.ReaderCoordinatorTest.currentBookmarkTogglesRouteThroughControllerWithoutEngineBridgeCommands`: passed.
 
+2026-06-14 engine renderer boundary slice:
+
+- Decision: `ReaderViewerHost` no longer receives the concrete `ReaderViewer` or branches on `WebViewPublicationReaderViewer`. Komikku viewers keep lifecycle and tap-action ownership, while content mounting receives only a render-only `ReaderEngineRenderer` descriptor.
+- Code path: `ReaderViewer.engineRenderer` exposes `ReaderEngineRenderer.Empty` or `ReaderEngineRenderer.FoliatePublication.from(viewState)`. `ReaderScreen` passes `engineRenderer = viewer.engineRenderer` into `ReaderViewerHost`; the host maps `ReaderEngineRenderer.FoliatePublication` to `ReaderEngineWebViewHost`.
+- Rationale: this makes the boundary closer to the target `ReaderController` / `ReaderEngine` split. Foliate-backed EPUB/PDF remains an engine capability mounted inside Komikku's viewer container, not a concrete viewer class that the renderer host can inspect or control.
+- Verification:
+  - Red check first failed on `ReaderKomikkuBackboneResetTest.readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass` because `ReaderViewerHost` still inspected `WebViewPublicationReaderViewer`.
+  - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass`: passed.
+  - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.ui.screens.reader.ReaderViewerLifecycleSlotTest`: passed.
+  - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --tests paige.navic.reader.ReaderCoordinatorTest.activeEngineIsSelectedThroughAdapterContractInsteadOfFoliateSpecialCase --tests paige.navic.reader.ReaderCoordinatorTest.pdfPublicationRoutesThroughDefaultPdfEngineAdapter`: passed.
+
 ## Objective
 
 Replace Navic's current reader shell with a Komikku-equivalent reader architecture. This is not a "Komikku-style" visual pass and not another sequence of isolated fixes on the existing `ReaderScreen` scaffold.
