@@ -233,6 +233,41 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun komikkuAppBarsOwnSideNavigatorInMiddleWeightedChromeSlot() {
+		val activeText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val appBarsBody = activeText
+			.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+
+		assertTrue(
+			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())"),
+			"KomikkuReaderAppBars must use Komikku's full-height app-bar column, not a free-floating Box overlay."
+		)
+		assertTrue(
+			appBarsBody.contains("KomikkuNavBarType.VerticalRight ->") &&
+				appBarsBody.contains("modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)"),
+			"The vertical progress navigator must live in the weighted middle chrome slot so it cannot run under the top or bottom bars."
+		)
+		assertTrue(
+			appBarsBody.indexOf("KomikkuReaderTopBar(") <
+				appBarsBody.indexOf("KomikkuChapterNavigator(") &&
+				appBarsBody.indexOf("KomikkuChapterNavigator(") <
+				appBarsBody.indexOf("KomikkuReaderBottomBar("),
+			"Komikku chrome order must stay top bar, middle navigator, bottom bar."
+		)
+		assertFalse(
+			appBarsBody.contains("Box(modifier = modifier)"),
+			"The active Komikku app bars must not mount controls in a full-screen Box that ignores top/bottom chrome height."
+		)
+		assertFalse(
+			appBarsBody.contains(".align(Alignment.CenterEnd)\n\t\t\t\t.fillMaxHeight()"),
+			"The side navigator must not be aligned full-height to the screen edge; that makes it sit under the menus."
+		)
+	}
+
+	@Test
 	fun komikkuEpubEngineHostDoesNotReuseLegacySurfaceGestureLayer() {
 		val platformHosts = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
@@ -397,6 +432,46 @@ class ReaderKomikkuBackboneResetTest {
 			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
 				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
 			"Native frame swipes must emit viewer actions only; Foliate command translation stays behind ReaderEngine."
+		)
+	}
+
+	@Test
+	fun nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val bridgeText = root.resolve(
+			"composeApp/src/androidMain/assets/reader/navic-reader.js"
+		).readText()
+		val viewerContainerBody = androidHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val claimInteractiveTouch = bridgeText
+			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
+			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+
+		assertTrue(
+			androidHostText.contains("private class KomikkuGestureDetectorWithLongTap") &&
+				androidHostText.contains("override fun onLongTapConfirmed(event: MotionEvent)"),
+			"Native reader input must port Komikku's long-tap detector instead of using a plain GestureDetector-only tap fallback."
+		)
+		assertTrue(
+			viewerContainerBody.contains("override fun onInterceptTouchEvent(event: MotionEvent): Boolean") &&
+				viewerContainerBody.contains("nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed"),
+			"Short taps must be intercepted by the native viewer container before WebView can turn them into link/image clicks."
+		)
+		assertTrue(
+			viewerContainerBody.contains("nativeTapLongConfirmed = true") &&
+				viewerContainerBody.contains("performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)"),
+			"Long press must switch the stream back to content behavior and give the same feedback Komikku gives for long tap."
+		)
+		assertTrue(
+			claimInteractiveTouch.contains("if (this.nativeTapZones === true) return false"),
+			"When native tap zones are active, JS must not claim touchstart/pointerdown for links or images; those claims suppress reader-owned short taps."
+		)
+		assertFalse(
+			viewerContainerBody.contains("val handled = super.dispatchTouchEvent(event)\n\t\thandleSwipeTouchEvent(event)\n\t\tgestureDetector.onTouchEvent(event)\n\t\treturn handled"),
+			"The active native frame must not remain a child-first WebView tap fallback that lets content clicks race reader region taps."
 		)
 	}
 

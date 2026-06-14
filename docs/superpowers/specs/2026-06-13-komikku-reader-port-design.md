@@ -2453,3 +2453,56 @@ Results: passed on 2026-06-14.
 Broader status:
 
 - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest` is still red on older source-contract assertions that target the removed pre-reset WebView host/native surface symbols. Do not make those assertions pass by restoring `ReaderWebViewHost` or the old reader surface. Migrate those assertions to the Komikku frame/controller model before treating the full class as a release gate.
+
+## 2026-06-14 Komikku Rail Slot And Native Short-Tap Ownership
+
+User/device evidence addressed in this slice:
+
+- Eta64's side progress rail looked like a mobile scrollbar pinned to the full screen edge; it could run under the top and bottom chrome instead of occupying Komikku's middle reader-appbar slot.
+- EPUB/image/link interaction could still race the reader menu because the WebView saw a normal touch first and JS could claim content ownership before the native tap-zone action.
+- The accepted behavior for this slice is: normal taps are reader-owned native region actions; WebView content interaction should be deliberate long-press behavior instead of ordinary short-tap behavior.
+
+Komikku source behavior used:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt`: app bars are a full-height `Column`; vertical chapter navigation lives in a weighted middle region between top and bottom bars.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/GestureDetectorWithLongTap.kt`: Komikku uses a custom gesture detector to distinguish confirmed short taps from long taps.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/Pager.kt`: confirmed short taps route to reader navigation, while confirmed long taps are a separate viewer/content path.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt`: Komikku has a `readWithLongTap()` reader control; the default is enabled.
+
+Navic implication:
+
+- `KomikkuReaderAppBars(...)` now uses the Komikku full-height `Column` structure instead of a free-floating full-screen `Box`.
+- The vertical `KomikkuChapterNavigator(...)` now sits in the weighted middle chrome slot via `Modifier.weight(1f).align(Alignment.End)`, so it cannot occupy the top/bottom chrome bands.
+- `KomikkuReaderNativeViewerContainer` now ports a `KomikkuGestureDetectorWithLongTap`-equivalent class.
+- The native viewer container intercepts the final `ACTION_UP` for short tap candidates before WebView turns them into link/image clicks.
+- If the press survives long enough to be confirmed as a long tap, the native container marks the stream as long-press content behavior and does not intercept the final `UP`.
+- `navic-reader.js` no longer posts early `readerContentTapHandled` claims from `touchstart` / `pointerdown` / `mousedown` when `nativeTapZones === true`; those early claims conflict with native-owned short taps.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorInMiddleWeightedChromeSlot
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent
+```
+
+Results:
+
+- The rail-slot test failed before the production change because the vertical navigator was mounted with `Modifier.align(Alignment.CenterEnd).fillMaxHeight()` inside a full-screen `Box`.
+- The native short-tap ownership test failed before the production change because the native frame used a plain child-first tap fallback and JS still claimed content touches in native-tap-zone mode.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorInMiddleWeightedChromeSlot
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorInMiddleWeightedChromeSlot --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+git diff --check
+```
+
+Results: passed on 2026-06-14.
+
+Release status:
+
+- This slice has not been compiled into a release APK and has not been device-validated. Do not claim eta64/eta65 behavior from these source checks.
+- Do not trigger a GitHub release for this slice by itself unless it is bundled with enough major reader behavior fixes to justify the pipeline time.

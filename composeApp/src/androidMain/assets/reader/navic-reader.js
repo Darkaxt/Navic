@@ -1173,6 +1173,7 @@ class NavicReaderRuntime {
 
   claimReaderInteractiveContentTouch(doc, event) {
     if (!doc || event?.defaultPrevented || event?.touches?.length > 1) return false
+    if (this.nativeTapZones === true) return false
     const anchor = closestElement(event.target, 'a[href]')
     const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
     if (mediaTapTarget) {

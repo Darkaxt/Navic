@@ -7,7 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -218,6 +221,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var swipeStartX: Float = 0f
 	private var swipeStartY: Float = 0f
 	private var horizontalSwipeDispatched: Boolean = false
+	private var nativeTapCandidate: Boolean = false
+	private var nativeTapLongConfirmed: Boolean = false
+	private var nativeShortTapIntercepted: Boolean = false
 
 	init {
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -244,11 +250,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
-	private val gestureDetector = GestureDetector(
+	private val gestureDetector = KomikkuGestureDetectorWithLongTap(
 		context,
-		object : GestureDetector.SimpleOnGestureListener() {
+		object : KomikkuGestureDetectorWithLongTap.Listener() {
 			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
 				if (width <= 0 || height <= 0) return false
+				if (nativeTapLongConfirmed) return false
 				val action = navigator.getAction(
 					KomikkuPoint(
 						x = (event.x / width.toFloat()).coerceIn(0f, 1f),
@@ -258,14 +265,54 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				onAction(action)
 				return true
 			}
+
+			override fun onLongTapConfirmed(event: MotionEvent) {
+				nativeTapLongConfirmed = true
+				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+			}
 		}
 	)
+
+	override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+		when (event.actionMasked) {
+			MotionEvent.ACTION_DOWN -> {
+				nativeTapCandidate = true
+				nativeTapLongConfirmed = false
+				nativeShortTapIntercepted = false
+				swipeStartX = event.x
+				swipeStartY = event.y
+				return false
+			}
+			MotionEvent.ACTION_MOVE -> {
+				if (nativeTapMovedBeyondSlop(event.x, event.y)) {
+					nativeTapCandidate = false
+				}
+				return false
+			}
+			MotionEvent.ACTION_UP -> {
+				nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed
+				return nativeShortTapIntercepted
+			}
+			MotionEvent.ACTION_CANCEL,
+			MotionEvent.ACTION_POINTER_DOWN -> {
+				clearNativeTapState()
+				return false
+			}
+			else -> return false
+		}
+	}
+
+	override fun onTouchEvent(event: MotionEvent): Boolean = true
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val handled = super.dispatchTouchEvent(event)
 		handleSwipeTouchEvent(event)
 		gestureDetector.onTouchEvent(event)
-		return handled
+		val consumed = handled || nativeShortTapIntercepted
+		if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+			clearNativeTapState()
+		}
+		return consumed
 	}
 
 	private fun handleSwipeTouchEvent(event: MotionEvent) {
@@ -306,10 +353,67 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		return true
 	}
 
+	private fun nativeTapMovedBeyondSlop(x: Float, y: Float): Boolean =
+		abs(x - swipeStartX) > touchSlopPx || abs(y - swipeStartY) > touchSlopPx
+
+	private fun clearNativeTapState() {
+		nativeTapCandidate = false
+		nativeTapLongConfirmed = false
+		nativeShortTapIntercepted = false
+	}
+
 	private fun clearSwipeTouchState() {
 		horizontalSwipeDispatched = false
 		swipeStartX = 0f
 		swipeStartY = 0f
+	}
+}
+
+private class KomikkuGestureDetectorWithLongTap(
+	context: Context,
+	private val listener: Listener
+) : GestureDetector(context, listener) {
+	private val handler = Handler(Looper.getMainLooper())
+	private val slop = ViewConfiguration.get(context).scaledTouchSlop
+	private val longTapTime = ViewConfiguration.getLongPressTimeout().toLong()
+	private val doubleTapTime = ViewConfiguration.getDoubleTapTimeout().toLong()
+	private var downX = 0f
+	private var downY = 0f
+	private var lastUp = 0L
+	private var lastDownEvent: MotionEvent? = null
+	private val longTapFn = Runnable {
+		lastDownEvent?.let(listener::onLongTapConfirmed)
+	}
+
+	override fun onTouchEvent(ev: MotionEvent): Boolean {
+		when (ev.actionMasked) {
+			MotionEvent.ACTION_DOWN -> {
+				lastDownEvent?.recycle()
+				lastDownEvent = MotionEvent.obtain(ev)
+				if (ev.downTime - lastUp > doubleTapTime) {
+					downX = ev.x
+					downY = ev.y
+					handler.postDelayed(longTapFn, longTapTime)
+				}
+			}
+			MotionEvent.ACTION_MOVE -> {
+				if (abs(ev.x - downX) > slop || abs(ev.y - downY) > slop) {
+					handler.removeCallbacks(longTapFn)
+				}
+			}
+			MotionEvent.ACTION_UP -> {
+				lastUp = ev.eventTime
+				handler.removeCallbacks(longTapFn)
+			}
+			MotionEvent.ACTION_CANCEL,
+			MotionEvent.ACTION_POINTER_DOWN -> handler.removeCallbacks(longTapFn)
+		}
+		return super.onTouchEvent(ev)
+	}
+
+	open class Listener : SimpleOnGestureListener() {
+		open fun onLongTapConfirmed(event: MotionEvent) {
+		}
 	}
 }
 
