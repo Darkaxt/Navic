@@ -53,6 +53,12 @@ data class ReaderCoordinator(
 	fun applySettings(settings: ReaderSettings): ReaderCoordinatorStep =
 		applyControllerStep(controller.applySettings(settings))
 
+	fun openContentsDialog(): ReaderCoordinatorStep =
+		applyControllerStep(controller.openContentsDialog())
+
+	fun openReadingModeDialog(): ReaderCoordinatorStep =
+		applyControllerStep(controller.openReadingModeDialog())
+
 	fun openSettingsDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openSettingsDialog())
 

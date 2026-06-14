@@ -343,6 +343,22 @@ class ReaderCoordinatorTest {
 		assertEquals("Chapter 1", overlay.controller.state.audioMetadataLabel)
 	}
 
+	@Test
+	fun bottomBarDialogsRouteThroughControllerWithoutEngineCommands() {
+		val coordinator = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+
+		val contents = coordinator.openContentsDialog().coordinator
+		val readingMode = contents.openReadingModeDialog().coordinator
+		val settings = readingMode.openSettingsDialog().coordinator
+
+		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
+		assertEquals(ReaderControllerDialog.ReadingMode, readingMode.controller.state.dialog)
+		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
+		assertEquals(coordinator.viewState, contents.viewState)
+		assertEquals(contents.viewState, readingMode.viewState)
+		assertEquals(readingMode.viewState, settings.viewState)
+	}
+
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =
 		ReaderEngineOpenRequest(
 			publication = ReaderPublicationIdentity(

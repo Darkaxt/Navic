@@ -79,7 +79,31 @@ class ReaderViewerTest {
 		assertFalse(
 			viewerSource.contains("shouldShowNativeReaderPageIndicator"),
 			"Reader page numbers must stay on the book surface. The viewer model must not keep " +
-				"a native page-indicator policy hook for the Compose shell."
+			"a native page-indicator policy hook for the Compose shell."
+		)
+	}
+
+	@Test
+	fun komikkuBottomBarActionsAreNotDeadButtons() {
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+
+		assertFalse(
+			screenSource.contains("IconButton(onClick = {}) {\n\t\t\t\tIcon(Icons.Outlined.List"),
+			"Komikku bottom-bar contents action must route through the controller, not a no-op button."
+		)
+		assertFalse(
+			screenSource.contains("IconButton(onClick = {}) {\n\t\t\t\tIcon(Icons.Outlined.Book"),
+			"Komikku bottom-bar reading-mode action must route through the controller, not a no-op button."
+		)
+	}
+
+	@Test
+	fun komikkuReaderChromeDoesNotKeepDeadIconButtons() {
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+
+		assertFalse(
+			screenSource.contains("IconButton(onClick = {})"),
+			"Komikku reader chrome actions must route through controller/navigation callbacks, not no-op buttons."
 		)
 	}
 

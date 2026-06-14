@@ -2267,3 +2267,47 @@ Focused green checks:
 ```
 
 Result: passed on 2026-06-14 after deleting the Compose page indicator implementation, removing the native page-indicator policy hook, and leaving page-number visuals to the book surface.
+
+## 2026-06-14 Bottom Bar Dialog Ownership
+
+Komikku source behavior for this slice:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderBottomBar.kt`: bottom-bar icons dispatch callbacks such as `onClickChapterList`, `onClickReadingMode`, and `onClickSettings`; they are not visual-only buttons.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt`: those callbacks are supplied by the reader layer alongside the chapter navigator and settings controls.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`: reader settings are a tabbed overlay dialog above content, not a docked panel that resizes the viewer.
+
+Navic implication:
+
+- Page-number visual ownership remains fixed: the preferred page number is the organic `# / #` mark that looks printed/layered into the book page surface. Do not replace it with a native/mobile UI overlay while reshaping the Komikku chrome.
+- `ReaderControllerDialog` now has `Contents`, `ReadingMode`, and `Settings`, all controller-owned and engine-command-free.
+- `ReaderCoordinator` exposes `openContentsDialog()`, `openReadingModeDialog()`, and `openSettingsDialog()` as controller routes.
+- `ReaderScreen` no longer renders dead bottom-bar `IconButton(onClick = {})` actions for Contents or Reading mode, and the top-bar Back action is routed through the app `LocalNavStack`.
+- Contents opens a Komikku-style overlay listing the controller-owned TOC and navigates by emitting a controller/coordinator `NavigateTo(ReaderLocator(href = ...))` command.
+- Reading mode opens the tabbed settings dialog on tab 0; Settings opens the same dialog on tab 1. This keeps the overlay model unified while preventing the bottom buttons from becoming fake chrome.
+- Reader chrome actions may not be decorative-only. Source tests now guard against `IconButton(onClick = {})` in `ReaderScreen.kt`.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog --tests paige.navic.reader.ReaderCoordinatorTest.bottomBarDialogsRouteThroughControllerWithoutEngineCommands --tests paige.navic.reader.ReaderViewerTest.komikkuBottomBarActionsAreNotDeadButtons
+```
+
+Result: failed before the production changes because `openContentsDialog`, `ReaderControllerDialog.Contents`, and `ReaderControllerDialog.ReadingMode` did not exist.
+
+Additional red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest.komikkuReaderChromeDoesNotKeepDeadIconButtons
+```
+
+Result: failed while the top-bar Back icon was still `IconButton(onClick = {})`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog --tests paige.navic.reader.ReaderCoordinatorTest.bottomBarDialogsRouteThroughControllerWithoutEngineCommands --tests paige.navic.reader.ReaderViewerTest.komikkuBottomBarActionsAreNotDeadButtons
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest.komikkuReaderChromeDoesNotKeepDeadIconButtons
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --tests paige.navic.ui.screens.reader.ReaderOpenRequestFactoryTest
+```
+
+Result: passed on 2026-06-14 after routing Contents, Reading mode, and Settings through controller-owned dialogs, replacing bottom-bar no-op buttons with real callbacks, and wiring top-bar Back through the app nav stack.

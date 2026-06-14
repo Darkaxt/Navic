@@ -15,6 +15,8 @@ data class ReaderSelection(
 )
 
 enum class ReaderControllerDialog {
+	Contents,
+	ReadingMode,
 	Settings
 }
 
@@ -313,11 +315,20 @@ data class ReaderController(
 		)
 	}
 
+	fun openContentsDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.Contents)
+
+	fun openReadingModeDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.ReadingMode)
+
 	fun openSettingsDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.Settings)
+
+	private fun openDialog(dialog: ReaderControllerDialog): ReaderControllerStep =
 		ReaderControllerStep(
 			copy(
 				state = state.copy(
-					dialog = ReaderControllerDialog.Settings,
+					dialog = dialog,
 					menuVisible = true
 				)
 			)

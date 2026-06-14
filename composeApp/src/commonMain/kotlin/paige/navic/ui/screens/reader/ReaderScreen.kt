@@ -11,6 +11,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import paige.navic.LocalNavStack
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.icons.Icons
@@ -102,6 +106,7 @@ import paige.navic.reader.ReaderTapZoneEdge
 import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
+import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.applyReaderCoordinatorStep
 import paige.navic.reader.bestReaderStartLocator
@@ -185,6 +190,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		mutableStateOf(ReaderCoordinator())
 	}
 	val binderyRepository = koinInject<BinderyRepository>()
+	val backStack = LocalNavStack.current
 	val coroutineScope = rememberCoroutineScope()
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
@@ -262,8 +268,26 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onGoToProgress = { progress ->
 			applyCoordinatorStep(coordinator.navigateTo(ReaderLocator(progress = progress)))
 		},
+		onContents = {
+			applyCoordinatorStep(coordinator.openContentsDialog())
+		},
+		onReadingMode = {
+			applyCoordinatorStep(coordinator.openReadingModeDialog())
+		},
+		onNavigateBack = {
+			if (backStack.size > 1) {
+				backStack.removeLastOrNull()
+			}
+		},
 		onSettings = {
 			applyCoordinatorStep(coordinator.openSettingsDialog())
+		},
+		onNavigateToTocItem = { tocItem ->
+			tocItem.href?.let { href ->
+				val navigateStep = coordinator.navigateTo(ReaderLocator(href = href))
+				applyCoordinatorStep(navigateStep)
+				applyCoordinatorStep(navigateStep.coordinator.closeDialog())
+			}
 		},
 		onToggleCurrentBookmark = {
 			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
@@ -288,7 +312,11 @@ private fun KomikkuReaderRoot(
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
+	onContents: () -> Unit,
+	onReadingMode: () -> Unit,
+	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
+	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onDismissDialog: () -> Unit
@@ -329,7 +357,11 @@ private fun KomikkuReaderRoot(
 				onPreviousPage = onPreviousPage,
 				onNextPage = onNextPage,
 				onGoToProgress = onGoToProgress,
+				onContents = onContents,
+				onReadingMode = onReadingMode,
+				onNavigateBack = onNavigateBack,
 				onSettings = onSettings,
+				onNavigateToTocItem = onNavigateToTocItem,
 				onToggleCurrentBookmark = onToggleCurrentBookmark,
 				onSettingsChange = onSettingsChange,
 				onDismissDialog = onDismissDialog,
@@ -355,7 +387,11 @@ private fun KomikkuComposeOverlay(
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
+	onContents: () -> Unit,
+	onReadingMode: () -> Unit,
+	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
+	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onDismissDialog: () -> Unit,
@@ -375,16 +411,32 @@ private fun KomikkuComposeOverlay(
 			onPreviousPage = onPreviousPage,
 			onNextPage = onNextPage,
 			onGoToProgress = onGoToProgress,
+			onContents = onContents,
+			onReadingMode = onReadingMode,
+			onNavigateBack = onNavigateBack,
 			onSettings = onSettings,
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
-		if (controllerState.dialog == ReaderControllerDialog.Settings) {
-			KomikkuReaderSettingsDialog(
+		when (controllerState.dialog) {
+			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(
+				toc = controllerState.toc,
+				onNavigateTo = onNavigateToTocItem,
+				onDismissRequest = onDismissDialog
+			)
+			ReaderControllerDialog.ReadingMode -> KomikkuReaderSettingsDialog(
 				settings = controllerState.chrome.settings,
+				initialTab = 0,
 				onSettingsChange = onSettingsChange,
 				onDismissRequest = onDismissDialog
 			)
+			ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(
+				settings = controllerState.chrome.settings,
+				initialTab = 1,
+				onSettingsChange = onSettingsChange,
+				onDismissRequest = onDismissDialog
+			)
+			null -> Unit
 		}
 	}
 }
@@ -421,6 +473,9 @@ private fun KomikkuReaderAppBars(
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
+	onContents: () -> Unit,
+	onReadingMode: () -> Unit,
+	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	modifier: Modifier = Modifier
@@ -448,6 +503,7 @@ private fun KomikkuReaderAppBars(
 				chapterTitle = chapterTitle,
 				bookmarked = controllerState.currentLocationBookmarked,
 				canBookmark = controllerState.canBookmarkCurrentLocation,
+				onNavigateBack = onNavigateBack,
 				onToggleBookmarked = onToggleCurrentBookmark,
 				modifier = Modifier.fillMaxWidth()
 			)
@@ -489,6 +545,8 @@ private fun KomikkuReaderAppBars(
 			modifier = Modifier.align(Alignment.BottomCenter)
 		) {
 			KomikkuReaderBottomBar(
+				onContents = onContents,
+				onReadingMode = onReadingMode,
 				onSettings = onSettings,
 				modifier = Modifier.fillMaxWidth()
 			)
@@ -502,6 +560,7 @@ private fun KomikkuReaderTopBar(
 	chapterTitle: String,
 	bookmarked: Boolean,
 	canBookmark: Boolean,
+	onNavigateBack: () -> Unit,
 	onToggleBookmarked: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -520,7 +579,7 @@ private fun KomikkuReaderTopBar(
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(14.dp)
 		) {
-			IconButton(onClick = {}) {
+			IconButton(onClick = onNavigateBack) {
 				Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
 			}
 			Column(
@@ -556,6 +615,8 @@ private fun KomikkuReaderTopBar(
 
 @Composable
 private fun KomikkuReaderBottomBar(
+	onContents: () -> Unit,
+	onReadingMode: () -> Unit,
 	onSettings: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -576,10 +637,10 @@ private fun KomikkuReaderBottomBar(
 			horizontalArrangement = Arrangement.SpaceEvenly,
 			verticalAlignment = Alignment.CenterVertically
 		) {
-			IconButton(onClick = {}) {
+			IconButton(onClick = onContents) {
 				Icon(Icons.Outlined.List, contentDescription = "Contents", tint = iconColor)
 			}
-			IconButton(onClick = {}) {
+			IconButton(onClick = onReadingMode) {
 				Icon(Icons.Outlined.Book, contentDescription = "Reading mode", tint = iconColor)
 			}
 			IconButton(onClick = onSettings) {
@@ -591,14 +652,85 @@ private fun KomikkuReaderBottomBar(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun KomikkuReaderContentsDialog(
+	toc: List<ReaderTocItem>,
+	onNavigateTo: (ReaderTocItem) -> Unit,
+	onDismissRequest: () -> Unit
+) {
+	BasicAlertDialog(onDismissRequest = onDismissRequest) {
+		Surface(
+			shape = RoundedCornerShape(28.dp),
+			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+			contentColor = MaterialTheme.colorScheme.onSurface,
+			modifier = Modifier.fillMaxWidth(0.78f)
+		) {
+			Column(
+				modifier = Modifier
+					.heightIn(max = 520.dp)
+					.padding(horizontal = 24.dp, vertical = 20.dp),
+				verticalArrangement = Arrangement.spacedBy(14.dp)
+			) {
+				Text(
+					text = "Contents",
+					style = MaterialTheme.typography.titleMedium,
+					fontWeight = FontWeight.Bold
+				)
+				Column(
+					modifier = Modifier
+						.weight(1f, fill = false)
+						.verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(4.dp)
+				) {
+					if (toc.isEmpty()) {
+						KomikkuSettingsDialogLine("No table of contents available")
+					} else {
+						toc.forEach { item ->
+							Text(
+								text = item.title,
+								style = MaterialTheme.typography.bodyLarge,
+								color = if (item.href.isNullOrBlank()) {
+									MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f)
+								} else {
+									MaterialTheme.colorScheme.onSurface
+								},
+								modifier = Modifier
+									.fillMaxWidth()
+									.clip(RoundedCornerShape(14.dp))
+									.clickable(enabled = !item.href.isNullOrBlank()) {
+										onNavigateTo(item)
+									}
+									.padding(
+										start = (item.level.coerceAtLeast(0) * 16).dp,
+										top = 10.dp,
+										end = 10.dp,
+										bottom = 10.dp
+									)
+							)
+						}
+					}
+				}
+				TextButton(
+					onClick = onDismissRequest,
+					modifier = Modifier.align(Alignment.End)
+				) {
+					Text("Close")
+				}
+			}
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun KomikkuReaderSettingsDialog(
 	settings: ReaderSettings,
+	initialTab: Int,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
 	// Ported from Komikku ReaderSettingsDialog: tabbed overlay above content, never a docked panel.
 	val tabs = listOf("Reading mode", "General", "Custom filter")
-	var selectedTab by remember { mutableStateOf(0) }
+	var selectedTab by remember(initialTab) { mutableStateOf(initialTab.coerceIn(tabs.indices)) }
 
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
 		Surface(

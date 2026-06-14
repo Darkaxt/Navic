@@ -244,12 +244,20 @@ class ReaderControllerTest {
 
 	@Test
 	fun settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog() {
-		val opened = ReaderController().openSettingsDialog()
-		val dismissed = opened.controller.closeDialog()
+		val contents = ReaderController().openContentsDialog()
+		val readingMode = contents.controller.openReadingModeDialog()
+		val settings = readingMode.controller.openSettingsDialog()
+		val dismissed = settings.controller.closeDialog()
 
-		assertEquals(ReaderControllerDialog.Settings, opened.controller.state.dialog)
-		assertTrue(opened.controller.state.menuVisible)
-		assertEquals(emptyList(), opened.engineCommands)
+		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
+		assertTrue(contents.controller.state.menuVisible)
+		assertEquals(emptyList(), contents.engineCommands)
+		assertEquals(ReaderControllerDialog.ReadingMode, readingMode.controller.state.dialog)
+		assertTrue(readingMode.controller.state.menuVisible)
+		assertEquals(emptyList(), readingMode.engineCommands)
+		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
+		assertTrue(settings.controller.state.menuVisible)
+		assertEquals(emptyList(), settings.engineCommands)
 		assertNull(dismissed.controller.state.dialog)
 		assertTrue(dismissed.controller.state.menuVisible)
 		assertEquals(emptyList(), dismissed.engineCommands)
