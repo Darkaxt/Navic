@@ -284,8 +284,17 @@ Do not publish another release for isolated cosmetic changes from this list. The
 2026-06-14 page-number slice:
 
 - Decision: keep the organic reader-surface page number and remove the duplicate Compose/mobile page indicator for WebView publications.
-- Rationale: the user prefers the page number that looks printed into the book surface, especially because it can inherit the ebook font. The controller still owns normalized page/progress state; this is a visual ownership exception, not permission for WebView/Foliate to own progress UI.
+- Rationale: the user prefers the page number that looks printed into the book surface, not a mobile UI overlay, especially because it can inherit the ebook font. The controller still owns normalized page/progress state; this is a visual ownership exception, not permission for WebView/Foliate to own progress UI.
 - Code guardrail: `shouldShowNativeReaderPageIndicator(...)` returns false for `WebViewPublicationReaderViewer`, and `ReaderViewerTest.webViewPublicationKeepsOrganicPageIndicatorInsideReaderSurface` prevents reintroducing the duplicate native overlay.
+
+2026-06-14 bookmark/page-mark slice:
+
+- Source reference: Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderTopBar.kt` uses `Icons.Outlined.Bookmark` / `Icons.Outlined.BookmarkBorder`, a `bookmarked` state, and `onToggleBookmarked`.
+- Decision: reader chrome uses a page-mark/bookmark affordance, not Navic's music favorite star. Music favorite semantics stay out of ebook chrome.
+- Code path: `ReaderScreen` now routes the top-right page mark through `coordinator.toggleCurrentBookmark()`, `controllerState.currentLocationBookmarked`, and `controllerState.canBookmarkCurrentLocation`.
+- Verification:
+  - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerTopChromeUsesKomikkuBookmarkPageMarkInsteadOfMusicStar`: passed.
+  - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBookmarkStateTest --tests paige.navic.reader.ReaderControllerTest.currentBookmarksAreControllerOwnedAndDoNotEmitEngineCommands --tests paige.navic.reader.ReaderCoordinatorTest.currentBookmarkTogglesRouteThroughControllerWithoutEngineBridgeCommands`: passed.
 
 ## Objective
 

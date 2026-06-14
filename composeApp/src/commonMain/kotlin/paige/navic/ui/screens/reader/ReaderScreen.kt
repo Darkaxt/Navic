@@ -77,8 +77,9 @@ import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.Bookmark
+import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.List
-import paige.navic.icons.outlined.Star
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderCoordinator
@@ -267,6 +268,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onSettings = {
 			applyCoordinatorStep(coordinator.openSettingsDialog())
 		},
+		onToggleCurrentBookmark = {
+			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
+		},
 		onSettingsChange = { settings ->
 			applyCoordinatorStep(coordinator.applySettings(settings))
 		},
@@ -288,6 +292,7 @@ private fun KomikkuReaderRoot(
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
 	onSettings: () -> Unit,
+	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onDismissDialog: () -> Unit
 ) {
@@ -329,6 +334,7 @@ private fun KomikkuReaderRoot(
 				onNextPage = onNextPage,
 				onGoToProgress = onGoToProgress,
 				onSettings = onSettings,
+				onToggleCurrentBookmark = onToggleCurrentBookmark,
 				onSettingsChange = onSettingsChange,
 				onDismissDialog = onDismissDialog,
 				modifier = Modifier.fillMaxSize()
@@ -355,6 +361,7 @@ private fun KomikkuComposeOverlay(
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
 	onSettings: () -> Unit,
+	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
@@ -391,6 +398,7 @@ private fun KomikkuComposeOverlay(
 			onNextPage = onNextPage,
 			onGoToProgress = onGoToProgress,
 			onSettings = onSettings,
+			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
 		if (controllerState.dialog == ReaderControllerDialog.Settings) {
@@ -436,6 +444,7 @@ private fun KomikkuReaderAppBars(
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
 	onSettings: () -> Unit,
+	onToggleCurrentBookmark: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	// Ported from Komikku ReaderAppBars: all controls are overlays, never content padding.
@@ -459,6 +468,9 @@ private fun KomikkuReaderAppBars(
 			KomikkuReaderTopBar(
 				title = reader.title,
 				chapterTitle = chapterTitle,
+				bookmarked = controllerState.currentLocationBookmarked,
+				canBookmark = controllerState.canBookmarkCurrentLocation,
+				onToggleBookmarked = onToggleCurrentBookmark,
 				modifier = Modifier.fillMaxWidth()
 			)
 		}
@@ -510,6 +522,9 @@ private fun KomikkuReaderAppBars(
 private fun KomikkuReaderTopBar(
 	title: String,
 	chapterTitle: String,
+	bookmarked: Boolean,
+	canBookmark: Boolean,
+	onToggleBookmarked: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	val backgroundColor = MaterialTheme.colorScheme
@@ -548,8 +563,14 @@ private fun KomikkuReaderTopBar(
 					overflow = TextOverflow.Ellipsis
 				)
 			}
-			IconButton(onClick = {}) {
-				Icon(Icons.Outlined.Star, contentDescription = "Bookmark")
+			IconButton(
+				enabled = canBookmark,
+				onClick = onToggleBookmarked
+			) {
+				Icon(
+					if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+					contentDescription = if (bookmarked) "Remove bookmark" else "Bookmark"
+				)
 			}
 		}
 	}

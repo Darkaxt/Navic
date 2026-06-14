@@ -111,6 +111,29 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerTopChromeUsesKomikkuBookmarkPageMarkInsteadOfMusicStar() {
+		val activeReaderScreen = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		)
+		val activeText = activeReaderScreen.readText()
+		val topBarBody = activeText
+			.substringAfter("private fun KomikkuReaderTopBar(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
+
+		assertTrue(activeText.contains("onToggleCurrentBookmark = {"))
+		assertTrue(activeText.contains("coordinator.toggleCurrentBookmark()"))
+		assertTrue(topBarBody.contains("bookmarked: Boolean"))
+		assertTrue(topBarBody.contains("canBookmark: Boolean"))
+		assertTrue(topBarBody.contains("onToggleBookmarked: () -> Unit"))
+		assertTrue(topBarBody.contains("Icons.Outlined.Bookmark"))
+		assertTrue(topBarBody.contains("Icons.Outlined.BookmarkBorder"))
+		assertFalse(
+			topBarBody.contains("Icons.Outlined.Star") || topBarBody.contains("Icons.Filled.Star"),
+			"Reader top chrome must use Komikku's bookmark/page-mark affordance, not the music favorite star."
+		)
+	}
+
+	@Test
 	fun komikkuEpubEngineHostDoesNotReuseLegacySurfaceGestureLayer() {
 		val platformHosts = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
