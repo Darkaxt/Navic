@@ -2379,3 +2379,35 @@ Result: passed on 2026-06-14 after deleting the active legacy WebView host expec
 Full-suite note:
 
 - `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost` is currently not green on this reset branch. It reports stale tests that still assert the removed docked options panel and pre-Komikku `ReaderWebViewHost` internals. Do not satisfy those tests by resurrecting the old host or the old options panel; migrate or delete stale assertions as the Komikku backbone replaces those responsibilities.
+
+## 2026-06-14 Native Cover Swipe Through Komikku Frame
+
+Komikku source behavior for this slice:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/Pager.kt`: Komikku dispatches the event to child/page content first, then runs the viewer gesture detector.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerViewer.kt`: confirmed gestures are translated through `ViewerNavigation.NavigationRegion` into viewer actions such as menu, next, previous, left, and right.
+
+Navic implication:
+
+- `KomikkuReaderNativeViewerContainer.dispatchTouchEvent(...)` remains child-first: it calls `super.dispatchTouchEvent(event)` before native gesture handling.
+- Horizontal shell-cover drags now observe `ACTION_DOWN`/`ACTION_MOVE`/`ACTION_UP` with Android `ViewConfiguration.scaledTouchSlop`.
+- A left drag over the shell cover emits `KomikkuNavigationRegion.NEXT`; a right drag emits `KomikkuNavigationRegion.PREV`. The common shell still translates those regions through the active `ReaderViewer.viewerActionFor(...)`.
+- This slice intentionally scopes native swipe dispatch to the shell-cover view while EPUB/PDF WebView pages still own their current drag stream. That avoids double page turns on normal text pages until the concrete EPUB/PDF viewer fully owns pager movement.
+- Native cover swipe still requires device validation in an installed APK. The source-level change proves the callback path exists; it does not claim that eta64 or any already-installed build has working cover drag.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameDispatchesHorizontalSwipesThroughViewerActionBoundary"
+```
+
+Result: first failed while the native frame had no horizontal swipe dispatch, then failed again after adding broad dispatch because the test requires shell-cover scoping to avoid double-turning WebView pages.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameDispatchesHorizontalSwipesThroughViewerActionBoundary"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest
+```
+
+Result: passed on 2026-06-14 after adding cover-scoped native horizontal swipe observation to `KomikkuReaderNativeViewerContainer`.

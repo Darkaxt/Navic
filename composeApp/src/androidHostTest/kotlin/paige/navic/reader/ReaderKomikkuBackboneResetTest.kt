@@ -353,6 +353,54 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun nativeKomikkuFrameDispatchesHorizontalSwipesThroughViewerActionBoundary() {
+		val androidHost = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		)
+		val androidText = androidHost.readText()
+		val viewerContainerBody = androidText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val dispatchTouchEvent = viewerContainerBody
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate val gestureDetector")
+
+		assertTrue(
+			viewerContainerBody.contains("ViewConfiguration.get(context).scaledTouchSlop"),
+			"Komikku-native swipe dispatch must use Android's touch slop, not a hard-coded reader surface threshold."
+		)
+		assertTrue(viewerContainerBody.contains("MotionEvent.ACTION_DOWN"))
+		assertTrue(viewerContainerBody.contains("MotionEvent.ACTION_MOVE"))
+		assertTrue(viewerContainerBody.contains("MotionEvent.ACTION_UP"))
+		assertTrue(viewerContainerBody.contains("MotionEvent.ACTION_CANCEL"))
+		assertTrue(
+			viewerContainerBody.contains("dispatchHorizontalSwipeViewerAction("),
+			"Horizontal drags must be routed by the native viewer container before the engine bridge sees any page command."
+		)
+		assertTrue(
+			viewerContainerBody.contains("shellCoverView?.visibility != VISIBLE"),
+			"Until concrete EPUB/PDF viewers own drag movement, native horizontal swipe dispatch must be scoped to the shell cover to avoid double-turning WebView pages."
+		)
+		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.NEXT)"))
+		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.PREV)"))
+		assertTrue(
+			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)"),
+			"Swipe observation must stay child-first like Komikku's Pager.dispatchTouchEvent."
+		)
+		assertTrue(
+			dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)") <
+				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
+			"Swipe handling should cancel tap detection before the single-tap gesture detector can open chrome."
+		)
+		assertFalse(
+			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
+				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
+			"Native frame swipes must emit viewer actions only; Foliate command translation stays behind ReaderEngine."
+		)
+	}
+
+	@Test
 	fun commonControllerCoordinatorAndChromeDoNotExposeRawFoliateBridgeCommands() {
 		val controllerText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt"

@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
@@ -210,8 +211,13 @@ private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 
 private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout(context) {
 	private val viewerContentContainer = FrameLayout(context)
+	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
+	private var shellCoverView: View? = null
+	private var swipeStartX: Float = 0f
+	private var swipeStartY: Float = 0f
+	private var horizontalSwipeDispatched: Boolean = false
 
 	init {
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -222,6 +228,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun setShellCoverView(shellCoverView: View) {
+		this.shellCoverView = shellCoverView
 		(shellCoverView.parent as? ViewGroup)?.removeView(shellCoverView)
 		addView(
 			shellCoverView,
@@ -256,8 +263,53 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val handled = super.dispatchTouchEvent(event)
+		handleSwipeTouchEvent(event)
 		gestureDetector.onTouchEvent(event)
 		return handled
+	}
+
+	private fun handleSwipeTouchEvent(event: MotionEvent) {
+		if (shellCoverView?.visibility != VISIBLE) return
+		when (event.actionMasked) {
+			MotionEvent.ACTION_DOWN -> {
+				swipeStartX = event.x
+				swipeStartY = event.y
+				horizontalSwipeDispatched = false
+			}
+			MotionEvent.ACTION_MOVE,
+			MotionEvent.ACTION_UP -> {
+				if (!horizontalSwipeDispatched) {
+					dispatchHorizontalSwipeViewerAction(
+						deltaX = event.x - swipeStartX,
+						deltaY = event.y - swipeStartY
+					)
+				}
+				if (event.actionMasked == MotionEvent.ACTION_UP) {
+					clearSwipeTouchState()
+				}
+			}
+			MotionEvent.ACTION_CANCEL,
+			MotionEvent.ACTION_POINTER_DOWN -> clearSwipeTouchState()
+		}
+	}
+
+	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
+		val absoluteX = abs(deltaX)
+		val absoluteY = abs(deltaY)
+		if (absoluteX <= touchSlopPx || absoluteX <= absoluteY) return false
+		horizontalSwipeDispatched = true
+		if (deltaX < 0f) {
+			onAction(KomikkuNavigationRegion.NEXT)
+		} else {
+			onAction(KomikkuNavigationRegion.PREV)
+		}
+		return true
+	}
+
+	private fun clearSwipeTouchState() {
+		horizontalSwipeDispatched = false
+		swipeStartX = 0f
+		swipeStartY = 0f
 	}
 }
 
