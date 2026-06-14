@@ -5,12 +5,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import java.io.File
 import paige.navic.ui.screens.reader.KomikkuNavigationRegion
 import paige.navic.ui.screens.reader.PagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.ReaderViewerMode
 import paige.navic.ui.screens.reader.VerticalPagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.WebtoonPublicationReaderViewer
-import paige.navic.ui.screens.reader.shouldShowNativeReaderPageIndicator
 import paige.navic.ui.screens.reader.readerViewerKeyFor
 import paige.navic.ui.screens.reader.readerViewerFor
 
@@ -67,19 +67,19 @@ class ReaderViewerTest {
 	}
 
 	@Test
-	fun webViewPublicationKeepsOrganicPageIndicatorInsideReaderSurface() {
-		val viewer = readerViewerFor(
-			webViewPublication(flowMode = ReaderFlowPaged, paged = true)
-		)
+	fun composeShellDoesNotOwnReaderPageNumberOverlay() {
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+		val viewerSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt").readText()
 
 		assertFalse(
-			shouldShowNativeReaderPageIndicator(
-				viewer = viewer,
-				menuVisible = false,
-				shellCoverVisible = false
-			),
-			"WebView publications already render the organic page number in the reader surface; " +
-				"the Compose shell must not draw a duplicate mobile overlay."
+			screenSource.contains("KomikkuReaderPageIndicator"),
+			"Reader page numbers must stay on the book surface. The Compose shell must not keep a " +
+				"native/mobile page-number overlay implementation that can be re-enabled later."
+		)
+		assertFalse(
+			viewerSource.contains("shouldShowNativeReaderPageIndicator"),
+			"Reader page numbers must stay on the book surface. The viewer model must not keep " +
+				"a native page-indicator policy hook for the Compose shell."
 		)
 	}
 

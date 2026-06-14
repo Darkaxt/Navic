@@ -2237,3 +2237,33 @@ Focused green check:
 ```
 
 Result: passed on 2026-06-14 after preserving content-action claim metadata through JS bridge decoding, the Foliate adapter, and controller state.
+
+## 2026-06-14 Organic Page Number Ownership Hardening
+
+User direction for this slice:
+
+- Prefer the page number that looks like part of the book/page surface over any native/mobile UI overlay.
+- Keep the `# / #` design only in the organic reader-surface layer that can inherit ebook typography and sit inside the paper/texture context.
+
+Navic implication:
+
+- `ReaderScreen.kt` no longer contains `KomikkuReaderPageIndicator` or any Compose/native page-number overlay call.
+- `ReaderViewer.kt` no longer exposes `shouldShowNativeReaderPageIndicator(...)`; keeping a disabled policy hook would make the duplicate overlay easy to re-enable later.
+- Page-number presentation for WebView-backed EPUB/PDF remains the reader-surface/engine-rendered layer. The controller still owns normalized page state, but the shell does not draw a competing page badge.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest.composeShellDoesNotOwnReaderPageNumberOverlay
+```
+
+Result: first failed while `ReaderScreen.kt` still contained `KomikkuReaderPageIndicator`, then failed again while `ReaderViewer.kt` still contained `shouldShowNativeReaderPageIndicator(...)`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest.composeShellDoesNotOwnReaderPageNumberOverlay
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest
+```
+
+Result: passed on 2026-06-14 after deleting the Compose page indicator implementation, removing the native page-indicator policy hook, and leaving page-number visuals to the book surface.

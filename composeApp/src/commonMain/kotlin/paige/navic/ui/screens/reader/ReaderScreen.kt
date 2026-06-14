@@ -54,18 +54,15 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -329,7 +326,6 @@ private fun KomikkuReaderRoot(
 			KomikkuComposeOverlay(
 				reader = reader,
 				controllerState = controllerState,
-				viewer = viewer,
 				onPreviousPage = onPreviousPage,
 				onNextPage = onNextPage,
 				onGoToProgress = onGoToProgress,
@@ -356,7 +352,6 @@ private fun shellCoverTitleFor(
 private fun KomikkuComposeOverlay(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
-	viewer: ReaderViewer,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
@@ -366,9 +361,6 @@ private fun KomikkuComposeOverlay(
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val locator = controllerState.chrome.currentLocator
-	val pageCount = locator?.pageCount?.takeIf { it > 0 } ?: 0
-	val currentPage = locator?.pageIndex?.takeIf { it >= 0 }?.plus(1)?.coerceAtLeast(1) ?: 1
 	Box(modifier = modifier) {
 		KomikkuReaderContentOverlay(
 			brightness = -(controllerState.chrome.settings.dimOverlayPercent ?: 0),
@@ -376,20 +368,6 @@ private fun KomikkuComposeOverlay(
 			colorBlendMode = null,
 			modifier = Modifier.matchParentSize()
 		)
-		if (shouldShowNativeReaderPageIndicator(
-				viewer = viewer,
-				menuVisible = controllerState.menuVisible,
-				shellCoverVisible = controllerState.shellCoverVisible
-			)
-		) {
-			KomikkuReaderPageIndicator(
-				currentPage = currentPage.toString(),
-				totalPages = pageCount,
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.padding(bottom = 24.dp)
-			)
-		}
 		KomikkuReaderAppBars(
 			visible = controllerState.menuVisible,
 			reader = reader,
@@ -1023,36 +1001,6 @@ private fun KomikkuChapterNavigatorVertical(
 				modifier = Modifier.rotate(90f)
 			)
 		}
-	}
-}
-
-@Composable
-private fun KomikkuReaderPageIndicator(
-	currentPage: String,
-	totalPages: Int,
-	modifier: Modifier = Modifier
-) {
-	// Ported from Komikku ReaderPageIndicator: layered text, not a mobile chrome widget.
-	if (currentPage.isEmpty() || totalPages <= 0) return
-
-	val text = "$currentPage / $totalPages"
-	val style = TextStyle(
-		color = MaterialTheme.colorScheme.primary,
-		fontSize = MaterialTheme.typography.bodySmall.fontSize,
-		fontWeight = FontWeight.Bold,
-		letterSpacing = 1.sp
-	)
-	val strokeStyle = style.copy(
-		color = Color(45, 45, 45),
-		drawStyle = Stroke(width = 4f)
-	)
-
-	Box(
-		contentAlignment = Alignment.Center,
-		modifier = modifier
-	) {
-		Text(text = text, style = strokeStyle)
-		Text(text = text, style = style)
 	}
 }
 
