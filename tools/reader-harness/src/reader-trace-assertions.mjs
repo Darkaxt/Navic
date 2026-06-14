@@ -160,9 +160,7 @@ export const assertTextureTracksRealPageTurnSamples = result => {
       throw new Error(`Expected probe ${probe.name || 'unknown'} to observe renderer movement with texture CSS samples`)
     }
     if (probe.direction === 'forward') {
-      const forwardInversion = movedSamples.find(({ rendererBoundaryWrap, textureDelta }) =>
-        !rendererBoundaryWrap && textureDelta > 1
-      )
+      const forwardInversion = movedSamples.find(({ textureDelta }) => textureDelta > 1)
       if (forwardInversion) {
         throw new Error(
           `Expected forward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
@@ -170,7 +168,18 @@ export const assertTextureTracksRealPageTurnSamples = result => {
         )
       }
     }
+    if (probe.direction === 'backward') {
+      const backwardInversion = movedSamples.find(({ textureDelta }) => textureDelta < -1)
+      if (backwardInversion) {
+        throw new Error(
+          `Expected backward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
+          `observed textureDelta=${backwardInversion.textureDelta} at ${backwardInversion.sample?.label || 'unknown'}`
+        )
+      }
+    }
     const inverted = movedSamples.find(({ positionDelta, textureDelta }) =>
+      probe.direction !== 'forward' &&
+      probe.direction !== 'backward' &&
       Math.sign(textureDelta) !== 0 &&
       Math.sign(positionDelta) === Math.sign(textureDelta)
     )
@@ -212,43 +221,19 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
     const delta = Number.isFinite(position) && Number.isFinite(baseOffset)
       ? position - baseOffset
       : Number(payload.delta)
-    const expectedDeltaSign = payload.pageTurnDirection === 'next' ? 1 : -1
-    const rendererCoordinateWrapped =
-      Number.isFinite(delta) &&
-      Math.abs(delta) > 1 &&
-      Math.sign(delta) !== 0 &&
-      Math.sign(delta) !== expectedDeltaSign
-    if (!rendererCoordinateWrapped && payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
+    if (payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
       throw new Error(
         `Expected next texture trace to move left/counter-forward; ` +
         `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
         `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
       )
     }
-    if (!rendererCoordinateWrapped && payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
+    if (payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
       throw new Error(
         `Expected previous texture trace to move right/counter-back; ` +
         `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
         `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
       )
-    }
-    if (Number.isFinite(delta) && Number.isFinite(xOffset) && Math.abs(delta) > 1 && Math.abs(xOffset) > 1) {
-      if (!rendererCoordinateWrapped && Math.sign(delta) === Math.sign(xOffset)) {
-        throw new Error(
-          `Expected texture trace to counter-move renderer; ` +
-          `observed x=${xOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +
-          `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
-        )
-      }
-    }
-    if (payload.flowMode === 'paged-vertical' && Number.isFinite(delta) && Number.isFinite(yOffset) && Math.abs(yOffset) > 1) {
-      if (!rendererCoordinateWrapped && Math.sign(delta) === Math.sign(yOffset)) {
-        throw new Error(
-          `Expected vertical texture trace to counter-move renderer; ` +
-          `observed y=${yOffset} delta=${delta} direction=${payload.pageTurnDirection} ` +
-          `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
-        )
-      }
     }
   }
 }

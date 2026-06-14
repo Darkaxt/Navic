@@ -286,31 +286,15 @@ class ReaderRuntimePaperSurfaceTest {
 			"const expectedDirectionSign = pageTurnDirection === 'next' ? 1 : -1",
 			message = "Texture movement needs the logical turn sign for normal in-flight movement."
 		)
-		assertContains(
-			bridgeText,
-			"const deltaSign = Math.sign(delta)",
-			message = "Texture movement must compare Android renderer coordinate jumps against the logical turn direction."
-		)
-		assertContains(
-			bridgeText,
-			"const knownDirectionBoundaryWrap =",
-			message = "Full-page area-boundary wraps must be detected even when a next/previous direction is known."
-		)
 		assertContains(bridgeText, "hasKnownDirection &&")
 		assertContains(
 			bridgeText,
-			"deltaSign !== expectedDirectionSign",
-			message = "The maps/frontmatter boundary bug is a known-direction renderer sign conflict."
+			"? expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
+			message = "Known next/previous turns must dominate renderer coordinate wraps so area transitions do not invert texture motion."
 		)
-		assertContains(
-			bridgeText,
-			"? bounded",
-			message = "Known-direction boundary wraps must follow the bounded renderer delta so texture still counter-moves the rendered page."
-		)
-		assertContains(
-			bridgeText,
-			": expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
-			message = "Normal known-direction movement must still ignore small inverted renderer coordinates."
+		assertFalse(
+			bridgeText.contains("const knownDirectionBoundaryWrap ="),
+			"Known-direction boundary-wrap detection codified the maps-to-Author's-Note inversion as expected behavior."
 		)
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
@@ -537,13 +521,13 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			assertions,
-			"!rendererCoordinateWrapped && payload.pageTurnDirection === 'next'",
-			message = "Trace assertions must not reject full-page Android renderer wraps that intentionally counter-move by raw renderer delta."
+			"payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1",
+			message = "Trace assertions must reject positive next offsets even when renderer coordinates wrap."
 		)
 		assertContains(
 			assertions,
-			"!rendererBoundaryWrap && textureDelta > 1",
-			message = "Real page-turn sample assertions must allow full-page renderer-wrap samples while still catching ordinary forward inversions."
+			"movedSamples.find(({ textureDelta }) => textureDelta > 1)",
+			message = "Real page-turn samples must reject forward texture inversion without exempting renderer wraps."
 		)
 		assertContains(
 			frontmatterMode,

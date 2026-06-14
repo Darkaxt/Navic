@@ -2506,3 +2506,48 @@ Release status:
 
 - This slice has not been compiled into a release APK and has not been device-validated. Do not claim eta64/eta65 behavior from these source checks.
 - Do not trigger a GitHub release for this slice by itself unless it is bundled with enough major reader behavior fixes to justify the pipeline time.
+
+## 2026-06-14 Texture Direction Contract Correction
+
+User clarification:
+
+- The texture inversion is not solved by following raw renderer coordinate wraps. The visible page-turn direction is the user-facing truth.
+- The failure signature already logged on device was `dir=next` with positive horizontal texture offsets during maps/frontmatter transitions, for example `x=750 delta=-1395 dir=next`. That must be treated as the bug, not as expected boundary behavior.
+
+Root cause:
+
+- The eta63 helper contract accepted known-direction renderer wraps and intentionally used the bounded raw renderer delta for those wraps.
+- That codified the observed phone failure: when Foliate/Android wrapped renderer coordinates at an area transition, `next` could produce positive `x`, making the paper texture move opposite the page turn.
+
+Corrected contract:
+
+- If `pageTurnDirection` is `next`, the surface texture offset must stay left/negative for horizontal paged mode, even if the renderer position delta is negative because of an area/spine wrap.
+- If `pageTurnDirection` is `previous`, the surface texture offset must stay right/positive for horizontal paged mode, even if the renderer position delta is positive because of an area/spine wrap.
+- Directionless large renderer jumps still neutralize to zero; passive relocation noise must not invent a texture movement direction.
+- Trace assertions must reject positive `next` offsets and negative `previous` offsets without exempting renderer-wrap samples.
+
+Fresh red check:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+```
+
+Result: failed before the helper change because `forward area boundary keeps known next texture direction` expected `{"x":-698,"y":0}` but observed `{"x":698,"y":0}`.
+
+Focused green checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture "D:\Downloads\Trash\01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSyncsSurfaceTextureWithPaginatorScrollDrags" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionValidatesTracePayloadDirection"
+```
+
+Results: passed on 2026-06-14. The regenerated Hobbit frontmatter trace reported `badNext=0` and `badPrevious=0` when scanned for directed texture-offset inversions.
+
+Release status:
+
+- This is a source-level correction only. It has not been compiled into a release APK and has not been device-validated.
+- Do not publish a release for this texture fix alone unless it is bundled with another major reader behavior fix.
