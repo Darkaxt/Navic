@@ -120,7 +120,7 @@ class ReaderRuntimeAssetsTest {
 
 	@Test
 	fun androidReaderWebViewDebuggingIsControlledByEbookSetting() {
-		val hostText = readerWebViewHostFile().readText()
+		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
@@ -173,7 +173,7 @@ class ReaderRuntimeAssetsTest {
 
 	@Test
 	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
-		val hostText = readerWebViewHostFile().readText()
+		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 

@@ -72,7 +72,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
@@ -101,7 +101,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku() {
 		val readerScreenText = readerScreenFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val dispatchTouchEvent = webViewHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate val readerGestureDetector")
@@ -134,7 +134,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeSurfaceOwnsTaps() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val openPublication = runtimeText
 			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {")

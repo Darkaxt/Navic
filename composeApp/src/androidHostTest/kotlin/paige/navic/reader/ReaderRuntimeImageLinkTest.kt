@@ -140,7 +140,7 @@ class ReaderRuntimeImageLinkTest {
 	fun commonReaderUsesNativeShellCoverSurfaceWhenResolverProvidesCoverUrl() {
 		val readerScreenText = readerScreenFile().readText()
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(
 			runtimeHostText,
@@ -217,7 +217,7 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val canReturnToShellCover = bridgeText
 			.substringAfter("canReturnToShellCover() {")
 			.substringBefore("\n  applyReaderViewportLayout")
@@ -388,7 +388,7 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderLetsMediaTogglesWinOverReadableTapZones() {
 		val bridgeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val tapZoneTargetGuard = bridgeText
 			.substringAfter("shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {")
 			.substringBefore("\n  handleReaderTapZoneTap")
@@ -439,7 +439,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderCancelsPendingCenterChromeWhenContentHandlesTap() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val dispatchWideTap = webViewHostText
 			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
 			.substringBefore("\n\tfun markContentTapHandled()")
@@ -462,7 +462,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderGivesWebViewContentEnoughTimeToCancelCenterChrome() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
 			.find(webViewHostText)
 			?.groupValues
@@ -486,7 +486,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderAllowsSlowWebViewBridgeDeliveryBeforeOpeningCenterChrome() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val delayMs = Regex("""private const val ReaderCenterTapDelayMs = (\d+)L""")
 			.find(webViewHostText)
 			?.groupValues
@@ -512,7 +512,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderRechecksLatestContentHitBeforeDelayedCenterChromeDispatch() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val scheduleCenterTap = webViewHostText
 			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
 			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
@@ -536,7 +536,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderMarksContentHandledOnReaderSurfaceThread() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val contentHandledBranch = webViewHostText
 			.substringAfter("if (event is ReaderBridgeEvent.ContentTapHandled) {")
 			.substringBefore("\n\t\t\t\t} else {")
@@ -755,7 +755,7 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun androidReaderUsesCoordinateContentHitTestBeforeDelayedCenterChrome() {
 		val bridgeText = readerBridgeText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val scheduleCenterTap = webViewHostText
 			.substringAfter("private fun scheduleReaderCenterTap(")
 			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")
@@ -802,7 +802,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderQueriesRuntimeContentHitBeforeDelayedCenterChromeCanMutateDocument() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val scheduleCenterTap = webViewHostText
 			.substringAfter("private fun scheduleReaderCenterTap(x: Int, y: Int, hitType: Int) {")
 			.substringBefore("\n\tprivate fun cancelPendingReaderCenterTap()")

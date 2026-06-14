@@ -1224,7 +1224,7 @@ The current reset no longer treats the temporary fake reader page counter as the
 - This keeps the active Komikku shell/controller boundary aligned with Komikku's viewer ownership model: chrome and navigation live above the viewer, while renderer-specific bridge details stay inside the engine host.
 - 2026-06-14 public bridge-event closure: `ReaderCoordinator` no longer exposes `onBridgeEvent(...)`, and the `ReaderEngine` contract does not expose `onBridgeEvent(ReaderBridgeEvent)`. All renderer callbacks enter the controller through `ReaderEngineHostEvent`.
 - `FoliateEpubEngineAdapter` still decodes `ReaderBridgeEvent` internally because Foliate is the EPUB renderer, but that helper is private adapter logic. The coordinator and shell only see the resulting `ReaderEngineEvent`.
-- `ReaderWebViewHost` remains as the legacy host while older runtime tests still cover it, but the active Komikku path must not call it.
+- `ReaderWebViewHost` has been removed from the active source tree and remains only in the pre-Komikku vault. Active EPUB/PDF rendering enters through `ReaderEngineWebViewHost`, while shell, cover, navigation, and gesture ownership stay above it in the Komikku native frame/controller path.
 - `ReaderBridgeEvent.CenterTap` is ignored by the EPUB adapter. Komikku-native navigation owns menu taps.
 - `ReaderBridgeEvent.ContentTapHandled(...)` is translated inside the Foliate engine into a typed content-action claim, suppressing only the next shell navigation action once it reaches the controller as `ReaderEngineEvent.ContentActionClaimed(action)`.
 - 2026-06-14 typed content-action slice: `readerContentTapHandled` bridge events now decode `source`/`action` into `ReaderContentAction` values instead of collapsing every event into `Generic`. Sources already emitted by `navic-reader.js` now map as follows: `link` and `link-touch` -> `Link`, `image` -> `Image`, and `media-touch`/`media-anchor` -> `MediaControl`.
@@ -2242,8 +2242,9 @@ Result: passed on 2026-06-14 after preserving content-action claim metadata thro
 
 User direction for this slice:
 
-- Prefer the page number that looks like part of the book/page surface over any native/mobile UI overlay.
+- Hard preference: keep the page number that looks like part of the book/page surface over any native/mobile UI overlay.
 - Keep the `# / #` design only in the organic reader-surface layer that can inherit ebook typography and sit inside the paper/texture context.
+- Treat the organic page number as part of the ebook visual language, not as reader chrome. The native shell can own canonical page state, but it must not render a visible competing page badge.
 
 Navic implication:
 
@@ -2342,3 +2343,39 @@ Focused green checks:
 ```
 
 Result: passed on 2026-06-14 after deleting the active `ReaderOptionsPanel.kt` file and updating stale reset assertions so they reject Compose page-number ownership and recognize the controller-owned settings dialog route.
+
+## 2026-06-14 Legacy WebView Host Removal
+
+Komikku source behavior for this slice:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt`: Komikku owns the reader frame, app bars, and viewer container outside the concrete viewer implementation.
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/Viewer.kt`: concrete viewers are replaceable content engines under the reader frame, not owners of the whole reader shell.
+
+Navic implication:
+
+- The active common platform contract no longer exposes `ReaderWebViewHost(...)`.
+- The active Android and iOS source trees no longer contain `ReaderWebViewHost.android.kt` or `ReaderWebViewHost.ios.kt`.
+- The vaulted pre-Komikku Android host remains available at `vault/reader/2026-06-13-pre-komikku-reset/composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt`.
+- Active EPUB/PDF WebView rendering must continue through `ReaderEngineWebViewHost`. It can own Foliate/WebView command translation, but it must not reintroduce shell-cover rendering, reader-wide tap fallbacks, or page-number chrome.
+- Page-number visual ownership remains unchanged: organic book-surface `# / #`, no Compose/native page-number overlay.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeSourceTreeDoesNotExposeLegacyReaderWebViewHost"
+```
+
+Result: failed while `ReaderPlatformHosts.kt` still exposed `expect fun ReaderWebViewHost(...)` and the Android/iOS actual files still existed.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeSourceTreeDoesNotExposeLegacyReaderWebViewHost"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Result: passed on 2026-06-14 after deleting the active legacy WebView host expect/actual files and adding a source guard that keeps the old host vaulted-only.
+
+Full-suite note:
+
+- `.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost` is currently not green on this reset branch. It reports stale tests that still assert the removed docked options panel and pre-Komikku `ReaderWebViewHost` internals. Do not satisfy those tests by resurrecting the old host or the old options panel; migrate or delete stale assertions as the Komikku backbone replaces those responsibilities.

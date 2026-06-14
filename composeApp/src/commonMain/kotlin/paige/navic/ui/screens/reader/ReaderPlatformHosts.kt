@@ -28,26 +28,6 @@ expect fun KomikkuReaderNativeFrameHost(
 )
 
 @Composable
-expect fun ReaderWebViewHost(
-	publicationUrl: String,
-	title: String,
-	kind: ReaderPublicationKind,
-	mediaOverlayEnabled: Boolean,
-	externalShellCover: Boolean,
-	nativeShellCoverUrl: String? = null,
-	canReturnToShellCover: Boolean = false,
-	settings: ReaderSettings,
-	startCfi: String?,
-	startHref: String?,
-	startProgress: Double?,
-	command: ReaderBridgeCommand? = null,
-	commandKey: Long = 0L,
-	readerWideGesturesEnabled: Boolean = true,
-	onEvent: (ReaderBridgeEvent) -> Unit,
-	modifier: Modifier = Modifier
-)
-
-@Composable
 expect fun ReaderEngineWebViewHost(
 	publicationUrl: String,
 	title: String,

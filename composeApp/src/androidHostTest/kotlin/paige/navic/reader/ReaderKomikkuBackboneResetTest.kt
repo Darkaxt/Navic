@@ -136,6 +136,39 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun activeSourceTreeDoesNotExposeLegacyReaderWebViewHost() {
+		val platformHosts = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		)
+		val activeAndroidHost = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt"
+		)
+		val activeIosHost = root.resolve(
+			"composeApp/src/iosMain/kotlin/paige/navic/reader/ReaderWebViewHost.ios.kt"
+		)
+		val vaultAndroidHost = root.resolve(
+			"vault/reader/2026-06-13-pre-komikku-reset/composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt"
+		)
+
+		assertTrue(
+			vaultAndroidHost.exists(),
+			"The pre-Komikku Android WebView host must remain available in the vault for reference."
+		)
+		assertFalse(
+			platformHosts.readText().contains("expect fun ReaderWebViewHost("),
+			"The active common reader platform contract must not expose the legacy WebView host; EPUB/PDF content mounts through ReaderEngineWebViewHost."
+		)
+		assertFalse(
+			activeAndroidHost.exists(),
+			"The active Android tree must not keep ReaderWebViewHost.android.kt because it owns pre-Komikku shell, cover, and gesture behavior."
+		)
+		assertFalse(
+			activeIosHost.exists(),
+			"The active iOS tree must not keep the legacy ReaderWebViewHost stub after moving publication rendering to the engine-host boundary."
+		)
+	}
+
+	@Test
 	fun readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass() {
 		val readerViewerFile = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"

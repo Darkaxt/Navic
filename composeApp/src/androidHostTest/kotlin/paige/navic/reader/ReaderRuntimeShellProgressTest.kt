@@ -118,7 +118,7 @@ class ReaderRuntimeShellProgressTest {
 	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
@@ -206,7 +206,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeText = readerBridgeText()
 		val dispatchTouchEvent = webViewHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
@@ -239,7 +239,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "addView(")
@@ -258,7 +258,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverIsRenderedByReaderShellViewNotWebViewHtml() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(
 			webViewHostText,
@@ -290,7 +290,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val handleTouch = webViewHostText
 			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
 			.substringBefore("\n\tprivate fun clearTapCandidate()")
@@ -331,7 +331,7 @@ class ReaderRuntimeShellProgressTest {
 			"Shell-cover drags should tolerate natural vertical drift because there is no readable WebView scroll stream to protect."
 		)
 
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val shellCoverSwipe = webViewHostText
 			.substringAfter("private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {")
 			.substringBefore("\n\tprivate fun dispatchReaderWideTap")
@@ -350,7 +350,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverLogsDragCandidatesBeforeSwipeDispatch() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val handleTouch = webViewHostText
 			.substringAfter("private fun handleReaderSurfaceTouch(event: MotionEvent) {")
 			.substringBefore("\n\tprivate fun clearTapCandidate()")
@@ -375,7 +375,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val dispatchTouchEvent = webViewHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate val readerGestureDetector")
@@ -401,7 +401,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val contentHandledTap = webViewHostText
 			.substringAfter("private fun readerContentHandledTap(hitType: Int): Boolean =")
 			.substringBefore("\n}")
@@ -418,7 +418,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeReaderSurfaceCenterMenuIsNotSuppressedByRawImageHitType() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val dispatchWideTap = webViewHostText
 			.substringAfter("private fun dispatchReaderWideTap(event: MotionEvent) {")
 			.substringBefore("\n\tfun markContentTapHandled()")
@@ -441,7 +441,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun nativeShellCoverReturnUsesReaderShellStateBeforeLocatorStateCatchesUp() {
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val pageTurn = webViewHostText
 			.substringAfter("private fun dispatchReaderPageTurnCommand(command: ReaderBridgeCommand) {")
 			.substringBefore("\n\tprivate fun showShellCover()")
@@ -471,7 +471,7 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications() {
 		val readerViewerHostText = readerViewerHostFile().readText()
-		val webViewHostText = readerWebViewHostFile().readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(readerViewerHostText, "startProgress = viewer.viewState.startLocator?.progress")
 		assertContains(webViewHostText, "startProgress: Double?")

@@ -26,12 +26,19 @@ internal fun readerWebRuntimeFile(): File =
 	).firstOrNull { it.isFile }
 		?: error("Could not locate Android reader WebView runtime")
 
-internal fun readerWebViewHostFile(): File =
+internal fun readerEngineWebViewHostFile(): File =
 	listOf(
-		File("src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt"),
-		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebViewHost.android.kt")
+		File("src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt"),
+		File("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt")
 	).firstOrNull { it.isFile }
-		?: error("Could not locate Android reader WebView host")
+		?: error("Could not locate Android reader engine WebView host")
+
+internal fun readerNativeFrameHostFile(): File =
+	listOf(
+		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"),
+		File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate Android Komikku reader native frame host")
 
 internal fun settingsFile(fileName: String): File =
 	listOf(
