@@ -341,14 +341,14 @@ class ReaderCoordinatorTest {
 		val contentClaimed = ignoredCenterTap.onFoliateHostEvent(
 			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link)
 		).coordinator
-		val suppressedMenu = contentClaimed.onViewerAction(ReaderViewerAction.Menu).coordinator
+		val toggledMenu = contentClaimed.onViewerAction(ReaderViewerAction.Menu).coordinator
 
 		assertEquals(locator, relocated.controller.state.chrome.currentLocator)
 		assertEquals("Chapter 2", relocated.controller.state.chrome.currentSectionTitle)
 		assertEquals(false, ignoredCenterTap.controller.state.menuVisible)
 		assertEquals(ReaderContentAction.Link, contentClaimed.controller.state.lastContentActionClaim?.action)
-		assertEquals(false, suppressedMenu.controller.state.menuVisible)
-		assertNull(suppressedMenu.controller.state.lastContentActionClaim)
+		assertEquals(true, toggledMenu.controller.state.menuVisible)
+		assertNull(toggledMenu.controller.state.lastContentActionClaim)
 	}
 
 	@Test

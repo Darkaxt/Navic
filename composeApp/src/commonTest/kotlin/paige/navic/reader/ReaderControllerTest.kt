@@ -194,20 +194,18 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun contentActionClaimsSuppressOnlyTheNextReaderMenuAction() {
+	fun contentActionClaimsDoNotOwnNativeViewerActions() {
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(ReaderContentAction.Image)
 		).controller
 
-		val suppressed = claimed.onViewerAction(ReaderViewerAction.Menu)
-		val toggled = suppressed.controller.onViewerAction(ReaderViewerAction.Menu)
+		val toggled = claimed.onViewerAction(ReaderViewerAction.Menu)
 		val next = toggled.controller.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 
 		assertEquals(ReaderContentAction.Image, claimed.state.lastContentActionClaim?.action)
-		assertFalse(suppressed.controller.state.menuVisible)
-		assertNull(suppressed.controller.state.lastContentActionClaim)
-		assertEquals(emptyList(), suppressed.engineCommands)
 		assertTrue(toggled.controller.state.menuVisible)
+		assertNull(toggled.controller.state.lastContentActionClaim)
+		assertEquals(emptyList(), toggled.engineCommands)
 		assertEquals(
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
 			next.engineCommands
@@ -228,11 +226,11 @@ class ReaderControllerTest {
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(claim)
 		).controller
-		val suppressed = claimed.onViewerAction(ReaderViewerAction.Menu)
+		val toggled = claimed.onViewerAction(ReaderViewerAction.Menu)
 
 		assertEquals(claim, claimed.state.lastContentActionClaim)
-		assertNull(suppressed.controller.state.lastContentActionClaim)
-		assertFalse(suppressed.controller.state.menuVisible)
+		assertNull(toggled.controller.state.lastContentActionClaim)
+		assertTrue(toggled.controller.state.menuVisible)
 	}
 
 	@Test

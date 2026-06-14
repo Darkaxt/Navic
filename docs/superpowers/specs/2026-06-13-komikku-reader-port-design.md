@@ -2624,3 +2624,41 @@ Result: passed on 2026-06-14.
 Runtime risk:
 
 - This is source-level evidence only. It does not prove an installed eta build has the behavior until a release is built and adb-validates short tap, long press, link, image, cover, and PDF interaction paths.
+
+## 2026-06-15 Native Viewer Action Ownership After Content Claims
+
+User clarification:
+
+- Native reader taps are the source of truth for normal menu/page actions.
+- WebView content interaction metadata must not behave like an old delayed center-tap suppressor that swallows the next native action.
+- If content interaction remains useful, it can be recorded as metadata, but controller movement and menu actions must still execute through the Komikku viewer-action boundary.
+
+Navic implication:
+
+- `ReaderController.onEngineEvent(ContentActionClaimed(...))` still records `lastContentActionClaim`.
+- `ReaderController.onViewerAction(...)` now clears any stale content claim while continuing to execute the native viewer action.
+- Menu actions toggle the controller-owned menu immediately even if a prior link/image content claim was reported.
+- Page-turn and scroll actions still dispatch through `ReaderEngineCommand` when a prior content claim exists.
+- This keeps short-tap ownership in `KomikkuReaderNativeViewerContainer` instead of letting WebView bridge messages own subsequent native input.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsDoNotOwnNativeViewerActions" --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsKeepMetadataInControllerState" --tests "paige.navic.reader.ReaderCoordinatorTest.bridgeEventsFlowFromAdapterIntoControllerWithoutBridgeOwningMenu"
+```
+
+Result: failed before production changes because `ReaderController.onViewerAction(...)` cleared `lastContentActionClaim` by returning early, so the first menu action after a content claim was swallowed and did not toggle the menu.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsDoNotOwnNativeViewerActions" --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsKeepMetadataInControllerState" --tests "paige.navic.reader.ReaderCoordinatorTest.bridgeEventsFlowFromAdapterIntoControllerWithoutBridgeOwningMenu"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- This is a source-level controller ownership correction only. It has not been compiled into a release APK and has not been device-validated.
+- Do not publish a release for this fix alone unless it is bundled with enough major reader behavior fixes to justify the release pipeline.
