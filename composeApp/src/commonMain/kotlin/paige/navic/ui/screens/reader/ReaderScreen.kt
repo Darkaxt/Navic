@@ -324,6 +324,7 @@ private fun KomikkuReaderRoot(
 			KomikkuComposeOverlay(
 				reader = reader,
 				controllerState = controllerState,
+				viewer = viewer,
 				onPreviousPage = onPreviousPage,
 				onNextPage = onNextPage,
 				onGoToProgress = onGoToProgress,
@@ -349,6 +350,7 @@ private fun shellCoverTitleFor(
 private fun KomikkuComposeOverlay(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
+	viewer: ReaderViewer,
 	onPreviousPage: () -> Unit,
 	onNextPage: () -> Unit,
 	onGoToProgress: (Double) -> Unit,
@@ -367,7 +369,12 @@ private fun KomikkuComposeOverlay(
 			colorBlendMode = null,
 			modifier = Modifier.matchParentSize()
 		)
-		if (!controllerState.menuVisible && !controllerState.shellCoverVisible) {
+		if (shouldShowNativeReaderPageIndicator(
+				viewer = viewer,
+				menuVisible = controllerState.menuVisible,
+				shellCoverVisible = controllerState.shellCoverVisible
+			)
+		) {
 			KomikkuReaderPageIndicator(
 				currentPage = currentPage.toString(),
 				totalPages = pageCount,

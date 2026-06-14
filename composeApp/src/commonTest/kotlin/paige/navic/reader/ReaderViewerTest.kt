@@ -2,6 +2,7 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import paige.navic.ui.screens.reader.KomikkuNavigationRegion
@@ -9,6 +10,7 @@ import paige.navic.ui.screens.reader.PagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.ReaderViewerMode
 import paige.navic.ui.screens.reader.VerticalPagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.WebtoonPublicationReaderViewer
+import paige.navic.ui.screens.reader.shouldShowNativeReaderPageIndicator
 import paige.navic.ui.screens.reader.readerViewerKeyFor
 import paige.navic.ui.screens.reader.readerViewerFor
 
@@ -62,6 +64,23 @@ class ReaderViewerTest {
 
 		assertEquals("https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg", viewer.shellCoverUrl)
 		assertEquals("The Hobbit", viewer.shellCoverTitle)
+	}
+
+	@Test
+	fun webViewPublicationKeepsOrganicPageIndicatorInsideReaderSurface() {
+		val viewer = readerViewerFor(
+			webViewPublication(flowMode = ReaderFlowPaged, paged = true)
+		)
+
+		assertFalse(
+			shouldShowNativeReaderPageIndicator(
+				viewer = viewer,
+				menuVisible = false,
+				shellCoverVisible = false
+			),
+			"WebView publications already render the organic page number in the reader surface; " +
+				"the Compose shell must not draw a duplicate mobile overlay."
+		)
 	}
 
 	@Test

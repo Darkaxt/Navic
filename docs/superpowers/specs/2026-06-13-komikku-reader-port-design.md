@@ -197,6 +197,96 @@ Current adb status: no connected devices were available during the 2026-06-13 lo
 
 The current child-first gesture path and native cover renderer are closer to Komikku than the previous native-first/WebView-cover path, but phone behavior is not proven yet. Until a release is installed and adb-validated, cover-only input, PDF input, and renderer-surface ordering remain runtime risks.
 
+## Phone Validation: 2026-06-14 eta64 ADB Matrix
+
+Device and build:
+
+- Device: Samsung `SM_F966B`, ADB serial `RFCY80551LT`.
+- Package: `darkaxt.navic`.
+- Installed build: `versionName=v1.0.11-eta64`, `versionCode=397`.
+- Focused activity during tests: `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- Evidence directory: `tmp/eta64-adb-validation/`.
+
+Important correction:
+
+- The relaunch/open-book observation is not counted as an app resume result because the user manually changed the phone state. Do not use that observation as evidence for or against automatic resume/cover behavior.
+
+Validation matrix:
+
+| Area | Test | Evidence | Result | Verdict |
+| --- | --- | --- | --- | --- |
+| EPUB page number | Current readable page after user placed app in EPUB | `current.png` | Title page renders, but bottom page number is drawn twice: blue foreground and gray shadow/copy. | FAIL: duplicate organic page number layer is still active. |
+| Normal EPUB menu | Center tap on text page, then center tap again | `text-center-tap-1.png`, `text-center-tap-2.png` | Chrome/menu opens and hides reliably on normal text pages. | PASS for normal text center tap. |
+| Normal EPUB navigation | Right/left edge taps on normal text pages | `text-right-tap-1.png`, `text-left-tap-1.png` | Right edge advances one page; left edge returns one page. | PASS for ordinary text-page tap navigation. |
+| Normal EPUB drag | Swipe left/right on normal text pages | `text-swipe-left-1.png`, `text-swipe-right-1.png`, matching logs | Swipe left advances one page; swipe right returns one page. Logs still contain repeated Foliate `touchmove cancelable=false` warnings. | PASS with warning noise. |
+| Suppressed cover handoff | Left-edge tap from first readable page | `left-from-page1.png`, `left-from-page1.log` | Native command dispatches `previousPage`; WebView loads `OEBPS/Text/cover.xhtml`; runtime logs `cover-document:suppressed`; screen becomes blank with only `1 / 1748`. | FAIL: going backward from first readable page reaches suppressed EPUB cover without handing off to native cover page `-1`. |
+| Suppressed cover recovery | Right-edge tap from blank suppressed-cover state | `right-from-suppressed-cover.png`, matching log | Reader returns to visible title page. | PASS only as recovery; does not fix the blank suppressed-cover state. |
+| Frontmatter numbering | Sequential right-edge tap walk from title/frontmatter | `frontmatter-walk/front-01.png` through `frontmatter-walk/front-05.png`, `frontmatter-walk.log` | Visible sequence includes `2 / 1748`, `3 / 1748`, `5 / 1748`, `6 / 1748`, then `15 / 1748`. | FAIL: page numbering and/or committed visible page state still skips through frontmatter/map sections. |
+| Texture direction | Same frontmatter walk across title -> TOC -> maps -> Author's Note | `frontmatter-walk/frontmatter-walk.log`, `map-extreme-right.log` | Logs show `dir=next` with positive texture offsets and negative deltas at section transitions, for example `x=750 delta=-1395 dir=next` and `x=698 delta=-698 dir=next`. | FAIL: texture movement can invert during area/spine transitions. |
+| Map/image edge navigation | Repeated right-edge taps on map pages | `frontmatter-walk/front-05.png` through `front-14.png`, `frontmatter-walk.log` | After reaching the map page, repeated controlled taps stopped producing `nextPage` commands, while an extreme-right tap at x=1950 later advanced to Author's Note. | FAIL: image-heavy pages still do not have reliable Komikku-equivalent top-level edge-zone ownership. |
+| Image center interaction | Center tap on map image | `image-before-center.png`, `image-after-center.png`, `image-center-tap.log` | Chrome did not open, which is correct. One tap emitted five duplicate `readerContentTapHandled` bridge events. No visible image-treatment change was captured on this map. | PARTIAL: menu suppression works here, but content tap signaling is noisy/duplicated. |
+| Native cover tap | Center tap on native cover | `cover-center-tap-current.png`, `cover-center-tap-hide-current.png` | Center tap opens reader chrome; second center tap hides it. It does not immediately discard the cover. | PASS for cover center tap toggle. |
+| Native cover drag | Swipe left on native cover | `cover-before-drag.png`, `cover-after-drag-left.png`, `cover-drag-left.log` | Cover remains unchanged. Log shows raw motion through `KomikkuReaderNativeViewerContainer`, but no page-turn command or bridge event. | FAIL: shell/native cover has no working drag/swipe page transition. |
+| Cover layout | Native cover frame | `cover-before-drag.png` | Cover uses full height with black side gutters; no sepia top/bottom margin is visible in eta64 cover state. | PASS for this cover-frame sizing case; still not evidence for all covers/aspects. |
+
+Current prioritized eta64 defects:
+
+1. Native cover drag/swipe is still missing. Cover tap toggles chrome, but drag does not dispatch a page transition.
+2. Going backward from the first readable EPUB page lands on a blank suppressed-cover WebView page instead of native cover page `-1`.
+3. Page numbering still has duplicate visual layers and unstable frontmatter jumps.
+4. Texture movement still inverts at area/spine transitions, proven by ADB logs with `dir=next` and opposite-sign texture deltas.
+5. Image-heavy/frontmatter pages still do not have reliable top-level edge-zone ownership; normal text pages work, but map/image pages can swallow normal edge taps.
+6. Content tap signaling is duplicated on image taps and should be reduced to one explicit content-owned action per tap.
+
+Retest script for user confirmation:
+
+1. Start from native cover. Center tap should show chrome; center tap again should hide it.
+2. Start from native cover. Drag left should currently do nothing; this is expected to reproduce the fail.
+3. Tap right edge from cover into the title page. Confirm whether the page number is duplicated.
+4. From the first readable title page, tap left edge. Current eta64 result should become a blank page with only the duplicated `1 / 1748`; this confirms the suppressed-cover handoff bug.
+5. Return forward and tap through Contents -> Maps -> Author's Note. Watch for page jumps and texture movement inversion.
+6. On a map/image page, tap the normal right edge and then the extreme right edge. If only the extreme edge works, the native top-level edge zone is still not owning image-heavy pages correctly.
+
+## User Acceptance Analysis: 2026-06-14 eta64 Komikku Delta
+
+This section records the user's eta64 analysis as product acceptance criteria. It supersedes treating eta64 as a release-ready reader shell. The next work must address these as architecture/model gaps, not as isolated visual tweaks.
+
+User-observed failures and requirements:
+
+| Area | Observation | Required direction |
+| --- | --- | --- |
+| Progress rail | The scrollbar is far from Komikku: it uses almost the full vertical space; next/previous buttons sit against the top and bottom menu edges; the rail covers the whole book instead of the current chapter. | Rebuild the rail as a Komikku-equivalent chapter navigator: shorter vertical track, practical previous/next controls, and chapter-local progress by default. Book-global progress can remain a secondary value, not the main thumb scale. |
+| Page number rendering | Page numbers are duplicated: the organic injected number uses the book font, but a blue overlay sits on top. | Establish one page-number visual owner. User preference is the organic reader-surface number because it feels printed with the book and can inherit ebook fonts; remove the duplicate Compose/mobile overlay for WebView publications. |
+| Page number model | Page numbers are not linear: observed sequence includes `1, 2, 4, 5, 14, 15, 16, 17, 26`. | Replace raw Foliate/frontmatter position exposure with a committed visible-page sequence. It must be monotonic for sequential navigation and must not jump across image/frontmatter pages unless a real multi-page relocation is intentionally requested. |
+| Paper texture movement | Page textures still move randomly and do not consistently follow the page movement axis. | Tie texture movement to the same viewer-owned transition model as the page content. The texture layer must move with the visible page, including across spine/area transitions. |
+| Hyperlink navigation and drag | Dragging stops working after using a hyperlink to jump directly to chapter 1. | Hyperlink jumps must reinitialize the active viewer gesture/drag state. A link relocation cannot leave the pager in a non-draggable state. |
+| Cover architecture | Native cover may be unnecessary after the Komikku shell exists; it was originally added to work around the old renderer. | Re-evaluate native cover as a temporary compatibility feature. Target state should be a viewer-owned synthetic cover page or cover mode that uses the Komikku shell and can render full-window without a special WebView-era workaround. Do not keep two cover models if one controller-owned cover state can satisfy layout, input, resume, and page index `-1`. |
+| Interactive content | Tap behavior should probably differ from ebook interactive behavior by triggering interactive content only on long press. | Consider making normal taps reader-owned and moving EPUB image/link interaction to long press or explicit content mode, so links/images do not fight page turns and menu toggles. This is a product decision and should be tested against chapter-link usability before implementation. |
+| Popup settings sheet | Popup menu is suboptimal: font size is too large, tab titles wrap, theme cannot be changed, and no General settings are interactable. | Rebuild the settings sheet closer to Komikku: compact typography, fixed-width/non-wrapping tabs or icon tabs, working theme controls, and functional General controls. Opening the sheet must overlay content without resizing/zooming the viewer. |
+| Bottom/menu buttons | Chapters button does nothing. Ebook button does nothing. | Either wire these controls to real chapter/reader actions or remove them from the active chrome until implemented. Dead controls are not acceptable in release candidates. |
+| Bookmark affordance | Favorite star should probably be replaced by Komikku's page-mark/bookmark UI. Star belongs to music, not ebook. | Replace ebook favorite/star affordance with a bookmark/page-mark icon and behavior. Keep music favorite semantics separate from reader bookmark semantics. |
+| Sepia image/theme behavior | Sepia color filter is still disabled. | Restore sepia theme/filter behavior as part of the renderer/viewer theme contract, including image treatment that does not break transparent or formatted image backgrounds. |
+| Font selection | The `Dyx` font type that resembles classic writing machines is not applied yet. | Fix font-source registration and runtime application so selected ebook fonts actually apply to content and organic page-number text. |
+| Texture assets | Page textures may need replacement without recompiling the APK. | Add a future texture asset source abstraction. Default packaged textures remain bundled, but a custom folder/provider should be able to override them for local testing or user replacement. |
+
+Priority order for the next implementation plan:
+
+1. Fix the viewer/controller model: committed page sequence, chapter-local progress rail, hyperlink relocation state, native cover vs synthetic cover decision, and single page-number owner.
+2. Fix input ownership to match the Komikku model: normal tap/drag reliability across cover, text, image, and post-link pages; decide whether image/link activation moves to long press.
+3. Fix texture movement as a viewer transition layer, not a DOM-side decoration.
+4. Replace the progress rail and chrome controls with a closer Komikku port, including page-mark/bookmark semantics and no dead buttons.
+5. Rebuild the settings sheet so the current controls are actually usable, compact, and non-wrapping.
+6. Restore reader theme/font behavior: sepia, image treatment, `Dyx`, and custom font/source handling.
+7. Add configurable/custom texture sources after the packaged texture pipeline is stable.
+
+Do not publish another release for isolated cosmetic changes from this list. The next release should be justified by one of the major acceptance failures above being fixed and verified.
+
+2026-06-14 page-number slice:
+
+- Decision: keep the organic reader-surface page number and remove the duplicate Compose/mobile page indicator for WebView publications.
+- Rationale: the user prefers the page number that looks printed into the book surface, especially because it can inherit the ebook font. The controller still owns normalized page/progress state; this is a visual ownership exception, not permission for WebView/Foliate to own progress UI.
+- Code guardrail: `shouldShowNativeReaderPageIndicator(...)` returns false for `WebViewPublicationReaderViewer`, and `ReaderViewerTest.webViewPublicationKeepsOrganicPageIndicatorInsideReaderSurface` prevents reintroducing the duplicate native overlay.
+
 ## Objective
 
 Replace Navic's current reader shell with a Komikku-equivalent reader architecture. This is not a "Komikku-style" visual pass and not another sequence of isolated fixes on the existing `ReaderScreen` scaffold.
@@ -206,7 +296,7 @@ The target is to port/adapt Komikku's reader ownership model:
 - Rendered content is a full-window viewer surface.
 - Reader gestures are owned by the reader/viewer layer, not by EPUB HTML.
 - Tap-zone visualization is a separate visual overlay, not the input authority.
-- Menus, page indicator, settings, brightness/filter overlays, and progress controls are Compose overlays above the viewer.
+- Menus, settings, brightness/filter overlays, and progress controls are Compose overlays above the viewer. Page-number state is controller-normalized, but the preferred visual treatment for EPUB/PDF is the organic reader-surface number, not a mobile chrome overlay.
 - Opening menus/settings never resizes, pads, zooms, or relayouts the content surface.
 - Navic's Foliate/PDF/Bindery code remains the content backend, but it must sit behind the Komikku-equivalent shell contract.
 
@@ -239,7 +329,7 @@ Controller-owned state:
 - current logical location: page index, total pages, chapter title, href/cfi/locator, percentage
 - cover/shell-cover state, including whether the synthetic cover is visible
 - tap-zone preset, inversion, smaller zones, and tap-zone visual overlay visibility
-- progress rail state and page-number presentation
+- progress rail state and page-number state; EPUB/PDF page-number visuals may be rendered on the reader surface when that is the only active page-number layer
 - active settings scope: global defaults versus per-book overrides
 - content-action claims: link, image, selection, form/media control, annotation, footnote
 - readaloud/audiobook sync state and active audio metadata labels
@@ -257,7 +347,7 @@ Blocked ownership leaks:
 - EPUB HTML, PDF.js HTML, or Foliate JS may not decide global menu visibility.
 - Engine code may not mount permanent reader chrome.
 - Engine code may not resize the root viewer to make room for settings, progress, or menus.
-- Engine code may not own page numbering as final UI truth; it reports raw relocation data and the controller normalizes it.
+- Engine code may not own page numbering as final state truth; it reports raw relocation data and the controller normalizes it. A renderer-surface page-number layer is acceptable only as the chosen visual presentation of controller-fed/engine-reported page state and only if no Compose duplicate is active.
 - Audio/TTS/media overlay code may not own player chrome; it reports cues/labels and commands through the controller.
 
 ## 2026-06-14 Focus Lock: Komikku Frontend, Anx Capabilities
@@ -298,7 +388,7 @@ Anx modules to adapt as engine/domain capabilities:
 
 Clash-prevention rules:
 
-- Komikku owns the shell. Anx/Foliate can supply renderer capabilities but cannot own root layout, menu visibility, page/chapter progress UI, settings UI, tap zones, or page-number presentation.
+- Komikku owns the shell. Anx/Foliate can supply renderer capabilities but cannot own root layout, menu visibility, page/chapter progress UI, settings UI, or tap zones. Page-number presentation is the one explicit exception: the user prefers the organic reader-surface visual, while normalized page state still belongs to the controller.
 - The controller normalizes raw EPUB/PDF relocation into user-facing page/progress state. Engine events are evidence, not final UI truth.
 - Content actions must be explicit and typed: link, image, selection, form control, media control, annotation, footnote. A generic WebView hit must not suppress center-tap menu behavior.
 - Settings from Anx/Readest/Navic can expand the catalog, but the surface must remain the Komikku tabbed overlay model.
@@ -388,7 +478,7 @@ Navic target:
 Blocked:
 
 - No reader option list may grow into a docked settings page that resizes the content.
-- No Foliate/WebView runtime may decide page-number presentation or progress rail behavior.
+- No Foliate/WebView runtime may decide progress rail behavior. Page-number visual rendering may live in the reader surface only to preserve the organic printed-on-page look, and must not create a second native/mobile overlay.
 
 ### EPUB, PDF, Search, Notes, And Style Engine Capabilities
 
@@ -1895,6 +1985,66 @@ Adjacent viewer/backbone check:
 ```
 
 Result: passed on 2026-06-14.
+
+## 2026-06-14 Organic Page Number And Passive Relocation Clamp
+
+User direction for this slice:
+
+- The preferred page number is the one that looks like part of the book/page surface, not a mobile UI overlay.
+- The `# / #` design should remain, but only in the reader-surface layer that inherits ebook typography and blends into the paper.
+- The blue/native duplicate overlay must stay disabled for WebView-backed publications.
+
+Observed root cause for the non-linear sequence:
+
+- Eta64 ADB evidence in `tmp/eta64-adb-validation/frontmatter-walk/frontmatter-walk.log` showed explicit `page-turn:next` posts advancing to page 5 in `OEBPS/Text/Hobbit_map-1.html`.
+- A delayed passive `relocate-committed` event in the same section then posted page 13 before the next user page turn.
+- That means Foliate's passive relocation stream can overwrite the explicit one-page turn sequence with a raw section/global estimate. This is a model/state bug, not a visual page-number style issue.
+
+Navic implication:
+
+- `ReaderScreen.kt` no longer draws the Compose/mobile page-number overlay for `WebViewPublicationReaderViewer`; the organic `navic-reader.js` page-number layer is the single visual owner for EPUB/PDF WebView publications.
+- `navic-reader.js` now tracks the last committed relocation detail and clamps only passive same-section `relocate-committed` jumps larger than one page.
+- Explicit page turns still use `page-turn:next` / `page-turn:previous` clamping.
+- Link and progress jumps mark their relocation reason as `go-to` or `progress-seek`, so deliberate long jumps are not collapsed into one-page movement.
+- The clamp intentionally does not claim to solve chapter-local rail sizing, texture direction inversion, or native touch/menu ownership. Those remain active Komikku-backbone acceptance items.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+```
+
+Result: failed before the page-number visual-owner production change because `shouldShowNativeReaderPageIndicator(...)` did not exist.
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns
+```
+
+Result: failed before the relocation production change because `passiveCommittedRelocationPosition(pagePosition, detail, reason)` did not exist.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderViewerTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns
+```
+
+Result: passed on 2026-06-14.
+
+Broader shell contract status:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest
+```
+
+Result: still failed on two older architecture assertions:
+
+- `readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps`: `ReaderScreen.kt` still contains `ReaderNativeTapOverlay(`.
+- `androidReaderPreservesProgressOnlyResumeLocatorsForFixedLayoutPublications`: the current `ReaderScreen.kt` path still does not contain the expected `startProgress = resumeStartLocator?.progress` wiring.
+
+These two failures are not fixed by the organic page-number/passive-relocation slice and remain part of the active Komikku frontend/controller backbone work.
 
 ## 2026-06-14 Viewer-Owned Movement Actions
 

@@ -202,6 +202,7 @@ class NavicReaderRuntime {
   shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
+  committedRelocateDetail = null
   lastPostedLocationKey = null
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
@@ -369,6 +370,7 @@ class NavicReaderRuntime {
     this.pageNumberLayer?.remove?.()
     this.pageNumberLayer = null
     this.currentPagePosition = null
+    this.committedRelocateDetail = null
     this.lastPostedLocationKey = null
     this.pendingRelocateDetail = null
     this.pendingRelocateReason = 'relocate-committed'
@@ -690,6 +692,7 @@ class NavicReaderRuntime {
     if (!this.view || !locator) return
     try {
       await this.view.goTo(locator)
+      this.scheduleCommittedRelocation(this.lastRelocateDetail, 'go-to')
       this.logContentLayout('go-to')
     } catch (error) {
       reportError(error, 'navigation_failed')
@@ -768,6 +771,7 @@ class NavicReaderRuntime {
       } else {
         await this.view.goTo({ fraction })
       }
+      this.scheduleCommittedRelocation(this.lastRelocateDetail, 'progress-seek')
       this.applyReaderViewportLayout('progress-seek')
       requestAnimationFrame(() => {
         this.logContentLayout('progress-seek')
@@ -1891,6 +1895,14 @@ class NavicReaderRuntime {
     return this.fixedLayoutPagePosition(detail) || this.reflowablePagePosition(detail)
   }
 
+  detailSectionKey(detail) {
+    const index = Number(detail?.section?.current ?? detail?.index)
+    if (Number.isFinite(index)) return `index:${Math.floor(index)}`
+    const href = detail?.href || detail?.tocItem?.href || detail?.section?.href || ''
+    const comparableHref = readerHrefComparable(href)
+    return comparableHref ? `href:${comparableHref}` : ''
+  }
+
   committedPageTurnPosition(pagePosition, reason) {
     if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
     if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
@@ -1911,6 +1923,37 @@ class NavicReaderRuntime {
       pageIndex: Math.min(pageCount - 1, Math.max(0, targetPageIndex)),
       pageCount,
       pageCountSource: pagePosition.pageCountSource || 'page-turn',
+    }
+  }
+
+  passiveCommittedRelocationPosition(pagePosition, detail, reason) {
+    if (!pagePosition) return pagePosition
+    if (String(reason || '') !== 'relocate-committed') return pagePosition
+    if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+    const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+    const candidatePageIndex = Number(pagePosition.pageIndex)
+    const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
+    if (!Number.isFinite(currentPageIndex) || !Number.isFinite(candidatePageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) {
+      return pagePosition
+    }
+    const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
+    const candidateSectionKey = this.detailSectionKey(detail)
+    if (!currentSectionKey || currentSectionKey !== candidateSectionKey) return pagePosition
+    if (Math.abs(candidatePageIndex - currentPageIndex) <= 1) return pagePosition
+    const direction = candidatePageIndex > currentPageIndex ? 1 : -1
+    const clampedPageIndex = Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))
+    log(
+      'page-number:passive-relocate-clamped',
+      `from=${currentPageIndex + 1}`,
+      `candidate=${candidatePageIndex + 1}`,
+      `to=${clampedPageIndex + 1}`,
+      `section=${candidateSectionKey}`
+    )
+    return {
+      ...pagePosition,
+      pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction)),
+      pageCount,
+      pageCountSource: pagePosition.pageCountSource || 'relocate-committed',
     }
   }
 
@@ -1976,7 +2019,8 @@ class NavicReaderRuntime {
   tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition, reason = '') {
     try {
       const candidatePagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
-      const pagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
+      const committedPagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
+      const pagePosition = this.passiveCommittedRelocationPosition(committedPagePosition, detail, reason)
       this.updateReaderPageNumberLayer(pagePosition)
       return pagePosition || null
     } catch (error) {
@@ -2442,6 +2486,7 @@ class NavicReaderRuntime {
       return
     }
     this.updateSurfacePaperTexture(detail, pagePosition)
+    this.committedRelocateDetail = detail
     this.lastPostedLocationKey = locationKey
     readerTrace('location:post', { reason, message })
     post(message)

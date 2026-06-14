@@ -613,4 +613,27 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(closeBody, "this.reflowableLastLocationProgressBucket = null")
 	}
 
+	@Test
+	fun androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns() {
+		val bridgeText = readerBridgeText()
+
+		assertContains(bridgeText, "passiveCommittedRelocationPosition(pagePosition, detail, reason)")
+		assertContains(bridgeText, "if (String(reason || '') !== 'relocate-committed') return pagePosition")
+		assertContains(bridgeText, "this.committedRelocateDetail")
+		assertContains(bridgeText, "this.detailSectionKey(detail)")
+		assertContains(bridgeText, "Math.abs(candidatePageIndex - currentPageIndex) <= 1")
+		assertContains(bridgeText, "const direction = candidatePageIndex > currentPageIndex ? 1 : -1")
+		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))")
+		assertContains(
+			bridgeText,
+			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'go-to')",
+			message = "Link and explicit href navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
+		)
+		assertContains(
+			bridgeText,
+			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'progress-seek')",
+			message = "Progress rail navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
+		)
+	}
+
 }

@@ -41,6 +41,18 @@ interface ReaderViewer {
 	fun destroy()
 }
 
+fun shouldShowNativeReaderPageIndicator(
+	viewer: ReaderViewer,
+	menuVisible: Boolean,
+	shellCoverVisible: Boolean
+): Boolean =
+	when {
+		menuVisible -> false
+		shellCoverVisible -> false
+		viewer is WebViewPublicationReaderViewer -> false
+		else -> false
+	}
+
 class ReaderViewerLifecycleSlot(
 	private val createViewer: (ReaderEngineViewState) -> ReaderViewer = ::readerViewerFor
 ) {
