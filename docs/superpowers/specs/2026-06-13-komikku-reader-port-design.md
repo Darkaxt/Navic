@@ -2598,3 +2598,29 @@ Release status:
 
 - This is a source-level controller/chrome correction only. It has not been compiled into a release APK and has not been device-validated.
 - Do not publish a release for this rail ownership fix alone unless it is bundled with enough major reader behavior fixes to justify the release pipeline.
+
+## 2026-06-14 Native Short-Tap / Long-Press Ownership Audit
+
+User clarification:
+
+- Normal reader taps should be handled by the native container detector.
+- WebView content should receive only deliberate long-press interaction, not ordinary short taps.
+
+Current source audit:
+
+- `KomikkuReaderNativeViewerContainer.onInterceptTouchEvent(...)` treats the final `ACTION_UP` as native-owned when the stream is still a short-tap candidate and no long tap was confirmed.
+- `KomikkuGestureDetectorWithLongTap.onLongTapConfirmed(...)` marks `nativeTapLongConfirmed = true` and provides long-press haptic feedback.
+- `KomikkuReaderNativeViewerContainer.dispatchTouchEvent(...)` still sends the stream to the child first, then runs swipe/tap detection, but returns `handled || nativeShortTapIntercepted` so confirmed short taps remain native-owned.
+- `navic-reader.js` keeps `claimReaderInteractiveContentTouch(...)` inert when `nativeTapZones === true`, so JS does not post early link/image touch claims that would suppress native short-tap behavior.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent"
+```
+
+Result: passed on 2026-06-14.
+
+Runtime risk:
+
+- This is source-level evidence only. It does not prove an installed eta build has the behavior until a release is built and adb-validates short tap, long press, link, image, cover, and PDF interaction paths.
