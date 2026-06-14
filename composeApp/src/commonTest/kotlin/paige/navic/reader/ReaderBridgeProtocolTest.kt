@@ -314,29 +314,64 @@ class ReaderBridgeProtocolTest {
 
 	@Test
 	fun bridgeEventsDecodeTypedContentActionClaims() {
+		assertContentActionClaim(source = "link", action = ReaderContentAction.Link)
+		assertContentActionClaim(source = "link-touch", action = ReaderContentAction.Link)
+		assertContentActionClaim(source = "image", action = ReaderContentAction.Image)
+		assertContentActionClaim(source = "media-touch", action = ReaderContentAction.MediaControl)
+		assertContentActionClaim(source = "media-anchor", action = ReaderContentAction.MediaControl)
+		assertContentActionClaim(source = "unknown", action = ReaderContentAction.Generic)
+	}
+
+	@Test
+	fun bridgeEventsDecodeContentActionClaimMetadataFromFoliateLikeClicks() {
+		val link = assertIs<ReaderBridgeEvent.ContentTapHandled>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "readerContentTapHandled",
+				  "action": "link",
+				  "source": "link",
+				  "href": "EPUB/Text/chapter-02.xhtml#door",
+				  "text": "Chapter II"
+				}
+				""".trimIndent()
+			)
+		)
+		val image = assertIs<ReaderBridgeEvent.ContentTapHandled>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "readerContentTapHandled",
+				  "action": "image",
+				  "source": "click-image",
+				  "src": "EPUB/Images/map.jpg",
+				  "alt": "Thror's map",
+				  "x": 120.5,
+				  "y": 420.0
+				}
+				""".trimIndent()
+			)
+		)
+
 		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"link"}""")
+			ReaderContentActionClaim(
+				action = ReaderContentAction.Link,
+				source = "link",
+				href = "EPUB/Text/chapter-02.xhtml#door",
+				text = "Chapter II"
+			),
+			link.claim
 		)
 		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"link-touch"}""")
-		)
-		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Image),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"image"}""")
-		)
-		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.MediaControl),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"media-touch"}""")
-		)
-		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.MediaControl),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"media-anchor"}""")
-		)
-		assertEquals(
-			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Generic),
-			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"unknown"}""")
+			ReaderContentActionClaim(
+				action = ReaderContentAction.Image,
+				source = "click-image",
+				src = "EPUB/Images/map.jpg",
+				text = "Thror's map",
+				x = 120.5,
+				y = 420.0
+			),
+			image.claim
 		)
 	}
 
@@ -344,5 +379,17 @@ class ReaderBridgeProtocolTest {
 	fun bridgeEventDecodeIgnoresMalformedOrUnknownMessages() {
 		assertNull(decodeReaderBridgeEvent("not-json"))
 		assertNull(decodeReaderBridgeEvent("""{"type":"unknown"}"""))
+	}
+
+	private fun assertContentActionClaim(
+		source: String,
+		action: ReaderContentAction
+	) {
+		val event = assertIs<ReaderBridgeEvent.ContentTapHandled>(
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"$source"}""")
+		)
+
+		assertEquals(action, event.claim.action)
+		assertEquals(source, event.claim.source)
 	}
 }

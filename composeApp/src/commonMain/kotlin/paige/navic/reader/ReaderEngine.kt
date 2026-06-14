@@ -53,7 +53,11 @@ sealed interface ReaderEngineEvent {
 		val title: String? = null
 	) : ReaderEngineEvent
 
-	data class ContentActionClaimed(val action: ReaderContentAction) : ReaderEngineEvent
+	data class ContentActionClaimed(val claim: ReaderContentActionClaim) : ReaderEngineEvent {
+		constructor(action: ReaderContentAction) : this(ReaderContentActionClaim(action = action))
+		val action: ReaderContentAction
+			get() = claim.action
+	}
 	data class SearchResults(
 		val query: String,
 		val results: List<ReaderSearchResult>
@@ -81,6 +85,17 @@ enum class ReaderContentAction {
 	Annotation,
 	Footnote
 }
+
+data class ReaderContentActionClaim(
+	val action: ReaderContentAction = ReaderContentAction.Generic,
+	val source: String? = null,
+	val href: String? = null,
+	val src: String? = null,
+	val text: String? = null,
+	val cfi: String? = null,
+	val x: Double? = null,
+	val y: Double? = null
+)
 
 sealed interface ReaderEngineViewState {
 	data object Empty : ReaderEngineViewState

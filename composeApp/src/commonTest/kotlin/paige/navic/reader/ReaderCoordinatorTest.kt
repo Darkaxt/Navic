@@ -312,7 +312,7 @@ class ReaderCoordinatorTest {
 		assertEquals(locator, relocated.controller.state.chrome.currentLocator)
 		assertEquals("Chapter 2", relocated.controller.state.chrome.currentSectionTitle)
 		assertEquals(false, ignoredCenterTap.controller.state.menuVisible)
-		assertEquals(ReaderContentAction.Link, contentClaimed.controller.state.lastContentActionClaim)
+		assertEquals(ReaderContentAction.Link, contentClaimed.controller.state.lastContentActionClaim?.action)
 		assertEquals(false, suppressedMenu.controller.state.menuVisible)
 		assertNull(suppressedMenu.controller.state.lastContentActionClaim)
 	}

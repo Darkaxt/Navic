@@ -265,8 +265,12 @@ sealed interface ReaderBridgeEvent {
 	data object PublicationReady : ReaderBridgeEvent
 	data object CenterTap : ReaderBridgeEvent
 	data class ContentTapHandled(
-		val action: ReaderContentAction = ReaderContentAction.Generic
-	) : ReaderBridgeEvent
+		val claim: ReaderContentActionClaim = ReaderContentActionClaim()
+	) : ReaderBridgeEvent {
+		constructor(action: ReaderContentAction) : this(ReaderContentActionClaim(action = action))
+		val action: ReaderContentAction
+			get() = claim.action
+	}
 	data class LocationChanged(
 		val locator: ReaderLocator,
 		val tocTitle: String? = null
@@ -301,11 +305,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"ready" -> ReaderBridgeEvent.Ready
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
-			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(
-				action = readerContentActionFromBridgeValue(
-					json.stringValue("action") ?: json.stringValue("source")
-				)
-			)
+			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(json.toContentActionClaim())
 			"locationChanged" -> ReaderBridgeEvent.LocationChanged(
 				locator = ReaderLocator(
 					href = json.stringValue("href"),
@@ -349,6 +349,21 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			else -> null
 		}
 	}.getOrNull()
+
+private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
+	val source = stringValue("source")
+	val src = stringValue("src") ?: stringValue("image") ?: stringValue("imageSrc")
+	return ReaderContentActionClaim(
+		action = readerContentActionFromBridgeValue(stringValue("action") ?: source),
+		source = source,
+		href = stringValue("href"),
+		src = src,
+		text = stringValue("text") ?: stringValue("alt") ?: stringValue("label"),
+		cfi = stringValue("cfi"),
+		x = doubleValue("x"),
+		y = doubleValue("y")
+	)
+}
 
 private fun readerContentActionFromBridgeValue(value: String?): ReaderContentAction =
 	when (value?.trim()?.lowercase()) {

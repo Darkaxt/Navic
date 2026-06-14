@@ -1114,6 +1114,32 @@ class NavicReaderRuntime {
     })
   }
 
+  readerContentActionClaimPayload(doc, event, detail = {}) {
+    const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
+    const x = Number(rootPoint?.x ?? rootPoint?.clientX)
+    const y = Number(rootPoint?.y ?? rootPoint?.clientY)
+    const anchor = detail.anchor || closestElement(event?.target, 'a[href]')
+    const image = detail.image || readerImageFromMediaTarget(detail.mediaTapTarget)
+    const payload = {
+      type: 'readerContentTapHandled',
+      action: detail.action || detail.kind || 'content',
+      source: detail.source || '',
+    }
+    const href = detail.href || anchor?.getAttribute?.('href') || ''
+    const src = detail.src || image?.currentSrc || image?.getAttribute?.('src') || ''
+    const text = detail.text ||
+      anchor?.textContent?.trim?.() ||
+      image?.getAttribute?.('alt') ||
+      image?.getAttribute?.('title') ||
+      ''
+    if (href) payload.href = href
+    if (src) payload.src = src
+    if (text) payload.text = text
+    if (Number.isFinite(x)) payload.x = x
+    if (Number.isFinite(y)) payload.y = y
+    return payload
+  }
+
   recentReaderContentActionAtRootPoint(rootPoint) {
     const recent = this.recentContentActionTouch
     if (!recent) return null
@@ -1152,7 +1178,13 @@ class NavicReaderRuntime {
         href: anchor?.getAttribute?.('href') || '',
         source: 'media-touch',
       })
-      post({ type: 'readerContentTapHandled', source: 'media-touch' })
+      post(this.readerContentActionClaimPayload(doc, event, {
+        kind: 'media',
+        href: anchor?.getAttribute?.('href') || '',
+        source: 'media-touch',
+        anchor,
+        mediaTapTarget,
+      }))
       readerTrace('content-touch:media', {
         tagName: mediaTapTarget.tagName || 'media',
         href: anchor?.getAttribute?.('href') || '',
@@ -1165,7 +1197,12 @@ class NavicReaderRuntime {
         href: anchor.getAttribute('href') || '',
         source: 'link-touch',
       })
-      post({ type: 'readerContentTapHandled', source: 'link-touch' })
+      post(this.readerContentActionClaimPayload(doc, event, {
+        kind: 'link',
+        href: anchor.getAttribute('href') || '',
+        source: 'link-touch',
+        anchor,
+      }))
       readerTrace('content-touch:link', {
         href: anchor.getAttribute('href') || '',
         textHit: readerPointInsideAnchorText(anchor, event),
@@ -1407,7 +1444,13 @@ class NavicReaderRuntime {
           href: anchor?.getAttribute?.('href') || '',
           source: 'media-anchor',
         })
-        post({ type: 'readerContentTapHandled', source: 'media-anchor' })
+        post(this.readerContentActionClaimPayload(doc, event, {
+          kind: 'media',
+          href: anchor?.getAttribute?.('href') || '',
+          source: 'media-anchor',
+          anchor,
+          mediaTapTarget,
+        }))
         const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)
         if (!toggled) {
           event.preventDefault()
@@ -1441,7 +1484,12 @@ class NavicReaderRuntime {
         href,
         source: 'link',
       })
-      post({ type: 'readerContentTapHandled', source: 'link' })
+      post(this.readerContentActionClaimPayload(doc, event, {
+        kind: 'link',
+        href,
+        source: 'link',
+        anchor,
+      }))
       event.preventDefault()
       event.stopPropagation()
       try {
@@ -1480,7 +1528,12 @@ class NavicReaderRuntime {
       kind: 'media',
       source: 'image',
     })
-    post({ type: 'readerContentTapHandled', source: 'image' })
+    post(this.readerContentActionClaimPayload(doc, event, {
+      kind: 'image',
+      source: 'image',
+      image,
+      mediaTapTarget,
+    }))
     event.preventDefault?.()
     event.stopPropagation?.()
     event.stopImmediatePropagation?.()

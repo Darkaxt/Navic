@@ -169,7 +169,7 @@ class ReaderControllerTest {
 		val toggled = suppressed.controller.onViewerAction(ReaderViewerAction.Menu)
 		val next = toggled.controller.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 
-		assertEquals(ReaderContentAction.Image, claimed.state.lastContentActionClaim)
+		assertEquals(ReaderContentAction.Image, claimed.state.lastContentActionClaim?.action)
 		assertFalse(suppressed.controller.state.menuVisible)
 		assertNull(suppressed.controller.state.lastContentActionClaim)
 		assertEquals(emptyList(), suppressed.engineCommands)
@@ -178,6 +178,27 @@ class ReaderControllerTest {
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
 			next.engineCommands
 		)
+	}
+
+	@Test
+	fun contentActionClaimsKeepMetadataInControllerState() {
+		val claim = ReaderContentActionClaim(
+			action = ReaderContentAction.Link,
+			source = "link",
+			href = "EPUB/Text/chapter-02.xhtml#door",
+			text = "Chapter II",
+			x = 120.0,
+			y = 240.0
+		)
+
+		val claimed = ReaderController().onEngineEvent(
+			ReaderEngineEvent.ContentActionClaimed(claim)
+		).controller
+		val suppressed = claimed.onViewerAction(ReaderViewerAction.Menu)
+
+		assertEquals(claim, claimed.state.lastContentActionClaim)
+		assertNull(suppressed.controller.state.lastContentActionClaim)
+		assertFalse(suppressed.controller.state.menuVisible)
 	}
 
 	@Test

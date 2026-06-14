@@ -231,6 +231,21 @@ class FoliateEpubEngineAdapterTest {
 		)
 	}
 
+	@Test
+	fun mapsBridgeContentClaimsWithMetadataToEngineEvents() {
+		val claim = ReaderContentActionClaim(
+			action = ReaderContentAction.Link,
+			source = "link",
+			href = "EPUB/Text/chapter-02.xhtml#door",
+			text = "Chapter II"
+		)
+
+		assertEquals(
+			ReaderEngineEvent.ContentActionClaimed(claim),
+			FoliateEpubEngineAdapter().onBridgeHostEvent(ReaderBridgeEvent.ContentTapHandled(claim))
+		)
+	}
+
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =
 		ReaderEngineOpenRequest(
 			publication = ReaderPublicationIdentity(

@@ -33,7 +33,7 @@ data class ReaderControllerState(
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,
-	val lastContentActionClaim: ReaderContentAction? = null,
+	val lastContentActionClaim: ReaderContentActionClaim? = null,
 	val errorMessage: String? = null,
 	val errorCode: String? = null
 ) {
@@ -126,7 +126,7 @@ data class ReaderController(
 				)
 			)
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
-				copy(state = state.copy(lastContentActionClaim = event.action))
+				copy(state = state.copy(lastContentActionClaim = event.claim))
 			)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(

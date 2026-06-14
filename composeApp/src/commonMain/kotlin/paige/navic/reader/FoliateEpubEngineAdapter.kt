@@ -74,7 +74,7 @@ sealed class FoliateWebViewEngineAdapter(
 	private fun onBridgeEvent(event: ReaderBridgeEvent): ReaderEngineEvent? =
 		when (event) {
 			ReaderBridgeEvent.PublicationReady -> ReaderEngineEvent.PublicationReady
-			is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.action)
+			is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.claim)
 			is ReaderBridgeEvent.LocationChanged -> ReaderEngineEvent.Relocated(
 				locator = event.locator,
 				tocTitle = event.tocTitle

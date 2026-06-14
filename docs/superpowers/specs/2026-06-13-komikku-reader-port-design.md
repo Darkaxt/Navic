@@ -2206,3 +2206,34 @@ Adjacent native/viewer lifecycle check:
 ```
 
 Result: passed on 2026-06-14.
+
+## 2026-06-14 Content Action Claim Metadata
+
+Anx/Foliate source behavior for this slice:
+
+- `tmp/references/anx-reader/assets/foliate-js/src/view.js:213-327`: Foliate distinguishes document links, internal/external links, image/view clicks, history, and relocation events at the view boundary.
+- `tmp/references/anx-reader/lib/page/book_player/epub_player.dart:667-804`: Anx keeps link/navigation, selection, spoken text, search, and metadata events as typed callbacks instead of flattening them into generic taps.
+
+Navic implication:
+
+- WebView content remains a renderer/engine capability. It may report that content consumed a tap, but it must not own reader chrome or menu visibility.
+- `readerContentTapHandled` now carries a typed claim with action, source, href, src, text/alt, cfi, and tap coordinates when available.
+- `ReaderBridgeEvent.ContentTapHandled`, `ReaderEngineEvent.ContentActionClaimed`, `FoliateEpubEngineAdapter`, and `ReaderControllerState.lastContentActionClaim` preserve that claim instead of collapsing it to only `Link` / `Image` / `MediaControl`.
+- This keeps the Komikku shell in charge of menu suppression while giving later controller features enough metadata for proper link, image, annotation, footnote, and media behavior.
+- Page-number visual ownership remains unchanged: the preferred page number is the organic `# / #` rendered as part of the book/page surface, not a Compose/native mobile UI overlay. Do not reintroduce a duplicate blue or native overlay while working on content claims.
+
+Fresh red check for this slice:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeContentActionClaimMetadataFromFoliateLikeClicks --tests paige.navic.reader.FoliateEpubEngineAdapterTest.mapsBridgeContentClaimsWithMetadataToEngineEvents --tests paige.navic.reader.ReaderControllerTest.contentActionClaimsKeepMetadataInControllerState
+```
+
+Result: failed before the production changes because `ReaderContentActionClaim` did not exist and content-action bridge/engine events exposed only the coarse action enum.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest
+```
+
+Result: passed on 2026-06-14 after preserving content-action claim metadata through JS bridge decoding, the Foliate adapter, and controller state.
