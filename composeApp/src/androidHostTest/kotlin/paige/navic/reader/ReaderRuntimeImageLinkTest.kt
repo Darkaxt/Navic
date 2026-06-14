@@ -239,7 +239,7 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(webViewHostText, "shellCoverReturnAvailable = true")
 		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage -> Unit")
 		assertContains(webViewHostText, "dispatchReaderWideTap")
-		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
 		assertContains(webViewHostText, "ReaderBridgeCommand.NextPage")
 		assertContains(webViewHostText, "ReaderBridgeCommand.PreviousPage")
 		assertFalse(
@@ -538,7 +538,7 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderMarksContentHandledOnReaderSurfaceThread() {
 		val webViewHostText = readerWebViewHostFile().readText()
 		val contentHandledBranch = webViewHostText
-			.substringAfter("if (event == ReaderBridgeEvent.ContentTapHandled) {")
+			.substringAfter("if (event is ReaderBridgeEvent.ContentTapHandled) {")
 			.substringBefore("\n\t\t\t\t} else {")
 
 		assertContains(

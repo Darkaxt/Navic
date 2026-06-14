@@ -141,6 +141,7 @@ import {
 } from './navic-reader-helpers.js'
 
 const ReaderRelocationCommitDelayMs = 180
+const ViewportScrollStepRatio = 0.75
 const ReaderPdfFitWidth = 'width'
 const ReaderPdfFitPage = 'page'
 const ReaderPdfFitHeight = 'height'
@@ -257,6 +258,8 @@ class NavicReaderRuntime {
           queueLength: this.pageTurnQueue.length,
         })
         return this.previousPage()
+      case 'scrollViewport':
+        return this.scrollViewport(command.direction)
       case 'applyHighlight':
         return this.applyHighlight(command)
       case 'applyHighlights':
@@ -781,6 +784,43 @@ class NavicReaderRuntime {
 
   previousPage() {
     return this.turnPage('previous')
+  }
+
+  async scrollViewport(direction) {
+    if (!this.view) return
+    const scrollDirection = direction === 'up' ? 'up' : 'down'
+    const renderer = this.view?.renderer
+    if (!renderer?.scrolled || typeof renderer.scrollBy !== 'function') {
+      return scrollDirection === 'down' ? this.nextPage() : this.previousPage()
+    }
+    const viewportSize = Number(renderer.size) || Number(readerViewportSize().height) || 0
+    const scrollDistance = Math.max(1, Math.round(viewportSize * ViewportScrollStepRatio))
+    const delta = scrollDirection === 'down' ? scrollDistance : -scrollDistance
+    const scrollsAlongHeight = renderer.sideProp !== 'width'
+    log('viewport-scroll:start', scrollDirection, `distance=${scrollDistance}`)
+    readerTrace('viewport-scroll:start', {
+      direction: scrollDirection,
+      distance: scrollDistance,
+      start: renderer.start,
+      end: renderer.end,
+      viewSize: renderer.viewSize,
+    })
+    if (scrollsAlongHeight) {
+      renderer.scrollBy(delta, 0)
+    } else {
+      renderer.scrollBy(0, delta)
+    }
+    this.applyReaderViewportLayout(`viewport-scroll:${scrollDirection}`)
+    requestAnimationFrame(() => {
+      this.logContentLayout(`viewport-scroll:${scrollDirection}`)
+      readerTrace('viewport-scroll:done', {
+        direction: scrollDirection,
+        start: renderer.start,
+        end: renderer.end,
+        viewSize: renderer.viewSize,
+      })
+      log('viewport-scroll:done', scrollDirection)
+    })
   }
 
   turnPage(direction) {

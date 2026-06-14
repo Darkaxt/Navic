@@ -40,16 +40,35 @@ data class ReaderAnnotationState(
 		selection: ReaderBridgeEvent.SelectionChanged?,
 		sectionTitle: String?,
 		color: String = DefaultReaderHighlightColor
+	): ReaderAnnotationState =
+		addSelectionHighlight(
+			bookId = bookId,
+			bookTitle = bookTitle,
+			selectionText = selection?.text,
+			selectionCfi = selection?.cfi,
+			selectionHref = selection?.href,
+			sectionTitle = sectionTitle,
+			color = color
+		)
+
+	fun addSelectionHighlight(
+		bookId: String,
+		bookTitle: String,
+		selectionText: String?,
+		selectionCfi: String?,
+		selectionHref: String?,
+		sectionTitle: String?,
+		color: String = DefaultReaderHighlightColor
 	): ReaderAnnotationState {
-		val cfi = selection?.cfi?.trim()?.takeIf { it.isNotEmpty() } ?: return this
-		val text = selection.text?.trim()?.takeIf { it.isNotEmpty() } ?: return this
+		val cfi = selectionCfi?.trim()?.takeIf { it.isNotEmpty() } ?: return this
+		val text = selectionText?.trim()?.takeIf { it.isNotEmpty() } ?: return this
 		val annotation = ReaderAnnotation(
 			id = "$bookId|$cfi",
 			bookId = bookId,
 			bookTitle = bookTitle,
 			cfi = cfi,
 			text = text,
-			href = selection.href?.trim()?.takeIf { it.isNotEmpty() },
+			href = selectionHref?.trim()?.takeIf { it.isNotEmpty() },
 			color = color,
 			sectionTitle = sectionTitle?.trim()?.takeIf { it.isNotEmpty() }
 		)

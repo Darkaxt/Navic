@@ -76,7 +76,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(webViewHostText, "ReaderSurfaceHost")
 		assertContains(webViewHostText, "readerTapZoneActionAt(")
-		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
 		assertContains(webViewHostText, "dispatchReaderWideTap")
 		assertContains(webViewHostText, "ReaderBridgeEvent.CenterTap")
 		assertContains(readerScreenText, "event is ReaderBridgeEvent.CenterTap")

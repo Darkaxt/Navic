@@ -288,24 +288,24 @@ fun readerTapZoneActionTurnsPage(action: ReaderTapZoneAction): Boolean =
 		action == ReaderTapZoneAction.Left ||
 		action == ReaderTapZoneAction.Right
 
-fun readerTapZonePageTurnCommand(
+fun readerTapZonePageTurnDirectionFor(
 	action: ReaderTapZoneAction,
 	direction: String?
-): ReaderBridgeCommand? =
+): ReaderPageTurnDirection? =
 	when (action) {
-		ReaderTapZoneAction.Previous -> ReaderBridgeCommand.PreviousPage
-		ReaderTapZoneAction.Next -> ReaderBridgeCommand.NextPage
+		ReaderTapZoneAction.Previous -> ReaderPageTurnDirection.Previous
+		ReaderTapZoneAction.Next -> ReaderPageTurnDirection.Next
 		ReaderTapZoneAction.Left ->
 			if (normalizedReaderDirection(direction) == ReaderDirectionRtl) {
-				ReaderBridgeCommand.NextPage
+				ReaderPageTurnDirection.Next
 			} else {
-				ReaderBridgeCommand.PreviousPage
+				ReaderPageTurnDirection.Previous
 			}
 		ReaderTapZoneAction.Right ->
 			if (normalizedReaderDirection(direction) == ReaderDirectionRtl) {
-				ReaderBridgeCommand.PreviousPage
+				ReaderPageTurnDirection.Previous
 			} else {
-				ReaderBridgeCommand.NextPage
+				ReaderPageTurnDirection.Next
 			}
 		ReaderTapZoneAction.Menu -> null
 	}
@@ -645,17 +645,19 @@ data class ReaderChromeState(
 			?.let(::readerPageProgressLabel)
 			?: readerProgressPercentLabel(currentLocator?.progress)
 
-	fun onReaderEvent(event: ReaderBridgeEvent): ReaderChromeState =
-		when (event) {
-			is ReaderBridgeEvent.LocationChanged -> copy(
-				currentLocator = event.locator,
-				currentSectionTitle = event.tocTitle?.trim()?.takeIf { it.isNotEmpty() } ?: currentSectionTitle
-			)
-			is ReaderBridgeEvent.TocItemChanged -> copy(
-				currentSectionTitle = event.title?.trim()?.takeIf { it.isNotEmpty() } ?: currentSectionTitle
-			)
-			else -> this
-		}
+	fun onLocationChanged(
+		locator: ReaderLocator,
+		tocTitle: String?
+	): ReaderChromeState =
+		copy(
+			currentLocator = locator,
+			currentSectionTitle = tocTitle?.trim()?.takeIf { it.isNotEmpty() } ?: currentSectionTitle
+		)
+
+	fun onTocItemChanged(title: String?): ReaderChromeState =
+		copy(
+			currentSectionTitle = title?.trim()?.takeIf { it.isNotEmpty() } ?: currentSectionTitle
+		)
 
 	fun onReadaloudPlaybackState(state: ReaderReadaloudPlaybackUiState): ReaderChromeState =
 		copy(readaloudPlayback = state)
@@ -781,8 +783,6 @@ data class ReaderChromeState(
 			)
 		)
 
-	fun toSettingsCommand(): ReaderBridgeCommand.ApplySettings =
-		ReaderBridgeCommand.ApplySettings(settings)
 }
 
 private fun readerPageProgressLabel(locator: ReaderLocator): String? {

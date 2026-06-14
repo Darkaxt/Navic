@@ -3,21 +3,18 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ReaderChromeStateTest {
 	@Test
 	fun locationEventsDriveProgressAndCurrentSectionLabels() {
-		val state = ReaderChromeState().onReaderEvent(
-			ReaderBridgeEvent.LocationChanged(
-				locator = ReaderLocator(
-					href = "chapter-03.xhtml",
-					cfi = "epubcfi(/6/8!/4/1:0)",
-					progress = 0.342
-				),
-				tocTitle = "Chapter 3"
-			)
+		val state = ReaderChromeState().onLocationChanged(
+			locator = ReaderLocator(
+				href = "chapter-03.xhtml",
+				cfi = "epubcfi(/6/8!/4/1:0)",
+				progress = 0.342
+			),
+			tocTitle = "Chapter 3"
 		)
 
 		assertEquals("Chapter 3", state.currentSectionTitle)
@@ -28,11 +25,13 @@ class ReaderChromeStateTest {
 
 	@Test
 	fun progressLabelsClampInvalidReaderFractions() {
-		val overComplete = ReaderChromeState().onReaderEvent(
-			ReaderBridgeEvent.LocationChanged(ReaderLocator(progress = 1.4))
+		val overComplete = ReaderChromeState().onLocationChanged(
+			locator = ReaderLocator(progress = 1.4),
+			tocTitle = null
 		)
-		val beforeStart = ReaderChromeState().onReaderEvent(
-			ReaderBridgeEvent.LocationChanged(ReaderLocator(progress = -0.4))
+		val beforeStart = ReaderChromeState().onLocationChanged(
+			locator = ReaderLocator(progress = -0.4),
+			tocTitle = null
 		)
 
 		assertEquals(1f, overComplete.progressFraction)
@@ -43,14 +42,13 @@ class ReaderChromeStateTest {
 
 	@Test
 	fun fixedLayoutLocationsUsePageAwareProgressLabels() {
-		val state = ReaderChromeState().onReaderEvent(
-			ReaderBridgeEvent.LocationChanged(
-				ReaderLocator(
-					progress = 0.05,
-					pageIndex = 6,
-					pageCount = 120
-				)
-			)
+		val state = ReaderChromeState().onLocationChanged(
+			locator = ReaderLocator(
+				progress = 0.05,
+				pageIndex = 6,
+				pageCount = 120
+			),
+			tocTitle = null
 		)
 
 		assertEquals(0.05f, state.progressFraction)
@@ -58,7 +56,7 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
-	fun typographyControlsCreateReaderSettingsCommands() {
+	fun typographyControlsUpdateReaderSettings() {
 		val larger = ReaderChromeState().adjustFontSize(12)
 		val sepia = larger.toggleTheme()
 		val scrolled = sepia.togglePagedMode()
@@ -72,8 +70,6 @@ class ReaderChromeStateTest {
 		assertEquals("Georgia, serif", serif.settings.fontFamily)
 		assertEquals(1.65, taller.settings.lineHeight)
 		assertEquals(8, wider.settings.marginPercent)
-		assertIs<ReaderBridgeCommand.ApplySettings>(wider.toSettingsCommand())
-		assertEquals(wider.settings, wider.toSettingsCommand().settings)
 	}
 
 	@Test
@@ -269,24 +265,24 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
-	fun nativeTapZoneCommandsRespectReadingDirection() {
+	fun nativeTapZoneDirectionsRespectReadingDirection() {
 		assertEquals(
-			ReaderBridgeCommand.PreviousPage,
-			readerTapZonePageTurnCommand(ReaderTapZoneAction.Left, ReaderDirectionLtr)
+			ReaderPageTurnDirection.Previous,
+			readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Left, ReaderDirectionLtr)
 		)
 		assertEquals(
-			ReaderBridgeCommand.NextPage,
-			readerTapZonePageTurnCommand(ReaderTapZoneAction.Right, ReaderDirectionLtr)
+			ReaderPageTurnDirection.Next,
+			readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Right, ReaderDirectionLtr)
 		)
 		assertEquals(
-			ReaderBridgeCommand.NextPage,
-			readerTapZonePageTurnCommand(ReaderTapZoneAction.Left, ReaderDirectionRtl)
+			ReaderPageTurnDirection.Next,
+			readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Left, ReaderDirectionRtl)
 		)
 		assertEquals(
-			ReaderBridgeCommand.PreviousPage,
-			readerTapZonePageTurnCommand(ReaderTapZoneAction.Right, ReaderDirectionRtl)
+			ReaderPageTurnDirection.Previous,
+			readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Right, ReaderDirectionRtl)
 		)
-		assertEquals(null, readerTapZonePageTurnCommand(ReaderTapZoneAction.Menu, ReaderDirectionLtr))
+		assertEquals(null, readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Menu, ReaderDirectionLtr))
 	}
 
 	@Test

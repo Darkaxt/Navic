@@ -6,6 +6,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import org.koin.compose.koinInject
+import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.reader.BinderyReaderPublicationResolver
 import paige.navic.reader.ReaderPublicationCachePathPrefix
@@ -14,6 +15,7 @@ import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
+import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -22,7 +24,7 @@ private const val ReaderPublicationRuntimeLogTag = "ReaderPublicationRuntime"
 @Composable
 actual fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?) -> Unit,
+	onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit,
 	onError: (String) -> Unit
 ) {
 	if (reader.kind == ReaderPublicationKind.Readaloud && reader.mediaOverlayEnabled) return
@@ -33,6 +35,7 @@ actual fun ReaderPublicationRuntimeHost(
 	val currentOnError by rememberUpdatedState(onError)
 
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.publicationUrl, reader.kind, reader.mediaOverlayEnabled) {
+		val savedProgress = repository.savedReaderProgressFor(reader)
 		val directUrl = reader.publicationUrl.takeIf {
 			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
@@ -43,7 +46,7 @@ actual fun ReaderPublicationRuntimeHost(
 					"url=${readerPublicationResourceLogLabel(directUrl)} " +
 					"shellCover=unavailable"
 			)
-			currentOnPublicationReady(directUrl, null)
+			currentOnPublicationReady(directUrl, null, savedProgress)
 			return@LaunchedEffect
 		}
 		Logger.i(
@@ -90,7 +93,7 @@ actual fun ReaderPublicationRuntimeHost(
 			resolved
 		}.fold(
 			onSuccess = { resolved ->
-				currentOnPublicationReady(resolved.publicationUrl, resolved.shellCoverUrl)
+				currentOnPublicationReady(resolved.publicationUrl, resolved.shellCoverUrl, savedProgress)
 			},
 			onFailure = { error ->
 				Logger.e(
@@ -107,5 +110,26 @@ actual fun ReaderPublicationRuntimeHost(
 
 private fun String.isLocalReaderPublicationUrl(): Boolean =
 	startsWith("file:", ignoreCase = true) ||
-		startsWith("content:", ignoreCase = true) ||
-		startsWith("${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix", ignoreCase = true)
+	startsWith("content:", ignoreCase = true) ||
+	startsWith("${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix", ignoreCase = true)
+
+private suspend fun BinderyRepository.savedReaderProgressFor(reader: Screen.Reader): BinderyReadingProgress? {
+	if (reader.bookId.isBlank() || reader.resourceHref.isBlank()) return null
+	return getReadingProgress(bookId = reader.bookId)
+		.onFailure { error ->
+			Logger.w(
+				ReaderPublicationRuntimeLogTag,
+				"Reader saved progress lookup failed bookId=${reader.bookId} " +
+					"resource=${readerPublicationResourceLogLabel(reader.resourceHref)}",
+				error
+			)
+		}
+		.getOrNull()
+		?.takeIf { progress ->
+			progress.toReaderStartLocatorForReader(
+				bookId = reader.bookId,
+				resourceHref = reader.resourceHref,
+				kind = reader.kind
+			) != null
+		}
+}

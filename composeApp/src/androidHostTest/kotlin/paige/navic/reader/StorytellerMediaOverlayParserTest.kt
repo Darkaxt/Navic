@@ -29,13 +29,13 @@ class StorytellerMediaOverlayParserTest {
 	fun mapsAudioPositionsToReaderOverlayAndTextFragmentsBackToAudioSeek() {
 		val timeline = StorytellerMediaOverlayParser.parse(storytellerEpubFixture())
 
-		val command = timeline.readerCommandForAudioPosition(
+		val command = timeline.engineCommandForAudioPosition(
 			audioResource = "EPUB/Audio/chapter1.mp3",
 			positionMs = 5_500,
 			syncEnabled = true
 		)
 
-		val overlay = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(command)
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(command)
 		assertEquals("EPUB/Text/chapter1.xhtml", overlay.fragment.textHref)
 		assertEquals("frag-2", overlay.fragment.fragmentId)
 		assertEquals(5.0, overlay.fragment.clipBeginSeconds)
@@ -46,7 +46,7 @@ class StorytellerMediaOverlayParserTest {
 		assertEquals("EPUB/Audio/chapter1.mp3", seek?.audioResource)
 		assertEquals(1_250, seek?.positionMs)
 		assertNull(
-			timeline.readerCommandForAudioPosition(
+			timeline.engineCommandForAudioPosition(
 				audioResource = "EPUB/Audio/chapter1.mp3",
 				positionMs = 5_500,
 				syncEnabled = false

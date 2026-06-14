@@ -111,6 +111,19 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun viewportScrollCommandDispatchesReaderScrollIntent() {
+		val downScript = ReaderBridgeCommand.ScrollViewport(ReaderViewportScrollDirection.Down).toJavaScript()
+		val upScript = ReaderBridgeCommand.ScrollViewport(ReaderViewportScrollDirection.Up).toJavaScript()
+
+		assertContains(downScript, "window.NavicReaderBridge.dispatch")
+		assertContains(downScript, "\"type\":\"scrollViewport\"")
+		assertContains(downScript, "\"direction\":\"down\"")
+		assertContains(upScript, "window.NavicReaderBridge.dispatch")
+		assertContains(upScript, "\"type\":\"scrollViewport\"")
+		assertContains(upScript, "\"direction\":\"up\"")
+	}
+
+	@Test
 	fun progressSeekCommandDispatchesClampedFractionNavigationIntent() {
 		val script = ReaderBridgeCommand.GoToProgress(1.4).toJavaScript()
 
@@ -296,6 +309,34 @@ class ReaderBridgeProtocolTest {
 	fun bridgeEventsDecodeReaderCenterTap() {
 		assertIs<ReaderBridgeEvent.CenterTap>(
 			decodeReaderBridgeEvent("""{"type":"readerCenterTap"}""")
+		)
+	}
+
+	@Test
+	fun bridgeEventsDecodeTypedContentActionClaims() {
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"link"}""")
+		)
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"link-touch"}""")
+		)
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Image),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"image"}""")
+		)
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.MediaControl),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"media-touch"}""")
+		)
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.MediaControl),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"media-anchor"}""")
+		)
+		assertEquals(
+			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Generic),
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"unknown"}""")
 		)
 	}
 

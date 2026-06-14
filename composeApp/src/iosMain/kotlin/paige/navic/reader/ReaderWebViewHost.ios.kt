@@ -26,6 +26,7 @@ actual fun ReaderWebViewHost(
 	startProgress: Double?,
 	command: ReaderBridgeCommand?,
 	commandKey: Long,
+	readerWideGesturesEnabled: Boolean,
 	onEvent: (ReaderBridgeEvent) -> Unit,
 	modifier: Modifier
 ) {

@@ -19,7 +19,7 @@ class ReaderMediaOverlaySyncTest {
 			timeline = timeline,
 			position = playbackPosition(positionMs = 1_500)
 		)
-		val firstCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(first.readerCommand)
+		val firstCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(first.engineCommand)
 		assertEquals("frag-1", firstCommand.fragment.fragmentId)
 		assertEquals("First", firstCommand.fragment.label)
 
@@ -28,7 +28,7 @@ class ReaderMediaOverlaySyncTest {
 			timeline = timeline,
 			position = playbackPosition(positionMs = 2_000)
 		)
-		assertNull(duplicate.readerCommand)
+		assertNull(duplicate.engineCommand)
 		assertEquals(first.state, duplicate.state)
 
 		val second = duplicate.state.onReadaloudPlaybackPosition(
@@ -36,7 +36,7 @@ class ReaderMediaOverlaySyncTest {
 			timeline = timeline,
 			position = playbackPosition(positionMs = 5_500)
 		)
-		val secondCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(second.readerCommand)
+		val secondCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(second.engineCommand)
 		assertEquals("frag-2", secondCommand.fragment.fragmentId)
 		assertEquals("Second", secondCommand.fragment.label)
 
@@ -45,7 +45,7 @@ class ReaderMediaOverlaySyncTest {
 			timeline = timeline,
 			position = playbackPosition(positionMs = 9_500)
 		)
-		assertEquals(ReaderBridgeCommand.ClearOverlay, outsideClip.readerCommand)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideClip.engineCommand)
 		assertNull(outsideClip.state.activeClipKey)
 	}
 
@@ -110,26 +110,26 @@ class ReaderMediaOverlaySyncTest {
 
 		assertFalse(disabled.state.syncEnabled)
 		assertNull(disabled.state.activeClipKey)
-		assertEquals(ReaderBridgeCommand.ClearOverlay, disabled.readerCommand)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, disabled.engineCommand)
 
 		val suppressed = disabled.state.onReadaloudPlaybackPosition(
 			plan = plan,
 			timeline = timeline,
 			position = playbackPosition(positionMs = 5_500)
 		)
-		assertNull(suppressed.readerCommand)
+		assertNull(suppressed.engineCommand)
 		assertFalse(suppressed.state.syncEnabled)
 
 		val enabled = suppressed.state.setSyncEnabled(true)
 		assertTrue(enabled.state.syncEnabled)
-		assertNull(enabled.readerCommand)
+		assertNull(enabled.engineCommand)
 
 		val resumed = enabled.state.onReadaloudPlaybackPosition(
 			plan = plan,
 			timeline = timeline,
 			position = playbackPosition(positionMs = 5_500)
 		)
-		val resumedCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(resumed.readerCommand)
+		val resumedCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(resumed.engineCommand)
 		assertEquals("frag-2", resumedCommand.fragment.fragmentId)
 	}
 

@@ -2,8 +2,8 @@ package paige.navic.reader
 
 data class ReaderReadaloudSyncState(
 	val overlayState: ReaderMediaOverlaySyncState = ReaderMediaOverlaySyncState(),
-	val readerCommand: ReaderBridgeCommand? = null,
-	val readerCommandKey: Long = 0L
+	val engineCommand: ReaderEngineCommand? = null,
+	val engineCommandKey: Long = 0L
 )
 
 data class ReaderReadaloudReaderEventStep(
@@ -13,7 +13,7 @@ data class ReaderReadaloudReaderEventStep(
 
 fun ReaderReadaloudSyncState.setSyncEnabled(enabled: Boolean): ReaderReadaloudSyncState {
 	val step = overlayState.setSyncEnabled(enabled)
-	return copy(overlayState = step.state).withReaderCommand(step.readerCommand)
+	return copy(overlayState = step.state).withEngineCommand(step.engineCommand)
 }
 
 fun ReaderReadaloudSyncState.onPlaybackPosition(
@@ -26,7 +26,7 @@ fun ReaderReadaloudSyncState.onPlaybackPosition(
 		timeline = timeline,
 		position = position
 	)
-	return copy(overlayState = step.state).withReaderCommand(step.readerCommand)
+	return copy(overlayState = step.state).withEngineCommand(step.engineCommand)
 }
 
 fun ReaderReadaloudSyncState.onReaderEvent(
@@ -43,10 +43,8 @@ fun ReaderReadaloudSyncState.onReaderEvent(
 		activeClipKey = seekTarget.clip.readerOverlaySyncKey()
 	)
 	val nextState = copy(overlayState = nextOverlayState)
-		.withReaderCommand(
-			ReaderBridgeCommand.ApplyOverlayFragment(
-				seekTarget.clip.toReaderOverlayFragment()
-			)
+		.withEngineCommand(
+			ReaderEngineCommand.ApplyMediaOverlay(seekTarget.clip.toReaderOverlayFragment())
 		)
 	return ReaderReadaloudReaderEventStep(
 		state = nextState,
@@ -54,14 +52,14 @@ fun ReaderReadaloudSyncState.onReaderEvent(
 	)
 }
 
-private fun ReaderReadaloudSyncState.withReaderCommand(
-	command: ReaderBridgeCommand?
+private fun ReaderReadaloudSyncState.withEngineCommand(
+	command: ReaderEngineCommand?
 ): ReaderReadaloudSyncState =
 	if (command == null) {
 		this
 	} else {
 		copy(
-			readerCommand = command,
-			readerCommandKey = readerCommandKey + 1L
+			engineCommand = command,
+			engineCommandKey = engineCommandKey + 1L
 		)
 	}

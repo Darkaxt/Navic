@@ -7,7 +7,7 @@ data class ReaderMediaOverlaySyncState(
 
 data class ReaderMediaOverlaySyncStep(
 	val state: ReaderMediaOverlaySyncState,
-	val readerCommand: ReaderBridgeCommand? = null
+	val engineCommand: ReaderEngineCommand? = null
 )
 
 data class ReadaloudAudioSeekTarget(
@@ -23,13 +23,13 @@ fun ReaderMediaOverlaySyncState.setSyncEnabled(enabled: Boolean): ReaderMediaOve
 		activeClipKey = if (enabled) activeClipKey else null
 	)
 	val clearCommand = if (!enabled && activeClipKey != null) {
-		ReaderBridgeCommand.ClearOverlay
+		ReaderEngineCommand.ClearMediaOverlay
 	} else {
 		null
 	}
 	return ReaderMediaOverlaySyncStep(
 		state = nextState,
-		readerCommand = clearCommand
+		engineCommand = clearCommand
 	)
 }
 
@@ -49,7 +49,7 @@ fun ReaderMediaOverlaySyncState.onReadaloudPlaybackPosition(
 	} else {
 		ReaderMediaOverlaySyncStep(
 			state = copy(activeClipKey = key),
-			readerCommand = ReaderBridgeCommand.ApplyOverlayFragment(clip.toReaderOverlayFragment())
+			engineCommand = ReaderEngineCommand.ApplyMediaOverlay(clip.toReaderOverlayFragment())
 		)
 	}
 }
@@ -78,7 +78,7 @@ private fun ReaderMediaOverlaySyncState.clearOverlayIfNeeded(): ReaderMediaOverl
 	} else {
 		ReaderMediaOverlaySyncStep(
 			state = copy(activeClipKey = null),
-			readerCommand = ReaderBridgeCommand.ClearOverlay
+			engineCommand = ReaderEngineCommand.ClearMediaOverlay
 		)
 	}
 

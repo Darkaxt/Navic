@@ -15,6 +15,7 @@ import paige.navic.reader.ReadaloudAudioController
 import paige.navic.reader.ReadaloudPlaybackLogTag
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
+import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderMediaOverlaySyncState
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
@@ -77,9 +78,9 @@ actual fun ReaderReadaloudRuntimeHost(
 				timeline = activeRuntime.timeline,
 				position = position
 			)
-			if (nextState.readerCommandKey != currentSyncState.readerCommandKey) {
-				nextState.readerCommand?.let { command ->
-					currentOnReaderCommand(command, nextState.readerCommandKey)
+			if (nextState.engineCommandKey != currentSyncState.engineCommandKey) {
+				nextState.engineCommand?.toLegacyReaderBridgeCommand()?.let { command ->
+					currentOnReaderCommand(command, nextState.engineCommandKey)
 				}
 			}
 			syncState = nextState
@@ -173,9 +174,9 @@ actual fun ReaderReadaloudRuntimeHost(
 			is ReaderReadaloudPlaybackCommand.SetSpeed -> controller.setPlaybackSpeed(playbackCommand.speed)
 			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
 				val nextState = syncState.setSyncEnabled(playbackCommand.enabled)
-				if (nextState.readerCommandKey != syncState.readerCommandKey) {
-					nextState.readerCommand?.let { command ->
-						currentOnReaderCommand(command, nextState.readerCommandKey)
+				if (nextState.engineCommandKey != syncState.engineCommandKey) {
+					nextState.engineCommand?.toLegacyReaderBridgeCommand()?.let { command ->
+						currentOnReaderCommand(command, nextState.engineCommandKey)
 					}
 				}
 				syncState = nextState
@@ -192,9 +193,9 @@ actual fun ReaderReadaloudRuntimeHost(
 			timeline = activeRuntime.timeline,
 			event = event
 		)
-		if (step.state.readerCommandKey != syncState.readerCommandKey) {
-			step.state.readerCommand?.let { command ->
-				onReaderCommand(command, step.state.readerCommandKey)
+		if (step.state.engineCommandKey != syncState.engineCommandKey) {
+			step.state.engineCommand?.toLegacyReaderBridgeCommand()?.let { command ->
+				onReaderCommand(command, step.state.engineCommandKey)
 			}
 		}
 		syncState = step.state
@@ -203,6 +204,13 @@ actual fun ReaderReadaloudRuntimeHost(
 		}
 	}
 }
+
+private fun ReaderEngineCommand.toLegacyReaderBridgeCommand(): ReaderBridgeCommand? =
+	when (this) {
+		is ReaderEngineCommand.ApplyMediaOverlay -> ReaderBridgeCommand.ApplyOverlayFragment(fragment)
+		ReaderEngineCommand.ClearMediaOverlay -> ReaderBridgeCommand.ClearOverlay
+		else -> null
+	}
 
 private fun paige.navic.reader.ReadaloudPlaybackPosition.toReaderReadaloudPlaybackUiState(
 	isAvailable: Boolean,

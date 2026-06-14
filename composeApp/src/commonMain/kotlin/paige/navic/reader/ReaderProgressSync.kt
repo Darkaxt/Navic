@@ -156,6 +156,13 @@ data class ReaderProgressSaveGate(
 			}
 			else -> ReaderProgressSaveDecision(state = this)
 		}
+
+	fun onEngineEvent(event: ReaderEngineEvent): ReaderProgressSaveDecision =
+		when (event) {
+			ReaderEngineEvent.PublicationReady -> onReaderEvent(ReaderBridgeEvent.PublicationReady)
+			is ReaderEngineEvent.Relocated -> onReaderEvent(ReaderBridgeEvent.LocationChanged(event.locator))
+			else -> ReaderProgressSaveDecision(state = this)
+		}
 }
 
 data class ReaderProgressSaveDecision(

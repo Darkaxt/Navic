@@ -167,6 +167,22 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderBridgeCommand {
+		override val type: String = "scrollViewport"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put(
+					"direction",
+					when (direction) {
+						ReaderViewportScrollDirection.Up -> "up"
+						ReaderViewportScrollDirection.Down -> "down"
+					}
+				)
+			}
+	}
+
 	data class ApplyHighlight(
 		val id: String,
 		val cfi: String,
@@ -248,7 +264,9 @@ sealed interface ReaderBridgeEvent {
 	data object Ready : ReaderBridgeEvent
 	data object PublicationReady : ReaderBridgeEvent
 	data object CenterTap : ReaderBridgeEvent
-	data object ContentTapHandled : ReaderBridgeEvent
+	data class ContentTapHandled(
+		val action: ReaderContentAction = ReaderContentAction.Generic
+	) : ReaderBridgeEvent
 	data class LocationChanged(
 		val locator: ReaderLocator,
 		val tocTitle: String? = null
@@ -283,7 +301,11 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"ready" -> ReaderBridgeEvent.Ready
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
-			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled
+			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(
+				action = readerContentActionFromBridgeValue(
+					json.stringValue("action") ?: json.stringValue("source")
+				)
+			)
 			"locationChanged" -> ReaderBridgeEvent.LocationChanged(
 				locator = ReaderLocator(
 					href = json.stringValue("href"),
@@ -327,6 +349,18 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			else -> null
 		}
 	}.getOrNull()
+
+private fun readerContentActionFromBridgeValue(value: String?): ReaderContentAction =
+	when (value?.trim()?.lowercase()) {
+		"link", "link-touch", "external-link" -> ReaderContentAction.Link
+		"image", "image-touch", "click-image" -> ReaderContentAction.Image
+		"selection", "text-selection" -> ReaderContentAction.Selection
+		"form", "form-control", "input", "editable" -> ReaderContentAction.FormControl
+		"media", "media-touch", "media-anchor", "audio", "video" -> ReaderContentAction.MediaControl
+		"annotation", "highlight", "note", "show-annotation" -> ReaderContentAction.Annotation
+		"footnote", "noteref" -> ReaderContentAction.Footnote
+		else -> ReaderContentAction.Generic
+	}
 
 private fun ReaderLocator.toJsonObject(): JsonObject =
 	buildJsonObject {

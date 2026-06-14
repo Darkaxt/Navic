@@ -74,17 +74,17 @@ data class MediaOverlayTimeline(
 		}
 	}
 
-	fun readerCommandForAudioPosition(
+	fun engineCommandForAudioPosition(
 		audioResource: String,
 		positionMs: Long,
 		syncEnabled: Boolean
-	): ReaderBridgeCommand? =
+	): ReaderEngineCommand? =
 		if (!syncEnabled) {
 			null
 		} else {
 			activeClip(audioResource, positionMs)
 				?.toReaderOverlayFragment()
-				?.let(ReaderBridgeCommand::ApplyOverlayFragment)
+				?.let(ReaderEngineCommand::ApplyMediaOverlay)
 		}
 
 	fun seekTargetForText(href: String): MediaOverlaySeekTarget? {

@@ -38,6 +38,7 @@ import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderJavascriptBridge
 import paige.navic.reader.ReaderLocator
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderSettings
@@ -46,7 +47,7 @@ import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerTapZoneActionAt
-import paige.navic.reader.readerTapZonePageTurnCommand
+import paige.navic.reader.readerTapZonePageTurnDirectionFor
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
@@ -77,6 +78,7 @@ actual fun ReaderWebViewHost(
 	startProgress: Double?,
 	command: ReaderBridgeCommand?,
 	commandKey: Long,
+	readerWideGesturesEnabled: Boolean,
 	onEvent: (ReaderBridgeEvent) -> Unit,
 	modifier: Modifier
 ) {
@@ -140,7 +142,7 @@ actual fun ReaderWebViewHost(
 	val bridge = remember {
 		ReaderJavascriptBridge(
 			onEvent = { event ->
-				if (event == ReaderBridgeEvent.ContentTapHandled) {
+				if (event is ReaderBridgeEvent.ContentTapHandled) {
 					val surfaceHost = surfaceHostRef.get()
 					if (surfaceHost == null) {
 						Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()} surface=missing")
@@ -150,6 +152,7 @@ actual fun ReaderWebViewHost(
 							Logger.i(ReaderWebViewHostTag, "Reader bridge event: ${event.debugLabel()} surface=marked")
 						}
 					}
+					webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
 				} else {
 					webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
 				}
@@ -293,7 +296,7 @@ actual fun ReaderWebViewHost(
 					this.readerWebView = readerWebView
 					this.shellCoverView = readerShellCoverView
 					readerSettings = currentSettings
-					readerWideTapsEnabled = true
+					readerWideTapsEnabled = readerWideGesturesEnabled
 					this.canReturnToShellCover = currentCanReturnToShellCover
 					updateShellCover(currentNativeShellCoverUrl, title)
 					onReaderCommand = { readerCommand ->
@@ -327,7 +330,7 @@ actual fun ReaderWebViewHost(
 			},
 			update = { view ->
 				view.readerSettings = settings
-				view.readerWideTapsEnabled = true
+				view.readerWideTapsEnabled = readerWideGesturesEnabled
 				view.canReturnToShellCover = canReturnToShellCover
 				view.updateShellCover(nativeShellCoverUrl, title)
 				view.keepScreenOn = settings.keepScreenOn == true
@@ -492,7 +495,9 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 	private fun dispatchReaderShellCoverSwipe(deltaX: Float, deltaY: Float): Boolean {
 		if (!shellCoverVisible) return false
 		val action = readerShellCoverSwipeAction(deltaX, deltaY, shellCoverSwipeThresholdPx) ?: return false
-		val command = readerTapZonePageTurnCommand(action, readerSettings.direction) ?: return false
+		val command = readerTapZonePageTurnDirectionFor(action, readerSettings.direction)
+			?.toLegacyReaderBridgePageTurnCommand()
+			?: return false
 		Logger.i(
 			ReaderWebViewHostTag,
 			"Reader shell cover swipe action=$action command=${command.debugLabel()} " +
@@ -528,7 +533,8 @@ private class ReaderSurfaceHost(context: Context) : FrameLayout(context) {
 			smallerTapZone = readerSettings.smallerTapZone == true,
 			flowMode = readerSettings.flowMode
 		)
-		val command = readerTapZonePageTurnCommand(action, readerSettings.direction)
+		val command = readerTapZonePageTurnDirectionFor(action, readerSettings.direction)
+			?.toLegacyReaderBridgePageTurnCommand()
 		Logger.i(
 			ReaderWebViewHostTag,
 			"Reader surface tap action=$action command=${command?.debugLabel().orEmpty()} " +
@@ -823,6 +829,12 @@ private fun readerPublicationCacheFileForAssetUrl(context: Context, coverUrl: St
 	return coverFile
 }
 
+private fun ReaderPageTurnDirection.toLegacyReaderBridgePageTurnCommand(): ReaderBridgeCommand =
+	when (this) {
+		ReaderPageTurnDirection.Previous -> ReaderBridgeCommand.PreviousPage
+		ReaderPageTurnDirection.Next -> ReaderBridgeCommand.NextPage
+	}
+
 private fun ReaderBridgeCommand.debugLabel(): String =
 	when (this) {
 		is ReaderBridgeCommand.OpenPublication ->
@@ -832,6 +844,7 @@ private fun ReaderBridgeCommand.debugLabel(): String =
 		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"
 		ReaderBridgeCommand.NextPage -> "nextPage"
 		ReaderBridgeCommand.PreviousPage -> "previousPage"
+		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
 		is ReaderBridgeCommand.ApplyHighlights -> "applyHighlights(count=${highlights.size})"
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
@@ -845,7 +858,7 @@ private fun ReaderBridgeEvent.debugLabel(): String =
 		ReaderBridgeEvent.Ready -> "ready"
 		ReaderBridgeEvent.PublicationReady -> "publicationReady"
 		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
-		ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled"
+		is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled(${action.name.lowercase()})"
 		is ReaderBridgeEvent.LocationChanged -> "locationChanged(${locator.href?.readerUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.readerUrlLabel().orEmpty()})"

@@ -44,6 +44,19 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderBridgeExposesViewportScrollCommandSeparateFromPageTurns() {
+		val bridgeText = readerBridgeText()
+
+		assertContains(bridgeText, "case 'scrollViewport'")
+		assertContains(bridgeText, "scrollViewport(command.direction)")
+		assertContains(bridgeText, "async scrollViewport(direction)")
+		assertContains(bridgeText, "viewport-scroll:start")
+		assertContains(bridgeText, "viewport-scroll:done")
+		assertContains(bridgeText, "renderer.scrolled")
+		assertContains(bridgeText, "renderer.scrollBy")
+	}
+
+	@Test
 	fun androidReaderBridgeExposesProgressSeekCommand() {
 		val bridgeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
@@ -52,9 +65,18 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "async goToProgress(progress)")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
-		assertContains(readerScreenText, "ReaderBridgeCommand.GoToProgress")
+		assertContains(readerScreenText, "coordinator.navigateTo(")
+		assertContains(readerScreenText, "ReaderLocator(progress = progress)")
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeCommand.GoToProgress"),
+			"The Komikku reader shell must ask the controller to navigate, not dispatch raw Foliate bridge progress commands."
+		)
+		assertFalse(
+			readerScreenText.contains("coordinator.dispatchBridgeCommand(ReaderBridgeCommand.GoToProgress"),
+			"Progress rail gestures must remain above the engine bridge so PDF/EPUB adapters can translate them independently."
+		)
 		assertContains(readerScreenText, "Slider(")
-		assertContains(readerScreenText, "onProgressSeek: (Float) -> Unit")
+		assertContains(readerScreenText, "onGoToProgress: (Double) -> Unit")
 	}
 
 	@Test
@@ -78,8 +100,16 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(readerScreenText, "onPreviousPage: () -> Unit")
 		assertContains(readerScreenText, "onNextPage: () -> Unit")
-		assertContains(readerScreenText, "ReaderBridgeCommand.PreviousPage")
-		assertContains(readerScreenText, "ReaderBridgeCommand.NextPage")
+		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)")
+		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)")
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeCommand.PreviousPage"),
+			"The Komikku reader shell must not dispatch raw bridge page-turn commands."
+		)
+		assertFalse(
+			readerScreenText.contains("ReaderBridgeCommand.NextPage"),
+			"The Komikku reader shell must not dispatch raw bridge page-turn commands."
+		)
 		assertContains(readerScreenText, "Icons.Filled.SkipPrevious")
 		assertContains(readerScreenText, "Icons.Filled.SkipNext")
 	}
@@ -182,7 +212,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(webViewHostText, "dispatchReaderWideTap(event)")
 		assertContains(webViewHostText, "childHandled")
 		assertContains(webViewHostText, "return if (readerWideTapsEnabled && shellCoverWasVisible)")
-		assertContains(webViewHostText, "readerTapZonePageTurnCommand(")
+		assertContains(webViewHostText, "readerTapZonePageTurnDirectionFor(")
 		assertTrue(
 			dispatchTouchEvent.indexOf("val childHandled = super.dispatchTouchEvent(event)") <
 				dispatchTouchEvent.indexOf("readerGestureDetector.onTouchEvent(event)"),
@@ -271,7 +301,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(shellCoverSwipe, "if (!shellCoverVisible) return false")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
 		assertContains(shellCoverSwipe, "shellCoverSwipeThresholdPx")
-		assertContains(shellCoverSwipe, "readerTapZonePageTurnCommand(")
+		assertContains(shellCoverSwipe, "readerTapZonePageTurnDirectionFor(")
 		assertContains(shellCoverSwipe, "dispatchReaderPageTurnCommand(command)")
 		assertContains(webViewHostText, "val shellCoverWasVisible = shellCoverVisible")
 		assertContains(webViewHostText, "val childHandled = super.dispatchTouchEvent(event)")

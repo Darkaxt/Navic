@@ -17,26 +17,26 @@ class ReaderReadaloudSyncCoordinatorTest {
 			timeline = timeline,
 			position = playbackPosition(positionMs = 1_500)
 		)
-		val firstCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(first.readerCommand)
+		val firstCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(first.engineCommand)
 		assertEquals("frag-1", firstCommand.fragment.fragmentId)
 		assertEquals("First", firstCommand.fragment.label)
-		assertEquals(1L, first.readerCommandKey)
+		assertEquals(1L, first.engineCommandKey)
 
 		val duplicate = first.onPlaybackPosition(
 			plan = plan,
 			timeline = timeline,
 			position = playbackPosition(positionMs = 2_000)
 		)
-		assertEquals(first.readerCommand, duplicate.readerCommand)
-		assertEquals(first.readerCommandKey, duplicate.readerCommandKey)
+		assertEquals(first.engineCommand, duplicate.engineCommand)
+		assertEquals(first.engineCommandKey, duplicate.engineCommandKey)
 
 		val outsideClip = duplicate.onPlaybackPosition(
 			plan = plan,
 			timeline = timeline,
 			position = playbackPosition(positionMs = 9_500)
 		)
-		assertEquals(ReaderBridgeCommand.ClearOverlay, outsideClip.readerCommand)
-		assertEquals(2L, outsideClip.readerCommandKey)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideClip.engineCommand)
+		assertEquals(2L, outsideClip.engineCommandKey)
 	}
 
 	@Test
@@ -60,10 +60,10 @@ class ReaderReadaloudSyncCoordinatorTest {
 		assertEquals(0, seek.audioSeekTarget?.trackIndex)
 		assertEquals("EPUB/Audio/chapter1.mp3", seek.audioSeekTarget?.audioResource)
 		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
-		val seekCommand = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(seek.state.readerCommand)
+		val seekCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.state.engineCommand)
 		assertEquals("frag-2", seekCommand.fragment.fragmentId)
 		assertEquals("Second", seekCommand.fragment.label)
-		assertEquals(2L, seek.state.readerCommandKey)
+		assertEquals(2L, seek.state.engineCommandKey)
 
 		val repeated = seek.state.onReaderEvent(
 			plan = plan,
@@ -73,7 +73,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 			)
 		)
 		assertNull(repeated.audioSeekTarget)
-		assertEquals(seek.state.readerCommandKey, repeated.state.readerCommandKey)
+		assertEquals(seek.state.engineCommandKey, repeated.state.engineCommandKey)
 	}
 
 	@Test
@@ -90,8 +90,8 @@ class ReaderReadaloudSyncCoordinatorTest {
 
 		assertEquals(false, disabled.overlayState.syncEnabled)
 		assertNull(disabled.overlayState.activeClipKey)
-		assertEquals(ReaderBridgeCommand.ClearOverlay, disabled.readerCommand)
-		assertEquals(2L, disabled.readerCommandKey)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, disabled.engineCommand)
+		assertEquals(2L, disabled.engineCommandKey)
 	}
 
 	private fun mediaOverlayTimeline(): MediaOverlayTimeline =
