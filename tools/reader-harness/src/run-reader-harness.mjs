@@ -2583,6 +2583,9 @@ if (mode === 'css-smoke') {
         dispatchTouchEvent(element, 'touchstart', [touch], [touch])
         dispatchTouchEvent(element, 'touchend', [], [touch])
       }
+      const dispatchContextMenu = element => {
+        element.dispatchEvent(new win.MouseEvent('contextmenu', clickOptionsFor(element)))
+      }
       const traceLengthBeforeImageClicks = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.length
         : 0
@@ -2717,12 +2720,29 @@ if (mode === 'css-smoke') {
       win.__navicSuppressNextMediaClickUntil = 0
       nativeTextLink.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(nativeTextLink)))
       await new Promise(resolve => win.setTimeout(resolve, 100))
-      const traceAfterNativeTapZones = Array.isArray(win.parent.__navicReaderTrace)
+      const traceAfterNativeTapZonesShortTap = Array.isArray(win.parent.__navicReaderTrace)
         ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeTapZones)
         : []
-      const postedAfterNativeTapZones = postedMessages().slice(postedLengthBeforeNativeTapZones)
-      const nativeTapZoneSuppressionSources = traceAfterNativeTapZones
+      const postedAfterNativeTapZonesShortTap = postedMessages().slice(postedLengthBeforeNativeTapZones)
+      const traceLengthBeforeNativeLongPress = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.length
+        : 0
+      const postedLengthBeforeNativeLongPress = postedMessages().length
+      dispatchContextMenu(nativeImage)
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      win.__navicLastMediaTapHandledAt = 0
+      win.__navicSuppressNextMediaClickUntil = 0
+      dispatchContextMenu(nativeTextLink)
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const traceAfterNativeLongPress = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeLongPress)
+        : []
+      const postedAfterNativeLongPress = postedMessages().slice(postedLengthBeforeNativeLongPress)
+      const nativeTapZoneSuppressionSources = traceAfterNativeTapZonesShortTap
         .filter(event => event?.type === 'native-tap-zones:content-click-suppressed')
+        .map(event => event?.payload?.source || '')
+      const nativeTapZoneLongPressSources = traceAfterNativeLongPress
+        .filter(event => event?.type === 'native-tap-zones:content-long-press')
         .map(event => event?.payload?.source || '')
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
@@ -2761,10 +2781,14 @@ if (mode === 'css-smoke') {
         nativeTapZonesSuppressedImageClickCount: nativeTapZoneSuppressionSources.filter(source => source === 'image-click').length,
         nativeTapZonesSuppressedImageTouchCount: nativeTapZoneSuppressionSources.filter(source => source === 'image-touchend').length,
         nativeTapZonesSuppressedTextLinkClickCount: nativeTapZoneSuppressionSources.filter(source => source === 'link-click').length,
-        nativeTapZonesImageOverlayTraceCount: traceAfterNativeTapZones.filter(event => event?.type === 'image:sepia-overlay').length,
-        nativeTapZonesTextLinkNavigationTraceCount: traceAfterNativeTapZones.filter(event => event?.type === 'link:navigate').length,
-        nativeTapZonesContentPostCount: postedAfterNativeTapZones.filter(message => message?.type === 'readerContentTapHandled').length,
-        nativeTapZonesPostedMessageCount: postedAfterNativeTapZones.length,
+        nativeTapZonesImageOverlayTraceCount: traceAfterNativeTapZonesShortTap.filter(event => event?.type === 'image:sepia-overlay').length,
+        nativeTapZonesTextLinkNavigationTraceCount: traceAfterNativeTapZonesShortTap.filter(event => event?.type === 'link:navigate').length,
+        nativeTapZonesContentPostCount: postedAfterNativeTapZonesShortTap.filter(message => message?.type === 'readerContentTapHandled').length,
+        nativeTapZonesPostedMessageCount: postedAfterNativeTapZonesShortTap.length,
+        nativeTapZonesLongPressImageOverlayTraceCount: traceAfterNativeLongPress.filter(event => event?.type === 'image:sepia-overlay').length,
+        nativeTapZonesLongPressTextLinkNavigationTraceCount: traceAfterNativeLongPress.filter(event => event?.type === 'link:navigate').length,
+        nativeTapZonesLongPressContentPostSources: contentTapHandledSources(postedAfterNativeLongPress),
+        nativeTapZonesLongPressSources: nativeTapZoneLongPressSources,
         imageNativeCenterContentHit,
         imageNativeScaledContentHit,
         textLinkNativeCenterContentHit,

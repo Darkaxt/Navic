@@ -449,16 +449,18 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun readerNormalLinksReportContentActionClaimsBeforeNavigation() {
 		val bridgeText = readerBridgeText()
-		val linkNavigation = bridgeText
-			.substringAfter("attachLinkNavigation(doc, index) {")
-			.substringBefore("\n  classifyReaderLinks")
-		val normalLinkNavigation = linkNavigation
+		val normalLinkNavigation = bridgeText
+			.substringAfter("async activateReaderLinkFromEvent(doc, event, index, source = 'link') {")
 			.substringAfter("const rawHref = anchor.getAttribute('href')")
 			.substringBefore("await this.goTo(href)")
 
 		assertContains(normalLinkNavigation, "this.rememberReaderContentActionTouch(doc, event, {")
 		assertContains(normalLinkNavigation, "post(this.readerContentActionClaimPayload(doc, event, {")
-		assertContains(normalLinkNavigation, "source: 'link'")
+		assertContains(
+			bridgeText,
+			"async activateReaderLinkFromEvent(doc, event, index, source = 'link') {"
+		)
+		assertContains(normalLinkNavigation, "source,")
 		assertTrue(
 			normalLinkNavigation.indexOf("post(this.readerContentActionClaimPayload(doc, event, {") <
 				normalLinkNavigation.indexOf("event.preventDefault()"),
@@ -551,9 +553,10 @@ class ReaderRuntimeImageLinkTest {
 			message = "The runtime needs a single guard for leaked ordinary WebView clicks while Android owns short taps."
 		)
 		assertContains(linkClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')")
+		assertContains(linkClickHandler, "this.activateReaderLinkFromEvent(doc, event, index, 'link')")
 		assertTrue(
 			linkClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')") <
-				linkClickHandler.indexOf("const anchor = closestElement(event.target, 'a[href]')"),
+				linkClickHandler.indexOf("this.activateReaderLinkFromEvent(doc, event, index, 'link')"),
 			"Native short-tap ownership must suppress link activation before resolving or navigating anchors."
 		)
 		assertContains(imageClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')")
@@ -572,6 +575,41 @@ class ReaderRuntimeImageLinkTest {
 			imageTouchEndHandler.indexOf("state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')") <
 				imageTouchEndHandler.indexOf("this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)"),
 			"Native short-tap ownership must suppress image touchend activation before toggling the sepia overlay without swallowing text-link touch metadata."
+		)
+	}
+
+	@Test
+	fun androidReaderAllowsContextMenuContentActionsWhenNativeTapZonesOwnShortTaps() {
+		val bridgeText = readerBridgeText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  effectiveReaderDirection")
+
+		assertContains(
+			bridgeText,
+			"handleNativeTapZoneContentLongPress",
+			message = "Native short-tap ownership still needs a deliberate long-press/context-menu path for links and images."
+		)
+		assertContains(
+			linkNavigation,
+			"doc.addEventListener('contextmenu', async event => {",
+			message = "Text links must have a long-press/context-menu activation path when ordinary short taps are native-owned."
+		)
+		assertContains(
+			linkNavigation,
+			"this.handleNativeTapZoneContentLongPress(doc, event, index, 'link-long-press')"
+		)
+		assertContains(
+			sepiaToggle,
+			"doc.addEventListener('contextmenu', event => {",
+			message = "Images must have a long-press/context-menu activation path when ordinary short taps are native-owned."
+		)
+		assertContains(
+			sepiaToggle,
+			"this.handleNativeTapZoneContentLongPress(doc, event, null, 'image-long-press')"
 		)
 	}
 
@@ -744,6 +782,26 @@ class ReaderRuntimeImageLinkTest {
 			assertionsText,
 			"Expected native tap zones to suppress ordinary text-link clicks",
 			message = "The renderer assertion must fail when native-mode text links still reach WebView navigation."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesLongPressImageOverlayTraceCount",
+			message = "CSS smoke must prove long-press/context-menu can still toggle image tint in native tap-zone mode."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesLongPressTextLinkNavigationTraceCount",
+			message = "CSS smoke must prove long-press/context-menu can still navigate text links in native tap-zone mode."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones long-press image action",
+			message = "The renderer assertion must fail when native-mode long-press image activation is missing."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones long-press text-link navigation",
+			message = "The renderer assertion must fail when native-mode long-press link activation is missing."
 		)
 		assertContains(
 			harnessText,

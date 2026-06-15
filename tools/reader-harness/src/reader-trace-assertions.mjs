@@ -569,6 +569,30 @@ export const assertRendererCssSmoke = result => {
       `Expected native tap zones to keep ordinary short taps out of Android content-action posts; observed ${result.nativeTapZonesContentPostCount}`
     )
   }
+  if (!Number.isFinite(Number(result.nativeTapZonesLongPressImageOverlayTraceCount)) || result.nativeTapZonesLongPressImageOverlayTraceCount < 1) {
+    throw new Error(
+      `Expected native tap zones long-press image action to toggle sepia overlay; observed ${result.nativeTapZonesLongPressImageOverlayTraceCount || 0}`
+    )
+  }
+  if (!Number.isFinite(Number(result.nativeTapZonesLongPressTextLinkNavigationTraceCount)) || result.nativeTapZonesLongPressTextLinkNavigationTraceCount < 1) {
+    throw new Error(
+      `Expected native tap zones long-press text-link navigation; observed ${result.nativeTapZonesLongPressTextLinkNavigationTraceCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.nativeTapZonesLongPressContentPostSources) ||
+    !result.nativeTapZonesLongPressContentPostSources.includes('image') ||
+    !result.nativeTapZonesLongPressContentPostSources.includes('link-long-press')) {
+    throw new Error(
+      `Expected native tap zones long-press content posts for image and link; observed ${JSON.stringify(result.nativeTapZonesLongPressContentPostSources || [])}`
+    )
+  }
+  if (!Array.isArray(result.nativeTapZonesLongPressSources) ||
+    !result.nativeTapZonesLongPressSources.includes('image-long-press') ||
+    !result.nativeTapZonesLongPressSources.includes('link-long-press')) {
+    throw new Error(
+      `Expected native tap zones long-press traces for image and link; observed ${JSON.stringify(result.nativeTapZonesLongPressSources || [])}`
+    )
+  }
   if (result.imageNativeCenterContentHit !== true) {
     throw new Error('Expected native center hit-test to suppress image chrome')
   }

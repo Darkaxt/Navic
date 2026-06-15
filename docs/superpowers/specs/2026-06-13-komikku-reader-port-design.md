@@ -3333,3 +3333,57 @@ Local baseline note:
 Release status:
 
 - No release APK was built or published for this harness-only slice.
+
+## 2026-06-15 Overnight Native Long-Press Content Path
+
+User direction:
+
+- Ordinary taps and drags should belong to the native Komikku-style reader container.
+- Interactable EPUB content should not trigger the menu or page turn from the same ordinary short tap.
+- Content interaction still needs a deliberate path; the user specifically called out long-press as the likely boundary.
+- Do not publish a release candidate for this isolated source-level correction.
+
+Root cause:
+
+- The previous native short-tap suppression slice correctly stopped ordinary link/image clicks from racing the native reader tap zones.
+- That made the default Android-native mode safer, but it did not provide a replacement deliberate content activation path for links or images.
+- The CSS smoke harness proved fallback click behavior and native short-tap suppression, but did not require native-mode long-press activation.
+
+Navic implication:
+
+- `navic-reader.js` now handles `contextmenu` as the browser/WebView long-press signal when `nativeTapZones === true`.
+- Text-link long press routes through `handleNativeTapZoneContentLongPress(...)` and then the same EPUB link navigation path, emitting `link:navigate`.
+- Image/media long press routes through the same deliberate content path and toggles the sepia image overlay, emitting `image:sepia-overlay`.
+- Ordinary native-mode clicks/touchend events are still suppressed and must not emit `link:navigate`, `image:sepia-overlay`, or Android content-action posts.
+- This deliberately uses the platform `contextmenu`/long-press signal instead of adding a product-side timeout.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsContextMenuContentActionsWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+```
+
+Result: failed before production/harness changes because the runtime had no `handleNativeTapZoneContentLongPress(...)`, no `contextmenu` handlers for native-mode link/image activation, and CSS smoke did not assert native-mode long-press behavior.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsContextMenuContentActionsWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results: passed on 2026-06-15.
+
+Morning adb validation:
+
+- Verify ordinary short taps on text, links, and images still trigger only the native reader tap-zone behavior.
+- Verify long-press on an image toggles the sepia image overlay without opening the reader menu.
+- Verify long-press on a text link navigates/activates the link without opening the reader menu.
+- If Android WebView does not emit `contextmenu` for one of these gestures on-device, the next slice should bridge Android long-tap coordinates into the runtime explicitly rather than re-enabling ordinary click activation.
+
+Release status:
+
+- No release APK was built or published for this source-level correction.

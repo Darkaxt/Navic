@@ -1167,6 +1167,23 @@ class NavicReaderRuntime {
     return true
   }
 
+  async handleNativeTapZoneContentLongPress(doc, event, index = null, source = 'content-long-press') {
+    if (this.nativeTapZones !== true || !doc || event?.defaultPrevented) return false
+    const anchor = closestElement(event.target, 'a[href]')
+    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    if (!anchor && !mediaTapTarget) return false
+    readerTrace('native-tap-zones:content-long-press', {
+      source,
+      kind: mediaTapTarget ? 'media' : 'link',
+      href: anchor?.getAttribute?.('href') || '',
+    })
+    if (mediaTapTarget) {
+      return this.toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget)
+    }
+    if (index == null) return false
+    return this.activateReaderLinkFromEvent(doc, event, index, source)
+  }
+
   readerContentActionClaimPayload(doc, event, detail = {}) {
     const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
     const x = Number(rootPoint?.x ?? rootPoint?.clientX)
@@ -1477,11 +1494,19 @@ class NavicReaderRuntime {
     doc.addEventListener('mousedown', event => {
       this.claimReaderInteractiveContentTouch(doc, event)
     }, { capture: true, passive: true })
+    doc.addEventListener('contextmenu', async event => {
+      await this.handleNativeTapZoneContentLongPress(doc, event, index, 'link-long-press')
+    }, { capture: true })
     doc.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button > 0) return
       if (this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')) return
+      await this.activateReaderLinkFromEvent(doc, event, index, 'link')
+    }, { capture: true })
+  }
+
+  async activateReaderLinkFromEvent(doc, event, index, source = 'link') {
       const anchor = closestElement(event.target, 'a[href]')
-      if (!anchor) return
+      if (!anchor) return false
       if (readerShouldSuppressMediaSyntheticClick(doc, event, anchor)) {
         event.preventDefault()
         event.stopPropagation()
@@ -1490,19 +1515,20 @@ class NavicReaderRuntime {
         readerTrace('link:media-synthetic-click-suppressed', {
           href: anchor.getAttribute('href') || '',
         })
-        return
+        return true
       }
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
       if (mediaTapTarget) {
+        const mediaSource = source === 'link-long-press' ? 'media-long-press' : 'media-anchor'
         this.rememberReaderContentActionTouch(doc, event, {
           kind: 'media',
           href: anchor?.getAttribute?.('href') || '',
-          source: 'media-anchor',
+          source: mediaSource,
         })
         post(this.readerContentActionClaimPayload(doc, event, {
           kind: 'media',
           href: anchor?.getAttribute?.('href') || '',
-          source: 'media-anchor',
+          source: mediaSource,
           anchor,
           mediaTapTarget,
         }))
@@ -1518,7 +1544,7 @@ class NavicReaderRuntime {
           tagName: mediaTapTarget.tagName || 'media',
           toggled,
         })
-        return
+        return true
       }
       if (!readerPointInsideAnchorText(anchor, event)) {
         event.preventDefault()
@@ -1528,21 +1554,21 @@ class NavicReaderRuntime {
         readerTrace('link:text-hit-miss', {
           href: anchor.getAttribute('href') || '',
         })
-        return
+        return true
       }
       const rawHref = anchor.getAttribute('href')
-      if (!rawHref) return
+      if (!rawHref) return false
       const section = this.view?.book?.sections?.[index]
       const href = section?.resolveHref?.(rawHref) ?? rawHref
       this.rememberReaderContentActionTouch(doc, event, {
         kind: 'link',
         href,
-        source: 'link',
+        source,
       })
       post(this.readerContentActionClaimPayload(doc, event, {
         kind: 'link',
         href,
-        source: 'link',
+        source,
         anchor,
       }))
       event.preventDefault()
@@ -1557,10 +1583,11 @@ class NavicReaderRuntime {
         log('link:navigate', href)
         readerTrace('link:navigate', { href })
         await this.goTo(href)
+        return true
       } catch (error) {
         reportError(error, 'link_navigation_failed')
+        return true
       }
-    }, { capture: true })
   }
 
   classifyReaderLinks(doc) {
@@ -1655,6 +1682,9 @@ class NavicReaderRuntime {
     doc.addEventListener('touchcancel', () => {
       touchState = null
     }, { capture: true, passive: true })
+    doc.addEventListener('contextmenu', event => {
+      void this.handleNativeTapZoneContentLongPress(doc, event, null, 'image-long-press')
+    }, { capture: true, passive: false })
     doc.addEventListener('click', event => {
       const anchor = closestElement(event.target, 'a[href]')
       const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
