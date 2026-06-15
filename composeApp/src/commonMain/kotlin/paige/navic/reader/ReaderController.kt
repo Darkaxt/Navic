@@ -344,6 +344,7 @@ data class ReaderController(
 			)
 			is ReaderViewerAction.TurnPage -> actionController.turnPage(action.direction)
 			is ReaderViewerAction.ScrollViewport -> actionController.scrollViewport(action.direction)
+			is ReaderViewerAction.ContentLongPressAt -> actionController.contentLongPressAt(action)
 		}
 	}
 
@@ -433,6 +434,19 @@ data class ReaderController(
 		ReaderControllerStep(
 			controller = this,
 			engineCommands = listOf(ReaderEngineCommand.ScrollViewport(direction))
+		)
+
+	private fun contentLongPressAt(action: ReaderViewerAction.ContentLongPressAt): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = this,
+			engineCommands = listOf(
+				ReaderEngineCommand.ContentLongPressAt(
+					x = action.x,
+					y = action.y,
+					viewWidth = action.viewWidth,
+					viewHeight = action.viewHeight
+				)
+			)
 		)
 }
 

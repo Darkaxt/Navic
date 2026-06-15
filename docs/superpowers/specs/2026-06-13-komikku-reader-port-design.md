@@ -3453,3 +3453,84 @@ Morning adb validation:
 Release status:
 
 - No release APK was built or published for this validation-only slice.
+
+## 2026-06-15 Overnight Explicit Native Coordinate Long-Press Path
+
+User direction:
+
+- Ordinary taps and drags belong to the native Komikku-style reader container.
+- EPUB/PDF content interaction must be deliberate and must not rely on ordinary WebView short clicks.
+- The previous source-level `contextmenu` path was useful, but Android-native long press must enter the same controller/engine/bridge path as other reader actions instead of being a log-only side effect.
+- Do not publish a release candidate for this isolated source correction.
+
+Root cause:
+
+- `KomikkuReaderNativeFrameHost.android.kt` detected native long taps and logged `Reader native long tap`, but the event stopped there.
+- `ReaderViewerAction`, `ReaderController`, `ReaderEngineCommand`, and `ReaderBridgeCommand` had no typed content-long-press command.
+- Therefore Android content activation still depended on the WebView independently emitting `contextmenu`, which is not the Komikku-style controller ownership model.
+
+Navic implication:
+
+- `ReaderViewerAction.ContentLongPressAt(x, y, viewWidth, viewHeight)` now represents deliberate native content activation.
+- `ReaderController` forwards that action as `ReaderEngineCommand.ContentLongPressAt(...)` without toggling the menu.
+- If the controller-owned native shell cover is visible, the same action is ignored so the hidden EPUB cover/runtime cannot steal shell-cover input.
+- `FoliateWebViewEngineAdapter` maps the engine command to `ReaderBridgeCommand.ContentLongPressAt(...)`.
+- `ReaderBridgeCommand.ContentLongPressAt(...)` serializes as:
+
+```json
+{"type":"contentLongPressAt","x":250.0,"y":500.0,"viewWidth":500.0,"viewHeight":1000.0}
+```
+
+- `KomikkuReaderNativeFrameHost.android.kt` now exposes `onContentLongPress(x, y, width, height)` from the native long-tap detector and `ReaderScreen` routes it back through `ReaderViewerAction.ContentLongPressAt(...)`.
+- `navic-reader.js` now handles `contentLongPressAt` by converting native root coordinates to runtime CSS coordinates, hit-testing loaded content documents, and deliberately activating either:
+  - image/media behavior through `toggleSepiaImageOverlayFromEvent(...)`; or
+  - text-link navigation through `activateReaderLinkFromEvent(...)`.
+- The runtime still suppresses ordinary native-mode short clicks and touchend activation.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.viewerLongPressContentActionsAreControllerOwnedAndForwardedAsEngineCapability" --tests "paige.navic.reader.ReaderControllerTest.viewerLongPressContentActionsAreIgnoredWhileNativeShellCoverOwnsTheSurface" --tests "paige.navic.reader.ReaderCoordinatorTest.viewerLongPressContentActionDispatchesThroughCurrentEngineAdapter" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesTypedContentLongPressAsRendererContentCommand" --tests "paige.navic.reader.ReaderBridgeProtocolTest.contentLongPressCommandDispatchesNativeCoordinateIntent" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsNativeCoordinateLongPressContentActionsWhenNativeTapZonesOwnShortTaps"
+```
+
+Result: failed before production changes because `ContentLongPressAt` did not exist in the action, engine, bridge, native-frame callback, or runtime dispatch paths.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.viewerLongPressContentActionsAreControllerOwnedAndForwardedAsEngineCapability" --tests "paige.navic.reader.ReaderControllerTest.viewerLongPressContentActionsAreIgnoredWhileNativeShellCoverOwnsTheSurface" --tests "paige.navic.reader.ReaderCoordinatorTest.viewerLongPressContentActionDispatchesThroughCurrentEngineAdapter" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesTypedContentLongPressAsRendererContentCommand" --tests "paige.navic.reader.ReaderBridgeProtocolTest.contentLongPressCommandDispatchesNativeCoordinateIntent" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsNativeCoordinateLongPressContentActionsWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+git diff --check
+```
+
+Results: passed on 2026-06-15.
+
+Local baseline note:
+
+- `phase1-stabilization` passed all 16 checks after this change.
+- `css-smoke` now validates both WebView `contextmenu` long press and explicit native-coordinate `contentLongPressAt` activation for images and text links.
+- This still does not prove Android WebView/device behavior until a release candidate is installed and the ADB matrix runs.
+
+Morning adb validation:
+
+- Compile/install one release candidate, then run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch
+```
+
+- Validate these specific behaviors manually after the matrix:
+  - ordinary short taps on text, images, and links use native menu/previous/next behavior only;
+  - long press on an image toggles the sepia image overlay without opening chrome;
+  - long press on a text link activates navigation without opening chrome;
+  - shell cover still ignores content-long-press commands and remains controller-owned;
+  - texture direction checks still pass across frontmatter transitions.
+
+Release status:
+
+- No release APK was built or published for this source-level correction.

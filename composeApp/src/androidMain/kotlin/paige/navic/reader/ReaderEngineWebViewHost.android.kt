@@ -294,6 +294,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		ReaderBridgeCommand.NextPage -> "nextPage"
 		ReaderBridgeCommand.PreviousPage -> "previousPage"
 		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
+		is ReaderBridgeCommand.ContentLongPressAt -> "contentLongPressAt"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
 		is ReaderBridgeCommand.ApplyHighlights -> "applyHighlights(count=${highlights.size})"
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"

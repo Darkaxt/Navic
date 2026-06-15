@@ -264,6 +264,8 @@ class NavicReaderRuntime {
         return this.previousPage()
       case 'scrollViewport':
         return this.scrollViewport(command.direction)
+      case 'contentLongPressAt':
+        return this.handleNativeTapZoneContentLongPressAt(command.x, command.y, command.viewWidth, command.viewHeight, 'native-long-press-command')
       case 'applyHighlight':
         return this.applyHighlight(command)
       case 'applyHighlights':
@@ -1184,6 +1186,52 @@ class NavicReaderRuntime {
     return this.activateReaderLinkFromEvent(doc, event, index, source)
   }
 
+  async handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = null, viewHeight = null, source = 'content-long-press-command') {
+    if (this.nativeTapZones !== true) return false
+    const rootPoint = this.normalizeReaderContentRootPoint(rootX, rootY, viewWidth, viewHeight)
+    for (const entry of this.contentEntries()) {
+      const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)
+      if (!hit?.handled) continue
+      const frame = entry.doc.defaultView?.frameElement
+      const frameRect = frame?.getBoundingClientRect?.()
+      const event = {
+        target: hit.target,
+        clientX: hit.x,
+        clientY: hit.y,
+        button: 0,
+        defaultPrevented: false,
+        preventDefault() {
+          this.defaultPrevented = true
+        },
+        stopPropagation() {},
+        stopImmediatePropagation() {},
+      }
+      readerTrace('native-tap-zones:content-long-press-at', {
+        source,
+        kind: hit.kind,
+        href: hit.href || '',
+        index: hit.index,
+        x: Math.round(Number(rootPoint.x) || 0),
+        y: Math.round(Number(rootPoint.y) || 0),
+        frameX: Math.round(Number(frameRect?.left || 0)),
+        frameY: Math.round(Number(frameRect?.top || 0)),
+      })
+      if (hit.kind === 'media') {
+        return this.toggleSepiaImageOverlayFromEvent(entry.doc, event, hit.mediaTapTarget)
+      }
+      if (hit.kind === 'link') {
+        return this.activateReaderLinkFromEvent(entry.doc, event, hit.index, source)
+      }
+      return true
+    }
+    readerTrace('native-tap-zones:content-long-press-at-miss', {
+      source,
+      x: Math.round(Number(rootPoint.x) || 0),
+      y: Math.round(Number(rootPoint.y) || 0),
+    })
+    return false
+  }
+
   readerContentActionClaimPayload(doc, event, detail = {}) {
     const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
     const x = Number(rootPoint?.x ?? rootPoint?.clientX)
@@ -1307,6 +1355,10 @@ class NavicReaderRuntime {
         handled: true,
         kind: 'media',
         href: anchor?.getAttribute?.('href') || '',
+        target,
+        x,
+        y,
+        mediaTapTarget,
         index,
       }
     }
@@ -1316,6 +1368,9 @@ class NavicReaderRuntime {
         kind: 'link',
         href: anchor.getAttribute('href') || '',
         textHit: readerPointInsideAnchorText(anchor, event),
+        target,
+        x,
+        y,
         index,
       }
     }

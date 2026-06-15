@@ -203,6 +203,24 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class ContentLongPressAt(
+		val x: Double,
+		val y: Double,
+		val viewWidth: Double? = null,
+		val viewHeight: Double? = null
+	) : ReaderBridgeCommand {
+		override val type: String = "contentLongPressAt"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("x", x)
+				put("y", y)
+				viewWidth?.let { put("viewWidth", it) }
+				viewHeight?.let { put("viewHeight", it) }
+			}
+	}
+
 	data class ApplyHighlight(
 		val id: String,
 		val cfi: String,

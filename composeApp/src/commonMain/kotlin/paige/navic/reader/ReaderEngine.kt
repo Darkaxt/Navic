@@ -25,6 +25,12 @@ sealed interface ReaderEngineCommand {
 	data class Search(val query: String) : ReaderEngineCommand
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
 	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderEngineCommand
+	data class ContentLongPressAt(
+		val x: Double,
+		val y: Double,
+		val viewWidth: Double? = null,
+		val viewHeight: Double? = null
+	) : ReaderEngineCommand
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand

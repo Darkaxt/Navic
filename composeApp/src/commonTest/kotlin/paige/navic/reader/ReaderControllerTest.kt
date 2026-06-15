@@ -253,6 +253,54 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun viewerLongPressContentActionsAreControllerOwnedAndForwardedAsEngineCapability() {
+		val action = ReaderViewerAction.ContentLongPressAt(
+			x = 250.0,
+			y = 500.0,
+			viewWidth = 500.0,
+			viewHeight = 1000.0
+		)
+
+		val step = ReaderController().onViewerAction(action)
+
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.ContentLongPressAt(
+					x = 250.0,
+					y = 500.0,
+					viewWidth = 500.0,
+					viewHeight = 1000.0
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
+	fun viewerLongPressContentActionsAreIgnoredWhileNativeShellCoverOwnsTheSurface() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val step = opened.onViewerAction(
+			ReaderViewerAction.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			)
+		)
+
+		assertTrue(step.controller.state.shellCoverVisible)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun applySettingsKeepsControllerAsOwnerAndForwardsNormalizedSettingsToEngine() {
 		val unnormalized = ReaderSettings(
 			fontSizePercent = 500,

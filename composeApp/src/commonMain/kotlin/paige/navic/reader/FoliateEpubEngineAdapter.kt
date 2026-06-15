@@ -54,6 +54,14 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
 			is ReaderEngineCommand.TurnPage -> turnPage(command.direction)
 			is ReaderEngineCommand.ScrollViewport -> scrollViewport(command.direction)
+			is ReaderEngineCommand.ContentLongPressAt -> dispatch(
+				ReaderBridgeCommand.ContentLongPressAt(
+					x = command.x,
+					y = command.y,
+					viewWidth = command.viewWidth,
+					viewHeight = command.viewHeight
+				)
+			)
 			is ReaderEngineCommand.ApplySettings -> dispatch(
 				ReaderBridgeCommand.ApplySettings(command.settings.normalizedReaderSettings())
 			)

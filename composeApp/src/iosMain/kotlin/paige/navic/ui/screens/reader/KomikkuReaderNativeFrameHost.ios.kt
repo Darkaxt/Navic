@@ -13,6 +13,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	shellCoverTitle: String,
 	viewerKey: ReaderViewerKey,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
+	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
 	viewerContent: @Composable () -> Unit,
 	composeOverlay: @Composable () -> Unit

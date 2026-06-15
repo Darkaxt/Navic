@@ -614,6 +614,33 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderAllowsNativeCoordinateLongPressContentActionsWhenNativeTapZonesOwnShortTaps() {
+		val bridgeText = readerBridgeText()
+		val dispatchBody = bridgeText
+			.substringAfter("dispatch(command) {")
+			.substringBefore("\n  async openPublication")
+		val exportedBridge = bridgeText
+			.substringAfter("window.NavicReaderBridge = {")
+			.substringBefore("\n}")
+
+		assertContains(
+			bridgeText,
+			"handleNativeTapZoneContentLongPressAt",
+			message = "Android native long taps need an explicit coordinate command into the runtime, not only WebView contextmenu."
+		)
+		assertContains(dispatchBody, "case 'contentLongPressAt':")
+		assertContains(dispatchBody, "this.handleNativeTapZoneContentLongPressAt(command.x, command.y, command.viewWidth, command.viewHeight")
+		assertContains(bridgeText, "readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)")
+		assertContains(bridgeText, "this.toggleSepiaImageOverlayFromEvent(entry.doc, event")
+		assertContains(bridgeText, "this.activateReaderLinkFromEvent(entry.doc, event, hit.index")
+		assertContains(
+			exportedBridge,
+			"dispatch: command => runtime.dispatch(command)",
+			message = "The coordinate long-press command should flow through the existing bridge dispatch entrypoint."
+		)
+	}
+
+	@Test
 	fun androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
@@ -802,6 +829,26 @@ class ReaderRuntimeImageLinkTest {
 			assertionsText,
 			"Expected native tap zones long-press text-link navigation",
 			message = "The renderer assertion must fail when native-mode long-press link activation is missing."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesCoordinateLongPressImageOverlayTraceCount",
+			message = "CSS smoke must prove the Android-native coordinate command can toggle image tint in native tap-zone mode."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount",
+			message = "CSS smoke must prove the Android-native coordinate command can navigate text links in native tap-zone mode."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native coordinate long-press image action",
+			message = "The renderer assertion must fail when native coordinate long-press image activation is missing."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native coordinate long-press text-link navigation",
+			message = "The renderer assertion must fail when native coordinate long-press link activation is missing."
 		)
 		assertContains(
 			harnessText,

@@ -47,6 +47,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	shellCoverTitle: String,
 	viewerKey: ReaderViewerKey,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
+	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
 	viewerContent: @Composable () -> Unit,
 	composeOverlay: @Composable () -> Unit
@@ -54,6 +55,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentViewerContent by rememberUpdatedState(viewerContent)
 	val currentComposeOverlay by rememberUpdatedState(composeOverlay)
 	val currentOnViewerAction by rememberUpdatedState(onViewerAction)
+	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
 
 	AndroidView(
 		modifier = modifier,
@@ -63,6 +65,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setComposeOverlay { currentComposeOverlay() }
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
+				setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 			}
 		},
 		update = { root ->
@@ -72,6 +75,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
+			root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 		}
 	)
 }
@@ -133,6 +137,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
 		viewerContainer.onAction = onAction
+	}
+
+	fun setOnContentLongPress(onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit) {
+		viewerContainer.onContentLongPress = onContentLongPress
 	}
 
 	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
@@ -223,6 +231,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
+	var onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit = { _, _, _, _ -> }
 	private var shellCoverView: View? = null
 	private var swipeStartX: Float = 0f
 	private var swipeStartY: Float = 0f
@@ -285,6 +294,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					"Reader native long tap x=${event.x} y=${event.y}"
 				)
 				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+				onContentLongPress(event.x, event.y, width, height)
 			}
 		}
 	)

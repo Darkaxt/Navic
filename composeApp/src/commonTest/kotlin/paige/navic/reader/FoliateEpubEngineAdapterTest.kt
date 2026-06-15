@@ -174,6 +174,33 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun dispatchesTypedContentLongPressAsRendererContentCommand() {
+		val opened = FoliateEpubEngineAdapter()
+			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
+			.engine
+
+		val step = opened.onCommand(
+			ReaderEngineCommand.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			)
+		)
+
+		assertEquals(
+			ReaderBridgeCommand.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			),
+			assertIs<ReaderEngineViewState.WebViewPublication>(step.viewState).bridgeCommand()
+		)
+		assertEquals(1L, assertIs<ReaderEngineViewState.WebViewPublication>(step.viewState).commandKey)
+	}
+
+	@Test
 	fun mapsBridgeEventsToEngineEventsWithoutLettingBridgeOwnChrome() {
 		val locator = ReaderLocator(
 			href = "chapter-01.xhtml",

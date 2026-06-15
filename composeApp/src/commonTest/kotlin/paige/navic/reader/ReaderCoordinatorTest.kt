@@ -54,6 +54,33 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun viewerLongPressContentActionDispatchesThroughCurrentEngineAdapter() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+
+		val step = opened.onViewerAction(
+			ReaderViewerAction.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+
+		assertEquals(
+			ReaderBridgeCommand.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			),
+			viewState.bridgeCommand()
+		)
+		assertEquals(1L, viewState.commandKey)
+		assertEquals(false, step.coordinator.controller.state.menuVisible)
+	}
+
+	@Test
 	fun searchRoutesThroughControllerAndCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 

@@ -523,6 +523,12 @@ class ReaderKomikkuBackboneResetTest {
 		val androidHostText = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
+		val activeReaderText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val platformHostText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		).readText()
 		val bridgeText = root.resolve(
 			"composeApp/src/androidMain/assets/reader/navic-reader.js"
 		).readText()
@@ -547,6 +553,14 @@ class ReaderKomikkuBackboneResetTest {
 			viewerContainerBody.contains("nativeTapLongConfirmed = true") &&
 				viewerContainerBody.contains("performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)"),
 			"Long press must switch the stream back to content behavior and give the same feedback Komikku gives for long tap."
+		)
+		assertTrue(
+			platformHostText.contains("onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit") &&
+				androidHostText.contains("onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit") &&
+				androidHostText.contains("setOnContentLongPress") &&
+				viewerContainerBody.contains("onContentLongPress(event.x, event.y, width, height)") &&
+				activeReaderText.contains("ReaderViewerAction.ContentLongPressAt"),
+			"Native long press must enter the typed reader controller path instead of relying on WebView contextmenu as a side effect."
 		)
 		assertTrue(
 			claimInteractiveTouch.contains("if (this.nativeTapZones === true) return false"),

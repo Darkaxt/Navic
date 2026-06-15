@@ -593,6 +593,31 @@ export const assertRendererCssSmoke = result => {
       `Expected native tap zones long-press traces for image and link; observed ${JSON.stringify(result.nativeTapZonesLongPressSources || [])}`
     )
   }
+  if (!Number.isFinite(Number(result.nativeTapZonesCoordinateLongPressImageOverlayTraceCount)) ||
+    result.nativeTapZonesCoordinateLongPressImageOverlayTraceCount < 1) {
+    throw new Error(
+      `Expected native coordinate long-press image action to toggle sepia overlay; observed ${result.nativeTapZonesCoordinateLongPressImageOverlayTraceCount || 0}`
+    )
+  }
+  if (!Number.isFinite(Number(result.nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount)) ||
+    result.nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount < 1) {
+    throw new Error(
+      `Expected native coordinate long-press text-link navigation; observed ${result.nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount || 0}`
+    )
+  }
+  if (!Array.isArray(result.nativeTapZonesCoordinateLongPressContentPostSources) ||
+    !result.nativeTapZonesCoordinateLongPressContentPostSources.includes('image') ||
+    !result.nativeTapZonesCoordinateLongPressContentPostSources.includes('native-long-press-command')) {
+    throw new Error(
+      `Expected native coordinate long-press content posts for image and link; observed ${JSON.stringify(result.nativeTapZonesCoordinateLongPressContentPostSources || [])}`
+    )
+  }
+  if (!Array.isArray(result.nativeTapZonesCoordinateLongPressSources) ||
+    result.nativeTapZonesCoordinateLongPressSources.filter(source => source === 'native-long-press-command').length < 2) {
+    throw new Error(
+      `Expected native coordinate long-press traces for image and link; observed ${JSON.stringify(result.nativeTapZonesCoordinateLongPressSources || [])}`
+    )
+  }
   if (result.imageNativeCenterContentHit !== true) {
     throw new Error('Expected native center hit-test to suppress image chrome')
   }

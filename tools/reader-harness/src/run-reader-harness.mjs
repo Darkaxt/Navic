@@ -2738,11 +2738,54 @@ if (mode === 'css-smoke') {
         ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeLongPress)
         : []
       const postedAfterNativeLongPress = postedMessages().slice(postedLengthBeforeNativeLongPress)
+      const nativeCoordinateProbe = doc.createElement('section')
+      nativeCoordinateProbe.setAttribute('data-navic-css-smoke-native-coordinate-long-press', 'true')
+      nativeCoordinateProbe.innerHTML = `
+        <a data-navic-css-smoke-native-coordinate-link="true" href="#navic-css-smoke-target">Native coordinate probe link</a>
+        <a data-navic-css-smoke-native-coordinate-media-link="true" href="#navic-css-smoke-target">
+          <img data-navic-css-smoke-native-coordinate-media-image="true" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='white'/%3E%3C/svg%3E">
+        </a>
+      `
+      doc.body.prepend(nativeCoordinateProbe)
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const nativeCoordinateTextLink = nativeCoordinateProbe.querySelector('[data-navic-css-smoke-native-coordinate-link="true"]')
+      const nativeCoordinateImage = nativeCoordinateProbe.querySelector('[data-navic-css-smoke-native-coordinate-media-image="true"]')
+      const traceLengthBeforeNativeCoordinateLongPress = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.length
+        : 0
+      const postedLengthBeforeNativeCoordinateLongPress = postedMessages().length
+      const nativeCoordinateImagePoint = rootPointFor(nativeCoordinateImage)
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'contentLongPressAt',
+        x: nativeCoordinateImagePoint.x,
+        y: nativeCoordinateImagePoint.y,
+        viewWidth: Math.round(win.parent.visualViewport?.width || win.parent.innerWidth),
+        viewHeight: Math.round(win.parent.visualViewport?.height || win.parent.innerHeight),
+      })
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      win.__navicLastMediaTapHandledAt = 0
+      win.__navicSuppressNextMediaClickUntil = 0
+      const nativeCoordinateTextLinkPoint = rootPointFor(nativeCoordinateTextLink)
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'contentLongPressAt',
+        x: nativeCoordinateTextLinkPoint.x,
+        y: nativeCoordinateTextLinkPoint.y,
+        viewWidth: Math.round(win.parent.visualViewport?.width || win.parent.innerWidth),
+        viewHeight: Math.round(win.parent.visualViewport?.height || win.parent.innerHeight),
+      })
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const traceAfterNativeCoordinateLongPress = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeCoordinateLongPress)
+        : []
+      const postedAfterNativeCoordinateLongPress = postedMessages().slice(postedLengthBeforeNativeCoordinateLongPress)
       const nativeTapZoneSuppressionSources = traceAfterNativeTapZonesShortTap
         .filter(event => event?.type === 'native-tap-zones:content-click-suppressed')
         .map(event => event?.payload?.source || '')
       const nativeTapZoneLongPressSources = traceAfterNativeLongPress
         .filter(event => event?.type === 'native-tap-zones:content-long-press')
+        .map(event => event?.payload?.source || '')
+      const nativeTapZoneCoordinateLongPressSources = traceAfterNativeCoordinateLongPress
+        .filter(event => event?.type === 'native-tap-zones:content-long-press-at')
         .map(event => event?.payload?.source || '')
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
@@ -2789,6 +2832,10 @@ if (mode === 'css-smoke') {
         nativeTapZonesLongPressTextLinkNavigationTraceCount: traceAfterNativeLongPress.filter(event => event?.type === 'link:navigate').length,
         nativeTapZonesLongPressContentPostSources: contentTapHandledSources(postedAfterNativeLongPress),
         nativeTapZonesLongPressSources: nativeTapZoneLongPressSources,
+        nativeTapZonesCoordinateLongPressImageOverlayTraceCount: traceAfterNativeCoordinateLongPress.filter(event => event?.type === 'image:sepia-overlay').length,
+        nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount: traceAfterNativeCoordinateLongPress.filter(event => event?.type === 'link:navigate').length,
+        nativeTapZonesCoordinateLongPressContentPostSources: contentTapHandledSources(postedAfterNativeCoordinateLongPress),
+        nativeTapZonesCoordinateLongPressSources: nativeTapZoneCoordinateLongPressSources,
         imageNativeCenterContentHit,
         imageNativeScaledContentHit,
         textLinkNativeCenterContentHit,

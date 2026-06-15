@@ -124,6 +124,23 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun contentLongPressCommandDispatchesNativeCoordinateIntent() {
+		val script = ReaderBridgeCommand.ContentLongPressAt(
+			x = 250.0,
+			y = 500.0,
+			viewWidth = 500.0,
+			viewHeight = 1000.0
+		).toJavaScript()
+
+		assertContains(script, "window.NavicReaderBridge.dispatch")
+		assertContains(script, "\"type\":\"contentLongPressAt\"")
+		assertContains(script, "\"x\":250.0")
+		assertContains(script, "\"y\":500.0")
+		assertContains(script, "\"viewWidth\":500.0")
+		assertContains(script, "\"viewHeight\":1000.0")
+	}
+
+	@Test
 	fun progressSeekCommandDispatchesClampedFractionNavigationIntent() {
 		val script = ReaderBridgeCommand.GoToProgress(1.4).toJavaScript()
 

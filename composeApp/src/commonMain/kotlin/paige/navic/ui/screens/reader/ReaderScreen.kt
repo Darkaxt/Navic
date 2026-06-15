@@ -545,6 +545,16 @@ private fun KomikkuReaderRoot(
 		onViewerAction = { action ->
 			onViewerAction(viewer.viewerActionFor(action))
 		},
+		onContentLongPress = { x, y, width, height ->
+			onViewerAction(
+				ReaderViewerAction.ContentLongPressAt(
+					x = x.toDouble(),
+					y = y.toDouble(),
+					viewWidth = width.toDouble(),
+					viewHeight = height.toDouble()
+				)
+			)
+		},
 		modifier = modifier,
 		viewerContent = {
 			ReaderViewerHost(
