@@ -34,7 +34,11 @@ const bridgeText = fs.readFileSync(readerBridge, 'utf8')
 const helperText = fs.readFileSync(readerHelpers, 'utf8')
 
 const modeArgIndex = process.argv.indexOf('--mode')
-const mode = modeArgIndex >= 0 ? process.argv[modeArgIndex + 1] : 'smoke'
+const modeFromFlag = modeArgIndex >= 0 ? process.argv[modeArgIndex + 1] : null
+const positionalMode = process.argv[2]?.startsWith('--') === false
+  ? process.argv[2]
+  : null
+const mode = modeFromFlag || positionalMode || 'smoke'
 
 const argValue = name => {
   const index = process.argv.indexOf(name)

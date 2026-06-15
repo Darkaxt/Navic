@@ -603,4 +603,25 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 	}
 
+	@Test
+	fun readerHarnessSupportsPositionalModeArgument() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val harnessText = harnessFile.readText()
+
+		assertContains(
+			harnessText,
+			"const positionalMode =",
+			message = "The harness must not silently run smoke mode when a mode is passed positionally."
+		)
+		assertContains(
+			harnessText,
+			"modeFromFlag || positionalMode || 'smoke'",
+			message = "Both --mode epub-frontmatter and positional epub-frontmatter must select the requested harness mode."
+		)
+	}
+
 }

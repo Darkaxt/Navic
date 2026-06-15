@@ -2785,6 +2785,7 @@ Navic implication:
   - `--viewport-width`
   - `--viewport-height`
   - `--device-scale-factor`
+- The harness now accepts both `--mode epub-frontmatter` and positional `epub-frontmatter`; before this correction, positional mode silently ran default `smoke`, which could create false confidence.
 - The real EPUB harness was run against the local untracked fixture `tmp/reader-live/served-input.epub` at Android-like dimensions. At `500x960` with device scale factor `3`, the fixture paginated to 409 pages, close to the phone's reported 411 pages.
 - `readerNativeReaderSwipeAction(...)` now defines the readable-page native swipe contract:
   - readable pages require horizontal dominance;
@@ -2796,16 +2797,18 @@ Fresh red checks:
 
 ```powershell
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessCanRunTextureProbesAtAndroidViewportParity"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessSupportsPositionalModeArgument"
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeReaderSwipeActionRequiresHorizontalDominanceOutsideShellCover"
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView"
 ```
 
-Results: failed before the changes because the harness viewport was fixed, readable-page swipe semantics did not exist in common code, and the native frame only dispatched shell-cover swipes.
+Results: failed before the changes because the harness viewport was fixed, positional harness mode was ignored, readable-page swipe semantics did not exist in common code, and the native frame only dispatched shell-cover swipes.
 
 Focused green checks:
 
 ```powershell
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessCanRunTextureProbesAtAndroidViewportParity"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessSupportsPositionalModeArgument"
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeReaderSwipeActionRequiresHorizontalDominanceOutsideShellCover"
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView"
 .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
