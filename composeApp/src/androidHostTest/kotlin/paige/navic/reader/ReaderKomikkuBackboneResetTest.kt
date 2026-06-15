@@ -618,6 +618,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("edge-tap-previous"))
 		assertTrue(matrixText.contains("drag-next"))
 		assertTrue(matrixText.contains("drag-previous"))
+		assertTrue(matrixText.contains("texture-next-walk"))
+		assertTrue(matrixText.contains("texture-previous-walk"))
 		assertTrue(matrixText.contains("cover-drag-next"))
 		assertTrue(matrixText.contains("-CaptureReaderDiagnostics"))
 		assertTrue(matrixText.contains("-ValidateReaderTaps"))
@@ -650,6 +652,15 @@ class ReaderKomikkuBackboneResetTest {
 				matrixText.contains("-Name \"drag-next\"") &&
 				matrixText.contains("-Name \"drag-previous\""),
 			"The morning matrix must fail when forward/backward edge taps or drags invert the paper texture movement."
+		)
+		assertTrue(
+			matrixText.contains("\$ReaderNextWalkTapFractions") &&
+				matrixText.contains("\$ReaderPreviousWalkTapFractions") &&
+				matrixText.contains("-Name \"texture-next-walk\"") &&
+				matrixText.contains("-Name \"texture-previous-walk\"") &&
+				matrixText.contains("-TapFraction \$ReaderNextWalkTapFractions") &&
+				matrixText.contains("-TapFraction \$ReaderPreviousWalkTapFractions"),
+			"The morning matrix must include a multi-page texture walk because the reported inversion appears after several transitions."
 		)
 		assertTrue(
 			matrixText.contains("-NoLaunch"),

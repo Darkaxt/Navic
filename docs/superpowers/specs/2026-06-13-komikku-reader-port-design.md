@@ -3227,6 +3227,10 @@ Navic implication:
 - `scripts/adb-reader-komikku-matrix.ps1` now passes:
   - `-RequireTextureDirection "next"` for `edge-tap-next` and `drag-next`;
   - `-RequireTextureDirection "previous"` for `edge-tap-previous` and `drag-previous`.
+- `scripts/adb-reader-komikku-matrix.ps1` also runs end-of-matrix texture walks:
+  - `texture-next-walk`: twelve right-edge taps with `-RequireTextureDirection "next"`;
+  - `texture-previous-walk`: six left-edge taps with `-RequireTextureDirection "previous"`.
+- The walk steps exist because the reported inversion appears after several frontmatter/page-area transitions, not necessarily on the first page turn.
 
 Fresh red check:
 
@@ -3251,9 +3255,19 @@ foreach ($file in $files) {
 node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
 node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
 node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
 ```
 
 Results: passed on 2026-06-15.
+
+Local baseline note:
+
+- The combined browser harness passed 15 checks on 2026-06-15:
+  - EPUB trace/frontmatter/page-boundary/shell-cover/external-shell-cover/native-tap-zone/css;
+  - texture offset/scroll/page-turn/frontmatter-transition;
+  - full EPUB traversal with strictly advancing labels;
+  - PDF smoke, fast sequential turns, and PDF image/settings.
+- This does not prove Android phone behavior. It means the next meaningful failure evidence should come from the native ADB matrix or from an Android-only rendering/input divergence.
 
 Morning adb validation:
 

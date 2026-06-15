@@ -24,6 +24,29 @@ if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
 $ArtifactRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ArtifactRoot)
 New-Item -ItemType Directory -Force -Path $ArtifactRoot | Out-Null
 
+$ReaderNextWalkTapFractions = @(
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,650",
+    "0.90,0.50,900"
+)
+$ReaderPreviousWalkTapFractions = @(
+    "0.10,0.50,650",
+    "0.10,0.50,650",
+    "0.10,0.50,650",
+    "0.10,0.50,650",
+    "0.10,0.50,650",
+    "0.10,0.50,900"
+)
+
 function Invoke-ReaderMatrixStep {
     param(
         [Parameter(Mandatory = $true)]
@@ -138,6 +161,22 @@ Invoke-ReaderMatrixStep `
     -Name "drag-previous" `
     -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
     -RequireNativeSwipeAction `
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "previous"
+
+Invoke-ReaderMatrixStep `
+    -Name "texture-next-walk" `
+    -TapFraction $ReaderNextWalkTapFractions `
+    -ValidateReaderTaps `
+    -RequireReaderTapAction `
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "next"
+
+Invoke-ReaderMatrixStep `
+    -Name "texture-previous-walk" `
+    -TapFraction $ReaderPreviousWalkTapFractions `
+    -ValidateReaderTaps `
+    -RequireReaderTapAction `
     -RequireTextureDiagnostics `
     -RequireTextureDirection "previous"
 
