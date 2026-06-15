@@ -595,7 +595,13 @@ private fun KomikkuReaderRoot(
 		grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
 		invertedColors = controllerState.chrome.settings.invertedColors == true,
 		onViewerAction = { action ->
-			onViewerAction(viewer.viewerActionFor(action))
+			onViewerAction(
+				if (controllerState.shellCoverVisible) {
+					readerShellCoverViewerActionFor(action)
+				} else {
+					viewer.viewerActionFor(action)
+				}
+			)
 		},
 		onContentLongPress = { x, y, width, height ->
 			onViewerAction(

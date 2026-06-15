@@ -3858,6 +3858,43 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Shell Cover Side-Zone Slice
+
+User-visible bug:
+
+- The synthetic shell cover could disappear on ordinary cover touches because it reused the active EPUB reading tap-zone shape. In the L-shaped/default style, large top/bottom parts of the cover classify as previous/next instead of menu.
+
+Root cause:
+
+- `KomikkuReaderNativeViewerContainer` classified shell-cover taps with the same `navigator` used for readable EPUB/PDF pages.
+- `ReaderScreen` then mapped physical LEFT/RIGHT through the active reader direction, so RTL text direction could make the cover's right edge behave as previous/no-op.
+
+Navic implication:
+
+- The native Android frame now switches to a cover-specific `KomikkuRightAndLeftNavigation` while the shell cover view is visible.
+- The common shell maps cover LEFT/RIGHT physically with `readerShellCoverViewerActionFor(...)`: right/next enters the readable book, left/previous remains at the cover boundary, center/menu toggles chrome.
+- Normal readable EPUB/PDF tap-zone mapping remains controlled by the active reader settings and text direction.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest.shellCoverUsesPhysicalSideZonesWithoutReaderDirectionInversion" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeShellCoverUsesCoverSpecificSideZoneNavigation"
+```
+
+Result: failed before production changes because `readerShellCoverViewerActionFor(...)`, the shell-cover navigator, and active shell-cover navigator switch did not exist.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest.shellCoverUsesPhysicalSideZonesWithoutReaderDirectionInversion" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeShellCoverUsesCoverSpecificSideZoneNavigation"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Content-Claim Arbitration Slice
 
 User-visible bug:

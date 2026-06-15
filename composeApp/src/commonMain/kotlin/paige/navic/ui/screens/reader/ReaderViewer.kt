@@ -198,3 +198,12 @@ fun readerViewerActionFor(
 				?: ReaderPageTurnDirection.Next
 		)
 	}
+
+fun readerShellCoverViewerActionFor(region: KomikkuNavigationRegion): ReaderViewerAction =
+	when (region) {
+		KomikkuNavigationRegion.MENU -> ReaderViewerAction.Menu
+		KomikkuNavigationRegion.NEXT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		KomikkuNavigationRegion.RIGHT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		KomikkuNavigationRegion.PREV -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+		KomikkuNavigationRegion.LEFT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
+	}

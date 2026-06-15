@@ -83,7 +83,8 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
 		assertContains(readerScreenText, "navigator = navigator")
-		assertContains(readerScreenText, "onViewerAction(viewer.viewerActionFor(action))")
+		assertContains(readerScreenText, "readerShellCoverViewerActionFor(action)")
+		assertContains(readerScreenText, "viewer.viewerActionFor(action)")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "onAction(action)")

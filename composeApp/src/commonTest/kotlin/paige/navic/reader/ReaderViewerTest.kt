@@ -11,6 +11,7 @@ import paige.navic.ui.screens.reader.PagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.ReaderViewerMode
 import paige.navic.ui.screens.reader.VerticalPagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.WebtoonPublicationReaderViewer
+import paige.navic.ui.screens.reader.readerShellCoverViewerActionFor
 import paige.navic.ui.screens.reader.readerViewerKeyFor
 import paige.navic.ui.screens.reader.readerViewerFor
 
@@ -151,6 +152,27 @@ class ReaderViewerTest {
 		assertEquals(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
 			viewer.viewerActionFor(KomikkuNavigationRegion.RIGHT)
+		)
+	}
+
+	@Test
+	fun shellCoverUsesPhysicalSideZonesWithoutReaderDirectionInversion() {
+		assertEquals(ReaderViewerAction.Menu, readerShellCoverViewerActionFor(KomikkuNavigationRegion.MENU))
+		assertEquals(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+			readerShellCoverViewerActionFor(KomikkuNavigationRegion.RIGHT)
+		)
+		assertEquals(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next),
+			readerShellCoverViewerActionFor(KomikkuNavigationRegion.NEXT)
+		)
+		assertEquals(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
+			readerShellCoverViewerActionFor(KomikkuNavigationRegion.LEFT)
+		)
+		assertEquals(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous),
+			readerShellCoverViewerActionFor(KomikkuNavigationRegion.PREV)
 		)
 	}
 

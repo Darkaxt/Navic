@@ -828,8 +828,9 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderCoordinator must expose viewer-owned movement to the shell."
 		)
 		assertTrue(
-			readerScreenText.contains("onViewerAction(viewer.viewerActionFor(action))"),
-			"ReaderScreen must translate native tap regions through the active viewer before reaching the controller."
+			readerScreenText.contains("readerShellCoverViewerActionFor(action)") &&
+				readerScreenText.contains("viewer.viewerActionFor(action)"),
+			"ReaderScreen must translate native tap regions through the shell-cover mapper or active viewer before reaching the controller."
 		)
 		assertFalse(
 			controllerText.contains("ReaderControllerNavigationAction") ||
@@ -1337,8 +1338,9 @@ class ReaderKomikkuBackboneResetTest {
 			"The native frame slot must be keyed by the retained viewer instance, not by a parallel identity calculation."
 		)
 		assertTrue(
-			readerScreenText.contains("onViewerAction(viewer.viewerActionFor(action))"),
-			"Native tap regions must become viewer-owned actions through the retained active viewer."
+			readerScreenText.contains("readerShellCoverViewerActionFor(action)") &&
+				readerScreenText.contains("viewer.viewerActionFor(action)"),
+			"Native tap regions must become shell-cover or viewer-owned actions through the retained active viewer."
 		)
 		assertTrue(
 			readerScreenText.contains("engineRenderer = viewer.engineRenderer"),
@@ -1488,6 +1490,48 @@ class ReaderKomikkuBackboneResetTest {
 		assertFalse(
 			readerScreenText.contains("binderyRepository.getReadingProgress("),
 			"ReaderScreen should not fetch saved progress itself; the runtime host already owns publication preparation."
+		)
+	}
+
+	@Test
+	fun nativeShellCoverUsesCoverSpecificSideZoneNavigation() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val activeReaderText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val viewerText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"
+		).readText()
+		val viewerContainerBody = androidHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+		val singleTap = viewerContainerBody
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}")
+
+		assertTrue(
+			viewerContainerBody.contains("shellCoverNavigator") &&
+				viewerContainerBody.contains("KomikkuRightAndLeftNavigation("),
+			"Shell cover taps should use Komikku's simple side-zone shape instead of the active EPUB reading tap-zone preset."
+		)
+		assertTrue(
+			singleTap.contains("if (shellCoverView?.visibility == VISIBLE)") &&
+				singleTap.contains("shellCoverNavigator.getAction(point)") &&
+				singleTap.contains("navigator.getAction(point)"),
+			"Native tap classification must switch navigator by shell-cover visibility before emitting a viewer action."
+		)
+		assertTrue(
+			activeReaderText.contains("readerShellCoverViewerActionFor(action)") &&
+				activeReaderText.contains("if (controllerState.shellCoverVisible)"),
+			"The common shell must map cover side regions physically before the normal reader direction mapping can invert them."
+		)
+		assertTrue(
+			viewerText.contains("fun readerShellCoverViewerActionFor(") &&
+				viewerText.contains("KomikkuNavigationRegion.RIGHT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)") &&
+				viewerText.contains("KomikkuNavigationRegion.LEFT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)"),
+			"Cover-side navigation must be physical: right enters the book, left/previous stays at the cover boundary."
 		)
 	}
 }

@@ -269,6 +269,7 @@ private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout(context) {
 	private val viewerContentContainer = FrameLayout(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
 	var onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit = { _, _, _, _ -> }
@@ -313,12 +314,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
 				if (width <= 0 || height <= 0) return false
 				if (nativeTapLongConfirmed) return false
-				val action = navigator.getAction(
-					KomikkuPoint(
-						x = (event.x / width.toFloat()).coerceIn(0f, 1f),
-						y = (event.y / height.toFloat()).coerceIn(0f, 1f)
-					)
+				val point = KomikkuPoint(
+					x = (event.x / width.toFloat()).coerceIn(0f, 1f),
+					y = (event.y / height.toFloat()).coerceIn(0f, 1f)
 				)
+				val action = if (shellCoverView?.visibility == VISIBLE) {
+					shellCoverNavigator.getAction(point)
+				} else {
+					navigator.getAction(point)
+				}
 				Logger.i(
 					KomikkuReaderNativeFrameHostTag,
 					"Reader native tap action=$action x=${event.x} y=${event.y} width=$width height=$height"
