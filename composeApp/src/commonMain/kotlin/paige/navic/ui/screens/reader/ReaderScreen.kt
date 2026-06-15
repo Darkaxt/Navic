@@ -15,6 +15,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -1072,7 +1074,6 @@ private fun KomikkuReaderSettingsDialog(
 		initialPage = initialTab.coerceIn(tabs.indices),
 		pageCount = { tabs.size }
 	)
-	val scope = rememberCoroutineScope()
 	val chromeState = ReaderChromeState(settings = settings)
 
 	LaunchedEffect(pagerState.currentPage) {
@@ -1083,37 +1084,26 @@ private fun KomikkuReaderSettingsDialog(
 		}
 	}
 
-	BasicAlertDialog(onDismissRequest = onDismissRequest) {
-		BoxWithConstraints {
-			Surface(
-				shape = RoundedCornerShape(28.dp),
-				color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
-				contentColor = MaterialTheme.colorScheme.onSurface,
-				modifier = Modifier
-					.heightIn(max = maxHeight * 0.75f)
-					.fillMaxWidth(0.78f)
-			) {
-				Column(
-					modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-					verticalArrangement = Arrangement.spacedBy(18.dp)
+	BoxWithConstraints {
+		KomikkuTabbedDialog(
+			onDismissRequest = onDismissRequest,
+			tabs = tabs,
+			pagerState = pagerState,
+			modifier = Modifier.heightIn(max = maxHeight * 0.75f),
+			footer = {
+				TextButton(
+					onClick = onDismissRequest,
+					modifier = Modifier.align(Alignment.End)
 				) {
-					KomikkuSettingsTabRow(
-						tabs = tabs,
-						selectedTab = pagerState.currentPage,
-						onSelectTab = { index ->
-							scope.launch { pagerState.animateScrollToPage(index) }
-						}
-					)
-					HorizontalPager(
-						modifier = Modifier.weight(1f, fill = false),
-						state = pagerState,
-						verticalAlignment = Alignment.Top
-					) { page ->
-						Column(
-							modifier = Modifier
-								.padding(vertical = TabbedDialogPaddingsVertical)
-								.verticalScroll(rememberScrollState())
-						) {
+					Text("Close")
+				}
+			}
+		) { page ->
+			Column(
+				modifier = Modifier
+					.padding(vertical = TabbedDialogPaddingsVertical)
+					.verticalScroll(rememberScrollState())
+			) {
 							when (tabs[page]) {
 								KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
 									title = "For this book"
@@ -1331,14 +1321,48 @@ private fun KomikkuReaderSettingsDialog(
 								}
 							}
 						}
+			}
+		}
+	}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun KomikkuTabbedDialog(
+	onDismissRequest: () -> Unit,
+	tabs: List<KomikkuSettingsTab>,
+	pagerState: PagerState,
+	modifier: Modifier = Modifier,
+	footer: @Composable ColumnScope.() -> Unit = {},
+	content: @Composable (Int) -> Unit
+) {
+	val scope = rememberCoroutineScope()
+
+	BasicAlertDialog(onDismissRequest = onDismissRequest) {
+		Surface(
+			shape = RoundedCornerShape(28.dp),
+			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+			contentColor = MaterialTheme.colorScheme.onSurface,
+			modifier = modifier.fillMaxWidth(0.78f)
+		) {
+			Column(
+				modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+				verticalArrangement = Arrangement.spacedBy(18.dp)
+			) {
+				KomikkuSettingsTabRow(
+					tabs = tabs,
+					selectedTab = pagerState.currentPage,
+					onSelectTab = { index ->
+						scope.launch { pagerState.animateScrollToPage(index) }
 					}
-					TextButton(
-						onClick = onDismissRequest,
-						modifier = Modifier.align(Alignment.End)
-					) {
-						Text("Close")
-					}
+				)
+				HorizontalPager(
+					modifier = Modifier.weight(1f, fill = false),
+					state = pagerState,
+					verticalAlignment = Alignment.Top
+				) { page ->
+					content(page)
 				}
+				footer()
 			}
 		}
 	}

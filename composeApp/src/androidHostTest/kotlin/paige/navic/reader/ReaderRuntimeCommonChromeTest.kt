@@ -379,6 +379,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val tabbedDialogBody = readerScreenText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(settingsDialogBody, "KomikkuTabbedDialog(")
+		assertContains(settingsDialogBody, "modifier = Modifier.heightIn(max = maxHeight * 0.75f)")
+		assertFalse(
+			settingsDialogBody.contains("BasicAlertDialog(") ||
+				settingsDialogBody.contains("Surface(") ||
+				settingsDialogBody.contains("HorizontalPager(") ||
+				settingsDialogBody.contains("KomikkuSettingsTabRow("),
+			"ReaderSettingsDialog should mirror Komikku by delegating shell, tabs, and pager ownership to a reusable TabbedDialog primitive."
+		)
+		assertContains(tabbedDialogBody, "BasicAlertDialog(")
+		assertContains(tabbedDialogBody, "Surface(")
+		assertContains(tabbedDialogBody, "KomikkuSettingsTabRow(")
+		assertContains(tabbedDialogBody, "HorizontalPager(")
+		assertContains(tabbedDialogBody, "content(page)")
+		assertContains(tabbedDialogBody, "footer()")
+	}
+
+	@Test
 	fun commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
@@ -400,20 +425,22 @@ class ReaderRuntimeCommonChromeTest {
 	fun commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
-		val pagerBody = settingsDialogBody.substringAfter("HorizontalPager(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val tabbedDialogBody = readerScreenText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 
 		assertContains(settingsDialogBody, "BoxWithConstraints")
 		assertContains(settingsDialogBody, ".heightIn(max = maxHeight * 0.75f)")
 		assertContains(settingsDialogBody, "TabbedDialogPaddingsVertical")
-		assertContains(pagerBody, ".verticalScroll(rememberScrollState())")
-		assertContains(pagerBody, ".padding(vertical = TabbedDialogPaddingsVertical)")
+		assertContains(settingsDialogBody, ".verticalScroll(rememberScrollState())")
+		assertContains(settingsDialogBody, ".padding(vertical = TabbedDialogPaddingsVertical)")
 		assertFalse(
 			settingsDialogBody.contains("modifier = Modifier.fillMaxWidth(0.78f)"),
 			"Komikku settings should use the shared bounded dialog modifier instead of only fixed-width surface sizing."
 		)
+		assertContains(tabbedDialogBody, "HorizontalPager(")
 		assertFalse(
-			pagerBody.contains("modifier = Modifier.animateContentSize()"),
+			tabbedDialogBody.contains("modifier = Modifier.animateContentSize()"),
 			"Pager content should be bounded and scrollable like Komikku's TabbedDialog body, not unbounded animated content."
 		)
 	}

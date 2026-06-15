@@ -3858,6 +3858,51 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Komikku Reusable Tabbed Dialog Primitive Slice
+
+User direction:
+
+- Keep moving toward the actual Komikku reader architecture, not a visual knock-off.
+- Do not publish another release candidate for source-only UI backbone work.
+
+Komikku source reference:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`
+
+Root cause:
+
+- Navic's settings dialog had adopted Komikku-like tabs and pager content, but the dialog still hand-built its own `BasicAlertDialog`, `Surface`, `KomikkuSettingsTabRow`, and `HorizontalPager` directly in `KomikkuReaderSettingsDialog(...)`.
+- That kept the settings shell as another one-off reader surface instead of the reusable Komikku `TabbedDialog` pattern.
+
+Navic implication:
+
+- Added `KomikkuTabbedDialog(...)` as the reusable settings/dialog primitive for the reader shell.
+- `KomikkuTabbedDialog(...)` owns the `BasicAlertDialog`, rounded `Surface`, compact tab row, `HorizontalPager`, and footer slot.
+- `KomikkuReaderSettingsDialog(...)` now delegates shell, tabs, and pager ownership to `KomikkuTabbedDialog(...)`.
+- Settings page content, scroll behavior, tab selection, Custom filter menu hiding, and all existing settings mutations are preserved.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive"
+```
+
+Result: failed before production changes because `KomikkuReaderSettingsDialog(...)` still owned `BasicAlertDialog`, `Surface`, `KomikkuSettingsTabRow`, and `HorizontalPager` directly.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Komikku Custom Filter Menu Visibility Slice
 
 User direction:
