@@ -28,6 +28,7 @@ class ReaderSettingsDefaultsTest {
 				orientation = ReaderOrientationDefault,
 				theme = "light",
 				direction = ReaderDirectionDefault,
+				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
 				paged = false,
 				tapZone = ReaderTapZoneDefault,
@@ -86,6 +87,7 @@ class ReaderSettingsDefaultsTest {
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
+				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
@@ -113,6 +115,7 @@ class ReaderSettingsDefaultsTest {
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
+				navBarType = ReaderNavBarTypeBottom,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				smallerTapZone = true,
@@ -343,6 +346,33 @@ class ReaderSettingsDefaultsTest {
 				paged = true,
 				direction = "zigzag"
 			).direction
+		)
+	}
+
+	@Test
+	fun readerSettingsDefaultsKeepKomikkuNavBarTypes() {
+		assertEquals(
+			listOf(ReaderNavBarTypeVerticalRight, ReaderNavBarTypeVerticalLeft, ReaderNavBarTypeBottom),
+			ReaderSupportedNavBarTypes
+		)
+		assertEquals(ReaderNavBarTypeVerticalRight, defaultReaderSettings().navBarType)
+		assertEquals(ReaderNavBarTypeVerticalRight, normalizedReaderNavBarType("missing"))
+		assertEquals(ReaderNavBarTypeVerticalLeft, normalizedReaderNavBarType(ReaderNavBarTypeVerticalLeft))
+		assertEquals(ReaderNavBarTypeBottom, normalizedReaderNavBarType(ReaderNavBarTypeBottom))
+		assertEquals("Right", readerNavBarTypeShortLabel(ReaderNavBarTypeVerticalRight))
+		assertEquals("Left", readerNavBarTypeShortLabel(ReaderNavBarTypeVerticalLeft))
+		assertEquals("Bottom", readerNavBarTypeShortLabel(ReaderNavBarTypeBottom))
+		assertEquals(
+			ReaderNavBarTypeVerticalLeft,
+			normalizedReaderSettings(
+				fontFamily = ReaderSansFontFamily,
+				fontSizePercent = 100,
+				lineHeightPercent = 155,
+				marginPercent = 0,
+				theme = "light",
+				paged = true,
+				navBarType = ReaderNavBarTypeVerticalLeft
+			).navBarType
 		)
 	}
 

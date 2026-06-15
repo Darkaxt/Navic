@@ -246,7 +246,7 @@ class ReaderKomikkuBackboneResetTest {
 			"KomikkuReaderAppBars must use Komikku's full-height app-bar column, not a free-floating Box overlay."
 		)
 		assertTrue(
-			appBarsBody.contains("KomikkuNavBarType.VerticalRight ->") &&
+			appBarsBody.contains("ReaderNavBarTypeVerticalRight ->") &&
 				appBarsBody.contains("modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)"),
 			"The vertical progress navigator must live in the weighted middle chrome slot so it cannot run under the top or bottom bars."
 		)

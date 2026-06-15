@@ -134,12 +134,16 @@ import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.ReaderLocator
+import paige.navic.reader.ReaderNavBarTypeBottom
+import paige.navic.reader.ReaderNavBarTypeVerticalLeft
+import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationIdentity
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedNavBarTypes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
@@ -162,6 +166,7 @@ import paige.navic.reader.normalizedReaderDirection
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderFontFamily
 import paige.navic.reader.normalizedReaderFontSource
+import paige.navic.reader.normalizedReaderNavBarType
 import paige.navic.reader.normalizedReaderOrientation
 import paige.navic.reader.normalizedReaderPdfFitMode
 import paige.navic.reader.normalizedReaderSettings
@@ -172,6 +177,7 @@ import paige.navic.reader.readerDefaultTapZoneMode
 import paige.navic.reader.readerDirectionShortLabel
 import paige.navic.reader.readerFontFamilyShortLabel
 import paige.navic.reader.readerFontSourceShortLabel
+import paige.navic.reader.readerNavBarTypeShortLabel
 import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerPdfFitShortLabel
 import paige.navic.reader.readerSettingsForBook
@@ -190,12 +196,6 @@ private const val KomikkuReaderVerticalRailHeightFraction = 0.68f
 private val TabbedDialogPaddingsVertical = 16.dp
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
 private val readerBarsFadeAnimationSpec = tween<Float>(150)
-
-private enum class KomikkuNavBarType {
-	VerticalRight,
-	VerticalLeft,
-	Bottom
-}
 
 private enum class KomikkuSettingsTab(val label: String) {
 	Reading("Reading mode"),
@@ -312,6 +312,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerOrientation,
 		preferenceManager.readerTheme,
 		preferenceManager.readerDirection,
+		preferenceManager.readerNavBarType,
 		preferenceManager.readerFlowMode,
 		preferenceManager.readerPaged,
 		preferenceManager.readerTapZone,
@@ -790,7 +791,7 @@ private fun KomikkuReaderAppBars(
 		!controllerState.chrome.currentSectionTitle.isNullOrBlank() -> controllerState.chrome.currentSectionTitle
 		else -> controllerState.chrome.progressLabel
 	}
-	val navBarType = KomikkuNavBarType.VerticalRight
+	val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
 	Column(modifier = modifier.fillMaxHeight()) {
 		AnimatedVisibility(
@@ -812,7 +813,7 @@ private fun KomikkuReaderAppBars(
 		}
 
 		when (navBarType) {
-			KomikkuNavBarType.VerticalLeft -> {
+			ReaderNavBarTypeVerticalLeft -> {
 				AnimatedVisibility(
 					visible = visible,
 					enter = slideInHorizontally(
@@ -849,7 +850,7 @@ private fun KomikkuReaderAppBars(
 					}
 				}
 			}
-			KomikkuNavBarType.VerticalRight -> {
+			ReaderNavBarTypeVerticalRight -> {
 				AnimatedVisibility(
 					visible = visible,
 					enter = slideInHorizontally(
@@ -886,7 +887,7 @@ private fun KomikkuReaderAppBars(
 					}
 				}
 			}
-			KomikkuNavBarType.Bottom -> {
+			ReaderNavBarTypeBottom -> {
 				Spacer(modifier = Modifier.weight(1f))
 			}
 		}
@@ -899,7 +900,7 @@ private fun KomikkuReaderAppBars(
 				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				if (navBarType == KomikkuNavBarType.Bottom) {
+				if (navBarType == ReaderNavBarTypeBottom) {
 					KomikkuChapterNavigator(
 						isRtl = isRtl,
 						isVerticalSlider = false,
@@ -1182,6 +1183,16 @@ private fun KomikkuReaderSettingsDialog(
 										selectedValue = normalizedReaderDirection(settings.direction),
 										onSelect = { direction ->
 											onSettingsChange(settings.copy(direction = direction))
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Progress rail",
+										options = ReaderSupportedNavBarTypes.map { navBarType ->
+											navBarType to readerNavBarTypeShortLabel(navBarType)
+										},
+										selectedValue = normalizedReaderNavBarType(settings.navBarType),
+										onSelect = { navBarType ->
+											onSettingsChange(settings.copy(navBarType = navBarType))
 										}
 									)
 									KomikkuSettingsChipRow(

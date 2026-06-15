@@ -72,6 +72,7 @@ data class ReaderSettings(
 	val orientation: String? = null,
 	val theme: String? = null,
 	val direction: String? = null,
+	val navBarType: String? = null,
 	val flowMode: String? = null,
 	val paged: Boolean? = null,
 	val tapZone: String? = null,
@@ -472,6 +473,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
+		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }

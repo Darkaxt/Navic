@@ -227,6 +227,7 @@
 	<string name="subtitle_ebook_reader_orientation">Control rotation while the reader is open.</string>
 	<string name="subtitle_ebook_reader_fullscreen">Hide Android system bars while reading; swipe from the edge to reveal them.</string>
 	<string name="subtitle_ebook_reader_direction">Override left-to-right or right-to-left page progression when the publication metadata is wrong.</string>
+	<string name="subtitle_ebook_reader_nav_bar_type">Choose whether reader progress controls appear on the right, left, or bottom overlay.</string>
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
 	<string name="subtitle_ebook_reader_smaller_tap_zones">Shrink page-turn regions so the center menu area is easier to reach.</string>
@@ -579,6 +580,10 @@
 	<string name="option_ebook_reader_direction_default">Default</string>
 	<string name="option_ebook_reader_direction_ltr">Left to right</string>
 	<string name="option_ebook_reader_direction_rtl">Right to left</string>
+	<string name="option_ebook_reader_nav_bar_type">Progress rail</string>
+	<string name="option_ebook_reader_nav_bar_type_right">Right side</string>
+	<string name="option_ebook_reader_nav_bar_type_left">Left side</string>
+	<string name="option_ebook_reader_nav_bar_type_bottom">Bottom</string>
 	<string name="option_ebook_reader_flow">Reading flow</string>
 	<string name="option_ebook_reader_paged">Paged</string>
 	<string name="option_ebook_reader_paged_vertical">Paged vertical</string>

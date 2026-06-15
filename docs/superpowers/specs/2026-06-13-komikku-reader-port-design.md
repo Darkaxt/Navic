@@ -3858,6 +3858,54 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Komikku Progress Rail Placement Slice
+
+User direction:
+
+- Keep replacing shortcut reader UI with Komikku-derived controller structure.
+- Do not publish another APK overnight for source-only UI backbone work.
+- Avoid hardcoded "looks like Komikku" behavior when the original implementation exposes reader preferences.
+
+Komikku source references:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ReaderAppBars.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt`
+
+Root cause:
+
+- Navic's active Komikku reader app bars still contained a private `KomikkuNavBarType` enum and hardcoded `val navBarType = KomikkuNavBarType.VerticalRight`.
+- That meant the controller could not choose left, right, or bottom progress controls, even though Komikku models progress/navigation placement through reader preferences such as vertical/left seekbar choices.
+
+Navic implication:
+
+- `ReaderSettings` now carries `navBarType` with supported values `vertical-right`, `vertical-left`, and `bottom`.
+- Global and per-book reader settings persist, normalize, and restore the rail placement.
+- `KomikkuReaderAppBars(...)` now derives placement from `normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)` instead of a private hardcoded enum.
+- The in-reader Reading tab exposes a `Progress rail` chip row using the shared supported values and labels.
+- Settings > Ebooks exposes the same default as `Progress rail`, and settings search exposes it as `ebooks.nav-bar-type`.
+- The bridge serializes `navBarType` so the setting remains part of the engine command payload and can be consumed by later capability adapters.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuNavBarTypes" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripNavBarTypePreference" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Result: failed before production changes because `navBarType` settings/constants/preferences/search rows did not exist and the active app bars hardcoded `KomikkuNavBarType.VerticalRight`.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuNavBarTypes" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripNavBarTypePreference" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice. The next APK should be a morning release candidate after source verification, followed by the full ADB matrix.
+
 ## 2026-06-15 Overnight Komikku RTL Chapter Navigator Slice
 
 User direction:

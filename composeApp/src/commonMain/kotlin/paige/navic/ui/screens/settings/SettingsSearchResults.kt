@@ -71,6 +71,7 @@ import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
 import paige.navic.reader.ReaderMonoFontFamily
+import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.ReaderOrientationDefault
 import paige.navic.reader.ReaderOrientationFree
 import paige.navic.reader.ReaderOrientationLandscape
@@ -863,6 +864,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			label = { direction -> readerDirectionSearchLabel(direction) },
 			selection = readerSettings.direction ?: ReaderDirectionDefault,
 			onSelect = { direction -> preferenceManager.readerDirection = direction }
+		))
+		add(selectionRow(
+			id = "ebooks.nav-bar-type",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_nav_bar_type),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_nav_bar_type),
+			keywords = listOf("reader", "ebook", "EPUB", "PDF", "Komikku", "progress", "rail", "seekbar", "navigator", "left", "right", "bottom"),
+			items = readerNavBarTypeSearchOptions,
+			label = { navBarType -> readerNavBarTypeSearchLabel(navBarType) },
+			selection = readerSettings.navBarType ?: ReaderNavBarTypeVerticalRight,
+			onSelect = { navBarType -> preferenceManager.readerNavBarType = navBarType }
 		))
 		add(selectionRow(
 			id = "ebooks.flow",

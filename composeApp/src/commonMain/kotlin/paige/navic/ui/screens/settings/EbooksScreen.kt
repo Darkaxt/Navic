@@ -52,6 +52,10 @@ import navic.composeapp.generated.resources.option_ebook_reader_line_height
 import navic.composeapp.generated.resources.option_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.option_ebook_reader_margin
 import navic.composeapp.generated.resources.option_ebook_reader_media_overlay
+import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type
+import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bottom
+import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_left
+import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_right
 import navic.composeapp.generated.resources.option_ebook_reader_orientation
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
@@ -106,6 +110,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_line_height
 import navic.composeapp.generated.resources.subtitle_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
 import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
+import navic.composeapp.generated.resources.subtitle_ebook_reader_nav_bar_type
 import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
@@ -146,6 +151,9 @@ import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderLightTheme
 import paige.navic.reader.ReaderMonoFontFamily
+import paige.navic.reader.ReaderNavBarTypeBottom
+import paige.navic.reader.ReaderNavBarTypeVerticalLeft
+import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.ReaderOrientationDefault
 import paige.navic.reader.ReaderOrientationFree
 import paige.navic.reader.ReaderOrientationLandscape
@@ -190,6 +198,7 @@ fun SettingsEbooksScreen() {
 	val fontSource = ReaderFontSourceOption.forFontSource(settings.fontSource)
 	val theme = ReaderThemeOption.forTheme(settings.theme)
 	val direction = ReaderDirectionOption.forDirection(settings.direction)
+	val navBarType = ReaderNavBarTypeOption.forNavBarType(settings.navBarType)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
@@ -366,6 +375,14 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_direction),
 						selection = direction,
 						onSelect = { option -> preferenceManager.readerDirection = option.direction }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_nav_bar_type)) },
+						items = ReaderNavBarTypeOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_nav_bar_type),
+						selection = navBarType,
+						onSelect = { option -> preferenceManager.readerNavBarType = option.navBarType }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_flow)) },
@@ -551,6 +568,20 @@ private enum class ReaderDirectionOption(
 	companion object {
 		fun forDirection(direction: String?): ReaderDirectionOption =
 			entries.firstOrNull { option -> option.direction == direction } ?: Default
+	}
+}
+
+private enum class ReaderNavBarTypeOption(
+	val navBarType: String,
+	val title: StringResource
+) {
+	Right(ReaderNavBarTypeVerticalRight, Res.string.option_ebook_reader_nav_bar_type_right),
+	Left(ReaderNavBarTypeVerticalLeft, Res.string.option_ebook_reader_nav_bar_type_left),
+	Bottom(ReaderNavBarTypeBottom, Res.string.option_ebook_reader_nav_bar_type_bottom);
+
+	companion object {
+		fun forNavBarType(navBarType: String?): ReaderNavBarTypeOption =
+			entries.firstOrNull { option -> option.navBarType == navBarType } ?: Right
 	}
 }
 

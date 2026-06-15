@@ -45,6 +45,9 @@ const val ReaderBlackTheme = "black"
 const val ReaderDirectionDefault = "default"
 const val ReaderDirectionLtr = "ltr"
 const val ReaderDirectionRtl = "rtl"
+const val ReaderNavBarTypeVerticalRight = "vertical-right"
+const val ReaderNavBarTypeVerticalLeft = "vertical-left"
+const val ReaderNavBarTypeBottom = "bottom"
 const val ReaderFlowPaged = "paged"
 const val ReaderFlowPagedVertical = "paged-vertical"
 const val ReaderFlowScrolled = "scrolled"
@@ -123,6 +126,12 @@ val ReaderSupportedDirections: List<String> = listOf(
 	ReaderDirectionDefault,
 	ReaderDirectionLtr,
 	ReaderDirectionRtl
+)
+
+val ReaderSupportedNavBarTypes: List<String> = listOf(
+	ReaderNavBarTypeVerticalRight,
+	ReaderNavBarTypeVerticalLeft,
+	ReaderNavBarTypeBottom
 )
 
 val ReaderSupportedColorFilterModes: List<String> = listOf(
@@ -207,6 +216,9 @@ fun normalizedReaderOrientation(orientation: String?): String =
 
 fun normalizedReaderDirection(direction: String?): String =
 	ReaderSupportedDirections.firstOrNull { supported -> supported == direction } ?: ReaderDirectionDefault
+
+fun normalizedReaderNavBarType(navBarType: String?): String =
+	ReaderSupportedNavBarTypes.firstOrNull { supported -> supported == navBarType } ?: ReaderNavBarTypeVerticalRight
 
 fun normalizedReaderPdfFitMode(pdfFitMode: String?): String =
 	ReaderSupportedPdfFitModes.firstOrNull { supported -> supported == pdfFitMode } ?: ReaderPdfFitWidth
@@ -446,6 +458,12 @@ fun nextReaderDirection(direction: String?): String {
 	return ReaderSupportedDirections[(index + 1) % ReaderSupportedDirections.size]
 }
 
+fun nextReaderNavBarType(navBarType: String?): String {
+	val normalized = normalizedReaderNavBarType(navBarType)
+	val index = ReaderSupportedNavBarTypes.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedNavBarTypes[(index + 1) % ReaderSupportedNavBarTypes.size]
+}
+
 fun readerFontFamilyShortLabel(fontFamily: String?): String =
 	when (normalizedReaderFontFamily(fontFamily)) {
 		ReaderSerifFontFamily -> "Serif"
@@ -511,6 +529,13 @@ fun readerDirectionShortLabel(direction: String?): String =
 		else -> "Default"
 	}
 
+fun readerNavBarTypeShortLabel(navBarType: String?): String =
+	when (normalizedReaderNavBarType(navBarType)) {
+		ReaderNavBarTypeVerticalLeft -> "Left"
+		ReaderNavBarTypeBottom -> "Bottom"
+		else -> "Right"
+	}
+
 fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =
 	when (normalizedReaderColorFilterMode(colorFilterMode)) {
 		ReaderColorFilterModeMultiply -> "Multiply"
@@ -552,6 +577,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		orientation = ReaderOrientationDefault,
 		theme = ReaderLightTheme,
 		direction = ReaderDirectionDefault,
+		navBarType = ReaderNavBarTypeVerticalRight,
 		flowMode = ReaderFlowPaged,
 		paged = true,
 		tapZone = ReaderTapZoneDefault,
@@ -586,6 +612,7 @@ fun normalizedReaderSettings(
 	orientation: String? = ReaderOrientationDefault,
 	theme: String?,
 	direction: String? = ReaderDirectionDefault,
+	navBarType: String? = ReaderNavBarTypeVerticalRight,
 	flowMode: String? = null,
 	paged: Boolean,
 	tapZone: String? = ReaderTapZoneDefault,
@@ -639,6 +666,7 @@ fun normalizedReaderSettings(
 		orientation = normalizedReaderOrientation(orientation),
 		theme = normalizedReaderTheme(theme),
 		direction = normalizedReaderDirection(direction),
+		navBarType = normalizedReaderNavBarType(navBarType),
 		flowMode = normalizedReaderFlowMode(flowMode, paged),
 		paged = normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolled &&
 			normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolledGaps,
@@ -679,6 +707,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		orientation = orientation,
 		theme = theme,
 		direction = direction,
+		navBarType = navBarType,
 		flowMode = flowMode,
 		paged = paged ?: true,
 		tapZone = tapZone,

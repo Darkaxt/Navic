@@ -265,6 +265,22 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripNavBarTypePreference() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerNavBarType = ReaderNavBarTypeVerticalLeft
+
+		assertEquals(ReaderNavBarTypeVerticalLeft, preferences.readerDefaultSettings().navBarType)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(navBarType = ReaderNavBarTypeBottom)
+		)
+
+		assertEquals(ReaderNavBarTypeBottom, preferences.readerNavBarType)
+		assertEquals(ReaderNavBarTypeBottom, preferences.readerDefaultSettings().navBarType)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripVolumeKeyPageTurns() {
 		val preferences = PreferenceManager(MapSettings())
 
@@ -314,6 +330,7 @@ class ReaderPreferenceSettingsTest {
 		preferences.readerTheme = ReaderDarkTheme
 		preferences.readerFontSizePercent = 100
 		preferences.readerDirection = ReaderDirectionDefault
+		preferences.readerNavBarType = ReaderNavBarTypeVerticalRight
 
 		preferences.setReaderBookSettings(
 			bookId = "book-1",
@@ -321,6 +338,7 @@ class ReaderPreferenceSettingsTest {
 				theme = ReaderSepiaTheme,
 				fontSizePercent = 128,
 				direction = ReaderDirectionRtl,
+				navBarType = ReaderNavBarTypeBottom,
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x44225588,
 				colorFilterMode = ReaderColorFilterModeOverlay,
@@ -333,6 +351,7 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(ReaderSepiaTheme, bookSettings.theme)
 		assertEquals(128, bookSettings.fontSizePercent)
 		assertEquals(ReaderDirectionRtl, bookSettings.direction)
+		assertEquals(ReaderNavBarTypeBottom, bookSettings.navBarType)
 		assertEquals(true, bookSettings.colorFilterEnabled)
 		assertEquals(0x44225588, bookSettings.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)
@@ -340,6 +359,7 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(true, bookSettings.invertedColors)
 		assertEquals(ReaderDarkTheme, preferences.readerDefaultSettings().theme)
 		assertEquals(100, preferences.readerDefaultSettings().fontSizePercent)
+		assertEquals(ReaderNavBarTypeVerticalRight, preferences.readerDefaultSettings().navBarType)
 	}
 
 	@Test

@@ -46,6 +46,8 @@ import paige.navic.reader.ReaderFontSourcePublisher
 import paige.navic.reader.ReaderFontSourceSystem
 import paige.navic.reader.ReaderHumanistFontFamily
 import paige.navic.reader.ReaderMonoFontFamily
+import paige.navic.reader.ReaderNavBarTypeBottom
+import paige.navic.reader.ReaderNavBarTypeVerticalLeft
 import paige.navic.reader.ReaderOrientationFree
 import paige.navic.reader.ReaderOrientationLandscape
 import paige.navic.reader.ReaderOrientationLockedLandscape
@@ -59,6 +61,7 @@ import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedNavBarTypes
 import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
@@ -287,6 +290,7 @@ internal val readerDimOverlaySearchOptions = listOf(0, 10, 20, 30, 40, 50, 60, 7
 internal val readerThemeSearchOptions = ReaderSupportedThemes
 internal val readerOrientationSearchOptions = ReaderSupportedOrientations
 internal val readerDirectionSearchOptions = ReaderSupportedDirections
+internal val readerNavBarTypeSearchOptions = ReaderSupportedNavBarTypes
 internal val readerFlowSearchOptions = ReaderSupportedFlowModes
 internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
 internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
@@ -342,6 +346,14 @@ internal fun readerDirectionSearchLabel(direction: String): String =
 		ReaderDirectionLtr -> stringResource(Res.string.option_ebook_reader_direction_ltr)
 		ReaderDirectionRtl -> stringResource(Res.string.option_ebook_reader_direction_rtl)
 		else -> stringResource(Res.string.option_ebook_reader_direction_default)
+	}
+
+@Composable
+internal fun readerNavBarTypeSearchLabel(navBarType: String): String =
+	when (navBarType) {
+		ReaderNavBarTypeVerticalLeft -> stringResource(Res.string.option_ebook_reader_nav_bar_type_left)
+		ReaderNavBarTypeBottom -> stringResource(Res.string.option_ebook_reader_nav_bar_type_bottom)
+		else -> stringResource(Res.string.option_ebook_reader_nav_bar_type_right)
 	}
 
 @Composable

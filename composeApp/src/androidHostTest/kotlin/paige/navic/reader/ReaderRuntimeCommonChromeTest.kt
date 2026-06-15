@@ -173,6 +173,7 @@ class ReaderRuntimeCommonChromeTest {
 			"readerOrientation",
 			"readerTheme",
 			"readerDirection",
+			"readerNavBarType",
 			"readerFlowMode",
 			"readerPaged",
 			"readerTapZone",
@@ -278,7 +279,7 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n}\n\n@OptIn(ExperimentalMaterial3Api::class)")
 
 		assertContains(readerScreenText, "KomikkuChapterNavigatorVertical(")
-		assertContains(appBarsBody, "KomikkuNavBarType.VerticalRight")
+		assertContains(appBarsBody, "ReaderNavBarTypeVerticalRight")
 		assertContains(appBarsBody, "modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)")
 		assertContains(readerScreenText, "KomikkuReaderVerticalRailHeightFraction")
 		assertContains(readerScreenText, "private fun KomikkuChapterProgressSlider(")
@@ -334,6 +335,39 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorBody, "onClick = if (isRtl) onNextChapter else onPreviousChapter")
 		assertContains(navigatorBody, "enabled = if (isRtl) enabledPrevious else enabledNext")
 		assertContains(navigatorBody, "onClick = if (isRtl) onPreviousChapter else onNextChapter")
+	}
+
+	@Test
+	fun commonReaderProgressRailPlacementIsControllerSettingNotHardcoded() {
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val preferencesText = listOf(
+			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate PreferenceManager.kt")
+		val appBarsBody = readerScreenText.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+
+		assertContains(readerScreenText, "ReaderSupportedNavBarTypes")
+		assertContains(readerScreenText, "readerNavBarTypeShortLabel")
+		assertContains(readerScreenText, "normalizedReaderNavBarType")
+		assertContains(appBarsBody, "val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)")
+		assertFalse(
+			appBarsBody.contains("val navBarType = KomikkuNavBarType.VerticalRight"),
+			"Komikku nav bar placement must be a reader setting, not a hardcoded right rail."
+		)
+		assertContains(settingsDialogBody, "title = \"Progress rail\"")
+		assertContains(settingsDialogBody, "settings.copy(navBarType = navBarType)")
+		assertContains(preferencesText, "readerNavBarType")
+		assertContains(ebooksSettingsText, "option_ebook_reader_nav_bar_type")
+		assertContains(ebooksSettingsText, "ReaderNavBarTypeOption")
+		assertContains(searchSettingsText, "ebooks.nav-bar-type")
+		assertContains(searchSettingsText, "readerNavBarType")
 	}
 
 	@Test

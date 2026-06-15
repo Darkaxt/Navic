@@ -52,6 +52,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		orientation = readerOrientation,
 		theme = readerTheme,
 		direction = readerDirection,
+		navBarType = readerNavBarType,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -90,6 +91,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerOrientation = normalized.orientation ?: ReaderOrientationDefault
 	readerTheme = normalized.theme ?: ReaderLightTheme
 	readerDirection = normalized.direction ?: ReaderDirectionDefault
+	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -153,6 +155,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		orientation = override.orientation ?: orientation,
 		theme = override.theme ?: theme,
 		direction = override.direction ?: direction,
+		navBarType = override.navBarType ?: navBarType,
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
@@ -191,6 +194,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		orientation = if (orientation != null) normalized.orientation else null,
 		theme = if (theme != null) normalized.theme else null,
 		direction = if (direction != null) normalized.direction else null,
+		navBarType = if (navBarType != null) normalized.navBarType else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
@@ -264,6 +268,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		orientation = stringValue("orientation"),
 		theme = stringValue("theme"),
 		direction = stringValue("direction"),
+		navBarType = stringValue("navBarType"),
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
@@ -299,6 +304,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
+		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }

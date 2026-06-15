@@ -32,6 +32,7 @@ class ReaderBridgeProtocolTest {
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderDuskTheme,
 				direction = ReaderDirectionRtl,
+				navBarType = ReaderNavBarTypeBottom,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,
 				smallerTapZone = true,
@@ -68,6 +69,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"orientation\":\"locked-landscape\"")
 		assertContains(script, "\"theme\":\"dusk\"")
 		assertContains(script, "\"direction\":\"rtl\"")
+		assertContains(script, "\"navBarType\":\"bottom\"")
 		assertContains(script, "\"paged\":false")
 		assertContains(script, "\"tapZone\":\"kindle\"")
 		assertContains(script, "\"smallerTapZone\":true")
