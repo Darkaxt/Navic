@@ -2824,12 +2824,23 @@ Manual harness observations:
 ```powershell
 node tools\reader-harness\src\run-reader-harness.mjs --mode epub-frontmatter --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
 node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
 ```
 
 Results:
 
 - `epub-frontmatter` passed with 409 pages at the near-device viewport.
 - `epub-texture-frontmatter-transition` passed at the same viewport, but this is not enough to close the user's phone report because the probe still does not prove the Android native-frame event path that produced the observed sequential maps-to-Author's-Note inversion.
+- `epub-full-traversal` passed across 409 pages at the same viewport, with progress checkpoints from page 1 through page 401 before completion. This gives browser-path coverage for monotonic visible page labels, no consecutive duplicate locations, and cover suppression, but still does not replace adb validation of the native Android input frame.
+- EPUB-only near-device matrix also passed at the same viewport:
+  - `epub-page-boundary`
+  - `epub-shell-cover`
+  - `epub-external-shell-cover`
+  - `epub-native-tap-zone-open`
+  - `css-smoke`
+  - `epub-texture-scroll`
+  - `epub-texture-page-turns`
+- `epub-shell-cover` specifically reported: native shell visible at page 0, first next hides the shell without advancing content, second next advances to page 1, previous from content page 0 restores the native shell. This is the desired browser/controller behavior; morning adb must verify the Android native cover and native input frame match it.
 
 Release status:
 
