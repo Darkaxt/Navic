@@ -3759,3 +3759,60 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No release APK was built or published for this validation-tooling slice.
+
+## 2026-06-15 Morning RC Command Register
+
+This register is for the next connected-phone validation pass. It is not permission to publish tonight.
+
+Current branch state:
+
+- Branch: `codex/komikku-reader-backbone-eta64`.
+- Current Android version before the morning RC bump: `versionCode = 398`, `versionName = "v1.0.11-eta65"` in `androidApp/build.gradle.kts`.
+- Latest pushed source commit before the morning RC bump: `2d45a1f2 Expand reader adb validation matrix`.
+- `releases/` and `tmp/` remain local/untracked and must not be staged.
+
+Release candidate rule:
+
+- Build exactly one Android release candidate in the morning, after confirming the phone is ready for ADB validation.
+- Suggested next version if no other release has happened meanwhile: `v1.0.11-eta66`, `versionCode = 399`.
+- Do not run a workflow-dispatch iOS build. Eta tags contain `-`, so `.github/workflows/build.yml` skips `build-ipa` automatically for a normal tag push.
+
+Morning release sequence:
+
+```powershell
+# 1. Update androidApp/build.gradle.kts:
+#    versionCode = 399
+#    versionName = "v1.0.11-eta66"
+
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta66
+git add -- androidApp/build.gradle.kts
+git commit -m "Bump Android reader candidate to eta66"
+git tag v1.0.11-eta66
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-eta66 -Branch codex/komikku-reader-backbone-eta64 -Background
+```
+
+After GitHub publishes `Navic.apk`, install/update the phone, open the target EPUB, and run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName v1.0.11-eta66 -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+Then open the target PDF and run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName v1.0.11-eta66 -NoLaunch -OnlyPdfChecks -ContinueOnFailure
+```
+
+First artifacts to inspect:
+
+- `reader-matrix-summary.csv`
+- `reader-matrix-failures.txt`
+- `baseline-current-reader/reader-diagnostics-summary.txt`
+- `center-tap-toggle/reader-touch-diagnostics.log`
+- `native-long-press-center/reader-touch-diagnostics.log`
+- `texture-next-walk/reader-texture-direction-validation.txt`
+- `texture-previous-walk/reader-texture-direction-validation.txt`
+- `cover-center-tap-toggle/screen.png`
+- `cover-drag-next/reader-touch-diagnostics.log`
+- `pdf-baseline/reader-diagnostics-summary.txt`
+- `pdf-drag-next/reader-touch-diagnostics.log`
