@@ -3858,6 +3858,44 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Post-Rail Pre-RC Baseline Refresh
+
+User direction:
+
+- Keep working overnight without publishing another Android release candidate.
+- In the morning, compile one new release candidate and run the full ADB validation array.
+- Refresh local source and browser-path evidence after each committed backbone slice so the morning APK is not the first verification point.
+
+Verified source baseline after `a7b8435a`:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest"
+git diff --check
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+```
+
+Results: passed on 2026-06-15.
+
+Verified real EPUB/PDF browser harness baseline after `a7b8435a`:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Result: passed on 2026-06-15. The combined harness completed 16 checks: trace smoke, EPUB frontmatter, EPUB page boundary, shell cover, external shell cover, native tap-zone open, CSS smoke, link-jump drag, texture offset logic, texture scroll, texture page turns, texture frontmatter transition, full EPUB traversal, PDF smoke, PDF fast sequential turns, and PDF image settings.
+
+Important limitation:
+
+- This is still local source/browser evidence only. It does not prove Android native-frame behavior for cover drag, center tap/menu toggling, image/link long press, texture movement on the actual phone, or PDF tap/drag responsiveness. Those remain morning release-candidate ADB checks.
+
+Release status:
+
+- No APK was built or published for this baseline.
+
 ## 2026-06-15 Overnight Komikku Progress Rail Placement Slice
 
 User direction:
