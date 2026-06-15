@@ -3816,3 +3816,44 @@ First artifacts to inspect:
 - `cover-drag-next/reader-touch-diagnostics.log`
 - `pdf-baseline/reader-diagnostics-summary.txt`
 - `pdf-drag-next/reader-touch-diagnostics.log`
+
+## 2026-06-15 Overnight Komikku Settings Tab Header Slice
+
+User direction:
+
+- Continue working overnight without publishing a release candidate.
+- Prioritize changes that move the reader away from the old docked/settings-page feel and toward the actual Komikku reader overlay structure.
+- Do not spend a release pipeline on minor UI cleanup; leave the next APK for the morning RC gate.
+
+Root cause:
+
+- `KomikkuReaderSettingsDialog(...)` still hand-rolled the tab header as a `Row` of title-sized `Text` nodes.
+- That made long labels such as `Reading mode` and `Custom filter` vulnerable to wrapping and made the settings surface feel like another Navic settings page instead of Komikku's compact tabbed dialog.
+
+Navic implication:
+
+- The dialog now routes the header through `KomikkuSettingsTabRow(...)`.
+- `KomikkuSettingsTabRow(...)` uses Material3 `PrimaryTabRow` and `Tab`, matching the same component family used by Komikku's `TabbedDialog`.
+- Tab labels use `MaterialTheme.typography.labelLarge`, `maxLines = 1`, and `TextOverflow.Ellipsis`.
+- The settings dialog body no longer owns raw `tabs.forEachIndexed` text-tab markup.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs"
+```
+
+Result: failed before production changes because `KomikkuSettingsTabRow(...)` did not exist and the settings dialog hand-rolled `tabs.forEachIndexed`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.

@@ -39,9 +39,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
@@ -1050,28 +1052,11 @@ private fun KomikkuReaderSettingsDialog(
 				modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
 				verticalArrangement = Arrangement.spacedBy(18.dp)
 			) {
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					tabs.forEachIndexed { index, tab ->
-						Text(
-							text = tab.label,
-							style = MaterialTheme.typography.titleMedium,
-							fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.SemiBold,
-							color = if (selectedTab == index) {
-								MaterialTheme.colorScheme.primary
-							} else {
-								MaterialTheme.colorScheme.onSurface
-							},
-							modifier = Modifier
-								.clip(RoundedCornerShape(18.dp))
-								.clickable { selectedTab = index }
-								.padding(horizontal = 10.dp, vertical = 8.dp)
-						)
-					}
-				}
+				KomikkuSettingsTabRow(
+					tabs = tabs,
+					selectedTab = selectedTab,
+					onSelectTab = { index -> selectedTab = index }
+				)
 				when (tabs[selectedTab]) {
 					KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
 						title = "For this book"
@@ -1295,6 +1280,36 @@ private fun KomikkuReaderSettingsDialog(
 					Text("Close")
 				}
 			}
+		}
+	}
+}
+
+@Composable
+private fun KomikkuSettingsTabRow(
+	tabs: List<KomikkuSettingsTab>,
+	selectedTab: Int,
+	onSelectTab: (Int) -> Unit
+) {
+	PrimaryTabRow(
+		selectedTabIndex = selectedTab,
+		containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+		divider = {},
+		modifier = Modifier.fillMaxWidth()
+	) {
+		tabs.forEachIndexed { index, tab ->
+			Tab(
+				selected = selectedTab == index,
+				onClick = { onSelectTab(index) },
+				text = {
+					Text(
+						text = tab.label,
+						style = MaterialTheme.typography.labelLarge,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				},
+				unselectedContentColor = MaterialTheme.colorScheme.onSurface
+			)
 		}
 	}
 }

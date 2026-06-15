@@ -304,6 +304,34 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+		val settingsDialogHeaderBody = settingsDialogBody.substringBefore("when (tabs[selectedTab])")
+
+		assertContains(settingsDialogBody, "KomikkuSettingsTabRow(")
+		assertFalse(
+			settingsDialogHeaderBody.contains("tabs.forEachIndexed"),
+			"The Komikku settings dialog must not hand-roll title-sized text tabs; use the compact tab row helper."
+		)
+		assertContains(readerScreenText, "private fun KomikkuSettingsTabRow(")
+
+		val tabRowBody = readerScreenText.substringAfter("private fun KomikkuSettingsTabRow(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+
+		assertContains(tabRowBody, "TabRow(")
+		assertContains(tabRowBody, "Tab(")
+		assertContains(tabRowBody, "MaterialTheme.typography.labelLarge")
+		assertContains(tabRowBody, "maxLines = 1")
+		assertContains(tabRowBody, "overflow = TextOverflow.Ellipsis")
+		assertFalse(
+			tabRowBody.contains("MaterialTheme.typography.titleMedium"),
+			"Settings tabs must stay compact and single-line instead of inheriting panel title typography."
+		)
+	}
+
+	@Test
 	fun commonReaderOptionsUseKomikkuStyleChipGroups() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
