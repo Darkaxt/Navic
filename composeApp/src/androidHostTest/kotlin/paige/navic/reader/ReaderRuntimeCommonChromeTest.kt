@@ -308,7 +308,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
-		val settingsDialogHeaderBody = settingsDialogBody.substringBefore("when (tabs[selectedTab])")
+		val settingsDialogHeaderBody = settingsDialogBody.substringBefore("HorizontalPager(")
 
 		assertContains(settingsDialogBody, "KomikkuSettingsTabRow(")
 		assertFalse(
@@ -328,6 +328,27 @@ class ReaderRuntimeCommonChromeTest {
 		assertFalse(
 			tabRowBody.contains("MaterialTheme.typography.titleMedium"),
 			"Settings tabs must stay compact and single-line instead of inheriting panel title typography."
+		)
+	}
+
+	@Test
+	fun commonReaderSettingsDialogUsesKomikkuTabbedPagerContent() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+
+		assertContains(settingsDialogBody, "rememberPagerState(")
+		assertContains(settingsDialogBody, "HorizontalPager(")
+		assertContains(settingsDialogBody, "pagerState.animateScrollToPage(index)")
+		assertContains(settingsDialogBody, "selectedTab = pagerState.currentPage")
+		assertContains(settingsDialogBody, "when (tabs[page])")
+		assertFalse(
+			settingsDialogBody.contains("var selectedTab by remember"),
+			"Komikku settings tabs should be backed by pager state, not local selectedTab state."
+		)
+		assertFalse(
+			settingsDialogBody.contains("when (tabs[selectedTab])"),
+			"Komikku settings content should be paged horizontally instead of swapped by a raw when block."
 		)
 	}
 

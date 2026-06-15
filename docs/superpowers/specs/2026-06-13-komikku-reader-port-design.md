@@ -3857,3 +3857,50 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-15 Overnight Komikku Settings Pager Slice
+
+User direction:
+
+- Keep moving the reader shell toward real Komikku structure, not surface-level styling.
+- Avoid publishing another release candidate for source-only UI backbone work.
+
+Investigation note:
+
+- The current branch already routes `chapterPageIndex` and `chapterPageCount` from `navic-reader.js` through `ReaderLocator` into `ReaderChapterProgressState`.
+- `KomikkuReaderAppBars(...)` feeds the side rail from `controllerState.chapterProgress`, not directly from whole-book `chrome.pageCount`.
+- This means the current source is already materially different from the eta64 complaint that the rail was whole-book-only; phone validation still has to prove the installed APK reflects this source.
+
+Root cause:
+
+- The settings dialog header had been moved to a compact `PrimaryTabRow`, but the content still used local mutable `selectedTab` state and a raw `when (tabs[selectedTab])` content swap.
+- Komikku's `TabbedDialog` uses pager state and `HorizontalPager` for tabbed content, so the remaining Navic dialog still had a shortcut architecture.
+
+Navic implication:
+
+- `KomikkuReaderSettingsDialog(...)` now owns a `rememberPagerState(...)` whose initial page maps to the caller's requested tab.
+- `KomikkuSettingsTabRow(...)` selects `pagerState.currentPage`.
+- Selecting a tab calls `pagerState.animateScrollToPage(index)`.
+- Settings content is rendered inside `HorizontalPager(...)` with `when (tabs[page])`.
+- The existing Reading, General, PDF/Image, and Custom filter rows were preserved; this slice changes the tab/content ownership model, not the settings catalog.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent"
+```
+
+Result: failed before production changes because the dialog had no `rememberPagerState(...)`, no `HorizontalPager(...)`, still used `var selectedTab by remember`, and swapped content through `when (tabs[selectedTab])`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.

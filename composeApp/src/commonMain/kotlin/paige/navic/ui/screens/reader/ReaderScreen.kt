@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -1038,7 +1041,11 @@ private fun KomikkuReaderSettingsDialog(
 ) {
 	// Ported from Komikku ReaderSettingsDialog: tabbed overlay above content, never a docked panel.
 	val tabs = komikkuSettingsTabs(publicationFormat)
-	var selectedTab by remember(initialTab) { mutableStateOf(initialTab.coerceIn(tabs.indices)) }
+	val pagerState = rememberPagerState(
+		initialPage = initialTab.coerceIn(tabs.indices),
+		pageCount = { tabs.size }
+	)
+	val scope = rememberCoroutineScope()
 	val chromeState = ReaderChromeState(settings = settings)
 
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
@@ -1054,10 +1061,17 @@ private fun KomikkuReaderSettingsDialog(
 			) {
 				KomikkuSettingsTabRow(
 					tabs = tabs,
-					selectedTab = selectedTab,
-					onSelectTab = { index -> selectedTab = index }
+					selectedTab = pagerState.currentPage,
+					onSelectTab = { index ->
+						scope.launch { pagerState.animateScrollToPage(index) }
+					}
 				)
-				when (tabs[selectedTab]) {
+				HorizontalPager(
+					modifier = Modifier.animateContentSize(),
+					state = pagerState,
+					verticalAlignment = Alignment.Top
+				) { page ->
+				when (tabs[page]) {
 					KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
 						title = "For this book"
 					) {
@@ -1272,6 +1286,7 @@ private fun KomikkuReaderSettingsDialog(
 							}
 						)
 					}
+				}
 				}
 				TextButton(
 					onClick = onDismissRequest,
