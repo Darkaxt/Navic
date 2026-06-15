@@ -3858,6 +3858,40 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Local Harness Re-Run After Bottom Bar Slice
+
+Purpose:
+
+- Establish a laptop-side baseline before the morning release-candidate build.
+- Validate the source/runtime paths that do not require ADB: shell cover sequencing, external shell cover bypass, native tap-zone open state, link-jump drag recovery, page-boundary numbering, and texture movement harnesses.
+- Keep the result separate from device validation. Passing these harnesses does not prove Android WebView/native touch behavior is correct.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs epub-link-jump-drag --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-shell-cover --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-external-shell-cover --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-native-tap-zone-open --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-page-boundary --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-texture-page-turns --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs epub-texture-scroll --fixture tmp\reader-live\served-input.epub
+```
+
+Results: passed on 2026-06-15.
+
+Morning ADB matrix still required:
+
+- Cover taps and drags over the native shell cover.
+- Center tap menu toggle on cover, text pages, image pages, and after link/chapter jumps.
+- Image/link interactions must not open menus on short tap.
+- Texture movement must be checked on the phone because the browser harness did not reproduce the reported inversion.
+- PDF navigation and centering still need device validation.
+
+Release status:
+
+- No APK was built or published for this baseline run.
+
 ## 2026-06-15 Overnight Bottom Bar Width Correction
 
 User direction:
