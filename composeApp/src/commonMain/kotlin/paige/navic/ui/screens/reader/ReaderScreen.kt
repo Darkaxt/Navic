@@ -304,6 +304,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerColorFilterEnabled,
 		preferenceManager.readerColorFilterArgb,
 		preferenceManager.readerColorFilterMode,
+		preferenceManager.readerGrayscaleEnabled,
+		preferenceManager.readerInvertedColors,
 		preferenceManager.readerOrientation,
 		preferenceManager.readerTheme,
 		preferenceManager.readerDirection,
@@ -573,6 +575,8 @@ private fun KomikkuReaderRoot(
 		shellCoverUrl = shellCoverUrl,
 		shellCoverTitle = shellCoverTitle,
 		viewerKey = viewer.key,
+		grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
+		invertedColors = controllerState.chrome.settings.invertedColors == true,
 		onViewerAction = { action ->
 			onViewerAction(viewer.viewerActionFor(action))
 		},
@@ -1390,6 +1394,20 @@ private fun KomikkuReaderSettingsDialog(
 											}
 										)
 									}
+									KomikkuSettingsSwitchRow(
+										title = "Grayscale",
+										checked = settings.grayscaleEnabled == true,
+										onCheckedChange = { grayscaleEnabled ->
+											onSettingsChange(settings.copy(grayscaleEnabled = grayscaleEnabled))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Inverted colors",
+										checked = settings.invertedColors == true,
+										onCheckedChange = { invertedColors ->
+											onSettingsChange(settings.copy(invertedColors = invertedColors))
+										}
+									)
 									KomikkuSettingsSwitchRow(
 										title = "Publisher styles",
 										checked = settings.publisherStyles == true,

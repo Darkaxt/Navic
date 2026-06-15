@@ -23,6 +23,8 @@ class ReaderSettingsDefaultsTest {
 				colorFilterEnabled = false,
 				colorFilterArgb = 0,
 				colorFilterMode = ReaderColorFilterModeSrcOver,
+				grayscaleEnabled = false,
+				invertedColors = false,
 				orientation = ReaderOrientationDefault,
 				theme = "light",
 				direction = ReaderDirectionDefault,
@@ -79,6 +81,8 @@ class ReaderSettingsDefaultsTest {
 				colorFilterEnabled = false,
 				colorFilterArgb = 0,
 				colorFilterMode = ReaderColorFilterModeSrcOver,
+				grayscaleEnabled = true,
+				invertedColors = true,
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
@@ -104,6 +108,8 @@ class ReaderSettingsDefaultsTest {
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
 				dimOverlayPercent = 30,
+				grayscaleEnabled = true,
+				invertedColors = true,
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
@@ -401,6 +407,8 @@ class ReaderSettingsDefaultsTest {
 		assertEquals(false, defaultReaderSettings().colorFilterEnabled)
 		assertEquals(0, defaultReaderSettings().colorFilterArgb)
 		assertEquals(ReaderColorFilterModeSrcOver, defaultReaderSettings().colorFilterMode)
+		assertEquals(false, defaultReaderSettings().grayscaleEnabled)
+		assertEquals(false, defaultReaderSettings().invertedColors)
 		assertEquals(
 			listOf(
 				ReaderColorFilterModeSrcOver,
@@ -422,12 +430,16 @@ class ReaderSettingsDefaultsTest {
 			paged = true,
 			colorFilterEnabled = true,
 			colorFilterArgb = 0x66336699,
-			colorFilterMode = ReaderColorFilterModeMultiply
+			colorFilterMode = ReaderColorFilterModeMultiply,
+			grayscaleEnabled = true,
+			invertedColors = true
 		)
 
 		assertEquals(true, settings.colorFilterEnabled)
 		assertEquals(0x66336699, settings.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeMultiply, settings.colorFilterMode)
+		assertEquals(true, settings.grayscaleEnabled)
+		assertEquals(true, settings.invertedColors)
 		assertEquals(ReaderColorFilterModeSrcOver, normalizedReaderColorFilterMode("missing"))
 	}
 

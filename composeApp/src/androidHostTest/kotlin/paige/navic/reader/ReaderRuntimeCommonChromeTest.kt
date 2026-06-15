@@ -70,6 +70,8 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderCustomFilterPortsKomikkuColorFilterControls() {
 		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -81,6 +83,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "readerColorFilterColor(controllerState.chrome.settings)")
 		assertContains(readerScreenText, "readerColorFilterBlendMode(controllerState.chrome.settings.colorFilterMode)")
 		assertContains(readerScreenText, "Color filter")
+		assertContains(readerScreenText, "Grayscale")
+		assertContains(readerScreenText, "Inverted colors")
 		assertContains(readerScreenText, "ReaderSupportedColorFilterModes")
 		assertContains(readerScreenText, "Red")
 		assertContains(readerScreenText, "Green")
@@ -90,9 +94,19 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(preferencesText, "readerColorFilterEnabled")
 		assertContains(preferencesText, "readerColorFilterArgb")
 		assertContains(preferencesText, "readerColorFilterMode")
+		assertContains(preferencesText, "readerGrayscaleEnabled")
+		assertContains(preferencesText, "readerInvertedColors")
 		assertContains(bridgeText, "colorFilterEnabled")
 		assertContains(bridgeText, "colorFilterArgb")
 		assertContains(bridgeText, "colorFilterMode")
+		assertContains(bridgeText, "grayscaleEnabled")
+		assertContains(bridgeText, "invertedColors")
+		assertContains(ebooksSettingsText, "option_ebook_reader_grayscale")
+		assertContains(ebooksSettingsText, "readerGrayscaleEnabled")
+		assertContains(ebooksSettingsText, "option_ebook_reader_inverted_colors")
+		assertContains(ebooksSettingsText, "readerInvertedColors")
+		assertContains(searchSettingsText, "ebooks.grayscale")
+		assertContains(searchSettingsText, "ebooks.inverted-colors")
 	}
 
 	@Test
@@ -151,6 +165,11 @@ class ReaderRuntimeCommonChromeTest {
 			"readerParagraphSpacingPercent",
 			"readerMarginPercent",
 			"readerDimOverlayPercent",
+			"readerColorFilterEnabled",
+			"readerColorFilterArgb",
+			"readerColorFilterMode",
+			"readerGrayscaleEnabled",
+			"readerInvertedColors",
 			"readerOrientation",
 			"readerTheme",
 			"readerDirection",

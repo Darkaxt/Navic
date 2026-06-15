@@ -46,6 +46,8 @@ import navic.composeapp.generated.resources.option_ebook_reader_direction_ltr
 import navic.composeapp.generated.resources.option_ebook_reader_direction_rtl
 import navic.composeapp.generated.resources.option_ebook_reader_flow
 import navic.composeapp.generated.resources.option_ebook_reader_fullscreen
+import navic.composeapp.generated.resources.option_ebook_reader_grayscale
+import navic.composeapp.generated.resources.option_ebook_reader_inverted_colors
 import navic.composeapp.generated.resources.option_ebook_reader_line_height
 import navic.composeapp.generated.resources.option_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.option_ebook_reader_margin
@@ -98,6 +100,8 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_font_size
 import navic.composeapp.generated.resources.subtitle_ebook_reader_dim_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_direction
 import navic.composeapp.generated.resources.subtitle_ebook_reader_fullscreen
+import navic.composeapp.generated.resources.subtitle_ebook_reader_grayscale
+import navic.composeapp.generated.resources.subtitle_ebook_reader_inverted_colors
 import navic.composeapp.generated.resources.subtitle_ebook_reader_line_height
 import navic.composeapp.generated.resources.subtitle_ebook_reader_keep_screen_on
 import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
@@ -320,6 +324,18 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_dim_overlay),
 						selection = settings.dimOverlayPercent ?: 0,
 						onSelect = { percent -> preferenceManager.readerDimOverlayPercent = percent }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_grayscale)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_grayscale)) },
+						value = preferenceManager.readerGrayscaleEnabled,
+						onSetValue = { enabled -> preferenceManager.readerGrayscaleEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_inverted_colors)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_inverted_colors)) },
+						value = preferenceManager.readerInvertedColors,
+						onSetValue = { enabled -> preferenceManager.readerInvertedColors = enabled }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_theme)) },

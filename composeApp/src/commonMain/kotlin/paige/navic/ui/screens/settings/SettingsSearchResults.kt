@@ -804,6 +804,24 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			selection = readerSettings.dimOverlayPercent ?: 0,
 			onSelect = { percent -> preferenceManager.readerDimOverlayPercent = percent }
 		))
+		add(switchRow(
+			id = "ebooks.grayscale",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_grayscale),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_grayscale),
+			keywords = listOf("reader", "ebook", "EPUB", "PDF", "grayscale", "monochrome", "Komikku"),
+			value = preferenceManager.readerGrayscaleEnabled,
+			onSetValue = { enabled -> preferenceManager.readerGrayscaleEnabled = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.inverted-colors",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_inverted_colors),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_inverted_colors),
+			keywords = listOf("reader", "ebook", "EPUB", "PDF", "invert", "negative", "Komikku"),
+			value = preferenceManager.readerInvertedColors,
+			onSetValue = { enabled -> preferenceManager.readerInvertedColors = enabled }
+		))
 		add(selectionRow(
 			id = "ebooks.theme",
 			path = path(ebooks),

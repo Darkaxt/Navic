@@ -190,23 +190,31 @@ class ReaderPreferenceSettingsTest {
 		preferences.readerColorFilterEnabled = true
 		preferences.readerColorFilterArgb = 0x66336699
 		preferences.readerColorFilterMode = ReaderColorFilterModeMultiply
+		preferences.readerGrayscaleEnabled = true
+		preferences.readerInvertedColors = true
 
 		val defaults = preferences.readerDefaultSettings()
 		assertEquals(true, defaults.colorFilterEnabled)
 		assertEquals(0x66336699, defaults.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeMultiply, defaults.colorFilterMode)
+		assertEquals(true, defaults.grayscaleEnabled)
+		assertEquals(true, defaults.invertedColors)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(
 				colorFilterEnabled = false,
 				colorFilterArgb = 0x55221100,
-				colorFilterMode = ReaderColorFilterModeScreen
+				colorFilterMode = ReaderColorFilterModeScreen,
+				grayscaleEnabled = false,
+				invertedColors = false
 			)
 		)
 
 		assertEquals(false, preferences.readerColorFilterEnabled)
 		assertEquals(0x55221100, preferences.readerColorFilterArgb)
 		assertEquals(ReaderColorFilterModeScreen, preferences.readerColorFilterMode)
+		assertEquals(false, preferences.readerGrayscaleEnabled)
+		assertEquals(false, preferences.readerInvertedColors)
 	}
 
 	@Test
@@ -315,7 +323,9 @@ class ReaderPreferenceSettingsTest {
 				direction = ReaderDirectionRtl,
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x44225588,
-				colorFilterMode = ReaderColorFilterModeOverlay
+				colorFilterMode = ReaderColorFilterModeOverlay,
+				grayscaleEnabled = true,
+				invertedColors = true
 			)
 		)
 
@@ -326,6 +336,8 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(true, bookSettings.colorFilterEnabled)
 		assertEquals(0x44225588, bookSettings.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)
+		assertEquals(true, bookSettings.grayscaleEnabled)
+		assertEquals(true, bookSettings.invertedColors)
 		assertEquals(ReaderDarkTheme, preferences.readerDefaultSettings().theme)
 		assertEquals(100, preferences.readerDefaultSettings().fontSizePercent)
 	}

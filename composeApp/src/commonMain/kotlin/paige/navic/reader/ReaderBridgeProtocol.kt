@@ -67,6 +67,8 @@ data class ReaderSettings(
 	val colorFilterEnabled: Boolean? = null,
 	val colorFilterArgb: Int? = null,
 	val colorFilterMode: String? = null,
+	val grayscaleEnabled: Boolean? = null,
+	val invertedColors: Boolean? = null,
 	val orientation: String? = null,
 	val theme: String? = null,
 	val direction: String? = null,
@@ -465,6 +467,8 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		colorFilterEnabled?.let { put("colorFilterEnabled", it) }
 		colorFilterArgb?.let { put("colorFilterArgb", it) }
 		colorFilterMode?.let { put("colorFilterMode", it) }
+		grayscaleEnabled?.let { put("grayscaleEnabled", it) }
+		invertedColors?.let { put("invertedColors", it) }
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }

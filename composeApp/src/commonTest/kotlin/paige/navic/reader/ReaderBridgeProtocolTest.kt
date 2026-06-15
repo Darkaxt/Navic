@@ -27,6 +27,8 @@ class ReaderBridgeProtocolTest {
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x66336699,
 				colorFilterMode = ReaderColorFilterModeMultiply,
+				grayscaleEnabled = true,
+				invertedColors = true,
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderDuskTheme,
 				direction = ReaderDirectionRtl,
@@ -61,6 +63,8 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"colorFilterEnabled\":true")
 		assertContains(script, "\"colorFilterArgb\":1714644633")
 		assertContains(script, "\"colorFilterMode\":\"multiply\"")
+		assertContains(script, "\"grayscaleEnabled\":true")
+		assertContains(script, "\"invertedColors\":true")
 		assertContains(script, "\"orientation\":\"locked-landscape\"")
 		assertContains(script, "\"theme\":\"dusk\"")
 		assertContains(script, "\"direction\":\"rtl\"")

@@ -21,6 +21,8 @@ expect fun KomikkuReaderNativeFrameHost(
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
 	viewerKey: ReaderViewerKey,
+	grayscaleEnabled: Boolean,
+	invertedColors: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier = Modifier,

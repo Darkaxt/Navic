@@ -3858,6 +3858,56 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Komikku Native Viewer Layer Filters Slice
+
+User direction:
+
+- Continue source-level Komikku backbone work overnight.
+- Do not publish another APK/release candidate until the morning phone validation gate.
+- Recycle proven Komikku behavior instead of approximating it through visual overlays.
+
+Komikku source references:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt`
+
+Root cause:
+
+- The previous Navic custom-filter port deliberately skipped grayscale and inverted-colors because Komikku does not implement those as page CSS or as a fake UI tint.
+- Komikku applies grayscale and inverted colors with a `ColorMatrixColorFilter` on the native `viewerContainer` hardware layer.
+- If Navic implemented those toggles as a Compose overlay, it would again be a lookalike instead of the actual reader/viewer ownership model.
+
+Navic implication:
+
+- `ReaderSettings` now carries `grayscaleEnabled` and `invertedColors`.
+- Global preferences, per-book override persistence, and bridge serialization include both fields.
+- The in-reader Custom filter tab exposes `Grayscale` and `Inverted colors` switches next to the existing color filter controls.
+- Settings > Ebooks exposes app-level defaults for both switches and both are searchable.
+- Android `KomikkuReaderNativeFrameHost` passes those fields to the native frame root.
+- `KomikkuReaderNativeFrameRoot` applies the combined `ColorMatrixColorFilter` to the viewer container layer, matching Komikku's native layer-paint approach.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameAppliesViewerLayerColorMatrixLikeKomikku" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuColorFilterModel" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripKomikkuColorFilter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Result: failed before production changes because `grayscaleEnabled`, `invertedColors`, `readerGrayscaleEnabled`, `readerInvertedColors`, native layer-paint support, Ebooks rows, and settings-search entries did not exist.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderDefaultSettingsRememberKeyTracksReaderPreferenceInputs" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameAppliesViewerLayerColorMatrixLikeKomikku" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuColorFilterModel" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripKomikkuColorFilter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Komikku Reusable Tabbed Dialog Primitive Slice
 
 User direction:

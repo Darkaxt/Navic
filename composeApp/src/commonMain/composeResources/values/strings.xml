@@ -221,6 +221,8 @@
 	<string name="subtitle_ebook_reader_paragraph_spacing">Extra space after EPUB paragraphs.</string>
 	<string name="subtitle_ebook_reader_margin">Default horizontal reader margin.</string>
 	<string name="subtitle_ebook_reader_dim_overlay">Darken the reader surface without changing the book theme.</string>
+	<string name="subtitle_ebook_reader_grayscale">Render the reader surface through Komikku's grayscale viewer-layer filter.</string>
+	<string name="subtitle_ebook_reader_inverted_colors">Invert reader colors through the native viewer-layer filter.</string>
 	<string name="subtitle_ebook_reader_theme">Default light or dark reader colors.</string>
 	<string name="subtitle_ebook_reader_orientation">Control rotation while the reader is open.</string>
 	<string name="subtitle_ebook_reader_fullscreen">Hide Android system bars while reading; swipe from the edge to reveal them.</string>
@@ -556,6 +558,8 @@
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>
 	<string name="option_ebook_reader_margin">Margins</string>
 	<string name="option_ebook_reader_dim_overlay">Dim overlay</string>
+	<string name="option_ebook_reader_grayscale">Grayscale</string>
+	<string name="option_ebook_reader_inverted_colors">Inverted colors</string>
 	<string name="option_ebook_reader_theme">Reader theme</string>
 	<string name="option_ebook_reader_orientation">Orientation</string>
 	<string name="option_ebook_reader_fullscreen">Fullscreen reader</string>

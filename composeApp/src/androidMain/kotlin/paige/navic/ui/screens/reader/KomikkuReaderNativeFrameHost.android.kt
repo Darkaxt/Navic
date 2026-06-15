@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
@@ -46,6 +48,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
 	viewerKey: ReaderViewerKey,
+	grayscaleEnabled: Boolean,
+	invertedColors: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
@@ -64,6 +68,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setViewerContent(viewerKey) { currentViewerContent() }
 				setComposeOverlay { currentComposeOverlay() }
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
+				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
 				setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 			}
@@ -72,6 +77,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setNavigation(navigator)
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
 			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
+			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -135,6 +141,15 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String) {
 		shellCoverView.setShellCover(coverUrl = coverUrl, title = title)
 		shellCoverView.visibility = if (visible) VISIBLE else GONE
+	}
+
+	fun setViewerLayerPaint(grayscaleEnabled: Boolean, invertedColors: Boolean) {
+		val paint = if (grayscaleEnabled || invertedColors) {
+			getCombinedReaderLayerPaint(grayscale = grayscaleEnabled, invertedColors = invertedColors)
+		} else {
+			null
+		}
+		viewerContainer.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
 	}
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
@@ -215,6 +230,29 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		canvas.drawBitmap(currentBitmap, null, destination, imagePaint)
 	}
 }
+
+private fun getCombinedReaderLayerPaint(grayscale: Boolean, invertedColors: Boolean): Paint =
+	Paint().apply {
+		colorFilter = ColorMatrixColorFilter(
+			ColorMatrix().apply {
+				if (grayscale) {
+					setSaturation(0f)
+				}
+				if (invertedColors) {
+					postConcat(
+						ColorMatrix(
+							floatArrayOf(
+								-1f, 0f, 0f, 0f, 255f,
+								0f, -1f, 0f, 0f, 255f,
+								0f, 0f, -1f, 0f, 255f,
+								0f, 0f, 0f, 1f, 0f
+							)
+						)
+					)
+				}
+			}
+		)
+	}
 
 private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 	val expectedPrefix = "${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix"

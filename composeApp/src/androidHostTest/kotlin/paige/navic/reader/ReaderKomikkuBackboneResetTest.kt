@@ -428,6 +428,43 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun nativeKomikkuFrameAppliesViewerLayerColorMatrixLikeKomikku() {
+		val activeReaderScreen = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val platformHosts = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		).readText()
+		val androidHost = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val komikkuReaderActivity = root.resolve(
+			"tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt"
+		).readText()
+
+		assertTrue(komikkuReaderActivity.contains("ColorMatrixColorFilter"))
+		assertTrue(komikkuReaderActivity.contains("setSaturation(0f)"))
+		assertTrue(komikkuReaderActivity.contains("postConcat("))
+		assertTrue(komikkuReaderActivity.contains("binding.viewerContainer.setLayerType(LAYER_TYPE_HARDWARE, paint)"))
+
+		assertTrue(activeReaderScreen.contains("grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true"))
+		assertTrue(activeReaderScreen.contains("invertedColors = controllerState.chrome.settings.invertedColors == true"))
+		assertTrue(platformHosts.contains("grayscaleEnabled: Boolean"))
+		assertTrue(platformHosts.contains("invertedColors: Boolean"))
+		assertTrue(androidHost.contains("import android.graphics.ColorMatrix"))
+		assertTrue(androidHost.contains("import android.graphics.ColorMatrixColorFilter"))
+		assertTrue(androidHost.contains("private fun getCombinedReaderLayerPaint("))
+		assertTrue(androidHost.contains("setSaturation(0f)"))
+		assertTrue(androidHost.contains("postConcat("))
+		assertTrue(androidHost.contains("ColorMatrixColorFilter"))
+		assertTrue(androidHost.contains("viewerContainer.setLayerType(View.LAYER_TYPE_HARDWARE, paint)"))
+		assertFalse(
+			activeReaderScreen.contains("drawRect(Color.White") && activeReaderScreen.contains("grayscaleEnabled"),
+			"Grayscale/invert must be a native viewer-container layer paint like Komikku, not another Compose tint overlay."
+		)
+	}
+
+	@Test
 	fun nativeKomikkuFrameDispatchesHorizontalSwipesThroughViewerActionBoundary() {
 		val androidHost = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"

@@ -258,6 +258,8 @@ class PreferenceManager(
 	var readerColorFilterEnabled by preference(false)
 	var readerColorFilterArgb by preference(0)
 	var readerColorFilterMode by preference("src-over")
+	var readerGrayscaleEnabled by preference(false)
+	var readerInvertedColors by preference(false)
 	var readerOrientation by preference("default")
 	var readerTheme by preference("light")
 	var readerDirection by preference("default")
