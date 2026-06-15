@@ -2895,3 +2895,67 @@ Release status:
 
 - No release APK was built or published for this source slice.
 - Morning adb artifacts should include `reader-touch-diagnostics.log` and `reader-diagnostics-summary.txt` so the user can see whether failures are native-frame input, WebView content, or controller dispatch failures.
+
+## 2026-06-15 Morning ADB Matrix Preparation
+
+User direction:
+
+- After compiling the next release candidate, validation should be repeatable and visible rather than ad hoc.
+- The matrix must preserve the already-open reader state between checks; relaunching into the library invalidates reader interaction tests.
+
+Navic implication:
+
+- Added `scripts/adb-reader-komikku-matrix.ps1`, a wrapper around `scripts/adb-reader-smoke.ps1`.
+- The matrix captures named artifact folders under `captures/reader-komikku-matrix/<timestamp>` unless an `-ArtifactRoot` is provided.
+- The default matrix includes:
+  - `baseline-current-reader`
+  - `center-tap-toggle`
+  - `edge-tap-next`
+  - `edge-tap-previous`
+  - `drag-next`
+  - `drag-previous`
+- Optional `-IncludeCoverChecks` adds `cover-drag-next` with shell-cover swipe and command validation.
+- `scripts/adb-reader-smoke.ps1` now supports `-RequireNativeSwipeAction`, which fails if a drag never reaches `Reader native swipe action=...`.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: failed before the script existed.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+PowerShell parser check:
+
+```powershell
+$files = @('scripts\adb-reader-smoke.ps1','scripts\adb-reader-komikku-matrix.ps1')
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [System.Management.Automation.Language.Parser]::ParseFile($file, [ref] $tokens, [ref] $errors) | Out-Null
+  if ($errors.Count -gt 0) { throw $errors[0].Message }
+}
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this script slice.
+- Morning use after installing/opening the release candidate:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch
+```
+
+- If the reader is positioned on the native cover and cover checks are desired:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -IncludeCoverChecks
+```

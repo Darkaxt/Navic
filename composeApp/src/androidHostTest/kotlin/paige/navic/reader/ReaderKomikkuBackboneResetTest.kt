@@ -591,6 +591,36 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun adbKomikkuReaderMatrixRunsNamedNativeFrameChecks() {
+		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1")
+
+		assertTrue(matrixScript.exists(), "Morning adb validation must have a repeatable Komikku reader matrix script.")
+		val matrixText = matrixScript.readText()
+		assertTrue(matrixText.contains("adb-reader-smoke.ps1"))
+		assertTrue(matrixText.contains("[string] \$Package"))
+		assertTrue(matrixText.contains("[string] \$ApkPath"))
+		assertTrue(matrixText.contains("[string] \$ExpectedVersionName"))
+		assertTrue(matrixText.contains("[string] \$ArtifactRoot"))
+		assertTrue(matrixText.contains("baseline-current-reader"))
+		assertTrue(matrixText.contains("center-tap-toggle"))
+		assertTrue(matrixText.contains("edge-tap-next"))
+		assertTrue(matrixText.contains("edge-tap-previous"))
+		assertTrue(matrixText.contains("drag-next"))
+		assertTrue(matrixText.contains("drag-previous"))
+		assertTrue(matrixText.contains("cover-drag-next"))
+		assertTrue(matrixText.contains("-CaptureReaderDiagnostics"))
+		assertTrue(matrixText.contains("-ValidateReaderTaps"))
+		assertTrue(matrixText.contains("-RequireReaderTapAction"))
+		assertTrue(matrixText.contains("-RequireShellCoverSwipe"))
+		assertTrue(matrixText.contains("-RequireShellCoverCommand"))
+		assertTrue(matrixText.contains("-RequireTextureDiagnostics"))
+		assertTrue(
+			matrixText.contains("-NoLaunch"),
+			"After the first launch/install step, matrix steps must keep the same open reader state instead of relaunching into the library."
+		)
+	}
+
+	@Test
 	fun commonControllerCoordinatorAndChromeDoNotExposeRawFoliateBridgeCommands() {
 		val controllerText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt"

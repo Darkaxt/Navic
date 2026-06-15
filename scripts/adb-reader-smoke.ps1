@@ -16,6 +16,7 @@ param(
     [switch] $RequireShellCoverSwipe,
     [switch] $RequireShellCoverDragDiagnostic,
     [switch] $RequireShellCoverCommand,
+    [switch] $RequireNativeSwipeAction,
     [switch] $RequireContentTapHandled,
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
@@ -292,6 +293,9 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequireShellCoverCommand -and -not ($touchDiagnosticsText -match 'Reader shell cover command')) {
         throw "Reader diagnostics validation failed: no shell-cover command was captured. See $ArtifactDir"
+    }
+    if ($RequireNativeSwipeAction -and -not ($touchDiagnosticsText -match 'Reader native swipe action=')) {
+        throw "Reader diagnostics validation failed: no native reader swipe action was captured. See $ArtifactDir"
     }
     if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"
