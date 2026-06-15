@@ -457,6 +457,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onSettings = {
 			applyCoordinatorStep(coordinator.openSettingsDialog())
 		},
+		onShowMenus = {
+			applyCoordinatorStep(coordinator.showMenus())
+		},
+		onHideMenus = {
+			applyCoordinatorStep(coordinator.hideMenus())
+		},
 		onNavigateToTocItem = { tocItem ->
 			tocItem.href?.let { href ->
 				val navigateStep = coordinator.navigateTo(ReaderLocator(href = href))
@@ -528,6 +534,8 @@ private fun KomikkuReaderRoot(
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
+	onShowMenus: () -> Unit,
+	onHideMenus: () -> Unit,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
@@ -586,6 +594,8 @@ private fun KomikkuReaderRoot(
 				onReadingMode = onReadingMode,
 				onNavigateBack = onNavigateBack,
 				onSettings = onSettings,
+				onShowMenus = onShowMenus,
+				onHideMenus = onHideMenus,
 				settingsScope = settingsScope,
 				hasBookSettings = hasBookSettings,
 				publicationFormat = publicationFormat,
@@ -621,6 +631,8 @@ private fun KomikkuComposeOverlay(
 	onReadingMode: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
+	onShowMenus: () -> Unit,
+	onHideMenus: () -> Unit,
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
@@ -668,6 +680,8 @@ private fun KomikkuComposeOverlay(
 				onSettingsChange = onSettingsChange,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
+				onShowMenus = onShowMenus,
+				onHideMenus = onHideMenus,
 				onDismissRequest = onDismissDialog
 			)
 			ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(
@@ -679,6 +693,8 @@ private fun KomikkuComposeOverlay(
 				onSettingsChange = onSettingsChange,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
+				onShowMenus = onShowMenus,
+				onHideMenus = onHideMenus,
 				onDismissRequest = onDismissDialog
 			)
 			null -> Unit
@@ -1046,6 +1062,8 @@ private fun KomikkuReaderSettingsDialog(
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
+	onShowMenus: () -> Unit,
+	onHideMenus: () -> Unit,
 	onDismissRequest: () -> Unit
 ) {
 	// Ported from Komikku ReaderSettingsDialog: tabbed overlay above content, never a docked panel.
@@ -1056,6 +1074,14 @@ private fun KomikkuReaderSettingsDialog(
 	)
 	val scope = rememberCoroutineScope()
 	val chromeState = ReaderChromeState(settings = settings)
+
+	LaunchedEffect(pagerState.currentPage) {
+		if (tabs[pagerState.currentPage] == KomikkuSettingsTab.CustomFilter) {
+			onHideMenus()
+		} else {
+			onShowMenus()
+		}
+	}
 
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
 		BoxWithConstraints {

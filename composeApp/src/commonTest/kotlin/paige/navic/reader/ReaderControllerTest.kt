@@ -344,6 +344,21 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun settingsDialogCanHideReaderChromeForKomikkuCustomFilterWithoutClosingDialog() {
+		val settings = ReaderController().openSettingsDialog().controller
+
+		val hidden = settings.hideMenus()
+		val shown = hidden.controller.showMenus()
+
+		assertEquals(ReaderControllerDialog.Settings, hidden.controller.state.dialog)
+		assertFalse(hidden.controller.state.menuVisible)
+		assertEquals(emptyList(), hidden.engineCommands)
+		assertEquals(ReaderControllerDialog.Settings, shown.controller.state.dialog)
+		assertTrue(shown.controller.state.menuVisible)
+		assertEquals(emptyList(), shown.engineCommands)
+	}
+
+	@Test
 	fun searchIsControllerOwnedAndForwardedAsEngineCapability() {
 		val controller = ReaderController()
 

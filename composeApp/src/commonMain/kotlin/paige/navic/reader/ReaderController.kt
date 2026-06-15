@@ -381,6 +381,12 @@ data class ReaderController(
 			)
 		)
 
+	fun showMenus(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(menuVisible = true)))
+
+	fun hideMenus(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(menuVisible = false)))
+
 	fun closeDialog(): ReaderControllerStep =
 		ReaderControllerStep(
 			copy(

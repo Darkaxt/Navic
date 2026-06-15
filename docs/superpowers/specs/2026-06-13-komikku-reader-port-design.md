@@ -3858,6 +3858,52 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Komikku Custom Filter Menu Visibility Slice
+
+User direction:
+
+- Continue implementing the Komikku reader backbone without publishing a release while ADB is unavailable.
+- Prefer source-level Komikku behavior over another visual knock-off.
+
+Komikku source reference:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`
+- The relevant source behavior is the settings dialog `LaunchedEffect(pagerState.currentPage)`: Custom filter hides menus and removes dialog dimming; other tabs show menus again.
+
+Root cause:
+
+- Navic's settings dialog was already tabbed and bounded, but selecting the Custom filter tab did not alter reader chrome visibility.
+- That made the filter/customization surface behave like a generic Navic dialog rather than Komikku's reader settings overlay, where the page/filter preview is the focus and top/bottom reader bars are hidden.
+
+Navic implication:
+
+- `ReaderController` now exposes `showMenus()` and `hideMenus()` as controller-owned state transitions. They do not close the active dialog and do not emit engine commands.
+- `ReaderCoordinator` forwards those menu visibility transitions through the same controller boundary as the rest of the reader shell.
+- `KomikkuReaderSettingsDialog(...)` accepts `onShowMenus` and `onHideMenus`.
+- A `LaunchedEffect(pagerState.currentPage)` hides menus when the current tab is `KomikkuSettingsTab.CustomFilter` and shows menus on the other settings tabs.
+- `ReaderScreen` wires the dialog callbacks to `coordinator.showMenus()` and `coordinator.hideMenus()`.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.settingsDialogCanHideReaderChromeForKomikkuCustomFilterWithoutClosingDialog" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku"
+```
+
+Result: failed before production changes because `hideMenus()` did not exist and the settings dialog had no `onShowMenus`/`onHideMenus` tab effect.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.settingsDialogCanHideReaderChromeForKomikkuCustomFilterWithoutClosingDialog" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice because ADB currently has no connected device.
+
 ## 2026-06-15 Overnight Native Compose Overlay Passive Guardrail
 
 User direction:

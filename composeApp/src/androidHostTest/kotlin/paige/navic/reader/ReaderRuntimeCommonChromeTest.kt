@@ -379,6 +379,24 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+
+		assertContains(settingsDialogBody, "onShowMenus: () -> Unit")
+		assertContains(settingsDialogBody, "onHideMenus: () -> Unit")
+		assertContains(settingsDialogBody, "LaunchedEffect(pagerState.currentPage)")
+		assertContains(settingsDialogBody, "tabs[pagerState.currentPage] == KomikkuSettingsTab.CustomFilter")
+		assertContains(settingsDialogBody, "onHideMenus()")
+		assertContains(settingsDialogBody, "onShowMenus()")
+		assertContains(readerScreenText, "onShowMenus = {")
+		assertContains(readerScreenText, "coordinator.showMenus()")
+		assertContains(readerScreenText, "onHideMenus = {")
+		assertContains(readerScreenText, "coordinator.hideMenus()")
+	}
+
+	@Test
 	fun commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
