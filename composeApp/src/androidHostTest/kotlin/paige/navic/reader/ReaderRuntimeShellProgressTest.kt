@@ -44,6 +44,23 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun embeddedCoverSuppressionPostsInitialVisibleLocationBeforeFirstPageTurn() {
+		val bridgeText = readerBridgeText()
+		val suppressionBody = bridgeText
+			.substringAfter("suppressLoadedEmbeddedCoverPage(doc, index) {")
+			.substringBefore("\n  attachContentDocumentBehaviors")
+
+		assertContains(suppressionBody, "cover:embedded-page-suppressed")
+		assertContains(suppressionBody, "this.view.renderer?.render?.()")
+		assertContains(suppressionBody, "this.scheduleReaderPageNumberRefresh('embedded-cover-suppressed')")
+		assertContains(
+			suppressionBody,
+			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'embedded-cover-suppressed')",
+			message = "After suppressing an embedded cover, the reader must post the first visible page location before the next page command can cancel the pending initial relocation."
+		)
+	}
+
+	@Test
 	fun androidReaderBridgeExposesViewportScrollCommandSeparateFromPageTurns() {
 		val bridgeText = readerBridgeText()
 

@@ -2832,6 +2832,7 @@ class NavicReaderRuntime {
         this.view.renderer?.render?.()
         this.applyReaderViewportLayout('embedded-cover-suppressed')
         this.scheduleReaderPageNumberRefresh('embedded-cover-suppressed')
+        this.scheduleCommittedRelocation(this.lastRelocateDetail, 'embedded-cover-suppressed')
       })
     }
     return true

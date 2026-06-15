@@ -3858,6 +3858,49 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Embedded Cover Initial Location Slice
+
+User direction:
+
+- Keep working locally overnight and save meaningful source progress for the morning RC/ADB gate.
+- Do not publish another APK for isolated changes.
+
+Root cause:
+
+- The browser/Foliate phase-1 harness failed in `epub-frontmatter` because the first posted visible WebView location was `pageIndex=1`.
+- The underlying sequence was that `suppressLoadedEmbeddedCoverPage(...)` hid the embedded cover and re-rendered, but only refreshed the organic page number. It did not schedule a committed `locationChanged` for the first visible page.
+- When the next page command arrived, `startPageTurn(...)` cancelled the pending initial relocation, so the first externally visible location became the first turned page.
+
+Navic implication:
+
+- Embedded cover suppression now schedules `scheduleCommittedRelocation(this.lastRelocateDetail, 'embedded-cover-suppressed')` after the rerender and page-number refresh.
+- This preserves the controller/browser contract that the first visible readable page is emitted as page `0` before subsequent page turns.
+
+Fresh red checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.embeddedCoverSuppressionPostsInitialVisibleLocationBeforeFirstPageTurn"
+```
+
+Results: the harness failed at `epub-frontmatter` with `Expected first visible WebView pageIndex to be 0; observed 1`. The focused source guard failed before production changes because the embedded-cover suppression path did not schedule a committed relocation.
+
+Focused and wider green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.embeddedCoverSuppressionPostsInitialVisibleLocationBeforeFirstPageTurn"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-frontmatter --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
+```
+
+Results: passed on 2026-06-15. The full phase-1 browser harness completed 16 checks after the fix, including EPUB frontmatter, page boundary, shell cover, external shell cover, link-jump drag, texture probes, full EPUB traversal, PDF smoke, PDF fast sequential turns, and PDF image settings.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Readaloud Adapter Reattachment Slice
 
 User direction:
