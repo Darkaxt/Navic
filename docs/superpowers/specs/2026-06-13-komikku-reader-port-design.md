@@ -3904,3 +3904,50 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-15 Overnight Komikku Bounded Settings Dialog Slice
+
+User direction:
+
+- Continue source-level Komikku reader work overnight without publishing another release.
+- Avoid adding more docked/mobile-settings-page behavior to the reader.
+- Use the actual Komikku reader implementation as the source reference where possible.
+
+Komikku source reference:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`
+- The relevant source pattern is `BoxWithConstraints { TabbedDialog(modifier = Modifier.heightIn(max = maxHeight * 0.75f), ...) { page -> Column(... verticalScroll(...)) { ... } } }`.
+
+Root cause:
+
+- Navic had already moved the settings dialog to a compact tab row and `HorizontalPager`, but the dialog surface was still hand-built as an unconstrained fixed-width surface.
+- The pager page body was not independently scrollable. That left the settings overlay vulnerable to growing into a page-like panel again as more reader controls were added.
+
+Navic implication:
+
+- `KomikkuReaderSettingsDialog(...)` now wraps the dialog surface in `BoxWithConstraints`.
+- The settings surface is capped with `Modifier.heightIn(max = maxHeight * 0.75f)`, matching Komikku's reader settings viewport limit.
+- Pager pages now wrap their page content in a scrollable `Column` using the shared `TabbedDialogPaddingsVertical` padding constant.
+- The old `Modifier.animateContentSize()` pager body was removed so tab content is bounded and scrolls internally instead of pushing the reader overlay toward a docked settings page.
+- Existing Reading, General, PDF/Image, and Custom filter controls are preserved.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract"
+```
+
+Result: failed before production changes because the dialog had no `BoxWithConstraints`, no 75% viewport cap, no per-page scroll wrapper, and still used `Modifier.animateContentSize()` for pager content.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.

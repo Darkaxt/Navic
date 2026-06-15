@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -170,6 +170,7 @@ import paige.navic.util.core.Logger
 
 private const val ReaderScreenTag = "ReaderScreen"
 private const val KomikkuReaderVerticalRailHeightFraction = 0.68f
+private val TabbedDialogPaddingsVertical = 16.dp
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
 private val readerBarsFadeAnimationSpec = tween<Float>(150)
 
@@ -1049,250 +1050,260 @@ private fun KomikkuReaderSettingsDialog(
 	val chromeState = ReaderChromeState(settings = settings)
 
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
-		Surface(
-			shape = RoundedCornerShape(28.dp),
-			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
-			contentColor = MaterialTheme.colorScheme.onSurface,
-			modifier = Modifier.fillMaxWidth(0.78f)
-		) {
-			Column(
-				modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-				verticalArrangement = Arrangement.spacedBy(18.dp)
+		BoxWithConstraints {
+			Surface(
+				shape = RoundedCornerShape(28.dp),
+				color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+				contentColor = MaterialTheme.colorScheme.onSurface,
+				modifier = Modifier
+					.heightIn(max = maxHeight * 0.75f)
+					.fillMaxWidth(0.78f)
 			) {
-				KomikkuSettingsTabRow(
-					tabs = tabs,
-					selectedTab = pagerState.currentPage,
-					onSelectTab = { index ->
-						scope.launch { pagerState.animateScrollToPage(index) }
-					}
-				)
-				HorizontalPager(
-					modifier = Modifier.animateContentSize(),
-					state = pagerState,
-					verticalAlignment = Alignment.Top
-				) { page ->
-				when (tabs[page]) {
-					KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
-						title = "For this book"
-					) {
-						KomikkuSettingsChipRow(
-							title = "Scope",
-							options = ReaderSupportedSettingsScopes.map { scope -> scope.name to readerSettingsScopeLabel(scope) },
-							selectedValue = settingsScope.name,
-							onSelect = { scopeName ->
-								ReaderSettingsScope.entries
-									.firstOrNull { scope -> scope.name == scopeName }
-									?.let(onSettingsScopeChange)
-							}
-						)
-						if (hasBookSettings) {
-							TextButton(onClick = onResetBookSettings) {
-								Text("Reset book")
+				Column(
+					modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+					verticalArrangement = Arrangement.spacedBy(18.dp)
+				) {
+					KomikkuSettingsTabRow(
+						tabs = tabs,
+						selectedTab = pagerState.currentPage,
+						onSelectTab = { index ->
+							scope.launch { pagerState.animateScrollToPage(index) }
+						}
+					)
+					HorizontalPager(
+						modifier = Modifier.weight(1f, fill = false),
+						state = pagerState,
+						verticalAlignment = Alignment.Top
+					) { page ->
+						Column(
+							modifier = Modifier
+								.padding(vertical = TabbedDialogPaddingsVertical)
+								.verticalScroll(rememberScrollState())
+						) {
+							when (tabs[page]) {
+								KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
+									title = "For this book"
+								) {
+									KomikkuSettingsChipRow(
+										title = "Scope",
+										options = ReaderSupportedSettingsScopes.map { scope -> scope.name to readerSettingsScopeLabel(scope) },
+										selectedValue = settingsScope.name,
+										onSelect = { scopeName ->
+											ReaderSettingsScope.entries
+												.firstOrNull { scope -> scope.name == scopeName }
+												?.let(onSettingsScopeChange)
+										}
+									)
+									if (hasBookSettings) {
+										TextButton(onClick = onResetBookSettings) {
+											Text("Reset book")
+										}
+									}
+									KomikkuSettingsReadingModeRow(
+										settings = settings,
+										onSelect = { option ->
+											onSettingsChange(settings.copy(
+												flowMode = option.flowMode,
+												paged = option.paged,
+												direction = option.direction
+											))
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Direction",
+										options = ReaderSupportedDirections.map { direction -> direction to readerDirectionShortLabel(direction) },
+										selectedValue = normalizedReaderDirection(settings.direction),
+										onSelect = { direction ->
+											onSettingsChange(settings.copy(direction = direction))
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Tap zones",
+										options = KomikkuTapZoneOptions,
+										selectedValue = normalizedReaderTapZone(settings.tapZone),
+										onSelect = { tapZone ->
+											onSettingsChange(settings.copy(tapZone = tapZone))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Smaller tap zones",
+										checked = settings.smallerTapZone == true,
+										onCheckedChange = { smallerTapZone ->
+											onSettingsChange(settings.copy(smallerTapZone = smallerTapZone))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Show tap zones",
+										checked = settings.showTapZones == true,
+										onCheckedChange = { showTapZones ->
+											onSettingsChange(settings.copy(showTapZones = showTapZones))
+										}
+									)
+								}
+								KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(
+									title = "General"
+								) {
+									KomikkuSettingsChipRow(
+										title = "Font",
+										options = ReaderSupportedFontFamilies.map { fontFamily ->
+											fontFamily to readerFontFamilyShortLabel(fontFamily)
+										},
+										selectedValue = normalizedReaderFontFamily(settings.fontFamily),
+										onSelect = { fontFamily ->
+											onSettingsChange(settings.copy(fontFamily = fontFamily))
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Font source",
+										options = ReaderSupportedFontSources.map { fontSource ->
+											fontSource to readerFontSourceShortLabel(fontSource)
+										},
+										selectedValue = normalizedReaderFontSource(settings.fontSource),
+										onSelect = { fontSource ->
+											onSettingsChange(settings.copy(fontSource = fontSource))
+										}
+									)
+									KomikkuSettingsStepperRow(
+										title = "Font size",
+										value = "${settings.fontSizePercent ?: 100}%",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustFontSize(-8).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustFontSize(8).settings)
+										}
+									)
+									KomikkuSettingsStepperRow(
+										title = "Line height",
+										value = "${settings.lineHeight ?: 1.55}",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustLineHeight(-0.1).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustLineHeight(0.1).settings)
+										}
+									)
+									KomikkuSettingsStepperRow(
+										title = "Paragraph spacing",
+										value = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustParagraphSpacing(-25).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustParagraphSpacing(25).settings)
+										}
+									)
+									KomikkuSettingsStepperRow(
+										title = "Margins",
+										value = "${settings.marginPercent ?: 0}%",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustMargin(-4).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustMargin(4).settings)
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Theme",
+										options = ReaderSupportedThemes.map { theme -> theme to readerThemeShortLabel(theme) },
+										selectedValue = normalizedReaderTheme(settings.theme),
+										onSelect = { theme ->
+											onSettingsChange(settings.copy(theme = theme))
+										}
+									)
+									KomikkuSettingsChipRow(
+										title = "Rotation",
+										options = ReaderSupportedOrientations.map { orientation ->
+											orientation to readerOrientationShortLabel(orientation)
+										},
+										selectedValue = normalizedReaderOrientation(settings.orientation),
+										onSelect = { orientation ->
+											onSettingsChange(settings.copy(orientation = orientation))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Fullscreen",
+										checked = settings.fullscreen == true,
+										onCheckedChange = { fullscreen ->
+											onSettingsChange(settings.copy(fullscreen = fullscreen))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Keep screen on",
+										checked = settings.keepScreenOn == true,
+										onCheckedChange = { keepScreenOn ->
+											onSettingsChange(settings.copy(keepScreenOn = keepScreenOn))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Volume keys",
+										checked = settings.volumeKeyPageTurns == true,
+										onCheckedChange = { volumeKeyPageTurns ->
+											onSettingsChange(settings.copy(volumeKeyPageTurns = volumeKeyPageTurns))
+										}
+									)
+								}
+								KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(
+									title = "PDF/Image"
+								) {
+									KomikkuSettingsChipRow(
+										title = "Page fit",
+										options = ReaderSupportedPdfFitModes.map { fitMode ->
+											fitMode to readerPdfFitShortLabel(fitMode)
+										},
+										selectedValue = normalizedReaderPdfFitMode(settings.pdfFitMode),
+										onSelect = { fitMode ->
+											onSettingsChange(settings.copy(pdfFitMode = fitMode))
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Crop borders",
+										checked = settings.pdfCropBorders == true,
+										onCheckedChange = { cropBorders ->
+											onSettingsChange(settings.copy(pdfCropBorders = cropBorders))
+										}
+									)
+									KomikkuSettingsStepperRow(
+										title = "Page gap",
+										value = "${settings.pdfPageGapPercent ?: 0}%",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustPdfPageGap(-4).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustPdfPageGap(4).settings)
+										}
+									)
+								}
+								KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(
+									title = "Custom filter"
+								) {
+									KomikkuSettingsStepperRow(
+										title = "Dim overlay",
+										value = "${settings.dimOverlayPercent ?: 0}%",
+										onDecrease = {
+											onSettingsChange(chromeState.adjustDimOverlay(-10).settings)
+										},
+										onIncrease = {
+											onSettingsChange(chromeState.adjustDimOverlay(10).settings)
+										}
+									)
+									KomikkuSettingsSwitchRow(
+										title = "Publisher styles",
+										checked = settings.publisherStyles == true,
+										onCheckedChange = { publisherStyles ->
+											onSettingsChange(settings.copy(publisherStyles = publisherStyles))
+										}
+									)
+								}
 							}
 						}
-						KomikkuSettingsReadingModeRow(
-							settings = settings,
-							onSelect = { option ->
-								onSettingsChange(settings.copy(
-									flowMode = option.flowMode,
-									paged = option.paged,
-									direction = option.direction
-								))
-							}
-						)
-						KomikkuSettingsChipRow(
-							title = "Direction",
-							options = ReaderSupportedDirections.map { direction -> direction to readerDirectionShortLabel(direction) },
-							selectedValue = normalizedReaderDirection(settings.direction),
-							onSelect = { direction ->
-								onSettingsChange(settings.copy(direction = direction))
-							}
-						)
-						KomikkuSettingsChipRow(
-							title = "Tap zones",
-							options = KomikkuTapZoneOptions,
-							selectedValue = normalizedReaderTapZone(settings.tapZone),
-							onSelect = { tapZone ->
-								onSettingsChange(settings.copy(tapZone = tapZone))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Smaller tap zones",
-							checked = settings.smallerTapZone == true,
-							onCheckedChange = { smallerTapZone ->
-								onSettingsChange(settings.copy(smallerTapZone = smallerTapZone))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Show tap zones",
-							checked = settings.showTapZones == true,
-							onCheckedChange = { showTapZones ->
-								onSettingsChange(settings.copy(showTapZones = showTapZones))
-							}
-						)
 					}
-					KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(
-						title = "General"
+					TextButton(
+						onClick = onDismissRequest,
+						modifier = Modifier.align(Alignment.End)
 					) {
-						KomikkuSettingsChipRow(
-							title = "Font",
-							options = ReaderSupportedFontFamilies.map { fontFamily ->
-								fontFamily to readerFontFamilyShortLabel(fontFamily)
-							},
-							selectedValue = normalizedReaderFontFamily(settings.fontFamily),
-							onSelect = { fontFamily ->
-								onSettingsChange(settings.copy(fontFamily = fontFamily))
-							}
-						)
-						KomikkuSettingsChipRow(
-							title = "Font source",
-							options = ReaderSupportedFontSources.map { fontSource ->
-								fontSource to readerFontSourceShortLabel(fontSource)
-							},
-							selectedValue = normalizedReaderFontSource(settings.fontSource),
-							onSelect = { fontSource ->
-								onSettingsChange(settings.copy(fontSource = fontSource))
-							}
-						)
-						KomikkuSettingsStepperRow(
-							title = "Font size",
-							value = "${settings.fontSizePercent ?: 100}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustFontSize(-8).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustFontSize(8).settings)
-							}
-						)
-						KomikkuSettingsStepperRow(
-							title = "Line height",
-							value = "${settings.lineHeight ?: 1.55}",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustLineHeight(-0.1).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustLineHeight(0.1).settings)
-							}
-						)
-						KomikkuSettingsStepperRow(
-							title = "Paragraph spacing",
-							value = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustParagraphSpacing(-25).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustParagraphSpacing(25).settings)
-							}
-						)
-						KomikkuSettingsStepperRow(
-							title = "Margins",
-							value = "${settings.marginPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustMargin(-4).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustMargin(4).settings)
-							}
-						)
-						KomikkuSettingsChipRow(
-							title = "Theme",
-							options = ReaderSupportedThemes.map { theme -> theme to readerThemeShortLabel(theme) },
-							selectedValue = normalizedReaderTheme(settings.theme),
-							onSelect = { theme ->
-								onSettingsChange(settings.copy(theme = theme))
-							}
-						)
-						KomikkuSettingsChipRow(
-							title = "Rotation",
-							options = ReaderSupportedOrientations.map { orientation ->
-								orientation to readerOrientationShortLabel(orientation)
-							},
-							selectedValue = normalizedReaderOrientation(settings.orientation),
-							onSelect = { orientation ->
-								onSettingsChange(settings.copy(orientation = orientation))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Fullscreen",
-							checked = settings.fullscreen == true,
-							onCheckedChange = { fullscreen ->
-								onSettingsChange(settings.copy(fullscreen = fullscreen))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Keep screen on",
-							checked = settings.keepScreenOn == true,
-							onCheckedChange = { keepScreenOn ->
-								onSettingsChange(settings.copy(keepScreenOn = keepScreenOn))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Volume keys",
-							checked = settings.volumeKeyPageTurns == true,
-							onCheckedChange = { volumeKeyPageTurns ->
-								onSettingsChange(settings.copy(volumeKeyPageTurns = volumeKeyPageTurns))
-							}
-						)
+						Text("Close")
 					}
-					KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(
-						title = "PDF/Image"
-					) {
-						KomikkuSettingsChipRow(
-							title = "Page fit",
-							options = ReaderSupportedPdfFitModes.map { fitMode ->
-								fitMode to readerPdfFitShortLabel(fitMode)
-							},
-							selectedValue = normalizedReaderPdfFitMode(settings.pdfFitMode),
-							onSelect = { fitMode ->
-								onSettingsChange(settings.copy(pdfFitMode = fitMode))
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Crop borders",
-							checked = settings.pdfCropBorders == true,
-							onCheckedChange = { cropBorders ->
-								onSettingsChange(settings.copy(pdfCropBorders = cropBorders))
-							}
-						)
-						KomikkuSettingsStepperRow(
-							title = "Page gap",
-							value = "${settings.pdfPageGapPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustPdfPageGap(-4).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustPdfPageGap(4).settings)
-							}
-						)
-					}
-					KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(
-						title = "Custom filter"
-					) {
-						KomikkuSettingsStepperRow(
-							title = "Dim overlay",
-							value = "${settings.dimOverlayPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustDimOverlay(-10).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustDimOverlay(10).settings)
-							}
-						)
-						KomikkuSettingsSwitchRow(
-							title = "Publisher styles",
-							checked = settings.publisherStyles == true,
-							onCheckedChange = { publisherStyles ->
-								onSettingsChange(settings.copy(publisherStyles = publisherStyles))
-							}
-						)
-					}
-				}
-				}
-				TextButton(
-					onClick = onDismissRequest,
-					modifier = Modifier.align(Alignment.End)
-				) {
-					Text("Close")
 				}
 			}
 		}

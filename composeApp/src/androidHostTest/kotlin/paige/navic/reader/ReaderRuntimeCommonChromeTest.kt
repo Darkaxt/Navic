@@ -353,6 +353,28 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
+		val pagerBody = settingsDialogBody.substringAfter("HorizontalPager(")
+
+		assertContains(settingsDialogBody, "BoxWithConstraints")
+		assertContains(settingsDialogBody, ".heightIn(max = maxHeight * 0.75f)")
+		assertContains(settingsDialogBody, "TabbedDialogPaddingsVertical")
+		assertContains(pagerBody, ".verticalScroll(rememberScrollState())")
+		assertContains(pagerBody, ".padding(vertical = TabbedDialogPaddingsVertical)")
+		assertFalse(
+			settingsDialogBody.contains("modifier = Modifier.fillMaxWidth(0.78f)"),
+			"Komikku settings should use the shared bounded dialog modifier instead of only fixed-width surface sizing."
+		)
+		assertFalse(
+			pagerBody.contains("modifier = Modifier.animateContentSize()"),
+			"Pager content should be bounded and scrollable like Komikku's TabbedDialog body, not unbounded animated content."
+		)
+	}
+
+	@Test
 	fun commonReaderOptionsUseKomikkuStyleChipGroups() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
