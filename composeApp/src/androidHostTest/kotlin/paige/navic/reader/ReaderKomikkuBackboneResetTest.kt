@@ -410,6 +410,14 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(androidText.contains("ViewGroup.FOCUS_BLOCK_DESCENDANTS"))
 		assertTrue(androidText.contains("navigationOverlay.isClickable = false"))
 		assertTrue(androidText.contains("navigationOverlay.isFocusable = false"))
+		assertTrue(
+			androidText.contains("composeOverlay.isClickable = false"),
+			"The full-window Compose overlay must stay passive at the Android view level; visible chrome children own their own clicks."
+		)
+		assertTrue(
+			androidText.contains("composeOverlay.isFocusable = false"),
+			"The full-window Compose overlay must not become the focus owner above the native viewer container."
+		)
 		assertTrue(androidText.contains("super.dispatchTouchEvent(event)"))
 		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
 		assertTrue(androidText.indexOf("super.dispatchTouchEvent(event)") < androidText.indexOf("gestureDetector.onTouchEvent(event)"))

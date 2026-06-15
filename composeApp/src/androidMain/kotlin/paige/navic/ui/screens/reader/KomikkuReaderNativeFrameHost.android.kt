@@ -93,6 +93,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		setBackgroundColor(Color.rgb(32, 35, 41))
 
 		composeOverlay.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+		composeOverlay.isClickable = false
+		composeOverlay.isFocusable = false
 
 		viewerContainer.setShellCoverView(shellCoverView)
 		readerContainer.addView(

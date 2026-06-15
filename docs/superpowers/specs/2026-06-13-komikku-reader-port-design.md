@@ -3858,6 +3858,45 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Native Compose Overlay Passive Guardrail
+
+User direction:
+
+- Keep tightening the Komikku reader backbone overnight without publishing another APK.
+- Focus on the reader/controller structure rather than more visual-only micro-fixes.
+
+Root cause:
+
+- The Android root already used the Komikku-equivalent native view stack: full-window reader container, full-window viewer container, passive navigation overlay, and full-window Compose overlay.
+- The visual tap-zone overlay was explicitly passive at the Android view level, but the full-window `ComposeView` overlay was not. That left an avoidable structural ambiguity: hidden chrome could still sit above the native viewer container without an explicit passive Android view contract.
+
+Navic implication:
+
+- `KomikkuReaderNativeFrameHost.android.kt` now marks the full-window `composeOverlay` as `isClickable = false` and `isFocusable = false`.
+- Visible Compose controls still own their own pointer/click handlers. The guardrail is only for the full-window overlay host, so the native viewer container remains the input owner when chrome is hidden or non-interactive.
+- This is a structural input-ownership fix. It is not claimed as proof that phone tap/drag behavior is fixed until the morning APK is installed and checked over ADB.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.androidReaderRootUsesNativeKomikkuFrameLayoutHierarchy"
+```
+
+Result: failed before production changes because `composeOverlay.isClickable = false` and `composeOverlay.isFocusable = false` were not present in the Android native frame root.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.androidReaderRootUsesNativeKomikkuFrameLayoutHierarchy"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Pre-RC Source And Harness Baseline
 
 User direction:
