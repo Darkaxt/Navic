@@ -3097,3 +3097,45 @@ Release status:
 
 - No release APK was built or published for this isolated font registration.
 - Morning device validation should verify that selecting `Dyx` changes EPUB text and the organic page-number text on a normal content page.
+
+## 2026-06-15 Overnight Komikku Progress Slider Wrapper
+
+User direction:
+
+- Keep replacing knock-off reader behavior with Komikku-derived behavior.
+- The reader progress rail should behave closer to Komikku instead of exposing raw Material mobile slider semantics.
+- Do not publish a release candidate for isolated source-level rail work.
+
+Root cause:
+
+- Komikku's `ChapterNavigator` uses `tachiyomi.presentation.core.components.material.Slider`, an integer wrapper around Material3 `Slider`, and wires drag haptics through `MutableInteractionSource.collectIsDraggedAsState()`.
+- Navic's port used raw Material3 `Slider` directly with `Float` values and `toInt()` flooring.
+- That made rail movement less faithful to Komikku's page-based model and skipped the haptic drag path.
+
+Navic implication:
+
+- `ReaderScreen.kt` now has a local `KomikkuChapterProgressSlider(...)` wrapper equivalent to Tachiyomi's integer slider behavior.
+- Horizontal and vertical `KomikkuChapterNavigator` routes now pass `value = currentPage`, `valueRange = 1..totalPages`, and `onPageIndexChange(page - 1)`.
+- Both navigator modes now create a `MutableInteractionSource`, observe `collectIsDraggedAsState()`, and perform `HapticFeedbackType.TextHandleMove` while dragging.
+- This is still not a full visual clone of Tachiyomi's slider internals or Komikku's final reader rail appearance; morning device validation must inspect thumb/track proportions and color in the actual APK.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: failed before production changes at `ReaderRuntimeCommonChromeTest.kt:237` because Navic had no `KomikkuChapterProgressSlider`, no `MutableInteractionSource`, no drag haptic path, and the side rail used `Float`/`toInt()` slider handling.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this isolated rail behavior correction.
+- Morning device validation should specifically check whether dragging the side rail now feels page-snapped and whether the visual rail still reads as a raw Material slider.

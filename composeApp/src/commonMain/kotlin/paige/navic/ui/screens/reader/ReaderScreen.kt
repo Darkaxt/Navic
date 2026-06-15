@@ -12,6 +12,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +63,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -68,12 +71,14 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -1502,18 +1507,26 @@ private fun KomikkuChapterNavigator(
 					Text(text = currentPageText)
 					Text(text = totalPages.toString(), color = Color.Transparent)
 				}
-				Slider(
+				val haptic = LocalHapticFeedback.current
+				val interactionSource = remember { MutableInteractionSource() }
+				val sliderDragged by interactionSource.collectIsDraggedAsState()
+				LaunchedEffect(currentPage) {
+					if (sliderDragged) {
+						haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+					}
+				}
+				KomikkuChapterProgressSlider(
 					modifier = Modifier
 						.weight(1f)
 						.padding(horizontal = 8.dp),
-					value = currentPage.toFloat(),
-					valueRange = 1f..totalPages.toFloat(),
-					steps = (totalPages - 2).coerceAtLeast(0),
-					onValueChange = { value ->
-						if (value.toInt() != currentPage) {
-							onPageIndexChange(value.toInt() - 1)
+					value = currentPage,
+					valueRange = 1..totalPages,
+					onValueChange = { page ->
+						if (page != currentPage) {
+							onPageIndexChange(page - 1)
 						}
-					}
+					},
+					interactionSource = interactionSource
 				)
 				Text(text = totalPages.toString())
 			}
@@ -1529,6 +1542,26 @@ private fun KomikkuChapterNavigator(
 			Icon(Icons.Filled.SkipNext, contentDescription = "Next")
 		}
 	}
+}
+
+@Composable
+private fun KomikkuChapterProgressSlider(
+	value: Int,
+	valueRange: IntProgression,
+	onValueChange: (Int) -> Unit,
+	modifier: Modifier = Modifier,
+	enabled: Boolean = true,
+	interactionSource: MutableInteractionSource = remember { MutableInteractionSource() }
+) {
+	Slider(
+		value = value.toFloat(),
+		onValueChange = { changedValue -> onValueChange(changedValue.roundToInt()) },
+		modifier = modifier,
+		enabled = enabled,
+		valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+		steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0),
+		interactionSource = interactionSource
+	)
 }
 
 @Composable
@@ -1580,7 +1613,15 @@ private fun KomikkuChapterNavigatorVertical(
 				horizontalAlignment = Alignment.CenterHorizontally
 			) {
 				Text(text = currentPageText)
-				Slider(
+				val haptic = LocalHapticFeedback.current
+				val interactionSource = remember { MutableInteractionSource() }
+				val sliderDragged by interactionSource.collectIsDraggedAsState()
+				LaunchedEffect(currentPage) {
+					if (sliderDragged) {
+						haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+					}
+				}
+				KomikkuChapterProgressSlider(
 					modifier = Modifier
 						.padding(vertical = 8.dp)
 						.graphicsLayer {
@@ -1601,14 +1642,14 @@ private fun KomikkuChapterNavigatorVertical(
 							}
 						}
 						.weight(1f),
-					value = currentPage.toFloat(),
-					valueRange = 1f..totalPages.toFloat(),
-					steps = (totalPages - 2).coerceAtLeast(0),
-					onValueChange = { value ->
-						if (value.toInt() != currentPage) {
-							onPageIndexChange(value.toInt() - 1)
+					value = currentPage,
+					valueRange = 1..totalPages,
+					onValueChange = { page ->
+						if (page != currentPage) {
+							onPageIndexChange(page - 1)
 						}
-					}
+					},
+					interactionSource = interactionSource
 				)
 				Text(text = totalPages.toString())
 			}
