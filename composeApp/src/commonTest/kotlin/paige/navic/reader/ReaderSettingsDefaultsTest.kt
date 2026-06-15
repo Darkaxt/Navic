@@ -117,6 +117,8 @@ class ReaderSettingsDefaultsTest {
 
 	@Test
 	fun readerSettingsDefaultsKeepExpandedFontSources() {
+		val typewriterFontFamily = "\"American Typewriter\", \"Courier Prime\", \"Courier New\", ui-monospace, monospace"
+
 		assertEquals(ReaderFontSourceNavic, defaultReaderSettings().fontSource)
 		assertEquals(
 			listOf(ReaderFontSourceNavic, ReaderFontSourceSystem, ReaderFontSourcePublisher, ReaderFontSourceCustom),
@@ -136,6 +138,21 @@ class ReaderSettingsDefaultsTest {
 			"\"Navic OpenDyslexic\", OpenDyslexic, \"Navic Atkinson Hyperlegible\", system-ui, sans-serif",
 			ReaderDyslexicFontFamily
 		)
+		assertEquals(
+			listOf(
+				ReaderSansFontFamily,
+				ReaderSerifFontFamily,
+				ReaderBookFontFamily,
+				ReaderHumanistFontFamily,
+				ReaderDyslexicFontFamily,
+				typewriterFontFamily,
+				ReaderMonoFontFamily,
+				ReaderPublisherFontFamily
+			),
+			ReaderSupportedFontFamilies
+		)
+		assertEquals(typewriterFontFamily, normalizedReaderFontFamily(typewriterFontFamily))
+		assertEquals("Dyx", readerFontFamilyShortLabel(typewriterFontFamily))
 		assertEquals(
 			ReaderBookFontFamily,
 			normalizedReaderSettings(

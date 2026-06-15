@@ -30,6 +30,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_family_mono
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_publisher
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_sans
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_serif
+import navic.composeapp.generated.resources.option_ebook_reader_font_family_typewriter
 import navic.composeapp.generated.resources.option_ebook_reader_font_source
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_custom
 import navic.composeapp.generated.resources.option_ebook_reader_font_source_navic
@@ -162,6 +163,7 @@ import paige.navic.reader.ReaderTapZoneEdge
 import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
+import paige.navic.reader.ReaderTypewriterFontFamily
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormTitle
@@ -449,6 +451,7 @@ private enum class ReaderFontFamilyOption(
 	Book(ReaderBookFontFamily, Res.string.option_ebook_reader_font_family_book),
 	Humanist(ReaderHumanistFontFamily, Res.string.option_ebook_reader_font_family_humanist),
 	Dyslexic(ReaderDyslexicFontFamily, Res.string.option_ebook_reader_font_family_dyslexic),
+	Typewriter(ReaderTypewriterFontFamily, Res.string.option_ebook_reader_font_family_typewriter),
 	Mono(ReaderMonoFontFamily, Res.string.option_ebook_reader_font_family_mono),
 	Publisher(ReaderPublisherFontFamily, Res.string.option_ebook_reader_font_family_publisher);
 

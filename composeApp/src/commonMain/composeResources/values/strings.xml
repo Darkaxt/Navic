@@ -540,6 +540,7 @@
 	<string name="option_ebook_reader_font_family_book">Book serif</string>
 	<string name="option_ebook_reader_font_family_humanist">Humanist sans</string>
 	<string name="option_ebook_reader_font_family_dyslexic">Dyslexic readable</string>
+	<string name="option_ebook_reader_font_family_typewriter">Dyx typewriter</string>
 	<string name="option_ebook_reader_font_family_mono">Monospace</string>
 	<string name="option_ebook_reader_font_family_publisher">Publisher</string>
 	<string name="option_ebook_reader_font_source">Font source</string>

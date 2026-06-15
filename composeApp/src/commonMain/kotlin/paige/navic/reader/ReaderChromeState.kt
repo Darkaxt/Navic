@@ -26,6 +26,7 @@ const val ReaderSerifFontFamily = "Georgia, serif"
 const val ReaderBookFontFamily = "\"Navic Literata\", Literata, Bookerly, Georgia, serif"
 const val ReaderHumanistFontFamily = "\"Navic Atkinson Hyperlegible\", \"Atkinson Hyperlegible\", Lexend, system-ui, sans-serif"
 const val ReaderDyslexicFontFamily = "\"Navic OpenDyslexic\", OpenDyslexic, \"Navic Atkinson Hyperlegible\", system-ui, sans-serif"
+const val ReaderTypewriterFontFamily = "\"American Typewriter\", \"Courier Prime\", \"Courier New\", ui-monospace, monospace"
 const val ReaderMonoFontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 const val ReaderPublisherFontFamily = "inherit"
 private const val LegacyReaderBookFontFamily = "Literata, Bookerly, Georgia, serif"
@@ -75,6 +76,7 @@ val ReaderSupportedFontFamilies: List<String> = listOf(
 	ReaderBookFontFamily,
 	ReaderHumanistFontFamily,
 	ReaderDyslexicFontFamily,
+	ReaderTypewriterFontFamily,
 	ReaderMonoFontFamily,
 	ReaderPublisherFontFamily
 )
@@ -430,6 +432,7 @@ fun readerFontFamilyShortLabel(fontFamily: String?): String =
 		ReaderBookFontFamily -> "Book"
 		ReaderHumanistFontFamily -> "Human"
 		ReaderDyslexicFontFamily -> "Dys"
+		ReaderTypewriterFontFamily -> "Dyx"
 		ReaderMonoFontFamily -> "Mono"
 		ReaderPublisherFontFamily -> "Pub"
 		else -> "Sans"

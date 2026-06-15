@@ -29,6 +29,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(bridgeText, "Navic Literata")
 		assertContains(bridgeText, "Navic Atkinson Hyperlegible")
 		assertContains(bridgeText, "Navic OpenDyslexic")
+		assertContains(bridgeText, "American Typewriter")
+		assertContains(bridgeText, "Courier Prime")
 		assertContains(bridgeText, "fonts/navic-literata-regular.ttf")
 		assertContains(bridgeText, "fonts/navic-atkinson-hyperlegible-regular.otf")
 		assertContains(bridgeText, "fonts/navic-opendyslexic-regular.otf")

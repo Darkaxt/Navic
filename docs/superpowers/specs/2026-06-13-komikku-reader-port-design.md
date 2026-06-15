@@ -3053,3 +3053,47 @@ Release status:
 
 - No release APK was built or published for this diagnostic-only slice.
 - Morning validation should use the split fields to tell whether a drag failure is native-frame recognition, shell-cover-only behavior, or viewer-action dispatch.
+
+## 2026-06-15 Overnight Dyx Typewriter Font Registration
+
+User direction:
+
+- Keep overnight source work focused on locally verifiable reader gaps.
+- The `Dyx` font type that resembles classic typewriter text should be selectable and actually reach the EPUB runtime.
+- Do not publish a release candidate for this isolated settings/runtime correction.
+
+Root cause:
+
+- The Komikku-port issue list mentioned `Dyx`, but the active reader only exposed sans, serif, bundled book serif, humanist, dyslexic, monospace, and publisher fonts.
+- The repo currently has no Dyx/typewriter font asset under `composeApp/src/androidMain/assets/reader/fonts`.
+- The WebView helper collapsed any `System` font stack containing `ui-monospace` into generic monospace, so a typewriter-style stack would not survive system-source normalization.
+
+Navic implication:
+
+- `ReaderTypewriterFontFamily` is now registered as `"American Typewriter", "Courier Prime", "Courier New", ui-monospace, monospace`.
+- The family is included in `ReaderSupportedFontFamilies`, in-reader Komikku chip groups, Settings > Ebooks, and Settings search.
+- The short reader label is `Dyx`; the Settings label is `Dyx typewriter`.
+- `readerEffectiveFontFamily` now preserves the typewriter stack when the selected font source is `System`.
+- This is a system-font stack, not a bundled Dyx font file. A real user-supplied Dyx font should go through the existing imported custom-font path unless a vetted font asset is added later.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepExpandedFontSources"
+```
+
+Result: failed before production changes at `ReaderSettingsDefaultsTest.kt:141` because `ReaderSupportedFontFamilies` did not include the typewriter/Dyx family.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepExpandedFontSources" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.androidReaderPackagesBundledFontSourcesForWebViewRendering"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this isolated font registration.
+- Morning device validation should verify that selecting `Dyx` changes EPUB text and the organic page-number text on a normal content page.

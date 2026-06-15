@@ -232,6 +232,9 @@ export const readerEffectiveFontFamily = settings => {
     return `${readerCssQuotedString(readerCustomFontFamily(settings))}, system-ui, sans-serif`
   }
   if (readerFontSource(settings) !== ReaderFontSourceSystem) return fontFamily
+  if (fontFamily.includes('American Typewriter') || fontFamily.includes('Courier Prime') || fontFamily.includes('Courier New')) {
+    return '"American Typewriter", "Courier Prime", "Courier New", ui-monospace, monospace'
+  }
   if (fontFamily.includes('ui-monospace') || fontFamily.includes('Consolas')) {
     return 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
   }

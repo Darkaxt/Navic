@@ -71,6 +71,7 @@ import paige.navic.reader.ReaderTapZoneEdge
 import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
+import paige.navic.reader.ReaderTypewriterFontFamily
 import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
@@ -298,6 +299,7 @@ internal fun readerFontFamilySearchLabel(fontFamily: String): String =
 		ReaderBookFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_book)
 		ReaderHumanistFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_humanist)
 		ReaderDyslexicFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_dyslexic)
+		ReaderTypewriterFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_typewriter)
 		ReaderMonoFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_mono)
 		ReaderPublisherFontFamily -> stringResource(Res.string.option_ebook_reader_font_family_publisher)
 		else -> stringResource(Res.string.option_ebook_reader_font_family_sans)
