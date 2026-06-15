@@ -2959,3 +2959,43 @@ Release status:
 ```powershell
 .\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -IncludeCoverChecks
 ```
+
+## 2026-06-15 Overnight Komikku Side Rail Constraint
+
+User direction:
+
+- Keep source work focused on the Komikku reader backbone.
+- Do not publish a GitHub release candidate for isolated minor visual corrections.
+- The visible reader progress rail should stop looking like a full-height mobile slider and move closer to Komikku's centered overlay behavior.
+
+Root cause:
+
+- Navic had copied the vertical `ChapterNavigator` shape but mounted it inside a different overlay slot than Komikku.
+- The active `KomikkuChapterNavigatorVertical` still called `fillMaxHeight()` with no constraint, so the rail could occupy the whole middle column and visually collide with the top and bottom chrome areas.
+
+Navic implication:
+
+- `ReaderScreen.kt` now keeps `KomikkuChapterNavigatorVertical` but mounts the left/right vertical rail inside a centered `Box`.
+- The visible rail is constrained by `KomikkuReaderVerticalRailHeightFraction = 0.68f`.
+- This preserves the Komikku source component while adapting the mount point to Navic's different overlay stack.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: failed before production changes because the active reader had no named vertical rail height fraction, no centered side-rail mount, and no constrained rail modifier.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: passed on 2026-06-15. The shell tool stream closed before Gradle returned, but the still-running wrapper process completed and `composeApp/build/test-results/testAndroidHostTest/TEST-paige.navic.reader.ReaderRuntimeCommonChromeTest.xml` reported one test, zero failures.
+
+Release status:
+
+- No release APK was built or published for this isolated layout correction.
+- Morning adb validation should still inspect the rail visually because this is source-contract coverage, not a device screenshot proof.

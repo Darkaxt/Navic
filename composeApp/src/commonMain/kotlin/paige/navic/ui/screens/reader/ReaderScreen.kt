@@ -159,6 +159,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
 private const val ReaderScreenTag = "ReaderScreen"
+private const val KomikkuReaderVerticalRailHeightFraction = 0.68f
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
 private val readerBarsFadeAnimationSpec = tween<Float>(150)
 
@@ -743,19 +744,25 @@ private fun KomikkuReaderAppBars(
 						.weight(1f)
 						.align(Alignment.Start)
 				) {
-					KomikkuChapterNavigator(
-						isVerticalSlider = true,
-						onNextChapter = onNextPage,
-						enabledNext = true,
-						onPreviousChapter = onPreviousPage,
-						enabledPrevious = !controllerState.shellCoverVisible,
-						currentPage = chapterProgress.displayPage,
-						currentPageText = chapterProgress.displayPage.toString(),
-						totalPages = chapterProgress.pageCount,
-						onPageIndexChange = { pageIndex ->
-							onGoToChapterPage(pageIndex)
-						}
-					)
+					Box(
+						modifier = Modifier.fillMaxHeight(),
+						contentAlignment = Alignment.CenterStart
+					) {
+						KomikkuChapterNavigator(
+							isVerticalSlider = true,
+							onNextChapter = onNextPage,
+							enabledNext = true,
+							onPreviousChapter = onPreviousPage,
+							enabledPrevious = !controllerState.shellCoverVisible,
+							currentPage = chapterProgress.displayPage,
+							currentPageText = chapterProgress.displayPage.toString(),
+							totalPages = chapterProgress.pageCount,
+							onPageIndexChange = { pageIndex ->
+								onGoToChapterPage(pageIndex)
+							},
+							modifier = Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)
+						)
+					}
 				}
 			}
 			KomikkuNavBarType.VerticalRight -> {
@@ -773,19 +780,25 @@ private fun KomikkuReaderAppBars(
 						.weight(1f)
 						.align(Alignment.End)
 				) {
-					KomikkuChapterNavigator(
-						isVerticalSlider = true,
-						onNextChapter = onNextPage,
-						enabledNext = true,
-						onPreviousChapter = onPreviousPage,
-						enabledPrevious = !controllerState.shellCoverVisible,
-						currentPage = chapterProgress.displayPage,
-						currentPageText = chapterProgress.displayPage.toString(),
-						totalPages = chapterProgress.pageCount,
-						onPageIndexChange = { pageIndex ->
-							onGoToChapterPage(pageIndex)
-						}
-					)
+					Box(
+						modifier = Modifier.fillMaxHeight(),
+						contentAlignment = Alignment.CenterEnd
+					) {
+						KomikkuChapterNavigator(
+							isVerticalSlider = true,
+							onNextChapter = onNextPage,
+							enabledNext = true,
+							onPreviousChapter = onPreviousPage,
+							enabledPrevious = !controllerState.shellCoverVisible,
+							currentPage = chapterProgress.displayPage,
+							currentPageText = chapterProgress.displayPage.toString(),
+							totalPages = chapterProgress.pageCount,
+							onPageIndexChange = { pageIndex ->
+								onGoToChapterPage(pageIndex)
+							},
+							modifier = Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)
+						)
+					}
 				}
 			}
 			KomikkuNavBarType.Bottom -> {
