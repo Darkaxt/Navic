@@ -4410,3 +4410,50 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-15 Overnight Komikku Tapping Inversion Slice
+
+User direction:
+
+- Continue source-level Komikku reader backbone work overnight without publishing another APK.
+- Recycle proven Komikku behavior rather than adding another Navic-only tap workaround.
+
+Komikku source references:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/ViewerNavigation.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt`
+
+Root cause:
+
+- Navic already had the ported Komikku `KomikkuTappingInvertMode` geometry model, but it was dormant.
+- `ReaderSettings` had no persisted tap-inversion field, the reader settings sheet did not expose Komikku's inversion chips, and `komikkuNavigatorForReaderSettings(...)` never assigned `navigation.invertMode`.
+
+Navic implication:
+
+- `ReaderSettings` now carries `tapZoneInvertMode` with supported values `none`, `horizontal`, `vertical`, and `both`.
+- Global preferences, per-book reader overrides, and bridge serialization persist the setting.
+- The in-reader Reading tab exposes a Komikku-order `Tapping inversion` chip row when tap zones are not disabled.
+- Settings > Ebooks and settings search expose the same app-level default.
+- `komikkuNavigatorForReaderSettings(...)` maps the setting to the ported `KomikkuTappingInvertMode`, so region mirroring is handled by the Komikku navigation model instead of a Navic tap-action shortcut.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderReadingTabPortsKomikkuTappingInversionControl" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerUsesPortedKomikkuNavigationModelAsInputAuthority" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepValidTapZonePresets" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripTapZonePreference" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Result: failed before production changes because `tapZoneInvertMode`, `ReaderTapZoneInvert*`, `readerTapZoneInvertMode`, settings UI/search rows, and navigator wiring did not exist.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderReadingTabPortsKomikkuTappingInversionControl" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerUsesPortedKomikkuNavigationModelAsInputAuthority" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepValidTapZonePresets" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripTapZonePreference" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.portedKomikkuNavigationMirrorsTapRegionsWhenInverted" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderReadingTabPortsKomikkuTappingInversionControl" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerUsesPortedKomikkuNavigationModelAsInputAuthority" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepValidTapZonePresets" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripTapZonePreference" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.

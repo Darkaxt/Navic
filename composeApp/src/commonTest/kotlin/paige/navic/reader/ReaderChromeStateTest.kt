@@ -1,5 +1,9 @@
 package paige.navic.reader
 
+import paige.navic.ui.screens.reader.KomikkuNavigationRegion
+import paige.navic.ui.screens.reader.KomikkuPoint
+import paige.navic.ui.screens.reader.KomikkuRightAndLeftNavigation
+import paige.navic.ui.screens.reader.KomikkuTappingInvertMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -283,6 +287,19 @@ class ReaderChromeStateTest {
 			readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Right, ReaderDirectionRtl)
 		)
 		assertEquals(null, readerTapZonePageTurnDirectionFor(ReaderTapZoneAction.Menu, ReaderDirectionLtr))
+	}
+
+	@Test
+	fun portedKomikkuNavigationMirrorsTapRegionsWhenInverted() {
+		val navigation = KomikkuRightAndLeftNavigation()
+
+		assertEquals(KomikkuNavigationRegion.LEFT, navigation.getAction(KomikkuPoint(0.05f, 0.5f)))
+		assertEquals(KomikkuNavigationRegion.RIGHT, navigation.getAction(KomikkuPoint(0.95f, 0.5f)))
+
+		navigation.invertMode = KomikkuTappingInvertMode.HORIZONTAL
+
+		assertEquals(KomikkuNavigationRegion.RIGHT, navigation.getAction(KomikkuPoint(0.05f, 0.5f)))
+		assertEquals(KomikkuNavigationRegion.LEFT, navigation.getAction(KomikkuPoint(0.95f, 0.5f)))
 	}
 
 	@Test

@@ -81,6 +81,11 @@ import navic.composeapp.generated.resources.option_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_default
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_disabled
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_edge
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert_both
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert_horizontal
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert_none
+import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert_vertical
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_kindle
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shaped
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
@@ -121,6 +126,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styl
 import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_show_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
+import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone_invert
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
 import navic.composeapp.generated.resources.subtitle_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
@@ -172,6 +178,10 @@ import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
+import paige.navic.reader.ReaderTapZoneInvertBoth
+import paige.navic.reader.ReaderTapZoneInvertHorizontal
+import paige.navic.reader.ReaderTapZoneInvertNone
+import paige.navic.reader.ReaderTapZoneInvertVertical
 import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
@@ -201,6 +211,7 @@ fun SettingsEbooksScreen() {
 	val navBarType = ReaderNavBarTypeOption.forNavBarType(settings.navBarType)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
+	val tapZoneInvertMode = ReaderTapZoneInvertOption.forTapZoneInvertMode(settings.tapZoneInvertMode)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
 	val pdfFit = ReaderPdfFitOption.forPdfFitMode(settings.pdfFitMode)
 	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
@@ -425,6 +436,14 @@ fun SettingsEbooksScreen() {
 						selection = tapZone,
 						onSelect = { option -> preferenceManager.readerTapZone = option.tapZone }
 					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_tap_zone_invert)) },
+						items = ReaderTapZoneInvertOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_tap_zone_invert),
+						selection = tapZoneInvertMode,
+						onSelect = { option -> preferenceManager.readerTapZoneInvertMode = option.tapZoneInvertMode }
+					)
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_smaller_tap_zones)) },
 						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_smaller_tap_zones)) },
@@ -617,6 +636,21 @@ private enum class ReaderTapZoneOption(
 	companion object {
 		fun forTapZone(tapZone: String?): ReaderTapZoneOption =
 			entries.firstOrNull { option -> option.tapZone == tapZone } ?: Default
+	}
+}
+
+private enum class ReaderTapZoneInvertOption(
+	val tapZoneInvertMode: String,
+	val title: StringResource
+) {
+	None(ReaderTapZoneInvertNone, Res.string.option_ebook_reader_tap_zone_invert_none),
+	Horizontal(ReaderTapZoneInvertHorizontal, Res.string.option_ebook_reader_tap_zone_invert_horizontal),
+	Vertical(ReaderTapZoneInvertVertical, Res.string.option_ebook_reader_tap_zone_invert_vertical),
+	Both(ReaderTapZoneInvertBoth, Res.string.option_ebook_reader_tap_zone_invert_both);
+
+	companion object {
+		fun forTapZoneInvertMode(tapZoneInvertMode: String?): ReaderTapZoneInvertOption =
+			entries.firstOrNull { option -> option.tapZoneInvertMode == tapZoneInvertMode } ?: None
 	}
 }
 

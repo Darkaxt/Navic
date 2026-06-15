@@ -89,11 +89,13 @@ import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedDirections
 import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedTapZoneInvertModes
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
+import paige.navic.reader.ReaderTapZoneInvertNone
 import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
@@ -934,6 +936,17 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			label = { tapZone -> readerTapZoneSearchLabel(tapZone) },
 			selection = readerSettings.tapZone ?: ReaderTapZoneDefault,
 			onSelect = { tapZone -> preferenceManager.readerTapZone = tapZone }
+		))
+		add(selectionRow(
+			id = "ebooks.tap-zone-invert",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_tap_zone_invert),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_tap_zone_invert),
+			keywords = listOf("reader", "ebook", "EPUB", "tap", "gesture", "Komikku", "invert", "mirror"),
+			items = readerTapZoneInvertSearchOptions,
+			label = { tapZoneInvertMode -> readerTapZoneInvertSearchLabel(tapZoneInvertMode) },
+			selection = readerSettings.tapZoneInvertMode ?: ReaderTapZoneInvertNone,
+			onSelect = { tapZoneInvertMode -> preferenceManager.readerTapZoneInvertMode = tapZoneInvertMode }
 		))
 		add(switchRow(
 			id = "ebooks.smaller-tap-zones",

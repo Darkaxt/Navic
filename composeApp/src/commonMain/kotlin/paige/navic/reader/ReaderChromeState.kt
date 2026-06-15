@@ -64,6 +64,10 @@ const val ReaderTapZoneKindle = "kindle"
 const val ReaderTapZoneLShaped = "l-shaped"
 const val ReaderTapZoneRightLeft = "right-left"
 const val ReaderTapZoneDisabled = "disabled"
+const val ReaderTapZoneInvertNone = "none"
+const val ReaderTapZoneInvertHorizontal = "horizontal"
+const val ReaderTapZoneInvertVertical = "vertical"
+const val ReaderTapZoneInvertBoth = "both"
 const val ReaderOrientationDefault = "default"
 const val ReaderOrientationFree = "free"
 const val ReaderOrientationPortrait = "portrait"
@@ -105,6 +109,13 @@ val ReaderSupportedTapZones: List<String> = listOf(
 	ReaderTapZoneLShaped,
 	ReaderTapZoneRightLeft,
 	ReaderTapZoneDisabled
+)
+
+val ReaderSupportedTapZoneInvertModes: List<String> = listOf(
+	ReaderTapZoneInvertNone,
+	ReaderTapZoneInvertHorizontal,
+	ReaderTapZoneInvertVertical,
+	ReaderTapZoneInvertBoth
 )
 
 val ReaderSupportedThemes: List<String> = listOf(
@@ -210,6 +221,10 @@ fun normalizedReaderFlowMode(
 
 fun normalizedReaderTapZone(tapZone: String?): String =
 	ReaderSupportedTapZones.firstOrNull { supported -> supported == tapZone } ?: ReaderTapZoneDefault
+
+fun normalizedReaderTapZoneInvertMode(tapZoneInvertMode: String?): String =
+	ReaderSupportedTapZoneInvertModes.firstOrNull { supported -> supported == tapZoneInvertMode }
+		?: ReaderTapZoneInvertNone
 
 fun normalizedReaderOrientation(orientation: String?): String =
 	ReaderSupportedOrientations.firstOrNull { supported -> supported == orientation } ?: ReaderOrientationDefault
@@ -446,6 +461,12 @@ fun nextReaderTapZone(tapZone: String?): String {
 	return ReaderSupportedTapZones[(index + 1) % ReaderSupportedTapZones.size]
 }
 
+fun nextReaderTapZoneInvertMode(tapZoneInvertMode: String?): String {
+	val normalized = normalizedReaderTapZoneInvertMode(tapZoneInvertMode)
+	val index = ReaderSupportedTapZoneInvertModes.indexOf(normalized).takeIf { it >= 0 } ?: 0
+	return ReaderSupportedTapZoneInvertModes[(index + 1) % ReaderSupportedTapZoneInvertModes.size]
+}
+
 fun nextReaderOrientation(orientation: String?): String {
 	val normalized = normalizedReaderOrientation(orientation)
 	val index = ReaderSupportedOrientations.indexOf(normalized).takeIf { it >= 0 } ?: 0
@@ -509,6 +530,14 @@ fun readerTapZoneShortLabel(tapZone: String?): String =
 		ReaderTapZoneRightLeft -> "R/L"
 		ReaderTapZoneDisabled -> "Off"
 		else -> "Default"
+	}
+
+fun readerTapZoneInvertModeShortLabel(tapZoneInvertMode: String?): String =
+	when (normalizedReaderTapZoneInvertMode(tapZoneInvertMode)) {
+		ReaderTapZoneInvertHorizontal -> "Horizontal"
+		ReaderTapZoneInvertVertical -> "Vertical"
+		ReaderTapZoneInvertBoth -> "Both"
+		else -> "None"
 	}
 
 fun readerOrientationShortLabel(orientation: String?): String =
@@ -581,6 +610,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		flowMode = ReaderFlowPaged,
 		paged = true,
 		tapZone = ReaderTapZoneDefault,
+		tapZoneInvertMode = ReaderTapZoneInvertNone,
 		smallerTapZone = false,
 		showTapZones = false,
 		publisherStyles = false,
@@ -616,6 +646,7 @@ fun normalizedReaderSettings(
 	flowMode: String? = null,
 	paged: Boolean,
 	tapZone: String? = ReaderTapZoneDefault,
+	tapZoneInvertMode: String? = ReaderTapZoneInvertNone,
 	smallerTapZone: Boolean = false,
 	showTapZones: Boolean = false,
 	publisherStyles: Boolean = false,
@@ -671,6 +702,7 @@ fun normalizedReaderSettings(
 		paged = normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolled &&
 			normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolledGaps,
 		tapZone = normalizedReaderTapZone(tapZone),
+		tapZoneInvertMode = normalizedReaderTapZoneInvertMode(tapZoneInvertMode),
 		smallerTapZone = smallerTapZone,
 		showTapZones = showTapZones,
 		publisherStyles = publisherStyles,
@@ -711,6 +743,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		flowMode = flowMode,
 		paged = paged ?: true,
 		tapZone = tapZone,
+		tapZoneInvertMode = tapZoneInvertMode,
 		smallerTapZone = smallerTapZone ?: false,
 		showTapZones = showTapZones ?: false,
 		publisherStyles = publisherStyles ?: false,

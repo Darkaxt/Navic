@@ -67,8 +67,12 @@ import paige.navic.reader.ReaderSupportedFlowModes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
+import paige.navic.reader.ReaderSupportedTapZoneInvertModes
 import paige.navic.reader.ReaderSupportedTapZones
 import paige.navic.reader.ReaderSupportedThemes
+import paige.navic.reader.ReaderTapZoneInvertBoth
+import paige.navic.reader.ReaderTapZoneInvertHorizontal
+import paige.navic.reader.ReaderTapZoneInvertVertical
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
 import paige.navic.reader.ReaderTapZoneKindle
@@ -295,6 +299,7 @@ internal val readerFlowSearchOptions = ReaderSupportedFlowModes
 internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
 internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 internal val readerTapZoneSearchOptions = ReaderSupportedTapZones
+internal val readerTapZoneInvertSearchOptions = ReaderSupportedTapZoneInvertModes
 
 @Composable
 internal fun readerFontFamilySearchLabel(fontFamily: String): String =
@@ -383,6 +388,15 @@ internal fun readerTapZoneSearchLabel(tapZone: String): String =
 		ReaderTapZoneRightLeft -> stringResource(Res.string.option_ebook_reader_tap_zone_right_left)
 		ReaderTapZoneDisabled -> stringResource(Res.string.option_ebook_reader_tap_zone_disabled)
 		else -> stringResource(Res.string.option_ebook_reader_tap_zone_default)
+	}
+
+@Composable
+internal fun readerTapZoneInvertSearchLabel(tapZoneInvertMode: String): String =
+	when (tapZoneInvertMode) {
+		ReaderTapZoneInvertHorizontal -> stringResource(Res.string.option_ebook_reader_tap_zone_invert_horizontal)
+		ReaderTapZoneInvertVertical -> stringResource(Res.string.option_ebook_reader_tap_zone_invert_vertical)
+		ReaderTapZoneInvertBoth -> stringResource(Res.string.option_ebook_reader_tap_zone_invert_both)
+		else -> stringResource(Res.string.option_ebook_reader_tap_zone_invert_none)
 	}
 
 @Composable

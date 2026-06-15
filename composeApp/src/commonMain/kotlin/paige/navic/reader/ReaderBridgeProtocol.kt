@@ -76,6 +76,7 @@ data class ReaderSettings(
 	val flowMode: String? = null,
 	val paged: Boolean? = null,
 	val tapZone: String? = null,
+	val tapZoneInvertMode: String? = null,
 	val smallerTapZone: Boolean? = null,
 	val showTapZones: Boolean? = null,
 	val nativeTapZones: Boolean? = null,
@@ -477,6 +478,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }
+		tapZoneInvertMode?.let { put("tapZoneInvertMode", it) }
 		smallerTapZone?.let { put("smallerTapZone", it) }
 		showTapZones?.let { put("showTapZones", it) }
 		nativeTapZones?.let { put("nativeTapZones", it) }

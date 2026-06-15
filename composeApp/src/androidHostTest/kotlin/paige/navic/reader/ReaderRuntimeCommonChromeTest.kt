@@ -110,6 +110,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderReadingTabPortsKomikkuTappingInversionControl() {
+		val readerScreenText = readerScreenFile().readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val preferencesText = listOf(
+			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate PreferenceManager.kt")
+		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+
+		assertContains(readerScreenText, "Tapping inversion")
+		assertContains(readerScreenText, "KomikkuTapZoneInvertOptions")
+		assertContains(readerScreenText, "settings.copy(tapZoneInvertMode = tapZoneInvertMode)")
+		assertContains(readerScreenText, "komikkuTappingInvertMode(settings.tapZoneInvertMode)")
+		assertContains(preferencesText, "readerTapZoneInvertMode")
+		assertContains(bridgeText, "tapZoneInvertMode")
+		assertContains(ebooksSettingsText, "option_ebook_reader_tap_zone_invert")
+		assertContains(ebooksSettingsText, "readerTapZoneInvertMode")
+		assertContains(searchSettingsText, "ebooks.tap-zone-invert")
+		assertContains(searchSettingsText, "ReaderSupportedTapZoneInvertModes")
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuStyleOrientationControl() {
 		val orientationEffectText = readerAndroidFile("ReaderOrientationEffect.android.kt").readText()
 		val readerScreenText = readerScreenFile().readText()

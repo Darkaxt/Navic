@@ -149,12 +149,17 @@ import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedSettingsScopes
+import paige.navic.reader.ReaderSupportedTapZoneInvertModes
 import paige.navic.reader.ReaderSupportedThemes
 import paige.navic.reader.ReaderSupportedColorFilterModes
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
 import paige.navic.reader.ReaderTapZoneKindle
+import paige.navic.reader.ReaderTapZoneInvertBoth
+import paige.navic.reader.ReaderTapZoneInvertHorizontal
+import paige.navic.reader.ReaderTapZoneInvertNone
+import paige.navic.reader.ReaderTapZoneInvertVertical
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
 import paige.navic.reader.ReaderTocItem
@@ -171,6 +176,7 @@ import paige.navic.reader.normalizedReaderOrientation
 import paige.navic.reader.normalizedReaderPdfFitMode
 import paige.navic.reader.normalizedReaderSettings
 import paige.navic.reader.normalizedReaderTapZone
+import paige.navic.reader.normalizedReaderTapZoneInvertMode
 import paige.navic.reader.normalizedReaderTheme
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.reader.readerDefaultTapZoneMode
@@ -257,6 +263,13 @@ private val KomikkuTapZoneOptions = listOf(
 	ReaderTapZoneEdge to "Edge",
 	ReaderTapZoneRightLeft to "Right and Left",
 	ReaderTapZoneDisabled to "Disabled"
+)
+
+private val KomikkuTapZoneInvertOptions = listOf(
+	ReaderTapZoneInvertNone to "None",
+	ReaderTapZoneInvertHorizontal to "Horizontal",
+	ReaderTapZoneInvertVertical to "Vertical",
+	ReaderTapZoneInvertBoth to "Both"
 )
 
 private fun komikkuSettingsTabs(publicationFormat: ReaderPublicationFormat): List<KomikkuSettingsTab> =
@@ -346,7 +359,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
 	val readerFocusRequester = remember { FocusRequester() }
-	val navigator = remember(settings.tapZone, settings.smallerTapZone, settings.flowMode) {
+	val navigator = remember(settings.tapZone, settings.tapZoneInvertMode, settings.smallerTapZone, settings.flowMode) {
 		komikkuNavigatorForReaderSettings(settings)
 	}
 
@@ -1203,6 +1216,16 @@ private fun KomikkuReaderSettingsDialog(
 											onSettingsChange(settings.copy(tapZone = tapZone))
 										}
 									)
+									if (normalizedReaderTapZone(settings.tapZone) != ReaderTapZoneDisabled) {
+										KomikkuSettingsChipRow(
+											title = "Tapping inversion",
+											options = KomikkuTapZoneInvertOptions,
+											selectedValue = normalizedReaderTapZoneInvertMode(settings.tapZoneInvertMode),
+											onSelect = { tapZoneInvertMode ->
+												onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))
+											}
+										)
+									}
 									KomikkuSettingsSwitchRow(
 										title = "Smaller tap zones",
 										checked = settings.smallerTapZone == true,
@@ -1989,5 +2012,14 @@ private fun komikkuNavigatorForReaderSettings(settings: ReaderSettings): Komikku
 		ReaderTapZoneDisabled -> KomikkuDisabledNavigation(smallerTapZone)
 		else -> KomikkuRightAndLeftNavigation(smallerTapZone)
 	}
+	navigation.invertMode = komikkuTappingInvertMode(settings.tapZoneInvertMode)
 	return KomikkuReaderNavigator(navigation)
 }
+
+private fun komikkuTappingInvertMode(tapZoneInvertMode: String?): KomikkuTappingInvertMode =
+	when (normalizedReaderTapZoneInvertMode(tapZoneInvertMode)) {
+		ReaderTapZoneInvertHorizontal -> KomikkuTappingInvertMode.HORIZONTAL
+		ReaderTapZoneInvertVertical -> KomikkuTappingInvertMode.VERTICAL
+		ReaderTapZoneInvertBoth -> KomikkuTappingInvertMode.BOTH
+		else -> KomikkuTappingInvertMode.NONE
+	}

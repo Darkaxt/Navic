@@ -35,6 +35,7 @@ class ReaderBridgeProtocolTest {
 				navBarType = ReaderNavBarTypeBottom,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,
+				tapZoneInvertMode = ReaderTapZoneInvertHorizontal,
 				smallerTapZone = true,
 				showTapZones = true,
 				publisherStyles = true,
@@ -72,6 +73,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"navBarType\":\"bottom\"")
 		assertContains(script, "\"paged\":false")
 		assertContains(script, "\"tapZone\":\"kindle\"")
+		assertContains(script, "\"tapZoneInvertMode\":\"horizontal\"")
 		assertContains(script, "\"smallerTapZone\":true")
 		assertContains(script, "\"showTapZones\":true")
 		assertContains(script, "\"publisherStyles\":true")

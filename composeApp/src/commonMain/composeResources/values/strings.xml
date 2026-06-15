@@ -230,6 +230,7 @@
 	<string name="subtitle_ebook_reader_nav_bar_type">Choose whether reader progress controls appear on the right, left, or bottom overlay.</string>
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
+	<string name="subtitle_ebook_reader_tap_zone_invert">Mirror tap navigation regions horizontally, vertically, or both like Komikku.</string>
 	<string name="subtitle_ebook_reader_smaller_tap_zones">Shrink page-turn regions so the center menu area is easier to reach.</string>
 	<string name="subtitle_ebook_reader_show_tap_zones">Draw the active reader tap regions over the page for gesture debugging.</string>
 	<string name="subtitle_ebook_reader_publisher_styles">Prefer EPUB-provided typography and spacing instead of forcing Navic reader typography.</string>
@@ -596,6 +597,11 @@
 	<string name="option_ebook_reader_tap_zone_l_shaped">L shaped</string>
 	<string name="option_ebook_reader_tap_zone_right_left">Right and left</string>
 	<string name="option_ebook_reader_tap_zone_disabled">Disabled</string>
+	<string name="option_ebook_reader_tap_zone_invert">Tapping inversion</string>
+	<string name="option_ebook_reader_tap_zone_invert_none">None</string>
+	<string name="option_ebook_reader_tap_zone_invert_horizontal">Horizontal</string>
+	<string name="option_ebook_reader_tap_zone_invert_vertical">Vertical</string>
+	<string name="option_ebook_reader_tap_zone_invert_both">Both</string>
 	<string name="option_ebook_reader_smaller_tap_zones">Smaller tap zones</string>
 	<string name="option_ebook_reader_show_tap_zones">Show tap zones</string>
 	<string name="option_ebook_reader_publisher_styles">Publisher styles</string>

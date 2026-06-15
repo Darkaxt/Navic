@@ -267,6 +267,7 @@ class PreferenceManager(
 	var readerFlowMode by preference("paged")
 	var readerPaged by preference(true)
 	var readerTapZone by preference("default")
+	var readerTapZoneInvertMode by preference("none")
 	var readerSmallerTapZone by preference(false)
 	var readerShowTapZones by preference(false)
 	var readerPdfFitMode by preference("width")

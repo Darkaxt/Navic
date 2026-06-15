@@ -359,6 +359,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(navigationText.contains("KomikkuTappingInvertMode"))
 		assertTrue(navigationText.contains("fun invert(invertMode: KomikkuTappingInvertMode)"))
 		assertTrue(navigationText.contains("getAction(pos: KomikkuPoint)"))
+		assertTrue(activeText.contains("settings.tapZoneInvertMode"))
+		assertTrue(activeText.contains("navigation.invertMode = komikkuTappingInvertMode(settings.tapZoneInvertMode)"))
 		assertTrue(activeText.contains("KomikkuReaderNavigator("))
 		assertTrue(activeText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(androidText.contains("navigator.getAction("))
@@ -1201,6 +1203,12 @@ class ReaderKomikkuBackboneResetTest {
 				readerScreenText.contains("FilterChip(") &&
 				readerScreenText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
 			"Tap-zone presets must be real settings chips routed through ReaderSettings."
+		)
+		assertTrue(
+			readerScreenText.contains("Tapping inversion") &&
+				readerScreenText.contains("KomikkuTapZoneInvertOptions") &&
+				readerScreenText.contains("onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))"),
+			"Komikku's tapping inversion chips must be routed through ReaderSettings and the ported navigator."
 		)
 		assertTrue(
 			readerScreenText.contains("Smaller tap zones") &&

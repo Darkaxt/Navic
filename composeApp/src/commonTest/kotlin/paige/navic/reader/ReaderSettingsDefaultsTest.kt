@@ -32,6 +32,7 @@ class ReaderSettingsDefaultsTest {
 				flowMode = ReaderFlowScrolled,
 				paged = false,
 				tapZone = ReaderTapZoneDefault,
+				tapZoneInvertMode = ReaderTapZoneInvertNone,
 				smallerTapZone = false,
 				showTapZones = false,
 				pdfFitMode = ReaderPdfFitWidth,
@@ -91,6 +92,7 @@ class ReaderSettingsDefaultsTest {
 				flowMode = ReaderFlowPaged,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
+				tapZoneInvertMode = ReaderTapZoneInvertBoth,
 				smallerTapZone = true,
 				showTapZones = true,
 				pdfFitMode = ReaderPdfFitWidth,
@@ -118,6 +120,7 @@ class ReaderSettingsDefaultsTest {
 				navBarType = ReaderNavBarTypeBottom,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
+				tapZoneInvertMode = ReaderTapZoneInvertBoth,
 				smallerTapZone = true,
 				showTapZones = true,
 				publisherStyles = true,
@@ -516,6 +519,21 @@ class ReaderSettingsDefaultsTest {
 	@Test
 	fun readerSettingsDefaultsKeepValidTapZonePresets() {
 		assertEquals(
+			listOf(
+				ReaderTapZoneInvertNone,
+				ReaderTapZoneInvertHorizontal,
+				ReaderTapZoneInvertVertical,
+				ReaderTapZoneInvertBoth
+			),
+			ReaderSupportedTapZoneInvertModes
+		)
+		assertEquals(ReaderTapZoneInvertNone, defaultReaderSettings().tapZoneInvertMode)
+		assertEquals(ReaderTapZoneInvertNone, normalizedReaderTapZoneInvertMode("missing"))
+		assertEquals("None", readerTapZoneInvertModeShortLabel(ReaderTapZoneInvertNone))
+		assertEquals("Horizontal", readerTapZoneInvertModeShortLabel(ReaderTapZoneInvertHorizontal))
+		assertEquals("Vertical", readerTapZoneInvertModeShortLabel(ReaderTapZoneInvertVertical))
+		assertEquals("Both", readerTapZoneInvertModeShortLabel(ReaderTapZoneInvertBoth))
+		assertEquals(
 			ReaderTapZoneEdge,
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
@@ -526,6 +544,18 @@ class ReaderSettingsDefaultsTest {
 				paged = true,
 				tapZone = ReaderTapZoneEdge
 			).tapZone
+		)
+		assertEquals(
+			ReaderTapZoneInvertHorizontal,
+			normalizedReaderSettings(
+				fontFamily = ReaderSansFontFamily,
+				fontSizePercent = 100,
+				lineHeightPercent = 155,
+				marginPercent = 0,
+				theme = "light",
+				paged = true,
+				tapZoneInvertMode = ReaderTapZoneInvertHorizontal
+			).tapZoneInvertMode
 		)
 		assertEquals(
 			ReaderTapZoneDisabled,

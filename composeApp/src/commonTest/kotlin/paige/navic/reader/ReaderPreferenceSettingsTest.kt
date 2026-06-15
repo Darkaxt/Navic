@@ -41,22 +41,26 @@ class ReaderPreferenceSettingsTest {
 		val preferences = PreferenceManager(MapSettings())
 
 		preferences.readerTapZone = ReaderTapZoneEdge
+		preferences.readerTapZoneInvertMode = ReaderTapZoneInvertHorizontal
 		preferences.readerSmallerTapZone = true
 		preferences.readerShowTapZones = true
 
 		assertEquals(ReaderTapZoneEdge, preferences.readerDefaultSettings().tapZone)
+		assertEquals(ReaderTapZoneInvertHorizontal, preferences.readerDefaultSettings().tapZoneInvertMode)
 		assertEquals(true, preferences.readerDefaultSettings().smallerTapZone)
 		assertEquals(true, preferences.readerDefaultSettings().showTapZones)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(
 				tapZone = ReaderTapZoneDisabled,
+				tapZoneInvertMode = ReaderTapZoneInvertBoth,
 				smallerTapZone = false,
 				showTapZones = false
 			)
 		)
 
 		assertEquals(ReaderTapZoneDisabled, preferences.readerTapZone)
+		assertEquals(ReaderTapZoneInvertBoth, preferences.readerTapZoneInvertMode)
 		assertEquals(false, preferences.readerSmallerTapZone)
 		assertEquals(false, preferences.readerShowTapZones)
 	}
@@ -339,6 +343,7 @@ class ReaderPreferenceSettingsTest {
 				fontSizePercent = 128,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
+				tapZoneInvertMode = ReaderTapZoneInvertVertical,
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x44225588,
 				colorFilterMode = ReaderColorFilterModeOverlay,
@@ -352,6 +357,7 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(128, bookSettings.fontSizePercent)
 		assertEquals(ReaderDirectionRtl, bookSettings.direction)
 		assertEquals(ReaderNavBarTypeBottom, bookSettings.navBarType)
+		assertEquals(ReaderTapZoneInvertVertical, bookSettings.tapZoneInvertMode)
 		assertEquals(true, bookSettings.colorFilterEnabled)
 		assertEquals(0x44225588, bookSettings.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)

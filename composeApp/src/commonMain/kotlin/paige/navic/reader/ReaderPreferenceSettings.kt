@@ -56,6 +56,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
+		tapZoneInvertMode = readerTapZoneInvertMode,
 		smallerTapZone = readerSmallerTapZone,
 		showTapZones = readerShowTapZones,
 		pdfFitMode = readerPdfFitMode,
@@ -95,6 +96,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
+	readerTapZoneInvertMode = normalized.tapZoneInvertMode ?: ReaderTapZoneInvertNone
 	readerSmallerTapZone = normalized.smallerTapZone ?: false
 	readerShowTapZones = normalized.showTapZones ?: false
 	readerPdfFitMode = normalized.pdfFitMode ?: ReaderPdfFitWidth
@@ -159,6 +161,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
+		tapZoneInvertMode = override.tapZoneInvertMode ?: tapZoneInvertMode,
 		smallerTapZone = override.smallerTapZone ?: smallerTapZone,
 		showTapZones = override.showTapZones ?: showTapZones,
 		pdfFitMode = override.pdfFitMode ?: pdfFitMode,
@@ -198,6 +201,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
+		tapZoneInvertMode = if (tapZoneInvertMode != null) normalized.tapZoneInvertMode else null,
 		smallerTapZone = if (smallerTapZone != null) normalized.smallerTapZone else null,
 		showTapZones = if (showTapZones != null) normalized.showTapZones else null,
 		pdfFitMode = if (pdfFitMode != null) normalized.pdfFitMode else null,
@@ -272,6 +276,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
+		tapZoneInvertMode = stringValue("tapZoneInvertMode"),
 		smallerTapZone = booleanValue("smallerTapZone"),
 		showTapZones = booleanValue("showTapZones"),
 		pdfFitMode = stringValue("pdfFitMode"),
@@ -308,6 +313,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }
+		tapZoneInvertMode?.let { put("tapZoneInvertMode", it) }
 		smallerTapZone?.let { put("smallerTapZone", it) }
 		showTapZones?.let { put("showTapZones", it) }
 		pdfFitMode?.let { put("pdfFitMode", it) }
