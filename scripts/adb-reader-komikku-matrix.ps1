@@ -6,7 +6,8 @@ param(
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $NoLaunch,
-    [switch] $IncludeCoverChecks
+    [switch] $IncludeCoverChecks,
+    [switch] $ContinueOnFailure
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,46 @@ if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
 }
 $ArtifactRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ArtifactRoot)
 New-Item -ItemType Directory -Force -Path $ArtifactRoot | Out-Null
+
+$matrixResults = New-Object System.Collections.Generic.List[object]
+$matrixFailures = New-Object System.Collections.Generic.List[object]
+
+function Record-ReaderMatrixResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Name,
+        [Parameter(Mandatory = $true)]
+        [string] $Status,
+        [Parameter(Mandatory = $true)]
+        [string] $ArtifactDir,
+        [string] $ErrorMessage = ""
+    )
+
+    $result = [pscustomobject]@{
+        Name = $Name
+        Status = $Status
+        ArtifactDir = $ArtifactDir
+        Error = $ErrorMessage
+    }
+    $matrixResults.Add($result)
+    if ($Status -ne "PASS") {
+        $matrixFailures.Add($result)
+    }
+}
+
+function Write-ReaderMatrixSummary {
+    $summaryPath = Join-Path $ArtifactRoot "reader-matrix-summary.csv"
+    $failurePath = Join-Path $ArtifactRoot "reader-matrix-failures.txt"
+
+    $matrixResults | Export-Csv -Path $summaryPath -NoTypeInformation -Encoding utf8
+    if ($matrixFailures.Count -gt 0) {
+        $matrixFailures |
+            ForEach-Object { "$($_.Status) $($_.Name): $($_.Error) [$($_.ArtifactDir)]" } |
+            Out-File -Encoding utf8 $failurePath
+    } else {
+        "No matrix failures." | Out-File -Encoding utf8 $failurePath
+    }
+}
 
 $ReaderNextWalkTapFractions = @(
     "0.90,0.50,650",
@@ -129,9 +170,21 @@ function Invoke-ReaderMatrixStep {
     }
 
     Write-Host "reader-matrix step: $Name"
-    & $smokeScript @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "reader-matrix step failed: $Name"
+    try {
+        & $smokeScript @args
+        if ($LASTEXITCODE -ne 0) {
+            throw "adb-reader-smoke exited with code $LASTEXITCODE"
+        }
+        Record-ReaderMatrixResult -Name $Name -Status "PASS" -ArtifactDir $artifactDir
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Record-ReaderMatrixResult -Name $Name -Status "FAIL" -ArtifactDir $artifactDir -ErrorMessage $errorMessage
+        Write-Host "reader-matrix step failed: $Name"
+        Write-Host $errorMessage
+        if (-not $ContinueOnFailure) {
+            Write-ReaderMatrixSummary
+            throw "reader-matrix step failed: $Name"
+        }
     }
 }
 
@@ -207,3 +260,8 @@ if ($IncludeCoverChecks) {
 }
 
 Write-Host "Komikku reader matrix artifacts: $ArtifactRoot"
+Write-ReaderMatrixSummary
+
+if ($matrixFailures.Count -gt 0) {
+    throw "Komikku reader matrix failed: $($matrixFailures.Count) step(s). See $ArtifactRoot"
+}

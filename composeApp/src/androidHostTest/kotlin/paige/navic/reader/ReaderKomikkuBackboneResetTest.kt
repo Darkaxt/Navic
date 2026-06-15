@@ -689,6 +689,21 @@ class ReaderKomikkuBackboneResetTest {
 			matrixText.contains("-NoLaunch"),
 			"After the first launch/install step, matrix steps must keep the same open reader state instead of relaunching into the library."
 		)
+		assertTrue(
+			matrixText.contains("[switch] \$ContinueOnFailure"),
+			"The morning matrix needs an explicit full-diagnostics mode so one broken gesture does not prevent collecting the rest of the evidence."
+		)
+		assertTrue(
+			matrixText.contains("reader-matrix-summary.csv") &&
+				matrixText.contains("reader-matrix-failures.txt"),
+			"The matrix root must include an aggregate pass/fail summary, not only per-step folders."
+		)
+		assertTrue(
+			matrixText.contains("Record-ReaderMatrixResult") &&
+				matrixText.contains("\$matrixFailures.Count") &&
+				matrixText.contains("Komikku reader matrix failed"),
+			"The matrix must record step outcomes and still exit non-zero after a full diagnostic run with failures."
+		)
 	}
 
 	@Test

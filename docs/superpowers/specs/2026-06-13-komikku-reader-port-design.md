@@ -3641,3 +3641,54 @@ Manual confirmation after the matrix:
 Release rule:
 
 - Do not publish a GitHub release unless this RC fixes at least one major acceptance failure and the adb matrix/manual checks support that claim.
+
+## 2026-06-15 Overnight ADB Matrix Full-Diagnostics Mode
+
+User direction:
+
+- The morning run should perform the whole adb array of checks so remaining failures can be compared in one pass.
+- One broken gesture must not hide whether the other gestures, texture checks, long-press path, PDF path, or cover checks improved or regressed.
+- This is validation tooling only. It does not publish another release candidate.
+
+Root cause:
+
+- `scripts/adb-reader-komikku-matrix.ps1` was fail-fast only.
+- That was useful for CI-style gating, but poor for the morning review because a first failed center tap or texture check would stop the script before collecting later screenshots/logs.
+
+Navic implication:
+
+- The matrix now accepts `-ContinueOnFailure`.
+- Default behavior remains fail-fast.
+- With `-ContinueOnFailure`, every named matrix step still runs and writes its own artifact folder.
+- The matrix root now writes:
+  - `reader-matrix-summary.csv`
+  - `reader-matrix-failures.txt`
+- If any step fails during a full-diagnostics run, the script still exits non-zero at the end with `Komikku reader matrix failed: <n> step(s).`
+
+Morning command shape:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -ContinueOnFailure
+```
+
+If the reader is on the native cover:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: failed before the script change because the matrix had no `-ContinueOnFailure`, no root `reader-matrix-summary.csv`, and no root `reader-matrix-failures.txt`.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: passed on 2026-06-15.
