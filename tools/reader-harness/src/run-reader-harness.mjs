@@ -145,6 +145,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
+    { mode: 'epub-link-jump-drag', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'texture-offset-logic' },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
     { mode: 'epub-texture-page-turns', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
@@ -728,6 +729,229 @@ if (mode === 'epub-native-tap-zone-open') {
       throw new Error('Expected visible tap-zone overlay layer in native tap-zone diagnostic mode')
     }
     console.log(`reader harness epub-native-tap-zone-open passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-link-jump-drag') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-link-jump-drag mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'default',
+          nativeTapZones: false,
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true')
+    }
+
+    const collectState = async label => page.evaluate(sampleLabel => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const location = messages.at(-1) || null
+      const view = document.querySelector('foliate-view')
+      const contents = view?.renderer?.getContents?.() || []
+      return {
+        label: sampleLabel,
+        location,
+        href: location?.href || '',
+        pageIndex: location?.pageIndex,
+        pageCount: location?.pageCount,
+        rendererPage: Number(view?.renderer?.page),
+        rendererPages: Number(view?.renderer?.pages),
+        contentIndexes: contents.map(content => Number(content?.index)).filter(Number.isFinite),
+        traceLength: (window.__navicReaderTrace || []).length,
+        messageLength: (window.__navicReaderPostedMessages || []).length,
+      }
+    }, label)
+
+    const beforeLink = await collectState('before-link')
+    const linkClickResult = await page.evaluate(async () => {
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      const contents = renderer?.getContents?.() || []
+      const sourceContent = contents.find(content => content?.doc?.body)
+      if (!sourceContent?.doc) throw new Error('Missing source content document for link-jump drag probe')
+      const sourceIndex = Number(sourceContent.index)
+      const sections = Array.from(view?.book?.sections || [])
+      const sectionHref = section => section?.href || section?.id || ''
+      const coverPattern = /cover|frontcover|coverpage|cubierta|portada/i
+      const candidates = sections
+        .map((section, index) => ({ index, href: sectionHref(section) }))
+        .filter(section =>
+          section.href &&
+          section.index > sourceIndex + 1 &&
+          !coverPattern.test(section.href)
+        )
+      const fallbackCandidates = sections
+        .map((section, index) => ({ index, href: sectionHref(section) }))
+        .filter(section => section.href && section.index !== sourceIndex && !coverPattern.test(section.href))
+      const target = candidates[0] || fallbackCandidates[0]
+      if (!target) throw new Error(`Missing non-cover target section for source index ${sourceIndex}`)
+      const sourceHref = sectionHref(sections[sourceIndex])
+      const sourceFolder = sourceHref.includes('/') ? sourceHref.slice(0, sourceHref.lastIndexOf('/') + 1) : ''
+      const rawLinkHref = sourceFolder && target.href.startsWith(sourceFolder)
+        ? target.href.slice(sourceFolder.length)
+        : target.href
+
+      const doc = sourceContent.doc
+      const win = doc.defaultView
+      const anchor = doc.createElement('a')
+      anchor.setAttribute('data-navic-link-jump-drag-probe', 'true')
+      anchor.setAttribute('href', rawLinkHref)
+      anchor.textContent = `Navic link jump drag probe ${target.index}`
+      anchor.style.display = 'inline-block'
+      anchor.style.padding = '12px'
+      anchor.style.margin = '12px'
+      doc.body.prepend(anchor)
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const rect = anchor.getBoundingClientRect()
+      anchor.dispatchEvent(new win.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: Math.round(rect.left + rect.width / 2),
+        clientY: Math.round(rect.top + rect.height / 2),
+      }))
+      return {
+        sourceIndex,
+        rawHref: rawLinkHref,
+        resolvedHref: target.href,
+        sourceHref,
+        targetIndex: target.index,
+      }
+    })
+    await page.waitForFunction(
+      beforeTraceLength => (window.__navicReaderTrace || [])
+        .slice(beforeTraceLength)
+        .some(event => event?.type === 'link:navigate'),
+      beforeLink.traceLength
+    )
+    await page.waitForFunction(
+      beforeMessageLength => (window.__navicReaderPostedMessages || [])
+        .slice(beforeMessageLength)
+        .some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex)),
+      beforeLink.messageLength
+    )
+    const afterLink = await collectState('after-link')
+
+    const viewport = page.viewportSize() || readerHarnessViewport.viewport
+    await performReaderTouchDrag(page, {
+      startX: viewport.width * 0.82,
+      startY: viewport.height * 0.52,
+      endX: viewport.width * 0.18,
+      endY: viewport.height * 0.52,
+      durationMs: 520,
+      steps: 10,
+    })
+    await page.waitForFunction(
+      previousPageIndex => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const latest = messages.at(-1)
+        return latest && Number(latest.pageIndex) > Number(previousPageIndex)
+      },
+      afterLink.pageIndex
+    )
+    const afterDrag = await collectState('after-drag')
+    const trace = await page.evaluate(() => window.__navicReaderTrace || [])
+    const postedMessages = await page.evaluate(() => window.__navicReaderPostedMessages || [])
+    const linkNavigateCount = trace.filter(event => event?.type === 'link:navigate').length
+    if (linkNavigateCount < 1) {
+      throw new Error('Expected link-jump drag to exercise link:navigate before dragging')
+    }
+    if (Number(afterDrag.pageIndex) <= Number(afterLink.pageIndex)) {
+      throw new Error(
+        `Expected link-jump drag to advance after EPUB link relocation; ` +
+        `observed ${afterLink.pageIndex}/${afterLink.pageCount} -> ${afterDrag.pageIndex}/${afterDrag.pageCount}`
+      )
+    }
+    const linkJumpDrag = {
+      beforeLink,
+      linkClickResult,
+      afterLink,
+      afterDrag,
+      linkNavigateCount,
+    }
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-link-jump-drag.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      linkJumpDrag,
+      trace,
+      postedMessages,
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    console.log(`reader harness epub-link-jump-drag passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

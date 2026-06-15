@@ -3282,3 +3282,54 @@ Morning adb validation:
 Release status:
 
 - No release APK was built or published for this validation-only slice.
+
+## 2026-06-15 Overnight Link-Jump Drag Harness Gate
+
+User direction:
+
+- Keep source work on the Komikku reader backbone without publishing another release for isolated local changes.
+- The reported bug "dragging does not work after using a hyperlink/chapter jump" must be reproducible locally where possible before another APK cycle.
+- Browser/local validation cannot replace Android ADB validation, but it should separate Foliate/WebView renderer failures from Android-native input-owner failures.
+
+Root cause:
+
+- `phase1-stabilization` already covered direct bridge jumps and frontmatter texture transitions, including `goToHref`/`goToCfi` followed by drags.
+- It did not explicitly exercise Navic's in-document link handler (`link:navigate`) followed by a drag.
+- The first harness implementation failed on the real Hobbit fixture because Foliate sections expose `id` rather than `href`, and a raw `OEBPS/Text/3.html` probe link was resolved relative to `OEBPS/Text/1.html` as `OEBPS/Text/OEBPS/Text/3.html`.
+
+Navic implication:
+
+- `tools/reader-harness/src/run-reader-harness.mjs` now has `epub-link-jump-drag`.
+- The mode opens the real EPUB fixture, hides the shell cover, injects a same-folder EPUB link into the current content document, clicks it so the real `attachLinkNavigation(...)` path emits `link:navigate`, then performs a touch drag and requires the visible page index to advance.
+- The probe converts same-folder section identifiers into a real EPUB-relative link such as `3.html`, matching how in-book links should resolve.
+- `phase1-stabilization` now includes `epub-link-jump-drag`, so the overnight/local baseline fails if link relocation leaves the renderer in a stale non-draggable state.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCoversLinkRelocationBeforeDrag"
+```
+
+Result: failed before harness changes because `epub-link-jump-drag`, `linkJumpDrag`, and the specific "Expected link-jump drag to advance" failure gate did not exist.
+
+Focused green checks:
+
+```powershell
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-link-jump-drag --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCoversLinkRelocationBeforeDrag"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results: passed on 2026-06-15.
+
+Local baseline note:
+
+- The combined browser harness now passes 16 checks, adding `epub-link-jump-drag` to the previous 15-check local baseline.
+- This proves the browser/Foliate path can navigate through an in-document EPUB link and then drag from the relocated state.
+- It does not prove Android native input ownership after a real UI chapter/list action. If the phone still fails after a link/chapter jump, the next investigation should focus on the native frame/action routing or release/runtime divergence, not the browser renderer alone.
+
+Release status:
+
+- No release APK was built or published for this harness-only slice.

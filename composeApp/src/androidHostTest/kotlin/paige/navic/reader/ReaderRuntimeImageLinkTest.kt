@@ -788,6 +788,40 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun readerHarnessCoversLinkRelocationBeforeDrag() {
+		val harnessText = listOf(
+			File("tools/reader-harness/src/run-reader-harness.mjs"),
+			File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).first { it.exists() }.readText()
+
+		assertContains(
+			harnessText,
+			"epub-link-jump-drag",
+			message = "The local reader harness must reproduce a real EPUB link/chapter relocation followed by a drag."
+		)
+		assertContains(
+			harnessText,
+			"linkJumpDrag",
+			message = "The link-jump drag check must persist focused evidence instead of being hidden inside a broad smoke test."
+		)
+		assertContains(
+			harnessText,
+			"link:navigate",
+			message = "The regression must exercise Navic's actual in-document link navigation path, not only a bridge goToHref command."
+		)
+		assertContains(
+			harnessText,
+			"performReaderTouchDrag",
+			message = "The regression must verify drag after relocation, because taps and direct bridge navigation can pass while drag state is stale."
+		)
+		assertContains(
+			harnessText,
+			"Expected link-jump drag to advance",
+			message = "The harness must fail with a specific drag-after-link-relocation error."
+		)
+	}
+
+	@Test
 	fun androidReaderKeepsRuntimeContentHitTestOutOfNativeTapDispatch() {
 		val bridgeText = readerBridgeText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
