@@ -2999,3 +2999,57 @@ Release status:
 
 - No release APK was built or published for this isolated layout correction.
 - Morning adb validation should still inspect the rail visually because this is source-contract coverage, not a device screenshot proof.
+
+## 2026-06-15 Overnight Native Drag Diagnostic Split
+
+User direction:
+
+- Morning adb checks should clearly identify which reader layer owned an interaction.
+- Continue source work without publishing a release for isolated diagnostics.
+
+Root cause:
+
+- `KomikkuReaderNativeViewerContainer` logged `Reader shell cover drag candidate` for every horizontal drag candidate, including ordinary EPUB/PDF readable pages.
+- That made adb artifacts ambiguous: a normal-page drag could look like a shell-cover drag in `reader-touch-diagnostics.log`.
+
+Navic implication:
+
+- Native drag candidate logs now split by visible surface:
+  - `Reader shell cover drag candidate ...` when the native cover view is visible.
+  - `Reader native drag candidate ...` on normal readable pages.
+- `scripts/adb-reader-smoke.ps1` captures both patterns and reports `readerNativeDragCandidate=` separately from `shellCoverDragCandidate=`.
+- `Reader native swipe action=...` remains the actual dispatch proof for readable-page swipes; the candidate line is only pre-dispatch evidence.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+```
+
+Result: failed before production changes because neither the Android host nor the adb smoke summary contained `Reader native drag candidate`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+PowerShell parser check:
+
+```powershell
+$files = @('scripts\adb-reader-smoke.ps1','scripts\adb-reader-komikku-matrix.ps1')
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [System.Management.Automation.Language.Parser]::ParseFile($file, [ref] $tokens, [ref] $errors) | Out-Null
+  if ($errors.Count -gt 0) { throw $errors[0].Message }
+}
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this diagnostic-only slice.
+- Morning validation should use the split fields to tell whether a drag failure is native-frame recognition, shell-cover-only behavior, or viewer-action dispatch.

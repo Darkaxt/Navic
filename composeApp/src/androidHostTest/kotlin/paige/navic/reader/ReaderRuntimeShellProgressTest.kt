@@ -394,11 +394,12 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(nativeFrameHostText, "private var shellCoverDragDiagnosticLogged: Boolean = false")
 		assertContains(actionDown, "shellCoverDragDiagnosticLogged = false")
-		assertContains(actionMove, "logReaderShellCoverDragCandidate(dx, dy)")
-		assertContains(nativeFrameHostText, "private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float)")
+		assertContains(actionMove, "logReaderDragCandidate(dx, dy)")
+		assertContains(nativeFrameHostText, "private fun logReaderDragCandidate(deltaX: Float, deltaY: Float)")
 		assertContains(nativeFrameHostText, "Reader shell cover drag candidate")
+		assertContains(nativeFrameHostText, "Reader native drag candidate")
 		assertTrue(
-			actionMove.indexOf("logReaderShellCoverDragCandidate(dx, dy)") <
+			actionMove.indexOf("logReaderDragCandidate(dx, dy)") <
 				actionMove.indexOf("dispatchHorizontalSwipeViewerAction("),
 			"Cover drag diagnostics must run before swipe dispatch so failed drags still leave ADB evidence."
 		)

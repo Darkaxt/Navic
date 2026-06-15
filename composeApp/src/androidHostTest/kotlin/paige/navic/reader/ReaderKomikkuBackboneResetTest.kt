@@ -574,6 +574,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Native readable-page drag diagnostics must prove the top input frame, not WebView, owned the swipe."
 		)
 		assertTrue(
+			androidHostText.contains("Reader native drag candidate"),
+			"Normal readable-page drag diagnostics must not be mislabeled as shell-cover drag candidates."
+		)
+		assertTrue(
 			androidHostText.contains("Reader shell cover swipe action="),
 			"Shell-cover swipe diagnostics must remain visible in adb after the Komikku reset."
 		)
@@ -584,9 +588,14 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			adbSmokeText.contains("Reader native tap action=") &&
 				adbSmokeText.contains("Reader native swipe action=") &&
+				adbSmokeText.contains("Reader native drag candidate") &&
 				adbSmokeText.contains("Reader shell cover swipe action=") &&
 				adbSmokeText.contains("Reader shell cover command action="),
 			"adb reader smoke must accept the active Komikku native-frame diagnostics instead of only legacy Reader surface logs."
+		)
+		assertTrue(
+			adbSmokeText.contains("readerNativeDragCandidate="),
+			"adb reader smoke summary must separate normal-page drag candidates from shell-cover candidates."
 		)
 	}
 

@@ -244,7 +244,7 @@ $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
-    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native swipe action=|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native swipe action=|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
 
     $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
     $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
@@ -269,6 +269,7 @@ if ($CaptureReaderDiagnostics) {
         "readerSurfaceTapAction=$($touchDiagnosticsText -match 'Reader surface tap action=')",
         "readerNativeTapAction=$($touchDiagnosticsText -match 'Reader native tap action=')",
         "readerNativeSwipeAction=$($touchDiagnosticsText -match 'Reader native swipe action=')",
+        "readerNativeDragCandidate=$($touchDiagnosticsText -match 'Reader native drag candidate')",
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",

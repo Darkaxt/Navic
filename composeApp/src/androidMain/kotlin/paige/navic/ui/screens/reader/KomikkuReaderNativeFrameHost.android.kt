@@ -352,7 +352,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (!horizontalSwipeDispatched) {
 					val dx = event.x - swipeStartX
 					val dy = event.y - swipeStartY
-					logReaderShellCoverDragCandidate(dx, dy)
+					logReaderDragCandidate(dx, dy)
 					dispatchHorizontalSwipeViewerAction(
 						deltaX = dx,
 						deltaY = dy
@@ -400,12 +400,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		return true
 	}
 
-	private fun logReaderShellCoverDragCandidate(deltaX: Float, deltaY: Float) {
+	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
 		if (shellCoverDragDiagnosticLogged || abs(deltaX) <= touchSlopPx) return
 		shellCoverDragDiagnosticLogged = true
+		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+		val label = if (shellCoverVisible) {
+			"Reader shell cover drag candidate"
+		} else {
+			"Reader native drag candidate"
+		}
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
-			"Reader shell cover drag candidate dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			"$label dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
 		)
 	}
 
