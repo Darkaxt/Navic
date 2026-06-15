@@ -184,6 +184,32 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripKomikkuColorFilter() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerColorFilterEnabled = true
+		preferences.readerColorFilterArgb = 0x66336699
+		preferences.readerColorFilterMode = ReaderColorFilterModeMultiply
+
+		val defaults = preferences.readerDefaultSettings()
+		assertEquals(true, defaults.colorFilterEnabled)
+		assertEquals(0x66336699, defaults.colorFilterArgb)
+		assertEquals(ReaderColorFilterModeMultiply, defaults.colorFilterMode)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(
+				colorFilterEnabled = false,
+				colorFilterArgb = 0x55221100,
+				colorFilterMode = ReaderColorFilterModeScreen
+			)
+		)
+
+		assertEquals(false, preferences.readerColorFilterEnabled)
+		assertEquals(0x55221100, preferences.readerColorFilterArgb)
+		assertEquals(ReaderColorFilterModeScreen, preferences.readerColorFilterMode)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripOrientation() {
 		val preferences = PreferenceManager(MapSettings())
 
@@ -286,7 +312,10 @@ class ReaderPreferenceSettingsTest {
 			settings = ReaderSettings(
 				theme = ReaderSepiaTheme,
 				fontSizePercent = 128,
-				direction = ReaderDirectionRtl
+				direction = ReaderDirectionRtl,
+				colorFilterEnabled = true,
+				colorFilterArgb = 0x44225588,
+				colorFilterMode = ReaderColorFilterModeOverlay
 			)
 		)
 
@@ -294,6 +323,9 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(ReaderSepiaTheme, bookSettings.theme)
 		assertEquals(128, bookSettings.fontSizePercent)
 		assertEquals(ReaderDirectionRtl, bookSettings.direction)
+		assertEquals(true, bookSettings.colorFilterEnabled)
+		assertEquals(0x44225588, bookSettings.colorFilterArgb)
+		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)
 		assertEquals(ReaderDarkTheme, preferences.readerDefaultSettings().theme)
 		assertEquals(100, preferences.readerDefaultSettings().fontSizePercent)
 	}

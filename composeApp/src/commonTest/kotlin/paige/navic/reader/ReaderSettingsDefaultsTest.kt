@@ -20,6 +20,9 @@ class ReaderSettingsDefaultsTest {
 				paragraphSpacingPercent = 200,
 				marginPercent = 24,
 				dimOverlayPercent = 80,
+				colorFilterEnabled = false,
+				colorFilterArgb = 0,
+				colorFilterMode = ReaderColorFilterModeSrcOver,
 				orientation = ReaderOrientationDefault,
 				theme = "light",
 				direction = ReaderDirectionDefault,
@@ -73,6 +76,9 @@ class ReaderSettingsDefaultsTest {
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
 				dimOverlayPercent = 30,
+				colorFilterEnabled = false,
+				colorFilterArgb = 0,
+				colorFilterMode = ReaderColorFilterModeSrcOver,
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
@@ -388,6 +394,41 @@ class ReaderSettingsDefaultsTest {
 				paged = true
 			).dimOverlayPercent
 		)
+	}
+
+	@Test
+	fun readerSettingsDefaultsKeepKomikkuColorFilterModel() {
+		assertEquals(false, defaultReaderSettings().colorFilterEnabled)
+		assertEquals(0, defaultReaderSettings().colorFilterArgb)
+		assertEquals(ReaderColorFilterModeSrcOver, defaultReaderSettings().colorFilterMode)
+		assertEquals(
+			listOf(
+				ReaderColorFilterModeSrcOver,
+				ReaderColorFilterModeMultiply,
+				ReaderColorFilterModeScreen,
+				ReaderColorFilterModeOverlay,
+				ReaderColorFilterModeLighten,
+				ReaderColorFilterModeDarken
+			),
+			ReaderSupportedColorFilterModes
+		)
+
+		val settings = normalizedReaderSettings(
+			fontFamily = ReaderSansFontFamily,
+			fontSizePercent = 100,
+			lineHeightPercent = 155,
+			marginPercent = 0,
+			theme = "light",
+			paged = true,
+			colorFilterEnabled = true,
+			colorFilterArgb = 0x66336699,
+			colorFilterMode = ReaderColorFilterModeMultiply
+		)
+
+		assertEquals(true, settings.colorFilterEnabled)
+		assertEquals(0x66336699, settings.colorFilterArgb)
+		assertEquals(ReaderColorFilterModeMultiply, settings.colorFilterMode)
+		assertEquals(ReaderColorFilterModeSrcOver, normalizedReaderColorFilterMode("missing"))
 	}
 
 	@Test

@@ -24,6 +24,9 @@ class ReaderBridgeProtocolTest {
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
 				dimOverlayPercent = 30,
+				colorFilterEnabled = true,
+				colorFilterArgb = 0x66336699,
+				colorFilterMode = ReaderColorFilterModeMultiply,
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderDuskTheme,
 				direction = ReaderDirectionRtl,
@@ -55,6 +58,9 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"paragraphSpacingPercent\":75")
 		assertContains(script, "\"marginPercent\":8")
 		assertContains(script, "\"dimOverlayPercent\":30")
+		assertContains(script, "\"colorFilterEnabled\":true")
+		assertContains(script, "\"colorFilterArgb\":1714644633")
+		assertContains(script, "\"colorFilterMode\":\"multiply\"")
 		assertContains(script, "\"orientation\":\"locked-landscape\"")
 		assertContains(script, "\"theme\":\"dusk\"")
 		assertContains(script, "\"direction\":\"rtl\"")

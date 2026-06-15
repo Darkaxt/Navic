@@ -108,6 +108,12 @@ import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.List
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderChromeState
+import paige.navic.reader.ReaderColorFilterModeDarken
+import paige.navic.reader.ReaderColorFilterModeLighten
+import paige.navic.reader.ReaderColorFilterModeMultiply
+import paige.navic.reader.ReaderColorFilterModeOverlay
+import paige.navic.reader.ReaderColorFilterModeScreen
+import paige.navic.reader.ReaderColorFilterModeSrcOver
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
@@ -137,6 +143,7 @@ import paige.navic.reader.ReaderSupportedOrientations
 import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedSettingsScopes
 import paige.navic.reader.ReaderSupportedThemes
+import paige.navic.reader.ReaderSupportedColorFilterModes
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
@@ -168,6 +175,7 @@ import paige.navic.reader.readerSettingsForBook
 import paige.navic.reader.readerSettingsScopeLabel
 import paige.navic.reader.readerThemeShortLabel
 import paige.navic.reader.readerBookSettings
+import paige.navic.reader.readerColorFilterModeShortLabel
 import paige.navic.reader.setReaderBookSettings
 import paige.navic.reader.setReaderDefaultSettings
 import paige.navic.reader.toReaderStartLocatorForReader
@@ -293,6 +301,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerParagraphSpacingPercent,
 		preferenceManager.readerMarginPercent,
 		preferenceManager.readerDimOverlayPercent,
+		preferenceManager.readerColorFilterEnabled,
+		preferenceManager.readerColorFilterArgb,
+		preferenceManager.readerColorFilterMode,
 		preferenceManager.readerOrientation,
 		preferenceManager.readerTheme,
 		preferenceManager.readerDirection,
@@ -649,8 +660,8 @@ private fun KomikkuComposeOverlay(
 	Box(modifier = modifier) {
 		KomikkuReaderContentOverlay(
 			brightness = -(controllerState.chrome.settings.dimOverlayPercent ?: 0),
-			color = null,
-			colorBlendMode = null,
+			color = readerColorFilterColor(controllerState.chrome.settings),
+			colorBlendMode = readerColorFilterBlendMode(controllerState.chrome.settings.colorFilterMode),
 			modifier = Modifier.matchParentSize()
 		)
 		KomikkuReaderAppBars(
@@ -727,6 +738,27 @@ private fun KomikkuReaderContentOverlay(
 		}
 	}
 }
+
+private fun readerColorFilterColor(settings: ReaderSettings): Color? {
+	if (settings.colorFilterEnabled != true) return null
+	val argb = settings.colorFilterArgb ?: 0
+	return Color(
+		red = ((argb ushr 16) and 0xFF) / 255f,
+		green = ((argb ushr 8) and 0xFF) / 255f,
+		blue = (argb and 0xFF) / 255f,
+		alpha = ((argb ushr 24) and 0xFF) / 255f
+	)
+}
+
+private fun readerColorFilterBlendMode(colorFilterMode: String?): BlendMode =
+	when (colorFilterMode) {
+		ReaderColorFilterModeMultiply -> BlendMode.Modulate
+		ReaderColorFilterModeScreen -> BlendMode.Screen
+		ReaderColorFilterModeOverlay -> BlendMode.Overlay
+		ReaderColorFilterModeLighten -> BlendMode.Lighten
+		ReaderColorFilterModeDarken -> BlendMode.Darken
+		else -> BlendMode.SrcOver
+	}
 
 @Composable
 private fun KomikkuReaderAppBars(
@@ -1312,6 +1344,53 @@ private fun KomikkuReaderSettingsDialog(
 										}
 									)
 									KomikkuSettingsSwitchRow(
+										title = "Color filter",
+										checked = settings.colorFilterEnabled == true,
+										onCheckedChange = { colorFilterEnabled ->
+											onSettingsChange(settings.copy(colorFilterEnabled = colorFilterEnabled))
+										}
+									)
+									if (settings.colorFilterEnabled == true) {
+										ReaderColorFilterChannel.entries.forEach { channel ->
+											KomikkuSettingsStepperRow(
+												title = channel.label,
+												value = readerColorFilterChannelValue(settings.colorFilterArgb, channel),
+												onDecrease = {
+													onSettingsChange(
+														settings.copy(
+															colorFilterArgb = updateReaderColorFilterChannel(
+																settings.colorFilterArgb,
+																channel,
+																-16
+															)
+														)
+													)
+												},
+												onIncrease = {
+													onSettingsChange(
+														settings.copy(
+															colorFilterArgb = updateReaderColorFilterChannel(
+																settings.colorFilterArgb,
+																channel,
+																16
+															)
+														)
+													)
+												}
+											)
+										}
+										KomikkuSettingsChipRow(
+											title = "Mode",
+											options = ReaderSupportedColorFilterModes.map { mode ->
+												mode to readerColorFilterModeShortLabel(mode)
+											},
+											selectedValue = settings.colorFilterMode ?: ReaderColorFilterModeSrcOver,
+											onSelect = { colorFilterMode ->
+												onSettingsChange(settings.copy(colorFilterMode = colorFilterMode))
+											}
+										)
+									}
+									KomikkuSettingsSwitchRow(
 										title = "Publisher styles",
 										checked = settings.publisherStyles == true,
 										onCheckedChange = { publisherStyles ->
@@ -1457,6 +1536,34 @@ private fun komikkuReadingModeOptionFor(settings: ReaderSettings): KomikkuReadin
 		else -> KomikkuReadingModeOptions[0]
 	}
 }
+
+private enum class ReaderColorFilterChannel(
+	val label: String,
+	val shift: Int,
+	val mask: Int
+) {
+	Red("Red", 16, 0x00FF0000),
+	Green("Green", 8, 0x0000FF00),
+	Blue("Blue", 0, 0x000000FF),
+	Alpha("Alpha", 24, -0x1000000)
+}
+
+private fun updateReaderColorFilterChannel(
+	argb: Int?,
+	channel: ReaderColorFilterChannel,
+	delta: Int
+): Int {
+	val color = argb ?: 0
+	val current = ((color ushr channel.shift) and 0xFF)
+	val next = (current + delta).coerceIn(0, 255)
+	return (color and channel.mask.inv()) or (next shl channel.shift)
+}
+
+private fun readerColorFilterChannelValue(
+	argb: Int?,
+	channel: ReaderColorFilterChannel
+): String =
+	"${(((argb ?: 0) ushr channel.shift) and 0xFF)}"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

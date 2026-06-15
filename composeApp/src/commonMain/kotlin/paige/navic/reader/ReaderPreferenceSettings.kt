@@ -44,6 +44,9 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		paragraphSpacingPercent = paragraphSpacingPercent,
 		marginPercent = readerMarginPercent,
 		dimOverlayPercent = readerDimOverlayPercent,
+		colorFilterEnabled = readerColorFilterEnabled,
+		colorFilterArgb = readerColorFilterArgb,
+		colorFilterMode = readerColorFilterMode,
 		orientation = readerOrientation,
 		theme = readerTheme,
 		direction = readerDirection,
@@ -77,6 +80,9 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerParagraphSpacingReadableDefaultMigrated = true
 	readerMarginPercent = normalized.marginPercent ?: 0
 	readerDimOverlayPercent = normalized.dimOverlayPercent ?: 0
+	readerColorFilterEnabled = normalized.colorFilterEnabled ?: false
+	readerColorFilterArgb = normalized.colorFilterArgb ?: 0
+	readerColorFilterMode = normalized.colorFilterMode ?: ReaderColorFilterModeSrcOver
 	readerOrientation = normalized.orientation ?: ReaderOrientationDefault
 	readerTheme = normalized.theme ?: ReaderLightTheme
 	readerDirection = normalized.direction ?: ReaderDirectionDefault
@@ -135,6 +141,9 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		paragraphSpacingPercent = override.paragraphSpacingPercent ?: paragraphSpacingPercent,
 		marginPercent = override.marginPercent ?: marginPercent,
 		dimOverlayPercent = override.dimOverlayPercent ?: dimOverlayPercent,
+		colorFilterEnabled = override.colorFilterEnabled ?: colorFilterEnabled,
+		colorFilterArgb = override.colorFilterArgb ?: colorFilterArgb,
+		colorFilterMode = override.colorFilterMode ?: colorFilterMode,
 		orientation = override.orientation ?: orientation,
 		theme = override.theme ?: theme,
 		direction = override.direction ?: direction,
@@ -168,6 +177,9 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		paragraphSpacingPercent = if (paragraphSpacingPercent != null) normalized.paragraphSpacingPercent else null,
 		marginPercent = if (marginPercent != null) normalized.marginPercent else null,
 		dimOverlayPercent = if (dimOverlayPercent != null) normalized.dimOverlayPercent else null,
+		colorFilterEnabled = if (colorFilterEnabled != null) normalized.colorFilterEnabled else null,
+		colorFilterArgb = if (colorFilterArgb != null) normalized.colorFilterArgb else null,
+		colorFilterMode = if (colorFilterMode != null) normalized.colorFilterMode else null,
 		orientation = if (orientation != null) normalized.orientation else null,
 		theme = if (theme != null) normalized.theme else null,
 		direction = if (direction != null) normalized.direction else null,
@@ -236,6 +248,9 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		paragraphSpacingPercent = intValue("paragraphSpacingPercent"),
 		marginPercent = intValue("marginPercent"),
 		dimOverlayPercent = intValue("dimOverlayPercent"),
+		colorFilterEnabled = booleanValue("colorFilterEnabled"),
+		colorFilterArgb = intValue("colorFilterArgb"),
+		colorFilterMode = stringValue("colorFilterMode"),
 		orientation = stringValue("orientation"),
 		theme = stringValue("theme"),
 		direction = stringValue("direction"),
@@ -266,6 +281,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }
 		marginPercent?.let { put("marginPercent", it) }
 		dimOverlayPercent?.let { put("dimOverlayPercent", it) }
+		colorFilterEnabled?.let { put("colorFilterEnabled", it) }
+		colorFilterArgb?.let { put("colorFilterArgb", it) }
+		colorFilterMode?.let { put("colorFilterMode", it) }
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }

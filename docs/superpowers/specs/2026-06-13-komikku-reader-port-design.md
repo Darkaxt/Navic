@@ -4172,3 +4172,58 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-15 Overnight Komikku Custom Filter RGBA Slice
+
+User direction:
+
+- Continue moving the reader toward a Komikku-derived controller/frontend backbone without publishing another APK overnight.
+- Recycle proven Komikku behavior where it fits Navic's current reader shell.
+- Avoid fake implementations that look like Komikku but do not respect the original ownership model.
+
+Komikku source references:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt`
+
+Root cause:
+
+- Navic's Custom filter tab existed, but it only exposed `Dim overlay` and `Publisher styles`.
+- Komikku's equivalent page includes a controller-owned color-filter path: enable/disable, RGBA value controls, and a blend-mode selector.
+- Navic already had a full-window Compose overlay primitive equivalent to Komikku's `ReaderContentOverlay`, but the color channel was hard-coded to `null`.
+
+Navic implication:
+
+- `ReaderSettings` now carries `colorFilterEnabled`, `colorFilterArgb`, and `colorFilterMode`.
+- Global and per-book reader settings persist and restore those fields.
+- Reader bridge serialization includes those fields so settings remain complete across engine commands.
+- `KomikkuReaderContentOverlay(...)` now receives a decoded Compose `Color` and a mapped Compose `BlendMode`.
+- The Custom filter tab now exposes `Color filter`, Red/Green/Blue/Alpha channel steppers, and a mode chip row with Default, Multiply, Screen, Overlay, Lighten, and Darken.
+
+Deliberate limitation:
+
+- Komikku's grayscale and inverted-colors toggles are not ported in this slice. In Komikku those use an Android layer paint on the viewer container, not a top-level tint. Porting them correctly belongs to the native viewer-frame work, not a fake overlay.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuColorFilterModel" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripKomikkuColorFilter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+```
+
+Result: failed before production changes because the settings fields, preferences, bridge serialization, overlay hook, and Custom filter controls did not exist.
+
+Focused and wider green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls" --tests "paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsKeepKomikkuColorFilterModel" --tests "paige.navic.reader.ReaderPreferenceSettingsTest.readerDefaultSettingsRoundTripKomikkuColorFilter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest"
+git diff --check
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.

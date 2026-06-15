@@ -68,6 +68,34 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderCustomFilterPortsKomikkuColorFilterControls() {
+		val readerScreenText = readerScreenFile().readText()
+		val preferencesText = listOf(
+			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate PreferenceManager.kt")
+		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+
+		assertContains(readerScreenText, "readerColorFilterColor(controllerState.chrome.settings)")
+		assertContains(readerScreenText, "readerColorFilterBlendMode(controllerState.chrome.settings.colorFilterMode)")
+		assertContains(readerScreenText, "Color filter")
+		assertContains(readerScreenText, "ReaderSupportedColorFilterModes")
+		assertContains(readerScreenText, "Red")
+		assertContains(readerScreenText, "Green")
+		assertContains(readerScreenText, "Blue")
+		assertContains(readerScreenText, "Alpha")
+		assertContains(readerScreenText, "updateReaderColorFilterChannel")
+		assertContains(preferencesText, "readerColorFilterEnabled")
+		assertContains(preferencesText, "readerColorFilterArgb")
+		assertContains(preferencesText, "readerColorFilterMode")
+		assertContains(bridgeText, "colorFilterEnabled")
+		assertContains(bridgeText, "colorFilterArgb")
+		assertContains(bridgeText, "colorFilterMode")
+	}
+
+	@Test
 	fun androidReaderExposesKomikkuStyleOrientationControl() {
 		val orientationEffectText = readerAndroidFile("ReaderOrientationEffect.android.kt").readText()
 		val readerScreenText = readerScreenFile().readText()

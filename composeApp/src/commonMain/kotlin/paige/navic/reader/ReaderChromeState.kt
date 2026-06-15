@@ -18,6 +18,7 @@ private const val DefaultReaderMarginPercent = 0
 private const val MinReaderDimOverlayPercent = 0
 private const val MaxReaderDimOverlayPercent = 80
 private const val DefaultReaderDimOverlayPercent = 0
+private const val DefaultReaderColorFilterArgb = 0
 private const val MinReaderPdfPageGapPercent = 0
 private const val MaxReaderPdfPageGapPercent = 48
 private const val DefaultReaderPdfPageGapPercent = 0
@@ -48,6 +49,12 @@ const val ReaderFlowPaged = "paged"
 const val ReaderFlowPagedVertical = "paged-vertical"
 const val ReaderFlowScrolled = "scrolled"
 const val ReaderFlowScrolledGaps = "scrolled-gaps"
+const val ReaderColorFilterModeSrcOver = "src-over"
+const val ReaderColorFilterModeMultiply = "multiply"
+const val ReaderColorFilterModeScreen = "screen"
+const val ReaderColorFilterModeOverlay = "overlay"
+const val ReaderColorFilterModeLighten = "lighten"
+const val ReaderColorFilterModeDarken = "darken"
 const val ReaderTapZoneDefault = "default"
 const val ReaderTapZoneEdge = "edge"
 const val ReaderTapZoneKindle = "kindle"
@@ -118,6 +125,15 @@ val ReaderSupportedDirections: List<String> = listOf(
 	ReaderDirectionRtl
 )
 
+val ReaderSupportedColorFilterModes: List<String> = listOf(
+	ReaderColorFilterModeSrcOver,
+	ReaderColorFilterModeMultiply,
+	ReaderColorFilterModeScreen,
+	ReaderColorFilterModeOverlay,
+	ReaderColorFilterModeLighten,
+	ReaderColorFilterModeDarken
+)
+
 val ReaderSupportedOrientations: List<String> = listOf(
 	ReaderOrientationDefault,
 	ReaderOrientationFree,
@@ -171,6 +187,10 @@ fun normalizedReaderCustomFontUrl(customFontUrl: String?): String? =
 
 fun normalizedReaderTheme(theme: String?): String =
 	ReaderSupportedThemes.firstOrNull { supported -> supported == theme } ?: ReaderLightTheme
+
+fun normalizedReaderColorFilterMode(colorFilterMode: String?): String =
+	ReaderSupportedColorFilterModes.firstOrNull { supported -> supported == colorFilterMode }
+		?: ReaderColorFilterModeSrcOver
 
 fun normalizedReaderFlowMode(
 	flowMode: String?,
@@ -491,6 +511,16 @@ fun readerDirectionShortLabel(direction: String?): String =
 		else -> "Default"
 	}
 
+fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =
+	when (normalizedReaderColorFilterMode(colorFilterMode)) {
+		ReaderColorFilterModeMultiply -> "Multiply"
+		ReaderColorFilterModeScreen -> "Screen"
+		ReaderColorFilterModeOverlay -> "Overlay"
+		ReaderColorFilterModeLighten -> "Lighten"
+		ReaderColorFilterModeDarken -> "Darken"
+		else -> "Default"
+	}
+
 fun readerPdfFitShortLabel(pdfFitMode: String?): String =
 	when (normalizedReaderPdfFitMode(pdfFitMode)) {
 		ReaderPdfFitPage -> "Page"
@@ -514,6 +544,9 @@ fun defaultReaderSettings(): ReaderSettings =
 		paragraphSpacingPercent = DefaultReaderParagraphSpacingPercent,
 		marginPercent = DefaultReaderMarginPercent,
 		dimOverlayPercent = DefaultReaderDimOverlayPercent,
+		colorFilterEnabled = false,
+		colorFilterArgb = DefaultReaderColorFilterArgb,
+		colorFilterMode = ReaderColorFilterModeSrcOver,
 		orientation = ReaderOrientationDefault,
 		theme = ReaderLightTheme,
 		direction = ReaderDirectionDefault,
@@ -543,6 +576,9 @@ fun normalizedReaderSettings(
 	paragraphSpacingPercent: Int = DefaultReaderParagraphSpacingPercent,
 	marginPercent: Int,
 	dimOverlayPercent: Int = DefaultReaderDimOverlayPercent,
+	colorFilterEnabled: Boolean = false,
+	colorFilterArgb: Int = DefaultReaderColorFilterArgb,
+	colorFilterMode: String? = ReaderColorFilterModeSrcOver,
 	orientation: String? = ReaderOrientationDefault,
 	theme: String?,
 	direction: String? = ReaderDirectionDefault,
@@ -591,6 +627,9 @@ fun normalizedReaderSettings(
 			MinReaderDimOverlayPercent,
 			MaxReaderDimOverlayPercent
 		),
+		colorFilterEnabled = colorFilterEnabled,
+		colorFilterArgb = colorFilterArgb,
+		colorFilterMode = normalizedReaderColorFilterMode(colorFilterMode),
 		orientation = normalizedReaderOrientation(orientation),
 		theme = normalizedReaderTheme(theme),
 		direction = normalizedReaderDirection(direction),
@@ -626,6 +665,9 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		paragraphSpacingPercent = paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
 		marginPercent = marginPercent ?: DefaultReaderMarginPercent,
 		dimOverlayPercent = dimOverlayPercent ?: DefaultReaderDimOverlayPercent,
+		colorFilterEnabled = colorFilterEnabled ?: false,
+		colorFilterArgb = colorFilterArgb ?: DefaultReaderColorFilterArgb,
+		colorFilterMode = colorFilterMode,
 		orientation = orientation,
 		theme = theme,
 		direction = direction,

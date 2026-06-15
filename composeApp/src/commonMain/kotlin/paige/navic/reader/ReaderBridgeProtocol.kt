@@ -64,6 +64,9 @@ data class ReaderSettings(
 	val paragraphSpacingPercent: Int? = null,
 	val marginPercent: Int? = null,
 	val dimOverlayPercent: Int? = null,
+	val colorFilterEnabled: Boolean? = null,
+	val colorFilterArgb: Int? = null,
+	val colorFilterMode: String? = null,
 	val orientation: String? = null,
 	val theme: String? = null,
 	val direction: String? = null,
@@ -459,6 +462,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }
 		marginPercent?.let { put("marginPercent", it) }
 		dimOverlayPercent?.let { put("dimOverlayPercent", it) }
+		colorFilterEnabled?.let { put("colorFilterEnabled", it) }
+		colorFilterArgb?.let { put("colorFilterArgb", it) }
+		colorFilterMode?.let { put("colorFilterMode", it) }
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
