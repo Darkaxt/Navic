@@ -602,9 +602,11 @@ class ReaderKomikkuBackboneResetTest {
 	@Test
 	fun adbKomikkuReaderMatrixRunsNamedNativeFrameChecks() {
 		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1")
+		val smokeScript = root.resolve("scripts/adb-reader-smoke.ps1")
 
 		assertTrue(matrixScript.exists(), "Morning adb validation must have a repeatable Komikku reader matrix script.")
 		val matrixText = matrixScript.readText()
+		val smokeText = smokeScript.readText()
 		assertTrue(matrixText.contains("adb-reader-smoke.ps1"))
 		assertTrue(matrixText.contains("[string] \$Package"))
 		assertTrue(matrixText.contains("[string] \$ApkPath"))
@@ -623,6 +625,32 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("-RequireShellCoverSwipe"))
 		assertTrue(matrixText.contains("-RequireShellCoverCommand"))
 		assertTrue(matrixText.contains("-RequireTextureDiagnostics"))
+		assertTrue(
+			smokeText.contains("[ValidateSet(\"\", \"next\", \"previous\")]") &&
+				smokeText.contains("[string] \$RequireTextureDirection"),
+			"adb reader smoke must support requiring a concrete texture movement direction, not only the presence of texture logs."
+		)
+		assertTrue(
+			smokeText.contains("textureDirectionSamples=") &&
+				smokeText.contains("wrongTextureDirection=") &&
+				smokeText.contains("surface-texture-scroll"),
+			"adb reader smoke must parse surface-texture-scroll offsets and summarize whether any sample moved opposite the requested direction."
+		)
+		assertTrue(
+			matrixText.contains("[ValidateSet(\"\", \"next\", \"previous\")]") &&
+				matrixText.contains("[string] \$RequireTextureDirection") &&
+				matrixText.contains("-RequireTextureDirection", ignoreCase = false),
+			"The Komikku matrix wrapper must pass concrete texture direction expectations through to adb-reader-smoke."
+		)
+		assertTrue(
+			matrixText.contains("-Name \"edge-tap-next\"") &&
+				matrixText.contains("-RequireTextureDirection \"next\"") &&
+				matrixText.contains("-Name \"edge-tap-previous\"") &&
+				matrixText.contains("-RequireTextureDirection \"previous\"") &&
+				matrixText.contains("-Name \"drag-next\"") &&
+				matrixText.contains("-Name \"drag-previous\""),
+			"The morning matrix must fail when forward/backward edge taps or drags invert the paper texture movement."
+		)
 		assertTrue(
 			matrixText.contains("-NoLaunch"),
 			"After the first launch/install step, matrix steps must keep the same open reader state instead of relaunching into the library."

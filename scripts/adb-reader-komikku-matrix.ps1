@@ -3,6 +3,8 @@ param(
     [string] $ApkPath,
     [string] $ExpectedVersionName,
     [string] $ArtifactRoot,
+    [ValidateSet("", "next", "previous")]
+    [string] $RequireTextureDirection = "",
     [switch] $NoLaunch,
     [switch] $IncludeCoverChecks
 )
@@ -34,6 +36,8 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireShellCoverSwipe,
         [switch] $RequireShellCoverCommand,
         [switch] $RequireTextureDiagnostics,
+        [ValidateSet("", "next", "previous")]
+        [string] $RequireTextureDirection = "",
         [switch] $Launch,
         [switch] $InstallApk
     )
@@ -78,6 +82,16 @@ function Invoke-ReaderMatrixStep {
     if ($RequireTextureDiagnostics) {
         $args += "-RequireTextureDiagnostics"
     }
+    $stepTextureDirection = if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
+        $RequireTextureDirection
+    } elseif ($RequireTextureDiagnostics -and -not [string]::IsNullOrWhiteSpace($script:RequireTextureDirection)) {
+        $script:RequireTextureDirection
+    } else {
+        ""
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stepTextureDirection)) {
+        $args += @("-RequireTextureDirection", $stepTextureDirection)
+    }
 
     Write-Host "reader-matrix step: $Name"
     & $smokeScript @args
@@ -102,26 +116,30 @@ Invoke-ReaderMatrixStep `
     -TapFraction @("0.90,0.50,900") `
     -ValidateReaderTaps `
     -RequireReaderTapAction `
-    -RequireTextureDiagnostics
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "next"
 
 Invoke-ReaderMatrixStep `
     -Name "edge-tap-previous" `
     -TapFraction @("0.10,0.50,900") `
     -ValidateReaderTaps `
     -RequireReaderTapAction `
-    -RequireTextureDiagnostics
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "previous"
 
 Invoke-ReaderMatrixStep `
     -Name "drag-next" `
     -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
     -RequireNativeSwipeAction `
-    -RequireTextureDiagnostics
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "next"
 
 Invoke-ReaderMatrixStep `
     -Name "drag-previous" `
     -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
     -RequireNativeSwipeAction `
-    -RequireTextureDiagnostics
+    -RequireTextureDiagnostics `
+    -RequireTextureDirection "previous"
 
 if ($IncludeCoverChecks) {
     Invoke-ReaderMatrixStep `

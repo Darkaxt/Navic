@@ -3201,3 +3201,70 @@ Morning adb validation:
 Release status:
 
 - No release APK was built or published for this isolated source correction.
+
+## 2026-06-15 Overnight ADB Texture Direction Gate
+
+User direction:
+
+- The paper texture issue must be diagnosed by adb instead of by visual guessing.
+- The known failure is not "texture logs are missing"; it is texture movement inverting during page/frontmatter transitions.
+- Do not publish a release candidate for validation-only script work.
+
+Root cause:
+
+- Browser/controller texture harnesses already check that next/forward movement counter-moves the paper texture left and previous/backward movement counter-moves it right.
+- `scripts/adb-reader-smoke.ps1` only required `surface-texture-scroll` fields such as `pos=`, `base=`, `delta=`, `dir=`, `page=`, and `href=`.
+- That meant Android could still pass the morning matrix while moving the texture in the wrong direction.
+
+Navic implication:
+
+- `scripts/adb-reader-smoke.ps1` now supports `-RequireTextureDirection next|previous`.
+- When direction is required, the script parses `surface-texture-scroll` samples for matching `dir=...`, selects the dominant moved axis, and fails if:
+  - no moved texture sample was captured for that direction; or
+  - `next` moved positive/right/down instead of negative/left/up; or
+  - `previous` moved negative/left/up instead of positive/right/down.
+- The script writes `reader-texture-direction-validation.txt` and adds `textureDirectionSamples=` plus `wrongTextureDirection=` to `reader-diagnostics-summary.txt`.
+- `scripts/adb-reader-komikku-matrix.ps1` now passes:
+  - `-RequireTextureDirection "next"` for `edge-tap-next` and `drag-next`;
+  - `-RequireTextureDirection "previous"` for `edge-tap-previous` and `drag-previous`.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: failed before script changes because the ADB smoke/matrix scripts did not expose direction-specific texture validation.
+
+Focused green checks:
+
+```powershell
+$files = @('scripts\adb-reader-smoke.ps1','scripts\adb-reader-komikku-matrix.ps1')
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [System.Management.Automation.Language.Parser]::ParseFile($file, [ref] $tokens, [ref] $errors) | Out-Null
+  if ($errors.Count -gt 0) { throw $errors[0].Message }
+}
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results: passed on 2026-06-15.
+
+Morning adb validation:
+
+- After installing/opening the release candidate on an EPUB page, run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch
+```
+
+- Texture transition failures should now point to `reader-texture-direction-validation.txt` under the failed matrix step.
+
+Release status:
+
+- No release APK was built or published for this validation-only slice.

@@ -20,6 +20,8 @@ param(
     [switch] $RequireContentTapHandled,
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
+    [ValidateSet("", "next", "previous")]
+    [string] $RequireTextureDirection = "",
     [switch] $CaptureReaderDiagnostics,
     [switch] $NoLaunch
 )
@@ -111,6 +113,66 @@ function Convert-SwipeFraction {
         [math]::Round($y2Fraction * $Height), `
         $durationMs, `
         $waitMs
+}
+
+function Get-ReaderLogIntField {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Line,
+        [Parameter(Mandatory = $true)]
+        [string] $Name
+    )
+
+    $match = [regex]::Match($Line, "(?:^|\s)$([regex]::Escape($Name))=(-?\d+)")
+    if (-not $match.Success) {
+        return $null
+    }
+    return [int]::Parse($match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-ReaderTextureDirectionSamples {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]] $Lines,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("next", "previous")]
+        [string] $Direction
+    )
+
+    $samples = New-Object System.Collections.Generic.List[object]
+    $expectedSign = if ($Direction -eq "next") { -1 } else { 1 }
+    foreach ($line in $Lines) {
+        if ($line -notmatch "surface-texture-scroll") {
+            continue
+        }
+        $directionMatch = [regex]::Match($line, "(?:^|\s)dir=([^\s]+)")
+        if (-not $directionMatch.Success -or $directionMatch.Groups[1].Value -ne $Direction) {
+            continue
+        }
+
+        $x = Get-ReaderLogIntField -Line $line -Name "x"
+        $y = Get-ReaderLogIntField -Line $line -Name "y"
+        if ($null -eq $x) { $x = 0 }
+        if ($null -eq $y) { $y = 0 }
+
+        $xAbs = [math]::Abs($x)
+        $yAbs = [math]::Abs($y)
+        $dominantAxis = if ($xAbs -ge $yAbs) { "x" } else { "y" }
+        $dominantOffset = if ($dominantAxis -eq "x") { $x } else { $y }
+        if ([math]::Abs($dominantOffset) -le 1) {
+            continue
+        }
+
+        $samples.Add([pscustomobject]@{
+            Direction = $Direction
+            Axis = $dominantAxis
+            Offset = $dominantOffset
+            ExpectedSign = $expectedSign
+            WrongTextureDirection = ([math]::Sign($dominantOffset) -ne $expectedSign)
+            Line = $line
+        })
+    }
+    return @($samples)
 }
 
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
@@ -262,6 +324,23 @@ if ($CaptureReaderDiagnostics) {
 
     $textureDiagnosticsText = Get-Content -LiteralPath $textureDiagnosticsPath -Raw
     $touchDiagnosticsText = Get-Content -LiteralPath $touchDiagnosticsPath -Raw
+    $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
+    $textureDirectionSamples = @()
+    $wrongTextureDirection = $false
+    if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
+        $textureDirectionSamples = Get-ReaderTextureDirectionSamples `
+            -Lines $textureLines `
+            -Direction $RequireTextureDirection
+        $wrongTextureDirection = [bool]($textureDirectionSamples | Where-Object { $_.WrongTextureDirection })
+        $directionValidationPath = Join-Path $ArtifactDir "reader-texture-direction-validation.txt"
+        @(
+            "requiredTextureDirection=$RequireTextureDirection",
+            "textureDirectionSamples=$($textureDirectionSamples.Count)",
+            "wrongTextureDirection=$wrongTextureDirection"
+        ) + ($textureDirectionSamples | ForEach-Object {
+            "sample axis=$($_.Axis) offset=$($_.Offset) expectedSign=$($_.ExpectedSign) wrong=$($_.WrongTextureDirection) line=$($_.Line)"
+        }) | Out-File -Encoding utf8 $directionValidationPath
+    }
     $summaryLines = @(
         "textureScrollLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false).Count)",
         "textureUpdateLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false).Count)",
@@ -282,7 +361,9 @@ if ($CaptureReaderDiagnostics) {
         "textureHasDelta=$($textureDiagnosticsText -match 'delta=')",
         "textureHasDirection=$($textureDiagnosticsText -match 'dir=')",
         "textureHasPage=$($textureDiagnosticsText -match 'page=')",
-        "textureHasHref=$($textureDiagnosticsText -match 'href=')"
+        "textureHasHref=$($textureDiagnosticsText -match 'href=')",
+        "textureDirectionSamples=$($textureDirectionSamples.Count)",
+        "wrongTextureDirection=$wrongTextureDirection"
     )
     $summaryLines | Out-File -Encoding utf8 $summaryPath
 
@@ -309,6 +390,14 @@ if ($CaptureReaderDiagnostics) {
             if ($textureDiagnosticsText -notmatch [regex]::Escape($requiredTextureField)) {
                 throw "Reader diagnostics validation failed: texture diagnostics did not include '$requiredTextureField'. See $ArtifactDir"
             }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
+        if ($textureDirectionSamples.Count -eq 0) {
+            throw "Reader diagnostics validation failed: no moved texture samples were captured for direction '$RequireTextureDirection'. See $ArtifactDir"
+        }
+        if ($wrongTextureDirection) {
+            throw "Reader diagnostics validation failed: texture movement inverted for direction '$RequireTextureDirection'. See $ArtifactDir"
         }
     }
 }
