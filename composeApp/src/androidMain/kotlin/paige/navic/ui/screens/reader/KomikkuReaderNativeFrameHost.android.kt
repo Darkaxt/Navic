@@ -270,12 +270,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 						y = (event.y / height.toFloat()).coerceIn(0f, 1f)
 					)
 				)
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader native tap action=$action x=${event.x} y=${event.y} width=$width height=$height"
+				)
 				onAction(action)
 				return true
 			}
 
 			override fun onLongTapConfirmed(event: MotionEvent) {
 				nativeTapLongConfirmed = true
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader native long tap x=${event.x} y=${event.y}"
+				)
 				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
 			}
 		}
@@ -360,7 +368,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
-		val action = if (shellCoverView?.visibility == VISIBLE) {
+		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+		val action = if (shellCoverVisible) {
 			readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx)
 		} else {
 			readerNativeReaderSwipeAction(deltaX, deltaY, touchSlopPx)
@@ -368,6 +377,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		horizontalSwipeDispatched = true
 		nativeTapCandidate = false
 		nativeSwipeIntercepted = true
+		if (shellCoverVisible) {
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"Reader shell cover swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			)
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"Reader shell cover command action=$action"
+			)
+		} else {
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"Reader native swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			)
+		}
 		when (action) {
 			ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
 			ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)

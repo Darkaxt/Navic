@@ -243,7 +243,7 @@ $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
-    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe|Reader shell cover command|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native swipe action=|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
 
     $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
     $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
@@ -266,6 +266,8 @@ if ($CaptureReaderDiagnostics) {
         "textureUpdateLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false).Count)",
         "readerSurfaceTouchDown=$($touchDiagnosticsText -match 'Reader surface touch down')",
         "readerSurfaceTapAction=$($touchDiagnosticsText -match 'Reader surface tap action=')",
+        "readerNativeTapAction=$($touchDiagnosticsText -match 'Reader native tap action=')",
+        "readerNativeSwipeAction=$($touchDiagnosticsText -match 'Reader native swipe action=')",
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
@@ -309,7 +311,7 @@ if ($CaptureReaderDiagnostics) {
 if ($ValidateReaderTaps) {
     $validationLines = New-Object System.Collections.Generic.List[string]
     $hasPlainImageRegression = $readerLogText -match "Reader surface tap ignored for content hitType=5"
-    $hasNativeTapAction = $readerLogText -match "Reader surface tap action="
+    $hasNativeTapAction = $readerLogText -match "Reader surface tap action=|Reader native tap action="
     $hasExplicitContentHandler = $readerLogText -match "Reader surface tap ignored for explicit content handler"
     $hasContentTapHandledEvent = $readerLogText -match "Reader bridge event: contentTapHandled"
 

@@ -505,7 +505,8 @@ class ReaderKomikkuBackboneResetTest {
 			"Swipe dispatch must no longer be shell-cover-only; the top native manager owns readable page drags too."
 		)
 		assertTrue(
-			swipeAction.contains("if (shellCoverView?.visibility == VISIBLE)") &&
+			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
+				swipeAction.contains("if (shellCoverVisible)") &&
 				swipeAction.contains("readerShellCoverSwipeAction(") &&
 				swipeAction.contains("readerNativeReaderSwipeAction("),
 			"Cover drags and readable-page drags need separate swipe contracts under the same native owner."
@@ -554,6 +555,38 @@ class ReaderKomikkuBackboneResetTest {
 		assertFalse(
 			viewerContainerBody.contains("val handled = super.dispatchTouchEvent(event)\n\t\thandleSwipeTouchEvent(event)\n\t\tgestureDetector.onTouchEvent(event)\n\t\treturn handled"),
 			"The active native frame must not remain a child-first WebView tap fallback that lets content clicks race reader region taps."
+		)
+	}
+
+	@Test
+	fun nativeKomikkuFrameEmitsAdbReadableInputDiagnostics() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val adbSmokeText = root.resolve("scripts/adb-reader-smoke.ps1").readText()
+
+		assertTrue(
+			androidHostText.contains("Reader native tap action="),
+			"Native tap diagnostics must identify center/menu and page-zone actions from the top input frame."
+		)
+		assertTrue(
+			androidHostText.contains("Reader native swipe action="),
+			"Native readable-page drag diagnostics must prove the top input frame, not WebView, owned the swipe."
+		)
+		assertTrue(
+			androidHostText.contains("Reader shell cover swipe action="),
+			"Shell-cover swipe diagnostics must remain visible in adb after the Komikku reset."
+		)
+		assertTrue(
+			androidHostText.contains("Reader shell cover command action="),
+			"Morning adb checks need to distinguish cover gesture recognition from controller command dispatch."
+		)
+		assertTrue(
+			adbSmokeText.contains("Reader native tap action=") &&
+				adbSmokeText.contains("Reader native swipe action=") &&
+				adbSmokeText.contains("Reader shell cover swipe action=") &&
+				adbSmokeText.contains("Reader shell cover command action="),
+			"adb reader smoke must accept the active Komikku native-frame diagnostics instead of only legacy Reader surface logs."
 		)
 	}
 

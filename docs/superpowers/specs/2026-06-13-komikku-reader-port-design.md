@@ -2850,3 +2850,48 @@ Release status:
   - cover and normal-page drag behavior;
   - texture direction during sequential frontmatter/page-area transitions;
   - PDF page navigation under the same native controller path.
+
+## 2026-06-15 Overnight Native Input Diagnostics For Morning ADB
+
+User direction:
+
+- Morning validation must not be blind. The release candidate needs useful logging before adb checks start.
+- The adb checks must follow the active Komikku native-frame implementation, not the old `ReaderSurfaceHost` log vocabulary.
+
+Root cause:
+
+- `scripts/adb-reader-smoke.ps1` still recognized mostly legacy `Reader surface ...` diagnostics.
+- The active `KomikkuReaderNativeFrameHost.android.kt` only logged shell-cover drag candidates, so adb could not clearly tell whether a tap/swipe was owned by the native frame, the shell cover, or the WebView.
+
+Navic implication:
+
+- `KomikkuReaderNativeViewerContainer` now logs:
+  - `Reader native tap action=...`
+  - `Reader native long tap ...`
+  - `Reader native swipe action=...`
+  - `Reader shell cover swipe action=...`
+  - `Reader shell cover command action=...`
+- `scripts/adb-reader-smoke.ps1` now captures and summarizes the active native-frame diagnostics alongside the older surface logs.
+- `-ValidateReaderTaps -RequireReaderTapAction` now accepts `Reader native tap action=` as a valid native tap proof.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+```
+
+Result: failed before production changes because the native frame did not emit the required tap/swipe diagnostics and the adb script did not recognize them.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this source slice.
+- Morning adb artifacts should include `reader-touch-diagnostics.log` and `reader-diagnostics-summary.txt` so the user can see whether failures are native-frame input, WebView content, or controller dispatch failures.
