@@ -194,7 +194,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun contentActionClaimsDoNotOwnNativeViewerActions() {
+	fun contentActionClaimsSuppressOnlyTheNextNativeViewerAction() {
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(ReaderContentAction.Image)
 		).controller
@@ -203,7 +203,7 @@ class ReaderControllerTest {
 		val next = toggled.controller.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 
 		assertEquals(ReaderContentAction.Image, claimed.state.lastContentActionClaim?.action)
-		assertTrue(toggled.controller.state.menuVisible)
+		assertFalse(toggled.controller.state.menuVisible)
 		assertNull(toggled.controller.state.lastContentActionClaim)
 		assertEquals(emptyList(), toggled.engineCommands)
 		assertEquals(
@@ -230,7 +230,7 @@ class ReaderControllerTest {
 
 		assertEquals(claim, claimed.state.lastContentActionClaim)
 		assertNull(toggled.controller.state.lastContentActionClaim)
-		assertTrue(toggled.controller.state.menuVisible)
+		assertFalse(toggled.controller.state.menuVisible)
 	}
 
 	@Test

@@ -3858,6 +3858,43 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Content-Claim Arbitration Slice
+
+User-visible bug:
+
+- Interacting with EPUB images or links could still bring the reader menu back because the native Komikku surface emitted a reader action after the content runtime reported that the tap belonged to interactive content.
+
+Root cause:
+
+- `ReaderController.onViewerAction(...)` cleared `lastContentActionClaim` and then continued executing the same native viewer action.
+- That made `readerContentTapHandled` useful as metadata but useless as arbitration, so a content image/link tap could also toggle the menu or page-turn.
+- The fix stays at the typed controller boundary. It does not restore the old WebView-host delayed tap arbitration.
+
+Navic implication:
+
+- A content action claim now suppresses exactly the next native viewer action and then clears.
+- The following independent native action still runs normally, so this does not create sticky disabled navigation after an image/link interaction.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsSuppressOnlyTheNextNativeViewerAction" --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsKeepMetadataInControllerState"
+```
+
+Result: failed before production changes because both tests still saw `menuVisible == true` after an image/link content claim.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsSuppressOnlyTheNextNativeViewerAction" --tests "paige.navic.reader.ReaderControllerTest.contentActionClaimsKeepMetadataInControllerState" --tests "paige.navic.reader.ReaderCoordinatorTest.bridgeContentClaimsSuppressNextNativeActionWithoutBridgeOwningMenu"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Post-Rail Pre-RC Baseline Refresh
 
 User direction:

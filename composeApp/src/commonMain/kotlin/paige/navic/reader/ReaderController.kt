@@ -324,27 +324,27 @@ data class ReaderController(
 	}
 
 	fun onViewerAction(action: ReaderViewerAction): ReaderControllerStep {
-		val actionController = if (state.lastContentActionClaim == null) {
-			this
-		} else {
-			copy(state = state.copy(lastContentActionClaim = null))
+		if (state.lastContentActionClaim != null) {
+			return ReaderControllerStep(
+				copy(state = state.copy(lastContentActionClaim = null))
+			)
 		}
 
-		if (actionController.state.shellCoverVisible) {
-			return actionController.onShellCoverViewerAction(action)
+		if (state.shellCoverVisible) {
+			return onShellCoverViewerAction(action)
 		}
 
 		return when (action) {
 			ReaderViewerAction.Menu -> ReaderControllerStep(
-				actionController.copy(
-					state = actionController.state.copy(
-						menuVisible = !actionController.state.menuVisible
+				copy(
+					state = state.copy(
+						menuVisible = !state.menuVisible
 					)
 				)
 			)
-			is ReaderViewerAction.TurnPage -> actionController.turnPage(action.direction)
-			is ReaderViewerAction.ScrollViewport -> actionController.scrollViewport(action.direction)
-			is ReaderViewerAction.ContentLongPressAt -> actionController.contentLongPressAt(action)
+			is ReaderViewerAction.TurnPage -> turnPage(action.direction)
+			is ReaderViewerAction.ScrollViewport -> scrollViewport(action.direction)
+			is ReaderViewerAction.ContentLongPressAt -> contentLongPressAt(action)
 		}
 	}
 

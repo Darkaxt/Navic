@@ -351,7 +351,7 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun bridgeEventsFlowFromAdapterIntoControllerWithoutBridgeOwningMenu() {
+	fun bridgeContentClaimsSuppressNextNativeActionWithoutBridgeOwningMenu() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val locator = ReaderLocator(
 			href = "chapter-02.xhtml",
@@ -369,13 +369,20 @@ class ReaderCoordinatorTest {
 			ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Link)
 		).coordinator
 		val toggledMenu = contentClaimed.onViewerAction(ReaderViewerAction.Menu).coordinator
+		val next = toggledMenu.onViewerAction(
+			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
+		)
 
 		assertEquals(locator, relocated.controller.state.chrome.currentLocator)
 		assertEquals("Chapter 2", relocated.controller.state.chrome.currentSectionTitle)
 		assertEquals(false, ignoredCenterTap.controller.state.menuVisible)
 		assertEquals(ReaderContentAction.Link, contentClaimed.controller.state.lastContentActionClaim?.action)
-		assertEquals(true, toggledMenu.controller.state.menuVisible)
+		assertEquals(false, toggledMenu.controller.state.menuVisible)
 		assertNull(toggledMenu.controller.state.lastContentActionClaim)
+		assertEquals(
+			ReaderBridgeCommand.NextPage,
+			assertIs<ReaderEngineViewState.WebViewPublication>(next.coordinator.viewState).bridgeCommand()
+		)
 	}
 
 	@Test
