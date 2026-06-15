@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,6 +34,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -964,6 +968,7 @@ private fun KomikkuReaderContentsDialog(
 	onNavigateTo: (ReaderTocItem) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
+	val listState = rememberLazyListState()
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
 		Surface(
 			shape = RoundedCornerShape(28.dp),
@@ -982,16 +987,19 @@ private fun KomikkuReaderContentsDialog(
 					style = MaterialTheme.typography.titleMedium,
 					fontWeight = FontWeight.Bold
 				)
-				Column(
-					modifier = Modifier
-						.weight(1f, fill = false)
-						.verticalScroll(rememberScrollState()),
-					verticalArrangement = Arrangement.spacedBy(4.dp)
-				) {
-					if (toc.isEmpty()) {
-						KomikkuSettingsDialogLine("No table of contents available")
-					} else {
-						toc.forEach { item ->
+				if (toc.isEmpty()) {
+					KomikkuSettingsDialogLine("No table of contents available")
+				} else {
+					LazyColumn(
+						state = listState,
+						modifier = Modifier.heightIn(min = 200.dp, max = 500.dp),
+						contentPadding = PaddingValues(vertical = 16.dp),
+						verticalArrangement = Arrangement.spacedBy(4.dp)
+					) {
+						items(
+							items = toc,
+							key = { item -> "${item.level}:${item.href.orEmpty()}:${item.title}" }
+						) { item ->
 							Text(
 								text = item.title,
 								style = MaterialTheme.typography.bodyLarge,

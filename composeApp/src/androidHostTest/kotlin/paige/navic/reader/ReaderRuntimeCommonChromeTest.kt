@@ -304,6 +304,32 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderContentsDialogUsesKomikkuLazyChapterListContract() {
+		val readerScreenText = readerScreenFile().readText()
+		val contentsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderContentsDialog(")
+			.substringBefore("\n}\n\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuReaderSettingsDialog(")
+		val komikkuChapterListText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ChapterListDialog.kt reference")
+
+		assertContains(komikkuChapterListText, "LazyColumn(")
+		assertContains(komikkuChapterListText, "rememberLazyListState(")
+		assertContains(komikkuChapterListText, "Modifier.heightIn(min = 200.dp, max = 500.dp)")
+		assertContains(contentsDialogBody, "rememberLazyListState(")
+		assertContains(contentsDialogBody, "LazyColumn(")
+		assertContains(contentsDialogBody, "Modifier.heightIn(min = 200.dp, max = 500.dp)")
+		assertContains(contentsDialogBody, "items(")
+		assertContains(contentsDialogBody, "key = { item ->")
+		assertFalse(
+			contentsDialogBody.contains(".verticalScroll(rememberScrollState())"),
+			"Komikku chapter/contents navigation must use a bounded lazy list instead of eagerly composing every entry in a scrolling Column."
+		)
+	}
+
+	@Test
 	fun commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")

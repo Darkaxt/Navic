@@ -3951,3 +3951,49 @@ Results: passed on 2026-06-15.
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-15 Overnight Komikku Contents Lazy List Slice
+
+User direction:
+
+- Keep replacing shortcut reader UI with Komikku-derived structure.
+- Avoid publishing another APK until the morning RC.
+- Preserve ebook navigation behavior while improving the controller-owned shell.
+
+Komikku source reference:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/ChapterListDialog.kt`
+- The relevant source pattern is `rememberLazyListState(...)` plus a bounded `LazyColumn(modifier = Modifier.heightIn(min = 200.dp, max = 500.dp), ...)`.
+
+Root cause:
+
+- Navic's contents dialog still eagerly composed every TOC item inside a scrollable `Column`.
+- Komikku's chapter selector is a bounded lazy list, which is the right primitive for large chapter/contents collections and keeps the dialog from becoming a static alert full of reader rows.
+
+Navic implication:
+
+- `KomikkuReaderContentsDialog(...)` now owns a `rememberLazyListState()`.
+- Non-empty TOC entries render through `LazyColumn(...)` with `Modifier.heightIn(min = 200.dp, max = 500.dp)` and vertical content padding.
+- TOC item click behavior and indentation are preserved.
+- Empty TOCs still render the existing `No table of contents available` message.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogUsesKomikkuLazyChapterListContract"
+```
+
+Result: failed before production changes because the contents dialog did not use `rememberLazyListState(...)`, `LazyColumn(...)`, bounded `heightIn(min = 200.dp, max = 500.dp)`, keyed `items(...)`, and still used `.verticalScroll(rememberScrollState())`.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogUsesKomikkuLazyChapterListContract"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogUsesKomikkuLazyChapterListContract" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeKomikkuShellOpensControllerOwnedSettingsDialogInsteadOfEmptySettingsButton"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
