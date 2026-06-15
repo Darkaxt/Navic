@@ -26,6 +26,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
+import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.util.core.Logger
@@ -230,6 +231,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeTapCandidate: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeShortTapIntercepted: Boolean = false
+	private var nativeSwipeIntercepted: Boolean = false
 
 	init {
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -285,6 +287,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				nativeTapCandidate = true
 				nativeTapLongConfirmed = false
 				nativeShortTapIntercepted = false
+				nativeSwipeIntercepted = false
 				swipeStartX = event.x
 				swipeStartY = event.y
 				return false
@@ -293,9 +296,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (nativeTapMovedBeyondSlop(event.x, event.y)) {
 					nativeTapCandidate = false
 				}
+				if (!horizontalSwipeDispatched && nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
+					nativeSwipeIntercepted = true
+					return true
+				}
 				return false
 			}
 			MotionEvent.ACTION_UP -> {
+				if (nativeSwipeIntercepted) return true
 				nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed
 				return nativeShortTapIntercepted
 			}
@@ -313,8 +321,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val handled = super.dispatchTouchEvent(event)
 		handleSwipeTouchEvent(event)
-		gestureDetector.onTouchEvent(event)
-		val consumed = handled || nativeShortTapIntercepted
+		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted) {
+			gestureDetector.onTouchEvent(event)
+		}
+		val consumed = handled || nativeShortTapIntercepted || nativeSwipeIntercepted || horizontalSwipeDispatched
 		if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
 			clearNativeTapState()
 		}
@@ -322,7 +332,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun handleSwipeTouchEvent(event: MotionEvent) {
-		if (shellCoverView?.visibility != VISIBLE) return
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
 				swipeStartX = event.x
@@ -351,8 +360,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
-		val action = readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx) ?: return false
+		val action = if (shellCoverView?.visibility == VISIBLE) {
+			readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx)
+		} else {
+			readerNativeReaderSwipeAction(deltaX, deltaY, touchSlopPx)
+		} ?: return false
 		horizontalSwipeDispatched = true
+		nativeTapCandidate = false
+		nativeSwipeIntercepted = true
 		when (action) {
 			ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
 			ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)
@@ -373,10 +388,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun nativeTapMovedBeyondSlop(x: Float, y: Float): Boolean =
 		abs(x - swipeStartX) > touchSlopPx || abs(y - swipeStartY) > touchSlopPx
 
+	private fun nativeHorizontalSwipeMovedBeyondSlop(x: Float, y: Float): Boolean =
+		if (shellCoverView?.visibility == VISIBLE) {
+			readerShellCoverSwipeAction(
+				deltaX = x - swipeStartX,
+				deltaY = y - swipeStartY,
+				thresholdPx = touchSlopPx
+			) != null
+		} else {
+			readerNativeReaderSwipeAction(
+				deltaX = x - swipeStartX,
+				deltaY = y - swipeStartY,
+				thresholdPx = touchSlopPx
+			) != null
+		}
+
 	private fun clearNativeTapState() {
 		nativeTapCandidate = false
 		nativeTapLongConfirmed = false
 		nativeShortTapIntercepted = false
+		nativeSwipeIntercepted = false
 	}
 
 	private fun clearSwipeTouchState() {

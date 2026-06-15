@@ -2764,3 +2764,75 @@ Release status:
 
 - No release APK was built or published for this overnight source slice.
 - Morning candidate should include this slice plus any additional high-priority reader fixes completed overnight, then run the adb matrix against EPUB cover, EPUB text, image/link interaction, dialog controls, texture movement, PDF navigation, and reader resume.
+
+## 2026-06-15 Overnight Native Drag Ownership And Harness Parity
+
+User direction:
+
+- Continue source work overnight.
+- Keep the release pipeline idle until there is a meaningful morning release candidate.
+- Focus on the Komikku-derived backbone, especially native input ownership, instead of another WebView micro-fix cycle.
+
+Root cause under investigation:
+
+- Host browser probes can paginate the real Hobbit EPUB close to the phone layout when launched with a near-device viewport, but they still do not reproduce the phone-only texture inversion during the sequential maps/frontmatter transition.
+- The existing deep texture probe jumps by search to Author's Note, so it is useful for page-count and rendering sanity but not sufficient proof for the observed sequential transition bug.
+- The Android native frame still let readable EPUB/PDF horizontal drags fall through to the WebView/Foliate path after the Komikku reset. That violates the current reader contract: native frame/controller owns normal short taps and drags, while WebView content interaction should be explicit content metadata or long-press behavior, not the main reader gesture owner.
+
+Navic implication:
+
+- `tools/reader-harness/src/run-reader-harness.mjs` now accepts viewport overrides:
+  - `--viewport-width`
+  - `--viewport-height`
+  - `--device-scale-factor`
+- The real EPUB harness was run against the local untracked fixture `tmp/reader-live/served-input.epub` at Android-like dimensions. At `500x960` with device scale factor `3`, the fixture paginated to 409 pages, close to the phone's reported 411 pages.
+- `readerNativeReaderSwipeAction(...)` now defines the readable-page native swipe contract:
+  - readable pages require horizontal dominance;
+  - shell cover keeps the more permissive `readerShellCoverSwipeAction(...)` drift tolerance.
+- `KomikkuReaderNativeViewerContainer` now intercepts horizontal readable-page drags above the WebView after touch slop and dispatches the viewer action through the native controller boundary.
+- This makes the top manager own EPUB/PDF readable drags again instead of leaving readable-page swipes to Foliate/WebView.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessCanRunTextureProbesAtAndroidViewportParity"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeReaderSwipeActionRequiresHorizontalDominanceOutsideShellCover"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView"
+```
+
+Results: failed before the changes because the harness viewport was fixed, readable-page swipe semantics did not exist in common code, and the native frame only dispatched shell-cover swipes.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessCanRunTextureProbesAtAndroidViewportParity"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeReaderSwipeActionRequiresHorizontalDominanceOutsideShellCover"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Results: passed on 2026-06-15.
+
+Manual harness observations:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-frontmatter --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- `epub-frontmatter` passed with 409 pages at the near-device viewport.
+- `epub-texture-frontmatter-transition` passed at the same viewport, but this is not enough to close the user's phone report because the probe still does not prove the Android native-frame event path that produced the observed sequential maps-to-Author's-Note inversion.
+
+Release status:
+
+- No release APK was built or published for this source slice.
+- Morning release candidate should validate whether native readable-page drag ownership fixes:
+  - center/menu tap reliability;
+  - cover and normal-page drag behavior;
+  - texture direction during sequential frontmatter/page-area transitions;
+  - PDF page navigation under the same native controller path.

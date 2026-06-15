@@ -444,9 +444,13 @@ class ReaderKomikkuBackboneResetTest {
 			viewerContainerBody.contains("dispatchHorizontalSwipeViewerAction("),
 			"Horizontal drags must be routed by the native viewer container before the engine bridge sees any page command."
 		)
-		assertTrue(
+		assertFalse(
 			viewerContainerBody.contains("shellCoverView?.visibility != VISIBLE"),
-			"Until concrete EPUB/PDF viewers own drag movement, native horizontal swipe dispatch must be scoped to the shell cover to avoid double-turning WebView pages."
+			"Native horizontal swipe dispatch must not remain scoped to the shell cover; the top reader manager owns EPUB/PDF page drags too."
+		)
+		assertTrue(
+			viewerContainerBody.contains("readerNativeReaderSwipeAction("),
+			"Readable-page swipes must use the stricter native-reader swipe contract to avoid vertical scroll/drift page turns."
 		)
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.NEXT)"))
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.PREV)"))
@@ -464,6 +468,52 @@ class ReaderKomikkuBackboneResetTest {
 			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
 				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
 			"Native frame swipes must emit viewer actions only; Foliate command translation stays behind ReaderEngine."
+		)
+	}
+
+	@Test
+	fun nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView() {
+		val androidHost = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		)
+		val androidText = androidHost.readText()
+		val viewerContainerBody = androidText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val interceptTouchEvent = viewerContainerBody
+			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\telse -> return false")
+		val handleTouch = viewerContainerBody
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
+			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
+		val swipeAction = viewerContainerBody
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun logReaderShellCoverDragCandidate")
+
+		assertTrue(
+			androidText.contains("readerNativeReaderSwipeAction"),
+			"Readable EPUB/PDF drags must use the stricter native-reader swipe contract instead of shell-cover drift rules."
+		)
+		assertTrue(
+			interceptTouchEvent.contains("nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)") &&
+				interceptTouchEvent.contains("nativeSwipeIntercepted = true") &&
+				interceptTouchEvent.contains("return true"),
+			"The native viewer container must intercept horizontal drags after slop so WebView/Foliate cannot own readable page swipes."
+		)
+		assertFalse(
+			handleTouch.contains("if (shellCoverView?.visibility != VISIBLE) return"),
+			"Swipe dispatch must no longer be shell-cover-only; the top native manager owns readable page drags too."
+		)
+		assertTrue(
+			swipeAction.contains("if (shellCoverView?.visibility == VISIBLE)") &&
+				swipeAction.contains("readerShellCoverSwipeAction(") &&
+				swipeAction.contains("readerNativeReaderSwipeAction("),
+			"Cover drags and readable-page drags need separate swipe contracts under the same native owner."
+		)
+		assertFalse(
+			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
+				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
+			"Native swipes must still emit viewer actions only; engine command translation stays behind the controller/engine boundary."
 		)
 	}
 

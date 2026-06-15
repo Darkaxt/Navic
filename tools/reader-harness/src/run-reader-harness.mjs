@@ -41,11 +41,35 @@ const argValue = name => {
   return index >= 0 ? process.argv[index + 1] : null
 }
 
-const phoneViewport = {
-  viewport: { width: 393, height: 873 },
-  deviceScaleFactor: 3,
+const positiveNumberArg = (name, fallback) => {
+  const value = Number(argValue(name))
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+const readerHarnessViewport = {
+  viewport: {
+    width: Math.round(positiveNumberArg('--viewport-width', 393)),
+    height: Math.round(positiveNumberArg('--viewport-height', 873)),
+  },
+  deviceScaleFactor: positiveNumberArg('--device-scale-factor', 3),
   isMobile: true,
   hasTouch: true,
+}
+
+const logReaderHarnessViewport = modeName => {
+  console.log(
+    `reader harness ${modeName} viewport=` +
+    `${readerHarnessViewport.viewport.width}x${readerHarnessViewport.viewport.height} ` +
+    `dpr=${readerHarnessViewport.deviceScaleFactor}`
+  )
+}
+
+if (
+  process.argv.includes('--viewport-width') ||
+  process.argv.includes('--viewport-height') ||
+  process.argv.includes('--device-scale-factor')
+) {
+  logReaderHarnessViewport(mode)
 }
 
 const performReaderTouchDrag = async (
@@ -323,7 +347,7 @@ if (mode === 'trace-smoke') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -352,7 +376,7 @@ if (mode === 'font-css-smoke') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -425,7 +449,7 @@ if (mode === 'epub-frontmatter') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -530,7 +554,7 @@ if (mode === 'epub-page-boundary') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -633,7 +657,7 @@ if (mode === 'epub-native-tap-zone-open') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -730,7 +754,7 @@ if (mode === 'epub-full-traversal') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -989,7 +1013,7 @@ if (mode === 'epub-texture-scroll') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1071,7 +1095,7 @@ if (mode === 'epub-texture-page-turns') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1181,7 +1205,7 @@ if (mode === 'epub-texture-page-turns') {
       renderer.scrollBy(-delta, 0)
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       return { name: 'renderer-scrollBy-forward', direction: 'forward', samples, delta }
-    }, Math.min(160, Math.max(80, Math.round(phoneViewport.viewport.width * 0.32))))
+    }, Math.min(160, Math.max(80, Math.round(readerHarnessViewport.viewport.width * 0.32))))
 
     const bridgeProbe = async name => {
       const samples = [await collectState('before')]
@@ -1277,7 +1301,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1471,7 +1495,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
         const renderer = document.querySelector('foliate-view')?.renderer
         renderer?.setAttribute?.('animated', '')
       })
-      const viewport = page.viewportSize() || phoneViewport.viewport
+      const viewport = page.viewportSize() || readerHarnessViewport.viewport
       const reverse = direction === 'backward'
       const dragPromise = performReaderTouchDrag(page, {
         startX: viewport.width * (reverse ? 0.18 : 0.82),
@@ -1572,7 +1596,7 @@ if (mode === 'pdf-smoke') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1756,7 +1780,7 @@ if (mode === 'pdf-image-settings') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1905,7 +1929,7 @@ if (mode === 'pdf-fast-sequential-turns') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2008,7 +2032,7 @@ if (mode === 'epub-shell-cover') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2109,7 +2133,7 @@ if (mode === 'epub-external-shell-cover') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2207,7 +2231,7 @@ if (mode === 'css-smoke') {
   const browser = await chromium.launch()
   const errors = []
   try {
-    const page = await browser.newPage(phoneViewport)
+    const page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })

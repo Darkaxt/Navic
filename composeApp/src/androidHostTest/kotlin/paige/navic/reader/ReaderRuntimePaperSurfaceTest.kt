@@ -579,4 +579,28 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(phase1Mode, "timeoutMs")
 	}
 
+	@Test
+	fun readerHarnessCanRunTextureProbesAtAndroidViewportParity() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val harnessText = harnessFile.readText()
+
+		assertContains(
+			harnessText,
+			"const readerHarnessViewport =",
+			message = "Texture/page-number probes must be runnable at the Android viewport that produced the phone-side pagination bugs."
+		)
+		assertContains(harnessText, "--viewport-width")
+		assertContains(harnessText, "--viewport-height")
+		assertContains(harnessText, "--device-scale-factor")
+		assertContains(
+			harnessText,
+			"await browser.newPage(readerHarnessViewport)",
+			message = "Harness modes must use the resolved viewport override instead of the fixed narrow phone viewport."
+		)
+	}
+
 }

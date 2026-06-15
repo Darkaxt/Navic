@@ -485,4 +485,21 @@ class ReaderChromeStateTest {
 		assertEquals(true, updated.settings.pdfCropBorders)
 		assertEquals("Page", readerPdfFitShortLabel(updated.settings.pdfFitMode))
 	}
+
+	@Test
+	fun nativeReaderSwipeActionRequiresHorizontalDominanceOutsideShellCover() {
+		assertEquals(null, readerNativeReaderSwipeAction(deltaX = -9f, deltaY = 1f, thresholdPx = 10f))
+		assertEquals(ReaderTapZoneAction.Right, readerNativeReaderSwipeAction(deltaX = -24f, deltaY = 8f, thresholdPx = 10f))
+		assertEquals(ReaderTapZoneAction.Left, readerNativeReaderSwipeAction(deltaX = 24f, deltaY = 8f, thresholdPx = 10f))
+		assertEquals(
+			null,
+			readerNativeReaderSwipeAction(deltaX = -24f, deltaY = 30f, thresholdPx = 10f),
+			"Readable EPUB/PDF swipes must not convert mostly vertical scroll or drift into page turns."
+		)
+		assertEquals(
+			ReaderTapZoneAction.Right,
+			readerShellCoverSwipeAction(deltaX = -24f, deltaY = 30f, thresholdPx = 10f),
+			"Shell-cover drags can stay permissive because there is no readable scroll stream under the cover."
+		)
+	}
 }

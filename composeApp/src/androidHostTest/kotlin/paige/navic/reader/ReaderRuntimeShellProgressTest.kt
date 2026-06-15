@@ -332,11 +332,15 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
 
 		assertContains(nativeFrameHostText, "private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()")
-		assertContains(handleTouch, "if (shellCoverView?.visibility != VISIBLE) return")
+		assertFalse(
+			handleTouch.contains("if (shellCoverView?.visibility != VISIBLE) return"),
+			"Swipe handling must not remain shell-cover-only; the native reader manager owns readable-page horizontal drags too."
+		)
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
+		assertContains(shellCoverSwipe, "readerNativeReaderSwipeAction(")
 		assertContains(shellCoverSwipe, "touchSlopPx")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
