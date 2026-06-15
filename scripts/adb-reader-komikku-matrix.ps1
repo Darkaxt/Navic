@@ -7,6 +7,8 @@ param(
     [string] $RequireTextureDirection = "",
     [switch] $NoLaunch,
     [switch] $IncludeCoverChecks,
+    [switch] $IncludePdfChecks,
+    [switch] $OnlyPdfChecks,
     [switch] $ContinueOnFailure
 )
 
@@ -103,6 +105,7 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireShellCoverCommand,
         [switch] $RequireNoReaderCenterDispatch,
         [switch] $RequireTextureDiagnostics,
+        [switch] $RequirePdfDiagnostics,
         [ValidateSet("", "next", "previous")]
         [string] $RequireTextureDirection = "",
         [switch] $Launch,
@@ -158,6 +161,9 @@ function Invoke-ReaderMatrixStep {
     if ($RequireTextureDiagnostics) {
         $args += "-RequireTextureDiagnostics"
     }
+    if ($RequirePdfDiagnostics) {
+        $args += "-RequirePdfDiagnostics"
+    }
     $stepTextureDirection = if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
         $RequireTextureDirection
     } elseif ($RequireTextureDiagnostics -and -not [string]::IsNullOrWhiteSpace($script:RequireTextureDirection)) {
@@ -193,70 +199,110 @@ Invoke-ReaderMatrixStep `
     -Launch:(!$NoLaunch) `
     -InstallApk:(!$NoLaunch)
 
-Invoke-ReaderMatrixStep `
-    -Name "center-tap-toggle" `
-    -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
-    -ValidateReaderTaps `
-    -RequireReaderTapAction
+if (-not $OnlyPdfChecks) {
+    Invoke-ReaderMatrixStep `
+        -Name "center-tap-toggle" `
+        -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction
 
-Invoke-ReaderMatrixStep `
-    -Name "native-long-press-center" `
-    -LongPressFraction @("0.50,0.50,950,900") `
-    -RequireNativeLongTap `
-    -RequireNoReaderCenterDispatch
+    Invoke-ReaderMatrixStep `
+        -Name "native-long-press-center" `
+        -LongPressFraction @("0.50,0.50,950,900") `
+        -RequireNativeLongTap `
+        -RequireNoReaderCenterDispatch
 
-Invoke-ReaderMatrixStep `
-    -Name "edge-tap-next" `
-    -TapFraction @("0.90,0.50,900") `
-    -ValidateReaderTaps `
-    -RequireReaderTapAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "next"
+    Invoke-ReaderMatrixStep `
+        -Name "edge-tap-next" `
+        -TapFraction @("0.90,0.50,900") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "next"
 
-Invoke-ReaderMatrixStep `
-    -Name "edge-tap-previous" `
-    -TapFraction @("0.10,0.50,900") `
-    -ValidateReaderTaps `
-    -RequireReaderTapAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "previous"
+    Invoke-ReaderMatrixStep `
+        -Name "edge-tap-previous" `
+        -TapFraction @("0.10,0.50,900") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "previous"
 
-Invoke-ReaderMatrixStep `
-    -Name "drag-next" `
-    -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
-    -RequireNativeSwipeAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "next"
+    Invoke-ReaderMatrixStep `
+        -Name "drag-next" `
+        -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
+        -RequireNativeSwipeAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "next"
 
-Invoke-ReaderMatrixStep `
-    -Name "drag-previous" `
-    -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
-    -RequireNativeSwipeAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "previous"
+    Invoke-ReaderMatrixStep `
+        -Name "drag-previous" `
+        -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
+        -RequireNativeSwipeAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "previous"
 
-Invoke-ReaderMatrixStep `
-    -Name "texture-next-walk" `
-    -TapFraction $ReaderNextWalkTapFractions `
-    -ValidateReaderTaps `
-    -RequireReaderTapAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "next"
+    Invoke-ReaderMatrixStep `
+        -Name "texture-next-walk" `
+        -TapFraction $ReaderNextWalkTapFractions `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "next"
 
-Invoke-ReaderMatrixStep `
-    -Name "texture-previous-walk" `
-    -TapFraction $ReaderPreviousWalkTapFractions `
-    -ValidateReaderTaps `
-    -RequireReaderTapAction `
-    -RequireTextureDiagnostics `
-    -RequireTextureDirection "previous"
+    Invoke-ReaderMatrixStep `
+        -Name "texture-previous-walk" `
+        -TapFraction $ReaderPreviousWalkTapFractions `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "previous"
+}
 
 if ($IncludeCoverChecks) {
+    Invoke-ReaderMatrixStep `
+        -Name "cover-center-tap-toggle" `
+        -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction
+
     Invoke-ReaderMatrixStep `
         -Name "cover-drag-next" `
         -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
         -RequireShellCoverSwipe `
         -RequireShellCoverCommand
+}
+
+if ($IncludePdfChecks -or $OnlyPdfChecks) {
+    Invoke-ReaderMatrixStep `
+        -Name "pdf-baseline" `
+        -RequirePdfDiagnostics
+
+    Invoke-ReaderMatrixStep `
+        -Name "pdf-edge-tap-next" `
+        -TapFraction @("0.90,0.50,900") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequirePdfDiagnostics
+
+    Invoke-ReaderMatrixStep `
+        -Name "pdf-edge-tap-previous" `
+        -TapFraction @("0.10,0.50,900") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequirePdfDiagnostics
+
+    Invoke-ReaderMatrixStep `
+        -Name "pdf-drag-next" `
+        -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
+        -RequireNativeSwipeAction `
+        -RequirePdfDiagnostics
+
+    Invoke-ReaderMatrixStep `
+        -Name "pdf-drag-previous" `
+        -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
+        -RequireNativeSwipeAction `
+        -RequirePdfDiagnostics
 }
 
 Write-Host "Komikku reader matrix artifacts: $ArtifactRoot"

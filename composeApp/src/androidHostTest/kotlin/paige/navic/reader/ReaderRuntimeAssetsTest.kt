@@ -165,15 +165,18 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "[switch] \$RequireContentTapHandled")
 		assertContains(scriptText, "[switch] \$RequireNoReaderCenterDispatch")
 		assertContains(scriptText, "[switch] \$RequireTextureDiagnostics")
+		assertContains(scriptText, "[switch] \$RequirePdfDiagnostics")
 		assertContains(scriptText, "shellCoverSwipe=")
 		assertContains(scriptText, "shellCoverDragCandidate=")
 		assertContains(scriptText, "shellCoverCommand=")
 		assertContains(scriptText, "readerNativeLongTap=")
 		assertContains(scriptText, "readerContentTapHandled=")
+		assertContains(scriptText, "pdfRuntimeDiagnostics=")
 		assertContains(scriptText, "textureHasDirection=")
 		assertContains(scriptText, "textureHasHref=")
 		assertContains(scriptText, "no shell-cover command was captured")
 		assertContains(scriptText, "no native reader long tap was captured")
+		assertContains(scriptText, "no PDF runtime diagnostics were captured")
 		assertContains(scriptText, "reader center dispatch was captured")
 	}
 

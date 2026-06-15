@@ -3692,3 +3692,70 @@ Focused green check:
 ```
 
 Result: passed on 2026-06-15.
+
+## 2026-06-15 Overnight ADB Matrix PDF And Cover Coverage
+
+User direction:
+
+- The morning validation should collect the whole practical adb array, not stop at the first EPUB gesture failure.
+- PDF behavior is a known acceptance area, but the current script cannot safely navigate the app from the EPUB under test to an arbitrary PDF without relying on fragile library UI coordinates.
+- Cover behavior needs its own named center-tap artifact because cover center tap and cover drag have failed independently.
+
+Root cause:
+
+- `adb-reader-komikku-matrix.ps1` previously had ordinary EPUB tap/drag/texture checks, native long press, and optional cover drag only.
+- It had no `cover-center-tap-toggle` artifact.
+- It had no PDF-specific path and `adb-reader-smoke.ps1` had no way to fail when the current reader state was not actually PDF-backed.
+
+Navic implication:
+
+- `adb-reader-smoke.ps1` now accepts `-RequirePdfDiagnostics`.
+- Reader diagnostics summary now writes `pdfRuntimeDiagnostics=...`.
+- `adb-reader-smoke.ps1` fails with `no PDF runtime diagnostics were captured` when `-RequirePdfDiagnostics` is requested and the captured logcat does not show the Foliate/PDF.js runtime path.
+- `adb-reader-komikku-matrix.ps1` now accepts:
+  - `-IncludePdfChecks`: append optional PDF checks to the current run.
+  - `-OnlyPdfChecks`: skip EPUB texture/gesture steps and run only baseline plus PDF tap/drag checks.
+- The cover matrix now includes `cover-center-tap-toggle` before `cover-drag-next` when `-IncludeCoverChecks` is supplied.
+
+Morning command shape:
+
+1. Open the known EPUB, preferably on the native cover if cover behavior must be included, then run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+2. Open a known PDF in the reader, then run the PDF-only matrix:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -OnlyPdfChecks -ContinueOnFailure
+```
+
+Do not run `-IncludePdfChecks` against an EPUB state and interpret the expected PDF failures as app failures. It is available for cases where the current reader state is already PDF and the operator also wants the non-PDF generic input checks.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: failed before the script change because `-RequirePdfDiagnostics`, `pdfRuntimeDiagnostics=`, `-IncludePdfChecks`, the PDF matrix steps, and `cover-center-tap-toggle` did not exist.
+
+Focused green checks:
+
+```powershell
+$files = @('scripts\adb-reader-smoke.ps1','scripts\adb-reader-komikku-matrix.ps1')
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+  if ($errors.Count -gt 0) { throw $errors[0].Message }
+}
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No release APK was built or published for this validation-tooling slice.

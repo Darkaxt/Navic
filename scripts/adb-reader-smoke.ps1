@@ -23,6 +23,7 @@ param(
     [switch] $RequireContentTapHandled,
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
+    [switch] $RequirePdfDiagnostics,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $CaptureReaderDiagnostics,
@@ -378,6 +379,8 @@ if ($CaptureReaderDiagnostics) {
 
     $textureDiagnosticsText = Get-Content -LiteralPath $textureDiagnosticsPath -Raw
     $touchDiagnosticsText = Get-Content -LiteralPath $touchDiagnosticsPath -Raw
+    $logcatFullText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") -Raw
+    $pdfRuntimeDiagnostics = $logcatFullText -match '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf'
     $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
     $textureDirectionSamples = @()
     $wrongTextureDirection = $false
@@ -408,6 +411,7 @@ if ($CaptureReaderDiagnostics) {
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
         "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
+        "pdfRuntimeDiagnostics=$pdfRuntimeDiagnostics",
         "shellCoverDragCandidate=$($touchDiagnosticsText -match 'Reader shell cover drag candidate')",
         "shellCoverSwipe=$($touchDiagnosticsText -match 'Reader shell cover swipe')",
         "shellCoverCommand=$($touchDiagnosticsText -match 'Reader shell cover command')",
@@ -442,6 +446,9 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequireNoReaderCenterDispatch -and ($touchDiagnosticsText -match 'Reader surface dispatch center tap')) {
         throw "Reader diagnostics validation failed: reader center dispatch was captured. See $ArtifactDir"
+    }
+    if ($RequirePdfDiagnostics -and -not $pdfRuntimeDiagnostics) {
+        throw "Reader diagnostics validation failed: no PDF runtime diagnostics were captured. See $ArtifactDir"
     }
     if ($RequireTextureDiagnostics) {
         foreach ($requiredTextureField in @('pos=', 'base=', 'delta=', 'dir=', 'page=', 'href=')) {

@@ -641,7 +641,13 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("drag-previous"))
 		assertTrue(matrixText.contains("texture-next-walk"))
 		assertTrue(matrixText.contains("texture-previous-walk"))
+		assertTrue(matrixText.contains("cover-center-tap-toggle"))
 		assertTrue(matrixText.contains("cover-drag-next"))
+		assertTrue(matrixText.contains("pdf-baseline"))
+		assertTrue(matrixText.contains("pdf-edge-tap-next"))
+		assertTrue(matrixText.contains("pdf-edge-tap-previous"))
+		assertTrue(matrixText.contains("pdf-drag-next"))
+		assertTrue(matrixText.contains("pdf-drag-previous"))
 		assertTrue(matrixText.contains("-CaptureReaderDiagnostics"))
 		assertTrue(matrixText.contains("-LongPressFraction"))
 		assertTrue(matrixText.contains("-ValidateReaderTaps"))
@@ -650,6 +656,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("-RequireShellCoverSwipe"))
 		assertTrue(matrixText.contains("-RequireShellCoverCommand"))
 		assertTrue(matrixText.contains("-RequireTextureDiagnostics"))
+		assertTrue(matrixText.contains("-RequirePdfDiagnostics"))
+		assertTrue(matrixText.contains("[switch] \$IncludePdfChecks"))
 		assertTrue(
 			smokeText.contains("[ValidateSet(\"\", \"next\", \"previous\")]") &&
 				smokeText.contains("[string] \$RequireTextureDirection"),
