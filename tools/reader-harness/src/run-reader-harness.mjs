@@ -2463,6 +2463,43 @@ if (mode === 'css-smoke') {
         `<a href="#navic-css-smoke-target">Transient link</a>`,
         'a'
       )
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          nativeTapZones: true,
+        },
+      })
+      const nativeProbe = doc.createElement('section')
+      nativeProbe.setAttribute('data-navic-css-smoke-native-tap-zones', 'true')
+      nativeProbe.innerHTML = `
+        <a data-navic-css-smoke-native-link="true" href="#navic-css-smoke-target">Native probe link</a>
+        <a data-navic-css-smoke-native-media-link="true" href="#navic-css-smoke-target">
+          <img data-navic-css-smoke-native-media-image="true" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='white'/%3E%3C/svg%3E">
+        </a>
+      `
+      doc.body.prepend(nativeProbe)
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const nativeTextLink = nativeProbe.querySelector('[data-navic-css-smoke-native-link="true"]')
+      const nativeImage = nativeProbe.querySelector('[data-navic-css-smoke-native-media-image="true"]')
+      const traceLengthBeforeNativeTapZones = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.length
+        : 0
+      const postedLengthBeforeNativeTapZones = postedMessages().length
+      nativeImage.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(nativeImage)))
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      dispatchSyntheticTouchTap(nativeImage)
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      win.__navicLastMediaTapHandledAt = 0
+      win.__navicSuppressNextMediaClickUntil = 0
+      nativeTextLink.dispatchEvent(new win.MouseEvent('click', clickOptionsFor(nativeTextLink)))
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const traceAfterNativeTapZones = Array.isArray(win.parent.__navicReaderTrace)
+        ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeTapZones)
+        : []
+      const postedAfterNativeTapZones = postedMessages().slice(postedLengthBeforeNativeTapZones)
+      const nativeTapZoneSuppressionSources = traceAfterNativeTapZones
+        .filter(event => event?.type === 'native-tap-zones:content-click-suppressed')
+        .map(event => event?.payload?.source || '')
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
@@ -2497,6 +2534,13 @@ if (mode === 'css-smoke') {
         textLinkContentTapHandledSources,
         textLinkTouchContentTapHandledCount: textLinkTouchContentTapHandledSources.length,
         textLinkTouchContentTapHandledSources,
+        nativeTapZonesSuppressedImageClickCount: nativeTapZoneSuppressionSources.filter(source => source === 'image-click').length,
+        nativeTapZonesSuppressedImageTouchCount: nativeTapZoneSuppressionSources.filter(source => source === 'image-touchend').length,
+        nativeTapZonesSuppressedTextLinkClickCount: nativeTapZoneSuppressionSources.filter(source => source === 'link-click').length,
+        nativeTapZonesImageOverlayTraceCount: traceAfterNativeTapZones.filter(event => event?.type === 'image:sepia-overlay').length,
+        nativeTapZonesTextLinkNavigationTraceCount: traceAfterNativeTapZones.filter(event => event?.type === 'link:navigate').length,
+        nativeTapZonesContentPostCount: postedAfterNativeTapZones.filter(message => message?.type === 'readerContentTapHandled').length,
+        nativeTapZonesPostedMessageCount: postedAfterNativeTapZones.length,
         imageNativeCenterContentHit,
         imageNativeScaledContentHit,
         textLinkNativeCenterContentHit,

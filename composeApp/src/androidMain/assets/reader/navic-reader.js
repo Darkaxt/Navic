@@ -1151,6 +1151,22 @@ class NavicReaderRuntime {
     })
   }
 
+  suppressReaderNativeTapZoneContentActivation(doc, event, source = 'content-click') {
+    if (this.nativeTapZones !== true || !doc || event?.defaultPrevented || event?.button > 0) return false
+    const anchor = closestElement(event.target, 'a[href]')
+    const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+    if (!anchor && !mediaTapTarget) return false
+    event.preventDefault?.()
+    event.stopPropagation?.()
+    event.stopImmediatePropagation?.()
+    readerTrace('native-tap-zones:content-click-suppressed', {
+      source,
+      kind: mediaTapTarget ? 'media' : 'link',
+      href: anchor?.getAttribute?.('href') || '',
+    })
+    return true
+  }
+
   readerContentActionClaimPayload(doc, event, detail = {}) {
     const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
     const x = Number(rootPoint?.x ?? rootPoint?.clientX)
@@ -1463,6 +1479,7 @@ class NavicReaderRuntime {
     }, { capture: true, passive: true })
     doc.addEventListener('click', async event => {
       if (event.defaultPrevented || event.button > 0) return
+      if (this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')) return
       const anchor = closestElement(event.target, 'a[href]')
       if (!anchor) return
       if (readerShouldSuppressMediaSyntheticClick(doc, event, anchor)) {
@@ -1632,12 +1649,16 @@ class NavicReaderRuntime {
         stopImmediatePropagation: () => event.stopImmediatePropagation(),
         timeStamp: event.timeStamp,
       }
+      if (state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')) return
       this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)
     }, { capture: true, passive: false })
     doc.addEventListener('touchcancel', () => {
       touchState = null
     }, { capture: true, passive: true })
     doc.addEventListener('click', event => {
+      const anchor = closestElement(event.target, 'a[href]')
+      const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
+      if (mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')) return
       const lastMediaTap = Number(doc.defaultView?.__navicLastMediaTapHandledAt || 0)
       const timestamp = event.timeStamp || performance.now()
       if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) {
@@ -1646,7 +1667,7 @@ class NavicReaderRuntime {
         event.stopImmediatePropagation()
         return
       }
-      this.toggleSepiaImageOverlayFromEvent(doc, event)
+      this.toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget)
     }, { capture: true, passive: false })
   }
 

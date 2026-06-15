@@ -527,6 +527,55 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidReaderSuppressesOrdinaryContentClicksWhenNativeTapZonesOwnShortTaps() {
+		val bridgeText = readerBridgeText()
+		val linkNavigation = bridgeText
+			.substringAfter("attachLinkNavigation(doc, index) {")
+			.substringBefore("\n  classifyReaderLinks")
+		val sepiaToggle = bridgeText
+			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
+			.substringBefore("\n  effectiveReaderDirection")
+		val linkClickHandler = linkNavigation
+			.substringAfter("doc.addEventListener('click', async event => {")
+			.substringBefore("}, { capture: true })")
+		val imageClickHandler = sepiaToggle
+			.substringAfter("doc.addEventListener('click', event => {")
+			.substringBefore("}, { capture: true, passive: false })")
+		val imageTouchEndHandler = sepiaToggle
+			.substringAfter("doc.addEventListener('touchend', event => {")
+			.substringBefore("}, { capture: true, passive: false })")
+
+		assertContains(
+			bridgeText,
+			"suppressReaderNativeTapZoneContentActivation",
+			message = "The runtime needs a single guard for leaked ordinary WebView clicks while Android owns short taps."
+		)
+		assertContains(linkClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')")
+		assertTrue(
+			linkClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')") <
+				linkClickHandler.indexOf("const anchor = closestElement(event.target, 'a[href]')"),
+			"Native short-tap ownership must suppress link activation before resolving or navigating anchors."
+		)
+		assertContains(imageClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')")
+		assertContains(imageClickHandler, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
+		assertContains(imageClickHandler, "mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')")
+		assertTrue(
+			imageClickHandler.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
+				imageClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')") &&
+				imageClickHandler.indexOf("mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')") <
+				imageClickHandler.indexOf("this.toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget)"),
+			"Native short-tap ownership must suppress image click activation before toggling the sepia overlay without swallowing plain text links."
+		)
+		assertContains(imageTouchEndHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')")
+		assertContains(imageTouchEndHandler, "state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')")
+		assertTrue(
+			imageTouchEndHandler.indexOf("state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')") <
+				imageTouchEndHandler.indexOf("this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)"),
+			"Native short-tap ownership must suppress image touchend activation before toggling the sepia overlay without swallowing text-link touch metadata."
+		)
+	}
+
+	@Test
 	fun androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting() {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
@@ -623,6 +672,11 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(harnessText, "__navicReaderPostedMessages")
 		assertContains(
 			harnessText,
+			"nativeTapZones: true",
+			message = "CSS smoke must explicitly exercise the Android-native tap ownership mode, not only the old WebView-owned fallback."
+		)
+		assertContains(
+			harnessText,
 			"imageContentTapHandledCount",
 			message = "CSS smoke must record native bridge ownership for image tint toggles, otherwise Android chrome races are invisible locally."
 		)
@@ -640,6 +694,26 @@ class ReaderRuntimeImageLinkTest {
 			harnessText,
 			"textLinkTouchContentTapHandledCount",
 			message = "CSS smoke must record touch-phase bridge ownership for link taps, because Android chrome races the touch sequence."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesSuppressedImageClickCount",
+			message = "CSS smoke must prove ordinary image clicks are suppressed when the native reader surface owns short taps."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesSuppressedTextLinkClickCount",
+			message = "CSS smoke must prove ordinary text-link clicks are suppressed by the link handler when the native reader surface owns short taps."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesImageOverlayTraceCount",
+			message = "CSS smoke must fail if an ordinary native-mode image click still toggles the sepia overlay."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesTextLinkNavigationTraceCount",
+			message = "CSS smoke must fail if an ordinary native-mode text link click still navigates inside the WebView."
 		)
 		assertContains(
 			assertionsText,
@@ -660,6 +734,16 @@ class ReaderRuntimeImageLinkTest {
 			assertionsText,
 			"Expected styled text link touch to send readerContentTapHandled",
 			message = "The renderer assertion must fail when link touch events do not notify native content ownership before Android chrome."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones to suppress ordinary image clicks",
+			message = "The renderer assertion must fail when native-mode image clicks still reach image behavior."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones to suppress ordinary text-link clicks",
+			message = "The renderer assertion must fail when native-mode text links still reach WebView navigation."
 		)
 		assertContains(
 			harnessText,

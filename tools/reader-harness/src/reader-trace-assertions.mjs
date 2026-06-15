@@ -539,6 +539,36 @@ export const assertRendererCssSmoke = result => {
       `Expected styled text link touch to send readerContentTapHandled from link-touch source; observed ${JSON.stringify(result.textLinkTouchContentTapHandledSources || [])}`
     )
   }
+  if (!Number.isFinite(Number(result.nativeTapZonesSuppressedImageClickCount)) || result.nativeTapZonesSuppressedImageClickCount < 1) {
+    throw new Error(
+      `Expected native tap zones to suppress ordinary image clicks; observed ${result.nativeTapZonesSuppressedImageClickCount || 0}`
+    )
+  }
+  if (!Number.isFinite(Number(result.nativeTapZonesSuppressedImageTouchCount)) || result.nativeTapZonesSuppressedImageTouchCount < 1) {
+    throw new Error(
+      `Expected native tap zones to suppress ordinary image touchend events; observed ${result.nativeTapZonesSuppressedImageTouchCount || 0}`
+    )
+  }
+  if (result.nativeTapZonesSuppressedTextLinkClickCount !== 1) {
+    throw new Error(
+      `Expected native tap zones to suppress ordinary text-link clicks; observed ${result.nativeTapZonesSuppressedTextLinkClickCount || 0}`
+    )
+  }
+  if (result.nativeTapZonesImageOverlayTraceCount !== 0) {
+    throw new Error(
+      `Expected native tap zones to block ordinary image clicks from toggling sepia overlay; observed ${result.nativeTapZonesImageOverlayTraceCount}`
+    )
+  }
+  if (result.nativeTapZonesTextLinkNavigationTraceCount !== 0) {
+    throw new Error(
+      `Expected native tap zones to block ordinary text-link clicks from WebView navigation; observed ${result.nativeTapZonesTextLinkNavigationTraceCount}`
+    )
+  }
+  if (result.nativeTapZonesContentPostCount !== 0) {
+    throw new Error(
+      `Expected native tap zones to keep ordinary short taps out of Android content-action posts; observed ${result.nativeTapZonesContentPostCount}`
+    )
+  }
   if (result.imageNativeCenterContentHit !== true) {
     throw new Error('Expected native center hit-test to suppress image chrome')
   }

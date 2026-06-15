@@ -3139,3 +3139,65 @@ Release status:
 
 - No release APK was built or published for this isolated rail behavior correction.
 - Morning device validation should specifically check whether dragging the side rail now feels page-snapped and whether the visual rail still reads as a raw Material slider.
+
+## 2026-06-15 Overnight Native Short-Tap Content Suppression
+
+User direction:
+
+- The Komikku-native reader surface owns ordinary short taps and drags.
+- WebView content actions must not race the native menu/page-turn detector.
+- Links/images should not be activated by the same ordinary short tap that the native reader uses for tap zones. Deliberate content interaction belongs to the long-press/explicit-content path, not the default tap-zone path.
+- Do not publish a release candidate for this isolated source-level correction.
+
+Root cause:
+
+- Android already passed `nativeTapZones = true` into the Foliate runtime and disabled JS reader-wide tap-zone listeners.
+- The WebView runtime still allowed ordinary content click handlers to run:
+  - `attachLinkNavigation(...)` could navigate links from a normal click.
+  - `attachSepiaImageOverlayToggle(...)` could toggle image sepia overlays from a normal click/touchend.
+- CSS smoke only exercised the old WebView-owned fallback path, so local browser checks could pass while missing the Android-native ownership mode.
+- The image handler was attached before link navigation, so a broad image/content guard could accidentally swallow plain text links before the link handler could classify them.
+
+Navic implication:
+
+- `navic-reader.js` now has `suppressReaderNativeTapZoneContentActivation(...)`.
+- When `nativeTapZones === true`, ordinary link clicks are suppressed before href resolution/navigation.
+- Ordinary image clicks/touchend events are suppressed before the sepia image overlay changes state, but only after proving the target is actual media. Plain text links continue to reach the link handler for suppression/classification rather than being mislabeled as `image-click`.
+- CSS smoke now exercises both paths:
+  - fallback/non-native content behavior still validates link styling, link navigation, image overlay toggles, and content-action metadata;
+  - native-mode probes set `nativeTapZones: true` and require ordinary image/link short taps to emit `native-tap-zones:content-click-suppressed` without `link:navigate`, `image:sepia-overlay`, or `readerContentTapHandled` posts.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesOrdinaryContentClicksWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+```
+
+Results:
+
+- Failed before production/harness changes because the runtime had no conditional media-only native suppression in the image handler.
+- Failed before harness changes because CSS smoke had no `nativeTapZones: true` probe and no native-mode suppression assertions.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesOrdinaryContentClicksWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership"
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+```
+
+Results: passed on 2026-06-15.
+
+Morning adb validation:
+
+- Verify that center/edge taps on EPUB text pages still map to native menu/next/previous.
+- Verify that tapping links/images no longer triggers WebView navigation or sepia-image toggle from the ordinary short-tap path.
+- Verify that deliberate long press still allows content interaction or at least does not dispatch native tap-zone action.
+- Verify that this change does not regress the user-visible sepia image toggle path expected for deliberate image interaction. If long-press is not enough in practice, the next slice should add an explicit content-interaction mode rather than re-enabling ordinary WebView clicks.
+
+Release status:
+
+- No release APK was built or published for this isolated source correction.
