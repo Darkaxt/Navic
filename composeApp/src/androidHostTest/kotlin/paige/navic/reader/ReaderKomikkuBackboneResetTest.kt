@@ -578,6 +578,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Normal readable-page drag diagnostics must not be mislabeled as shell-cover drag candidates."
 		)
 		assertTrue(
+			androidHostText.contains("Reader native long tap"),
+			"Deliberate content interaction diagnostics must expose native long taps separately from short reader tap zones."
+		)
+		assertTrue(
 			androidHostText.contains("Reader shell cover swipe action="),
 			"Shell-cover swipe diagnostics must remain visible in adb after the Komikku reset."
 		)
@@ -586,16 +590,18 @@ class ReaderKomikkuBackboneResetTest {
 			"Morning adb checks need to distinguish cover gesture recognition from controller command dispatch."
 		)
 		assertTrue(
-			adbSmokeText.contains("Reader native tap action=") &&
+				adbSmokeText.contains("Reader native tap action=") &&
 				adbSmokeText.contains("Reader native swipe action=") &&
 				adbSmokeText.contains("Reader native drag candidate") &&
+				adbSmokeText.contains("Reader native long tap") &&
 				adbSmokeText.contains("Reader shell cover swipe action=") &&
 				adbSmokeText.contains("Reader shell cover command action="),
 			"adb reader smoke must accept the active Komikku native-frame diagnostics instead of only legacy Reader surface logs."
 		)
 		assertTrue(
-			adbSmokeText.contains("readerNativeDragCandidate="),
-			"adb reader smoke summary must separate normal-page drag candidates from shell-cover candidates."
+			adbSmokeText.contains("readerNativeDragCandidate=") &&
+				adbSmokeText.contains("readerNativeLongTap="),
+			"adb reader smoke summary must separate normal-page drag and long-tap candidates from shell-cover candidates."
 		)
 	}
 
@@ -614,6 +620,7 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("[string] \$ArtifactRoot"))
 		assertTrue(matrixText.contains("baseline-current-reader"))
 		assertTrue(matrixText.contains("center-tap-toggle"))
+		assertTrue(matrixText.contains("native-long-press-center"))
 		assertTrue(matrixText.contains("edge-tap-next"))
 		assertTrue(matrixText.contains("edge-tap-previous"))
 		assertTrue(matrixText.contains("drag-next"))
@@ -622,8 +629,10 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("texture-previous-walk"))
 		assertTrue(matrixText.contains("cover-drag-next"))
 		assertTrue(matrixText.contains("-CaptureReaderDiagnostics"))
+		assertTrue(matrixText.contains("-LongPressFraction"))
 		assertTrue(matrixText.contains("-ValidateReaderTaps"))
 		assertTrue(matrixText.contains("-RequireReaderTapAction"))
+		assertTrue(matrixText.contains("-RequireNativeLongTap"))
 		assertTrue(matrixText.contains("-RequireShellCoverSwipe"))
 		assertTrue(matrixText.contains("-RequireShellCoverCommand"))
 		assertTrue(matrixText.contains("-RequireTextureDiagnostics"))

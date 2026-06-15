@@ -6,6 +6,8 @@ param(
     [string[]] $TapFraction = @(),
     [string[]] $Swipe = @(),
     [string[]] $SwipeFraction = @(),
+    [string[]] $LongPress = @(),
+    [string[]] $LongPressFraction = @(),
     [ValidateSet("None", "ReaderHorizontalZones")]
     [string] $TapPreset = "None",
     [string] $ExpectedVersionName,
@@ -17,6 +19,7 @@ param(
     [switch] $RequireShellCoverDragDiagnostic,
     [switch] $RequireShellCoverCommand,
     [switch] $RequireNativeSwipeAction,
+    [switch] $RequireNativeLongTap,
     [switch] $RequireContentTapHandled,
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
@@ -111,6 +114,36 @@ function Convert-SwipeFraction {
         [math]::Round($y1Fraction * $Height), `
         [math]::Round($x2Fraction * $Width), `
         [math]::Round($y2Fraction * $Height), `
+        $durationMs, `
+        $waitMs
+}
+
+function Convert-LongPressFraction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $LongPressSpec,
+        [Parameter(Mandatory = $true)]
+        [int] $Width,
+        [Parameter(Mandatory = $true)]
+        [int] $Height
+    )
+
+    if ($LongPressSpec -notmatch '^\s*([0-9]*\.?[0-9]+)\s*,\s*([0-9]*\.?[0-9]+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid long-press fraction '$LongPressSpec'. Use xFraction,yFraction or xFraction,yFraction,durationMs,waitMs."
+    }
+
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $xFraction = [double]::Parse($Matches[1], $culture)
+    $yFraction = [double]::Parse($Matches[2], $culture)
+    if ($xFraction -lt 0 -or $xFraction -gt 1 -or $yFraction -lt 0 -or $yFraction -gt 1) {
+        throw "Long-press fractions must be between 0 and 1: $LongPressSpec"
+    }
+
+    $durationMs = if ($Matches[3]) { [int] $Matches[3] } else { 950 }
+    $waitMs = if ($Matches[4]) { [int] $Matches[4] } else { 1000 }
+    return "{0},{1},{2},{3}" -f `
+        [math]::Round($xFraction * $Width), `
+        [math]::Round($yFraction * $Height), `
         $durationMs, `
         $waitMs
 }
@@ -231,6 +264,13 @@ if ($SwipeFraction.Count -gt 0) {
     }
 }
 
+if ($LongPressFraction.Count -gt 0) {
+    $screenSize = Get-AdbScreenSize
+    foreach ($longPressFractionSpec in $LongPressFraction) {
+        $LongPress += Convert-LongPressFraction -LongPressSpec $longPressFractionSpec -Width $screenSize.Width -Height $screenSize.Height
+    }
+}
+
 foreach ($tapSpec in $Tap) {
     if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
         throw "Invalid tap spec '$tapSpec'. Use x,y or x,y,waitMs."
@@ -241,6 +281,20 @@ foreach ($tapSpec in $Tap) {
     $waitMs = if ($Matches[3]) { [int] $Matches[3] } else { 1000 }
 
     Invoke-Adb @("shell", "input", "tap", $x, $y)
+    Start-Sleep -Milliseconds $waitMs
+}
+
+foreach ($longPressSpec in $LongPress) {
+    if ($longPressSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid long-press spec '$longPressSpec'. Use x,y or x,y,durationMs,waitMs."
+    }
+
+    $x = $Matches[1]
+    $y = $Matches[2]
+    $durationMs = if ($Matches[3]) { [int] $Matches[3] } else { 950 }
+    $waitMs = if ($Matches[4]) { [int] $Matches[4] } else { 1000 }
+
+    Invoke-Adb @("shell", "input", "swipe", $x, $y, $x, $y, $durationMs)
     Start-Sleep -Milliseconds $waitMs
 }
 
@@ -349,6 +403,7 @@ if ($CaptureReaderDiagnostics) {
         "readerNativeTapAction=$($touchDiagnosticsText -match 'Reader native tap action=')",
         "readerNativeSwipeAction=$($touchDiagnosticsText -match 'Reader native swipe action=')",
         "readerNativeDragCandidate=$($touchDiagnosticsText -match 'Reader native drag candidate')",
+        "readerNativeLongTap=$($touchDiagnosticsText -match 'Reader native long tap')",
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
@@ -378,6 +433,9 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequireNativeSwipeAction -and -not ($touchDiagnosticsText -match 'Reader native swipe action=')) {
         throw "Reader diagnostics validation failed: no native reader swipe action was captured. See $ArtifactDir"
+    }
+    if ($RequireNativeLongTap -and -not ($touchDiagnosticsText -match 'Reader native long tap')) {
+        throw "Reader diagnostics validation failed: no native reader long tap was captured. See $ArtifactDir"
     }
     if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"

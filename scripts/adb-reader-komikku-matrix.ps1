@@ -53,11 +53,14 @@ function Invoke-ReaderMatrixStep {
         [string] $Name,
         [string[]] $TapFraction = @(),
         [string[]] $SwipeFraction = @(),
+        [string[]] $LongPressFraction = @(),
         [switch] $ValidateReaderTaps,
         [switch] $RequireReaderTapAction,
         [switch] $RequireNativeSwipeAction,
+        [switch] $RequireNativeLongTap,
         [switch] $RequireShellCoverSwipe,
         [switch] $RequireShellCoverCommand,
+        [switch] $RequireNoReaderCenterDispatch,
         [switch] $RequireTextureDiagnostics,
         [ValidateSet("", "next", "previous")]
         [string] $RequireTextureDirection = "",
@@ -87,6 +90,9 @@ function Invoke-ReaderMatrixStep {
     foreach ($swipe in $SwipeFraction) {
         $args += @("-SwipeFraction", $swipe)
     }
+    foreach ($longPress in $LongPressFraction) {
+        $args += @("-LongPressFraction", $longPress)
+    }
     if ($ValidateReaderTaps) {
         $args += "-ValidateReaderTaps"
     }
@@ -96,11 +102,17 @@ function Invoke-ReaderMatrixStep {
     if ($RequireNativeSwipeAction) {
         $args += "-RequireNativeSwipeAction"
     }
+    if ($RequireNativeLongTap) {
+        $args += "-RequireNativeLongTap"
+    }
     if ($RequireShellCoverSwipe) {
         $args += "-RequireShellCoverSwipe"
     }
     if ($RequireShellCoverCommand) {
         $args += "-RequireShellCoverCommand"
+    }
+    if ($RequireNoReaderCenterDispatch) {
+        $args += "-RequireNoReaderCenterDispatch"
     }
     if ($RequireTextureDiagnostics) {
         $args += "-RequireTextureDiagnostics"
@@ -133,6 +145,12 @@ Invoke-ReaderMatrixStep `
     -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
     -ValidateReaderTaps `
     -RequireReaderTapAction
+
+Invoke-ReaderMatrixStep `
+    -Name "native-long-press-center" `
+    -LongPressFraction @("0.50,0.50,950,900") `
+    -RequireNativeLongTap `
+    -RequireNoReaderCenterDispatch
 
 Invoke-ReaderMatrixStep `
     -Name "edge-tap-next" `

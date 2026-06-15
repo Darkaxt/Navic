@@ -3387,3 +3387,69 @@ Morning adb validation:
 Release status:
 
 - No release APK was built or published for this source-level correction.
+
+## 2026-06-15 Overnight ADB Native Long-Press Gate
+
+User direction:
+
+- Morning validation needs a repeatable ADB array, not only screenshots or manual impressions.
+- Ordinary short taps remain native Komikku tap-zone input.
+- Deliberate content interaction should be validated as long press before deciding whether Android needs an explicit coordinate bridge.
+- Do not publish a release candidate for this validation-only script slice.
+
+Root cause:
+
+- `KomikkuReaderNativeFrameHost.android.kt` already logs `Reader native long tap`.
+- The WebView runtime already has the source-level long-press/content path from the previous slice.
+- `scripts/adb-reader-smoke.ps1` could capture the log text only incidentally; it had no long-press gesture input, no `readerNativeLongTap=` summary field, and no gate that fails when the native long tap is missing.
+- `scripts/adb-reader-komikku-matrix.ps1` therefore could not prove the morning APK recognizes deliberate long press separately from center short tap.
+
+Navic implication:
+
+- `adb-reader-smoke.ps1` now accepts:
+  - `-LongPress x,y,durationMs,waitMs`
+  - `-LongPressFraction xFraction,yFraction,durationMs,waitMs`
+  - `-RequireNativeLongTap`
+- Fractional long press is converted to Android `input swipe x y x y durationMs`, which is the ADB-supported long-press gesture.
+- Reader diagnostics summary now writes `readerNativeLongTap=...`.
+- `adb-reader-smoke.ps1` fails with `no native reader long tap was captured` when `-RequireNativeLongTap` is set and no `Reader native long tap` log exists.
+- `adb-reader-komikku-matrix.ps1` now has a `native-long-press-center` step using `-LongPressFraction @("0.50,0.50,950,900")`.
+- That matrix step also passes `-RequireNoReaderCenterDispatch` so a long press cannot silently pass by becoming the short-tap menu action.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Result: failed before script changes because long-press gesture input, `RequireNativeLongTap`, `readerNativeLongTap=`, and the `native-long-press-center` matrix step did not exist.
+
+Focused green checks:
+
+```powershell
+$files = @('scripts\adb-reader-smoke.ps1','scripts\adb-reader-komikku-matrix.ps1')
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [System.Management.Automation.Language.Parser]::ParseFile($file, [ref] $tokens, [ref] $errors) | Out-Null
+  if ($errors.Count -gt 0) { throw $errors[0].Message }
+}
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanDriveEta50SwipeAndContentDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.adbKomikkuReaderMatrixRunsNamedNativeFrameChecks"
+```
+
+Results: passed on 2026-06-15.
+
+Morning adb validation:
+
+- After installing/opening the release candidate on an EPUB page, run:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch
+```
+
+- Inspect `native-long-press-center/reader-diagnostics-summary.txt` for `readerNativeLongTap=True`.
+- If that step passes but image/link long press still does not activate content on-device, the next slice should bridge Android long-tap coordinates into `handleNativeTapZoneContentLongPress(...)` explicitly.
+
+Release status:
+
+- No release APK was built or published for this validation-only slice.
