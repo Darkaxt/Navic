@@ -57,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,11 +84,13 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -788,6 +791,7 @@ private fun KomikkuReaderAppBars(
 		else -> controllerState.chrome.progressLabel
 	}
 	val navBarType = KomikkuNavBarType.VerticalRight
+	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
 	Column(modifier = modifier.fillMaxHeight()) {
 		AnimatedVisibility(
 			visible = visible,
@@ -828,6 +832,7 @@ private fun KomikkuReaderAppBars(
 						contentAlignment = Alignment.CenterStart
 					) {
 						KomikkuChapterNavigator(
+							isRtl = isRtl,
 							isVerticalSlider = true,
 							onNextChapter = onNextPage,
 							enabledNext = true,
@@ -864,6 +869,7 @@ private fun KomikkuReaderAppBars(
 						contentAlignment = Alignment.CenterEnd
 					) {
 						KomikkuChapterNavigator(
+							isRtl = isRtl,
 							isVerticalSlider = true,
 							onNextChapter = onNextPage,
 							enabledNext = true,
@@ -895,6 +901,7 @@ private fun KomikkuReaderAppBars(
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				if (navBarType == KomikkuNavBarType.Bottom) {
 					KomikkuChapterNavigator(
+						isRtl = isRtl,
 						isVerticalSlider = false,
 						onNextChapter = onNextPage,
 						enabledNext = true,
@@ -1679,6 +1686,7 @@ private fun KomikkuSettingsStepperRow(
 
 @Composable
 private fun KomikkuChapterNavigator(
+	isRtl: Boolean,
 	isVerticalSlider: Boolean,
 	onNextChapter: () -> Unit,
 	enabledNext: Boolean,
@@ -1713,67 +1721,78 @@ private fun KomikkuChapterNavigator(
 		disabledContainerColor = backgroundColor,
 		contentColor = MaterialTheme.colorScheme.primary
 	)
+	val layoutDirection = if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
 
-	Row(
-		modifier = modifier
-			.fillMaxWidth()
-			.padding(horizontal = 8.dp),
-		verticalAlignment = Alignment.CenterVertically
-	) {
-		FilledIconButton(
-			enabled = enabledPrevious,
-			onClick = onPreviousChapter,
-			colors = buttonColor
+	CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+		Row(
+			modifier = modifier
+				.fillMaxWidth()
+				.padding(horizontal = 8.dp),
+			verticalAlignment = Alignment.CenterVertically
 		) {
-			Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-		}
-
-		if (totalPages > 1) {
-			Row(
-				modifier = Modifier
-					.weight(1f)
-					.clip(RoundedCornerShape(24.dp))
-					.background(backgroundColor)
-					.padding(horizontal = 16.dp),
-				verticalAlignment = Alignment.CenterVertically
+			FilledIconButton(
+				enabled = if (isRtl) enabledNext else enabledPrevious,
+				onClick = if (isRtl) onNextChapter else onPreviousChapter,
+				colors = buttonColor
 			) {
-				Box(contentAlignment = Alignment.CenterEnd) {
-					Text(text = currentPageText)
-					Text(text = totalPages.toString(), color = Color.Transparent)
-				}
-				val haptic = LocalHapticFeedback.current
-				val interactionSource = remember { MutableInteractionSource() }
-				val sliderDragged by interactionSource.collectIsDraggedAsState()
-				LaunchedEffect(currentPage) {
-					if (sliderDragged) {
-						haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+				Icon(
+					Icons.Filled.SkipPrevious,
+					contentDescription = if (isRtl) "Next" else "Previous"
+				)
+			}
+
+			if (totalPages > 1) {
+				CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+					Row(
+						modifier = Modifier
+							.weight(1f)
+							.clip(RoundedCornerShape(24.dp))
+							.background(backgroundColor)
+							.padding(horizontal = 16.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Box(contentAlignment = Alignment.CenterEnd) {
+							Text(text = currentPageText)
+							Text(text = totalPages.toString(), color = Color.Transparent)
+						}
+						val haptic = LocalHapticFeedback.current
+						val interactionSource = remember { MutableInteractionSource() }
+						val sliderDragged by interactionSource.collectIsDraggedAsState()
+						LaunchedEffect(currentPage) {
+							if (sliderDragged) {
+								haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+							}
+						}
+						KomikkuChapterProgressSlider(
+							modifier = Modifier
+								.weight(1f)
+								.padding(horizontal = 8.dp),
+							value = currentPage,
+							valueRange = 1..totalPages,
+							onValueChange = { page ->
+								if (page != currentPage) {
+									onPageIndexChange(page - 1)
+								}
+							},
+							interactionSource = interactionSource
+						)
+						Text(text = totalPages.toString())
 					}
 				}
-				KomikkuChapterProgressSlider(
-					modifier = Modifier
-						.weight(1f)
-						.padding(horizontal = 8.dp),
-					value = currentPage,
-					valueRange = 1..totalPages,
-					onValueChange = { page ->
-						if (page != currentPage) {
-							onPageIndexChange(page - 1)
-						}
-					},
-					interactionSource = interactionSource
-				)
-				Text(text = totalPages.toString())
+			} else {
+				Spacer(Modifier.weight(1f))
 			}
-		} else {
-			Spacer(Modifier.weight(1f))
-		}
 
-		FilledIconButton(
-			enabled = enabledNext,
-			onClick = onNextChapter,
-			colors = buttonColor
-		) {
-			Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+			FilledIconButton(
+				enabled = if (isRtl) enabledPrevious else enabledNext,
+				onClick = if (isRtl) onPreviousChapter else onNextChapter,
+				colors = buttonColor
+			) {
+				Icon(
+					Icons.Filled.SkipNext,
+					contentDescription = if (isRtl) "Previous" else "Next"
+				)
+			}
 		}
 	}
 }

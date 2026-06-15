@@ -3858,6 +3858,53 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Komikku RTL Chapter Navigator Slice
+
+User direction:
+
+- Continue source-level Komikku backbone work overnight.
+- Keep the morning APK/release candidate as the next device validation gate.
+- Prefer real Komikku behavior over superficial layout matching.
+
+Komikku source references:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt`
+
+Root cause:
+
+- Navic already had a reader direction setting and passed LTR/RTL into the EPUB renderer.
+- The visible Komikku-style chapter/page navigator ignored that direction and always treated the left button as previous and the right button as next.
+- Komikku explicitly derives `isRtl`, keeps the outer control row LTR, applies RTL layout direction to the slider row, and swaps the enabled/onClick behavior of the previous/next buttons.
+
+Navic implication:
+
+- `KomikkuReaderAppBars(...)` now derives `isRtl` from `ReaderSettings.direction`.
+- `KomikkuChapterNavigator(...)` receives `isRtl` and mirrors Komikku's button/action inversion for horizontal progress navigation.
+- The horizontal navigator wraps the outer row with `LocalLayoutDirection provides LayoutDirection.Ltr` and the slider row with `LocalLayoutDirection provides layoutDirection`.
+- Vertical rail behavior stays aligned with Komikku's vertical navigator path and does not invent separate RTL handling.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku"
+```
+
+Result: failed before production changes because the app bars did not derive/pass `isRtl`, and the navigator had no RTL layout/action inversion.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.androidReaderExposesKomikkuStyleOrientationControl"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Komikku Native Viewer Layer Filters Slice
 
 User direction:

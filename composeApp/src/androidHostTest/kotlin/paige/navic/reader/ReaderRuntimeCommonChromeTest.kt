@@ -307,6 +307,36 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku() {
+		val readerScreenText = readerScreenFile().readText()
+		val appBarsBody = readerScreenText.substringAfter("private fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+		val navigatorBody = readerScreenText.substringAfter("private fun KomikkuChapterNavigator(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuChapterProgressSlider(")
+		val komikkuNavigatorText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ChapterNavigator.kt reference")
+
+		assertContains(komikkuNavigatorText, "LocalLayoutDirection provides LayoutDirection.Ltr")
+		assertContains(komikkuNavigatorText, "LocalLayoutDirection provides layoutDirection")
+		assertContains(komikkuNavigatorText, "enabled = if (isRtl) enabledNext else enabledPrevious")
+		assertContains(komikkuNavigatorText, "onClick = if (isRtl) onNextChapter else onPreviousChapter")
+		assertContains(appBarsBody, "val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl")
+		assertContains(appBarsBody, "isRtl = isRtl")
+		assertContains(navigatorBody, "isRtl: Boolean")
+		assertContains(navigatorBody, "val layoutDirection = if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr")
+		assertContains(navigatorBody, "CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr)")
+		assertContains(navigatorBody, "CompositionLocalProvider(LocalLayoutDirection provides layoutDirection)")
+		assertContains(navigatorBody, "enabled = if (isRtl) enabledNext else enabledPrevious")
+		assertContains(navigatorBody, "onClick = if (isRtl) onNextChapter else onPreviousChapter")
+		assertContains(navigatorBody, "enabled = if (isRtl) enabledPrevious else enabledNext")
+		assertContains(navigatorBody, "onClick = if (isRtl) onPreviousChapter else onNextChapter")
+	}
+
+	@Test
 	fun commonReaderChromeSeparatesTopPanelFromBottomActions() {
 		val readerScreenText = readerScreenFile().readText()
 		val appBarsBody = readerScreenText.substringAfter("private fun KomikkuReaderAppBars(")
