@@ -3534,3 +3534,110 @@ Morning adb validation:
 Release status:
 
 - No release APK was built or published for this source-level correction.
+
+## 2026-06-15 Overnight Local Baseline Before Morning RC
+
+User direction:
+
+- Keep working overnight without publishing another GitHub release.
+- In the morning, compile one release candidate and run the full adb validation matrix against the connected device.
+- Do not substitute local/browser checks for phone validation, but do use them to avoid shipping known source/runtime regressions into the morning candidate.
+
+Current branch state:
+
+- Branch: `codex/komikku-reader-backbone-eta64`.
+- Latest pushed commit at the start of this baseline: `1a3600ff Add native coordinate reader long press path`.
+- Tracked source was clean before this documentation update. `releases/` and `tmp/` remain intentionally untracked and must not be staged.
+- No release APK was built or published during this overnight pass.
+
+Local verification run:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- JavaScript syntax checks passed for the active reader runtime, helper module, harness runner, and trace assertions.
+- The focused Android-host reader suite passed.
+- `phase1-stabilization` passed all 16 browser/Foliate harness checks:
+  - trace smoke;
+  - EPUB frontmatter;
+  - EPUB page boundary;
+  - EPUB shell cover;
+  - EPUB external shell cover;
+  - EPUB native tap-zone open;
+  - CSS/theme/image/link smoke;
+  - EPUB link relocation followed by drag;
+  - texture offset logic;
+  - EPUB texture scroll;
+  - EPUB texture page turns;
+  - EPUB texture frontmatter transition;
+  - full EPUB traversal;
+  - PDF smoke;
+  - PDF fast sequential turns;
+  - PDF image/settings.
+- Current local Hobbit fixture pagination at `500x960` / DPR `3` reported `505` pages in the harness. Treat this as the current browser baseline only; it is not a phone page-count promise.
+
+What this proves:
+
+- The source/runtime baseline is internally consistent enough to justify one morning RC build.
+- The browser/Foliate path can traverse the real EPUB, suppress the EPUB cover in favor of shell cover semantics, keep page labels monotonic locally, apply sepia/theme/image/link behavior, validate texture movement in the local probes, and exercise PDF page navigation/settings.
+- The controller/native-frame source contracts for Komikku ownership, long press, readable-page drag ownership, settings, rail, and bookmark/page-mark behavior pass host tests.
+
+What this does not prove:
+
+- Android WebView/native input behavior on the phone.
+- Whether the release APK contains the same source as this branch.
+- Whether cover drag works over the native cover image on-device.
+- Whether edge taps work over image-heavy pages on-device.
+- Whether texture movement still inverts during the phone-only maps/frontmatter transition.
+- Whether PDF tap responsiveness and horizontal centering feel acceptable on the device.
+- Whether `Dyx`, sepia, and settings changes are visually correct on the phone.
+
+Morning release candidate gate:
+
+1. Build exactly one release candidate from this branch unless the source has changed again overnight.
+2. Install it on the connected phone and open the reader to a known EPUB.
+3. Run the matrix without relaunching away from the already-open reader:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch
+```
+
+4. If the phone is positioned on the native cover and cover input must be checked in the same run, use:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -ExpectedVersionName "<version>" -NoLaunch -IncludeCoverChecks
+```
+
+5. Inspect these artifacts first:
+   - `reader-diagnostics-summary.txt`
+   - `reader-touch-diagnostics.log`
+   - `reader-texture-direction-validation.txt`
+   - screenshots for `center-tap-toggle`, `edge-tap-next`, `edge-tap-previous`, `drag-next`, `drag-previous`, `native-long-press-center`, and cover checks when included.
+
+Manual confirmation after the matrix:
+
+- Native cover center tap toggles chrome without discarding the cover.
+- Native cover drag advances from cover to the first readable page.
+- Left edge from the first readable page returns to the native/synthetic shell cover, not to a blank suppressed EPUB cover.
+- Text-page center tap opens and hides the menu consistently.
+- Text-page left/right taps and swipes move exactly one logical step.
+- Image-heavy/frontmatter pages respond to the same top-level edge zones as text pages.
+- Long press on images toggles sepia treatment without opening chrome.
+- Long press on text links navigates without opening chrome.
+- Ordinary short taps on links/images do not trigger content navigation/tint or menu accidentally.
+- Texture movement follows the page movement axis across Contents, maps, Author's Note, and normal chapter pages.
+- The side rail is chapter-scoped, visually shorter than the full screen, and usable.
+- The organic page number is the only visible page number and stays monotonic.
+- PDF pages are horizontally centered and tap/drag movement is responsive.
+
+Release rule:
+
+- Do not publish a GitHub release unless this RC fixes at least one major acceptance failure and the adb matrix/manual checks support that claim.
