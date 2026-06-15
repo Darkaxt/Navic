@@ -667,9 +667,12 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(runtimeHostText, "metadataLabelsForPlaybackPosition")
 		assertContains(runtimeHostText, "controller.setPlaybackSpeed")
 		assertContains(runtimeHostText, "setSyncEnabled")
+		assertContains(readerScreenText, "ReaderReadaloudRuntimeHost(")
+		assertContains(readerScreenText, "coordinator.onReadaloudEngineCommand(command)")
+		assertContains(readerScreenText, "coordinator.onReadaloudPlaybackState(playbackState)")
 		assertFalse(
-			readerScreenText.contains("ReaderReadaloudRuntimeHost("),
-			"The active Komikku reader must not reattach the legacy readaloud host until it is mounted through the controller adapter."
+			runtimeHostText.contains("toLegacyReaderBridgeCommand"),
+			"The active Komikku reader must not reattach readaloud by converting sync commands back to legacy bridge ownership."
 		)
 	}
 

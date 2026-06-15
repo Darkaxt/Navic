@@ -122,6 +122,7 @@ import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderCoordinator
 import paige.navic.reader.ReaderCoordinatorStep
+import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
@@ -140,6 +141,7 @@ import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationIdentity
+import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedDirections
@@ -356,6 +358,18 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 		)
 	}
+	var lastReaderEngineHostEvent by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf<ReaderEngineHostEvent?>(null)
+	}
+	var readerEngineHostEventKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(0L)
+	}
+	var readaloudCommand by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf<ReaderReadaloudPlaybackCommand?>(null)
+	}
+	var readaloudCommandKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(0L)
+	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
 	val readerFocusRequester = remember { FocusRequester() }
@@ -375,6 +389,18 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
+	}
+
+	fun applyReadaloudEngineCommand(command: ReaderEngineCommand) {
+		applyCoordinatorStep(coordinator.onReadaloudEngineCommand(command))
+	}
+
+	fun handleEngineHostEvent(event: ReaderEngineHostEvent) {
+		if (event is ReaderEngineHostEvent.FoliateBridge) {
+			lastReaderEngineHostEvent = event
+			readerEngineHostEventKey += 1L
+		}
+		applyCoordinatorStep(coordinator.onEngineHostEvent(event))
 	}
 
 	fun persistReaderSettings(nextSettings: ReaderSettings) {
@@ -442,6 +468,43 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	)
 
+	ReaderReadaloudRuntimeHost(
+		reader = reader,
+		readaloudSyncEnabled = settings.readaloudSyncEnabled != false,
+		readerHostEvent = lastReaderEngineHostEvent,
+		readerHostEventKey = readerEngineHostEventKey,
+		onPublicationReady = { publicationUrl ->
+			applyCoordinatorStep(
+				coordinator.open(
+					reader.toReaderEngineOpenRequest(
+						publicationUrl = publicationUrl,
+						shellCoverUrl = null,
+						savedProgress = null,
+						settings = settings
+					)
+				)
+			)
+		},
+		onEngineCommand = { command, _ ->
+			applyReadaloudEngineCommand(command)
+		},
+		playbackCommand = readaloudCommand,
+		playbackCommandKey = readaloudCommandKey,
+		onPlaybackState = { playbackState ->
+			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
+		},
+		onError = { message ->
+			applyCoordinatorStep(
+				coordinator.onEngineEvent(
+					ReaderEngineEvent.Error(
+						message = message,
+						code = "readaloud_runtime"
+					)
+				)
+			)
+		}
+	)
+
 	ReaderOrientationEffect(orientation = settings.orientation)
 	ReaderSystemBarsEffect(
 		fullscreen = settings.fullscreen != false,
@@ -456,7 +519,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		settingsScope = readerSettingsScope,
 		hasBookSettings = hasReaderBookSettings,
 		publicationFormat = reader.publicationFormat,
-		onEngineHostEvent = { event -> applyCoordinatorStep(coordinator.onEngineHostEvent(event)) },
+		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action -> applyCoordinatorStep(coordinator.onViewerAction(action)) },
 		onPreviousPage = {
 			applyCoordinatorStep(

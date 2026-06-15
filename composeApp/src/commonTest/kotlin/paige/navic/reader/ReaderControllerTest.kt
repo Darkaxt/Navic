@@ -419,6 +419,30 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun readaloudPlaybackStateIsControllerOwnedAndDoesNotEmitEngineCommands() {
+		val playback = ReaderReadaloudPlaybackUiState(
+			isAvailable = true,
+			isPlaying = true,
+			trackIndex = 2,
+			positionMs = 42_000L,
+			durationMs = 120_000L,
+			playbackSpeed = 1.25f,
+			activeAudioLabel = "Chapter 3 / Paragraph 4",
+			activeAudioMetadata = ReadaloudPlaybackMetadataLabels(
+				chapterLabel = "Chapter 3",
+				sectionLabel = "Paragraph 4",
+				narratorLabel = "Narrator"
+			),
+			syncEnabled = true
+		)
+
+		val step = ReaderController().onReadaloudPlaybackState(playback)
+
+		assertEquals(playback, step.controller.state.chrome.readaloudPlayback)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun selectionHighlightsAreControllerOwnedAndForwardedAsEngineCapabilities() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(

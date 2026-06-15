@@ -128,6 +128,66 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun readaloudAdapterCommandsRouteThroughControllerBeforeCurrentEngineAdapter() {
+		val opened = ReaderCoordinator().open(
+			hobbitOpenRequest().copy(
+				publication = hobbitOpenRequest().publication.copy(kind = ReaderPublicationKind.Readaloud),
+				mediaOverlayEnabled = true
+			)
+		).coordinator
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "audio/chapter-01.mp3",
+			fragmentId = "clip-1",
+			textHref = "chapter-01.xhtml#p1",
+			clipBeginSeconds = 12.0,
+			clipEndSeconds = 18.5,
+			label = "Chapter 1, paragraph 1"
+		)
+
+		val applied = opened.onReadaloudEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(fragment))
+		val appliedViewState = assertIs<ReaderEngineViewState.WebViewPublication>(applied.coordinator.viewState)
+		val cleared = applied.coordinator.onReadaloudEngineCommand(ReaderEngineCommand.ClearMediaOverlay)
+		val clearedViewState = assertIs<ReaderEngineViewState.WebViewPublication>(cleared.coordinator.viewState)
+
+		assertEquals(fragment, applied.coordinator.controller.state.activeMediaOverlay)
+		assertEquals("Chapter 1, paragraph 1", applied.coordinator.controller.state.audioMetadataLabel)
+		assertEquals(ReaderBridgeCommand.ApplyOverlayFragment(fragment), appliedViewState.bridgeCommand())
+		assertNull(cleared.coordinator.controller.state.activeMediaOverlay)
+		assertNull(cleared.coordinator.controller.state.audioMetadataLabel)
+		assertEquals(ReaderBridgeCommand.ClearOverlay, clearedViewState.bridgeCommand())
+	}
+
+	@Test
+	fun readaloudPlaybackStateRoutesThroughCoordinatorWithoutEngineCommand() {
+		val opened = ReaderCoordinator().open(
+			hobbitOpenRequest().copy(
+				publication = hobbitOpenRequest().publication.copy(kind = ReaderPublicationKind.Readaloud),
+				mediaOverlayEnabled = true
+			)
+		).coordinator
+		val playback = ReaderReadaloudPlaybackUiState(
+			isAvailable = true,
+			isPlaying = true,
+			trackIndex = 1,
+			positionMs = 31_000L,
+			activeAudioLabel = "Chapter 2 / Paragraph 9",
+			activeAudioMetadata = ReadaloudPlaybackMetadataLabels(
+				chapterLabel = "Chapter 2",
+				sectionLabel = "Paragraph 9",
+				narratorLabel = "Narrator"
+			),
+			syncEnabled = true
+		)
+
+		val step = opened.onReadaloudPlaybackState(playback)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+
+		assertEquals(playback, step.coordinator.controller.state.chrome.readaloudPlayback)
+		assertNull(viewState.command)
+		assertEquals(0L, viewState.commandKey)
+	}
+
+	@Test
 	fun selectionHighlightsRouteThroughControllerAndCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val located = opened.onEngineEvent(

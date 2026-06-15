@@ -94,9 +94,9 @@ class ReaderKomikkuBackboneResetTest {
 			activeText.contains("var virtualPage"),
 			"The active reader must not keep a fake local page counter once controller/engine state is reattached."
 		)
-		assertFalse(
+		assertTrue(
 			activeText.contains("ReaderReadaloudRuntimeHost("),
-			"Active ReaderScreen.kt must not instantiate the old readaloud runtime while the new backbone is being built."
+			"Active ReaderScreen.kt must reattach readaloud through the runtime adapter once the Komikku shell owns the viewer."
 		)
 		assertFalse(
 			activeText.contains("Scaffold("),
@@ -113,6 +113,68 @@ class ReaderKomikkuBackboneResetTest {
 		assertFalse(
 			activeText.contains("private fun KomikkuReaderGestureLayer"),
 			"The active common reader must not keep Compose as the owner of reader-wide gestures."
+		)
+	}
+
+	@Test
+	fun activeReaderScreenReattachesReadaloudThroughCoordinatorAdapterBoundary() {
+		val activeReaderScreen = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		)
+		val platformHosts = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		)
+		val androidReadaloudHost = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderReadaloudRuntimeHost.android.kt"
+		)
+		val controller = root.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt")
+		val coordinator = root.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderCoordinator.kt")
+		val activeText = activeReaderScreen.readText()
+		val platformText = platformHosts.readText()
+		val androidHostText = androidReadaloudHost.readText()
+		val controllerText = controller.readText()
+		val coordinatorText = coordinator.readText()
+
+		assertTrue(
+			activeText.contains("var lastReaderEngineHostEvent") &&
+				activeText.contains("var readerEngineHostEventKey"),
+			"ReaderScreen must fan typed engine-host events into the readaloud adapter without letting WebView own chrome."
+		)
+		assertTrue(
+			activeText.contains("ReaderReadaloudRuntimeHost(") &&
+				activeText.contains("readerHostEvent = lastReaderEngineHostEvent") &&
+				activeText.contains("readerHostEventKey = readerEngineHostEventKey"),
+			"The readaloud runtime must receive renderer events through the typed Komikku shell boundary."
+		)
+		assertTrue(
+			activeText.contains("coordinator.onReadaloudEngineCommand(command)") &&
+				activeText.contains("coordinator.onReadaloudPlaybackState(playbackState)"),
+			"Readaloud overlay and playback outputs must route through ReaderCoordinator/ReaderController."
+		)
+		assertTrue(
+			platformText.contains("readerHostEvent: ReaderEngineHostEvent?") &&
+				platformText.contains("onEngineCommand: (ReaderEngineCommand, Long) -> Unit"),
+			"Readaloud runtime host must emit engine-level commands, not legacy bridge commands."
+		)
+		assertFalse(
+			platformText.contains("onReaderCommand: (ReaderBridgeCommand, Long) -> Unit"),
+			"The active platform readaloud contract must not expose legacy ReaderBridgeCommand ownership."
+		)
+		assertTrue(
+			androidHostText.contains("currentOnEngineCommand") &&
+				androidHostText.contains("nextState.engineCommand") &&
+				androidHostText.contains("currentOnEngineCommand("),
+			"Android readaloud runtime must pass sync commands through the engine-command callback."
+		)
+		assertFalse(
+			androidHostText.contains("toLegacyReaderBridgeCommand"),
+			"Android readaloud runtime must not convert sync back to legacy bridge commands."
+		)
+		assertTrue(
+			controllerText.contains("fun onReadaloudPlaybackState(") &&
+				coordinatorText.contains("fun onReadaloudPlaybackState(") &&
+				coordinatorText.contains("fun onReadaloudEngineCommand("),
+			"Readaloud state and sync commands must have explicit controller/coordinator entry points."
 		)
 	}
 

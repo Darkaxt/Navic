@@ -3858,6 +3858,52 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Readaloud Adapter Reattachment Slice
+
+User direction:
+
+- Continue source-level Komikku reader backbone work overnight without publishing another APK.
+- Keep restoring EPUB/PDF/readaloud capability behind controller/coordinator adapters instead of reviving the old screen-local reader runtime.
+
+Root cause:
+
+- The Komikku reset detached `ReaderReadaloudRuntimeHost(...)` from the active reader screen.
+- The old readaloud path emitted legacy `ReaderBridgeCommand` values and consumed raw `ReaderBridgeEvent` values at the screen boundary, which conflicts with the Komikku backbone rule that the active screen must not own Foliate/WebView protocol directly.
+
+Navic implication:
+
+- `ReaderScreen(...)` mounts `ReaderReadaloudRuntimeHost(...)` again, but only through typed `ReaderEngineHostEvent` fanout and `ReaderEngineCommand` output.
+- `ReaderReadaloudRuntimeHost` receives `readerHostEvent: ReaderEngineHostEvent?` and unwraps `ReaderEngineHostEvent.FoliateBridge` inside the Android runtime adapter.
+- Readaloud media-overlay commands now enter `ReaderCoordinator.onReadaloudEngineCommand(...)`.
+- Readaloud playback state now enters `ReaderCoordinator.onReadaloudPlaybackState(...)` and `ReaderController.onReadaloudPlaybackState(...)`, updating `ReaderChromeState.readaloudPlayback`.
+- The active reader screen remains protected from raw `ReaderBridgeEvent`/`ReaderBridgeCommand` types.
+
+Deliberate limitation:
+
+- This slice reattaches the readaloud runtime and controller state path. It does not yet restore visible readaloud playback controls, miniplayer behavior, or user-facing play/pause commands in the Komikku shell.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.readaloudPlaybackStateIsControllerOwnedAndDoesNotEmitEngineCommands" --tests "paige.navic.reader.ReaderCoordinatorTest.readaloudAdapterCommandsRouteThroughControllerBeforeCurrentEngineAdapter" --tests "paige.navic.reader.ReaderCoordinatorTest.readaloudPlaybackStateRoutesThroughCoordinatorWithoutEngineCommand" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeReaderScreenReattachesReadaloudThroughCoordinatorAdapterBoundary"
+```
+
+Result: failed before production changes because the controller/coordinator readaloud entry points and active runtime mount did not exist.
+
+Focused and wider green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReadaloudRuntimeCapabilitiesRemainAvailableBehindControllerBoundary"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderSettingsDefaultsTest" --tests "paige.navic.reader.ReaderPreferenceSettingsTest" --tests "paige.navic.reader.ReaderChromeStateTest" --tests "paige.navic.reader.ReaderViewerTest" --tests "paige.navic.reader.ReaderReadaloudSyncCoordinatorTest" --tests "paige.navic.reader.ReaderMediaOverlaySyncTest" --tests "paige.navic.reader.ReadaloudModelsTest"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Local Harness Re-Run After Bottom Bar Slice
 
 Purpose:

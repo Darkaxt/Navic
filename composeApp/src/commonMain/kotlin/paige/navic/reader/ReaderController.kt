@@ -264,6 +264,15 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.ApplyMediaOverlay(fragment))
 		)
 
+	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					chrome = state.chrome.onReadaloudPlaybackState(playbackState)
+				)
+			)
+		)
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)
 		val selection = state.selection ?: return ReaderControllerStep(this)

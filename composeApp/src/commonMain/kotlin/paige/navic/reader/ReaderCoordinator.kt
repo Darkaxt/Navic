@@ -44,6 +44,16 @@ data class ReaderCoordinator(
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
 		applyControllerStep(controller.applyMediaOverlay(fragment))
 
+	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
+		when (command) {
+			is ReaderEngineCommand.ApplyMediaOverlay -> applyMediaOverlay(command.fragment)
+			ReaderEngineCommand.ClearMediaOverlay -> clearMediaOverlay()
+			else -> ReaderCoordinatorStep(this)
+		}
+
+	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderCoordinatorStep =
+		applyControllerStep(controller.onReadaloudPlaybackState(playbackState))
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 

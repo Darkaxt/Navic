@@ -1,8 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.runtime.Composable
-import paige.navic.reader.ReaderBridgeCommand
-import paige.navic.reader.ReaderBridgeEvent
+import paige.navic.reader.ReaderEngineCommand
+import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.ui.navigation.Screen
@@ -11,10 +11,10 @@ import paige.navic.ui.navigation.Screen
 actual fun ReaderReadaloudRuntimeHost(
 	reader: Screen.Reader,
 	readaloudSyncEnabled: Boolean,
-	readerEvent: ReaderBridgeEvent?,
-	readerEventKey: Long,
+	readerHostEvent: ReaderEngineHostEvent?,
+	readerHostEventKey: Long,
 	onPublicationReady: (String) -> Unit,
-	onReaderCommand: (ReaderBridgeCommand, Long) -> Unit,
+	onEngineCommand: (ReaderEngineCommand, Long) -> Unit,
 	playbackCommand: ReaderReadaloudPlaybackCommand?,
 	playbackCommandKey: Long,
 	onPlaybackState: (ReaderReadaloudPlaybackUiState) -> Unit,
