@@ -427,6 +427,7 @@ class ReaderRuntimeCommonChromeTest {
 			.substringAfter("Row(")
 			.substringBefore("}")
 
+		assertContains(bottomActionRow, ".fillMaxWidth()")
 		assertContains(bottomActionRow, "horizontalArrangement = Arrangement.SpaceEvenly")
 		assertContains(bottomActionRow, "verticalAlignment = Alignment.CenterVertically")
 		assertFalse(

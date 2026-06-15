@@ -1025,7 +1025,9 @@ private fun KomikkuReaderBottomBar(
 	) {
 		// Ported from Komikku ReaderBottomBar: centered, evenly distributed actions.
 		Row(
-			modifier = Modifier.padding(horizontal = 36.dp, vertical = 12.dp),
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 36.dp, vertical = 12.dp),
 			horizontalArrangement = Arrangement.SpaceEvenly,
 			verticalAlignment = Alignment.CenterVertically
 		) {

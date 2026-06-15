@@ -3858,6 +3858,50 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Bottom Bar Width Correction
+
+User direction:
+
+- Keep working overnight without publishing another release candidate.
+- Continue tightening the Komikku-derived shell instead of adding release churn for minor source fixes.
+
+Root cause:
+
+- `KomikkuReaderBottomBar` used `Arrangement.SpaceEvenly`, but its inner `Row` only measured to intrinsic content width because it did not call `fillMaxWidth()`.
+- That made the bottom actions behave like a compact Material row instead of Komikku's centered, evenly distributed bottom action strip.
+
+Navic implication:
+
+- The bottom action row now fills the available width before applying `Arrangement.SpaceEvenly`.
+- The existing bottom actions remain Contents, Reading mode, and Settings; bookmark stays in the top bar.
+
+Texture note from this pass:
+
+- The laptop-side `texture-offset-logic` and `epub-texture-frontmatter-transition` harness modes passed against `tmp/reader-live/served-input.epub`.
+- No texture math was changed in this slice because the local harness did not reproduce the phone-side inversion. The morning ADB matrix still needs to validate texture movement on the device.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction"
+```
+
+Result: failed before production changes because the bottom action row did not contain `.fillMaxWidth()`.
+
+Focused green and harness checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction"
+node tools\reader-harness\src\run-reader-harness.mjs texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
 ## 2026-06-15 Overnight Shell Cover Side-Zone Slice
 
 User-visible bug:
