@@ -361,7 +361,7 @@ $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
-    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native swipe action=|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native drag preview|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
 
     $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
     $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
@@ -404,7 +404,7 @@ if ($CaptureReaderDiagnostics) {
         "readerSurfaceTouchDown=$($touchDiagnosticsText -match 'Reader surface touch down')",
         "readerSurfaceTapAction=$($touchDiagnosticsText -match 'Reader surface tap action=')",
         "readerNativeTapAction=$($touchDiagnosticsText -match 'Reader native tap action=')",
-        "readerNativeSwipeAction=$($touchDiagnosticsText -match 'Reader native swipe action=')",
+        "readerNativeDragPreview=$($touchDiagnosticsText -match 'Reader native drag preview')",
         "readerNativeDragCandidate=$($touchDiagnosticsText -match 'Reader native drag candidate')",
         "readerNativeLongTap=$($touchDiagnosticsText -match 'Reader native long tap')",
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
@@ -435,8 +435,8 @@ if ($CaptureReaderDiagnostics) {
     if ($RequireShellCoverCommand -and -not ($touchDiagnosticsText -match 'Reader shell cover command')) {
         throw "Reader diagnostics validation failed: no shell-cover command was captured. See $ArtifactDir"
     }
-    if ($RequireNativeSwipeAction -and -not ($touchDiagnosticsText -match 'Reader native swipe action=')) {
-        throw "Reader diagnostics validation failed: no native reader swipe action was captured. See $ArtifactDir"
+    if ($RequireNativeSwipeAction -and -not ($touchDiagnosticsText -match 'Reader native drag preview')) {
+        throw "Reader diagnostics validation failed: no native reader drag preview was captured. See $ArtifactDir"
     }
     if ($RequireNativeLongTap -and -not ($touchDiagnosticsText -match 'Reader native long tap')) {
         throw "Reader diagnostics validation failed: no native reader long tap was captured. See $ArtifactDir"

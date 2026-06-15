@@ -927,12 +927,16 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderKeepsRuntimeContentHitTestOutOfNativeTapDispatch() {
+	fun androidReaderSuppressesMenuChromeWithNativeFrameRuntimeContentHitTest() {
 		val bridgeText = readerBridgeText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val exportedBridge = bridgeText
 			.substringAfter("window.NavicReaderBridge = {")
 			.substringBefore("\n}")
+		val viewerContainerBody = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
 
 		assertContains(
 			bridgeText,
@@ -945,21 +949,59 @@ class ReaderRuntimeImageLinkTest {
 			message = "The bridge can expose content hit testing without making the Android WebView host the tap owner."
 		)
 		assertFalse(
-			webViewHostText.contains("readerContentActionAtPoint") ||
-				webViewHostText.contains("centerTapSequence") ||
+			webViewHostText.contains("centerTapSequence") ||
 				webViewHostText.contains("Reader surface delayed center tap ignored for runtime content hit"),
-			"Android native tap dispatch must not depend on async WebView runtime hit testing."
+			"The engine WebView host must not revive the legacy delayed center-tap suppression layer."
+		)
+		assertContains(
+			viewerContainerBody,
+			"dispatchSingleTapAction(action, event)",
+			message = "The native frame must route confirmed tap actions through one Android-owned dispatcher."
+		)
+		assertContains(
+			viewerContainerBody,
+			"dispatchMenuActionAfterContentHitTest(event)",
+			message = "Menu-zone taps must ask the active renderer whether real content owns that coordinate before opening chrome."
+		)
+		assertContains(
+			viewerContainerBody,
+			"findReaderWebView()",
+			message = "The hit test must be owned by the native frame that sits over the renderer, not by the WebView host."
+		)
+		assertContains(
+			viewerContainerBody,
+			"readerContentActionAtPoint",
+			message = "The native frame must use the runtime's typed content hit test instead of raw WebView hit-test types."
+		)
+		assertContains(
+			viewerContainerBody,
+			"Reader native menu suppressed by content hit",
+			message = "ADB logs must distinguish an intentional content-owned menu suppression from a missed tap."
 		)
 	}
 
 	@Test
-	fun androidReaderDoesNotQueryRuntimeContentHitBeforeNativeViewerAction() {
+	fun androidReaderQueriesRuntimeContentHitOnlyForMenuActions() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val viewerContainerBody = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
 
 		assertFalse(
 			webViewHostText.contains("private fun queryReaderContentActionAtPoint(") ||
 				webViewHostText.contains("readerContentActionAtPoint("),
-			"Komikku native viewer actions should not be gated by renderer-side coordinate queries."
+			"The engine WebView host must not become the native tap action owner again."
+		)
+		assertContains(
+			viewerContainerBody,
+			"if (action != KomikkuNavigationRegion.MENU)",
+			message = "Only menu-zone taps should be gated by renderer content hit testing; previous/next edge taps remain native."
+		)
+		assertTrue(
+			viewerContainerBody.indexOf("if (action != KomikkuNavigationRegion.MENU)") <
+				viewerContainerBody.indexOf("dispatchMenuActionAfterContentHitTest(event)"),
+			"Page-turn actions must bypass content hit testing before menu-specific suppression is considered."
 		)
 	}
 

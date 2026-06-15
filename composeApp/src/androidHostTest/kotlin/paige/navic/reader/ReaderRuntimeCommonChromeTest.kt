@@ -307,6 +307,11 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(appBarsBody, "ReaderNavBarTypeVerticalRight")
 		assertContains(appBarsBody, "modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)")
 		assertContains(readerScreenText, "KomikkuReaderVerticalRailHeightFraction")
+		assertContains(
+			readerScreenText,
+			"private const val KomikkuReaderVerticalRailHeightFraction = 0.78f",
+			message = "The vertical rail should be long enough to feel useful while still avoiding top/bottom chrome collisions."
+		)
 		assertContains(readerScreenText, "private fun KomikkuChapterProgressSlider(")
 		assertContains(readerScreenText, "MutableInteractionSource")
 		assertContains(readerScreenText, "collectIsDraggedAsState")
@@ -569,7 +574,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogBody, "BoxWithConstraints")
 		assertContains(settingsDialogBody, ".heightIn(max = maxHeight * 0.75f)")
 		assertContains(settingsDialogBody, "TabbedDialogPaddingsVertical")
-		assertContains(settingsDialogBody, ".verticalScroll(rememberScrollState())")
+		assertContains(settingsDialogBody, "val settingsScrollState = rememberScrollState()")
+		assertContains(settingsDialogBody, ".verticalScroll(settingsScrollState)")
 		assertContains(settingsDialogBody, ".padding(vertical = TabbedDialogPaddingsVertical)")
 		assertFalse(
 			settingsDialogBody.contains("modifier = Modifier.fillMaxWidth(0.78f)"),
@@ -579,6 +585,47 @@ class ReaderRuntimeCommonChromeTest {
 		assertFalse(
 			tabbedDialogBody.contains("modifier = Modifier.animateContentSize()"),
 			"Pager content should be bounded and scrollable like Komikku's TabbedDialog body, not unbounded animated content."
+		)
+	}
+
+	@Test
+	fun commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val tabbedDialogBody = readerScreenText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(settingsDialogBody, "val dialogWidthFraction = if (maxWidth < 720.dp) 0.92f else 0.62f")
+		assertContains(settingsDialogBody, "widthFraction = dialogWidthFraction")
+		assertContains(tabbedDialogBody, "DialogProperties(usePlatformDefaultWidth = false)")
+		assertContains(tabbedDialogBody, "widthFraction: Float")
+		assertContains(tabbedDialogBody, "modifier.fillMaxWidth(widthFraction)")
+		assertFalse(
+			tabbedDialogBody.contains("modifier.fillMaxWidth(0.78f)"),
+			"Settings dialog width must not stay trapped in the old fixed/platform-capped width that truncates Komikku tab labels."
+		)
+	}
+
+	@Test
+	fun commonReaderSettingsDialogUsesScrollEdgeFadeInsteadOfAbruptCutoff() {
+		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogBody = readerScreenText.substringAfter("private fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val fadeBody = readerScreenText.substringAfter("private fun Modifier.komikkuVerticalScrollEdgeFade(")
+			.substringBefore("\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(settingsDialogBody, "val settingsScrollState = rememberScrollState()")
+		assertContains(settingsDialogBody, ".verticalScroll(settingsScrollState)")
+		assertContains(settingsDialogBody, ".komikkuVerticalScrollEdgeFade(settingsScrollState)")
+		assertContains(readerScreenText, "private fun Modifier.komikkuVerticalScrollEdgeFade(")
+		assertContains(fadeBody, "drawWithContent")
+		assertContains(fadeBody, "settingsScrollState.maxValue")
+		assertContains(fadeBody, "Brush.verticalGradient")
+		assertContains(fadeBody, "BlendMode.DstIn")
+		assertFalse(
+			settingsDialogBody.contains(".verticalScroll(rememberScrollState())"),
+			"Settings pages need a shared scroll state so the dialog can render a top/bottom fade instead of hard-cutting rows."
 		)
 	}
 

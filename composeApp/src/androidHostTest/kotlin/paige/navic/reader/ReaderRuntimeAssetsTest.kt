@@ -258,6 +258,31 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers() {
+		val bridgeText = readerBridgeText(readerAssetRoot())
+
+		assertContains(bridgeText, "readerPaginationFingerprint")
+		assertContains(bridgeText, "readerBuildPaginationProfile")
+		assertContains(bridgeText, "readerPaginationPositionForLocator")
+		assertContains(bridgeText, "readerPaginationObservedChapterEntries")
+		assertContains(bridgeText, "paginationProfile")
+		assertContains(bridgeText, "readerPaginationProfilePosition")
+		assertContains(bridgeText, "pageCountSource: 'pagination-profile'")
+		assertContains(bridgeText, "readerPaginationRenderMetadata()")
+		assertContains(bridgeText, "readerPaginationFingerprint(this.readerPaginationRenderMetadata())")
+		assertContains(bridgeText, "render: this.readerPaginationRenderMetadata()")
+		assertContains(bridgeText, "profile?.render")
+		assertContains(bridgeText, "profile.render.viewportWidth")
+		assertContains(bridgeText, "profile.render.viewportHeight")
+		assertContains(bridgeText, "hydrateObservedChapterPageCountsFromProfile(this.paginationProfile)")
+		assertContains(bridgeText, "shouldUseFreshPaginationProfile(freshProfile)")
+		assertContains(bridgeText, "pagination-profile:retained")
+		assertContains(bridgeText, "observedChapterCount")
+		assertContains(bridgeText, "source: observedPageCount ? 'observed' : 'estimated'")
+		assertContains(bridgeText, "spineIndex: index")
+	}
+
+	@Test
 	fun androidPaginatorKeepsEpubIframesInsideVisibleViewport() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)

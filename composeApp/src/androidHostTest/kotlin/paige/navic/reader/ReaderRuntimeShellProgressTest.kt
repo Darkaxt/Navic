@@ -336,7 +336,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags() {
+	fun nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
@@ -352,11 +352,11 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
 
 		assertContains(nativeFrameHostText, "private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()")
-		assertFalse(
-			handleTouch.contains("if (shellCoverView?.visibility != VISIBLE) return"),
-			"Swipe handling must not remain shell-cover-only; the native reader manager owns readable-page horizontal drags too."
-		)
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
+		assertContains(handleTouch, "val shellCoverVisible = shellCoverView?.visibility == VISIBLE")
+		assertContains(handleTouch, "if (shellCoverVisible)")
+		assertContains(handleTouch, "updateReadableViewerDragOffset(dx)")
+		assertContains(nativeFrameHostText, "Reader native drag preview")
 		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
@@ -365,10 +365,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
 		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
-		assertFalse(
-			nativeFrameHostText.contains("return dispatchHorizontalSwipeViewerAction"),
-			"Shell-cover swipe detection must observe the already-dispatched child stream, not consume readable WebView drags."
-		)
+		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(deltaX: Float)")
 	}
 
 	@Test
@@ -471,18 +468,23 @@ class ReaderRuntimeShellProgressTest {
 		val singleTap = nativeFrameHostText
 			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
 			.substringBefore("\n\t\t\t}")
+		val viewerContainerBody = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
 
 		assertContains(singleTap, "navigator.getAction(")
-		assertContains(singleTap, "onAction(action)")
+		assertContains(singleTap, "dispatchSingleTapAction(action, event)")
+		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
+		assertContains(viewerContainerBody, "dispatchMenuActionAfterContentHitTest(event)")
 		assertFalse(
 			singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
 				webViewHostText.contains("readerContentHandledCenterTap("),
-			"Raw WebView IMAGE_TYPE is too broad: image-heavy pages and covers must still let center taps toggle chrome unless the content JS explicitly claims the interaction."
+			"Raw WebView IMAGE_TYPE is too broad: image-heavy pages and covers must not blanket-block native tap zones."
 		)
 		assertTrue(
 			singleTap.indexOf("navigator.getAction(") <
-				singleTap.indexOf("onAction(action)"),
-			"Native frame tap classification must decide the menu action before any renderer-side content metadata can interfere."
+				singleTap.indexOf("dispatchSingleTapAction(action, event)"),
+			"Native frame tap classification must decide the viewer action before any menu-only renderer content hit test can interfere."
 		)
 	}
 
@@ -579,6 +581,13 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "reflowablePagePosition(detail)")
 		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
 		assertContains(bridgeText, "reflowableSectionPagePosition()")
+		assertContains(bridgeText, "readerPaginationProfilePosition(detail, sectionPosition)")
+		assertContains(bridgeText, "readerEnsurePaginationProfile(detail, sectionPosition)")
+		assertContains(bridgeText, "const sectionIndex = Number(detail?.section?.current ?? detail?.index)")
+		assertContains(bridgeText, "spineIndex: sectionIndex")
+		assertContains(bridgeText, "readerPaginationRenderFingerprint()")
+		assertContains(bridgeText, "readCachedPaginationProfile(fingerprint)")
+		assertContains(bridgeText, "writeCachedPaginationProfile(freshProfile)")
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
 		assertContains(bridgeText, "if (!renderer || renderer.scrolled) return null")
@@ -600,6 +609,7 @@ class ReaderRuntimeShellProgressTest {
 			"Reflowable EPUB totals must not be estimated from the current section only, because that makes # / # change between chapters."
 		)
 		assertContains(bridgeText, "readerPageListPageCount()")
+		assertContains(bridgeText, "pageCountSource: 'pagination-profile'")
 		assertContains(bridgeText, "pageCountSource: 'page-list'")
 		assertContains(bridgeText, "pageCountSource: 'location'")
 		assertContains(bridgeText, "pageCountSource: model.source")
@@ -613,7 +623,9 @@ class ReaderRuntimeShellProgressTest {
 			message = "Foliate's 1-based section page must be converted to a zero-based page index after EPUB cover suppression."
 		)
 		assertContains(bridgeText, "readerPagePosition(detail)")
-		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail)")
+		assertContains(bridgeText, "this.readerPaginationProfilePosition(detail, sectionPosition) ||")
+		assertContains(bridgeText, "this.reflowableWholeBookPagePosition(detail) ||")
+		assertContains(bridgeText, "this.reflowableLocationPagePosition(detail) ||")
 		assertContains(bridgeText, "ensureReaderPageNumberLayer")
 		assertContains(bridgeText, "dataset.navicPageNumberLayer")
 		assertContains(bridgeText, "return `${'$'}{currentPage} / ${'$'}{pageCount}`")
@@ -629,6 +641,24 @@ class ReaderRuntimeShellProgressTest {
 			readerScreenText.contains("ReaderPageNumberOverlay("),
 			"Page numbers must be drawn in the reader surface, not as a native Material overlay."
 		)
+	}
+
+	@Test
+	fun androidReaderPostsPageModelDiagnosticsWithLocationChanges() {
+		val bridgeText = readerBridgeText()
+		val postLocationBody = bridgeText
+			.substringAfter("postLocationChanged(detail, reason = 'relocate') {")
+			.substringBefore("\n  onRelocate(detail) {")
+
+		assertContains(postLocationBody, "pageCountSource: pagePosition?.pageCountSource || null")
+		assertContains(postLocationBody, "paginationFingerprint: this.paginationFingerprint || null")
+		assertContains(postLocationBody, "paginationProfilePageCount: diagnosticNumber(this.paginationProfile?.pageCount)")
+		assertContains(postLocationBody, "paginationProfileObservedChapterCount: diagnosticNumber(this.paginationProfile?.observedChapterCount)")
+		assertContains(postLocationBody, "paginationProfileEstimatedChapterCount: diagnosticNumber(this.paginationProfile?.estimatedChapterCount)")
+		assertContains(postLocationBody, "rawLocationCurrent: diagnosticNumber(detail.location?.current)")
+		assertContains(postLocationBody, "rawLocationTotal: diagnosticNumber(detail.location?.total)")
+		assertContains(postLocationBody, "readerTrace('location:page-model'")
+		assertContains(postLocationBody, "log('location-page-model'")
 	}
 
 	@Test
@@ -649,10 +679,19 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "this.reflowableLastLocationProgressBucket")
 		assertContains(bridgeText, "const canApplyStartOffset = pagePosition.pageCountSource !== 'location'")
 		assertContains(bridgeText, "pageCountSource: 'location'")
+		assertContains(bridgeText, "pageCountSource: 'pagination-profile'")
+		assertContains(bridgeText, "paginationProfile = null")
+		assertContains(bridgeText, "paginationFingerprint = null")
+		assertContains(bridgeText, "observedChapterPageCounts = new Map()")
 		assertContains(
 			bridgeText,
-			"return this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()",
-			message = "Reflowable EPUB labels must prefer the stable whole-book model before location, page-list, or section fallbacks."
+			"return this.readerPaginationProfilePosition(detail, sectionPosition) ||",
+			message = "Reflowable EPUB labels must prefer the deterministic pagination profile before whole-book, location, page-list, or section fallbacks."
+		)
+		assertContains(
+			bridgeText,
+			"this.reflowableWholeBookPagePosition(detail) ||",
+			message = "The previous stable whole-book model remains the first fallback while pagination profiles warm."
 		)
 		assertFalse(
 			bridgeText.contains("return this.readerPageListPosition(detail) || this.reflowableWholeBookPagePosition(detail)"),

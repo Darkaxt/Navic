@@ -3858,6 +3858,727 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Deterministic Pagination Profile Diagnostics And Spine Fallback Slice
+
+User-visible bug:
+
+- Later EPUB chapters could display impossible page states such as Chapter XIV showing as page 2, or totals jumping back to raw Foliate values like `1748`.
+- The earlier native-cover boundary fix prevents local page zero from returning to the cover, but it does not by itself prove the page model is using the deterministic cached pagination profile for every chapter.
+
+Root cause:
+
+- Navic already records a deterministic pagination profile keyed by a render fingerprint. The fingerprint includes publication/render state such as viewport size, device scale factor, orientation, spread/flow mode, font source/family/size, line height, paragraph spacing, margin, publisher CSS, direction, and runtime version.
+- Each profile stores total `pageCount`, per-chapter `pageStartIndex`, per-chapter `pageCount`, `href`, `spineIndex`, and whether the chapter count is observed or estimated.
+- `readerPaginationPositionForLocator(...)` only matched cached chapters by href. If a later relocation had a missing, stale, or differently normalized href while still carrying the section/spine index, the profile lookup returned `null`.
+- After that miss, the runtime could fall through to weaker page sources such as raw `detail.location.total`, which is how chapter-local states can surface with whole-book-looking totals such as `1748`.
+
+Navic implication:
+
+- `locationChanged` messages now include explicit page-model diagnostics:
+  - `pageCountSource`
+  - `paginationFingerprint`
+  - `paginationProfilePageCount`
+  - `paginationProfileObservedChapterCount`
+  - `paginationProfileEstimatedChapterCount`
+  - `rawLocationCurrent`
+  - `rawLocationTotal`
+- `readerPaginationPositionForLocator(...)` still prefers href matches when available, but now falls back to `spineIndex` when href is stale or missing.
+- `readerPaginationProfilePosition(...)` passes the runtime section index as `spineIndex` into the locator and logs it with `pagination-profile:position`.
+- This does not change the intended deterministic model. It makes the existing profile usable in more of the real Foliate relocation states.
+
+Fresh red checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome"
+```
+
+Results:
+
+- The JS harness failed because a Chapter XIV locator with stale href and valid `spineIndex = 16` returned `null`.
+- The Android host test failed because `readerPaginationProfilePosition(...)` did not compute/pass `sectionIndex` as `spineIndex`.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-pagination-profile --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderPostsPageModelDiagnosticsWithLocationChanges"
+```
+
+Results: passed on 2026-06-15.
+
+Host/harness evidence:
+
+```json
+{
+  "pageIndex": 190,
+  "pageCount": 377,
+  "chapterPageIndex": 55,
+  "chapterPageCount": 72,
+  "pageCountSource": "pagination-profile",
+  "paginationFingerprint": "navic-pagination-v1:380459720",
+  "paginationProfilePageCount": 377,
+  "paginationProfileObservedChapterCount": 2,
+  "paginationProfileEstimatedChapterCount": 4,
+  "rawLocationCurrent": 185,
+  "rawLocationTotal": 372
+}
+```
+
+Device validation still required:
+
+- Install a release containing this slice and confirm later chapters no longer show raw Foliate totals.
+- Confirm Chapter XIV/other later chapters move backward to previous readable pages, not the cover.
+- Confirm page count remains stable across chapter links, edge taps, drags, orientation changes, and reopen.
+- Use the new `location-page-model` logs to identify whether any remaining bad state uses `pagination-profile`, `page-list`, `stable-book`, or raw `location`.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Native Readable Drag Preview Slice
+
+User-visible bug:
+
+- EPUB/PDF drags still felt like abrupt page pops, not Komikku-style page movement.
+- On image-heavy pages, horizontal movement could still be classified too late, so the user saw little or no drag feedback before the page turn.
+
+Root cause:
+
+- The native Komikku frame owned taps and shell-cover drag, but readable EPUB/PDF horizontal drags were still left to the renderer child.
+- That meant the native container could not provide a consistent top-level page-drag preview, and device behavior depended on whether Foliate/WebView consumed the gesture stream.
+
+Navic implication:
+
+- `KomikkuReaderNativeViewerContainer` now intercepts horizontal readable-page drags after touch slop, the same way it already does for the shell cover.
+- Readable drag `ACTION_MOVE` updates `viewerContentContainer.translationX`, logs `Reader native drag preview`, and cancels pending long-tap detection before any content long-press can fire.
+- Readable drag `ACTION_UP` dispatches through `readerNativeReaderSwipeAction(...)` and maps the physical direction to `KomikkuNavigationRegion.RIGHT` or `KomikkuNavigationRegion.LEFT`.
+- Shell-cover drag still uses `readerShellCoverSwipeAction(...)` and preserves the cover-specific NEXT/PREV mapping.
+- `scripts/adb-reader-smoke.ps1` now looks for `Reader native drag preview`, so ADB validation can prove the native top-level manager saw the drag stream.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+```
+
+Result: failed before production changes because readable drags were still explicitly delegated, no `updateReadableViewerDragOffset(dx)` existed, and ADB diagnostics still tracked `Reader native drag delegated`.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics"
+```
+
+Result: passed on 2026-06-15.
+
+Device validation still required:
+
+- Confirm normal EPUB text-page drags visibly move the page surface before release.
+- Confirm drags over images stay classified as drags, not long presses.
+- Confirm shell-cover drag still follows the finger and only commits on release.
+- Confirm native ADB diagnostics include `Reader native drag preview` during readable-page drags.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Pagination Profile Cache Retention Slice
+
+User-visible bug:
+
+- Page numbers could still change denominator after reopen or later relocation, even when the same viewport/settings fingerprint was already cached.
+- The local harness reproduced this with a real EPUB: the first pass cached `pageCount = 484` with `observedChapterCount = 2`; after reopening the same EPUB and same render fingerprint, the runtime immediately rewrote the total to `502` while still reporting `observedChapterCount = 2`.
+
+Root cause:
+
+- The cached pagination profile stored render metadata, but chapter measurements did not carry stable `spineIndex` or `source` metadata.
+- On cache hit, `observedChapterPageCounts` was reset and not hydrated from the cached profile.
+- After reopening, the runtime rebuilt the profile from the current section and accepted a fresh estimate even when it had learned no new chapter measurement. That let unobserved chapter estimates shift based only on whichever section was current.
+
+Navic implication:
+
+- `readerBuildPaginationProfile(...)` now stores `spineIndex`, `source`, `observedChapterCount`, and `estimatedChapterCount`.
+- `readerPaginationObservedChapterEntries(...)` exposes cached observed entries with the same `spineIndex:href` key used by runtime observations.
+- `readerEnsurePaginationProfile(...)` hydrates `observedChapterPageCounts` from a cache hit before building a fresh profile.
+- Fresh profiles are only written over the current profile when they add observed chapters or change observed chapter measurements. Estimate-only denominator drift is retained as `pagination-profile:retained` instead of overwriting the cache.
+
+Fresh red checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-pagination-profile --fixture tmp\reader-live\served-input.epub
+```
+
+Results:
+
+- `pagination-profile-logic` first failed because `readerPaginationObservedChapterEntries` was not exported.
+- `epub-pagination-profile` then failed because the cache-hit profile rewrote `484 -> 502` with no new observed chapter.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-pagination-profile --fixture tmp\reader-live\served-input.epub
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderUsesStableLocationTotalsForReflowablePageNumbers"
+```
+
+Results: passed on 2026-06-15.
+
+Trace evidence:
+
+- Reopen now logs `pagination-profile:cache-hit` with `pageCount = 484`, followed by `pagination-profile:retained` with `freshPageCount = 502`; the visible `pagination-profile:position` stays on `pageCount = 484`.
+
+Device validation still required:
+
+- Reopen the EPUB after navigating into later chapters and confirm the denominator does not change unless a new chapter measurement is learned.
+- From Chapter XIV or later, verify the vertical rail/page label does not regress to a local chapter count.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Native Menu Content Hit-Test Slice
+
+User-visible bug:
+
+- Tapping real interactive EPUB content, especially images and links, could bring the reader menu/chrome back.
+- The intended Komikku ownership split is that ordinary short taps and drags remain native reader gestures, while deliberate content interaction goes through long press or a future explicit content-interaction mode.
+
+Root cause:
+
+- The controller already suppresses the next native viewer action when it receives a typed content claim, but native-tap-zone mode intentionally prevents JS short-touch claims.
+- That means the native frame could classify a center tap as `MENU` without checking whether the coordinate is a real image/link hit.
+- The old WebViewHost delayed-center-tap suppression path is not acceptable because it moves ownership back into the renderer host.
+
+Navic implication:
+
+- `KomikkuReaderNativeViewerContainer` now routes confirmed taps through `dispatchSingleTapAction(...)`.
+- Previous/next edge actions still dispatch synchronously through the native Komikku navigator.
+- Only `KomikkuNavigationRegion.MENU` on readable content calls `dispatchMenuActionAfterContentHitTest(...)`.
+- The native frame finds the active child `WebView` and evaluates `window.NavicReaderBridge.readerContentActionAtPoint(x, y, width, height)`.
+- If that typed runtime hit test returns `true`, the menu action is suppressed and ADB logs `Reader native menu suppressed by content hit`.
+- If no WebView exists or the hit test returns false, the normal menu toggle still happens.
+- This does not re-enable short-tap WebView content activation; the runtime still keeps ordinary native-tap-zone short clicks suppressed, and long press remains the content activation path.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesMenuChromeWithNativeFrameRuntimeContentHitTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderQueriesRuntimeContentHitOnlyForMenuActions"
+```
+
+Result: failed before production changes because the native frame had no `dispatchSingleTapAction(...)`, no menu-only content hit-test dispatcher, and no native-frame call to `readerContentActionAtPoint`.
+
+Focused and adjacent green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesMenuChromeWithNativeFrameRuntimeContentHitTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderQueriesRuntimeContentHitOnlyForMenuActions"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceDoesNotDiscardPlainImageTapsBeforeTapZoneDispatch" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReaderSurfaceCenterMenuIsNotSuppressedByRawImageHitType" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndRoutesLongPressToContent"
+```
+
+Results: passed on 2026-06-15.
+
+Device validation still required:
+
+- Center tap on normal text should still show/hide the menu.
+- Center tap on a real EPUB image/link should not open the menu.
+- Long press on images/links should still reach content behavior.
+- Edge taps over image-heavy pages should still page previous/next rather than being blanket-blocked by image hit type.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Side Rail Height Tuning Slice
+
+User-visible feedback:
+
+- The vertical progress rail felt slightly too short after the Komikku port work.
+
+Navic implication:
+
+- `KomikkuReaderVerticalRailHeightFraction` was raised from `0.74f` to `0.78f`.
+- The rail still lives in the weighted middle chrome slot, so it should not run under the top or bottom menu bars.
+- This is a small source-level UX tuning slice, not a release candidate by itself.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: failed before the source change because the chrome test still expected the taller rail while production used `0.74f`.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Pagination Profile Render-Metadata Cache Slice
+
+User-visible bug/risk:
+
+- Chapter-local positions could still be confused with whole-book page positions when debugging page labels such as Chapter XIV showing as an early global page.
+- The deterministic pagination profile already existed, but the stored cache payload did not explicitly retain the screen/render inputs that created the page math.
+- Without stored render dimensions/settings, ADB or harness traces could prove a fingerprint existed but not what phone state it represented.
+
+Navic implication:
+
+- `readerPaginationRenderMetadata()` now builds the full render-state object used for pagination fingerprinting.
+- `readerPaginationRenderFingerprint()` hashes that render metadata instead of building the hash payload inline.
+- Cached pagination profiles now store `render` metadata alongside:
+  - global page count;
+  - per-chapter href/title;
+  - per-chapter page count;
+  - per-chapter global start index.
+- The runtime rejects old/stale cached profiles that do not contain `profile.render.viewportWidth` and `profile.render.viewportHeight`.
+- The first implementation still stores deterministic counts/start indices, not full CFI anchors. Navigation can keep using existing Foliate/chapter progress until the next anchor-storage slice.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers"
+```
+
+Result: failed before production changes because the runtime had no `readerPaginationRenderMetadata()` method and cached profiles did not validate stored viewport dimensions.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers"
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+```
+
+Results: passed on 2026-06-15.
+
+Device validation still required:
+
+- Open the same EPUB in the same phone posture twice and confirm `pagination-profile:cache-hit` includes the expected global count.
+- Rotate the phone and confirm a new fingerprint/profile is used instead of reusing the portrait profile.
+- Jump to Chapter XIV and confirm the page label is based on the cached global profile, not the section-local page index.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Paper Texture Visibility Slice
+
+User-visible bug:
+
+- On eta64, the paper texture was almost invisible on sepia pages.
+- The page-edge degradation layer was not visibly present enough; the screenshot showed mostly flat sepia paper with very weak pores/wrinkles and no convincing border wear.
+
+Source-alpha check:
+
+- `paper-texture-1.png` sampled average alpha about `2.62`, `paper-texture-2.png` about `2.29`, and `paper-texture-3.png` about `2.02`.
+- `page-border-overlay-*.png` sampled average alpha about `6.88` to `7.61`, with max sampled alpha around `39` to `41`.
+- With sepia texture opacity at `0.24`, the effective average texture contribution was too low to be noticed on-device.
+- Border opacity was already `1`, so simply raising CSS opacity was not available.
+
+Navic implication:
+
+- Sepia paper texture opacity is raised to `0.42` while keeping the texture as a single fixed reader-window layer.
+- The page-border overlay now composites the same selected border PNG twice inside the same fixed surface layer:
+  - it does not reintroduce document-scoped texture layers;
+  - it does not create stacked per-EPUB-element opacity;
+  - it keeps the existing deterministic page variant selection.
+- Paging, drag ownership, cover behavior, and texture movement direction logic are unchanged by this slice.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme"
+```
+
+Result: failed before production changes because sepia still returned `0.24` and the border overlay did not have the fixed-layer double-composite helper.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+```
+
+Results: passed on 2026-06-15.
+
+Device validation still required:
+
+- Confirm sepia paper pores/wrinkles are visible but not distracting.
+- Confirm page-edge degradation is visible on normal text pages, image pages, and chapter boundary pages.
+- Confirm this did not reintroduce the old opacity-stacking mess.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Side Rail Height Tuning Slice
+
+User direction:
+
+- The vertical progress rail feels slightly too short after the Komikku rail migration.
+- Keep this as local polish, not a release trigger.
+
+Root cause:
+
+- The rail was intentionally constrained away from full height, but the `0.68f` height fraction left the control visually shorter than the Komikku reference on the tested device.
+
+Navic implication:
+
+- `KomikkuReaderVerticalRailHeightFraction` is now `0.74f`.
+- The rail still sits inside the top/bottom chrome overlay column and remains centered, so previous/next controls do not reach the screen edges.
+- The chapter-local progress model, haptic drag feedback, and left/right rail placement settings are unchanged.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: failed before production changes because the rail height fraction was still `0.68f`.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Settings Dialog Responsive Width Slice
+
+User direction:
+
+- The settings overlay is still visually suboptimal: tab labels are truncated, font/content rows are cut awkwardly, and the panel feels like a narrow mobile dialog rather than the Komikku overlay.
+- Keep improving this locally without publishing a release for a small isolated UI change.
+
+Root cause:
+
+- `KomikkuTabbedDialog(...)` used `BasicAlertDialog` with the platform default width behavior.
+- The surface then applied `fillMaxWidth(0.78f)` inside that already-capped platform dialog window, so tablet screens still got a narrow panel and tab labels such as `Reading...` / `Custom...`.
+
+Navic implication:
+
+- `KomikkuTabbedDialog(...)` now uses `DialogProperties(usePlatformDefaultWidth = false)`.
+- `KomikkuReaderSettingsDialog(...)` computes a responsive width fraction from the available window: `0.92f` below `720.dp`, `0.62f` at tablet/wide widths.
+- The shared tabbed dialog surface receives `widthFraction` and applies `modifier.fillMaxWidth(widthFraction)`.
+- The previous scroll-edge fade remains in place, so the wider dialog and fade work together instead of hiding overflow with a hard cut.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap"
+```
+
+Result: failed before production changes because the dialog had no `DialogProperties(usePlatformDefaultWidth = false)`, no responsive width fraction, and still used the old fixed `0.78f` width.
+
+Focused green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesCompactNonWrappingKomikkuTabs" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesScrollEdgeFadeInsteadOfAbruptCutoff" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups"
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Readable Drag Delegation Slice
+
+User direction:
+
+- Dragging EPUB pages should not just pop the next page; content should follow the finger like Komikku.
+- Dragging over images must not become a long press.
+- Stop treating small source-only progress as a release-worthy APK; keep this local until it is part of a meaningful RC.
+
+Komikku source reference:
+
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/Pager.kt`
+- `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerViewer.kt`
+
+Root cause:
+
+- Komikku gets finger-follow page motion from the actual pager widget (`DirectionalViewPager`).
+- Navic's current hybrid reader does not yet have a native ViewPager-equivalent for EPUB/PDF. The closest current pager is still Foliate inside the WebView.
+- The previous native-frame implementation intercepted readable horizontal drags after slop and immediately emitted `Reader native swipe action=...`, which cancelled the child/page stream and produced the reported pop/no-drag behavior.
+
+Navic implication:
+
+- The native frame still owns reader-wide taps and long-tap routing.
+- Shell-cover drags remain native because the cover is a native layer; the cover view now receives a horizontal translation during drag before the shell-cover command is dispatched.
+- Readable EPUB/PDF drag motion is no longer converted into immediate native page-turn actions. The native frame logs `Reader native drag delegated...` and leaves the move stream with the active pager engine so the page can follow the finger.
+- `scripts/adb-reader-smoke.ps1 -RequireNativeSwipeAction` is kept for compatibility but now requires the readable drag delegation diagnostic rather than the removed native swipe shortcut.
+
+Deliberate limitation:
+
+- This is the correct hybrid-reader stopgap, not the final Komikku endpoint. The final architecture should replace the WebView/Foliate page-motion layer with a native pager/controller equivalent. Until then, stealing readable drag motion in the native frame makes the experience worse.
+
+Fresh red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameDispatchesShellCoverSwipesThroughViewerActionBoundary" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameLetsReadablePagerOwnDragMotionWhileNativeFrameOwnsTaps" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Result: failed before production changes because the native frame still logged `Reader native swipe action=...`, still used `readerNativeReaderSwipeAction(...)` in the dispatch path, and the smoke script still required the old diagnostic.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameDispatchesShellCoverSwipesThroughViewerActionBoundary" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameLetsReadablePagerOwnDragMotionWhileNativeFrameOwnsTaps" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameEmitsAdbReadableInputDiagnostics" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeWithoutHijackingReadableDrags"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Settings Dialog Scroll Edge Fade Slice
+
+User direction:
+
+- The in-reader settings dialog still cuts off scrollable content abruptly, as shown by the partially clipped `Font size` row in `D:/Downloads/Screenshot_20260615_182601_Navic.jpg`.
+- Keep improving the Komikku overlay surface locally without publishing another APK for small isolated fixes.
+
+Root cause:
+
+- `KomikkuReaderSettingsDialog(...)` used a normal `verticalScroll(...)` content column inside the bounded dialog.
+- That preserved the bounded Komikku-style overlay, but gave no visual affordance that content continued above or below the current viewport.
+
+Navic implication:
+
+- `KomikkuReaderSettingsDialog(...)` now owns its `ScrollState` and applies `komikkuVerticalScrollEdgeFade(...)` before `verticalScroll(...)`.
+- The fade is drawn with an offscreen compositing layer and top/bottom `BlendMode.DstIn` gradients only when there is content hidden in that direction.
+- This is visual chrome only. It does not resize the reader, change settings ownership, or alter the engine bridge.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesScrollEdgeFadeInsteadOfAbruptCutoff"
+```
+
+Result: failed before production changes because the settings dialog did not use a scroll-edge fade modifier and the scrollable content was hard-cut.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesScrollEdgeFadeInsteadOfAbruptCutoff"
+```
+
+Result: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Paper Texture Visibility Boost Slice
+
+User direction:
+
+- On eta66 the paper texture is almost invisible, the edge-degradation textures are not visible enough, and the page lacks pores/wrinkles.
+- Improve this locally as a contained source/test slice; do not publish a release for this alone.
+
+Root cause:
+
+- Sepia paper texture opacity was only `0.14`, which looked absent on-device after blending through the reader surface.
+- The border-degradation overlay used full opacity but no filter boost, so the edge layer could still disappear depending on the base theme and asset contrast.
+
+Navic implication:
+
+- `readerSurfacePaperTextureOpacity(...)` now uses stronger but still bounded opacity values: sepia `0.24`, dark/dusk `0.12`, and default `0.16`; black remains `0`.
+- `readerSurfacePageBorderOverlayFilter(...)` now provides a theme-aware contrast/saturation boost.
+- `updateReaderSurfaceBorderOverlayLayer(...)` applies that filter on the fixed top-level border overlay surface.
+- This does not move texture ownership back into EPUB content. Texture and border overlays remain reader-window surfaces.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme"
+```
+
+Result: failed before production changes because sepia opacity still returned `0.14` and the border updater had no `readerSurfacePageBorderOverlayFilter(...)`.
+
+Focused green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderMirrorsPaperTextureOnTopLevelSurface" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureAtReaderWindowSurfaceOnly"
+```
+
+Results: passed on 2026-06-15. The first Gradle rerun without `--rerun-tasks` reused cached results, so the recorded green check is the forced rerun that actually executed the assertions.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Deterministic Pagination Profile Slice
+
+User direction:
+
+- Record render dimensions, global page count, and per-chapter page math on first book load.
+- Fingerprint the render state so the same book can keep separate page profiles for different phone states.
+- Use the cached math for deterministic ebook page numbering instead of raw Foliate totals such as `1748` or section-local counters such as `2 / 14`.
+
+Implementation:
+
+- Added `readerPaginationFingerprint(...)`, `readerBuildPaginationProfile(...)`, and `readerPaginationPositionForLocator(...)` in the reader helper layer.
+- The fingerprint includes publication identity, spine/content key, viewport width/height, device pixel ratio, orientation/spread mode, flow mode, font source/family/custom font URL, font size, line height, paragraph spacing, margin, publisher-CSS mode, direction, and runtime profile version.
+- The runtime now builds a `paginationProfile` from readable non-cover sections only, stores it in `localStorage` under `navic-reader-pagination-profile:<fingerprint>`, and reloads it on the same render state.
+- The organic ebook page number layer now prefers `pagination-profile` positions before the old whole-book estimate, location, page-list, or section fallback chain.
+- `locationChanged` messages use the same profile-backed page index and count as the organic page label, while the side rail remains chapter-local through `chapterPageIndex/chapterPageCount`.
+- Profile state is reset on publication close, settings changes, and fingerprint changes so portrait/landscape, font, margin, and theme/layout variants do not contaminate each other.
+- The browser harness `epub-pagination-profile` mode is now fixture-agnostic. It opens a real EPUB, forces a relocation, verifies `pagination-profile:updated`, verifies `locationChanged` uses the profile position, verifies the profile cache key exists, reopens the same EPUB, and verifies `pagination-profile:cache-hit`.
+- The phase-one harness list now includes `pagination-profile-logic` and `epub-pagination-profile`.
+
+Current limitation:
+
+- The first profile uses the current rendered chapter as the visual calibration point and estimates unvisited chapter counts from spine sizes. As chapters are visited, exact observed counts replace estimates and the cache is updated. A later refinement can pre-measure every chapter up front if we need fully exact first-open counts, but this slice removes the raw-total and chapter-local denominator regressions without blocking the reader on a full-book scan.
+
+Fresh red checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderUsesStableLocationTotalsForReflowablePageNumbers"
+```
+
+Results: failed before production/test-source updates because the pagination helpers were not exported, the runtime did not use a `paginationProfile`, and existing source guards still required the old fallback order.
+
+Focused and wider green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-pagination-profile --fixture tmp\reader-live\served-input.epub
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderUsesStableLocationTotalsForReflowablePageNumbers" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroid
+git diff --check
+```
+
+Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 eta66 Device Validation Matrix
+
+Purpose:
+
+- Validate `v1.0.11-eta66` on the connected Android device using ADB, with the EPUB already opened by the user.
+- Record pass/fail results here as they are observed so context compaction cannot erase the current validation state.
+- Treat these checks as device evidence, not as proof that the Komikku reader port is complete.
+
+Release candidate:
+
+- Version: `v1.0.11-eta66`
+- Android `versionCode`: `399`
+- Commit/tag: `1138af38` / `v1.0.11-eta66`
+- GitHub Actions run: `27553931486`
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta66`
+- Asset: `Navic.apk`, SHA-256 digest from GitHub release metadata `aa5dedc0a535731639f6131fee55614ceab77d3754089ec7334ef6532272d2ae`
+- Workflow result: Android APK build/signing/release succeeded; iOS IPA job was skipped for the hyphenated eta tag.
+
+Pre-device verification before release:
+
+- `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta66`: passed.
+- `node --check composeApp/src/androidMain/assets/reader/navic-reader.js`: passed.
+- `git diff --check`: passed.
+- `tools/reader-harness/src/run-reader-harness.mjs --mode phase1-stabilization ...`: passed 16 checks.
+- Focused Android host reader subset: passed.
+
+ADB environment:
+
+- Device: `RFCY80551LT`
+- Package: `darkaxt.navic`
+- Installed version captured by ADB: `versionCode=399`, `versionName=v1.0.11-eta66`
+- Running PID during validation: `1920`
+- WebView devtools socket exposed: `@webview_devtools_remote_1920`
+
+Device checks:
+
+| Check | Status | Evidence | Notes |
+| --- | --- | --- | --- |
+| Baseline open EPUB state | Observed | `captures/manual-eta66-adb/baseline-current-reader` | App was on the native cover. Cover image fills height better than old builds but still has black side bars because the image aspect ratio is narrower than the device. |
+| Cover center tap | Improved / pass | `captures/manual-eta66-adb/cover-center-tap-toggle` | Two center taps logged `Reader native tap action=MENU` and did not discard the cover. |
+| Cover drag next | Improved / pass | `captures/manual-eta66-adb/cover-drag-next` | Logged `Reader shell cover drag candidate`, `Reader shell cover swipe action=Right`, and `Reader shell cover command action=Right`; it entered the EPUB. |
+| First EPUB page after cover drag | Needs investigation | `captures/manual-eta66-adb/cover-drag-next/screen.png` | The page indicator shows `1 / 1748`. Local harness reports 505 pages for the same fixture geometry, so device page-number semantics still need investigation. |
+| EPUB center tap toggle, two taps | Pass for native input | `captures/manual-eta66-adb/epub-center-tap-toggle` | Logged two `Reader native tap action=MENU` events. Final state was chrome-hidden, consistent with show then hide. |
+| EPUB center tap, one tap | Improved / pass with UI issues | `captures/manual-eta66-adb/epub-center-single-tap-show-menu` | One center tap shows top bar, side rail, and bottom bar. Remaining issue: organic `1 / 1748` page number remains visible behind/under the bottom bar while the side rail shows a local `1..3` range. |
+| Side progress rail height | Needs tuning | User feedback during eta66 validation | The rail no longer occupies the whole vertical space, but now feels a little too short. Tune toward Komikku's visual balance without letting next/previous buttons sit under top/bottom chrome. |
+| EPUB edge tap next | Pass with page-count issue | `captures/manual-eta66-adb/epub-edge-tap-next` | Native log captured `Reader native tap action=RIGHT`; engine location moved to `pageIndex=1`, `chapterPageIndex=1`, `chapterPageCount=3`; texture log captured `dir=next x=-698`, which is the expected horizontal sign for next. Device still reports global `pageCount=1748`. |
+| EPUB edge tap previous | Pass with page-count issue | `captures/manual-eta66-adb/epub-edge-tap-previous` | Native log captured `Reader native tap action=LEFT`; engine location moved back to `pageIndex=0`, `chapterPageIndex=0`, `chapterPageCount=3`; texture log captured `dir=previous x=698`, which is the expected horizontal sign for previous. Device still reports global `pageCount=1748`. |
+| EPUB drag next | Pass with gesture-noise issue | `captures/manual-eta66-adb/epub-drag-next` | Native log captured `Reader native swipe action=Right`; engine location moved to `pageIndex=1`, `chapterPageIndex=1`, `chapterPageCount=3`; texture log captured `dir=next x=-698`, expected for next. Issue: the same swipe also logged `Reader native long tap`, so drag/long-press classification is still noisy. |
+| EPUB drag previous | Pass with gesture-noise issue | `captures/manual-eta66-adb/epub-drag-previous` | Native log captured `Reader native swipe action=Left`; engine location moved back to `pageIndex=0`, `chapterPageIndex=0`, `chapterPageCount=3`; texture log captured `dir=previous x=698`, expected for previous. Issue: the same swipe also logged `Reader native long tap`, matching the drag-next gesture-noise risk. |
+| EPUB texture next walk through frontmatter | Improved / pass for direction, weak visually | `captures/manual-eta66-adb/epub-texture-next-walk` | Repeated next taps crossed Title Page, Table of Contents, Maps, Author's Note, and Chapter I. All captured next texture-scroll samples used negative x, so the prior map/Author's Note inversion did not reproduce in this pass. Remaining visual issue: texture is almost imperceptible; edge degradation layer is not visible, and paper pores/wrinkles are effectively absent. |
+| EPUB image normal tap | Fail | `captures/manual-eta66-adb/epub-image-content-tap` | Tapping the image area did not emit `readerContentTapHandled`; native layer logged `Reader native tap action=MENU` and opened chrome. Interactive content still needs separation from normal menu taps, likely via long-press/content-specific path. |
+| Final state for user feeling test | Ready | `captures/manual-eta66-adb/final-clean-reader-state` | Chrome hidden after validation; device left inside EPUB on Chapter I page image/text area. |
+
+Manual feeling-test results after the ADB round:
+
+- Cover drag still fails visually. ADB proved a cover swipe command is dispatched, but the user-visible behavior is a pop/discard of the cover, not a Komikku-like drag-follow animation.
+- Returning to index `0` restores the native shell cover. This is an improvement and must be preserved.
+- Normal page drag still fails visually. It changes pages by popping to the next/previous page; it does not drag the page surface under the finger. This also means the texture-transition defect is harder to judge because the dragged page/texture relationship is not exposed.
+- Long-press on images works, but dragging across an image is still misclassified as long-press/content interaction. Dragging must be owned by the native upper layer and must not devolve into image long-press.
+- Page numbers appear more coherent than older builds, but the device reports `1748` pages while prior builds/harness runs reported roughly `411` to `505`. Page-count semantics remain unresolved.
+- The settings dialog remains suboptimal: the layout wastes space, tab labels are truncated, `Font size` is visibly cut by the scroll viewport, and scrolling should use a fade/gradient edge instead of a hard cutoff. Evidence screenshot: `D:/Downloads/Screenshot_20260615_182601_Navic.jpg`.
+- The ebook theme should eventually move away from the generic blue accent toward a leather/sepia/brown reader palette. This is lower priority than input, pagination, and layout correctness.
+
+Additional eta66 regression captured after the manual pass:
+
+| Check | Status | Evidence | Notes |
+| --- | --- | --- | --- |
+| Chapter XIV first page reports as `2 / 1748` | Fail | `captures/manual-eta66-adb/chapter14-page2-regression/screen.png` | Screenshot shows `Chapter XIV: Fire and Water` while the organic footer shows `2 / 1748`. Bridge logs for the same chapter show mixed page semantics: `pageIndex=1`, `pageCount=1748`, `chapterPageIndex=0`, `chapterPageCount=14`. The organic footer is using the unstable/global-looking `pageIndex/pageCount`; the Komikku rail uses chapter-local state. |
+| Previous from first page of later chapter can route through the native-cover boundary | Fail / needs focused reproduction | `captures/manual-eta66-adb/chapter14-page2-regression/logcat-reader.txt` | The controller's native-cover return rule is based on `locator.pageIndex <= 0`. This is only safe if `locator.pageIndex` is a stable whole-book index. In eta66 the bridge can emit low or reset page indices for later chapters, so the shell-cover boundary can be triggered from a later chapter instead of moving to the previous chapter/page. The same log also contains a direct left-tap sequence that did reach Chapter XIII, so the failure likely depends on which navigation path is used: raw previous-page command versus rail/index navigation. |
+
+Deterministic pagination profile decision:
+
+- The reader must stop treating Foliate's raw `location.current`, `location.total`, and transient `pageIndex/pageCount` values as the user-visible book model.
+- On first layout for a render context, Navic should fingerprint the render state and cache the measured page math for that fingerprint. A single book can therefore have multiple valid pagination profiles on the same phone.
+- The render fingerprint must include at least: publication identity/cache key, EPUB content identity where available, viewport width/height, device scale factor, orientation/spread mode, flow mode, font source, font family, custom font identity, font size, line height, paragraph spacing, margin, publisher CSS mode, direction, and the Navic/Foliate reader runtime version.
+- The cached pagination profile should store: global page count, chapter href/title sequence, per-chapter page count, per-chapter global start index, and enough page anchors/CFI/progress values to navigate deterministically.
+- The organic footer should render from this profile: `globalPageIndex + 1 / globalPageCount`.
+- The Komikku side rail should render from the same profile but chapter-local: `chapterPageIndex + 1 / chapterPageCount`.
+- Native cover return must become an explicit absolute-book boundary (`bookIndex == -1` or equivalent shell-cover state), not a heuristic based on `locator.pageIndex <= 0`.
+- If the fingerprint changes because the user rotates the device, changes font/margins/spacing/theme-relevant layout inputs, switches spread mode, or changes the WebView/Foliate layout version, the cached profile is not reused. A new profile is measured and stored next to the old one.
+- Until full CFI anchor storage exists, the first implementation slice may cache deterministic counts and start indices only, then use existing chapter progress for navigation. That is acceptable only if display numbering and cover-boundary decisions no longer use unstable raw page values.
+
+Next checks to run in this same validation block:
+
+- Build a focused laptop harness case that enters a later chapter and asserts the organic footer, chapter rail, and shell-cover return predicate use the deterministic pagination profile instead of mixing raw global and chapter-local page models.
+- Reproduce the Chapter XIV `2 / 1748` state on-device after a clean open and verify whether edge-left, rail previous, and scrub-to-zero use different navigation paths.
+- Implement actual drag-follow animation/page movement for native cover and normal EPUB pages before spending more time on texture-transition perception.
+- Fix drag-vs-long-press classification, especially over images.
+- Investigate device page count `1748` versus the expected roughly `411` to `505` range.
+- Redesign the settings dialog layout with compact readable tabs, better spacing, and scroll fade/gradient edges.
+- Tune the side progress rail height and next/previous button positioning against the Komikku reference.
+- Strengthen paper texture and edge-degradation visibility; the current effect is nearly invisible.
+- PDF checks only after the device is explicitly placed in a PDF reader state.
+
 ## 2026-06-15 Overnight Embedded Cover Initial Location Slice
 
 User direction:
@@ -4694,6 +5415,144 @@ Focused green checks:
 ```
 
 Results: passed on 2026-06-15.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Drag Cancels Pending Long-Tap Slice
+
+User-visible bug:
+
+- Dragging across EPUB image/content pages could degrade into native long-press behavior instead of staying a reader/page drag.
+- Earlier ADB evidence also showed swipe/drag diagnostics and `Reader native long tap` diagnostics in the same gesture, which is the wrong Komikku ownership split.
+
+Root cause:
+
+- `KomikkuReaderNativeViewerContainer` observed move events after child dispatch, but once movement crossed touch slop it did not explicitly disarm the custom `KomikkuGestureDetectorWithLongTap` pending callback.
+- In paths where the frame stopped forwarding the stream to the gesture detector after drag/swipe classification, the pending long-tap runnable could survive longer than the gesture's actual classification.
+
+Navic implication:
+
+- `KomikkuGestureDetectorWithLongTap` now exposes `cancelPendingLongTap()`.
+- `KomikkuReaderNativeViewerContainer` calls `cancelPendingLongTapForDrag(dx, dy)` as soon as drag motion crosses Android touch slop.
+- The cancellation happens before shell-cover swipe dispatch and before readable EPUB/PDF drag delegation, so a drag cannot keep an armed native long-press callback.
+- This does not change page-turn semantics. It only tightens the native gesture classifier around Komikku's separation of drag, short tap, and long tap.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe"
+```
+
+Result: failed before production changes because there was no explicit `cancelPendingLongTap()` hook and the drag path did not cancel pending long-tap detection before swipe/delegation.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe"
+```
+
+Result: passed on 2026-06-15.
+
+Device validation still required:
+
+- Confirm cover drag no longer emits a native long-tap diagnostic.
+- Confirm EPUB image-page drag no longer emits native long-tap/content activation while the finger moves.
+- Confirm deliberate long press on an image/link still reaches the content long-press path.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Shell Cover Drag Commit-On-Release Slice
+
+User-visible bug:
+
+- Cover drag appeared to discard/pop the cover instead of letting the cover follow the finger.
+- The user could tap the cover, but dragging did not feel like a Komikku-style page gesture.
+
+Root cause:
+
+- `KomikkuReaderNativeViewerContainer.handleSwipeTouchEvent(...)` handled `ACTION_MOVE` and `ACTION_UP` in the same branch.
+- As soon as a shell-cover move crossed touch slop, the branch called `dispatchHorizontalSwipeViewerAction(...)`, which emitted the page-enter command during movement.
+- That made the shell cover disappear before the user could perceive drag-follow feedback.
+
+Navic implication:
+
+- Shell-cover `ACTION_MOVE` now only cancels pending long-tap detection, logs drag diagnostics, and calls `updateShellCoverDragOffset(dx)`.
+- Shell-cover `ACTION_UP` now keeps the final offset and then calls `dispatchHorizontalSwipeViewerAction(...)`.
+- Readable EPUB/PDF `ACTION_MOVE` remains delegated to the active renderer; this slice does not reintroduce native readable-page swipe shortcuts.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease"
+```
+
+Result: failed before production changes because shell-cover swipe dispatch still happened inside the move path. The first red assertion also exposed an overly broad test parser that matched `onInterceptTouchEvent`; the test was narrowed to `handleSwipeTouchEvent(...)` before the green check.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe"
+```
+
+Result: passed on 2026-06-15.
+
+Device validation still required:
+
+- Confirm cover drag visibly follows the finger on the phone before releasing into the book.
+- Confirm a cancelled/short cover drag snaps back without entering the EPUB.
+- Confirm cover center tap still toggles chrome and does not discard the cover.
+
+Release status:
+
+- No APK was built or published for this slice.
+
+## 2026-06-15 Native Cover Boundary Href Guard Slice
+
+User-visible bug:
+
+- From a later chapter, pressing previous could route back to the native cover instead of the previous chapter/page.
+- The observed case was a later chapter page that displayed as a low/local page number, then jumped to the cover boundary.
+
+Root cause:
+
+- `readerShouldReturnToNativeShellCover(...)` treated `progress == null` as acceptable for the cover boundary.
+- If Foliate/bridge emitted a chapter-local `pageIndex = 0` for a later chapter and omitted global progress, the controller could mistake that local page zero for the whole-book start.
+
+Navic implication:
+
+- The native-cover return predicate still requires:
+  - shell cover URL present;
+  - shell cover not already visible;
+  - page index at the start;
+  - positive page count.
+- When global progress is present, it must still be near the start (`<= 0.02`).
+- When global progress is missing but an href is present, the href must look like a start/frontmatter boundary (`cover`, `title`, `toc`, `contents`, or `frontmatter`) before previous can show the native cover.
+- Later chapter hrefs such as `Hobbit_chap-14.html` no longer qualify just because their chapter-local page index is zero.
+
+Fresh red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter"
+```
+
+Result: failed before production changes because `progress = null`, `pageIndex = 0`, and `pageCount > 0` still returned `true` for a later chapter href.
+
+Focused green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryInterceptsPreviousOnlyFromFirstReadablePage" --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryDoesNotTreatLaterChapterFirstPageAsBookStart" --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter" --tests "paige.navic.reader.ReaderCoordinatorTest.previousFromFirstReadablePageReturnsToControllerOwnedShellCoverWithoutFoliateCommand"
+```
+
+Result: passed on 2026-06-15.
+
+Device validation still required:
+
+- From Chapter XIV/local page 1 or 2, previous should go to Chapter XIII/previous readable page, not the native cover.
+- From the first actual readable/frontmatter page, previous should still return to the native cover.
 
 Release status:
 

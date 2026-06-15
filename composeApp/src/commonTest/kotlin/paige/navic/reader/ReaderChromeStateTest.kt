@@ -335,6 +335,45 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeShellCoverBoundaryDoesNotTreatLaterChapterFirstPageAsBookStart() {
+		assertFalse(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(
+					href = "OEBPS/Text/Hobbit_chap-14.html",
+					progress = 0.8032493311658307,
+					pageIndex = 0,
+					pageCount = 1748,
+					chapterProgress = 0.0,
+					chapterPageIndex = 0,
+					chapterPageCount = 14
+				)
+			),
+			"Chapter-local page zero is not the native cover boundary when global progress is deep into the book."
+		)
+	}
+
+	@Test
+	fun nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter() {
+		assertFalse(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(
+					href = "OEBPS/Text/Hobbit_chap-14.html",
+					pageIndex = 0,
+					pageCount = 1748,
+					chapterProgress = 0.0,
+					chapterPageIndex = 0,
+					chapterPageCount = 14
+				)
+			),
+			"Later chapter-local page zero must not jump to native cover when the bridge omits global progress."
+		)
+	}
+
+	@Test
 	fun fullscreenControlDefaultsToKomikkuStyleImmersiveReading() {
 		val initial = ReaderChromeState()
 		val updated = initial.toggleFullscreen()

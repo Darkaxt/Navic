@@ -101,6 +101,38 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val textureOpacity = helperText
+			.substringAfter("export const readerSurfacePaperTextureOpacity = settings =>")
+			.substringBefore("\n\nexport const readerSurfacePageBorderOverlayOpacity")
+		val borderUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVariant, settings, scrollOffset = null) =>")
+			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
+
+		assertContains(textureOpacity, "case ReaderThemeSepia:")
+		assertContains(textureOpacity, "return '0.42'")
+		assertFalse(
+			textureOpacity.contains("return '0.14'"),
+			"Sepia paper pores were too subtle at 0.14 and looked absent on-device."
+		)
+		assertFalse(
+			textureOpacity.contains("case ReaderThemeSepia:\n      return '0.24'"),
+			"Sepia paper pores were still too subtle at 0.24 on-device."
+		)
+		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
+		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant)")
+		assertContains(
+			helperText,
+			"[textureUrl, textureUrl].join(', ')",
+			message = "The edge degradation source PNGs have intentionally subtle alpha; compositing twice keeps one surface layer while making the borders visible."
+		)
+		assertContains(borderUpdater, "filter: readerSurfacePageBorderOverlayFilter(settings)")
+		assertContains(helperText, "export const readerSurfacePageBorderOverlayFilter = settings =>")
+		assertContains(helperText, "contrast(1.35) saturate(1.08)")
+	}
+
+	@Test
 	fun androidReaderAppliesParagraphSpacingAsElementStyles() {
 		val bridgeText = readerBridgeText()
 		val paragraphSpacing = bridgeText

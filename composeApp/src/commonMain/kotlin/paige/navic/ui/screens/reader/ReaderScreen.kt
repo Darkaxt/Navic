@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -68,11 +69,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -92,6 +96,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -200,7 +205,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
 private const val ReaderScreenTag = "ReaderScreen"
-private const val KomikkuReaderVerticalRailHeightFraction = 0.68f
+private const val KomikkuReaderVerticalRailHeightFraction = 0.78f
 private val TabbedDialogPaddingsVertical = 16.dp
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
 private val readerBarsFadeAnimationSpec = tween<Float>(150)
@@ -1213,11 +1218,13 @@ private fun KomikkuReaderSettingsDialog(
 	}
 
 	BoxWithConstraints {
+		val dialogWidthFraction = if (maxWidth < 720.dp) 0.92f else 0.62f
 		KomikkuTabbedDialog(
 			onDismissRequest = onDismissRequest,
 			tabs = tabs,
 			pagerState = pagerState,
 			modifier = Modifier.heightIn(max = maxHeight * 0.75f),
+			widthFraction = dialogWidthFraction,
 			footer = {
 				TextButton(
 					onClick = onDismissRequest,
@@ -1227,10 +1234,12 @@ private fun KomikkuReaderSettingsDialog(
 				}
 			}
 		) { page ->
+			val settingsScrollState = rememberScrollState()
 			Column(
 				modifier = Modifier
 					.padding(vertical = TabbedDialogPaddingsVertical)
-					.verticalScroll(rememberScrollState())
+					.komikkuVerticalScrollEdgeFade(settingsScrollState)
+					.verticalScroll(settingsScrollState)
 			) {
 							when (tabs[page]) {
 								KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
@@ -1531,6 +1540,38 @@ private fun KomikkuReaderSettingsDialog(
 							}
 						}
 			}
+	}
+}
+
+private fun Modifier.komikkuVerticalScrollEdgeFade(settingsScrollState: ScrollState): Modifier =
+	graphicsLayer {
+		compositingStrategy = CompositingStrategy.Offscreen
+	}.drawWithContent {
+		drawContent()
+		if (settingsScrollState.maxValue <= 0) return@drawWithContent
+		val fadeHeight = 28.dp.toPx().coerceAtMost(size.height / 3f)
+		if (fadeHeight <= 0f) return@drawWithContent
+		if (settingsScrollState.value > 0) {
+			drawRect(
+				brush = Brush.verticalGradient(
+					0f to Color.Transparent,
+					1f to Color.Black,
+					startY = 0f,
+					endY = fadeHeight
+				),
+				blendMode = BlendMode.DstIn
+			)
+		}
+		if (settingsScrollState.value < settingsScrollState.maxValue) {
+			drawRect(
+				brush = Brush.verticalGradient(
+					0f to Color.Black,
+					1f to Color.Transparent,
+					startY = size.height - fadeHeight,
+					endY = size.height
+				),
+				blendMode = BlendMode.DstIn
+			)
 		}
 	}
 
@@ -1541,17 +1582,21 @@ private fun KomikkuTabbedDialog(
 	tabs: List<KomikkuSettingsTab>,
 	pagerState: PagerState,
 	modifier: Modifier = Modifier,
+	widthFraction: Float,
 	footer: @Composable ColumnScope.() -> Unit = {},
 	content: @Composable (Int) -> Unit
 ) {
 	val scope = rememberCoroutineScope()
 
-	BasicAlertDialog(onDismissRequest = onDismissRequest) {
+	BasicAlertDialog(
+		onDismissRequest = onDismissRequest,
+		properties = DialogProperties(usePlatformDefaultWidth = false)
+	) {
 		Surface(
 			shape = RoundedCornerShape(28.dp),
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
 			contentColor = MaterialTheme.colorScheme.onSurface,
-			modifier = modifier.fillMaxWidth(0.78f)
+			modifier = modifier.fillMaxWidth(widthFraction)
 		) {
 			Column(
 				modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),

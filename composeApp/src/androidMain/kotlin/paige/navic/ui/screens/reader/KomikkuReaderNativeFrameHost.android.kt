@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -266,6 +267,15 @@ private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 	return file.takeIf { it.isFile }
 }
 
+private fun View.findReaderWebView(): WebView? {
+	if (this is WebView) return this
+	if (this !is ViewGroup) return null
+	for (index in 0 until childCount) {
+		getChildAt(index).findReaderWebView()?.let { return it }
+	}
+	return null
+}
+
 private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout(context) {
 	private val viewerContentContainer = FrameLayout(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -278,6 +288,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var swipeStartY: Float = 0f
 	private var horizontalSwipeDispatched: Boolean = false
 	private var shellCoverDragDiagnosticLogged: Boolean = false
+	private var nativeDragPreviewDiagnosticLogged: Boolean = false
 	private var nativeTapCandidate: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeShortTapIntercepted: Boolean = false
@@ -308,6 +319,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
+	private fun findReaderWebView(): WebView? =
+		viewerContentContainer.findReaderWebView()
+
 	private val gestureDetector = KomikkuGestureDetectorWithLongTap(
 		context,
 		object : KomikkuGestureDetectorWithLongTap.Listener() {
@@ -327,7 +341,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					KomikkuReaderNativeFrameHostTag,
 					"Reader native tap action=$action x=${event.x} y=${event.y} width=$width height=$height"
 				)
-				onAction(action)
+				dispatchSingleTapAction(action, event)
 				return true
 			}
 
@@ -342,6 +356,42 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			}
 		}
 	)
+
+	private fun dispatchSingleTapAction(action: KomikkuNavigationRegion, event: MotionEvent) {
+		if (action != KomikkuNavigationRegion.MENU) {
+			onAction(action)
+			return
+		}
+		if (shellCoverView?.visibility == VISIBLE) {
+			onAction(action)
+			return
+		}
+		dispatchMenuActionAfterContentHitTest(event)
+	}
+
+	private fun dispatchMenuActionAfterContentHitTest(event: MotionEvent) {
+		val webView = findReaderWebView()
+		if (webView == null) {
+			onAction(KomikkuNavigationRegion.MENU)
+			return
+		}
+		val x = event.x.toDouble()
+		val y = event.y.toDouble()
+		val viewWidth = width
+		val viewHeight = height
+		val script =
+			"window.NavicReaderBridge?.readerContentActionAtPoint?.($x, $y, $viewWidth, $viewHeight) === true"
+		webView.evaluateJavascript(script) { result ->
+			if (result == "true") {
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader native menu suppressed by content hit x=$x y=$y width=$viewWidth height=$viewHeight"
+				)
+				return@evaluateJavascript
+			}
+			onAction(KomikkuNavigationRegion.MENU)
+		}
+	}
 
 	override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
 		when (event.actionMasked) {
@@ -358,7 +408,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (nativeTapMovedBeyondSlop(event.x, event.y)) {
 					nativeTapCandidate = false
 				}
-				if (!horizontalSwipeDispatched && nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
+				if (
+					shellCoverView?.visibility == VISIBLE &&
+					!horizontalSwipeDispatched &&
+					nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)
+				) {
+					nativeSwipeIntercepted = true
+					return true
+				}
+				if (
+					shellCoverView?.visibility != VISIBLE &&
+					!horizontalSwipeDispatched &&
+					nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)
+				) {
 					nativeSwipeIntercepted = true
 					return true
 				}
@@ -400,21 +462,46 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				swipeStartY = event.y
 				horizontalSwipeDispatched = false
 				shellCoverDragDiagnosticLogged = false
+				nativeDragPreviewDiagnosticLogged = false
 			}
-			MotionEvent.ACTION_MOVE,
+			MotionEvent.ACTION_MOVE -> {
+				if (!horizontalSwipeDispatched) {
+					val dx = event.x - swipeStartX
+					val dy = event.y - swipeStartY
+					cancelPendingLongTapForDrag(dx, dy)
+					logReaderDragCandidate(dx, dy)
+					val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+					if (shellCoverVisible) {
+						updateShellCoverDragOffset(dx)
+					} else {
+						updateReadableViewerDragOffset(dx)
+						logReaderReadableDragPreview(dx, dy)
+					}
+				}
+			}
 			MotionEvent.ACTION_UP -> {
 				if (!horizontalSwipeDispatched) {
 					val dx = event.x - swipeStartX
 					val dy = event.y - swipeStartY
+					cancelPendingLongTapForDrag(dx, dy)
 					logReaderDragCandidate(dx, dy)
-					dispatchHorizontalSwipeViewerAction(
-						deltaX = dx,
-						deltaY = dy
-					)
+					val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+					if (shellCoverVisible) {
+						updateShellCoverDragOffset(dx)
+						dispatchHorizontalSwipeViewerAction(
+							deltaX = dx,
+							deltaY = dy
+						)
+					} else {
+						updateReadableViewerDragOffset(dx)
+						logReaderReadableDragPreview(dx, dy)
+						dispatchHorizontalSwipeViewerAction(
+							deltaX = dx,
+							deltaY = dy
+						)
+					}
 				}
-				if (event.actionMasked == MotionEvent.ACTION_UP) {
-					clearSwipeTouchState()
-				}
+				clearSwipeTouchState()
 			}
 			MotionEvent.ACTION_CANCEL,
 			MotionEvent.ACTION_POINTER_DOWN -> clearSwipeTouchState()
@@ -443,15 +530,31 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		} else {
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader native swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+				"Reader native readable swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
 			)
 		}
-		when (action) {
-			ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
-			ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)
-			else -> return false
+		if (shellCoverVisible) {
+			when (action) {
+				ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
+				ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)
+				else -> return false
+			}
+		} else {
+			when (action) {
+				ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.RIGHT)
+				ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.LEFT)
+				else -> return false
+			}
 		}
 		return true
+	}
+
+	private fun updateShellCoverDragOffset(deltaX: Float) {
+		shellCoverView?.translationX = deltaX
+	}
+
+	private fun updateReadableViewerDragOffset(deltaX: Float) {
+		viewerContentContainer.translationX = deltaX
 	}
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
@@ -467,6 +570,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			KomikkuReaderNativeFrameHostTag,
 			"$label dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
 		)
+	}
+
+	private fun logReaderReadableDragPreview(deltaX: Float, deltaY: Float) {
+		if (nativeDragPreviewDiagnosticLogged || abs(deltaX) <= touchSlopPx) return
+		nativeDragPreviewDiagnosticLogged = true
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			"Reader native drag preview dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+		)
+	}
+
+	private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float) {
+		if (abs(deltaX) <= touchSlopPx && abs(deltaY) <= touchSlopPx) return
+		gestureDetector.cancelPendingLongTap()
+		nativeTapCandidate = false
 	}
 
 	private fun nativeTapMovedBeyondSlop(x: Float, y: Float): Boolean =
@@ -495,9 +613,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun clearSwipeTouchState() {
+		shellCoverView?.translationX = 0f
+		viewerContentContainer.translationX = 0f
 		horizontalSwipeDispatched = false
 		swipeStartX = 0f
 		swipeStartY = 0f
+		nativeDragPreviewDiagnosticLogged = false
 	}
 }
 
@@ -515,6 +636,10 @@ private class KomikkuGestureDetectorWithLongTap(
 	private var lastDownEvent: MotionEvent? = null
 	private val longTapFn = Runnable {
 		lastDownEvent?.let(listener::onLongTapConfirmed)
+	}
+
+	fun cancelPendingLongTap() {
+		handler.removeCallbacks(longTapFn)
 	}
 
 	override fun onTouchEvent(ev: MotionEvent): Boolean {

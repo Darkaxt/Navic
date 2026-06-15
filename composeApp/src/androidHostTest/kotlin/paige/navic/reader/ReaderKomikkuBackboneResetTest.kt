@@ -529,7 +529,7 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeKomikkuFrameDispatchesHorizontalSwipesThroughViewerActionBoundary() {
+	fun nativeKomikkuFrameDispatchesShellCoverSwipesThroughViewerActionBoundary() {
 		val androidHost = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		)
@@ -551,16 +551,9 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(viewerContainerBody.contains("MotionEvent.ACTION_CANCEL"))
 		assertTrue(
 			viewerContainerBody.contains("dispatchHorizontalSwipeViewerAction("),
-			"Horizontal drags must be routed by the native viewer container before the engine bridge sees any page command."
+			"Shell-cover horizontal drags must be routed by the native viewer container before the engine bridge sees any page command."
 		)
-		assertFalse(
-			viewerContainerBody.contains("shellCoverView?.visibility != VISIBLE"),
-			"Native horizontal swipe dispatch must not remain scoped to the shell cover; the top reader manager owns EPUB/PDF page drags too."
-		)
-		assertTrue(
-			viewerContainerBody.contains("readerNativeReaderSwipeAction("),
-			"Readable-page swipes must use the stricter native-reader swipe contract to avoid vertical scroll/drift page turns."
-		)
+		assertTrue(viewerContainerBody.contains("readerShellCoverSwipeAction("))
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.NEXT)"))
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.PREV)"))
 		assertTrue(
@@ -581,7 +574,7 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeKomikkuFrameOwnsReadableHorizontalDragsAboveWebView() {
+	fun nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps() {
 		val androidHost = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		)
@@ -597,28 +590,35 @@ class ReaderKomikkuBackboneResetTest {
 			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
 		val swipeAction = viewerContainerBody
 			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
-			.substringBefore("\n\tprivate fun logReaderShellCoverDragCandidate")
+			.substringBefore("\n\tprivate fun updateShellCoverDragOffset")
 
+		assertFalse(
+			viewerContainerBody.contains("Reader native swipe action="),
+			"Readable drags must not be converted into immediate tap-like native page-turn actions; they need a drag preview before release."
+		)
 		assertTrue(
-			androidText.contains("readerNativeReaderSwipeAction"),
-			"Readable EPUB/PDF drags must use the stricter native-reader swipe contract instead of shell-cover drift rules."
+			androidText.contains("Reader native drag preview"),
+			"Readable EPUB/PDF drag diagnostics should prove the native frame owns drag preview instead of blindly delegating to WebView."
 		)
 		assertTrue(
 			interceptTouchEvent.contains("nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)") &&
 				interceptTouchEvent.contains("nativeSwipeIntercepted = true") &&
 				interceptTouchEvent.contains("return true"),
-			"The native viewer container must intercept horizontal drags after slop so WebView/Foliate cannot own readable page swipes."
+			"Horizontal drags should be intercepted by the native viewer container so readable content can follow the finger."
 		)
-		assertFalse(
-			handleTouch.contains("if (shellCoverView?.visibility != VISIBLE) return"),
-			"Swipe dispatch must no longer be shell-cover-only; the top native manager owns readable page drags too."
+		assertTrue(
+			handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
+				handleTouch.contains("if (shellCoverVisible)") &&
+				handleTouch.contains("updateReadableViewerDragOffset(dx)") &&
+				handleTouch.contains("dispatchHorizontalSwipeViewerAction("),
+			"Shell-cover and readable drags both stay under the native top manager; readable drags need visible translation before release."
 		)
 		assertTrue(
 			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				swipeAction.contains("if (shellCoverVisible)") &&
 				swipeAction.contains("readerShellCoverSwipeAction(") &&
 				swipeAction.contains("readerNativeReaderSwipeAction("),
-			"Cover drags and readable-page drags need separate swipe contracts under the same native owner."
+			"Cover and readable drags need separate native swipe contracts under the same top-level frame."
 		)
 		assertFalse(
 			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
@@ -693,8 +693,8 @@ class ReaderKomikkuBackboneResetTest {
 			"Native tap diagnostics must identify center/menu and page-zone actions from the top input frame."
 		)
 		assertTrue(
-			androidHostText.contains("Reader native swipe action="),
-			"Native readable-page drag diagnostics must prove the top input frame, not WebView, owned the swipe."
+			androidHostText.contains("Reader native drag preview"),
+			"Native readable-page drag diagnostics must prove the top input frame owns the drag preview instead of delegating pager movement blindly."
 		)
 		assertTrue(
 			androidHostText.contains("Reader native drag candidate"),
@@ -714,7 +714,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 				adbSmokeText.contains("Reader native tap action=") &&
-				adbSmokeText.contains("Reader native swipe action=") &&
+				adbSmokeText.contains("Reader native drag preview") &&
 				adbSmokeText.contains("Reader native drag candidate") &&
 				adbSmokeText.contains("Reader native long tap") &&
 				adbSmokeText.contains("Reader shell cover swipe action=") &&
@@ -722,7 +722,8 @@ class ReaderKomikkuBackboneResetTest {
 			"adb reader smoke must accept the active Komikku native-frame diagnostics instead of only legacy Reader surface logs."
 		)
 		assertTrue(
-			adbSmokeText.contains("readerNativeDragCandidate=") &&
+			adbSmokeText.contains("readerNativeDragPreview=") &&
+				adbSmokeText.contains("readerNativeDragCandidate=") &&
 				adbSmokeText.contains("readerNativeLongTap="),
 			"adb reader smoke summary must separate normal-page drag and long-tap candidates from shell-cover candidates."
 		)
@@ -1594,6 +1595,81 @@ class ReaderKomikkuBackboneResetTest {
 				viewerText.contains("KomikkuNavigationRegion.RIGHT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)") &&
 				viewerText.contains("KomikkuNavigationRegion.LEFT -> ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)"),
 			"Cover-side navigation must be physical: right enters the book, left/previous stays at the cover boundary."
+		)
+	}
+
+	@Test
+	fun nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val viewerContainerBody = androidHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+		val moveBranch = viewerContainerBody
+			.substringAfter("MotionEvent.ACTION_MOVE,")
+			.substringBefore("if (event.actionMasked == MotionEvent.ACTION_UP)")
+		val gestureDetectorBody = androidHostText
+			.substringAfter("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+
+		assertTrue(
+			gestureDetectorBody.contains("fun cancelPendingLongTap()"),
+			"The native top manager needs an explicit long-tap cancellation hook for drag motion observed outside child ownership."
+		)
+		assertTrue(
+			moveBranch.contains("cancelPendingLongTapForDrag(dx, dy)") &&
+				viewerContainerBody.contains("private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float)") &&
+				viewerContainerBody.contains("gestureDetector.cancelPendingLongTap()"),
+			"Any drag crossing touch slop must cancel the pending native long tap before cover swipe dispatch or readable drag delegation."
+		)
+		assertTrue(
+			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
+				moveBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
+			"A cover swipe must not dispatch while the old long-tap callback is still armed."
+		)
+		assertTrue(
+			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
+				moveBranch.indexOf("updateReadableViewerDragOffset(dx)"),
+			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer keeps the drag stream."
+		)
+	}
+
+	@Test
+	fun shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val viewerContainerBody = androidHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+		val swipeHandlerBody = viewerContainerBody
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent)")
+			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
+		val moveBranch = swipeHandlerBody
+			.substringAfter("MotionEvent.ACTION_MOVE -> {")
+			.substringBefore("\n\t\t\t}")
+		val upBranch = swipeHandlerBody
+			.substringAfter("MotionEvent.ACTION_UP -> {")
+			.substringBefore("\n\t\t\t}")
+
+		assertTrue(
+			moveBranch.contains("updateShellCoverDragOffset(dx)") &&
+				moveBranch.contains("updateReadableViewerDragOffset(dx)"),
+			"Move events should provide visual drag feedback for both cover and readable pages without committing navigation."
+		)
+		assertFalse(
+			moveBranch.contains("dispatchHorizontalSwipeViewerAction("),
+			"Shell-cover navigation must not dispatch during MOVE; that is what makes the cover pop away instead of following the finger."
+		)
+		assertTrue(
+			upBranch.contains("dispatchHorizontalSwipeViewerAction("),
+			"Shell-cover page entry should commit only when the finger is released."
+		)
+		assertTrue(
+			upBranch.indexOf("updateShellCoverDragOffset(dx)") <
+				upBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
+			"The release frame should keep the cover at the final drag offset before deciding whether to enter the book."
 		)
 	}
 }

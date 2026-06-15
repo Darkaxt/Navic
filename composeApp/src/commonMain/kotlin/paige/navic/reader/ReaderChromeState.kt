@@ -393,8 +393,35 @@ fun readerShouldReturnToNativeShellCover(
 ): Boolean =
 	!shellCoverVisible &&
 		!shellCoverUrl.isNullOrBlank() &&
+		readerLocatorCanRepresentNativeShellCoverBoundary(locator) &&
 		(locator?.pageIndex ?: -1) <= 0 &&
 		(locator?.pageCount ?: 0) > 0
+
+private fun readerLocatorCanRepresentNativeShellCoverBoundary(locator: ReaderLocator?): Boolean {
+	val progress = locator?.progress
+	if (progress != null) return progress <= 0.02
+	val href = locator?.href?.trim().orEmpty()
+	if (href.isBlank()) return true
+	return readerHrefLooksLikeNativeShellCoverBoundary(href)
+}
+
+private fun readerHrefLooksLikeNativeShellCoverBoundary(href: String): Boolean {
+	val leaf = href
+		.substringBefore('#')
+		.substringBefore('?')
+		.substringAfterLast('/')
+		.lowercase()
+	return listOf(
+		"cover",
+		"title",
+		"titlepage",
+		"title-page",
+		"toc",
+		"contents",
+		"frontmatter",
+		"front-matter"
+	).any { marker -> leaf.contains(marker) }
+}
 
 enum class ReaderOptionsTab {
 	Reading,

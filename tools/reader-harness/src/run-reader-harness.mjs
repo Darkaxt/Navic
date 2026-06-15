@@ -139,8 +139,10 @@ if (mode === 'phase1-stabilization') {
   const longTraversalTimeoutMs = 360_000
   const steps = [
     { mode: 'trace-smoke' },
+    { mode: 'pagination-profile-logic' },
     { mode: 'epub-frontmatter', fixture: epubFixturePath },
     { mode: 'epub-page-boundary', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
+    { mode: 'epub-pagination-profile', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-external-shell-cover', fixture: epubFixturePath },
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
@@ -324,6 +326,140 @@ if (mode === 'texture-offset-logic') {
   )
 
   console.log('reader harness texture-offset-logic passed')
+  process.exit(0)
+}
+
+if (mode === 'pagination-profile-logic') {
+  globalThis.document = globalThis.document || {
+    body: {},
+    documentElement: { clientWidth: 500, clientHeight: 960 },
+  }
+  globalThis.window = globalThis.window || {
+    innerWidth: 500,
+    innerHeight: 960,
+    devicePixelRatio: 3,
+    visualViewport: { width: 500, height: 960, scale: 1 },
+    location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
+  }
+  const helpers = await import(`${pathToFileURL(readerHelpers).href}?pagination-profile-logic=${Date.now()}`)
+  if (typeof helpers.readerPaginationFingerprint !== 'function') {
+    throw new Error('readerPaginationFingerprint helper is not exported')
+  }
+  if (typeof helpers.readerBuildPaginationProfile !== 'function') {
+    throw new Error('readerBuildPaginationProfile helper is not exported')
+  }
+  if (typeof helpers.readerPaginationPositionForLocator !== 'function') {
+    throw new Error('readerPaginationPositionForLocator helper is not exported')
+  }
+  if (typeof helpers.readerPaginationObservedChapterEntries !== 'function') {
+    throw new Error('readerPaginationObservedChapterEntries helper is not exported')
+  }
+
+  const fingerprintA = helpers.readerPaginationFingerprint({
+    publicationKey: 'publication.epub',
+    viewportWidth: 500,
+    viewportHeight: 960,
+    deviceScaleFactor: 3,
+    orientation: 'portrait',
+    spreadMode: 'single',
+    flowMode: 'paged',
+    fontSource: 'navic',
+    fontFamily: 'dys',
+    fontSizePercent: 100,
+    lineHeight: 1.55,
+    paragraphSpacingPercent: 0,
+    marginPercent: 6,
+    publisherCss: 'enabled',
+    direction: 'default',
+    runtimeVersion: 'test',
+  })
+  const fingerprintB = helpers.readerPaginationFingerprint({
+    publicationKey: 'publication.epub',
+    viewportWidth: 960,
+    viewportHeight: 500,
+    deviceScaleFactor: 3,
+    orientation: 'landscape',
+    spreadMode: 'dual',
+    flowMode: 'paged',
+    fontSource: 'navic',
+    fontFamily: 'dys',
+    fontSizePercent: 100,
+    lineHeight: 1.55,
+    paragraphSpacingPercent: 0,
+    marginPercent: 6,
+    publisherCss: 'enabled',
+    direction: 'default',
+    runtimeVersion: 'test',
+  })
+  if (fingerprintA === fingerprintB) {
+    throw new Error('pagination fingerprint must change when viewport/spread state changes')
+  }
+
+  const profile = helpers.readerBuildPaginationProfile({
+    fingerprint: fingerprintA,
+    render: {
+      publicationKey: 'publication.epub',
+      viewportWidth: 500,
+      viewportHeight: 960,
+      deviceScaleFactor: 3,
+      orientation: 'portrait',
+      spreadMode: 'single',
+      flowMode: 'paged',
+      fontSource: 'navic',
+      fontFamily: 'dys',
+      fontSizePercent: 100,
+      lineHeight: 1.55,
+      paragraphSpacingPercent: 0,
+      marginPercent: 6,
+      publisherCss: 'enabled',
+      direction: 'default',
+      runtimeVersion: 'test',
+    },
+    chapters: [
+      { spineIndex: 15, href: 'OEBPS/Text/Hobbit_chap-13.html', title: 'Chapter XIII: Not at Home', pageCount: 16, source: 'observed' },
+      { spineIndex: 16, href: 'OEBPS/Text/Hobbit_chap-14.html', title: 'Chapter XIV: Fire and Water', pageCount: 14, source: 'observed' },
+      { spineIndex: 17, href: 'OEBPS/Text/Hobbit_chap-15.html', title: 'Chapter XV: The Gathering of the Clouds', pageCount: 14, source: 'estimated' },
+    ],
+  })
+  if (profile.render?.viewportWidth !== 500 || profile.render?.viewportHeight !== 960) {
+    throw new Error(`expected pagination profile to store viewport render state, got ${JSON.stringify(profile.render)}`)
+  }
+  if (profile.observedChapterCount !== 2 || profile.estimatedChapterCount !== 1) {
+    throw new Error(`expected pagination profile to retain observed/estimated chapter counts, got ${JSON.stringify(profile)}`)
+  }
+  if (profile.chapters[1]?.spineIndex !== 16 || profile.chapters[1]?.source !== 'observed') {
+    throw new Error(`expected pagination profile to retain chapter spine index and source, got ${JSON.stringify(profile.chapters[1])}`)
+  }
+  const observedEntries = helpers.readerPaginationObservedChapterEntries(profile)
+  if (observedEntries.length !== 2 || observedEntries[1]?.key !== '16:OEBPS/Text/Hobbit_chap-14.html') {
+    throw new Error(`expected cached observed chapter entries to be reusable by runtime hydration, got ${JSON.stringify(observedEntries)}`)
+  }
+  const chapter14 = helpers.readerPaginationPositionForLocator(profile, {
+    href: 'OEBPS/Text/Hobbit_chap-14.html',
+    pageIndex: 1,
+    pageCount: 1748,
+    chapterPageIndex: 0,
+    chapterPageCount: 14,
+  })
+  if (chapter14?.pageIndex !== 16 || chapter14?.pageCount !== 44) {
+    throw new Error(`expected Chapter XIV page 1 to resolve to global 17 / 44, got ${JSON.stringify(chapter14)}`)
+  }
+  if (chapter14?.chapterPageIndex !== 0 || chapter14?.chapterPageCount !== 14) {
+    throw new Error(`expected Chapter XIV local page 1 / 14, got ${JSON.stringify(chapter14)}`)
+  }
+  const chapter14BySpine = helpers.readerPaginationPositionForLocator(profile, {
+    href: 'OEBPS/Text/current.xhtml',
+    spineIndex: 16,
+    pageIndex: 1,
+    pageCount: 1748,
+    chapterPageIndex: 0,
+    chapterPageCount: 14,
+  })
+  if (chapter14BySpine?.pageIndex !== 16 || chapter14BySpine?.pageCount !== 44) {
+    throw new Error(`expected Chapter XIV page 1 to resolve by spine index when href is stale, got ${JSON.stringify(chapter14BySpine)}`)
+  }
+
+  console.log('reader harness pagination-profile-logic passed')
   process.exit(0)
 }
 
@@ -632,6 +768,187 @@ if (mode === 'epub-page-boundary') {
     assertTextureUpdatesAreCommittedPageBounded(result.trace)
 
     console.log(`reader harness epub-page-boundary passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-pagination-profile') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-pagination-profile mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage: message => {
+          let parsed = message
+          try {
+            parsed = JSON.parse(message)
+          } catch {
+            parsed = { type: 'unparseable', message }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      window.localStorage.clear()
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 0,
+          marginPercent: 6,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForTimeout(700)
+    await page.evaluate(async () => {
+      await window.NavicReaderBridge.dispatch({ type: 'goToProgress', progress: 0.5 })
+    })
+    await page.waitForTimeout(900)
+
+    const result = await page.evaluate(() => ({
+      trace: window.__navicReaderTrace || [],
+      messages: window.__navicReaderPostedMessages || [],
+      pageNumberLabel: document.querySelector('[data-navic-page-number-layer="true"]')?.textContent || '',
+      paginationCacheKeys: Object.keys(window.localStorage || {})
+        .filter(key => key.startsWith('navic-reader-pagination-profile:')),
+    }))
+    const profileUpdates = result.trace.filter(entry => entry?.type === 'pagination-profile:updated')
+    const profilePositions = result.trace.filter(entry => entry?.type === 'pagination-profile:position')
+    const lastProfilePosition = profilePositions.at(-1)?.payload
+    const lastLocation = [...result.messages].reverse().find(message => message?.type === 'locationChanged')
+    if (!profileUpdates.length) {
+      throw new Error('Expected pagination-profile:updated trace after opening the EPUB')
+    }
+    if (!lastProfilePosition) {
+      throw new Error('Expected pagination-profile:position trace after relocating inside the EPUB')
+    }
+    if (!lastLocation) {
+      throw new Error('Expected at least one locationChanged message after relocating inside the EPUB')
+    }
+    if (lastLocation.pageIndex !== lastProfilePosition.pageIndex || lastLocation.pageCount !== lastProfilePosition.pageCount) {
+      throw new Error(
+        'Expected locationChanged page numbers to use deterministic profile, got ' +
+        `location=${JSON.stringify(lastLocation)} profile=${JSON.stringify(lastProfilePosition)}`
+      )
+    }
+    if (lastLocation.pageCountSource !== 'pagination-profile') {
+      throw new Error(
+        'Expected locationChanged diagnostics to expose pagination-profile source, got ' +
+        JSON.stringify(lastLocation)
+      )
+    }
+    if (!lastLocation.paginationFingerprint || lastLocation.paginationProfilePageCount !== lastProfilePosition.pageCount) {
+      throw new Error(
+        'Expected locationChanged diagnostics to expose pagination fingerprint and profile page count, got ' +
+        `location=${JSON.stringify(lastLocation)} profile=${JSON.stringify(lastProfilePosition)}`
+      )
+    }
+    if (!Object.hasOwn(lastLocation, 'rawLocationTotal')) {
+      throw new Error(
+        'Expected locationChanged diagnostics to include raw Foliate location totals, got ' +
+        JSON.stringify(lastLocation)
+      )
+    }
+    if (!result.paginationCacheKeys.length) {
+      throw new Error('Expected deterministic pagination profile to be stored in localStorage')
+    }
+
+    await page.evaluate(async publicationUrl => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 0,
+          marginPercent: 6,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForTimeout(900)
+    const cacheHitResult = await page.evaluate(() => ({
+      trace: window.__navicReaderTrace || [],
+      messages: window.__navicReaderPostedMessages || [],
+    }))
+    const cacheHits = cacheHitResult.trace.filter(entry => entry?.type === 'pagination-profile:cache-hit')
+    if (!cacheHits.length) {
+      throw new Error('Expected deterministic pagination profile cache hit after reopening the same EPUB')
+    }
+    const cacheHitPayload = cacheHits[0]?.payload || {}
+    const postCacheProfileUpdate = cacheHitResult.trace.find(entry => entry?.type === 'pagination-profile:updated')
+    if (
+      postCacheProfileUpdate &&
+      Number(postCacheProfileUpdate.payload?.observedChapterCount || 0) <= Number(cacheHitPayload.observedChapterCount || 0) &&
+      Number(postCacheProfileUpdate.payload?.pageCount || 0) !== Number(cacheHitPayload.pageCount || 0)
+    ) {
+      throw new Error(
+        'Expected cached pagination totals to remain stable until a new chapter is observed, got ' +
+        `cache=${JSON.stringify(cacheHitPayload)} updated=${JSON.stringify(postCacheProfileUpdate.payload)}`
+      )
+    }
+    assertNoConsoleErrors(errors)
+
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-pagination-profile.trace.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      ...result,
+      cacheHitTrace: cacheHitResult.trace,
+      cacheHitMessages: cacheHitResult.messages,
+    }, null, 2))
+    console.log(`reader harness epub-pagination-profile passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

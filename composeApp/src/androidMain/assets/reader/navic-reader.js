@@ -127,6 +127,10 @@ import {
   readerStartLocatorHasPosition,
   flattenReaderNavigationItems,
   readerNavigationItemMatches,
+  readerPaginationFingerprint,
+  readerBuildPaginationProfile,
+  readerPaginationObservedChapterEntries,
+  readerPaginationPositionForLocator,
   readerTypographyCss,
   readerParagraphSpacingCss,
   isThemeBackgroundMediaElement,
@@ -147,6 +151,12 @@ const ReaderPdfFitPage = 'page'
 const ReaderPdfFitHeight = 'height'
 const ReaderPdfFitOriginal = 'original'
 const ReaderPdfPageGapMaxPercent = 48
+
+const diagnosticNumber = value => {
+  if (value == null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
 
 const normalizedReaderPdfFitMode = value =>
   [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
@@ -202,6 +212,9 @@ class NavicReaderRuntime {
   shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
+  paginationProfile = null
+  paginationFingerprint = null
+  observedChapterPageCounts = new Map()
   committedRelocateDetail = null
   lastPostedLocationKey = null
   pendingRelocateDetail = null
@@ -376,6 +389,9 @@ class NavicReaderRuntime {
     this.pageNumberLayer?.remove?.()
     this.pageNumberLayer = null
     this.currentPagePosition = null
+    this.paginationProfile = null
+    this.paginationFingerprint = null
+    this.observedChapterPageCounts = new Map()
     this.committedRelocateDetail = null
     this.lastPostedLocationKey = null
     this.pendingRelocateDetail = null
@@ -1988,6 +2004,235 @@ class NavicReaderRuntime {
     })
   }
 
+  readerPaginationSectionHref(section, index) {
+    return section?.href || section?.id || section?.url || section?.name || `section-${index}`
+  }
+
+  readerPaginationSectionTitle(section, index) {
+    return section?.label || section?.title || section?.name || `Section ${index + 1}`
+  }
+
+  readerPaginationContentKey() {
+    const sections = Array.from(this.view?.book?.sections || [])
+    const sectionTokens = sections.map((section, index) => [
+      index,
+      this.readerPaginationSectionHref(section, index),
+      section?.linear || '',
+      Number(section?.size) || 0,
+    ].join(':'))
+    return stableHash(sectionTokens.join('|'))
+  }
+
+  readerPaginationRenderMetadata() {
+    const viewport = readerViewportSize()
+    const settings = this.readerSettings || {}
+    const width = Number(viewport.width)
+    const height = Number(viewport.height)
+    return {
+      publicationKey: this.publicationUrl,
+      contentKey: this.readerPaginationContentKey(),
+      viewportWidth: width,
+      viewportHeight: height,
+      deviceScaleFactor: window.devicePixelRatio || 1,
+      orientation: width >= height ? 'landscape' : 'portrait',
+      spreadMode: width >= height ? 'dual' : 'single',
+      flowMode: this.readerFlowModeValue || readerFlowMode(settings),
+      fontSource: readerFontSource(settings),
+      fontFamily: readerEffectiveFontFamily(settings),
+      customFontFamily: settings.customFontFamily || '',
+      customFontUrl: settings.customFontUrl || '',
+      fontSizePercent: settings.fontSizePercent ?? 100,
+      lineHeight: settings.lineHeight ?? 1,
+      paragraphSpacingPercent: settings.paragraphSpacingPercent ?? settings.paragraphSpacing ?? 0,
+      marginPercent: settings.marginPercent ?? 0,
+      publisherCss: readerFontSource(settings) === ReaderFontSourcePublisher ? 'publisher' : 'navic',
+      direction: this.readerDirectionModeValue || readerDirectionMode(settings),
+      runtimeVersion: 'navic-reader-pagination-profile-1',
+    }
+  }
+
+  readerPaginationRenderFingerprint() {
+    return readerPaginationFingerprint(this.readerPaginationRenderMetadata())
+  }
+
+  readerPaginationCacheKey(fingerprint) {
+    return `navic-reader-pagination-profile:${fingerprint}`
+  }
+
+  readCachedPaginationProfile(fingerprint) {
+    if (!fingerprint) return null
+    try {
+      const raw = window.localStorage?.getItem?.(this.readerPaginationCacheKey(fingerprint))
+      if (!raw) return null
+      const profile = JSON.parse(raw)
+      if (profile?.fingerprint !== fingerprint) return null
+      if (!profile?.render) return null
+      if (!Number.isFinite(Number(profile.render.viewportWidth))) return null
+      if (!Number.isFinite(Number(profile.render.viewportHeight))) return null
+      if (!Array.isArray(profile?.chapters) || profile.chapters.length <= 0) return null
+      return profile
+    } catch (error) {
+      log('pagination-profile:cache-read-failed', error?.message || error)
+      return null
+    }
+  }
+
+  writeCachedPaginationProfile(profile) {
+    if (!profile?.fingerprint) return
+    try {
+      window.localStorage?.setItem?.(this.readerPaginationCacheKey(profile.fingerprint), JSON.stringify(profile))
+    } catch (error) {
+      log('pagination-profile:cache-write-failed', error?.message || error)
+    }
+  }
+
+  observedChapterKey(index, section) {
+    return `${Math.max(0, Math.floor(Number(index) || 0))}:${this.readerPaginationSectionHref(section, index)}`
+  }
+
+  hydrateObservedChapterPageCountsFromProfile(profile) {
+    for (const entry of readerPaginationObservedChapterEntries(profile)) {
+      this.observedChapterPageCounts.set(entry.key, entry.pageCount)
+    }
+  }
+
+  paginationProfileObservedSignature(profile) {
+    return readerPaginationObservedChapterEntries(profile)
+      .map(entry => `${entry.key}:${entry.pageCount}`)
+      .join('|')
+  }
+
+  shouldUseFreshPaginationProfile(freshProfile) {
+    if (!freshProfile?.chapters?.length) return false
+    if (!this.paginationProfile?.chapters?.length) return true
+    if (freshProfile.fingerprint !== this.paginationProfile.fingerprint) return true
+    const freshObservedCount = Math.max(0, Number(freshProfile.observedChapterCount) || 0)
+    const currentObservedCount = Math.max(0, Number(this.paginationProfile.observedChapterCount) || 0)
+    if (freshObservedCount > currentObservedCount) return true
+    if (freshObservedCount < currentObservedCount) return false
+    return this.paginationProfileObservedSignature(freshProfile) !==
+      this.paginationProfileObservedSignature(this.paginationProfile)
+  }
+
+  readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition) {
+    if (this.view?.isFixedLayout === true || !sectionPosition) return null
+    const sectionIndex = Number(detail?.section?.current ?? detail?.index)
+    if (!Number.isFinite(sectionIndex)) return null
+    const normalizedSectionIndex = Math.max(0, Math.floor(sectionIndex))
+    const sections = Array.from(this.view?.book?.sections || [])
+    if (!sections.length) return null
+    const sectionSizes = this.reflowableSectionSizes()
+    const currentSection = sections[normalizedSectionIndex]
+    if (!readerSectionIsReadable(currentSection) || this.sectionTargetsCover(currentSection, normalizedSectionIndex)) {
+      return null
+    }
+    const currentSectionSize = Number(sectionSizes[normalizedSectionIndex])
+    const currentSectionPageCount = Number(sectionPosition.pageCount)
+    if (!Number.isFinite(currentSectionPageCount) || currentSectionPageCount <= 0) return null
+    this.observedChapterPageCounts.set(
+      this.observedChapterKey(normalizedSectionIndex, currentSection),
+      Math.max(1, Math.floor(currentSectionPageCount))
+    )
+    const readableUnitsPerPage =
+      Number.isFinite(currentSectionSize) && currentSectionSize > 0
+        ? currentSectionSize / currentSectionPageCount
+        : ReaderReflowableReadableUnitsPerSyntheticPage
+    if (!Number.isFinite(readableUnitsPerPage) || readableUnitsPerPage <= 0) return null
+    const chapters = sections.map((section, index) => {
+      if (!readerSectionIsReadable(section) || this.sectionTargetsCover(section, index)) {
+        return {
+          spineIndex: index,
+          href: this.readerPaginationSectionHref(section, index),
+          title: this.readerPaginationSectionTitle(section, index),
+          pageCount: 0,
+          source: 'estimated',
+        }
+      }
+      const observedPageCount = this.observedChapterPageCounts.get(this.observedChapterKey(index, section))
+      const sectionSize = Number(sectionSizes[index])
+      const estimatedPageCount = Number.isFinite(sectionSize) && sectionSize > 0
+        ? Math.max(1, Math.ceil(sectionSize / readableUnitsPerPage))
+        : 0
+      return {
+        spineIndex: index,
+        href: this.readerPaginationSectionHref(section, index),
+        title: this.readerPaginationSectionTitle(section, index),
+        pageCount: observedPageCount || estimatedPageCount,
+        source: observedPageCount ? 'observed' : 'estimated',
+      }
+    })
+    const fingerprint = this.paginationFingerprint || this.readerPaginationRenderFingerprint()
+    return readerBuildPaginationProfile({ fingerprint, chapters, render: this.readerPaginationRenderMetadata() })
+  }
+
+  readerEnsurePaginationProfile(detail, sectionPosition) {
+    if (this.view?.isFixedLayout === true) return null
+    const fingerprint = this.readerPaginationRenderFingerprint()
+    if (this.paginationFingerprint !== fingerprint) {
+      this.paginationFingerprint = fingerprint
+      this.paginationProfile = this.readCachedPaginationProfile(fingerprint)
+      this.observedChapterPageCounts = new Map()
+      if (this.paginationProfile) {
+        this.hydrateObservedChapterPageCountsFromProfile(this.paginationProfile)
+        readerTrace('pagination-profile:cache-hit', {
+          fingerprint,
+          pageCount: this.paginationProfile.pageCount,
+          chapterCount: this.paginationProfile.chapters?.length || 0,
+          observedChapterCount: this.paginationProfile.observedChapterCount || 0,
+        })
+      }
+    }
+    const freshProfile = this.readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition)
+    if (freshProfile?.chapters?.length) {
+      if (this.shouldUseFreshPaginationProfile(freshProfile)) {
+        this.paginationProfile = freshProfile
+        this.writeCachedPaginationProfile(freshProfile)
+        readerTrace('pagination-profile:updated', {
+          fingerprint,
+          pageCount: freshProfile.pageCount,
+          chapterCount: freshProfile.chapters.length,
+          observedChapterCount: freshProfile.observedChapterCount || 0,
+          estimatedChapterCount: freshProfile.estimatedChapterCount || 0,
+        })
+      } else {
+        readerTrace('pagination-profile:retained', {
+          fingerprint,
+          pageCount: this.paginationProfile?.pageCount || 0,
+          chapterCount: this.paginationProfile?.chapters?.length || 0,
+          observedChapterCount: this.paginationProfile?.observedChapterCount || 0,
+          freshPageCount: freshProfile.pageCount,
+        })
+      }
+    }
+    return this.paginationProfile
+  }
+
+  readerPaginationProfilePosition(detail, sectionPosition = this.reflowableSectionPagePosition()) {
+    if (!sectionPosition || this.view?.isFixedLayout === true) return null
+    const sectionIndex = Number(detail?.section?.current ?? detail?.index)
+    const sectionHref = this.sectionHrefForDetail(detail) || detail?.href || detail?.tocItem?.href || ''
+    const profile = this.readerEnsurePaginationProfile(detail, sectionPosition)
+    const position = readerPaginationPositionForLocator(profile, {
+      href: sectionHref,
+      spineIndex: sectionIndex,
+      chapterPageIndex: sectionPosition.pageIndex,
+      chapterPageCount: sectionPosition.pageCount,
+    })
+    if (position?.pageCountSource === 'pagination-profile') {
+      readerTrace('pagination-profile:position', {
+        href: sectionHref,
+        spineIndex: sectionIndex,
+        pageIndex: position.pageIndex,
+        pageCount: position.pageCount,
+        chapterPageIndex: position.chapterPageIndex,
+        chapterPageCount: position.chapterPageCount,
+        pageCountSource: 'pagination-profile',
+      })
+      return this.normalizedReflowablePagePosition(position, detail)
+    }
+    return null
+  }
+
   reflowableStableBookPageModel(sectionIndex, sectionPosition, sectionSizes) {
     const totalReadableSize = sectionSizes.reduce((sum, size) => sum + size, 0)
     if (!Number.isFinite(totalReadableSize) || totalReadableSize <= 0) return null
@@ -2085,7 +2330,12 @@ class NavicReaderRuntime {
   }
 
   reflowablePagePosition(detail) {
-    return this.reflowableWholeBookPagePosition(detail) || this.reflowableLocationPagePosition(detail) || this.readerPageListPosition(detail) || this.reflowableSectionPagePosition()
+    const sectionPosition = this.reflowableSectionPagePosition()
+    return this.readerPaginationProfilePosition(detail, sectionPosition) ||
+      this.reflowableWholeBookPagePosition(detail) ||
+      this.reflowableLocationPagePosition(detail) ||
+      this.readerPageListPosition(detail) ||
+      sectionPosition
   }
 
   readerPagePosition(detail) {
@@ -2291,6 +2541,9 @@ class NavicReaderRuntime {
     settings = { ...this.readerSettings, ...settings }
     this.readerSettings = settings
     this.reflowableBookPageModel = null
+    this.paginationProfile = null
+    this.paginationFingerprint = null
+    this.observedChapterPageCounts = new Map()
     const rootStyle = document.documentElement.style
     if (typeof settings.tapZone === 'string') this.readerTapZoneMode = settings.tapZone || ReaderTapZoneDefault
     this.smallerTapZone = settings.smallerTapZone === true
@@ -2702,6 +2955,15 @@ class NavicReaderRuntime {
       : rawTocItem
     const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
     const chapterPosition = this.chapterPagePosition(detail, pagePosition)
+    const pageModelDiagnostics = {
+      pageCountSource: pagePosition?.pageCountSource || null,
+      paginationFingerprint: this.paginationFingerprint || null,
+      paginationProfilePageCount: diagnosticNumber(this.paginationProfile?.pageCount),
+      paginationProfileObservedChapterCount: diagnosticNumber(this.paginationProfile?.observedChapterCount),
+      paginationProfileEstimatedChapterCount: diagnosticNumber(this.paginationProfile?.estimatedChapterCount),
+      rawLocationCurrent: diagnosticNumber(detail.location?.current),
+      rawLocationTotal: diagnosticNumber(detail.location?.total),
+    }
     const message = {
       type: 'locationChanged',
       href: detail.href || sectionHref || tocItem.href,
@@ -2713,6 +2975,7 @@ class NavicReaderRuntime {
       chapterPageIndex: chapterPosition?.pageIndex,
       chapterPageCount: chapterPosition?.pageCount,
       tocTitle: tocItem.label || tocItem.title,
+      ...pageModelDiagnostics,
     }
     const locationKey = readerLocationPostKey(message)
     if (locationKey === this.lastPostedLocationKey) {
@@ -2723,6 +2986,26 @@ class NavicReaderRuntime {
     this.updateSurfacePaperTexture(detail, pagePosition)
     this.committedRelocateDetail = detail
     this.lastPostedLocationKey = locationKey
+    readerTrace('location:page-model', {
+      reason,
+      href: message.href,
+      pageIndex: message.pageIndex,
+      pageCount: message.pageCount,
+      chapterPageIndex: message.chapterPageIndex,
+      chapterPageCount: message.chapterPageCount,
+      ...pageModelDiagnostics,
+    })
+    log('location-page-model',
+      `reason=${reason}`,
+      `source=${pageModelDiagnostics.pageCountSource || 'none'}`,
+      `page=${message.pageIndex ?? 'n/a'}/${message.pageCount ?? 'n/a'}`,
+      `chapter=${message.chapterPageIndex ?? 'n/a'}/${message.chapterPageCount ?? 'n/a'}`,
+      `profile=${pageModelDiagnostics.paginationProfilePageCount ?? 'n/a'}`,
+      `observed=${pageModelDiagnostics.paginationProfileObservedChapterCount ?? 'n/a'}`,
+      `raw=${pageModelDiagnostics.rawLocationCurrent ?? 'n/a'}/${pageModelDiagnostics.rawLocationTotal ?? 'n/a'}`,
+      `fingerprint=${pageModelDiagnostics.paginationFingerprint || 'none'}`,
+      `href=${message.href || 'none'}`
+    )
     readerTrace('location:post', { reason, message })
     post(message)
     log('location-changed:posted', reason)
