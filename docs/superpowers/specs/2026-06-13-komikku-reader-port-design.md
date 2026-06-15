@@ -3858,6 +3858,51 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## 2026-06-15 Overnight Pre-RC Source And Harness Baseline
+
+User direction:
+
+- Keep working overnight without publishing another Android release candidate.
+- In the morning, compile one new release candidate and run the full ADB validation array.
+- Use the local browser/WebView-style harness where possible so the morning APK is not the first place obvious reader regressions appear.
+
+Verified source baseline:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderCoordinatorTest" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+git diff --check
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+```
+
+Results: passed on 2026-06-15.
+
+Verified real EPUB/PDF browser harness baseline:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-frontmatter --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-link-jump-drag --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-tap-zone-open --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-shell-cover --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode phase1-stabilization --epub-fixture tmp\reader-live\served-input.epub --pdf-fixture "D:\Downloads\Trash\movements-2032026.pdf" --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results: passed on 2026-06-15. The combined `phase1-stabilization` pass completed 16 checks, including real EPUB frontmatter, page boundary, shell cover, native tap-zone open, link-jump drag, texture-scroll/page-turn/frontmatter-transition, full EPUB traversal, and PDF smoke/fast-sequential-turn/image-settings.
+
+Important limitation:
+
+- These checks prove the source contracts and browser-path renderer behavior. They do not close the Android-native acceptance bugs by themselves. The morning release candidate still needs ADB validation over the installed APK for native frame input, cover behavior, texture movement during real phone transitions, EPUB image/link long-press behavior, settings dialogs, and PDF navigation.
+
+Release status:
+
+- No APK was built or published for this baseline.
+
 ## 2026-06-15 Overnight Komikku Settings Pager Slice
 
 User direction:
