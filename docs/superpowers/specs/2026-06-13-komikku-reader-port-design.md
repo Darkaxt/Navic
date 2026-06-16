@@ -6196,6 +6196,123 @@ Release status:
 
 - No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
 
+## 2026-06-16 eta68 Progress Rail Overlay Diagnosis And Local Fix
+
+Device observation:
+
+- Installed build: `v1.0.11-eta68`, `versionCode = 401`.
+- Device `R52W60CFTRL` was manually unlocked and left on an EPUB reader surface.
+- ADB center tap (`adb shell input tap 1480 924`) was handled by the native reader layer:
+
+```text
+KomikkuReaderNativeFrameHost: Reader native tap action=MENU x=1480.0 y=924.0 width=2960 height=1848
+```
+
+- Capture `captures\reader-eta68\unlocked-matrix\01-center-tap.png` showed the menu toggled, but the side progress rail was rendered as a large centered/mobile overlay instead of a Komikku-style side rail.
+
+Root cause:
+
+- `ReaderAppBars.kt` mounted the top bar, progress rail, and bottom bar inside a weighted vertical layout.
+- That let the middle rail slot become the dominant centered content rather than an independent full-window side overlay.
+- This is a native chrome layout bug, not a WebView/Foliate pagination bug.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderChromeUsesKomikkuEquivalentSideProgressRail FAILED
+ReaderKomikkuBackboneResetTest > komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling FAILED
+```
+
+Code changes:
+
+- Changed `KomikkuReaderAppBars` to use `Box(modifier = modifier.fillMaxSize())` as the root overlay surface.
+- Anchored top chrome with `Modifier.align(Alignment.TopCenter)`.
+- Anchored side rails with `Modifier.align(Alignment.CenterStart)` and `Modifier.align(Alignment.CenterEnd)`.
+- Anchored bottom chrome with `Modifier.align(Alignment.BottomCenter)`.
+- Updated source guards so the root app-bars body cannot regress to `Column(modifier = modifier.fillMaxHeight())` or root `.weight(1f)`.
+- Narrowed the guard to the root app-bars body so legitimate title-row weights inside `KomikkuReaderTopBar` are not falsely rejected.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling"
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- Full `ReaderRuntimeCommonChromeTest`: passed.
+- Focused Komikku app-bars overlay sibling reset test: passed.
+- Full real-EPUB traversal harness: passed with stable `392` pages.
+- Full `ReaderKomikkuBackboneResetTest`: still red by design, with 19 of 38 tests failing for broader unfinished Komikku backbone acceptance items including native frame hierarchy, long-press-only WebView input, drag-preview renderer ownership, settings preset controls, and active viewer abstraction.
+
+Release status:
+
+- No APK was built or published for this local fix yet.
+- eta68 on-device remains useful as evidence of the bug, but it cannot validate this fix until the next Android APK is built and installed.
+
+## 2026-06-16 Pagination Provisional Total Suppression Slice
+
+Problem:
+
+- The complete pagination profiler can take long enough that visible relocation events fire while the hidden profiler is still measuring.
+- Before this slice, those relocation events could build and publish a partial estimated profile for the same fingerprint.
+- In the real Hobbit EPUB harness, the visible reader published a provisional `410` page total before the complete deterministic profile reported `392`.
+- That violates the current requirement: while measuring, the reader may show progress, but it must not expose unstable intermediate totals as authoritative page counts.
+
+Red check:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Initial result after adding the stricter trace assertion:
+
+```text
+Expected pagination measurement not to publish provisional totals before the complete profile; observed provisional 410
+```
+
+Code changes:
+
+- Added `paginationProfileMeasurementInProgress` to the WebView runtime state.
+- Added `isCompletePaginationProfile(...)` as the single completeness predicate: a profile is complete only when it has chapters and `estimatedChapterCount == 0`.
+- While the full hidden profiler is measuring, visible relocation profile building may still record observations, but it no longer promotes incomplete profiles into `paginationProfile` or the localStorage cache.
+- Complete cached profiles and complete profiler results remain authoritative and still update page labels.
+- Added a harness assertion that fails when any incomplete `pagination-profile:updated` event publishes a finite page total before the first complete profile update.
+
+Green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- Syntax checks passed.
+- Full real-EPUB traversal passed with stable `392` pages.
+- The stricter trace assertion no longer observed a provisional page-count publication before the complete profile.
+
+Release status:
+
+- No APK was built or published in this slice. This fix is source-verified and needs the next Android release candidate before phone validation.
+
+ADB retry status for installed `v1.0.11-eta68`:
+
+- Device `R52W60CFTRL` became usable briefly with Navic focused and keyguard hidden.
+- Baseline capture `captures\reader-eta68\retry-opened\screen.png` showed the reader cover in landscape.
+- After a center tap, the device entered `Dozing`; the next screenshot was black and `dumpsys window` returned `NotificationShade` / `isKeyguardShowing=true`.
+- `adb shell svc power stayon true` successfully set `mHoldingDisplaySuspendBlocker=true`, but waking the device reached Android `Bouncer`, so secure unlock is still required.
+- No further tap/drag reader matrix results are valid until the tablet is manually unlocked again and left on the reader surface.
+
 ## 2026-06-16 Reader Settings Session Boundary Slice
 
 Problem:

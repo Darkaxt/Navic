@@ -387,6 +387,19 @@ export const assertFullEpubTraversal = result => {
     throw new Error('Expected full traversal to build a complete pagination profile before traversal')
   }
   const firstCompleteProfile = completeProfileUpdates[0]
+  const incompleteProfileBeforeComplete = paginationProfileEvents
+    .slice(0, firstCompleteProfile.index)
+    .find(event =>
+      event?.type === 'pagination-profile:updated' &&
+      event?.payload?.complete !== true &&
+      Number.isFinite(event?.payload?.pageCount)
+    )
+  if (incompleteProfileBeforeComplete) {
+    throw new Error(
+      `Expected pagination measurement not to publish provisional totals before the complete profile; ` +
+      `observed provisional ${incompleteProfileBeforeComplete.payload.pageCount}`
+    )
+  }
   const completeFingerprint = firstCompleteProfile.event.payload.fingerprint || ''
   const completePageCount = firstCompleteProfile.event.payload.pageCount
   const replacingCompleteProfile = completeProfileUpdates

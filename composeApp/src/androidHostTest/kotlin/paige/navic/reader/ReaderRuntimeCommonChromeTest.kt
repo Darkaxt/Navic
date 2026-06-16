@@ -275,6 +275,8 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
+		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 
 		assertContains(readerScreenText, "KomikkuReaderRoot(")
@@ -285,9 +287,17 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerRootText, "KomikkuReaderSettingsDialog(")
 		assertContains(settingsDialogText, "BasicAlertDialog(")
 		assertContains(readerRootText, "Modifier.matchParentSize()")
-		assertContains(appBarsText, ".align(Alignment.End)")
+		assertContains(appBarsText, "Box(modifier = modifier.fillMaxSize())")
+		assertContains(appBarsText, ".align(Alignment.TopCenter)")
+		assertContains(appBarsText, ".align(Alignment.CenterEnd)")
+		assertContains(appBarsText, ".align(Alignment.CenterStart)")
+		assertContains(appBarsText, ".align(Alignment.BottomCenter)")
 		assertContains(appBarsText, "Ported from Komikku ReaderAppBars")
 		assertContains(settingsDialogText, "Ported from Komikku ReaderSettingsDialog")
+		assertFalse(
+			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") || appBarsBody.contains(".weight(1f)"),
+			"Komikku reader app bars must be independent full-window overlays, not a weighted vertical layout that can center the progress rail."
+		)
 		assertFalse(
 			readerScreenText.contains("Scaffold(") || readerScreenText.contains("bottomBar ="),
 			"Reader shell must follow Komikku's overlay stack; chrome cannot be hosted as a Scaffold bottomBar that resizes content."
@@ -385,9 +395,15 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(navigatorText, "KomikkuChapterNavigatorVertical(")
 		assertContains(appBarsBody, "ReaderNavBarTypeVerticalRight")
-		assertContains(appBarsBody, ".weight(1f)")
-		assertContains(appBarsBody, ".align(Alignment.End)")
+		assertContains(appBarsBody, "Box(modifier = modifier.fillMaxSize())")
+		assertContains(appBarsBody, ".align(Alignment.CenterEnd)")
+		assertContains(appBarsBody, ".align(Alignment.CenterStart)")
 		assertContains(appBarsBody, "KomikkuReaderVerticalRailHeightFraction")
+		assertFalse(
+			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") ||
+				appBarsBody.contains(".weight(1f)"),
+			"Komikku app bars must mount top chrome, side rail, and bottom chrome as independent overlays; stacking them in a weighted Column can center the rail over the page."
+		)
 		assertContains(
 			navigatorText,
 			"internal const val KomikkuReaderVerticalRailHeightFraction = 0.82f",
@@ -398,7 +414,6 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorText, "collectIsDraggedAsState")
 		assertContains(navigatorText, "HapticFeedbackType.TextHandleMove")
 		assertContains(navigatorText, "roundToInt()")
-		assertContains(appBarsBody, "contentAlignment = Alignment.CenterEnd")
 		assertContains(appBarsBody, "Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)")
 		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
 		assertContains(sideRailBody, "valueRange = 1..totalPages")

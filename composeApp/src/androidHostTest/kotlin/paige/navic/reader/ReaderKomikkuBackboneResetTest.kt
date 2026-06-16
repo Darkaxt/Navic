@@ -295,37 +295,39 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun komikkuAppBarsOwnSideNavigatorInMiddleWeightedChromeSlot() {
-		val activeText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+	fun komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling() {
+		val appBarsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
 		).readText()
-		val appBarsBody = activeText
-			.substringAfter("private fun KomikkuReaderAppBars(")
+		val appBarsBody = appBarsText
+			.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 
 		assertTrue(
-			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())"),
-			"KomikkuReaderAppBars must use Komikku's full-height app-bar column, not a free-floating Box overlay."
+			appBarsBody.contains("Box(modifier = modifier.fillMaxSize())"),
+			"KomikkuReaderAppBars must mount reader chrome as a full-window overlay surface."
 		)
 		assertTrue(
 			appBarsBody.contains("ReaderNavBarTypeVerticalRight ->") &&
-				appBarsBody.contains("modifier = Modifier\n\t\t\t\t\t\t.weight(1f)\n\t\t\t\t\t\t.align(Alignment.End)"),
-			"The vertical progress navigator must live in the weighted middle chrome slot so it cannot run under the top or bottom bars."
+				appBarsBody.contains(".align(Alignment.CenterEnd)") &&
+				appBarsBody.contains("ReaderNavBarTypeVerticalLeft ->") &&
+				appBarsBody.contains(".align(Alignment.CenterStart)"),
+			"The vertical progress navigator must be anchored as a side overlay, not stacked into the center of the reader."
 		)
 		assertTrue(
-			appBarsBody.indexOf("KomikkuReaderTopBar(") <
-				appBarsBody.indexOf("KomikkuChapterNavigator(") &&
-				appBarsBody.indexOf("KomikkuChapterNavigator(") <
-				appBarsBody.indexOf("KomikkuReaderBottomBar("),
-			"Komikku chrome order must stay top bar, middle navigator, bottom bar."
+			appBarsBody.contains(".align(Alignment.TopCenter)") &&
+				appBarsBody.contains(".align(Alignment.BottomCenter)"),
+			"Top and bottom chrome must be independent overlays so the side rail cannot resize or center itself between them."
 		)
 		assertFalse(
-			appBarsBody.contains("Box(modifier = modifier)"),
-			"The active Komikku app bars must not mount controls in a full-screen Box that ignores top/bottom chrome height."
+			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") ||
+				appBarsBody.contains(".weight(1f)"),
+			"The active Komikku app bars must not stack controls in a weighted Column; eta68 showed that this centers the progress rail over the content."
 		)
 		assertFalse(
-			appBarsBody.contains(".align(Alignment.CenterEnd)\n\t\t\t\t.fillMaxHeight()"),
-			"The side navigator must not be aligned full-height to the screen edge; that makes it sit under the menus."
+			appBarsBody.contains(".align(Alignment.End)") ||
+				appBarsBody.contains(".align(Alignment.Start)"),
+			"The side navigator must use explicit CenterStart/CenterEnd anchoring."
 		)
 	}
 

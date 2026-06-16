@@ -219,6 +219,7 @@ class NavicReaderRuntime {
   paginationProfile = null
   paginationFingerprint = null
   paginationProfileTaskToken = 0
+  paginationProfileMeasurementInProgress = false
   observedChapterPageCounts = new Map()
   committedRelocateDetail = null
   lastPostedLocationKey = null
@@ -402,6 +403,7 @@ class NavicReaderRuntime {
     this.paginationProfile = null
     this.paginationFingerprint = null
     this.paginationProfileTaskToken += 1
+    this.paginationProfileMeasurementInProgress = false
     this.observedChapterPageCounts = new Map()
     this.committedRelocateDetail = null
     this.lastPostedLocationKey = null
@@ -2180,6 +2182,10 @@ class NavicReaderRuntime {
     }
   }
 
+  isCompletePaginationProfile(profile) {
+    return Boolean(profile?.chapters?.length) && Number(profile?.estimatedChapterCount) === 0
+  }
+
   observedChapterKey(index, section) {
     return `${Math.max(0, Math.floor(Number(index) || 0))}:${this.readerPaginationSectionHref(section, index)}`
   }
@@ -2303,6 +2309,7 @@ class NavicReaderRuntime {
       return cachedProfile
     }
     const token = ++this.paginationProfileTaskToken
+    this.paginationProfileMeasurementInProgress = true
     try {
       const profile = await this.buildCompletePaginationProfileInProfilerView({ url, fingerprint, settings, token })
       if (!profile?.chapters?.length || token !== this.paginationProfileTaskToken) return this.paginationProfile
@@ -2335,6 +2342,10 @@ class NavicReaderRuntime {
         message: error?.message || String(error),
       })
       return this.paginationProfile
+    } finally {
+      if (token === this.paginationProfileTaskToken) {
+        this.paginationProfileMeasurementInProgress = false
+      }
     }
   }
 
@@ -2408,7 +2419,10 @@ class NavicReaderRuntime {
     const fingerprint = this.readerPaginationRenderFingerprint()
     if (this.paginationFingerprint !== fingerprint) {
       this.paginationFingerprint = fingerprint
-      this.paginationProfile = this.readCachedPaginationProfile(fingerprint)
+      const cachedProfile = this.readCachedPaginationProfile(fingerprint)
+      this.paginationProfile = this.paginationProfileMeasurementInProgress && !this.isCompletePaginationProfile(cachedProfile)
+        ? null
+        : cachedProfile
       this.observedChapterPageCounts = new Map()
       if (this.paginationProfile) {
         this.hydrateObservedChapterPageCountsFromProfile(this.paginationProfile)
@@ -2422,6 +2436,20 @@ class NavicReaderRuntime {
     }
     const freshProfile = this.readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition)
     if (freshProfile?.chapters?.length) {
+      if (
+        this.paginationProfileMeasurementInProgress &&
+        !this.isCompletePaginationProfile(freshProfile) &&
+        !this.isCompletePaginationProfile(this.paginationProfile)
+      ) {
+        readerTrace('pagination-profile:provisional-retained', {
+          fingerprint,
+          pageCount: freshProfile.pageCount,
+          chapterCount: freshProfile.chapters.length,
+          observedChapterCount: freshProfile.observedChapterCount || 0,
+          estimatedChapterCount: freshProfile.estimatedChapterCount || 0,
+        })
+        return this.paginationProfile
+      }
       if (this.shouldUseFreshPaginationProfile(freshProfile)) {
         this.paginationProfile = freshProfile
         this.writeCachedPaginationProfile(freshProfile)

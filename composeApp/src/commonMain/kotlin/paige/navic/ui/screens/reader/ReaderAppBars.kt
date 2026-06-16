@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -73,13 +73,14 @@ internal fun KomikkuReaderAppBars(
 	}
 	val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
-	Column(modifier = modifier.fillMaxHeight()) {
+	Box(modifier = modifier.fillMaxSize()) {
 		AnimatedVisibility(
 			visible = visible,
 			enter = slideInVertically(initialOffsetY = { -it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeIn(animationSpec = readerBarsFadeAnimationSpec),
 			exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = readerBarsSlideAnimationSpec) +
-				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
+				fadeOut(animationSpec = readerBarsFadeAnimationSpec),
+			modifier = Modifier.align(Alignment.TopCenter)
 		) {
 			KomikkuReaderTopBar(
 				title = reader.title,
@@ -105,8 +106,7 @@ internal fun KomikkuReaderAppBars(
 						animationSpec = readerBarsSlideAnimationSpec
 					) + fadeOut(animationSpec = readerBarsFadeAnimationSpec),
 					modifier = Modifier
-						.weight(1f)
-						.align(Alignment.Start)
+						.align(Alignment.CenterStart)
 				) {
 					Box(
 						modifier = Modifier.fillMaxHeight(),
@@ -143,8 +143,7 @@ internal fun KomikkuReaderAppBars(
 						animationSpec = readerBarsSlideAnimationSpec
 					) + fadeOut(animationSpec = readerBarsFadeAnimationSpec),
 					modifier = Modifier
-						.weight(1f)
-						.align(Alignment.End)
+						.align(Alignment.CenterEnd)
 				) {
 					Box(
 						modifier = Modifier.fillMaxHeight(),
@@ -170,7 +169,6 @@ internal fun KomikkuReaderAppBars(
 			}
 
 			ReaderNavBarTypeBottom -> {
-				Spacer(modifier = Modifier.weight(1f))
 			}
 		}
 
@@ -179,7 +177,8 @@ internal fun KomikkuReaderAppBars(
 			enter = slideInVertically(initialOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeIn(animationSpec = readerBarsFadeAnimationSpec),
 			exit = slideOutVertically(targetOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
-				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
+				fadeOut(animationSpec = readerBarsFadeAnimationSpec),
+			modifier = Modifier.align(Alignment.BottomCenter)
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				if (navBarType == ReaderNavBarTypeBottom) {
