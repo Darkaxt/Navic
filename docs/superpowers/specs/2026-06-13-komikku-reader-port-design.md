@@ -7065,3 +7065,32 @@ Release status:
 
 - No APK should be built or published for this slice by itself.
 - This is acceptance-test hygiene that keeps the Komikku backbone protected after the component extraction. It should be bundled with a meaningful runtime-reader fix before the next phone release candidate.
+
+## 2026-06-16 ADB Progress-Rail Validation Attempt: Invalid Device State
+
+Intent:
+
+- Check whether the reported wrong-looking progress bar was still observable on the connected device before making another rail change.
+
+Commands:
+
+```powershell
+adb devices
+adb shell dumpsys package darkaxt.navic | Select-String -Pattern 'versionName|versionCode'
+adb shell dumpsys window | Select-String -Pattern 'mCurrentFocus|mFocusedApp|mHoldingDisplaySuspendBlocker|mScreenOn|mAwake'
+adb shell screencap -p /sdcard/navic_current.png
+adb pull /sdcard/navic_current.png tmp\adb-current\reader-current-pulled.png
+```
+
+Result:
+
+- Device `RFCY80551LT` was connected.
+- Installed Navic build was still `versionName=v1.0.11-eta67`, `versionCode=400`.
+- Foreground app was not Navic. `mCurrentFocus` pointed to `de.traderepublic.app/de.traderepublic.mainscreen.presentation.NextGenActivity`.
+- Screenshot confirmed a third-party finance app, not a Navic reader screen.
+
+Conclusion:
+
+- This is not a valid reader/progress-rail validation pass.
+- The current branch contains later local fixes after eta67, including `71b22be7 Fix reader pagination totals and side rail overlay`, so eta67 cannot validate the current branch's progress rail.
+- Do not draw product conclusions from this ADB check. A valid progress-rail check requires a current release candidate installed and Navic open on the reader surface.
