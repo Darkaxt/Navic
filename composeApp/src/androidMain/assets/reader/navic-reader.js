@@ -210,6 +210,10 @@ class NavicReaderRuntime {
   tapZoneOverlayLayer = null
   pageNumberLayer = null
   shellCoverLayer = null
+  pageDragPreviewLayer = null
+  pageDragPreviewFrame = null
+  pageDragPreviewTargetKey = ''
+  pageDragPreviewLoadToken = 0
   shellCoverBlobUrl = null
   shellCoverVisible = false
   externalShellCover = false
@@ -384,6 +388,7 @@ class NavicReaderRuntime {
     this.pageTurnDirection = null
     this.recentPageTurnDirection = null
     this.nativePageDragPreview = null
+    this.removePageDragPreviewLayer()
     this.fixedLayoutNavigationPageIndex = null
     this.fixedLayoutNavigationDirection = null
     this.suppressedCoverSectionIndexes = new Set()
@@ -891,6 +896,209 @@ class NavicReaderRuntime {
     return this.turnPage('previous')
   }
 
+  currentLoadedSectionIndex() {
+    const contentIndex = Number(this.view?.renderer?.getContents?.()?.[0]?.index)
+    if (Number.isFinite(contentIndex)) return Math.floor(contentIndex)
+    const detailIndex = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
+    return Number.isFinite(detailIndex) ? Math.floor(detailIndex) : null
+  }
+
+  adjacentReadableSectionIndex(direction) {
+    const sections = Array.from(this.view?.book?.sections || [])
+    const current = this.currentLoadedSectionIndex()
+    if (!sections.length || current == null) return null
+    const step = direction === 'previous' ? -1 : 1
+    for (let index = current + step; index >= 0 && index < sections.length; index += step) {
+      const section = sections[index]
+      if (readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)) return index
+    }
+    return null
+  }
+
+  nativeDragPreviewAtSectionBoundary(renderer, direction) {
+    if (!renderer || renderer.scrolled) return false
+    const page = Number(renderer.page)
+    const pages = Number(renderer.pages)
+    const start = Number(renderer.start)
+    const end = Number(renderer.end)
+    const viewSize = Number(renderer.viewSize)
+    if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 0) return false
+    if (direction === 'previous') {
+      return page <= 1 || (Number.isFinite(start) && start <= 2)
+    }
+    return page >= pages - 2 ||
+      (Number.isFinite(end) && Number.isFinite(viewSize) && viewSize - end <= 2)
+  }
+
+  ensurePageDragPreviewLayer() {
+    let layer = this.pageDragPreviewLayer
+    if (!layer || !readerRoot.contains(layer)) {
+      layer = document.createElement('div')
+      layer.dataset.navicPageDragPreviewLayer = 'true'
+      layer.setAttribute('aria-hidden', 'true')
+      this.pageDragPreviewLayer = layer
+      readerRoot.append(layer)
+    }
+    let frame = this.pageDragPreviewFrame
+    if (!frame || !layer.contains(frame)) {
+      frame = document.createElement('iframe')
+      frame.dataset.navicPageDragPreviewFrame = 'true'
+      frame.setAttribute('aria-hidden', 'true')
+      frame.setAttribute('tabindex', '-1')
+      layer.replaceChildren(frame)
+      this.pageDragPreviewFrame = frame
+      this.pageDragPreviewTargetKey = ''
+    }
+    return { layer, frame }
+  }
+
+  removePageDragPreviewLayer() {
+    this.pageDragPreviewLoadToken += 1
+    this.pageDragPreviewLayer?.remove?.()
+    this.pageDragPreviewLayer = null
+    this.pageDragPreviewFrame = null
+    this.pageDragPreviewTargetKey = ''
+  }
+
+  loadPageDragPreviewFrame(frame, targetIndex, direction, token) {
+    const section = this.view?.book?.sections?.[targetIndex]
+    if (!frame || !section?.load) return
+    Promise.resolve(section.load())
+      .then(async src => {
+        if (token !== this.pageDragPreviewLoadToken || frame !== this.pageDragPreviewFrame) return
+        await new Promise((resolve, reject) => {
+          frame.onload = () => resolve()
+          frame.onerror = () => reject(new Error(`Failed to load page drag preview section ${targetIndex}`))
+          if (typeof src === 'string' && src.startsWith('blob:')) {
+            fetch(src)
+              .then(response => response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`)))
+              .then(html => {
+                if (token !== this.pageDragPreviewLoadToken || frame !== this.pageDragPreviewFrame) return resolve()
+                frame.removeAttribute('src')
+                frame.srcdoc = html
+              })
+              .catch(() => {
+                if (token !== this.pageDragPreviewLoadToken || frame !== this.pageDragPreviewFrame) return resolve()
+                frame.removeAttribute('srcdoc')
+                frame.src = src
+              })
+          } else {
+            frame.removeAttribute('srcdoc')
+            frame.src = src
+          }
+        })
+        if (token !== this.pageDragPreviewLoadToken || frame !== this.pageDragPreviewFrame) return
+        const doc = frame.contentDocument
+        this.applyDocumentDirection(doc, this.readerDirectionModeValue)
+        this.applyDocumentTheme(doc, this.readerSettings, targetIndex)
+        if (doc?.documentElement) {
+          setStylesImportant(doc.documentElement, {
+            width: '100%',
+            height: '100%',
+            'min-height': '100%',
+            overflow: 'hidden',
+          })
+        }
+        if (doc?.body) {
+          setStylesImportant(doc.body, {
+            margin: '0',
+            'box-sizing': 'border-box',
+            overflow: 'hidden',
+          })
+        }
+        if (direction === 'previous') {
+          requestAnimationFrame(() => {
+            try {
+              const scrollHeight = doc?.documentElement?.scrollHeight || doc?.body?.scrollHeight || 0
+              frame.contentWindow?.scrollTo?.(0, scrollHeight)
+            } catch {
+              // The preview is best-effort and pointer-events disabled; navigation remains authoritative.
+            }
+          })
+        }
+        readerTrace('page-drag-preview:underlay-loaded', {
+          targetIndex,
+          direction,
+          href: section?.href || section?.id || '',
+        })
+      })
+      .catch(error => {
+        if (token !== this.pageDragPreviewLoadToken || frame !== this.pageDragPreviewFrame) return
+        readerTrace('page-drag-preview:underlay-load-failed', {
+          targetIndex,
+          direction,
+          message: error?.message || String(error),
+        })
+      })
+  }
+
+  updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) {
+    if (!direction || !this.nativeDragPreviewAtSectionBoundary(renderer, direction)) {
+      this.removePageDragPreviewLayer()
+      return
+    }
+    const targetIndex = this.adjacentReadableSectionIndex(direction)
+    if (targetIndex == null) {
+      this.removePageDragPreviewLayer()
+      return
+    }
+    const viewport = readerViewportSize()
+    const width = Math.max(1, Math.round(Number(viewWidth) || viewport.width || window.innerWidth || 1))
+    const height = Math.max(1, Math.round(viewport.height || window.innerHeight || 1))
+    const exposedWidth = Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
+    const side = direction === 'previous' ? 'left' : 'right'
+    const left = side === 'right' ? width - exposedWidth : 0
+    const palette = readerThemePalette(this.readerSettings?.theme)
+    const { layer, frame } = this.ensurePageDragPreviewLayer()
+    layer.dataset.navicPageDragPreviewDirection = direction
+    layer.dataset.navicPageDragPreviewSide = side
+    layer.dataset.navicPageDragPreviewTargetIndex = String(targetIndex)
+    layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
+    setStylesImportant(layer, {
+      position: 'fixed',
+      top: '0px',
+      left: `${left}px`,
+      width: `${exposedWidth}px`,
+      height: `${height}px`,
+      'min-height': `${height}px`,
+      overflow: 'hidden',
+      'z-index': '2147483642',
+      'pointer-events': 'none',
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+      'box-sizing': 'border-box',
+    })
+    setStylesImportant(frame, {
+      position: 'absolute',
+      top: '0px',
+      left: side === 'right' ? `-${width - exposedWidth}px` : '0px',
+      width: `${width}px`,
+      height: `${height}px`,
+      border: '0',
+      margin: '0',
+      padding: '0',
+      overflow: 'hidden',
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+      'pointer-events': 'none',
+    })
+    const targetKey = `${targetIndex}:${direction}:${width}x${height}`
+    if (this.pageDragPreviewTargetKey !== targetKey) {
+      this.pageDragPreviewTargetKey = targetKey
+      const token = ++this.pageDragPreviewLoadToken
+      this.loadPageDragPreviewFrame(frame, targetIndex, direction, token)
+    }
+    readerTrace('page-drag-preview:underlay', {
+      direction,
+      side,
+      targetIndex,
+      exposedWidth,
+      currentIndex: this.currentLoadedSectionIndex(),
+    })
+  }
+
   previewPageDrag(command) {
     if (!this.view || this.shellCoverVisible) return
     const renderer = this.view?.renderer
@@ -905,6 +1113,7 @@ class NavicReaderRuntime {
       if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
       readerTrace('page-drag-preview:cancel', { deltaX: previousDeltaX })
       this.nativePageDragPreview = null
+      this.removePageDragPreviewLayer()
       this.surfacePaperTextureTurnDirection = null
       this.renderSurfacePaperTextureLayers()
       return
@@ -927,6 +1136,12 @@ class NavicReaderRuntime {
     const lastDeltaX = Number(this.nativePageDragPreview?.deltaX) || 0
     const incrementalDeltaX = deltaX - lastDeltaX
     if (incrementalDeltaX !== 0) renderer.scrollBy(-incrementalDeltaX, 0)
+    this.updatePageDragPreviewLayer({
+      direction: textureDirection,
+      deltaX,
+      viewWidth: command?.viewWidth,
+      renderer,
+    })
     this.nativePageDragPreview = phase === 'release'
       ? null
       : { deltaX }
@@ -3208,6 +3423,7 @@ class NavicReaderRuntime {
   }
 
   postLocationChanged(detail, reason = 'relocate') {
+    this.removePageDragPreviewLayer()
     if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
       this.updateReaderPageNumberLayer(null)
       log('location-changed:cover-skipped', reason)

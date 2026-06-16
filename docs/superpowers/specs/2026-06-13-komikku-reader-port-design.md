@@ -6877,3 +6877,65 @@ Results:
 Release status:
 
 - No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Native Drag Preview Underlay Slice
+
+Problem:
+
+- eta67 fixed native drag ownership enough that readable-page dragging no longer disappeared into pure tap handling.
+- The next visible defect was still Komikku-critical: when dragging across a section boundary, the current page moved but the adjacent page was not visible yet. The exposed area showed reader/native background instead of the next page.
+- This is not a full page-curl/spread renderer issue. The immediate root cause is that Foliate only has the current section's columns loaded, so `renderer.scrollBy(...)` can expose same-section columns but cannot reveal the next XHTML section at the boundary.
+
+Decision:
+
+- Keep native drag ownership unchanged.
+- Keep using Foliate's `renderer.scrollBy(-incrementalDeltaX, 0)` for same-section drag preview.
+- Add a clipped adjacent-section preview underlay only when the native drag reaches the loaded section boundary.
+- Load the next/previous readable non-cover section into a passive iframe preview strip, theme it, clip it to the exposed side, and remove it on cancel or real relocation.
+- This is a pragmatic bridge toward Komikku-quality drag feedback. It removes the black/empty exposed strip, but it is not yet the final page-curl or dual-page spread implementation.
+
+Red check:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Initial result:
+
+```text
+Expected native drag preview to mount a clipped adjacent-page underlay; layer=false iframe=false
+```
+
+Code changes:
+
+- `navic-reader.js` now tracks a page-drag preview layer/frame/load token.
+- `previewPageDrag(...)` still scrolls the active renderer for the live drag offset, then asks `updatePageDragPreviewLayer(...)` whether an adjacent-section strip is needed.
+- `currentLoadedSectionIndex(...)` identifies the current loaded section.
+- `adjacentReadableSectionIndex(...)` skips suppressed cover-like sections when looking for the adjacent preview section.
+- `nativeDragPreviewAtSectionBoundary(...)` limits the underlay to boundary drags, avoiding extra iframe work for ordinary same-section page drags.
+- The harness gained `epub-native-drag-preview-underlay` and includes it in the phase-1 stabilization sequence.
+- The Komikku backbone source guard now requires both renderer scrolling and the clipped adjacent-section underlay path so this cannot regress back to "scroll the current WebView over black".
+
+Green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-link-jump-drag --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview"
+```
+
+Results:
+
+- JS syntax checks passed.
+- `epub-native-drag-preview-underlay` passed on the real Hobbit EPUB fixture. Evidence showed the preview strip mounted on the right side with `targetIndex=1`, `direction=next`, `width=180px`, and themed background `rgb(243, 234, 215)`.
+- `epub-link-jump-drag` passed, so the previous hyperlink jump drag guard did not regress.
+- `epub-texture-frontmatter-transition` passed, so the existing automated texture transition guard did not regress.
+- The focused Android host guards passed.
+
+Release status:
+
+- No APK was built or published for this slice yet.
+- This should be bundled with the already-pushed progress side-rail fix into the next release candidate, then phone-validated against readable-page dragging, section-boundary dragging, link-jump dragging, texture movement, and cover behavior.

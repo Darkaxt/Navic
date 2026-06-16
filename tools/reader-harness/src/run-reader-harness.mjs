@@ -148,6 +148,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'epub-link-jump-drag', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
+    { mode: 'epub-native-drag-preview-underlay', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'texture-offset-logic' },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
     { mode: 'epub-texture-page-turns', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
@@ -1269,6 +1270,196 @@ if (mode === 'epub-link-jump-drag') {
     }, null, 2))
     assertNoConsoleErrors(errors)
     console.log(`reader harness epub-link-jump-drag passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-native-drag-preview-underlay') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-native-drag-preview-underlay mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'default',
+          nativeTapZones: false,
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true')
+    }
+
+    const boundaryTarget = await page.evaluate(() => {
+      const view = document.querySelector('foliate-view')
+      const sections = Array.from(view?.book?.sections || [])
+      const sectionLabel = section => String(section?.href || section?.id || section?.url || '')
+      const readable = section => section?.linear !== 'no' && !/cover|frontcover|coverpage|cubierta|portada/i.test(sectionLabel(section))
+      const currentIndex = Number(view?.renderer?.getContents?.()?.[0]?.index)
+      const candidates = sections
+        .map((section, index) => ({ section, index }))
+        .filter(({ section, index }) => readable(section) && sections.slice(index + 1).some(readable))
+      return candidates.find(candidate => candidate.index >= currentIndex)?.index ?? candidates[0]?.index ?? null
+    })
+    if (!Number.isFinite(boundaryTarget)) {
+      throw new Error('Missing readable EPUB section with a following section for native drag preview probe')
+    }
+    await page.evaluate(async index => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      await renderer?.goTo?.({ index, anchor: () => 1 })
+    }, boundaryTarget)
+    await page.waitForFunction(index => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      const contentIndex = Number(renderer?.getContents?.()?.[0]?.index)
+      const page = Number(renderer?.page)
+      const pages = Number(renderer?.pages)
+      return contentIndex === index &&
+        Number.isFinite(page) &&
+        Number.isFinite(pages) &&
+        pages > 0 &&
+        page >= pages - 2
+    }, boundaryTarget)
+
+    const previewState = await page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
+      const renderer = document.querySelector('foliate-view')?.renderer
+      const before = {
+        index: Number(renderer?.getContents?.()?.[0]?.index),
+        page: Number(renderer?.page),
+        pages: Number(renderer?.pages),
+        start: Number(renderer?.start),
+        end: Number(renderer?.end),
+        viewSize: Number(renderer?.viewSize),
+      }
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        deltaX: -Math.round(width * 0.36),
+        viewWidth: width,
+        phase: 'update',
+      })
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const style = layer ? getComputedStyle(layer) : null
+      return {
+        before,
+        layerPresent: Boolean(layer),
+        iframePresent: Boolean(iframe),
+        targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
+        direction: layer?.dataset.navicPageDragPreviewDirection || '',
+        side: layer?.dataset.navicPageDragPreviewSide || '',
+        width: style?.width || '',
+        left: style?.left || '',
+        right: style?.right || '',
+        background: style?.backgroundColor || '',
+        trace: (window.__navicReaderTrace || [])
+          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
+          .slice(-5),
+      }
+    })
+
+    if (!previewState.layerPresent || !previewState.iframePresent) {
+      throw new Error(
+        `Expected native drag preview to mount a clipped adjacent-page underlay; ` +
+        `layer=${previewState.layerPresent} iframe=${previewState.iframePresent} ` +
+        `state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (previewState.direction !== 'next' || previewState.side !== 'right') {
+      throw new Error(
+        `Expected next-page native drag preview on the right side; ` +
+        `observed direction=${previewState.direction || 'missing'} side=${previewState.side || 'missing'}`
+      )
+    }
+    if (!Number.isFinite(previewState.targetIndex) || previewState.targetIndex <= boundaryTarget) {
+      throw new Error(
+        `Expected drag preview target to point at a following section; ` +
+        `target=${previewState.targetIndex} boundary=${boundaryTarget}`
+      )
+    }
+
+    await page.evaluate(async () => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        deltaX: 0,
+        phase: 'cancel',
+      })
+    })
+    await page.waitForFunction(() => !document.querySelector('[data-navic-page-drag-preview-layer="true"]'))
+    assertNoConsoleErrors(errors)
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-preview-underlay.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      boundaryTarget,
+      previewState,
+    }, null, 2))
+    console.log(`reader harness epub-native-drag-preview-underlay passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

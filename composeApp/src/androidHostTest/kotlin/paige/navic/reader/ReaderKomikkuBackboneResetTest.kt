@@ -643,8 +643,8 @@ class ReaderKomikkuBackboneResetTest {
 		val platformHostsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
 		).readText()
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val viewerActionText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderViewerAction.kt"
@@ -672,7 +672,7 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			platformHostsText.contains("onReadableDragPreview:") &&
 				androidHostText.contains("onReadableDragPreview:") &&
-				readerScreenText.contains("ReaderViewerAction.PreviewPageDrag"),
+				readerRootText.contains("ReaderViewerAction.PreviewPageDrag"),
 			"The native frame should route readable drag deltas through the reader controller instead of directly manipulating the WebView container."
 		)
 		assertTrue(
@@ -685,8 +685,11 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			runtimeText.contains("case 'previewPageDrag':") &&
 				runtimeText.contains("previewPageDrag(command)") &&
-				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)"),
-			"Foliate runtime preview should scroll the paginator itself; that exposes neighboring columns instead of a black native background."
+				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)") &&
+				runtimeText.contains("updatePageDragPreviewLayer({") &&
+				runtimeText.contains("dataset.navicPageDragPreviewLayer") &&
+				runtimeText.contains("adjacentReadableSectionIndex(direction)"),
+			"Foliate runtime preview should scroll same-section columns and mount a clipped adjacent-section preview underlay at section boundaries instead of exposing a black native background."
 		)
 	}
 
