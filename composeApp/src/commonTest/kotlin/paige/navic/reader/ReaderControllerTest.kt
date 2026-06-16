@@ -90,6 +90,26 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun paginationProfileStatusFeedsControllerStateWithoutNavigationCommands() {
+		val profile = ReaderPaginationProfileStatus(
+			status = "measuring",
+			fingerprint = "navic-pagination-v1:123",
+			completedSections = 2,
+			totalSections = 6,
+			pageCount = 392
+		)
+
+		val step = ReaderController().onEngineEvent(
+			ReaderEngineEvent.PaginationProfileStatusChanged(profile)
+		)
+
+		assertEquals(profile, step.controller.state.paginationProfile)
+		assertEquals("Measuring pages 2/6", step.controller.state.paginationProfile.label)
+		assertEquals(2f / 6f, step.controller.state.paginationProfile.progressFraction)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationFeedsChapterLocalProgressForKomikkuRail() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 		val locator = ReaderLocator(
@@ -249,6 +269,29 @@ class ReaderControllerTest {
 		assertEquals(
 			listOf(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Up)),
 			up.engineCommands
+		)
+	}
+
+	@Test
+	fun viewerReadableDragPreviewIsControllerOwnedAndForwardedAsEngineCapability() {
+		val step = ReaderController().onViewerAction(
+			ReaderViewerAction.PreviewPageDrag(
+				deltaX = -184.0,
+				viewWidth = 1440.0,
+				phase = ReaderPageDragPreviewPhase.Update
+			)
+		)
+
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.PreviewPageDrag(
+					deltaX = -184.0,
+					viewWidth = 1440.0,
+					phase = ReaderPageDragPreviewPhase.Update
+				)
+			),
+			step.engineCommands
 		)
 	}
 

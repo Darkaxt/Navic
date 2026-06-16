@@ -68,6 +68,13 @@ internal fun readerOptionsPanelFile(): File =
 	).firstOrNull { it.isFile }
 		?: error("Could not locate ReaderOptionsPanel.kt")
 
+internal fun readerCommonUiFile(fileName: String): File =
+	listOf(
+		File("src/commonMain/kotlin/paige/navic/ui/screens/reader/$fileName"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/$fileName")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate common reader UI file $fileName")
+
 internal fun readerAndroidFile(fileName: String): File =
 	listOf(
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName"),
@@ -125,6 +132,42 @@ internal fun File.maxPngAlpha(): Int {
 		}
 	}
 	return max
+}
+
+internal data class SampledLuminanceStats(
+	val average: Double,
+	val standardDeviation: Double,
+	val width: Int,
+	val height: Int
+)
+
+internal fun File.sampledLuminanceStats(): SampledLuminanceStats {
+	val image = ImageIO.read(this) ?: error("Could not read image file: $this")
+	val xStep = maxOf(1, image.width / 128)
+	val yStep = maxOf(1, image.height / 128)
+	var count = 0L
+	var sum = 0.0
+	var sumSquares = 0.0
+	for (y in 0 until image.height step yStep) {
+		for (x in 0 until image.width step xStep) {
+			val rgb = image.getRGB(x, y)
+			val red = (rgb ushr 16) and 0xff
+			val green = (rgb ushr 8) and 0xff
+			val blue = rgb and 0xff
+			val luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+			count++
+			sum += luminance
+			sumSquares += luminance * luminance
+		}
+	}
+	val average = if (count == 0L) 0.0 else sum / count.toDouble()
+	val variance = if (count == 0L) 0.0 else (sumSquares / count.toDouble()) - average * average
+	return SampledLuminanceStats(
+		average = average,
+		standardDeviation = kotlin.math.sqrt(maxOf(0.0, variance)),
+		width = image.width,
+		height = image.height
+	)
 }
 
 internal fun File.outerEdgeAlphaHighFrequencyPercent(): Double {

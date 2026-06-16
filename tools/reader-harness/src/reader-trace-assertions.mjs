@@ -364,6 +364,54 @@ export const assertFullEpubTraversal = result => {
   if (pageCounts.size !== 1) {
     throw new Error(`Expected stable page count during full traversal; observed ${[...pageCounts].join(', ')}`)
   }
+  const nonProfilePage = result.pages.find(page => page.location?.pageCountSource !== 'pagination-profile')
+  if (nonProfilePage) {
+    throw new Error(
+      `Expected full traversal page labels to use pagination-profile; ` +
+      `observed ${nonProfilePage.location?.pageCountSource || 'none'} at ` +
+      `${nonProfilePage.location?.pageIndex}/${nonProfilePage.location?.pageCount} ` +
+      `href=${nonProfilePage.location?.href || ''}`
+    )
+  }
+  const paginationProfileEvents = Array.isArray(result.paginationProfileEvents)
+    ? result.paginationProfileEvents
+    : []
+  const completeProfileUpdates = paginationProfileEvents
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) =>
+      event?.type === 'pagination-profile:updated' &&
+      event?.payload?.complete === true &&
+      Number.isFinite(event?.payload?.pageCount)
+    )
+  if (completeProfileUpdates.length === 0) {
+    throw new Error('Expected full traversal to build a complete pagination profile before traversal')
+  }
+  const firstCompleteProfile = completeProfileUpdates[0]
+  const completeFingerprint = firstCompleteProfile.event.payload.fingerprint || ''
+  const completePageCount = firstCompleteProfile.event.payload.pageCount
+  const replacingCompleteProfile = completeProfileUpdates
+    .slice(1)
+    .find(({ event }) =>
+      (event.payload.fingerprint || '') === completeFingerprint &&
+      event.payload.pageCount !== completePageCount
+    )
+  if (replacingCompleteProfile) {
+    throw new Error(
+      `Expected complete pagination profile to remain authoritative; ` +
+      `observed ${completePageCount} -> ${replacingCompleteProfile.event.payload.pageCount}`
+    )
+  }
+  const pageWithDifferentCompleteCount = result.pages.find(page =>
+    Number.isFinite(page.location?.paginationProfilePageCount) &&
+    page.location.paginationProfilePageCount !== completePageCount
+  )
+  if (pageWithDifferentCompleteCount) {
+    throw new Error(
+      `Expected page labels to use complete pagination profile count ${completePageCount}; ` +
+      `observed ${pageWithDifferentCompleteCount.location.paginationProfilePageCount} at ` +
+      `${pageWithDifferentCompleteCount.location.pageIndex}/${pageWithDifferentCompleteCount.location.pageCount}`
+    )
+  }
   for (let index = 1; index < result.pages.length; index += 1) {
     const previous = result.pages[index - 1].location
     const current = result.pages[index].location

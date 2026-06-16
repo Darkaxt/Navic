@@ -209,7 +209,9 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesVisibleTapZoneOverlayControl() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
@@ -219,11 +221,19 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
 		assertContains(runtimeText, "settings.showTapZones !== true")
 		assertContains(readerScreenText, "navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true")
-		assertContains(readerScreenText, "title = \"Show tap zones\"")
-		assertContains(readerScreenText, "settings.copy(showTapZones = showTapZones)")
-		assertContains(ebooksSettingsText, "readerShowTapZones")
-		assertContains(ebooksSettingsText, "option_ebook_reader_show_tap_zones")
-		assertContains(searchSettingsText, "ebooks.show-tap-zones")
+		assertContains(settingsDialogText, "title = \"Show tap zones\"")
+		assertContains(settingsDialogText, "settings.copy(showTapZones = showTapZones)")
+		assertFalse(
+			ebooksSettingsText.contains("option_ebook_reader_show_tap_zones"),
+			"Visible tap-zone overlays are diagnostics and should not be shown as an Ebook reading default."
+		)
+		assertContains(developerSettingsText, "readerShowTapZones")
+		assertContains(developerSettingsText, "option_ebook_reader_show_tap_zones")
+		assertContains(searchSettingsText, "developer.show-tap-zones")
+		assertFalse(
+			searchSettingsText.contains("ebooks.show-tap-zones"),
+			"Settings search should route visible tap-zone overlays to Developer Options, not Ebooks."
+		)
 		assertContains(searchSettingsText, "readerShowTapZones")
 		assertContains(preferenceText, "showTapZones = readerShowTapZones")
 		assertContains(chromeStateText, "showTapZones = false")

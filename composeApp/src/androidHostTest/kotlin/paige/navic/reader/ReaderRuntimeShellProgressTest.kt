@@ -105,6 +105,20 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderShowsPaginationProfilingStatusInKomikkuOverlay() {
+		val readerScreenText = readerScreenFile().readText()
+		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+
+		assertContains(bridgeText, "PaginationProfileStatusChanged")
+		assertContains(controllerText, "paginationProfile: ReaderPaginationProfileStatus")
+		assertContains(readerScreenText, "KomikkuPaginationProfileStatusBadge(")
+		assertContains(readerScreenText, "controllerState.paginationProfile")
+		assertContains(readerScreenText, "LinearProgressIndicator(")
+		assertContains(readerScreenText, "profile.label")
+	}
+
+	@Test
 	fun androidReaderBridgePortsAnxStyleScrolledEdgePageTurns() {
 		val bridgeText = readerBridgeText()
 
@@ -355,7 +369,9 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "val shellCoverVisible = shellCoverView?.visibility == VISIBLE")
 		assertContains(handleTouch, "if (shellCoverVisible)")
-		assertContains(handleTouch, "updateReadableViewerDragOffset(dx)")
+		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)")
+		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Release")
+		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Cancel")
 		assertContains(nativeFrameHostText, "Reader native drag preview")
 		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
@@ -365,7 +381,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
 		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
-		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(deltaX: Float)")
+		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(")
+		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, width, phase)")
+		assertFalse(
+			nativeFrameHostText.contains("viewerContentContainer.translationX = deltaX"),
+			"Readable drag preview must not slide the whole WebView over the native background."
+		)
 	}
 
 	@Test
@@ -462,7 +483,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeReaderSurfaceCenterMenuIsNotSuppressedByRawImageHitType() {
+	fun nativeReaderSurfaceCenterMenuIsOwnedByNativeFrameInsteadOfWebViewHitTesting() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val singleTap = nativeFrameHostText
@@ -473,18 +494,20 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
 
 		assertContains(singleTap, "navigator.getAction(")
-		assertContains(singleTap, "dispatchSingleTapAction(action, event)")
+		assertContains(singleTap, "dispatchSingleTapAction(action)")
 		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
-		assertContains(viewerContainerBody, "dispatchMenuActionAfterContentHitTest(event)")
 		assertFalse(
-			singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
+			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
+				viewerContainerBody.contains("readerContentActionAtPoint") ||
+				viewerContainerBody.contains("findReaderWebView") ||
+				singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
 				webViewHostText.contains("readerContentHandledCenterTap("),
-			"Raw WebView IMAGE_TYPE is too broad: image-heavy pages and covers must not blanket-block native tap zones."
+			"Short center-menu taps must be native-owned; WebView content hit testing belongs to deliberate long press."
 		)
 		assertTrue(
 			singleTap.indexOf("navigator.getAction(") <
-				singleTap.indexOf("dispatchSingleTapAction(action, event)"),
-			"Native frame tap classification must decide the viewer action before any menu-only renderer content hit test can interfere."
+				singleTap.indexOf("dispatchSingleTapAction(action)"),
+			"Native frame tap classification must decide and dispatch the viewer action without a menu-only renderer hit test."
 		)
 	}
 

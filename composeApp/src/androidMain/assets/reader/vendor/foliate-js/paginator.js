@@ -1259,7 +1259,9 @@ export class Paginator extends HTMLElement {
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() => {
-            this.#replaceBackground(this.#view.docBackground, this.columnCount)
+            const view = this.#view
+            if (!view) return
+            this.#replaceBackground(view.docBackground, this.columnCount)
         })
 
         // needed because the resize observer doesn't work in Firefox

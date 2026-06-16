@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import paige.navic.reader.ReaderPageDragPreviewPhase
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -15,6 +16,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
+	onReadableDragPreview: (deltaX: Float, viewWidth: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
 	viewerContent: @Composable () -> Unit,

@@ -42,9 +42,15 @@ export const ReaderReflowableReadableUnitsPerSyntheticPage = 1500
 export const ReaderReflowableStartProgressPageOffsetThreshold = 0.006
 export const ReaderReflowableProgressEpsilon = 0.0000001
 export const ReaderPaperTextureAssets = [
-  'paper-textures/paper-texture-1.png',
-  'paper-textures/paper-texture-2.png',
-  'paper-textures/paper-texture-3.png',
+  'paper-textures/paper-texture-01.jpg',
+  'paper-textures/paper-texture-02.jpg',
+  'paper-textures/paper-texture-03.jpg',
+  'paper-textures/paper-texture-04.jpg',
+  'paper-textures/paper-texture-05.jpg',
+  'paper-textures/paper-texture-06.jpg',
+  'paper-textures/paper-texture-07.jpg',
+  'paper-textures/paper-texture-08.jpg',
+  'paper-textures/paper-texture-09.jpg',
 ]
 export const ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2
 export const ReaderPageBorderOverlayAssets = [
@@ -963,7 +969,7 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.42'
+      return '0.54'
     case 'dark':
     case 'dusk':
       return '0.12'

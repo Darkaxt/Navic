@@ -30,6 +30,38 @@ data class ReaderLocator(
 	val chapterPageCount: Int? = null
 )
 
+data class ReaderPaginationProfileStatus(
+	val status: String = "",
+	val fingerprint: String? = null,
+	val completedSections: Int? = null,
+	val totalSections: Int? = null,
+	val pageCount: Int? = null,
+	val message: String? = null
+) {
+	val progressFraction: Float?
+		get() {
+			val total = totalSections?.takeIf { it > 0 } ?: return null
+			val completed = completedSections?.coerceIn(0, total) ?: 0
+			return completed.toFloat() / total.toFloat()
+		}
+
+	val label: String
+		get() = when (status) {
+			"measuring" -> {
+				val completed = completedSections
+				val total = totalSections
+				if (completed != null && total != null && total > 0) {
+					"Measuring pages $completed/$total"
+				} else {
+					"Measuring pages"
+				}
+			}
+			"cached", "ready" -> pageCount?.let { "Pages ready: $it" } ?: "Pages ready"
+			"failed" -> "Page measurement failed"
+			else -> "Page measurement"
+		}
+}
+
 data class ReaderOverlayFragment(
 	val resourceHref: String,
 	val fragmentId: String? = null,
@@ -194,6 +226,29 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data class PreviewPageDrag(
+		val deltaX: Double,
+		val viewWidth: Double? = null,
+		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
+	) : ReaderBridgeCommand {
+		override val type: String = "previewPageDrag"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("deltaX", deltaX.takeIf(Double::isFinite) ?: 0.0)
+				viewWidth?.takeIf(Double::isFinite)?.let { put("viewWidth", it) }
+				put(
+					"phase",
+					when (phase) {
+						ReaderPageDragPreviewPhase.Update -> "update"
+						ReaderPageDragPreviewPhase.Release -> "release"
+						ReaderPageDragPreviewPhase.Cancel -> "cancel"
+					}
+				)
+			}
+	}
+
 	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderBridgeCommand {
 		override val type: String = "scrollViewport"
 
@@ -325,6 +380,9 @@ sealed interface ReaderBridgeEvent {
 		val href: String? = null,
 		val title: String? = null
 	) : ReaderBridgeEvent
+	data class PaginationProfileStatusChanged(
+		val profile: ReaderPaginationProfileStatus
+	) : ReaderBridgeEvent
 	data class SelectionChanged(
 		val text: String? = null,
 		val cfi: String? = null,
@@ -368,6 +426,16 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"tocItemChanged" -> ReaderBridgeEvent.TocItemChanged(
 				href = json.stringValue("href"),
 				title = json.stringValue("title")
+			)
+			"paginationProfileStatus" -> ReaderBridgeEvent.PaginationProfileStatusChanged(
+				ReaderPaginationProfileStatus(
+					status = json.stringValue("status").orEmpty(),
+					fingerprint = json.stringValue("fingerprint"),
+					completedSections = json.intValue("completedSections"),
+					totalSections = json.intValue("totalSections"),
+					pageCount = json.intValue("pageCount"),
+					message = json.stringValue("message")
+				)
 			)
 			"selectionChanged" -> ReaderBridgeEvent.SelectionChanged(
 				text = json.stringValue("text"),

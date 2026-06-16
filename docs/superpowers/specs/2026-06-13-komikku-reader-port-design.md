@@ -3858,6 +3858,40 @@ Release status:
 
 - No APK was built or published for this slice.
 
+## Phone Validation: 2026-06-16 eta67 ADB Matrix
+
+Device and build:
+
+- Device: Samsung `SM_F966B`, ADB serial `RFCY80551LT`.
+- Package: `darkaxt.navic`.
+- Installed build: `versionName=v1.0.11-eta67`, `versionCode=400`.
+- Focused activity during tests: `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- Evidence directory: `captures/eta67-adb-manual/`.
+
+Validation matrix:
+
+| Area | Test | Evidence | Result | Verdict |
+| --- | --- | --- | --- | --- |
+| Baseline | Current reader state after user opened EPUB | `captures/eta67-adb-manual/baseline-current-reader` | Smoke script passed, confirmed `versionName=v1.0.11-eta67`, PID `19980`, and WebView devtools socket `@webview_devtools_remote_19980`. | PASS: correct candidate is installed and inspectable. |
+| Menu tap | Center tap twice on current EPUB page | `captures/eta67-adb-manual/center-tap-toggle` | Smoke script passed with `-ValidateReaderTaps` and `-RequireReaderTapAction`; native reader tap actions were observed. | PASS at smoke level: center tap is routed through the native reader surface on this page. |
+| Edge navigation | Right-edge tap with required texture diagnostics | `captures/eta67-adb-manual/edge-tap-next` | Native tap was observed as `Reader native tap action=RIGHT x=1771.0 y=1092.0 width=1968 height=2184`, but `reader-texture-diagnostics.log` was empty and the smoke parser failed because there were no texture samples. | PARTIAL/FAIL: native right-edge tap reaches the top reader surface, but texture/page-model diagnostics did not appear in the capture window. |
+| Edge navigation diagnostics | Right-edge tap with longer capture window | `captures/eta67-adb-manual/edge-tap-next-diagnostics` | Native tap emitted `Reader native tap action=RIGHT`, texture scroll/update logs appeared, and `location-page-model` reported `source=pagination-profile page=1/1757 chapter=1/3 profile=1757 observed=1 raw=0/411 href=OEBPS/Text/Hobbit_title-1.html`. Screenshot shows visible footer `2 / 1757`. | FAIL: eta67 uses the profile source, but the profile denominator is wrong because it is estimated from one observed frontmatter/title section. Raw Foliate total was `411`, so the profile model is still not acceptable. |
+
+Manual user validation on eta67:
+
+| Area | Test | Evidence | Result | Verdict |
+| --- | --- | --- | --- | --- |
+| Drag input | Manual page drag in EPUB | User report after eta67 install. | Dragging is fixed at the input/commit level. | PASS for gesture dispatch only: the native upper layer now recognizes drag well enough to change pages. |
+| Drag preview | Manual page drag in EPUB | User report after eta67 install. | While dragging a page, the next page is not visible; the exposed area is black until the next page loads. | FAIL: Navic is not yet using a Komikku-style adjacent-page surface during drag. The gesture commits, but the drag visual is still wrong. |
+| Texture transition | Manual page drag/page load in EPUB | User report after eta67 install. | Texture appears to follow the page during drag, then performs odd side-intensity animations when the new page loads. | FAIL: texture motion and committed page update are still fighting each other. Treat this as a surface/transition layering bug, not an input bug. |
+| EPUB page count | Manual current reader observation | User report after eta67 install. | The EPUB now shows `373` pages. | IMPROVED/PENDING: `373` is close to the local harness raw total of `372` and much better than `1757`, but it is not yet proven stable across chapter boundaries or reloads. |
+
+Host follow-up after the eta67 phone result:
+
+| Area | Test | Evidence | Result | Verdict |
+| --- | --- | --- | --- | --- |
+| EPUB pagination profile | `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3` | Local real-Hobbit EPUB traversal, Android-like viewport. | Command failed with `Expected stable page count during full traversal; observed 410, 396, 381, 387, 390, 391`. | FAIL: the denominator instability is reproducible without the phone. Stop broad ADB testing until this local traversal is stable; the page model is the current blocker. |
+
 ## 2026-06-15 Deterministic Pagination Profile Diagnostics And Spine Fallback Slice
 
 User-visible bug:
@@ -5557,3 +5591,1083 @@ Device validation still required:
 Release status:
 
 - No APK was built or published for this slice.
+
+## 2026-06-16 eta67 Phone And Host Validation
+
+Installed build:
+
+- `v1.0.11-eta67`, `versionCode=400`.
+- User opened the EPUB before ADB validation.
+
+Phone observations:
+
+- User confirmed readable-page dragging now dispatches instead of being ignored.
+- User reported the EPUB total changed to `373` pages. ADB logs agree that the runtime now reports `source=pagination-profile`, `profile=373`, `observed=5`, `raw=11/411`, `href=OEBPS/Text/Hobbit_chap-1.html`.
+- This is a major improvement over the prior bad first profile (`1/1757` from title/frontmatter sampling), but it is not accepted as stable yet because the host full traversal still proves denominator drift.
+- User reported drag preview is still incomplete: dragging changes pages, but the next page is not visible during drag; a black void is visible until the next page loads.
+- User reported texture transitions still feel wrong: the texture follows the page, then flashes/intensifies at the side edges during the new-page settle.
+
+ADB evidence:
+
+- Native readable drag logs are present, for example `Reader native drag preview dx=-31...` followed by `Reader native readable swipe action=Right dx=-1072...`.
+- Texture scroll logs still show duplicated/boundary scroll updates around frontmatter and chapter transitions, including page/href changes while the texture offset is still being updated.
+- The current readable drag preview is still a single-surface translation. It is not equivalent to Komikku's pager because no adjacent page surface is mounted behind the active page.
+
+Host evidence:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Result: failed on 2026-06-16 because the profile denominator is still rebuilt during traversal:
+
+```text
+Expected stable page count during full traversal; observed 410, 396, 381, 387, 390, 391
+```
+
+Root cause:
+
+- The active pagination profile is replaced whenever the observed chapter count increases.
+- The replacement profile estimates unobserved chapter pages from the current section's units-per-page, so frontmatter, image-heavy sections, and prose chapters can all produce different global denominators.
+- This makes totals jump even though the bridge reports `pagination-profile`.
+
+Required correction:
+
+- Reject implausible first profiles when they are far outside the raw Foliate page total range.
+- Once a plausible profile is active for a viewport/settings fingerprint, do not replace the visible denominator simply because another chapter was observed.
+- Continue recording observed chapter math in the cache, but only publish a new visible denominator after a full deterministic profile or a bounded/plausible profile replacement rule.
+
+## 2026-06-16 Pagination Sampling Progress Requirement
+
+User-visible issue:
+
+- Deterministic page profiling can take time on large EPUBs, especially when building or refreshing a profile for a new viewport/font/settings fingerprint.
+- The current reader can look idle or broken while profiling because it has no explicit progress state.
+- Worse, it can expose unstable intermediate totals as if they were final page counts.
+
+Required behavior:
+
+- When a cached pagination profile exists for the current book + viewport + relevant reader settings, load it immediately and show stable page labels.
+- When no cache exists, the reader must enter a visible `measuring pages` state instead of pretending the first sampled total is authoritative.
+- The visible state should be subtle and reader-native: a small progress label/bar near the page number or Komikku progress rail, not a blocking modal.
+- During measurement, the UI may show current page movement, but global totals should be marked provisional or hidden until the active profile is plausible.
+- Sampling progress should report at least observed chapter count and total spine/readable section count when available.
+- The final cached fingerprint must include screen dimensions, orientation/spread mode, engine/profile version, and reader settings that affect layout: font source/family, font size, line height, margins, paragraph spacing, publisher-style policy, flow/paged mode, and direction.
+
+Implementation direction:
+
+- Add a bridge event for pagination profile progress, separate from `locationChanged`.
+- Native reader state should keep `PaginationProfileStatus`: idle, measuring, cached, or ready.
+- The page-count label should prefer cached/ready totals; if status is measuring, show progress feedback and avoid locking the UI to unstable totals.
+- The existing full-traversal harness must verify both stable published totals and progress/cache events.
+
+Texture source note:
+
+- `C:\Users\darka\Pictures\Resource Boy - Kraft Paper Textures\05.jpg` is a better page texture candidate than the generated transparent pore layers: it has real paper fiber/noise and no checkerboard artifact.
+- The original file is too large to ship directly (`37 MB`). If used, generate a reader-sized derived asset and use runtime variants from mirror-X/mirror-Y/both rather than bundling several full-resolution originals.
+
+Texture crop-pack direction:
+
+- `05.jpg` is `10048 x 14185`, close to a natural portrait paper ratio.
+- Instead of one global downsample, treat it as a high-resolution source sheet and cut it into same-ratio page crops.
+- A 3x3 source grid would create nine distinct `3349 x 4728` crops with different fibers, pores, stains, and edge density.
+- Each crop can then produce four deterministic runtime variants: normal, mirrored horizontally, mirrored vertically, and mirrored both axes.
+- This gives `9 x 2 x 2 = 36` visible page variants from one source image while preserving deterministic page-to-texture assignment.
+- The shipped assets should still be reader-sized derived files, not the original full-resolution JPEG. The pipeline should crop first, then resize/compress each crop to the reader texture target.
+- Prefer neutral grayscale/luminance-derived texture assets so the theme background controls paper color. The texture should add fiber and border wear without fighting Sepia/Dark/Light themes.
+- Preserve believable pore/fiber scale. The crop pipeline must not downsample so aggressively that paper fibers merge into large blobs, and it must not upscale small regions until pores read like oversized spots. Validate texture scale against a phone-sized reader screenshot before shipping a release.
+
+## 2026-06-16 Complete Pagination Profile Guard
+
+Problem:
+
+- Host full traversal could become internally stable while still using the wrong complete-profile result.
+- Fresh instrumentation showed the hidden profiler built a complete `392` page profile, then the visible relocation profile rebuilt the same fingerprint as `391`.
+- That explains phone-visible totals changing across apparently equivalent reader states: a complete profile was not authoritative.
+
+Red check:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+First result after adding the stricter trace assertion:
+
+```text
+Expected page labels to use complete pagination profile count 392; observed 391 at 0/391
+```
+
+Code changes:
+
+- `tools/reader-harness/src/run-reader-harness.mjs` now persists `pagination-profile:*` trace events in the full traversal result.
+- `tools/reader-harness/src/reader-trace-assertions.mjs` now fails if a complete pagination profile is later replaced by another complete profile with a different total for the same fingerprint.
+- `composeApp/src/androidMain/assets/reader/navic-reader.js` now treats a complete profile (`estimatedChapterCount == 0`) as authoritative for its render fingerprint.
+- `composeApp/src/androidMain/assets/reader/vendor/foliate-js/paginator.js` now guards deferred background replacement when Foliate has already destroyed the current view. This removes the host `docBackground` page error caused by the hidden profiler teardown.
+
+Green checks:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Result:
+
+- Syntax checks passed.
+- Full traversal passed with stable `392` pages.
+- Trace summary: initial partial update `410`, complete update `392`, later visible fresh profiles retained as `freshPageCount = 391` instead of replacing the complete profile.
+
+Release status:
+
+- No release was built or published. This is a meaningful local fix, but phone validation is deferred until the next release candidate.
+
+## 2026-06-16 Paper Texture Crop Pack
+
+Problem:
+
+- eta67 phone validation showed the paper texture was almost invisible.
+- The previous base textures were tiny generated transparent overlays (`paper-texture-1.png` etc.), which made pores and wrinkles too subtle on device.
+- The previous border overlays had average alpha around `7` and max alpha around `40`, so page-edge wear was also easy to miss.
+
+Source decision:
+
+- Used `C:\Users\darka\Pictures\Resource Boy - Kraft Paper Textures\05.jpg` as the source sheet.
+- The original source is not copied into the app. It is `10048 x 14185` and too large to ship directly.
+- Generated nine neutral reader-sized crops from a 3x3 source grid.
+- Runtime mirroring still provides four transforms per crop, so the visible variant space is now `9 x 2 x 2 = 36` base paper variants.
+
+Code changes:
+
+- Added nine generated assets:
+  - `paper-textures/paper-texture-01.jpg` through `paper-textures/paper-texture-09.jpg`.
+- Replaced the runtime texture list in `navic-reader-helpers.js` with those nine JPG assets.
+- Regenerated the four transparent page-border overlay PNGs at `1536 x 2169`, with smoother edge alpha and max alpha capped at `68`.
+- Increased Sepia surface paper texture opacity from `0.42` to `0.54`.
+
+Asset stats:
+
+- Base texture crops: `1536 x 2169`, about `708 KB` to `743 KB` each.
+- Sampled average luminance: about `219.7` to `221.3`.
+- Sampled luminance standard deviation: about `4.56` to `5.17`, enough to expose pores/fibers without turning them into oversized spots.
+- Border overlays: `1536 x 2169`, alpha average about `11.47`, max alpha `68`.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderPackagesDeterministicPaperTextureVariants"
+```
+
+Result before asset/code changes:
+
+```text
+ReaderRuntimePaperSurfaceTest > androidReaderPackagesDeterministicPaperTextureVariants FAILED
+```
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderPackagesDeterministicPaperTextureVariants" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderPackagesDeterministicPaperBorderOverlayVariants" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- Host paper texture/border tests passed.
+- JS helper syntax check passed.
+- Browser texture page-turn probe passed and trace confirmed `paper-texture-##.jpg` assets are selected.
+
+Release status:
+
+- No release was built or published. The texture change is ready for the next release candidate, but device validation is deferred.
+
+## 2026-06-16 Pagination Profiling Progress Bridge
+
+Problem:
+
+- The web reader emits pagination profiling progress, but native Kotlin did not decode or surface it.
+- On large EPUBs this makes the reader look idle while the deterministic page profile is being measured.
+- The visible UI needs a subtle progress signal without blocking reading or resizing the content.
+
+Code changes:
+
+- Added `ReaderPaginationProfileStatus` to the bridge protocol with status, fingerprint, completed/total section counts, page count, message, label, and progress fraction.
+- Added `ReaderBridgeEvent.PaginationProfileStatusChanged` and decoded the JavaScript `paginationProfileStatus` bridge event.
+- Mapped the bridge event through `FoliateWebViewEngineAdapter` into `ReaderEngineEvent.PaginationProfileStatusChanged`.
+- Stored the latest profile status in `ReaderControllerState.paginationProfile` and reset it when opening a new publication.
+- Added Android host logging for `paginationProfileStatus(...)` bridge events.
+- Added `KomikkuPaginationProfileStatusBadge(...)` to the reader overlay. It appears only while measuring or failed, uses `LinearProgressIndicator`, and floats over the content without changing reader layout.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodePaginationProfileStatus" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.mapsBridgeEventsToEngineEventsWithoutLettingBridgeOwnChrome" --tests "paige.navic.reader.ReaderControllerTest.paginationProfileStatusFeedsControllerStateWithoutNavigationCommands" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderShowsPaginationProfilingStatusInKomikkuOverlay"
+```
+
+Initial result:
+
+```text
+Unresolved reference 'ReaderPaginationProfileStatus'
+Unresolved reference 'PaginationProfileStatusChanged'
+Unresolved reference 'paginationProfile'
+```
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodePaginationProfileStatus" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.mapsBridgeEventsToEngineEventsWithoutLettingBridgeOwnChrome" --tests "paige.navic.reader.ReaderControllerTest.paginationProfileStatusFeedsControllerStateWithoutNavigationCommands" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderShowsPaginationProfilingStatusInKomikkuOverlay"
+```
+
+Result:
+
+- Focused bridge, engine, controller, and reader-shell tests passed.
+- No release was built or published. This is local-only and should be included in the next meaningful release candidate with device validation.
+
+## 2026-06-16 Final Host Snapshot Before Device Validation
+
+Scope:
+
+- User deferred phone/device validation until tomorrow.
+- No release was built or published after eta67.
+- The purpose of this snapshot is to preserve what is locally verified before the next release candidate.
+
+Host checks:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-full-traversal --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub --viewport-width 500 --viewport-height 960 --device-scale-factor 3
+```
+
+Results:
+
+- Full EPUB traversal passed and stayed on the deterministic `392` page profile.
+- Texture page-turn probe passed with the new JPG crop texture pack selected by the runtime.
+- Tomorrow's device release candidate should validate the same areas on the phone: profiling status badge visibility, page-count stability, texture visibility, texture motion, drag preview, cover behavior, and Komikku menu behavior.
+
+## 2026-06-16 Native Short-Tap Ownership Slice
+
+Problem:
+
+- The native Komikku frame still let WebView content veto short menu-zone taps by calling `readerContentActionAtPoint(...)` before opening reader chrome.
+- That preserved the old ownership leak where EPUB links/images could decide whether the global menu appears.
+- The accepted direction is stricter: short taps and drags belong to the native reader container; renderer content activation belongs to deliberate long press or a future explicit content-interaction mode.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderShortTapRegionsNeverQueryRuntimeContentHitTesting"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeImageLinkTest > androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress FAILED
+ReaderRuntimeImageLinkTest > androidReaderShortTapRegionsNeverQueryRuntimeContentHitTesting FAILED
+```
+
+Code changes:
+
+- Removed the native-frame `findReaderWebView()` / `dispatchMenuActionAfterContentHitTest(...)` path.
+- Removed `WebView` dependency from `KomikkuReaderNativeFrameHost.android.kt`.
+- `dispatchSingleTapAction(...)` now dispatches `MENU`, `NEXT`, `PREV`, `LEFT`, and `RIGHT` directly through native viewer/controller actions.
+- The existing native long-press path still calls `onContentLongPress(event.x, event.y, width, height)`, which routes into `ReaderViewerAction.ContentLongPressAt` and then through the engine bridge.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderShortTapRegionsNeverQueryRuntimeContentHitTesting"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesOrdinaryContentClicksWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsContextMenuContentActionsWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderAllowsNativeCoordinateLongPressContentActionsWhenNativeTapZonesOwnShortTaps" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsPointerAndMouseContentClaimsBehindNativeGuard"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+```
+
+Results:
+
+- Focused short-tap ownership tests passed.
+- Long-press/content-action adjacent tests passed.
+- Full `ReaderRuntimeImageLinkTest` host class passed.
+
+Release status:
+
+- No APK was built or published. Device validation is still required tomorrow, especially for links/images, center-tap menu reliability, and long-press content activation.
+
+## 2026-06-16 Renderer-Driven Readable Drag Preview Slice
+
+Problem:
+
+- eta67 fixed native drag ownership enough for page turns to commit, but the visual drag preview still exposed a black void.
+- Root cause: `KomikkuReaderNativeFrameHost.android.kt` moved the entire Android WebView container with `viewerContentContainer.translationX = deltaX`.
+- Moving the whole WebView cannot reveal Foliate's adjacent paginated columns; it only reveals the native parent background.
+- Komikku's manga reader avoids this class because its pager keeps adjacent pages mounted during the gesture.
+
+Design decision:
+
+- Keep native gesture ownership.
+- Do not let Foliate own the touch stream directly.
+- Route readable drag preview deltas through the reader controller/engine/bridge as a typed command, then let the Foliate runtime move its own paginator using `renderer.scrollBy(...)`.
+- Keep shell-cover dragging native, because the shell cover is a native bitmap surface and not a Foliate page.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack"
+```
+
+Initial result:
+
+```text
+ReaderKomikkuBackboneResetTest > readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack FAILED
+```
+
+Code changes:
+
+- Added `ReaderPageDragPreviewPhase` with `Update`, `Release`, and `Cancel`.
+- Added `ReaderViewerAction.PreviewPageDrag`, `ReaderEngineCommand.PreviewPageDrag`, and `ReaderBridgeCommand.PreviewPageDrag`.
+- Added `onReadableDragPreview(...)` to `KomikkuReaderNativeFrameHost`.
+- Replaced readable `viewerContentContainer.translationX` with preview callbacks.
+- Native move emits `Update`; release emits `Release` before the normal page-turn command; cancel/pointer interruption emits `Cancel`.
+- `navic-reader.js` now handles `previewPageDrag` and applies absolute native deltas incrementally through `renderer.scrollBy(-incrementalDeltaX, 0)`.
+- JS cancel unwinds the last preview delta with `renderer.scrollBy(previousDeltaX, 0)`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack" --tests "paige.navic.reader.ReaderBridgeProtocolTest.pageDragPreviewCommandDispatchesRendererPreviewIntent" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesTypedViewportScrollAsRendererScrollCommand" --tests "paige.navic.reader.ReaderControllerTest.viewerReadableDragPreviewIsControllerOwnedAndForwardedAsEngineCapability"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverDragFollowsMoveAndDispatchesPageTurnOnlyOnRelease" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+```
+
+Results:
+
+- Fresh focused host tests passed with `--rerun-tasks`.
+- Adjacent native-frame drag/tap tests passed with `--rerun-tasks`.
+- Full `ReaderRuntimeShellProgressTest` host class passed with `--rerun-tasks` after updating the stale menu-hit-test assertion to the native-owned short-tap rule.
+- JS syntax check passed.
+
+Release status:
+
+- No APK was built or published.
+- Tomorrow's device validation must verify whether Foliate renderer preview removes the black void and whether release/cancel phases avoid page jumps or double-advances under real Android WebView timing.
+
+## 2026-06-16 Native Drag Preview Texture Direction Slice
+
+Problem:
+
+- eta67 device feedback said dragging was functional again, but the paper texture still felt unstable: it followed the page during drag, then pulsed or shifted oddly as the new page loaded.
+- The new native-readable-drag preview path sends `previewPageDrag` through the controller/engine bridge and moves Foliate with `renderer.scrollBy(...)`.
+- The older texture direction detector was attached inside EPUB documents, so native-owned drags could bypass the document `touchmove` tracker and leave texture motion using stale or directionless Foliate coordinates.
+
+Design decision:
+
+- Keep native reader input as the owner of short taps and drags.
+- Do not return drag ownership to the WebView.
+- Make the bridge drag-preview command seed the same sticky paper-texture direction used by explicit `nextPage` / `previousPage` commands and document drag detection.
+- Clear the sticky direction when a drag preview is canceled after unwinding the preview scroll.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview"
+```
+
+Initial result:
+
+```text
+ReaderRuntimePaperSurfaceTest > androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview FAILED
+```
+
+Code changes:
+
+- `previewPageDrag(command)` now calls `readerPaperTextureDragDirection(...)` before moving Foliate.
+- When a logical direction is detected, `surfacePaperTextureTurnDirection` is set to that value before `renderer.scrollBy(...)`.
+- The runtime emits `readerTrace('texture:drag-direction', { source: 'native-preview', ... })` so ADB and harness traces can distinguish native-preview direction seeding from document-owned drag tracking.
+- Canceling a drag preview clears `surfacePaperTextureTurnDirection` after restoring the preview offset and re-renders the texture layer.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+```
+
+Results:
+
+- Targeted native-preview texture-direction test passed.
+- Full `ReaderRuntimePaperSurfaceTest` host class passed.
+- JS syntax check passed.
+
+Release status:
+
+- No APK was built or published.
+- Tomorrow's device validation should specifically check whether native drags now keep texture movement direction stable during the drag and immediately after the committed page loads.
+
+## 2026-06-16 Settings Ownership Cleanup
+
+Decision:
+
+- Keep the page-curl animation sample as a deferred quick-win reference, not an active stabilization task.
+- The concrete local sample is `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
+- It should be revisited as a future `ReaderViewer` mode enhancement after the Komikku input/chrome/controller backbone is stable: portrait uses the clipped single-page animation model; rotated/spread mode uses the dual-page/spread animation model.
+- Move developer diagnostics out of the reader-experience settings surface. `WebView debugging` belongs in `Settings > Developer`, not `Settings > Ebooks`.
+- Move `Show tap zones` to `Settings > Developer` as well. It is a diagnostic/training visualizer for validating the native Komikku tap regions, not a normal reader default.
+- Reader-facing controls such as tap-zone shape and smaller tap zones remain in Ebooks because they affect real reading interaction behavior.
+
+Follow-up on 2026-06-16:
+
+- The existing visible tap-zone guard was tightened so `option_ebook_reader_show_tap_zones` must not appear in `EbooksScreen.kt`.
+- The global `Show tap zones` setting now appears in `DeveloperScreen.kt`, and settings search routes it through `developer.show-tap-zones`.
+- The in-reader overlay switch remains available in the active reader menu because it is useful during device validation.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeSettingsBridgeTest > androidReaderExposesVisibleTapZoneOverlayControl FAILED
+```
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl"
+```
+
+Result:
+
+- Targeted host test passed after the Developer Options move.
+
+Follow-up verification on 2026-06-16:
+
+- `WebView debugging` and global `Show tap zones` remain Developer Options controls, not Ebooks controls.
+- The in-reader `Show tap zones` overlay row now lives in `ReaderSettingsDialog.kt` after the Komikku settings-dialog extraction, so the structural guard was retargeted from `ReaderScreen.kt` to the dedicated dialog component.
+- Fresh focused verification passed:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderWebViewDebuggingIsControlledByDeveloperSetting" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl"
+```
+
+Release status:
+
+- This is a local cleanup/documentation slice only. It does not justify a standalone release candidate.
+
+## 2026-06-16 Komikku Settings Density Slice
+
+Problem:
+
+- The active settings overlay had the right Komikku tabbed-dialog backbone, but the visible density still looked like a docked settings page: large row text, cramped tabs, and truncated `Reading...` / `Custom...` labels.
+- Komikku's source uses a reusable `TabbedDialog`, compact `TabText`, and `TabbedDialogPaddings.Vertical = 8.dp`; Navic was still using larger local padding and full tab labels in the visible tab strip.
+
+Decision:
+
+- Keep the existing controller-owned `KomikkuReaderSettingsDialog` and `KomikkuTabbedDialog` structure.
+- Do not touch WebView/Foliate runtime, pagination, input ownership, texture movement, or APK release flow in this slice.
+- Make the settings overlay denser and less truncation-prone:
+  - page vertical padding now matches Komikku's `8.dp`;
+  - visible tab labels use compact labels (`Reading`, `General`, `PDF/Image`, `Filter`) while the enum keeps full semantic labels;
+  - tab typography uses `labelMedium`;
+  - dialog width is wider (`0.96f` on narrow screens, `0.72f` on wide screens);
+  - dialog shell padding and row typography are reduced so the visible page reads like a temporary reader overlay instead of a full settings screen.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels FAILED
+```
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Targeted density guard passed.
+- Full `ReaderRuntimeCommonChromeTest` passed after aligning stale width/tab expectations to the new compact contract.
+
+Release status:
+
+- No APK was built or published. This is useful UI progress, but it is not a standalone major bug fix.
+
+## 2026-06-16 Komikku Vertical Progress Rail Visual Slice
+
+Problem:
+
+- The right-side progress rail was controller-owned and chapter-local, but it still looked like a rotated Material slider.
+- User feedback after eta67 said the vertical progress bar felt slightly too short and still looked like a knock-off of Komikku rather than a copied reader rail behavior.
+
+Decision:
+
+- Keep the existing controller/chapter seek path.
+- Do not move progress back into the WebView or bottom chrome.
+- Replace the visible vertical rail with a custom Komikku-like pill/dot/handle layer while leaving an almost-transparent Slider underneath to preserve the already-tested seek and haptic behavior.
+- Increase the vertical rail height fraction from `0.78f` to `0.82f`; this makes the rail a little more useful without letting the previous/next buttons sit under the top or bottom bars.
+- Bottom navigation can keep the shared horizontal slider for now; this slice only changes the vertical overlay rail.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals FAILED
+```
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused vertical rail tests passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is local Komikku shell progress, not a standalone release candidate.
+
+## 2026-06-16 Komikku Chapter Navigator Component Boundary Slice
+
+Problem:
+
+- The reader shell had started copying Komikku's chapter/progress navigator behavior, but the implementation still lived inline in `ReaderScreen.kt`.
+- Komikku keeps the chapter navigator as a separate `ChapterNavigator.kt` component, so leaving the rail, slider, RTL logic, haptic behavior, and page labels inside `ReaderScreen` kept Navic's reader shell structurally closer to the old monolithic implementation.
+
+Decision:
+
+- Extract Navic's Komikku chapter/progress navigator into `ReaderChapterNavigator.kt`.
+- Keep the behavior unchanged in this slice:
+  - `ReaderScreen.kt` still decides where the rail appears and passes controller actions.
+  - `KomikkuChapterNavigator` still owns horizontal/vertical navigator rendering, RTL inversion, haptic drag feedback, dotted vertical rail rendering, and page-index conversion.
+  - `KomikkuReaderVerticalRailHeightFraction` stays at `0.82f`, now owned by the navigator component.
+- Do not touch WebView/Foliate runtime, pagination math, drag behavior, paper textures, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile FAILED
+```
+
+Code changes:
+
+- Added `readerCommonUiFile(...)` host-test fixture helper for source guards against common reader UI components.
+- Added `ReaderChapterNavigator.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuChapterNavigator`, `KomikkuChapterNavigatorVertical`, `KomikkuVerticalChapterProgressRail`, `KomikkuChapterProgressSlider`, and `KomikkuReaderVerticalRailHeightFraction` out of `ReaderScreen.kt`.
+- Retargeted existing side-rail, dotted-rail, and RTL source guards so implementation assertions read `ReaderChapterNavigator.kt`; `ReaderScreen.kt` remains checked only for call-site placement and controller wiring.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels"
+```
+
+Result:
+
+- Focused chapter navigator boundary and rail tests passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Reader Settings Session Boundary Slice
+
+Problem:
+
+- `ReaderScreen.kt` still owned reader settings persistence and scope switching directly after the Komikku shell/root extractions.
+- That kept global-vs-book preference lookup, book override creation, normalized persistence, and reset-to-global behavior inside the screen entry point.
+- The Komikku port needs `ReaderScreen.kt` to be an app-boundary coordinator, not the settings-store authority. The settings session logic must live behind a small boundary before the dialog/controller can be tightened further.
+
+Decision:
+
+- Extract reader settings scope/session helpers into `ReaderSettingsSession.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still chooses the initial settings scope and passes `ReaderSettings` into the controller/runtime.
+  - `ReaderSettingsSession.kt` owns `readerHasBookSettings`, `readerInitialSettingsScope`, scoped settings lookup, scoped persistence, selected-scope switching, and reset-to-global behavior.
+  - Existing `PreferenceManager` reader settings APIs stay in place behind the session boundary.
+- Do not touch WebView/Foliate runtime, PDF runtime, native input dispatch, drag animation, page-count profiling, paper textures, or release behavior in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsStoreRulesLiveOutsideReaderScreen"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderSettingsStoreRulesLiveOutsideReaderScreen FAILED
+```
+
+Code changes:
+
+- Added `ReaderSettingsSession.kt` under `paige.navic.ui.screens.reader`.
+- Moved direct global/book settings-store decisions out of `ReaderScreen.kt`.
+- Updated source guards so `ReaderScreen.kt` is checked for using the session boundary while `ReaderSettingsSession.kt` is checked for the actual preference-store API usage.
+- Retargeted the default-settings remember-key guard so it no longer requires the screen file to call `readerSettingsForBook(...)` directly.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsStoreRulesLiveOutsideReaderScreen" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsSupportKomikkuStylePerBookSettingsScope"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused settings-session/per-book-scope checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed after the default-settings guard was retargeted to the new session owner.
+
+Release candidate:
+
+- The user connected another Android device and explicitly requested a new release/install/test pass.
+- Next Android release candidate: `v1.0.11-eta68`, `versionCode = 401`.
+- eta68 must be installed on the connected device and validated with the ADB reader matrix before its behavior is described as improved.
+
+## 2026-06-16 Reader Engine Open Request Boundary Slice
+
+Problem:
+
+- `ReaderScreen.kt` still constructed `ReaderEngineOpenRequest` directly from the route reader, resolved shell-cover URL, saved Bindery progress, and reader settings.
+- That kept start-locator precedence, saved-progress lookup, shell-cover availability, publication identity construction, and engine-open fields inside the app screen entry point.
+- The Komikku port objective requires renderer capabilities to sit behind controlled adapters; the screen should call a mapper/factory, not own engine-open construction.
+
+Decision:
+
+- Extract the `Screen.Reader.toReaderEngineOpenRequest(...)` mapper into `ReaderOpenRequest.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still calls `reader.toReaderEngineOpenRequest(...)` from publication and readaloud runtime readiness callbacks.
+  - `ReaderOpenRequest.kt` owns route locator creation, saved Bindery progress conversion, `bestReaderStartLocator(...)`, `ReaderPublicationIdentity`, `nativeShellCoverUrl`, and `canReturnToShellCover`.
+  - The mapper remains package-internal to the reader UI boundary until the `Screen.Reader` route model is separated from engine-open input.
+- Do not touch WebView/Foliate runtime, PDF runtime, EPUB page math, drag animations, paper textures, deterministic paging cache, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderEngineOpenRequestFactoryLivesOutsideReaderScreen"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderEngineOpenRequestFactoryLivesOutsideReaderScreen FAILED
+```
+
+The expected red failure was missing `ReaderOpenRequest.kt`.
+
+Code changes:
+
+- Added `ReaderOpenRequest.kt` under `paige.navic.ui.screens.reader`.
+- Moved `Screen.Reader.toReaderEngineOpenRequest(...)` out of `ReaderScreen.kt`.
+- Added a source guard that keeps route/progress/start-locator construction out of `ReaderScreen.kt`.
+- Retargeted native shell-cover image/link tests so they check `ReaderOpenRequest.kt` for `nativeShellCoverUrl`/`canReturnToShellCover` and `ReaderRoot.kt` for native frame host wiring.
+- Kept the existing call sites in `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderEngineOpenRequestFactoryLivesOutsideReaderScreen" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused open-request/image-link checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku App Bars Component Boundary Slice
+
+Problem:
+
+- The active reader shell already mounted app bars as overlay chrome, but `ReaderScreen.kt` still owned `KomikkuReaderAppBars`, `KomikkuReaderTopBar`, and `KomikkuReaderBottomBar`.
+- Komikku keeps reader app bars as dedicated appbar components (`ReaderAppBars.kt`, `ReaderTopBar.kt`, `ReaderBottomBar.kt`), so leaving the top bar, bottom bar, rail placement, animation specs, bookmark action, and bottom action strip inline preserved the old monolithic Navic reader shape.
+
+Decision:
+
+- Extract Navic's Komikku reader app bars into `ReaderAppBars.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still mounts `KomikkuReaderAppBars(...)` from the Compose overlay and passes controller callbacks.
+  - `ReaderAppBars.kt` owns the appbar animation specs, top title/bookmark chrome, bottom action strip, nav-bar placement, RTL direction derivation, and chapter navigator placement.
+  - `ReaderChapterNavigator.kt` still owns the actual progress rail and slider implementation.
+- Do not touch WebView/Foliate runtime, EPUB/PDF pagination, drag behavior, paper textures, settings behavior, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderAppBarsLiveInDedicatedKomikkuComponentFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderAppBarsLiveInDedicatedKomikkuComponentFile FAILED
+```
+
+Code changes:
+
+- Added `ReaderAppBars.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuReaderAppBars`, `KomikkuReaderTopBar`, `KomikkuReaderBottomBar`, and the appbar slide/fade animation specs out of `ReaderScreen.kt`.
+- Added a local pagination-profile badge fade spec in `ReaderScreen.kt`; the badge remains a screen-local overlay until it gets its own component boundary.
+- Retargeted existing chrome source guards so appbar behavior is asserted against `ReaderAppBars.kt`; `ReaderScreen.kt` remains checked for mount placement and full-window overlay ownership.
+- Retargeted the chapter navigator boundary guard so `ReaderAppBars.kt` is the component that owns calls to `KomikkuChapterNavigator(...)`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderAppBarsLiveInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeSeparatesTopPanelFromBottomActions" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomActionsAreCenteredAndDoNotDuplicateBookmarkAction"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused appbar/chrome boundary tests passed.
+- Full `ReaderRuntimeCommonChromeTest` passed after retargeting the chapter navigator source guard to the new appbar owner.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Settings Dialog Component Boundary Slice
+
+Problem:
+
+- The active reader settings overlay had Komikku-like behavior and density, but its implementation still lived inline in `ReaderScreen.kt`.
+- That kept `ReaderScreen.kt` responsible for the settings tab model, tabbed dialog shell, scrolling fade, chip rows, switch rows, steppers, reading-mode options, custom filter controls, and PDF/image controls.
+- Komikku keeps reader settings as a dedicated overlay component (`ReaderSettingsDialog.kt`), so leaving all of that in the screen file preserved Navic's old monolithic reader shape.
+
+Decision:
+
+- Extract Navic's Komikku reader settings overlay into `ReaderSettingsDialog.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still decides when to show reading-mode/settings dialogs and passes controller callbacks.
+  - `ReaderSettingsDialog.kt` owns the tab list, `KomikkuReaderSettingsDialog`, `KomikkuTabbedDialog`, tab row, scroll-edge fade, chip/switch/stepper rows, reading-mode options, PDF/image controls, and custom filter controls.
+  - The contents dialog remains in `ReaderScreen.kt` for now; it reuses the now-shared `KomikkuSettingsDialogLine`.
+- Do not touch WebView/Foliate runtime, PDF renderer behavior, pagination math, drag behavior, paper textures, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogLivesInDedicatedKomikkuComponentFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderSettingsDialogLivesInDedicatedKomikkuComponentFile FAILED
+```
+
+Code changes:
+
+- Added `ReaderSettingsDialog.kt` under `paige.navic.ui.screens.reader`.
+- Moved `TabbedDialogPaddingsVertical`, `KomikkuSettingsTab`, `KomikkuReadingModeOptions`, `KomikkuReaderSettingsDialog`, `KomikkuTabbedDialog`, `KomikkuSettingsTabRow`, `KomikkuSettingsDialogPage`, `KomikkuSettingsDialogLine`, `KomikkuSettingsChipRow`, `KomikkuSettingsSwitchRow`, `KomikkuSettingsStepperRow`, scroll-edge fade, and color-filter helper logic out of `ReaderScreen.kt`.
+- Retargeted existing settings overlay source guards so dialog behavior is asserted against `ReaderSettingsDialog.kt`; `ReaderScreen.kt` remains checked for call-site wiring, menu show/hide callbacks, and full-window overlay ownership.
+- Cleaned settings-only imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuTabbedPagerContent" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesScrollEdgeFadeInsteadOfAbruptCutoff"
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused settings dialog boundary/density/pager checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed after retargeting older source guards to the new component boundary.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Contents Dialog Component Boundary Slice
+
+Problem:
+
+- The table-of-contents overlay still lived inline in `ReaderScreen.kt` after the appbar and settings-dialog extractions.
+- That kept chapter list rendering, empty-state text, dialog container ownership, and navigation callbacks in the monolithic screen file.
+- Komikku keeps chapter-list UI behind dedicated dialog/component boundaries, so the Navic reader shell should not keep contents-dialog implementation in the screen once the Komikku backbone is being rebuilt.
+
+Decision:
+
+- Extract Navic's Komikku contents dialog into `ReaderContentsDialog.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still decides when to show the contents dialog and still passes `ReaderTocItem` callbacks.
+  - `ReaderContentsDialog.kt` owns `KomikkuReaderContentsDialog`, the `BasicAlertDialog` shell, lazy TOC list, empty TOC line, and per-item navigation click behavior.
+  - `ReaderSettingsDialog.kt` continues to expose the shared compact dialog line used by the empty-state row.
+- Do not touch WebView/Foliate runtime, EPUB/PDF pagination, drag behavior, paper textures, deterministic paging cache, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogLivesInDedicatedKomikkuComponentFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderContentsDialogLivesInDedicatedKomikkuComponentFile FAILED
+```
+
+Code changes:
+
+- Added `ReaderContentsDialog.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuReaderContentsDialog` out of `ReaderScreen.kt`.
+- Retargeted the existing contents-dialog source guard so lazy list behavior is asserted against `ReaderContentsDialog.kt`; `ReaderScreen.kt` remains checked for call-site ownership only.
+- Cleaned contents-dialog-only imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentsDialogUsesKomikkuLazyChapterListContract"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused contents dialog boundary/lazy-list checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed after retargeting the overlay-stack alignment assertion to the extracted appbar owner and matching the actual chained modifier marker.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Content Overlay Component Boundary Slice
+
+Problem:
+
+- The dim/color-filter overlay was still implemented inline in `ReaderScreen.kt`.
+- Komikku treats `ReaderContentOverlay` as an overlay sibling above the viewer, not as screen-local decoration or renderer-owned CSS.
+- Leaving the drawing and filter mapping helpers in the screen kept reader chrome/filter responsibilities inside the monolithic root.
+
+Decision:
+
+- Extract Navic's Komikku content/filter overlay into `ReaderContentOverlay.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still mounts `KomikkuReaderContentOverlay(...)` as a full-window overlay via `Modifier.matchParentSize()`.
+  - `ReaderContentOverlay.kt` owns the dim overlay, color-filter overlay, blend-mode mapping, and ARGB-to-Compose color conversion.
+  - The overlay remains Compose chrome above the viewer; it does not resize content and does not change WebView/PDF runtime behavior.
+- Do not touch pagination, gestures, paper textures, reader settings semantics, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentOverlayLivesInDedicatedKomikkuComponentFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderContentOverlayLivesInDedicatedKomikkuComponentFile FAILED
+```
+
+Code changes:
+
+- Added `ReaderContentOverlay.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuReaderContentOverlay`, `readerColorFilterColor`, and `readerColorFilterBlendMode` out of `ReaderScreen.kt`.
+- Retargeted dim-overlay source guards so the screen is checked for mount placement and the dedicated component is checked for drawing implementation.
+- Cleaned content-overlay imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentOverlayLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeExposesDimOverlayControl" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused content-overlay/dim/color-filter checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Pagination Profile Badge Component Boundary Slice
+
+Problem:
+
+- The pagination profiling status badge was still implemented inline in `ReaderScreen.kt`.
+- This badge is transient overlay chrome for deterministic page-profile measurement state, not screen root logic.
+- The appbar extraction explicitly left this as a screen-local temporary leftover; keeping it there would preserve another reader-overlay responsibility in the monolithic root.
+
+Decision:
+
+- Extract `KomikkuPaginationProfileStatusBadge` into `ReaderPaginationProfileBadge.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still decides where the badge appears and anchors it above/below menu chrome.
+  - `ReaderPaginationProfileBadge.kt` owns the fade spec, measuring/failed visibility predicate, label, and progress indicator.
+  - The badge remains overlay-only and does not affect viewer size, input ownership, or pagination math.
+- Do not touch the pagination profiling algorithm, page counts, drag preview, textures, WebView/PDF runtime, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderPaginationProfileBadgeLivesInDedicatedKomikkuOverlayFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderPaginationProfileBadgeLivesInDedicatedKomikkuOverlayFile FAILED
+```
+
+Code changes:
+
+- Added `ReaderPaginationProfileBadge.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuPaginationProfileStatusBadge` and `readerPaginationBadgeFadeAnimationSpec` out of `ReaderScreen.kt`.
+- Added a source guard that prevents resurrecting the badge implementation in the screen root.
+- Cleaned pagination-badge imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderPaginationProfileBadgeLivesInDedicatedKomikkuOverlayFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderContentOverlayLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeExposesDimOverlayControl" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused pagination-badge/content-overlay checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Reader Navigation Mapping Boundary Slice
+
+Problem:
+
+- `ReaderScreen.kt` still converted Navic `ReaderSettings` tap-zone values into Komikku navigation classes.
+- That made the screen root responsible for choosing `KomikkuLNavigation`, `KomikkuKindlishNavigation`, edge navigation, right/left navigation, disabled navigation, smaller-zone behavior, and tapping inversion.
+- The spec's ownership rule says the common tap-zone model must route through the ported `KomikkuReaderNavigator`, and old Navic tap helpers must not become the authority again. Keeping the settings-to-Komikku mapping in the screen root made that boundary weaker.
+
+Decision:
+
+- Extract the Navic-settings-to-Komikku-navigation mapping into `ReaderNavigation.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still remembers a navigator from `settings.tapZone`, `settings.tapZoneInvertMode`, `settings.smallerTapZone`, and `settings.flowMode`.
+  - `ReaderNavigation.kt` owns `komikkuNavigatorForReaderSettings(...)` and `komikkuTappingInvertMode(...)`.
+  - The mapping still resolves default tap-zone mode from flow mode, applies `smallerTapZone`, maps all Komikku tap-zone presets, and applies tapping inversion before returning `KomikkuReaderNavigator`.
+- Do not touch Android native input dispatch, WebView/Foliate runtime, PDF runtime, gestures, page counts, textures, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel FAILED
+```
+
+Code changes:
+
+- Added `ReaderNavigation.kt` under `paige.navic.ui.screens.reader`.
+- Moved `komikkuNavigatorForReaderSettings` and `komikkuTappingInvertMode` out of `ReaderScreen.kt`.
+- Retargeted the tapping-inversion and Komikku-navigation source guards so `ReaderScreen.kt` is checked only for using the mapper, while `ReaderNavigation.kt` is checked for mapping implementation.
+- Cleaned tap-zone/navigation-mapping imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderReadingTabPortsKomikkuTappingInversionControl" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.newBackboneUsesPortedKomikkuViewerNavigationInsteadOfOnlyNavicTapHelpers"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused navigation mapping/tapping-inversion guards passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.
+
+## 2026-06-16 Komikku Reader Root Boundary Slice
+
+Problem:
+
+- `ReaderScreen.kt` still contained the active Komikku shell root after the app bars, dialogs, overlays, badge, and navigation mapper were extracted.
+- That meant the screen entry point still owned the retained `ReaderViewerLifecycleSlot`, native frame host mounting, shell-cover title fallback, native shell-cover action remapping, readable drag-preview dispatch, long-press dispatch, viewer host slot, and Compose overlay stack.
+- The port objective says the active reader should be a Komikku-derived frontend/controller backbone; leaving the root implementation in `ReaderScreen.kt` kept the screen as a monolithic shell instead of an app-boundary coordinator.
+
+Decision:
+
+- Extract the Komikku shell root into `ReaderRoot.kt`.
+- Keep behavior unchanged in this slice:
+  - `ReaderScreen.kt` still owns dependency injection, preference/default-setting selection, coordinator step application, runtime host wiring, back-stack navigation, volume-key routing, and the call into `KomikkuReaderRoot(...)`.
+  - `ReaderRoot.kt` now owns `KomikkuReaderRoot`, the retained viewer lifecycle slot, `shellCoverTitleFor`, `KomikkuReaderNativeFrameHost`, `ReaderViewerHost`, shell-cover action remapping, drag-preview/long-press viewer actions, and `KomikkuComposeOverlay`.
+  - `KomikkuComposeOverlay` continues to mount content dim/filter overlay, app bars, pagination profile badge, contents dialog, and settings dialog as full-window overlay siblings instead of resizing reader content.
+- Do not touch WebView/Foliate runtime, PDF runtime, EPUB page math, drag animations, paper textures, deterministic paging cache, or release flow in this slice.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderRootAndComposeOverlayLiveInDedicatedKomikkuShellFile"
+```
+
+Initial result:
+
+```text
+ReaderRuntimeCommonChromeTest > commonReaderRootAndComposeOverlayLiveInDedicatedKomikkuShellFile FAILED
+```
+
+The first attempt to run this check hit the shell tool's default execution cap before the test result was produced, so it was discarded as non-evidence. The rerun produced the expected red failure because `ReaderRoot.kt` did not exist yet.
+
+Code changes:
+
+- Added `ReaderRoot.kt` under `paige.navic.ui.screens.reader`.
+- Moved `KomikkuReaderRoot`, `KomikkuComposeOverlay`, and `shellCoverTitleFor` out of `ReaderScreen.kt`.
+- Added a source guard that prevents the shell root, shell-cover title mapping, retained viewer slot, native frame host wiring, and overlay stack from being resurrected inside `ReaderScreen.kt`.
+- Retargeted older common chrome guards so they check `ReaderRoot.kt` for overlay-stack implementation and `ReaderScreen.kt` only for the app-boundary call site.
+- Cleaned stale root/overlay imports from `ReaderScreen.kt`.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderRootAndComposeOverlayLiveInDedicatedKomikkuShellFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- Focused root/overlay-stack checks passed.
+- Full `ReaderRuntimeCommonChromeTest` passed.
+
+Release status:
+
+- No APK was built or published. This is a structural Komikku backbone slice, not a standalone user-validation release candidate.

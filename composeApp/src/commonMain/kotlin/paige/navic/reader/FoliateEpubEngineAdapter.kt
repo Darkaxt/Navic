@@ -53,6 +53,13 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.NavigateTo -> navigateTo(command.locator)
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
 			is ReaderEngineCommand.TurnPage -> turnPage(command.direction)
+			is ReaderEngineCommand.PreviewPageDrag -> dispatch(
+				ReaderBridgeCommand.PreviewPageDrag(
+					deltaX = command.deltaX,
+					viewWidth = command.viewWidth,
+					phase = command.phase
+				)
+			)
 			is ReaderEngineCommand.ScrollViewport -> scrollViewport(command.direction)
 			is ReaderEngineCommand.ContentLongPressAt -> dispatch(
 				ReaderBridgeCommand.ContentLongPressAt(
@@ -91,6 +98,8 @@ sealed class FoliateWebViewEngineAdapter(
 				href = event.href,
 				title = event.title
 			)
+			is ReaderBridgeEvent.PaginationProfileStatusChanged ->
+				ReaderEngineEvent.PaginationProfileStatusChanged(event.profile)
 			is ReaderBridgeEvent.SearchResults -> ReaderEngineEvent.SearchResults(
 				query = event.query,
 				results = event.results

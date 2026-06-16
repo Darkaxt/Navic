@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 
@@ -122,6 +123,35 @@ class ReaderBridgeProtocolTest {
 		assertContains(nextScript, "\"type\":\"nextPage\"")
 		assertContains(previousScript, "window.NavicReaderBridge.dispatch")
 		assertContains(previousScript, "\"type\":\"previousPage\"")
+	}
+
+	@Test
+	fun pageDragPreviewCommandDispatchesRendererPreviewIntent() {
+		val updateScript = ReaderBridgeCommand.PreviewPageDrag(
+			deltaX = -184.0,
+			viewWidth = 1440.0,
+			phase = ReaderPageDragPreviewPhase.Update
+		).toJavaScript()
+		val releaseScript = ReaderBridgeCommand.PreviewPageDrag(
+			deltaX = -512.0,
+			viewWidth = 1440.0,
+			phase = ReaderPageDragPreviewPhase.Release
+		).toJavaScript()
+		val cancelScript = ReaderBridgeCommand.PreviewPageDrag(
+			deltaX = Double.NaN,
+			viewWidth = Double.POSITIVE_INFINITY,
+			phase = ReaderPageDragPreviewPhase.Cancel
+		).toJavaScript()
+
+		assertContains(updateScript, "window.NavicReaderBridge.dispatch")
+		assertContains(updateScript, "\"type\":\"previewPageDrag\"")
+		assertContains(updateScript, "\"deltaX\":-184.0")
+		assertContains(updateScript, "\"viewWidth\":1440.0")
+		assertContains(updateScript, "\"phase\":\"update\"")
+		assertContains(releaseScript, "\"phase\":\"release\"")
+		assertContains(cancelScript, "\"deltaX\":0.0")
+		assertContains(cancelScript, "\"phase\":\"cancel\"")
+		assertFalse(cancelScript.contains("\"viewWidth\""))
 	}
 
 	@Test
@@ -356,6 +386,36 @@ class ReaderBridgeProtocolTest {
 				)
 			),
 			toc.items
+		)
+	}
+
+	@Test
+	fun bridgeEventsDecodePaginationProfileStatus() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "paginationProfileStatus",
+			  "status": "measuring",
+			  "fingerprint": "navic-pagination-v1:123",
+			  "completedSections": 3,
+			  "totalSections": 6,
+			  "pageCount": 392,
+			  "message": "profiling"
+			}
+			""".trimIndent()
+		)
+
+		val status = assertIs<ReaderBridgeEvent.PaginationProfileStatusChanged>(event)
+		assertEquals(
+			ReaderPaginationProfileStatus(
+				status = "measuring",
+				fingerprint = "navic-pagination-v1:123",
+				completedSections = 3,
+				totalSections = 6,
+				pageCount = 392,
+				message = "profiling"
+			),
+			status.profile
 		)
 	}
 

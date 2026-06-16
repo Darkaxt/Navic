@@ -24,6 +24,11 @@ sealed interface ReaderEngineCommand {
 	data class NavigateTo(val locator: ReaderLocator) : ReaderEngineCommand
 	data class Search(val query: String) : ReaderEngineCommand
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
+	data class PreviewPageDrag(
+		val deltaX: Double,
+		val viewWidth: Double? = null,
+		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
+	) : ReaderEngineCommand
 	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderEngineCommand
 	data class ContentLongPressAt(
 		val x: Double,
@@ -42,6 +47,12 @@ enum class ReaderPageTurnDirection {
 	Next
 }
 
+enum class ReaderPageDragPreviewPhase {
+	Update,
+	Release,
+	Cancel
+}
+
 enum class ReaderViewportScrollDirection {
 	Up,
 	Down
@@ -57,6 +68,10 @@ sealed interface ReaderEngineEvent {
 	data class TocItemChanged(
 		val href: String? = null,
 		val title: String? = null
+	) : ReaderEngineEvent
+
+	data class PaginationProfileStatusChanged(
+		val profile: ReaderPaginationProfileStatus
 	) : ReaderEngineEvent
 
 	data class ContentActionClaimed(val claim: ReaderContentActionClaim) : ReaderEngineEvent {

@@ -158,19 +158,35 @@ class FoliateEpubEngineAdapterTest {
 			.onCommand(ReaderEngineCommand.OpenPublication(hobbitOpenRequest()))
 			.engine
 
-		val down = opened.onCommand(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Down))
+		val preview = opened.onCommand(
+			ReaderEngineCommand.PreviewPageDrag(
+				deltaX = -184.0,
+				viewWidth = 1440.0,
+				phase = ReaderPageDragPreviewPhase.Update
+			)
+		)
+		val down = preview.engine.onCommand(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Down))
 		val up = down.engine.onCommand(ReaderEngineCommand.ScrollViewport(ReaderViewportScrollDirection.Up))
 
+		assertEquals(
+			ReaderBridgeCommand.PreviewPageDrag(
+				deltaX = -184.0,
+				viewWidth = 1440.0,
+				phase = ReaderPageDragPreviewPhase.Update
+			),
+			assertIs<ReaderEngineViewState.WebViewPublication>(preview.viewState).bridgeCommand()
+		)
+		assertEquals(1L, assertIs<ReaderEngineViewState.WebViewPublication>(preview.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ScrollViewport(ReaderViewportScrollDirection.Down),
 			assertIs<ReaderEngineViewState.WebViewPublication>(down.viewState).bridgeCommand()
 		)
-		assertEquals(1L, assertIs<ReaderEngineViewState.WebViewPublication>(down.viewState).commandKey)
+		assertEquals(2L, assertIs<ReaderEngineViewState.WebViewPublication>(down.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ScrollViewport(ReaderViewportScrollDirection.Up),
 			assertIs<ReaderEngineViewState.WebViewPublication>(up.viewState).bridgeCommand()
 		)
-		assertEquals(2L, assertIs<ReaderEngineViewState.WebViewPublication>(up.viewState).commandKey)
+		assertEquals(3L, assertIs<ReaderEngineViewState.WebViewPublication>(up.viewState).commandKey)
 	}
 
 	@Test
@@ -275,6 +291,24 @@ class FoliateEpubEngineAdapterTest {
 						resourceHref = "audio/chapter-01.mp3",
 						fragmentId = "clip-1",
 						label = "Chapter 1"
+					)
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.PaginationProfileStatusChanged(
+				ReaderPaginationProfileStatus(
+					status = "measuring",
+					completedSections = 2,
+					totalSections = 6
+				)
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.PaginationProfileStatusChanged(
+					ReaderPaginationProfileStatus(
+						status = "measuring",
+						completedSections = 2,
+						totalSections = 6
 					)
 				)
 			)

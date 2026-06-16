@@ -7,6 +7,12 @@ sealed interface ReaderViewerAction {
 		val direction: ReaderPageTurnDirection
 	) : ReaderViewerAction
 
+	data class PreviewPageDrag(
+		val deltaX: Double,
+		val viewWidth: Double? = null,
+		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
+	) : ReaderViewerAction
+
 	data class ScrollViewport(
 		val direction: ReaderViewportScrollDirection
 	) : ReaderViewerAction

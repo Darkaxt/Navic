@@ -119,15 +119,24 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderWebViewDebuggingIsControlledByEbookSetting() {
+	fun androidReaderWebViewDebuggingIsControlledByDeveloperSetting() {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
 		assertContains(hostText, "enableDebugging = settings.webContentsDebuggingEnabled == true")
-		assertContains(ebooksSettingsText, "readerWebContentsDebuggingEnabled")
-		assertContains(ebooksSettingsText, "option_ebook_reader_web_debugging")
-		assertContains(searchSettingsText, "ebooks.web-debugging")
+		assertFalse(
+			ebooksSettingsText.contains("option_ebook_reader_web_debugging"),
+			"WebView debugging is a developer diagnostic and should not be shown in Ebook reader settings."
+		)
+		assertContains(developerSettingsText, "readerWebContentsDebuggingEnabled")
+		assertContains(developerSettingsText, "option_ebook_reader_web_debugging")
+		assertContains(searchSettingsText, "developer.web-debugging")
+		assertFalse(
+			searchSettingsText.contains("ebooks.web-debugging"),
+			"Settings search should route WebView debugging to Developer Options, not Ebooks."
+		)
 		assertContains(searchSettingsText, "readerWebContentsDebuggingEnabled")
 	}
 

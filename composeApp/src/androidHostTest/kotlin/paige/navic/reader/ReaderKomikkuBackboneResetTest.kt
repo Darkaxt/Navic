@@ -400,6 +400,9 @@ class ReaderKomikkuBackboneResetTest {
 		val navigationFile = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/KomikkuViewerNavigation.kt"
 		)
+		val readerNavigationFile = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderNavigation.kt"
+		)
 		val activeReaderScreen = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		)
@@ -407,6 +410,7 @@ class ReaderKomikkuBackboneResetTest {
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		)
 		val navigationText = navigationFile.readText()
+		val readerNavigationText = readerNavigationFile.readText()
 		val activeText = activeReaderScreen.readText()
 		val androidText = androidNativeHost.readText()
 
@@ -422,8 +426,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(navigationText.contains("fun invert(invertMode: KomikkuTappingInvertMode)"))
 		assertTrue(navigationText.contains("getAction(pos: KomikkuPoint)"))
 		assertTrue(activeText.contains("settings.tapZoneInvertMode"))
-		assertTrue(activeText.contains("navigation.invertMode = komikkuTappingInvertMode(settings.tapZoneInvertMode)"))
-		assertTrue(activeText.contains("KomikkuReaderNavigator("))
+		assertTrue(readerNavigationText.contains("navigation.invertMode = komikkuTappingInvertMode(settings.tapZoneInvertMode)"))
+		assertTrue(readerNavigationText.contains("KomikkuReaderNavigator("))
 		assertTrue(activeText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(androidText.contains("navigator.getAction("))
 		assertTrue(androidText.contains("KomikkuReaderNativeNavigationOverlayView"))
@@ -609,9 +613,11 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				handleTouch.contains("if (shellCoverVisible)") &&
-				handleTouch.contains("updateReadableViewerDragOffset(dx)") &&
+				handleTouch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)") &&
+				handleTouch.contains("ReaderPageDragPreviewPhase.Release") &&
+				handleTouch.contains("ReaderPageDragPreviewPhase.Cancel") &&
 				handleTouch.contains("dispatchHorizontalSwipeViewerAction("),
-			"Shell-cover and readable drags both stay under the native top manager; readable drags need visible translation before release."
+			"Shell-cover and readable drags both stay under the native top manager; readable drags must drive renderer preview before release."
 		)
 		assertTrue(
 			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
@@ -624,6 +630,61 @@ class ReaderKomikkuBackboneResetTest {
 			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
 				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
 			"Native swipes must still emit viewer actions only; engine command translation stays behind the controller/engine boundary."
+		)
+	}
+
+	@Test
+	fun readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val platformHostsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
+		).readText()
+		val readerScreenText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val viewerActionText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderViewerAction.kt"
+		).readText()
+		val engineText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderEngine.kt"
+		).readText()
+		val adapterText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/reader/FoliateEpubEngineAdapter.kt"
+		).readText()
+		val bridgeText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt"
+		).readText()
+		val runtimeText = root.resolve(
+			"composeApp/src/androidMain/assets/reader/navic-reader.js"
+		).readText()
+		val viewerContainerBody = androidHostText
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+
+		assertFalse(
+			viewerContainerBody.contains("viewerContentContainer.translationX = deltaX"),
+			"Moving the whole WebView exposes the parent background during drag; readable drag preview must drive Foliate's own paginated renderer."
+		)
+		assertTrue(
+			platformHostsText.contains("onReadableDragPreview:") &&
+				androidHostText.contains("onReadableDragPreview:") &&
+				readerScreenText.contains("ReaderViewerAction.PreviewPageDrag"),
+			"The native frame should route readable drag deltas through the reader controller instead of directly manipulating the WebView container."
+		)
+		assertTrue(
+			viewerActionText.contains("data class PreviewPageDrag") &&
+				engineText.contains("data class PreviewPageDrag") &&
+				adapterText.contains("ReaderBridgeCommand.PreviewPageDrag") &&
+				bridgeText.contains("data class PreviewPageDrag"),
+			"Readable drag preview must be a typed controller/engine/bridge command so EPUB and PDF adapters can own renderer-specific behavior."
+		)
+		assertTrue(
+			runtimeText.contains("case 'previewPageDrag':") &&
+				runtimeText.contains("previewPageDrag(command)") &&
+				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)"),
+			"Foliate runtime preview should scroll the paginator itself; that exposes neighboring columns instead of a black native background."
 		)
 	}
 
@@ -1630,8 +1691,8 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
-				moveBranch.indexOf("updateReadableViewerDragOffset(dx)"),
-			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer keeps the drag stream."
+				moveBranch.indexOf("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
+			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer preview keeps the drag stream."
 		)
 	}
 
@@ -1655,7 +1716,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		assertTrue(
 			moveBranch.contains("updateShellCoverDragOffset(dx)") &&
-				moveBranch.contains("updateReadableViewerDragOffset(dx)"),
+				moveBranch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
 			"Move events should provide visual drag feedback for both cover and readable pages without committing navigation."
 		)
 		assertFalse(

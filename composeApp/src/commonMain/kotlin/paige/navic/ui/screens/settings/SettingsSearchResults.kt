@@ -958,15 +958,6 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			onSetValue = { enabled -> preferenceManager.readerSmallerTapZone = enabled }
 		))
 		add(switchRow(
-			id = "ebooks.show-tap-zones",
-			path = path(ebooks),
-			title = stringResource(Res.string.option_ebook_reader_show_tap_zones),
-			subtitle = stringResource(Res.string.subtitle_ebook_reader_show_tap_zones),
-			keywords = listOf("reader", "ebook", "EPUB", "tap", "gesture", "Komikku", "debug", "zones", "visible"),
-			value = preferenceManager.readerShowTapZones,
-			onSetValue = { enabled -> preferenceManager.readerShowTapZones = enabled }
-		))
-		add(switchRow(
 			id = "ebooks.publisher-styles",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_publisher_styles),
@@ -1002,18 +993,6 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			value = preferenceManager.readerMediaOverlayEnabled,
 			onSetValue = { enabled -> preferenceManager.readerMediaOverlayEnabled = enabled }
 		))
-		if (isAndroid) {
-			add(switchRow(
-				id = "ebooks.web-debugging",
-				path = path(ebooks),
-				title = stringResource(Res.string.option_ebook_reader_web_debugging),
-				subtitle = stringResource(Res.string.subtitle_ebook_reader_web_debugging),
-				keywords = listOf("reader", "ebook", "EPUB", "WebView", "DevTools", "debugging"),
-				value = preferenceManager.readerWebContentsDebuggingEnabled,
-				onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
-			))
-		}
-
 		if (!isApple) {
 			add(selectionRow(
 				id = "playback.replay-gain",
@@ -1811,6 +1790,26 @@ private fun searchableSettingsRows(): List<SearchableSettingsRow> {
 			keywords = listOf("logs", "diagnostics", "playback", "errors", "issues"),
 			value = preferenceManager.issueLoggingEnabled,
 			onSetValue = appLogManager::setEnabled
+		))
+		if (isAndroid) {
+			add(switchRow(
+				id = "developer.web-debugging",
+				path = path(developer),
+				title = stringResource(Res.string.option_ebook_reader_web_debugging),
+				subtitle = stringResource(Res.string.subtitle_ebook_reader_web_debugging),
+				keywords = listOf("reader", "ebook", "EPUB", "WebView", "DevTools", "debugging", "diagnostics"),
+				value = preferenceManager.readerWebContentsDebuggingEnabled,
+				onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
+			))
+		}
+		add(switchRow(
+			id = "developer.show-tap-zones",
+			path = path(developer),
+			title = stringResource(Res.string.option_ebook_reader_show_tap_zones),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_show_tap_zones),
+			keywords = listOf("reader", "ebook", "EPUB", "tap", "gesture", "Komikku", "debug", "diagnostics", "zones", "visible"),
+			value = preferenceManager.readerShowTapZones,
+			onSetValue = { enabled -> preferenceManager.readerShowTapZones = enabled }
 		))
 		add(switchRow(
 			id = "developer.reverse-proxy-basic-auth",

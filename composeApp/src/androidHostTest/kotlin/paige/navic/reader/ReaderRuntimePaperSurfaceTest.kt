@@ -13,26 +13,25 @@ class ReaderRuntimePaperSurfaceTest {
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val texture1 = root.resolve("paper-textures/paper-texture-1.png")
-		val texture2 = root.resolve("paper-textures/paper-texture-2.png")
-		val texture3 = root.resolve("paper-textures/paper-texture-3.png")
+		val textures = (1..9).map { index ->
+			root.resolve("paper-textures/paper-texture-${index.toString().padStart(2, '0')}.jpg")
+		}
 
-		assertTrue(texture1.isFile, "Reader paper texture 1 must be packaged")
-		assertTrue(texture2.isFile, "Reader paper texture 2 must be packaged")
-		assertTrue(texture3.isFile, "Reader paper texture 3 must be packaged")
-		assertTrue(texture1.length() > 1_000, "Reader paper texture 1 should be a real image")
-		assertTrue(texture2.length() > 1_000, "Reader paper texture 2 should be a real image")
-		assertTrue(texture3.length() > 1_000, "Reader paper texture 3 should be a real image")
-		assertTrue(texture1.hasPngAlphaChannel(), "Reader paper texture 1 must be transparent")
-		assertTrue(texture2.hasPngAlphaChannel(), "Reader paper texture 2 must be transparent")
-		assertTrue(texture3.hasPngAlphaChannel(), "Reader paper texture 3 must be transparent")
-		assertTrue(texture1.averagePngAlpha() >= 2.0, "Reader paper texture 1 must be visible at runtime")
-		assertTrue(texture2.averagePngAlpha() >= 2.0, "Reader paper texture 2 must be visible at runtime")
-		assertTrue(texture3.averagePngAlpha() >= 2.0, "Reader paper texture 3 must be visible at runtime")
+		assertEquals(9, textures.size, "Reader paper texture pack should expose nine cropped source regions")
+		textures.forEachIndexed { index, texture ->
+			val label = index + 1
+			assertTrue(texture.isFile, "Reader paper texture $label must be packaged")
+			assertTrue(texture.length() > 250_000, "Reader paper texture $label should be a real reader-sized image")
+			val stats = texture.sampledLuminanceStats()
+			assertTrue(stats.width >= 1440, "Reader paper texture $label should preserve realistic pore scale")
+			assertTrue(stats.height >= 2000, "Reader paper texture $label should preserve realistic pore scale")
+			assertTrue(stats.average in 205.0..240.0, "Reader paper texture $label should stay neutral/light for theme tinting")
+			assertTrue(stats.standardDeviation >= 2.5, "Reader paper texture $label must contain visible paper fibers/pores")
+		}
 		assertContains(bridgeText, "ReaderPaperTextureAssets")
-		assertContains(bridgeText, "paper-textures/paper-texture-1.png")
-		assertContains(bridgeText, "paper-textures/paper-texture-2.png")
-		assertContains(bridgeText, "paper-textures/paper-texture-3.png")
+		textures.forEach { texture ->
+			assertContains(bridgeText, "paper-textures/${texture.name}")
+		}
 		assertContains(bridgeText, "ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2")
 		assertContains(bridgeText, "readerPaperTextureVariantKey")
 		assertContains(bridgeText, "readerPaperTextureVariantForPage")
@@ -111,10 +110,14 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.42'")
+		assertContains(textureOpacity, "return '0.54'")
 		assertFalse(
 			textureOpacity.contains("return '0.14'"),
 			"Sepia paper pores were too subtle at 0.14 and looked absent on-device."
+		)
+		assertFalse(
+			textureOpacity.contains("return '0.42'"),
+			"Sepia paper pores were still too subtle at 0.42 with the old generated overlays."
 		)
 		assertFalse(
 			textureOpacity.contains("case ReaderThemeSepia:\n      return '0.24'"),
@@ -408,6 +411,30 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview() {
+		val bridgeText = readerBridgeText()
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\n  async scrollViewport")
+
+		assertContains(
+			previewPageDrag,
+			"readerPaperTextureDragDirection({",
+			message = "Native-owned readable drags bypass document touchmove tracking, so the bridge preview path must seed texture direction itself."
+		)
+		assertContains(
+			previewPageDrag,
+			"this.surfacePaperTextureTurnDirection = textureDirection",
+			message = "Native readable drag preview must use the same sticky next/previous texture direction as explicit page turns."
+		)
+		assertContains(
+			previewPageDrag,
+			"readerTrace('texture:drag-direction'",
+			message = "Texture direction seeded by native drag preview must be visible in harness and ADB trace diagnostics."
+		)
+	}
+
+	@Test
 	fun androidReaderPaperTextureDoesNotAbortFixedLayoutOpenWhenPageIndexIsUnavailable() {
 		val bridgeText = readerBridgeText()
 		val fixedLayoutIndex = bridgeText
@@ -590,6 +617,30 @@ class ReaderRuntimePaperSurfaceTest {
 		assertFalse(
 			traversalLoop.contains("snapshot = await collectSnapshot()"),
 			"Full traversal must not run the expensive DOM/image geometry scan on every page."
+		)
+	}
+
+	@Test
+	fun readerHarnessFullTraversalRejectsRawLocationPageTotals() {
+		val assertionFile = listOf(
+			java.io.File("tools/reader-harness/src/reader-trace-assertions.mjs"),
+			java.io.File("../tools/reader-harness/src/reader-trace-assertions.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader trace assertions")
+		val assertionsText = assertionFile.readText()
+		val fullTraversalAssertion = assertionsText
+			.substringAfter("export const assertFullEpubTraversal = result => {")
+			.substringBefore("\nexport const assertShellCoverDoesNotNavigateWebViewToCover")
+
+		assertContains(
+			fullTraversalAssertion,
+			"page.location?.pageCountSource !== 'pagination-profile'",
+			message = "Full traversal must fail if any visible EPUB page falls back to raw Foliate location totals such as 1748."
+		)
+		assertContains(
+			fullTraversalAssertion,
+			"Expected full traversal page labels to use pagination-profile",
+			message = "The failure message must identify profile-source regressions instead of reporting only sequential labels."
 		)
 	}
 

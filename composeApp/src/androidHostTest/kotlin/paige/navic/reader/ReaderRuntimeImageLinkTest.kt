@@ -139,6 +139,8 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun commonReaderUsesNativeShellCoverSurfaceWhenResolverProvidesCoverUrl() {
 		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
 		val engineText = readerCommonFile("ReaderEngine.kt").readText()
@@ -151,13 +153,14 @@ class ReaderRuntimeImageLinkTest {
 			"resolved.shellCoverUrl",
 			message = "The Android resolver's EPUB cover URL must be surfaced to common reader UI."
 		)
-		assertContains(readerScreenText, "shellCoverUrl: String?")
-		assertContains(readerScreenText, "val hasShellCover = !shellCoverUrl.isNullOrBlank()")
-		assertContains(readerScreenText, "nativeShellCoverUrl = shellCoverUrl")
-		assertContains(readerScreenText, "canReturnToShellCover = hasShellCover")
-		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
-		assertContains(readerScreenText, "shellCoverVisible = controllerState.shellCoverVisible")
-		assertContains(readerScreenText, "shellCoverUrl = shellCoverUrl")
+		assertContains(readerScreenText, "reader.toReaderEngineOpenRequest(")
+		assertContains(openRequestText, "shellCoverUrl: String?")
+		assertContains(openRequestText, "val hasShellCover = !shellCoverUrl.isNullOrBlank()")
+		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl")
+		assertContains(openRequestText, "canReturnToShellCover = hasShellCover")
+		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerRootText, "shellCoverVisible = controllerState.shellCoverVisible")
+		assertContains(readerRootText, "shellCoverUrl = shellCoverUrl")
 		assertContains(engineText, "nativeShellCoverUrl: String?")
 		assertContains(engineText, "canReturnToShellCover: Boolean")
 		assertContains(foliateAdapterText, "nativeShellCoverUrl = request.nativeShellCoverUrl")
@@ -234,12 +237,13 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
-		assertContains(readerScreenText, "nativeShellCoverUrl = shellCoverUrl")
+		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
 		assertContains(nativeFrameHostText, "canvas.drawColor(Color.BLACK)")
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
@@ -927,7 +931,7 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderSuppressesMenuChromeWithNativeFrameRuntimeContentHitTest() {
+	fun androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress() {
 		val bridgeText = readerBridgeText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
@@ -955,33 +959,24 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			viewerContainerBody,
-			"dispatchSingleTapAction(action, event)",
+			"dispatchSingleTapAction(action)",
 			message = "The native frame must route confirmed tap actions through one Android-owned dispatcher."
 		)
-		assertContains(
-			viewerContainerBody,
-			"dispatchMenuActionAfterContentHitTest(event)",
-			message = "Menu-zone taps must ask the active renderer whether real content owns that coordinate before opening chrome."
+		assertFalse(
+			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
+				viewerContainerBody.contains("readerContentActionAtPoint") ||
+				viewerContainerBody.contains("Reader native menu suppressed by content hit"),
+			"Short menu-zone taps must not ask WebView content to veto chrome; content activation belongs to long press or an explicit future content mode."
 		)
 		assertContains(
 			viewerContainerBody,
-			"findReaderWebView()",
-			message = "The hit test must be owned by the native frame that sits over the renderer, not by the WebView host."
-		)
-		assertContains(
-			viewerContainerBody,
-			"readerContentActionAtPoint",
-			message = "The native frame must use the runtime's typed content hit test instead of raw WebView hit-test types."
-		)
-		assertContains(
-			viewerContainerBody,
-			"Reader native menu suppressed by content hit",
-			message = "ADB logs must distinguish an intentional content-owned menu suppression from a missed tap."
+			"onContentLongPress(event.x, event.y, width, height)",
+			message = "The native frame must keep the deliberate long-press path for renderer content actions."
 		)
 	}
 
 	@Test
-	fun androidReaderQueriesRuntimeContentHitOnlyForMenuActions() {
+	fun androidReaderShortTapRegionsNeverQueryRuntimeContentHitTesting() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val viewerContainerBody = nativeFrameHostText
@@ -996,12 +991,13 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			viewerContainerBody,
 			"if (action != KomikkuNavigationRegion.MENU)",
-			message = "Only menu-zone taps should be gated by renderer content hit testing; previous/next edge taps remain native."
+			message = "Previous/next edge taps remain native and dispatch immediately."
 		)
-		assertTrue(
-			viewerContainerBody.indexOf("if (action != KomikkuNavigationRegion.MENU)") <
-				viewerContainerBody.indexOf("dispatchMenuActionAfterContentHitTest(event)"),
-			"Page-turn actions must bypass content hit testing before menu-specific suppression is considered."
+		assertFalse(
+			viewerContainerBody.contains("findReaderWebView()") ||
+				viewerContainerBody.contains("evaluateJavascript(script)") ||
+				viewerContainerBody.contains("readerContentActionAtPoint"),
+			"No short-tap region may query renderer content hit testing; long-press commands own that bridge."
 		)
 	}
 

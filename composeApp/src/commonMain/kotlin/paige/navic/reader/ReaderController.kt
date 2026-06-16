@@ -47,6 +47,7 @@ data class ReaderControllerState(
 	val annotations: ReaderAnnotationState = ReaderAnnotationState(),
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
+	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,
@@ -101,6 +102,7 @@ data class ReaderController(
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
+					paginationProfile = ReaderPaginationProfileStatus(),
 					lastContentActionClaim = null
 				)
 			),
@@ -146,6 +148,9 @@ data class ReaderController(
 						chrome = state.chrome.onTocItemChanged(event.title)
 					)
 				)
+			)
+			is ReaderEngineEvent.PaginationProfileStatusChanged -> ReaderControllerStep(
+				copy(state = state.copy(paginationProfile = event.profile))
 			)
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
 				copy(state = state.copy(lastContentActionClaim = event.claim))
@@ -352,6 +357,7 @@ data class ReaderController(
 				)
 			)
 			is ReaderViewerAction.TurnPage -> turnPage(action.direction)
+			is ReaderViewerAction.PreviewPageDrag -> previewPageDrag(action)
 			is ReaderViewerAction.ScrollViewport -> scrollViewport(action.direction)
 			is ReaderViewerAction.ContentLongPressAt -> contentLongPressAt(action)
 		}
@@ -449,6 +455,18 @@ data class ReaderController(
 		ReaderControllerStep(
 			controller = this,
 			engineCommands = listOf(ReaderEngineCommand.ScrollViewport(direction))
+		)
+
+	private fun previewPageDrag(action: ReaderViewerAction.PreviewPageDrag): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = this,
+			engineCommands = listOf(
+				ReaderEngineCommand.PreviewPageDrag(
+					deltaX = action.deltaX,
+					viewWidth = action.viewWidth,
+					phase = action.phase
+				)
+			)
 		)
 
 	private fun contentLongPressAt(action: ReaderViewerAction.ContentLongPressAt): ReaderControllerStep =

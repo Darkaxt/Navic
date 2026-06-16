@@ -1512,10 +1512,17 @@ if (mode === 'epub-full-traversal') {
       snapshot = await collectLocationSnapshot()
     }
     const trace = await page.evaluate(() => window.__navicReaderTrace || [])
+    const paginationProfileEvents = trace
+      .filter(event => typeof event?.type === 'string' && event.type.startsWith('pagination-profile:'))
+      .map(event => ({
+        type: event.type,
+        payload: event.payload || {},
+      }))
     const result = {
       pages,
       coverImageHits,
       coverLikePages,
+      paginationProfileEvents,
       traceSummary: {
         rawRelocations: trace.filter(event => event?.type === 'relocate:raw').length,
         committedLocations: trace.filter(event => event?.type === 'location:post').length,

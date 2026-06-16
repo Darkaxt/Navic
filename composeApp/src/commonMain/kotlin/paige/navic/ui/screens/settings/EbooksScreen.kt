@@ -90,7 +90,6 @@ import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_kindle
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shaped
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
 import navic.composeapp.generated.resources.option_ebook_reader_smaller_tap_zones
-import navic.composeapp.generated.resources.option_ebook_reader_show_tap_zones
 import navic.composeapp.generated.resources.option_ebook_reader_theme
 import navic.composeapp.generated.resources.option_ebook_reader_theme_black
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
@@ -98,7 +97,6 @@ import navic.composeapp.generated.resources.option_ebook_reader_theme_dusk
 import navic.composeapp.generated.resources.option_ebook_reader_theme_light
 import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
 import navic.composeapp.generated.resources.option_ebook_reader_volume_keys
-import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.subtitle_ebook_reader_clear_imported_font
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
@@ -124,12 +122,10 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_fit
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_page_gap
 import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styles
 import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zones
-import navic.composeapp.generated.resources.subtitle_ebook_reader_show_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone_invert
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
 import navic.composeapp.generated.resources.subtitle_ebook_reader_volume_keys
-import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.title_ebook_reader
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -193,7 +189,6 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.components.SettingValueRow
-import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -451,12 +446,6 @@ fun SettingsEbooksScreen() {
 						onSetValue = { enabled -> preferenceManager.readerSmallerTapZone = enabled }
 					)
 					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_ebook_reader_show_tap_zones)) },
-						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_show_tap_zones)) },
-						value = preferenceManager.readerShowTapZones,
-						onSetValue = { enabled -> preferenceManager.readerShowTapZones = enabled }
-					)
-					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_publisher_styles)) },
 						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_publisher_styles)) },
 						value = preferenceManager.readerPublisherStylesEnabled,
@@ -480,14 +469,6 @@ fun SettingsEbooksScreen() {
 						value = preferenceManager.readerMediaOverlayEnabled,
 						onSetValue = { enabled -> preferenceManager.readerMediaOverlayEnabled = enabled }
 					)
-					if (platformContext.platformType == PlatformType.Android) {
-						SettingSwitchRow(
-							title = { Text(stringResource(Res.string.option_ebook_reader_web_debugging)) },
-							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_web_debugging)) },
-							value = preferenceManager.readerWebContentsDebuggingEnabled,
-							onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
-						)
-					}
 				}
 			}
 		}

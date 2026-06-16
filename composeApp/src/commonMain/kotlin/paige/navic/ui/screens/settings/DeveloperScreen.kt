@@ -26,7 +26,11 @@ import navic.composeapp.generated.resources.action_test_exception_handler
 import navic.composeapp.generated.resources.info_exception_handler
 import navic.composeapp.generated.resources.option_check_for_updates
 import navic.composeapp.generated.resources.option_custom_headers
+import navic.composeapp.generated.resources.option_ebook_reader_show_tap_zones
+import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.option_issue_logging
+import navic.composeapp.generated.resources.subtitle_ebook_reader_show_tap_zones
+import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.subtitle_issue_logging
 import navic.composeapp.generated.resources.subtitle_check_for_updates
 import navic.composeapp.generated.resources.title_confirm
@@ -88,6 +92,20 @@ fun SettingsDeveloperScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_issue_logging)) },
 						value = preferenceManager.issueLoggingEnabled,
 						onSetValue = appLogManager::setEnabled
+					)
+					if (platformContext.platformType == PlatformType.Android) {
+						SettingSwitchRow(
+							title = { Text(stringResource(Res.string.option_ebook_reader_web_debugging)) },
+							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_web_debugging)) },
+							value = preferenceManager.readerWebContentsDebuggingEnabled,
+							onSetValue = { enabled -> preferenceManager.readerWebContentsDebuggingEnabled = enabled }
+						)
+					}
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_show_tap_zones)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_show_tap_zones)) },
+						value = preferenceManager.readerShowTapZones,
+						onSetValue = { enabled -> preferenceManager.readerShowTapZones = enabled }
 					)
 					FormRow(
 						onClick = dropUnlessResumed {
