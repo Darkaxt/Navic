@@ -26,8 +26,16 @@ class ReaderKomikkuBackboneResetTest {
 		val readerViewerHost = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
 		)
+		val readerRoot = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		)
+		val readerAppBars = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		)
 		val activeText = activeReaderScreen.readText()
 		val viewerHostText = readerViewerHost.readText()
+		val readerRootText = readerRoot.readText()
+		val appBarsText = readerAppBars.readText()
 
 		assertTrue(
 			vaultRoot.resolve("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").exists(),
@@ -47,15 +55,15 @@ class ReaderKomikkuBackboneResetTest {
 		)
 
 		assertTrue(activeText.contains("KomikkuReaderRoot("))
-		assertTrue(activeText.contains("KomikkuReaderNativeFrameHost("))
-		assertTrue(activeText.contains("ReaderViewerHost("))
-		assertTrue(activeText.contains("KomikkuComposeOverlay("))
-		assertTrue(activeText.contains("KomikkuReaderAppBars("))
-		assertTrue(activeText.contains("KomikkuChapterNavigator("))
-		assertTrue(activeText.contains("KomikkuReaderBottomBar("))
-		assertTrue(activeText.contains("Ported from Komikku ReaderAppBars"))
+		assertTrue(readerRootText.contains("KomikkuReaderNativeFrameHost("))
+		assertTrue(readerRootText.contains("ReaderViewerHost("))
+		assertTrue(readerRootText.contains("KomikkuComposeOverlay("))
+		assertTrue(readerRootText.contains("KomikkuReaderAppBars("))
+		assertTrue(appBarsText.contains("KomikkuChapterNavigator("))
+		assertTrue(appBarsText.contains("KomikkuReaderBottomBar("))
+		assertTrue(appBarsText.contains("Ported from Komikku ReaderAppBars"))
 		assertFalse(
-			activeText.contains("KomikkuReaderPageIndicator("),
+			activeText.contains("KomikkuReaderPageIndicator(") || readerRootText.contains("KomikkuReaderPageIndicator("),
 			"Page numbers must stay organic inside the rendered book surface, not as a Compose/mobile overlay."
 		)
 		assertTrue(
@@ -107,11 +115,11 @@ class ReaderKomikkuBackboneResetTest {
 			"The Komikku reset root must not give reader controls bottom-bar layout ownership."
 		)
 		assertFalse(
-			activeText.contains("private fun KomikkuReaderContainer"),
+			activeText.contains("private fun KomikkuReaderContainer") || readerRootText.contains("private fun KomikkuReaderContainer"),
 			"The active common reader must not emulate Komikku's native reader_container with a Compose helper."
 		)
 		assertFalse(
-			activeText.contains("private fun KomikkuReaderGestureLayer"),
+			activeText.contains("private fun KomikkuReaderGestureLayer") || readerRootText.contains("private fun KomikkuReaderGestureLayer"),
 			"The active common reader must not keep Compose as the owner of reader-wide gestures."
 		)
 	}
@@ -238,12 +246,12 @@ class ReaderKomikkuBackboneResetTest {
 		val readerViewerHost = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
 		)
-		val readerScreen = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val readerRoot = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		)
 		val viewerText = readerViewerFile.readText()
 		val hostText = readerViewerHost.readText()
-		val screenText = readerScreen.readText()
+		val rootText = readerRoot.readText()
 
 		assertTrue(
 			viewerText.contains("val engineRenderer: ReaderEngineRenderer"),
@@ -258,7 +266,7 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderViewerHost must consume the engine renderer descriptor, not the concrete viewer implementation."
 		)
 		assertTrue(
-			screenText.contains("engineRenderer = viewer.engineRenderer"),
+			rootText.contains("engineRenderer = viewer.engineRenderer"),
 			"KomikkuReaderRoot must pass the active viewer's engine renderer descriptor into the viewer container."
 		)
 		assertFalse(
@@ -276,8 +284,12 @@ class ReaderKomikkuBackboneResetTest {
 		val activeReaderScreen = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		)
+		val readerAppBars = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		)
 		val activeText = activeReaderScreen.readText()
-		val topBarBody = activeText
+		val appBarsText = readerAppBars.readText()
+		val topBarBody = appBarsText
 			.substringAfter("private fun KomikkuReaderTopBar(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
 
@@ -336,8 +348,11 @@ class ReaderKomikkuBackboneResetTest {
 		val activeText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
-		val appBarsBody = activeText
-			.substringAfter("private fun KomikkuReaderAppBars(")
+		val appBarsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		).readText()
+		val appBarsBody = appBarsText
+			.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 
 		assertTrue(
@@ -408,12 +423,16 @@ class ReaderKomikkuBackboneResetTest {
 		val activeReaderScreen = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		)
+		val readerRoot = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		)
 		val androidNativeHost = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		)
 		val navigationText = navigationFile.readText()
 		val readerNavigationText = readerNavigationFile.readText()
 		val activeText = activeReaderScreen.readText()
+		val readerRootText = readerRoot.readText()
 		val androidText = androidNativeHost.readText()
 
 		assertTrue(navigationText.contains("Ported from Komikku"))
@@ -430,7 +449,7 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(activeText.contains("settings.tapZoneInvertMode"))
 		assertTrue(readerNavigationText.contains("navigation.invertMode = komikkuTappingInvertMode(settings.tapZoneInvertMode)"))
 		assertTrue(readerNavigationText.contains("KomikkuReaderNavigator("))
-		assertTrue(activeText.contains("KomikkuReaderNativeFrameHost("))
+		assertTrue(readerRootText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(androidText.contains("navigator.getAction("))
 		assertTrue(androidText.contains("KomikkuReaderNativeNavigationOverlayView"))
 		assertTrue(androidText.contains("navigator?.getRegions()?.forEach"))
@@ -453,6 +472,9 @@ class ReaderKomikkuBackboneResetTest {
 		val activeReaderScreen = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		)
+		val readerRoot = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		)
 		val platformHosts = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
 		)
@@ -460,6 +482,7 @@ class ReaderKomikkuBackboneResetTest {
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		)
 		val activeText = activeReaderScreen.readText()
+		val readerRootText = readerRoot.readText()
 		val platformText = platformHosts.readText()
 
 		assertTrue(
@@ -468,7 +491,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		val androidText = androidHost.readText()
 
-		assertTrue(activeText.contains("KomikkuReaderNativeFrameHost("))
+		assertTrue(readerRootText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(platformText.contains("expect fun KomikkuReaderNativeFrameHost("))
 		assertTrue(androidText.contains("actual fun KomikkuReaderNativeFrameHost("))
 		assertTrue(androidText.contains("AndroidView("))
@@ -492,13 +515,17 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
 		assertTrue(androidText.indexOf("super.dispatchTouchEvent(event)") < androidText.indexOf("gestureDetector.onTouchEvent(event)"))
 		assertFalse(
-			activeText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))"),
+			activeText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))") ||
+				readerRootText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))"),
 			"The active reader root must not remain a Compose-only Box emulating Komikku's native hierarchy."
 		)
 	}
 
 	@Test
 	fun nativeKomikkuFrameAppliesViewerLayerColorMatrixLikeKomikku() {
+		val readerRoot = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
 		val activeReaderScreen = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
@@ -517,8 +544,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(komikkuReaderActivity.contains("postConcat("))
 		assertTrue(komikkuReaderActivity.contains("binding.viewerContainer.setLayerType(LAYER_TYPE_HARDWARE, paint)"))
 
-		assertTrue(activeReaderScreen.contains("grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true"))
-		assertTrue(activeReaderScreen.contains("invertedColors = controllerState.chrome.settings.invertedColors == true"))
+		assertTrue(readerRoot.contains("grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true"))
+		assertTrue(readerRoot.contains("invertedColors = controllerState.chrome.settings.invertedColors == true"))
 		assertTrue(platformHosts.contains("grayscaleEnabled: Boolean"))
 		assertTrue(platformHosts.contains("invertedColors: Boolean"))
 		assertTrue(androidHost.contains("import android.graphics.ColorMatrix"))
@@ -529,7 +556,8 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(androidHost.contains("ColorMatrixColorFilter"))
 		assertTrue(androidHost.contains("viewerContainer.setLayerType(View.LAYER_TYPE_HARDWARE, paint)"))
 		assertFalse(
-			activeReaderScreen.contains("drawRect(Color.White") && activeReaderScreen.contains("grayscaleEnabled"),
+			(activeReaderScreen.contains("drawRect(Color.White") || readerRoot.contains("drawRect(Color.White")) &&
+				readerRoot.contains("grayscaleEnabled"),
 			"Grayscale/invert must be a native viewer-container layer paint like Komikku, not another Compose tint overlay."
 		)
 	}
@@ -699,7 +727,7 @@ class ReaderKomikkuBackboneResetTest {
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
 		val activeReaderText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val platformHostText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
@@ -944,8 +972,8 @@ class ReaderKomikkuBackboneResetTest {
 		val coordinatorText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderCoordinator.kt"
 		).readText()
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 
 		assertTrue(
@@ -957,14 +985,14 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderCoordinator must expose viewer-owned movement to the shell."
 		)
 		assertTrue(
-			readerScreenText.contains("readerShellCoverViewerActionFor(action)") &&
-				readerScreenText.contains("viewer.viewerActionFor(action)"),
+			readerRootText.contains("readerShellCoverViewerActionFor(action)") &&
+				readerRootText.contains("viewer.viewerActionFor(action)"),
 			"ReaderScreen must translate native tap regions through the shell-cover mapper or active viewer before reaching the controller."
 		)
 		assertFalse(
 			controllerText.contains("ReaderControllerNavigationAction") ||
 				coordinatorText.contains("ReaderControllerNavigationAction") ||
-				readerScreenText.contains("ReaderControllerNavigationAction"),
+				readerRootText.contains("ReaderControllerNavigationAction"),
 			"Reader movement must not keep a parallel controller-navigation enum that can reclaim LEFT/RIGHT/scroll semantics from the viewer."
 		)
 		assertFalse(
@@ -1099,6 +1127,9 @@ class ReaderKomikkuBackboneResetTest {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
 		val viewerHostPath = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
 		)
@@ -1109,15 +1140,16 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		val viewerHostText = viewerHostPath.readText()
 		assertTrue(
-			readerScreenText.contains("ReaderViewerHost("),
+			readerRootText.contains("ReaderViewerHost("),
 			"ReaderScreen should mount a viewer host into Komikku's viewer_container slot."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderEngineWebViewHost("),
+			readerScreenText.contains("ReaderEngineWebViewHost(") || readerRootText.contains("ReaderEngineWebViewHost("),
 			"ReaderScreen must not mount the Foliate/WebView renderer directly."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderEngineViewState.WebViewPublication"),
+			readerScreenText.contains("ReaderEngineViewState.WebViewPublication") ||
+				readerRootText.contains("ReaderEngineViewState.WebViewPublication"),
 			"ReaderScreen must not switch on renderer-specific view-state variants."
 		)
 		assertTrue(
@@ -1133,8 +1165,8 @@ class ReaderKomikkuBackboneResetTest {
 
 	@Test
 	fun shellCoverIsOwnedByNativeFrameHostNotCommonViewerCompose() {
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val viewerHostText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
@@ -1147,11 +1179,11 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 
 		assertTrue(
-			readerScreenText.contains("shellCoverVisible = controllerState.shellCoverVisible") &&
-				readerScreenText.contains("val shellCoverUrl = viewer.shellCoverUrl") &&
-				readerScreenText.contains("val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)") &&
-				readerScreenText.contains("shellCoverUrl = shellCoverUrl") &&
-				readerScreenText.contains("shellCoverTitle = shellCoverTitle"),
+			readerRootText.contains("shellCoverVisible = controllerState.shellCoverVisible") &&
+				readerRootText.contains("val shellCoverUrl = viewer.shellCoverUrl") &&
+				readerRootText.contains("val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)") &&
+				readerRootText.contains("shellCoverUrl = shellCoverUrl") &&
+				readerRootText.contains("shellCoverTitle = shellCoverTitle"),
 			"ReaderScreen must pass controller-owned shell cover state into the native Komikku frame host."
 		)
 		assertTrue(
@@ -1219,6 +1251,12 @@ class ReaderKomikkuBackboneResetTest {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+		val readerAppBarsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		).readText()
 		val controllerText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt"
 		).readText()
@@ -1234,17 +1272,17 @@ class ReaderKomikkuBackboneResetTest {
 			"The Komikku bottom settings button must open a controller-owned settings dialog instead of using an empty callback."
 		)
 		assertTrue(
-			readerScreenText.contains("KomikkuReaderSettingsDialog(") &&
-				readerScreenText.contains("ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(") &&
-				readerScreenText.contains("onDismissRequest = onDismissDialog"),
+			readerRootText.contains("KomikkuReaderSettingsDialog(") &&
+				readerRootText.contains("ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(") &&
+				readerRootText.contains("onDismissRequest = onDismissDialog"),
 			"Settings must render as a Komikku-style overlay dialog above the viewer, not as the old docked options panel."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderOptionsPanel("),
+			readerScreenText.contains("ReaderOptionsPanel(") || readerRootText.contains("ReaderOptionsPanel("),
 			"The active Komikku reader must not reattach the old reader options panel as its settings surface."
 		)
 		assertFalse(
-			readerScreenText.contains("IconButton(onClick = {}) {\n\t\t\t\tIcon(Icons.Filled.Settings"),
+			readerAppBarsText.contains("IconButton(onClick = {}) {\n\t\t\t\tIcon(Icons.Filled.Settings"),
 			"The active settings icon must not keep an empty callback."
 		)
 	}
@@ -1253,6 +1291,12 @@ class ReaderKomikkuBackboneResetTest {
 	fun settingsDialogAppliesTapZoneOverlayThroughControllerSettingsCommand() {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+		val settingsDialogText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
 		val readingModePageText = root.resolve(
 			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
@@ -1266,7 +1310,8 @@ class ReaderKomikkuBackboneResetTest {
 			"The active settings migration must keep using Komikku's settings-page model as the source for tap-zone controls."
 		)
 		assertTrue(
-			readerScreenText.contains("onSettingsChange: (ReaderSettings) -> Unit"),
+			readerRootText.contains("onSettingsChange: (ReaderSettings) -> Unit") &&
+				settingsDialogText.contains("onSettingsChange: (ReaderSettings) -> Unit"),
 			"The Komikku settings dialog must accept a settings-change callback instead of staying a static display shell."
 		)
 		assertTrue(
@@ -1276,20 +1321,20 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must persist normalized settings before routing them through ReaderCoordinator.applySettings."
 		)
 		assertTrue(
-			readerScreenText.contains("Show tap zones") &&
-				readerScreenText.contains("settings.copy(showTapZones = showTapZones)"),
+			settingsDialogText.contains("Show tap zones") &&
+				settingsDialogText.contains("settings.copy(showTapZones = showTapZones)"),
 			"The first migrated control should toggle tap-zone visualization through ReaderSettings, not through a local UI flag."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderOptionsPanel("),
+			readerScreenText.contains("ReaderOptionsPanel(") || readerRootText.contains("ReaderOptionsPanel("),
 			"The active Komikku settings path must not resurrect the old docked ReaderOptionsPanel."
 		)
 	}
 
 	@Test
 	fun settingsDialogUsesKomikkuTapZonePresetControlsInsteadOfStaticLabels() {
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val settingsDialogText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
 		val readerPreferencesText = root.resolve(
 			"tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt"
@@ -1312,49 +1357,49 @@ class ReaderKomikkuBackboneResetTest {
 			"Komikku exposes tap-zone presets as selectable chips, not a read-only settings label."
 		)
 		assertTrue(
-			readerScreenText.contains("private val KomikkuTapZoneOptions = listOf("),
+			settingsDialogText.contains("private val KomikkuTapZoneOptions = listOf("),
 			"Navic must keep an explicit Komikku-order tap-zone list instead of relying on ReaderSupportedTapZones order."
 		)
 		assertTrue(
-			readerScreenText.indexOf("ReaderTapZoneDefault to \"Default\"") <
-				readerScreenText.indexOf("ReaderTapZoneLShaped to \"L shaped\"") &&
-				readerScreenText.indexOf("ReaderTapZoneLShaped to \"L shaped\"") <
-				readerScreenText.indexOf("ReaderTapZoneKindle to \"Kindle-ish\"") &&
-				readerScreenText.indexOf("ReaderTapZoneKindle to \"Kindle-ish\"") <
-				readerScreenText.indexOf("ReaderTapZoneEdge to \"Edge\"") &&
-				readerScreenText.indexOf("ReaderTapZoneEdge to \"Edge\"") <
-				readerScreenText.indexOf("ReaderTapZoneRightLeft to \"Right and Left\"") &&
-				readerScreenText.indexOf("ReaderTapZoneRightLeft to \"Right and Left\"") <
-				readerScreenText.indexOf("ReaderTapZoneDisabled to \"Disabled\""),
+			settingsDialogText.indexOf("ReaderTapZoneDefault to \"Default\"") <
+				settingsDialogText.indexOf("ReaderTapZoneLShaped to \"L shaped\"") &&
+				settingsDialogText.indexOf("ReaderTapZoneLShaped to \"L shaped\"") <
+				settingsDialogText.indexOf("ReaderTapZoneKindle to \"Kindle-ish\"") &&
+				settingsDialogText.indexOf("ReaderTapZoneKindle to \"Kindle-ish\"") <
+				settingsDialogText.indexOf("ReaderTapZoneEdge to \"Edge\"") &&
+				settingsDialogText.indexOf("ReaderTapZoneEdge to \"Edge\"") <
+				settingsDialogText.indexOf("ReaderTapZoneRightLeft to \"Right and Left\"") &&
+				settingsDialogText.indexOf("ReaderTapZoneRightLeft to \"Right and Left\"") <
+				settingsDialogText.indexOf("ReaderTapZoneDisabled to \"Disabled\""),
 			"Navic's settings dialog tap-zone order must match Komikku: default, L-shaped, Kindle-ish, edge, right/left, disabled."
 		)
 		assertTrue(
-			readerScreenText.contains("KomikkuSettingsChipRow(") &&
-				readerScreenText.contains("FilterChip(") &&
-				readerScreenText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
+			settingsDialogText.contains("KomikkuSettingsChipRow(") &&
+				settingsDialogText.contains("FilterChip(") &&
+				settingsDialogText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
 			"Tap-zone presets must be real settings chips routed through ReaderSettings."
 		)
 		assertTrue(
-			readerScreenText.contains("Tapping inversion") &&
-				readerScreenText.contains("KomikkuTapZoneInvertOptions") &&
-				readerScreenText.contains("onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))"),
+			settingsDialogText.contains("Tapping inversion") &&
+				settingsDialogText.contains("KomikkuTapZoneInvertOptions") &&
+				settingsDialogText.contains("onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))"),
 			"Komikku's tapping inversion chips must be routed through ReaderSettings and the ported navigator."
 		)
 		assertTrue(
-			readerScreenText.contains("Smaller tap zones") &&
-				readerScreenText.contains("settings.copy(smallerTapZone = smallerTapZone)"),
+			settingsDialogText.contains("Smaller tap zones") &&
+				settingsDialogText.contains("settings.copy(smallerTapZone = smallerTapZone)"),
 			"Komikku's smaller tap-zone checkbox must migrate as a real settings control."
 		)
 		assertFalse(
-			readerScreenText.contains("KomikkuSettingsDialogLine(\"Tap zones:"),
+			settingsDialogText.contains("KomikkuSettingsDialogLine(\"Tap zones:"),
 			"Tap zones must no longer be displayed only as a static line in the Komikku settings dialog."
 		)
 	}
 
 	@Test
 	fun settingsDialogUsesKomikkuReadingModePresetControlsInsteadOfStaticLabels() {
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val settingsDialogText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
 		).readText()
 		val readingModePageText = root.resolve(
 			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
@@ -1380,33 +1425,33 @@ class ReaderKomikkuBackboneResetTest {
 			"Navic must map the full Komikku reading-mode catalog, not only the old paged/scrolled toggle."
 		)
 		assertTrue(
-			readerScreenText.contains("private val KomikkuReadingModeOptions = listOf("),
+			settingsDialogText.contains("private val KomikkuReadingModeOptions = listOf("),
 			"Navic must keep an explicit Komikku-order reading-mode list instead of showing flow/direction as labels."
 		)
 		assertTrue(
-			readerScreenText.indexOf("label = \"Default\"") <
-				readerScreenText.indexOf("label = \"Paged (left to right)\"") &&
-				readerScreenText.indexOf("label = \"Paged (left to right)\"") <
-				readerScreenText.indexOf("label = \"Paged (right to left)\"") &&
-				readerScreenText.indexOf("label = \"Paged (right to left)\"") <
-				readerScreenText.indexOf("label = \"Paged (vertical)\"") &&
-				readerScreenText.indexOf("label = \"Paged (vertical)\"") <
-				readerScreenText.indexOf("label = \"Long strip\"") &&
-				readerScreenText.indexOf("label = \"Long strip\"") <
-				readerScreenText.indexOf("label = \"Long strip with gaps\""),
+			settingsDialogText.indexOf("label = \"Default\"") <
+				settingsDialogText.indexOf("label = \"Paged (left to right)\"") &&
+				settingsDialogText.indexOf("label = \"Paged (left to right)\"") <
+				settingsDialogText.indexOf("label = \"Paged (right to left)\"") &&
+				settingsDialogText.indexOf("label = \"Paged (right to left)\"") <
+				settingsDialogText.indexOf("label = \"Paged (vertical)\"") &&
+				settingsDialogText.indexOf("label = \"Paged (vertical)\"") <
+				settingsDialogText.indexOf("label = \"Long strip\"") &&
+				settingsDialogText.indexOf("label = \"Long strip\"") <
+				settingsDialogText.indexOf("label = \"Long strip with gaps\""),
 			"Navic's reading-mode options must follow Komikku's entry order."
 		)
 		assertTrue(
-			readerScreenText.contains("KomikkuSettingsReadingModeRow(") &&
-				readerScreenText.contains("onSettingsChange(settings.copy(") &&
-				readerScreenText.contains("flowMode = option.flowMode") &&
-				readerScreenText.contains("paged = option.paged") &&
-				readerScreenText.contains("direction = option.direction"),
+			settingsDialogText.contains("KomikkuSettingsReadingModeRow(") &&
+				settingsDialogText.contains("onSettingsChange(settings.copy(") &&
+				settingsDialogText.contains("flowMode = option.flowMode") &&
+				settingsDialogText.contains("paged = option.paged") &&
+				settingsDialogText.contains("direction = option.direction"),
 			"Reading-mode chips must write Navic flow, paged, and direction settings through the controller path."
 		)
 		assertFalse(
-			readerScreenText.contains("KomikkuSettingsDialogLine(\"Reading mode:") ||
-				readerScreenText.contains("KomikkuSettingsDialogLine(\"Direction:"),
+			settingsDialogText.contains("KomikkuSettingsDialogLine(\"Reading mode:") ||
+				settingsDialogText.contains("KomikkuSettingsDialogLine(\"Direction:"),
 			"Reading mode and direction must no longer be read-only labels in the Komikku settings dialog."
 		)
 	}
@@ -1448,37 +1493,37 @@ class ReaderKomikkuBackboneResetTest {
 
 	@Test
 	fun readerRootKeepsSingleActiveViewerForHostAndNavigationActions() {
-		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val viewerHostText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewerHost.kt"
 		).readText()
 
 		assertTrue(
-			readerScreenText.contains("val viewerSlot = remember { ReaderViewerLifecycleSlot() }") &&
-				readerScreenText.contains("val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }") &&
-				readerScreenText.contains("DisposableEffect(viewerSlot)") &&
-				readerScreenText.contains("viewerSlot.dispose()"),
+			readerRootText.contains("val viewerSlot = remember { ReaderViewerLifecycleSlot() }") &&
+				readerRootText.contains("val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }") &&
+				readerRootText.contains("DisposableEffect(viewerSlot)") &&
+				readerRootText.contains("viewerSlot.dispose()"),
 			"KomikkuReaderRoot must create, retain, swap, and dispose the active ReaderViewer through an explicit lifecycle slot."
 		)
 		assertTrue(
-			readerScreenText.contains("viewerKey = viewer.key"),
+			readerRootText.contains("viewerKey = viewer.key"),
 			"The native frame slot must be keyed by the retained viewer instance, not by a parallel identity calculation."
 		)
 		assertTrue(
-			readerScreenText.contains("readerShellCoverViewerActionFor(action)") &&
-				readerScreenText.contains("viewer.viewerActionFor(action)"),
+			readerRootText.contains("readerShellCoverViewerActionFor(action)") &&
+				readerRootText.contains("viewer.viewerActionFor(action)"),
 			"Native tap regions must become shell-cover or viewer-owned actions through the retained active viewer."
 		)
 		assertTrue(
-			readerScreenText.contains("engineRenderer = viewer.engineRenderer"),
+			readerRootText.contains("engineRenderer = viewer.engineRenderer"),
 			"ReaderViewerHost must receive the retained active viewer's engine renderer descriptor from the reader root."
 		)
 		assertFalse(
-			readerScreenText.contains("readerViewerFor(viewState).viewerActionFor(action)") ||
-				readerScreenText.contains("readerViewerFor(viewState).navigationActionFor(action)") ||
-				readerScreenText.contains("viewer.navigationActionFor(action)"),
+			readerRootText.contains("readerViewerFor(viewState).viewerActionFor(action)") ||
+				readerRootText.contains("readerViewerFor(viewState).navigationActionFor(action)") ||
+				readerRootText.contains("viewer.navigationActionFor(action)"),
 			"ReaderScreen must not create a throwaway viewer or route native tap regions through the legacy navigation action path."
 		)
 		assertTrue(
@@ -1497,7 +1542,7 @@ class ReaderKomikkuBackboneResetTest {
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
 		).readText()
 		val readerScreenText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val androidHostText = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
@@ -1628,7 +1673,7 @@ class ReaderKomikkuBackboneResetTest {
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
 		val activeReaderText = root.resolve(
-			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
 		).readText()
 		val viewerText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"

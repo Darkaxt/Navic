@@ -6939,3 +6939,71 @@ Release status:
 
 - No APK was built or published for this slice yet.
 - This should be bundled with the already-pushed progress side-rail fix into the next release candidate, then phone-validated against readable-page dragging, section-boundary dragging, link-jump dragging, texture movement, and cover behavior.
+
+## 2026-06-16 Komikku Backbone Acceptance Guard Realignment Slice
+
+Problem:
+
+- `ReaderKomikkuBackboneResetTest` had become partially stale after the Komikku component-boundary extractions.
+- Several guards still required shell/root/appbar/settings/viewer symbols to live inside `ReaderScreen.kt`.
+- That contradicted the active architecture: `ReaderScreen.kt` is now the app-boundary coordinator, while the Komikku shell work lives in `ReaderRoot.kt`, `ReaderAppBars.kt`, `ReaderSettingsDialog.kt`, `ReaderViewerHost.kt`, `ReaderViewer.kt`, and `KomikkuReaderNativeFrameHost.android.kt`.
+- Leaving those stale guards red would reward moving code back into the monolithic screen file, which is explicitly against the port objective.
+
+Decision:
+
+- Do not move production code back into `ReaderScreen.kt`.
+- Retarget source guards to the extracted owner files:
+  - root/viewer lifecycle, shell-cover mapping, native frame host mounting, viewer-key routing, and organic overlay ownership -> `ReaderRoot.kt`
+  - top/bottom app bars, bookmark/page-mark icon, and chapter-local progress rail -> `ReaderAppBars.kt`
+  - tap-zone chips, reading-mode chips, show-tap-zones toggle, smaller tap zones, and tapping inversion -> `ReaderSettingsDialog.kt`
+  - renderer descriptor mounting -> `ReaderViewerHost.kt`
+  - native frame hierarchy, color matrix, native tap/drag ownership, and shell-cover native rendering -> `KomikkuReaderNativeFrameHost.android.kt`
+- Keep `ReaderScreen.kt` assertions only for the app-boundary responsibilities it still owns: dependency injection, coordinator application, settings persistence, publication/runtime hosts, readaloud host, volume keys, and the call into `KomikkuReaderRoot(...)`.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Initial result:
+
+```text
+38 tests completed, 18 failed
+```
+
+Representative stale failures:
+
+- `currentReaderImplementationIsVaultedAndNoLongerTheActiveEntryPoint`
+- `readerTopChromeUsesKomikkuBookmarkPageMarkInsteadOfMusicStar`
+- `komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress`
+- `androidReaderRootUsesNativeKomikkuFrameLayoutHierarchy`
+- `readerMovementApiExposesViewerActionsInsteadOfLegacyControllerNavigationActions`
+- `settingsDialogUsesKomikkuTapZonePresetControlsInsteadOfStaticLabels`
+- `settingsDialogUsesKomikkuReadingModePresetControlsInsteadOfStaticLabels`
+- `readerRootKeepsSingleActiveViewerForHostAndNavigationActions`
+
+Code changes:
+
+- Updated only `ReaderKomikkuBackboneResetTest.kt`.
+- Retargeted stale assertions from `ReaderScreen.kt` to the extracted Komikku owner files.
+- Kept negative guards preventing raw WebView/Foliate bridge protocol, legacy navigation enums, legacy `ReaderOptionsPanel`, old `ReaderWebViewHost`, and inline renderer selection from re-entering the active shell.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.currentReaderImplementationIsVaultedAndNoLongerTheActiveEntryPoint" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerTopChromeUsesKomikkuBookmarkPageMarkInsteadOfMusicStar" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.newBackboneUsesPortedKomikkuViewerNavigationInsteadOfOnlyNavicTapHelpers" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.androidReaderRootUsesNativeKomikkuFrameLayoutHierarchy" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameAppliesViewerLayerColorMatrixLikeKomikku" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerMovementApiExposesViewerActionsInsteadOfLegacyControllerNavigationActions" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenMountsViewerHostInsteadOfSelectingRendererViewsInline" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.shellCoverIsOwnedByNativeFrameHostNotCommonViewerCompose" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.activeKomikkuShellOpensControllerOwnedSettingsDialogInsteadOfEmptySettingsButton" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogAppliesTapZoneOverlayThroughControllerSettingsCommand" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogUsesKomikkuTapZonePresetControlsInsteadOfStaticLabels" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogUsesKomikkuReadingModePresetControlsInsteadOfStaticLabels" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readerRootKeepsSingleActiveViewerForHostAndNavigationActions" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeFrameHostSwapsViewerContentByReaderViewerKeyLikeKomikkuUpdateViewer" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeShellCoverUsesCoverSpecificSideZoneNavigation"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Results:
+
+- First focused stale-guard batch passed.
+- Second focused stale-guard batch passed.
+- Full `ReaderKomikkuBackboneResetTest` passed: 38 tests, 0 failures.
+
+Release status:
+
+- No APK was built or published. This slice changes acceptance guards only; it does not alter installed reader behavior.
+- The value is architectural: future work now has a green Komikku backbone acceptance suite that protects the extracted shell/controller boundaries instead of forcing code back into `ReaderScreen.kt`.
