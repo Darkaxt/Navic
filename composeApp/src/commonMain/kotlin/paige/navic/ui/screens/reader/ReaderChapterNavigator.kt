@@ -1,6 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,9 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -163,85 +158,6 @@ internal fun KomikkuChapterNavigator(
 }
 
 @Composable
-private fun KomikkuVerticalChapterProgressRail(
-	value: Int,
-	valueRange: IntProgression,
-	onValueChange: (Int) -> Unit,
-	modifier: Modifier = Modifier,
-	enabled: Boolean = true,
-	interactionSource: MutableInteractionSource = remember { MutableInteractionSource() }
-) {
-	val totalPages = valueRange.last.coerceAtLeast(valueRange.first)
-	val normalizedValue = value.coerceIn(valueRange.first, totalPages)
-	val pageSpan = (totalPages - valueRange.first).coerceAtLeast(1)
-	val progress = (normalizedValue - valueRange.first).toFloat() / pageSpan.toFloat()
-	val trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
-	val dotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
-	val handleColor = MaterialTheme.colorScheme.primary
-	Box(modifier = modifier, contentAlignment = Alignment.Center) {
-		Canvas(
-			modifier = Modifier
-				.fillMaxSize()
-				.padding(horizontal = 18.dp, vertical = 4.dp)
-		) {
-			val trackWidth = 8.dp.toPx()
-			val handleRadius = 10.dp.toPx()
-			val x = size.width / 2f
-			val top = handleRadius
-			val bottom = size.height - handleRadius
-			val height = (bottom - top).coerceAtLeast(1f)
-			drawRoundRect(
-				color = trackColor,
-				topLeft = Offset(x - trackWidth / 2f, top),
-				size = Size(trackWidth, height),
-				cornerRadius = CornerRadius(trackWidth / 2f, trackWidth / 2f)
-			)
-			val dotCount = (totalPages - valueRange.first + 1).coerceIn(2, 32)
-			for (index in 0 until dotCount) {
-				val fraction = if (dotCount == 1) 0f else index.toFloat() / (dotCount - 1).toFloat()
-				drawCircle(
-					color = dotColor,
-					radius = 2.5.dp.toPx(),
-					center = Offset(x, top + height * fraction)
-				)
-			}
-			drawCircle(
-				color = handleColor,
-				radius = handleRadius,
-				center = Offset(x, top + height * progress.coerceIn(0f, 1f))
-			)
-		}
-		KomikkuChapterProgressSlider(
-			modifier = Modifier
-				.fillMaxSize()
-				.graphicsLayer {
-					alpha = 0.01f
-					rotationZ = 90f
-					transformOrigin = TransformOrigin(0f, 0f)
-				}
-				.layout { measurable, constraints ->
-					val placeable = measurable.measure(
-						Constraints(
-							minWidth = constraints.minHeight,
-							maxWidth = constraints.maxHeight,
-							minHeight = constraints.minWidth,
-							maxHeight = constraints.maxWidth
-						)
-					)
-					layout(placeable.height, placeable.width) {
-						placeable.place(0, -placeable.height)
-					}
-				},
-			value = value,
-			valueRange = valueRange,
-			onValueChange = onValueChange,
-			enabled = enabled,
-			interactionSource = interactionSource
-		)
-	}
-}
-
-@Composable
 private fun KomikkuChapterProgressSlider(
 	value: Int,
 	valueRange: IntProgression,
@@ -318,9 +234,26 @@ private fun KomikkuChapterNavigatorVertical(
 						haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 					}
 				}
-				KomikkuVerticalChapterProgressRail(
+				KomikkuChapterProgressSlider(
 					modifier = Modifier
 						.padding(vertical = 8.dp)
+						.graphicsLayer {
+							rotationZ = 90f
+							transformOrigin = TransformOrigin(0f, 0f)
+						}
+						.layout { measurable, constraints ->
+							val placeable = measurable.measure(
+								Constraints(
+									minWidth = constraints.minHeight,
+									maxWidth = constraints.maxHeight,
+									minHeight = constraints.minWidth,
+									maxHeight = constraints.maxWidth
+								)
+							)
+							layout(placeable.height, placeable.width) {
+								placeable.place(0, -placeable.height)
+							}
+						}
 						.weight(1f),
 					value = currentPage,
 					valueRange = 1..totalPages,

@@ -34,6 +34,34 @@ Current branch divergence to resolve:
 - The WebView runtime now applies native tap-zone settings before `foliate-view.open(...)`, so loaded content documents see `nativeTapZones = true` before their load handlers can attach JS reader-wide tap handlers.
 - Older stabilization notes and some host tests now conflict with the Komikku source. The accepted final behavior is a native reader/viewer surface that owns confirmed tap classification while forwarding the stream to its renderer child so drags, selection, PDF gestures, links, images, and media controls keep working.
 
+## Hard Procedure: Reference Parity Gate
+
+Every reader feature and every reader bugfix must start from the reference product, not from the current Navic implementation.
+
+The mandatory reference split is:
+
+- Komikku is the reference authority for reader layout, shell ownership, native/root view hierarchy, gesture ownership, chrome/menu behavior, progress navigator behavior, tap-zone visualization, settings overlay behavior, and responsive UI behavior.
+- Anx Reader/Foliate is the reference authority for EPUB/PDF engine capabilities, reader bridge events, content-action taxonomy, search/TTS/readaloud hooks, annotation/highlight hooks, PDF integration, font/style mapping, and WebView/Foliate internals.
+- Navic/Bindery remains the product/integration authority for authentication, OPDS, publication caching, audio/ebook metadata, local preferences, release packaging, and app navigation outside the reader shell.
+
+Before implementing or fixing anything in the reader:
+
+1. Identify the exact reference module/file/function that owns the behavior. For UI/shell/input/progress/settings, this must be Komikku. For engine/content/PDF/EPUB capabilities, this must be Anx/Foliate unless a stronger primary source is documented.
+2. Compare Navic's current implementation against that reference and write down the relevant difference in this document or in the test name/message.
+3. Add or update an acceptance guard before production code changes. The guard must reject the divergence, not merely assert that the current Navic workaround exists.
+4. Implement the smallest change that moves Navic closer to the reference contract.
+5. Verify against the guard and, when UI/input is involved, against the local reader-dev emulator/device capture.
+
+A feature is not accepted just because it appears to work. If it diverges from the reference product's ownership model, layout model, gesture model, or engine contract, it must be redesigned or explicitly recorded as a temporary adapter with a removal path. A working but non-faithful implementation is still a failing implementation until it is redesigned to match the reference contract. "Komikku-style", "inspired by", or "equivalent-looking" implementations are not enough for the reader shell. The default requirement is a faithful port/adaptation of the reference behavior.
+
+Temporary divergence is allowed only when all of these are true:
+
+- The reference behavior cannot be applied directly because Navic's content type or platform boundary is materially different.
+- The divergence is documented with the exact reference behavior being deferred.
+- The acceptance guard still protects the intended owner boundary so the workaround cannot become a permanent competing implementation.
+- The temporary path has an explicit follow-up item in this document.
+- The temporary path is treated as debt, not success; do not publish or declare a reader feature complete on the basis of that divergence unless the user explicitly accepts that exact compromise.
+
 Verification register:
 
 - `node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js`: passed.
@@ -419,6 +447,14 @@ Clash-prevention rules:
 ## 2026-06-14 Capability Ownership Map
 
 This section is the guardrail for the Komikku frontend / Anx capability direction. A feature is accepted only when it lands in the correct layer. If the quickest implementation puts a feature in the wrong owner, it is a regression even if it appears to work on the phone.
+
+Per-slice acceptance rule:
+
+- Each new feature or bugfix must name the reference source file/function it is matching.
+- Each acceptance test or source guard must fail on the current Navic divergence before implementation.
+- The guard must protect behavior and ownership from the reference product, not merely protect a Navic-specific workaround.
+- If the implemented behavior cannot be traced back to Komikku for shell/UI/input/progress/settings, or to Anx/Foliate for EPUB/PDF/engine capability, the slice is incomplete.
+- If a Navic implementation works but remains less faithful than the reference model, it is not done. Redesign it instead of layering compensating patches on top.
 
 ### Root, Viewer, And Lifecycle
 
@@ -7137,3 +7173,190 @@ Post-release validation required:
   - readable-page drag preview with no black void at section boundaries
   - texture movement during and after drags
   - cover behavior and center-tap menu behavior
+
+## 2026-06-16 Local Android Reader Lab
+
+Problem:
+
+- The GitHub release loop is too slow for reader-shell work.
+- Physical-device validation also depends on the user keeping a phone/tablet unlocked and on the currently installed release candidate.
+- The Komikku reader port needs a local dirty-build path where native touch fixes, WebView debugging, Bindery ebook loading, and screenshots can be tested without waiting for a public release.
+
+Implementation contract:
+
+- Add a dedicated Android `readerDev` build type.
+- `readerDev` installs as `darkaxt.navic.readerdev`, separate from public `darkaxt.navic`, so emulator state and credentials are isolated.
+- `readerDev` is debuggable, minify-off, shrink-off, and exposes `BuildConfig.NAVIC_READER_DEV = true`.
+- `MainActivity` forces reader WebView debugging when `NAVIC_READER_DEV` is true.
+- `MainActivity` accepts dev-only intent extras to seed Bindery OPDS/API settings and optionally launch directly into `Screen.Reader`.
+- If the env has Bindery credentials but no concrete ebook resource/publication URL, `readerDev` must bypass the Navidrome login page and land in `Screen.BinderyBooks` for manual ebook selection.
+- `readerDev` marks the sideloading warning as already seen so the `STOP, READ!` modal does not block automated screenshots or reader validation.
+- `install-reader-dev.ps1` may discover a direct reader target from OPDS when the env contains only Bindery credentials. It must honor `BINDERY_API_KEY_HEADER`, avoid printing secrets, and fall back to `Screen.BinderyBooks` if no EPUB/PDF resource is found.
+- Public release behavior remains unchanged because the extras and forced diagnostics are only honored in `readerDev`.
+
+Credential source:
+
+- Real credentials stay outside this worktree.
+- Default script source is `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
+- Local override file `navic-reader-dev.env` is ignored by git.
+- The env file may provide:
+  - `BINDERY_OPDS_BASE_URL` or `BINDERY_OPDS_URL`
+  - `BINDERY_API_KEY`
+  - `BINDERY_LANGUAGE_FILTER`
+  - `BINDERY_TEST_PUBLICATION_ID`
+  - `BINDERY_TEST_RESOURCE_ID`
+  - optional `NAVIC_READER_DEV_PUBLICATION_URL`, `NAVIC_READER_DEV_TITLE`, `NAVIC_READER_DEV_KIND`, `NAVIC_READER_DEV_FORMAT`
+
+Scripts:
+
+```powershell
+.\scripts\setup-android-reader-dev.ps1
+.\scripts\set-reader-dev-viewport.ps1 -Profile zfold7-inner
+.\scripts\install-reader-dev.ps1 -Capture
+```
+
+Viewport simulation:
+
+- `scripts/set-reader-dev-viewport.ps1` applies ADB display overrides for repeatable UI checks.
+- Profiles simulate target aspect ratio with `wm size` and density only. Do not force a separate Android landscape rotation over an already-landscape override; that swaps reported app bounds back to portrait on the emulator and can produce black captures instead of a valid reader screenshot.
+- Supported profiles:
+  - `zfold7-inner`: 1968x2184 at 368 dpi, portrait inner display approximation.
+  - `zfold7-inner-landscape`: 2184x1968 at 368 dpi, landscape inner display approximation.
+  - `zfold7-cover`: 1080x2520 at 422 dpi, cover display approximation.
+  - `tab-s9-ultra-landscape`: 2960x1848 at 240 dpi.
+  - `tab-s9-ultra-portrait`: 1848x2960 at 240 dpi.
+  - `reset`: clears the emulator display/density overrides.
+
+Expected loop:
+
+- Run the setup script once to install emulator SDK pieces, create `NavicReaderLab`, start it, keep it awake, and disable emulator animations.
+- Set the viewport profile before launching the dirty build when validating adaptive layout behavior.
+- Run the install script after dirty reader changes.
+- The install script builds `:androidApp:assembleReaderDev`, installs `Navic.apk`, seeds Bindery settings from the env file, launches the app, and direct-opens the configured ebook when a publication/resource target exists.
+- When a publication/resource target is not present, the install script attempts OPDS ebook discovery. If discovery fails, it still seeds Bindery and launches the Bindery Books catalog instead of the Navidrome login page.
+- Use this loop for native touch, progress rail, WebView, and texture validation before spending a GitHub release pipeline.
+
+2026-06-16 viewport validation:
+
+- `zfold7-inner` applied successfully on `emulator-5554`: `wm size` reported `1968x2184`, `wm density` reported `368`, and the settled capture rendered the Bindery Books catalog instead of the login page or sideload warning modal. Evidence: `captures/reader-dev/navic-zfold7-inner-settled.png`.
+- `zfold7-cover` applied successfully: `wm size` reported `1080x2520`, `wm density` reported `422`, and the settled capture rendered the Books catalog. Evidence: `captures/reader-dev/navic-zfold7-cover-settled.png`.
+- `tab-s9-ultra-landscape` applied successfully after removing forced landscape rotation from the profile script: `wm size` reported `2960x1848`, `wm density` reported `240`, and `dumpsys display` reported override app bounds `2960 x 1848` with rotation `0`. Evidence: `captures/reader-dev/navic-tab-s9-ultra-landscape-settled.png`.
+- The previous black Tab landscape capture was caused by combining an already-landscape `wm size` override with `user_rotation = 1`, which produced portrait app bounds (`1848 x 2960`) over a landscape target. Keep simulated foldable/tablet orientation encoded in `wm size`, not in a second forced rotation.
+- Current adaptive-layout observation: the Books grid still uses five columns on the Fold cover profile, producing aggressive title wrapping. That is a real UI scaling issue to address later; it is not a viewport lab failure.
+
+## 2026-06-17 Reference Parity Gate And Progress Rail Regression
+
+Procedure update:
+
+- Added `Hard Procedure: Reference Parity Gate` near the top of this document.
+- The gate applies to every reader feature and every reader bugfix.
+- UI/layout/input/chrome/settings/progress work must first identify the exact Komikku reference file/function being matched.
+- EPUB/PDF/search/TTS/readaloud/content-action/style capability work must first identify the exact Anx/Foliate reference file/function being matched.
+- "Works but diverges from the reference" is not accepted. It must be redesigned or explicitly recorded as a temporary adapter with a removal path.
+
+Guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.komikkuReaderPlanRequiresReferenceParityBeforeReaderWork"
+```
+
+Result:
+
+- Passed.
+
+Progress rail regression:
+
+- Reader-dev Tab S9 Ultra portrait capture showed the side progress rail as a giant centered full-width overlay over the content.
+- Reference comparison:
+  - Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt:190-225` places the vertical navigator as the start/end app-bar child, not as a full-width modal surface.
+  - Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt:193-276` keeps the vertical slider inside the side navigator column.
+- Navic divergence:
+  - `KomikkuVerticalChapterProgressRail` added a custom dotted `Canvas` wrapper plus an invisible rotated `Slider`.
+  - The invisible slider used `Modifier.fillMaxSize()` inside a weighted vertical child. On tablet portrait constraints this expanded the navigator across the full reader width and centered it over the page.
+
+Fix:
+
+- Added a bounded `KomikkuReaderVerticalRailWidth = 56.dp`.
+- Applied that width at the vertical rail component boundary and to the invisible rotated slider input layer.
+- Added a source guard so the invisible rotated slider cannot return to `fillMaxSize()` and re-expand the side rail.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals"
+```
+
+Result:
+
+- Passed.
+
+Device/emulator validation:
+
+- Built and installed local `readerDev` on `emulator-5554`.
+- Applied `tab-s9-ultra-portrait` viewport (`1848x2960`, `240 dpi`).
+- Launched directly into the Bindery EPUB through the reader-dev env/OPDS path.
+- Advanced from cover to page 1 and center-tapped to show chrome.
+- Before fix evidence: `captures/reader-dev/navic-tab-s9-ultra-portrait-chrome.png` showed the progress rail as a centered full-width overlay.
+- After fix evidence: `captures/reader-dev/navic-tab-s9-ultra-portrait-chrome-fixed.png` shows the progress rail docked at the right edge as a narrow side control.
+
+Remaining fidelity notes:
+
+- The rail is no longer layout-broken, but its visual style is still not a complete Komikku clone. The next progress-rail pass should compare control height, button spacing, color/opacity, and tablet scaling directly against Komikku screenshots/reference code before changing Navic again.
+- The page text column on Tab S9 Ultra portrait remains too narrow for a tablet-sized viewport. That is a separate responsive EPUB layout issue, not part of the rail expansion fix.
+
+## 2026-06-17 Komikku Slider-Owned Progress Rail Follow-Up
+
+Reference:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt:193-276`.
+- Komikku `tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/material/Slider.kt:15-45`.
+
+Root cause:
+
+- The previous eta fix bounded the rail width, but it still kept a Navic-only progress implementation: `KomikkuVerticalChapterProgressRail` rendered a fake visual rail with `Canvas`, then layered an almost-transparent rotated Material slider over it for input.
+- That was not faithful. In Komikku, the vertical navigator's progress surface is owned by the rotated integer `Slider` itself. The haptic drag state, page-index conversion, and visible control belong to that slider path.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator"
+```
+
+Result:
+
+- Failed at `ReaderRuntimeCommonChromeTest.kt:456` while Navic still used `KomikkuVerticalChapterProgressRail`.
+
+Fix:
+
+- Removed `KomikkuVerticalChapterProgressRail`.
+- Removed the custom `Canvas`, `drawRoundRect`, `drawCircle`, and transparent `alpha = 0.01f` hit-test slider layer.
+- Wired the vertical navigator directly to `KomikkuChapterProgressSlider(...)` with the Komikku `graphicsLayer { rotationZ = 90f; transformOrigin = TransformOrigin(0f, 0f) }` and `layout { measurable, constraints -> ... }` rotation/measurement path.
+- Retargeted the component guards so the navigator remains in `ReaderChapterNavigator.kt`, but the fake rail component cannot return.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator" --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.komikkuReaderPlanRequiresReferenceParityBeforeReaderWork"
+```
+
+Result:
+
+- Passed.
+
+Validation still needed before release:
+
+- Local reader-dev capture on foldable profiles to confirm the same side-rail behavior outside tablet portrait.
+- Compare the captured rail against Komikku screenshots before changing colors, height, or button spacing. If it works but looks less faithful, redesign it instead of adding a cosmetic overlay.
+
+Local reader-dev validation:
+
+- Built and installed `readerDev` locally on `emulator-5554`; no GitHub release was created.
+- Applied `tab-s9-ultra-portrait` viewport (`1848x2960`, `240 dpi`).
+- Launched through the Bindery OPDS env path. Initial script screenshot raced the activity transition and captured launcher wallpaper, but `dumpsys window` showed `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity` focused and reader logs showed the EPUB cache hit and Foliate content layout.
+- Fresh current-state capture confirmed the native cover was loaded: `captures/reader-dev/reader-dev-20260617-current-focused.png`.
+- Edge tap opened reader chrome over the cover and showed the vertical rail docked to the right edge instead of centered across the reader: `captures/reader-dev/reader-dev-20260617-after-edge-tap.png`.
+
+Observed remaining gaps:
+
+- The rail is correctly bounded, but the light Material slider styling is still not visually faithful to Komikku's darker side navigator in the user's reference screenshots.
+- This validation did not prove normal-page rail behavior because the current cover input path kept the test on the cover until the edge tap surfaced chrome. Cover input remains a separate high-priority defect.

@@ -20,6 +20,7 @@ object ReaderWebRuntime {
 	val entrypointUrl: String = "$AssetLoaderOrigin$AssetLoaderAssetsPathPrefix$AssetEntrypointPath"
 
 	private var currentWebContentsDebuggingEnabled: Boolean? = null
+	private var forceWebContentsDebuggingEnabled: Boolean = false
 
 	@SuppressLint("SetJavaScriptEnabled")
 	fun configure(
@@ -42,12 +43,22 @@ object ReaderWebRuntime {
 	}
 
 	fun setWebContentsDebuggingEnabled(enableDebugging: Boolean) {
-		if (currentWebContentsDebuggingEnabled == enableDebugging) {
+		val effectiveDebugging = forceWebContentsDebuggingEnabled || enableDebugging
+		if (currentWebContentsDebuggingEnabled == effectiveDebugging) {
 			return
 		}
-		currentWebContentsDebuggingEnabled = enableDebugging
-		Logger.i(ReaderWebRuntimeTag, "WebView debugging enabled=$enableDebugging")
-		WebView.setWebContentsDebuggingEnabled(enableDebugging)
+		currentWebContentsDebuggingEnabled = effectiveDebugging
+		Logger.i(ReaderWebRuntimeTag, "WebView debugging enabled=$effectiveDebugging")
+		WebView.setWebContentsDebuggingEnabled(effectiveDebugging)
+	}
+
+	fun setForceWebContentsDebuggingEnabled(enabled: Boolean) {
+		if (forceWebContentsDebuggingEnabled == enabled) {
+			return
+		}
+		forceWebContentsDebuggingEnabled = enabled
+		currentWebContentsDebuggingEnabled = null
+		setWebContentsDebuggingEnabled(WebContentsDebuggingDefaultEnabled)
 	}
 
 	fun commandScript(command: ReaderBridgeCommand): String =

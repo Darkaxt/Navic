@@ -326,15 +326,17 @@ class ReaderRuntimeCommonChromeTest {
 		assertFalse(
 			readerScreenText.contains("private fun KomikkuChapterNavigator(") ||
 				readerScreenText.contains("private fun KomikkuChapterNavigatorVertical(") ||
-				readerScreenText.contains("private fun KomikkuVerticalChapterProgressRail(") ||
 				readerScreenText.contains("private fun KomikkuChapterProgressSlider("),
 			"Komikku chapter/progress navigation must live in its own reader component file, not inside ReaderScreen."
 		)
 		assertContains(navigatorText, "internal const val KomikkuReaderVerticalRailHeightFraction = 0.82f")
 		assertContains(navigatorText, "internal fun KomikkuChapterNavigator(")
 		assertContains(navigatorText, "private fun KomikkuChapterNavigatorVertical(")
-		assertContains(navigatorText, "private fun KomikkuVerticalChapterProgressRail(")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
+		assertFalse(
+			navigatorText.contains("private fun KomikkuVerticalChapterProgressRail("),
+			"The dedicated navigator file must not recreate Komikku's vertical slider as a separate fake rail layer."
+		)
 	}
 
 	@Test
@@ -415,7 +417,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorText, "HapticFeedbackType.TextHandleMove")
 		assertContains(navigatorText, "roundToInt()")
 		assertContains(appBarsBody, "Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)")
-		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
+		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(sideRailBody, "rotationZ = 90f")
 		assertContains(sideRailBody, "valueRange = 1..totalPages")
 		assertContains(sideRailBody, "onPageIndexChange(page - 1)")
 		assertContains(sideRailBody, "Text(text = currentPageText)")
@@ -434,22 +437,42 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun commonReaderVerticalProgressRailUsesKomikkuDottedRailVisuals() {
+	fun commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator() {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
-		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuChapterProgressSlider(")
+			.substringBefore("\n}\n")
+		val komikkuNavigatorText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ChapterNavigator.kt reference")
+		val komikkuVerticalBody = komikkuNavigatorText.substringAfter("fun ChapterNavigatorVert(")
+			.substringBefore("\n}\n\n@Preview")
 
-		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
+		assertContains(komikkuVerticalBody, "Slider(")
+		assertContains(komikkuVerticalBody, "graphicsLayer {")
+		assertContains(komikkuVerticalBody, "rotationZ = 90f")
+		assertContains(komikkuVerticalBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(komikkuVerticalBody, ".layout { measurable, constraints ->")
+		assertContains(komikkuVerticalBody, ".weight(1f)")
+		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(sideRailBody, "graphicsLayer {")
+		assertContains(sideRailBody, "rotationZ = 90f")
+		assertContains(sideRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(sideRailBody, ".layout { measurable, constraints ->")
+		assertContains(sideRailBody, ".weight(1f)")
 		assertFalse(
-			sideRailBody.contains("KomikkuChapterProgressSlider("),
-			"The vertical Komikku rail should not expose the rotated Material slider as its visible design."
+			navigatorText.contains("private fun KomikkuVerticalChapterProgressRail("),
+			"Navic must not replace Komikku's visible rotated slider with a custom Canvas rail plus a hidden hit-test slider."
 		)
-		assertContains(verticalRailBody, "Canvas(")
-		assertContains(verticalRailBody, "drawRoundRect(")
-		assertContains(verticalRailBody, "drawCircle(")
-		assertContains(verticalRailBody, "alpha = 0.01f")
+		assertFalse(
+			sideRailBody.contains("Canvas(") ||
+				sideRailBody.contains("drawRoundRect(") ||
+				sideRailBody.contains("drawCircle(") ||
+				sideRailBody.contains("alpha = 0.01f"),
+			"Vertical progress visuals must come from the slider component, matching Komikku ownership, not from a separate fake rail layer."
+		)
 		assertContains(sideRailBody, "valueRange = 1..totalPages")
 	}
 
@@ -460,7 +483,7 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val navigatorBody = navigatorText.substringAfter("internal fun KomikkuChapterNavigator(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuChapterProgressSlider(")
 		val komikkuNavigatorText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")

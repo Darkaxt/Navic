@@ -150,7 +150,7 @@ val LocalBottomBarScrollManager = staticCompositionLocalOf<BottomBarScrollManage
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun App() {
+fun App(initialScreenOverride: Screen? = null) {
 	InstallSingletonImageLoaderFactory()
 
 	val platformContext = rememberPlatformContext()
@@ -158,7 +158,7 @@ fun App() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val backStack = rememberNavBackStack(
-		config, if (isLoggedIn) {
+		config, initialScreenOverride ?: if (isLoggedIn) {
 			Screen.Library()
 		} else {
 			Screen.Login

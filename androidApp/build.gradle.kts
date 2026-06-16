@@ -39,6 +39,7 @@ extensions.configure<ApplicationExtension> {
 	compileSdk = libs.versions.android.compileSdk.get().toInt()
 
 	buildFeatures {
+		buildConfig = true
 		resValues = true
 	}
 
@@ -48,6 +49,7 @@ extensions.configure<ApplicationExtension> {
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
 		versionCode = 402
 		versionName = "v1.0.11-eta69"
+		buildConfigField("boolean", "NAVIC_READER_DEV", "false")
 
 		ndk {
 			abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
@@ -130,6 +132,18 @@ extensions.configure<ApplicationExtension> {
 		getByName("debug") {
 			applicationIdSuffix = ".debug"
 			resValue("string", "app_name", "Navic (Dev)")
+		}
+
+		create("readerDev") {
+			initWith(getByName("debug"))
+			applicationIdSuffix = ".readerdev"
+			isDebuggable = true
+			isProfileable = false
+			isJniDebuggable = true
+			isMinifyEnabled = false
+			isShrinkResources = false
+			buildConfigField("boolean", "NAVIC_READER_DEV", "true")
+			resValue("string", "app_name", "Navic Reader Lab")
 		}
 	}
 
