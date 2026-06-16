@@ -6250,6 +6250,86 @@ Release candidate:
 - Next Android release candidate: `v1.0.11-eta68`, `versionCode = 401`.
 - eta68 must be installed on the connected device and validated with the ADB reader matrix before its behavior is described as improved.
 
+## 2026-06-16 eta68 Release And Device Validation Attempt
+
+Release:
+
+- Commit: `9030c287` (`Advance Komikku reader backbone candidate`).
+- Tag: `v1.0.11-eta68`.
+- GitHub release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta68`.
+- Android artifact: `Navic.apk`.
+- GitHub Actions run: `27605462810`.
+- Workflow result: Android APK build succeeded; iOS IPA job was skipped.
+
+Local pre-release checks:
+
+```powershell
+git diff --check
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta68
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Results:
+
+- `git diff --check`: passed.
+- Android version guard: passed, `versionName = v1.0.11-eta68`.
+- JS syntax checks: passed.
+- `ReaderRuntimeCommonChromeTest`: passed.
+
+Device:
+
+- Connected device: `R52W60CFTRL`, model `SM_X910`.
+- APK install command succeeded:
+
+```powershell
+adb install -r releases\v1.0.11-eta68\Navic.apk
+```
+
+- Installed package verification from ADB smoke capture:
+
+```text
+versionCode=401
+versionName=v1.0.11-eta68
+lastUpdateTime=2026-06-16 11:53:17
+```
+
+Validation blocker:
+
+- The device stayed behind Android keyguard/notification shade after the install.
+- `dumpsys window` showed:
+
+```text
+mCurrentFocus=Window{... u0 NotificationShade}
+mFocusedApp=ActivityRecord{... u0 darkaxt.navic/paige.navic.androidApp.MainActivity ...}
+isKeyguardShowing=true
+```
+
+- ADB attempts made:
+  - `adb shell wm dismiss-keyguard`
+  - `adb shell cmd statusbar collapse`
+  - `adb shell input keyevent KEYCODE_WAKEUP`
+  - `adb shell input keyevent KEYCODE_MENU`
+  - `adb shell input keyevent KEYCODE_BACK`
+  - portrait and landscape unlock swipes
+  - `adb shell monkey -p darkaxt.navic 1`
+- Result: Navic remained the focused app behind `NotificationShade`, but the app window was `isOnScreen=false`.
+
+Captured artifacts:
+
+- `captures\reader-eta68\baseline-launch`
+- `captures\reader-eta68\baseline-after-unshade`
+- `captures\reader-eta68\baseline-after-unlock-attempts`
+
+Reader validation status:
+
+- The ADB reader matrix was not run because the active screen was not Navic reader content.
+- Running tap/drag/texture checks while keyguard is visible would produce false failures and hide the actual reader behavior.
+- Next valid step: unlock the tablet and leave Navic open on an EPUB reader page, then run the matrix against `v1.0.11-eta68` without relaunching into an invalid screen.
+
 ## 2026-06-16 Reader Engine Open Request Boundary Slice
 
 Problem:
