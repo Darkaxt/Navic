@@ -6330,6 +6330,15 @@ Reader validation status:
 - Running tap/drag/texture checks while keyguard is visible would produce false failures and hide the actual reader behavior.
 - Next valid step: unlock the tablet and leave Navic open on an EPUB reader page, then run the matrix against `v1.0.11-eta68` without relaunching into an invalid screen.
 
+Fresh ADB re-check after the user connected the tablet:
+
+- `adb devices -l`: connected `R52W60CFTRL`, model `SM_X910`.
+- `adb shell dumpsys package darkaxt.navic`: installed `versionCode=401`, `versionName=v1.0.11-eta68`, `lastUpdateTime=2026-06-16 11:53:17`.
+- Initial focus remained `NotificationShade` with `isKeyguardShowing=true`.
+- Wake/dismiss/statusbar/back did not expose Navic.
+- A coordinate unlock swipe changed focus to `Window{... u0 Bouncer}` while `isKeyguardShowing=true`; this confirms the device is at the credential prompt.
+- Result: eta68 remains installed, but the reader matrix is still blocked until the tablet is manually unlocked and left in the EPUB reader.
+
 ## 2026-06-16 Reader Engine Open Request Boundary Slice
 
 Problem:
