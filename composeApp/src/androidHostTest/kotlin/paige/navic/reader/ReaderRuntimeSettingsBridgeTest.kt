@@ -72,6 +72,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val readerViewerText = listOf(
@@ -81,10 +82,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
-		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
-		assertContains(readerScreenText, "navigator = navigator")
-		assertContains(readerScreenText, "readerShellCoverViewerActionFor(action)")
-		assertContains(readerScreenText, "viewer.viewerActionFor(action)")
+		assertContains(readerScreenText, "KomikkuReaderRoot(")
+		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerRootText, "navigator = navigator")
+		assertContains(readerRootText, "readerShellCoverViewerActionFor(action)")
+		assertContains(readerRootText, "viewer.viewerActionFor(action)")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "onAction(action)")
@@ -106,11 +108,11 @@ class ReaderRuntimeSettingsBridgeTest {
 			"Readable tap-zone normalization must be owned by the Komikku native frame, not the renderer WebView host."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
+			readerScreenText.contains("ReaderBridgeEvent.CenterTap") || readerRootText.contains("ReaderBridgeEvent.CenterTap"),
 			"ReaderScreen must not handle raw Foliate center taps; readable tap normalization belongs to the native surface and engine host boundary."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderNativeTapOverlay("),
+			readerScreenText.contains("ReaderNativeTapOverlay(") || readerRootText.contains("ReaderNativeTapOverlay("),
 			"Readable EPUB/PDF tap ownership must live in the Android reader surface, not a Compose sibling overlay."
 		)
 	}
@@ -186,7 +188,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
-		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
@@ -194,8 +196,8 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(runtimeText, "settings.smallerTapZone === true")
 		assertContains(runtimeText, "this.smallerTapZone = settings.smallerTapZone === true")
-		assertContains(readerScreenText, "title = \"Smaller tap zones\"")
-		assertContains(readerScreenText, "settings.copy(smallerTapZone = smallerTapZone)")
+		assertContains(settingsDialogText, "title = \"Smaller tap zones\"")
+		assertContains(settingsDialogText, "settings.copy(smallerTapZone = smallerTapZone)")
 		assertContains(ebooksSettingsText, "readerSmallerTapZone")
 		assertContains(ebooksSettingsText, "option_ebook_reader_smaller_tap_zones")
 		assertContains(searchSettingsText, "ebooks.smaller-tap-zones")
@@ -208,7 +210,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderExposesVisibleTapZoneOverlayControl() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
-		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
@@ -220,7 +222,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(runtimeText, "ensureTapZoneOverlayLayer()")
 		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
 		assertContains(runtimeText, "settings.showTapZones !== true")
-		assertContains(readerScreenText, "navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true")
+		assertContains(readerRootText, "navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true")
 		assertContains(settingsDialogText, "title = \"Show tap zones\"")
 		assertContains(settingsDialogText, "settings.copy(showTapZones = showTapZones)")
 		assertFalse(

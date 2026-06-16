@@ -7007,3 +7007,61 @@ Release status:
 
 - No APK was built or published. This slice changes acceptance guards only; it does not alter installed reader behavior.
 - The value is architectural: future work now has a green Komikku backbone acceptance suite that protects the extracted shell/controller boundaries instead of forcing code back into `ReaderScreen.kt`.
+
+## 2026-06-16 Reader Runtime Acceptance Guard Realignment Slice
+
+Problem:
+
+- The broader `paige.navic.reader.*` Android host guard suite was still red after the Komikku component split.
+- The failures were not new runtime regressions. They were stale source-location assertions that still expected reader settings, progress rail, pagination profile badge, native frame mounting, and page-turn controls to live directly in `ReaderScreen.kt`.
+- Keeping those assertions stale would push future fixes back toward the old monolithic Navic reader shell, which contradicts this plan's Komikku-derived frontend/controller backbone.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.*"
+```
+
+Initial result:
+
+```text
+402 tests completed, 10 failed
+```
+
+Stale failures realigned:
+
+- `ReaderRuntimeNavigationFlowTest.commonReaderParagraphSpacingControlsUseReadableDefaultFallback`
+- `ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingDirectionToFoliateRuntime`
+- `ReaderRuntimeSettingsBridgeTest.androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku`
+- `ReaderRuntimeSettingsBridgeTest.androidReaderExposesKomikkuSmallerTapZoneControl`
+- `ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl`
+- `ReaderRuntimeShellProgressTest.readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps`
+- `ReaderRuntimeShellProgressTest.androidReaderBridgeExposesProgressSeekCommand`
+- `ReaderRuntimeShellProgressTest.androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager`
+- `ReaderRuntimeShellProgressTest.androidReaderShowsPaginationProfilingStatusInKomikkuOverlay`
+- `ReaderRuntimeShellProgressTest.commonReaderChromeExposesPageTurnControls`
+
+Code changes:
+
+- Updated only Android host acceptance tests and this plan document.
+- Retargeted settings assertions to `ReaderSettingsDialog.kt`.
+- Retargeted native shell/frame/viewer assertions to `ReaderRoot.kt`, `ReaderViewerHost.kt`, and `KomikkuReaderNativeFrameHost.android.kt`.
+- Retargeted progress rail and page-turn icon assertions to `ReaderAppBars.kt` and `ReaderChapterNavigator.kt`.
+- Kept `ReaderScreen.kt` assertions only for app-boundary controller/coordinator responsibilities it still owns.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest.commonReaderParagraphSpacingControlsUseReadableDefaultFallback" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingDirectionToFoliateRuntime" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesKomikkuSmallerTapZoneControl" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderExposesVisibleTapZoneOverlayControl" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderBridgeExposesProgressSeekCommand" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderShowsPaginationProfilingStatusInKomikkuOverlay" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.commonReaderChromeExposesPageTurnControls"
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.*"
+```
+
+Results:
+
+- The focused previously failing guard set passed.
+- The broad reader host guard suite passed: 402 tests, 0 failures, 0 errors, 0 skipped.
+
+Release status:
+
+- No APK should be built or published for this slice by itself.
+- This is acceptance-test hygiene that keeps the Komikku backbone protected after the component extraction. It should be bundled with a meaningful runtime-reader fix before the next phone release candidate.

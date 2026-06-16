@@ -24,14 +24,14 @@ class ReaderRuntimeNavigationFlowTest {
 
 	@Test
 	fun commonReaderParagraphSpacingControlsUseReadableDefaultFallback() {
-		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
-		assertContains(readerScreenText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
+		assertContains(settingsDialogText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
 		assertContains(ebooksSettingsText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
 		assertContains(searchSettingsText, "readerSettings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
-		assertFalse(readerScreenText.contains("settings.paragraphSpacingPercent ?: 0"))
+		assertFalse(settingsDialogText.contains("settings.paragraphSpacingPercent ?: 0"))
 		assertFalse(ebooksSettingsText.contains("settings.paragraphSpacingPercent ?: 0"))
 		assertFalse(searchSettingsText.contains("readerSettings.paragraphSpacingPercent ?: 0"))
 	}
@@ -174,7 +174,7 @@ class ReaderRuntimeNavigationFlowTest {
 	@Test
 	fun androidReaderMapsExplicitReadingDirectionToFoliateRuntime() {
 		val bridgeText = readerBridgeText()
-		val readerScreenText = readerScreenFile().readText()
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
 
@@ -182,9 +182,9 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "applyReaderDirection")
 		assertContains(bridgeText, "this.view.book.dir")
 		assertContains(bridgeText, "doc.documentElement")
-		assertContains(readerScreenText, "Direction")
-		assertContains(readerScreenText, "ReaderSupportedDirections")
-		assertContains(readerScreenText, "settings.copy(direction = direction)")
+		assertContains(settingsDialogText, "Direction")
+		assertContains(settingsDialogText, "ReaderSupportedDirections")
+		assertContains(settingsDialogText, "settings.copy(direction = direction)")
 		assertContains(ebooksSettingsText, "readerDirection")
 		assertContains(ebooksSettingsText, "ReaderDirectionOption")
 		assertContains(searchSettingsText, "ebooks.direction")

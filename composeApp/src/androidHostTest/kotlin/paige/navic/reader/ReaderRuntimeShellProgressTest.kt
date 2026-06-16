@@ -77,6 +77,8 @@ class ReaderRuntimeShellProgressTest {
 	fun androidReaderBridgeExposesProgressSeekCommand() {
 		val bridgeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
+		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
+		val chapterNavigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 
 		assertContains(bridgeText, "case 'goToProgress'")
 		assertContains(bridgeText, "async goToProgress(progress)")
@@ -100,22 +102,23 @@ class ReaderRuntimeShellProgressTest {
 			readerScreenText.contains("coordinator.dispatchBridgeCommand(ReaderBridgeCommand.GoToProgress"),
 			"Progress rail gestures must remain above the engine bridge so PDF/EPUB adapters can translate them independently."
 		)
-		assertContains(readerScreenText, "Slider(")
-		assertContains(readerScreenText, "onGoToChapterPage: (Int) -> Unit")
+		assertContains(chapterNavigatorText, "Slider(")
+		assertContains(appBarsText, "onGoToChapterPage: (Int) -> Unit")
 	}
 
 	@Test
 	fun androidReaderShowsPaginationProfilingStatusInKomikkuOverlay() {
-		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val profileBadgeText = readerCommonUiFile("ReaderPaginationProfileBadge.kt").readText()
 		val controllerText = readerCommonFile("ReaderController.kt").readText()
 		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
 		assertContains(bridgeText, "PaginationProfileStatusChanged")
 		assertContains(controllerText, "paginationProfile: ReaderPaginationProfileStatus")
-		assertContains(readerScreenText, "KomikkuPaginationProfileStatusBadge(")
-		assertContains(readerScreenText, "controllerState.paginationProfile")
-		assertContains(readerScreenText, "LinearProgressIndicator(")
-		assertContains(readerScreenText, "profile.label")
+		assertContains(readerRootText, "KomikkuPaginationProfileStatusBadge(")
+		assertContains(readerRootText, "controllerState.paginationProfile")
+		assertContains(profileBadgeText, "LinearProgressIndicator(")
+		assertContains(profileBadgeText, "profile.label")
 	}
 
 	@Test
@@ -136,9 +139,11 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun commonReaderChromeExposesPageTurnControls() {
 		val readerScreenText = readerScreenFile().readText()
+		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
+		val chapterNavigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 
-		assertContains(readerScreenText, "onPreviousPage: () -> Unit")
-		assertContains(readerScreenText, "onNextPage: () -> Unit")
+		assertContains(appBarsText, "onPreviousPage: () -> Unit")
+		assertContains(appBarsText, "onNextPage: () -> Unit")
 		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)")
 		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)")
 		assertFalse(
@@ -149,26 +154,28 @@ class ReaderRuntimeShellProgressTest {
 			readerScreenText.contains("ReaderBridgeCommand.NextPage"),
 			"The Komikku reader shell must not dispatch raw bridge page-turn commands."
 		)
-		assertContains(readerScreenText, "Icons.Filled.SkipPrevious")
-		assertContains(readerScreenText, "Icons.Filled.SkipNext")
+		assertContains(chapterNavigatorText, "Icons.Filled.SkipPrevious")
+		assertContains(chapterNavigatorText, "Icons.Filled.SkipNext")
 	}
 
 	@Test
 	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
 		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
 		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val readerCoordinatorText = readerCommonFile("ReaderCoordinator.kt").readText()
 		val foliateAdapterText = readerCommonFile("FoliateEpubEngineAdapter.kt").readText()
 
-		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerScreenText, "KomikkuReaderRoot(")
+		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
 		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "onAction(action)")
-		assertContains(readerScreenText, "readerShellCoverViewerActionFor(action)")
-		assertContains(readerScreenText, "viewer.viewerActionFor(action)")
+		assertContains(readerRootText, "readerShellCoverViewerActionFor(action)")
+		assertContains(readerRootText, "viewer.viewerActionFor(action)")
 		assertContains(runtimeText, "attachReaderTapZoneGesture")
 		assertContains(runtimeText, "post({ type: 'readerCenterTap' })")
 		assertContains(readerScreenText, "fun handleEngineHostEvent(event: ReaderEngineHostEvent)")
@@ -177,19 +184,19 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(readerCoordinatorText, "fun onEngineHostEvent(event: ReaderEngineHostEvent)")
 		assertContains(foliateAdapterText, "override fun onHostEvent(event: ReaderEngineHostEvent)")
 		assertContains(foliateAdapterText, "is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)")
-		assertContains(readerScreenText, "controllerState.menuVisible")
-		assertContains(readerScreenText, "visible = controllerState.menuVisible")
+		assertContains(readerRootText, "controllerState.menuVisible")
+		assertContains(readerRootText, "visible = controllerState.menuVisible")
 		assertFalse(
 			webViewHostText.contains("ReaderSurfaceHost") ||
 				webViewHostText.contains("dispatchReaderWideTap"),
 			"The renderer WebView host must not own reader-wide tap/page commands in the Komikku backbone."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderBridgeEvent.CenterTap"),
+			readerScreenText.contains("ReaderBridgeEvent.CenterTap") || readerRootText.contains("ReaderBridgeEvent.CenterTap"),
 			"ReaderScreen must not handle raw Foliate center taps; the engine host and coordinator own that boundary."
 		)
 		assertFalse(
-			readerScreenText.contains("ReaderNativeTapOverlay("),
+			readerScreenText.contains("ReaderNativeTapOverlay(") || readerRootText.contains("ReaderNativeTapOverlay("),
 			"The Komikku-style touch manager must be the native Android reader surface, not a Compose overlay."
 		)
 		assertFalse(
@@ -296,11 +303,13 @@ class ReaderRuntimeShellProgressTest {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val viewerHostText = readerViewerHostFile().readText()
 
-		assertContains(readerScreenText, "KomikkuReaderNativeFrameHost(")
-		assertContains(readerScreenText, "viewerContent = {")
-		assertContains(readerScreenText, "ReaderViewerHost(")
+		assertContains(readerScreenText, "KomikkuReaderRoot(")
+		assertContains(readerRootText, "KomikkuReaderNativeFrameHost(")
+		assertContains(readerRootText, "viewerContent = {")
+		assertContains(readerRootText, "ReaderViewerHost(")
 		assertContains(nativeFrameHostText, "private val viewerContainer = KomikkuReaderNativeViewerContainer(context)")
 		assertContains(nativeFrameHostText, "private val shellCoverView = KomikkuReaderNativeShellCoverView(context)")
 		assertContains(nativeFrameHostText, "viewerContainer.setShellCoverView(shellCoverView)")
