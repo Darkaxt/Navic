@@ -52,7 +52,7 @@ Before implementing or fixing anything in the reader:
 4. Implement the smallest change that moves Navic closer to the reference contract.
 5. Verify against the guard and, when UI/input is involved, against the local reader-dev emulator/device capture.
 
-A feature is not accepted just because it appears to work. If it diverges from the reference product's ownership model, layout model, gesture model, or engine contract, it must be redesigned or explicitly recorded as a temporary adapter with a removal path. A working but non-faithful implementation is still a failing implementation until it is redesigned to match the reference contract. "Komikku-style", "inspired by", or "equivalent-looking" implementations are not enough for the reader shell. The default requirement is a faithful port/adaptation of the reference behavior.
+A feature is not accepted just because it appears to work. If it diverges from the reference product's ownership model, layout model, gesture model, visual model, or engine contract, it must be redesigned or explicitly recorded as a temporary adapter with a removal path. A working but non-faithful implementation is still a failing implementation until it is redesigned to match the reference contract. This applies equally to new features, bugfixes, and existing code that is currently "working" but is not faithful. "Komikku-style", "inspired by", or "equivalent-looking" implementations are not enough for the reader shell. The default requirement is a faithful port/adaptation of the reference behavior.
 
 Temporary divergence is allowed only when all of these are true:
 
@@ -455,6 +455,7 @@ Per-slice acceptance rule:
 - The guard must protect behavior and ownership from the reference product, not merely protect a Navic-specific workaround.
 - If the implemented behavior cannot be traced back to Komikku for shell/UI/input/progress/settings, or to Anx/Foliate for EPUB/PDF/engine capability, the slice is incomplete.
 - If a Navic implementation works but remains less faithful than the reference model, it is not done. Redesign it instead of layering compensating patches on top.
+- If a feature is already functional but fails reference parity, treat it as an active defect. Do not preserve it for stability unless it is documented as a temporary adapter with a removal path and the user has explicitly accepted that compromise.
 
 ### Root, Viewer, And Lifecycle
 
