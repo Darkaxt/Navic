@@ -7094,3 +7094,46 @@ Conclusion:
 - This is not a valid reader/progress-rail validation pass.
 - The current branch contains later local fixes after eta67, including `71b22be7 Fix reader pagination totals and side rail overlay`, so eta67 cannot validate the current branch's progress rail.
 - Do not draw product conclusions from this ADB check. A valid progress-rail check requires a current release candidate installed and Navic open on the reader surface.
+
+## 2026-06-16 eta69 Release Candidate Scope
+
+Decision:
+
+- Prepare `v1.0.11-eta69`, `versionCode = 402`, as the next Android reader candidate.
+- This is justified because the published `v1.0.11-eta68` tag predates the major reader fixes in the current branch.
+
+Runtime fixes included after published eta68:
+
+- `71b22be7 Fix reader pagination totals and side rail overlay`
+  - suppresses provisional pagination totals while the deterministic profile is still measuring
+  - fixes the side progress rail overlay placement so it is not centered over the page content
+- `d04a7619 Add reader drag preview underlay`
+  - adds a clipped adjacent-section underlay for native readable drags at section boundaries
+  - keeps native input ownership while avoiding the black void during boundary drags
+
+Non-runtime commits included after those fixes:
+
+- `0253ac43 Realign Komikku backbone acceptance guards`
+- `220d5c28 Realign reader runtime acceptance guards`
+- `8ce5ede6 Record invalid progress rail adb check`
+
+Pre-tag local checks:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName "v1.0.11-eta69"
+git diff --check
+```
+
+Results:
+
+- Android version verifier passed.
+- `git diff --check` passed.
+
+Post-release validation required:
+
+- Install eta69 on a device, open Navic directly on an EPUB reader page, and validate:
+  - progress rail placement and height
+  - deterministic/stable page count after profiling
+  - readable-page drag preview with no black void at section boundaries
+  - texture movement during and after drags
+  - cover behavior and center-tap menu behavior
