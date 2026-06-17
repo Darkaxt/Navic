@@ -267,6 +267,86 @@ class BinderyRepositoryProgressCacheTest {
 	}
 
 	@Test
+	fun bookDetailCacheAccessorsReturnStaleMetadataWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			audiobookVersions = listOf(BinderyAudiobookVersion(id = 999, narrator = "Live Narrator")),
+			bookSync = BinderyBookSync(bookId = 3816, whispersyncStatus = "live")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.Manifest,
+				path = "3816",
+				payloadJson = BinderyJson.encodeToString(
+					BinderyManifest(
+						id = "urn:bindery:book:3816",
+						title = "Cached Hobbit",
+						author = "J. R. R. Tolkien"
+					)
+				)
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.Resources,
+				path = "3816",
+				payloadJson = BinderyJson.encodeToString(
+					BinderyResourceCatalog(
+						title = "Cached Resources",
+						resources = listOf(
+							BinderyBookResource(
+								href = "/opds/books/3816/resources/ebook-1",
+								title = "Cached EPUB",
+								type = "application/epub+zip"
+							)
+						)
+					)
+				)
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.AudiobookVersions,
+				path = "book:3816:limit:100",
+				payloadJson = BinderyJson.encodeToString(
+					listOf(
+						BinderyAudiobookVersion(
+							id = 88,
+							bookFileId = 694,
+							narrator = "Rob Inglis"
+						)
+					)
+				)
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.BookSync,
+				path = "3816",
+				payloadJson = BinderyJson.encodeToString(
+					BinderyBookSync(
+						bookId = 3816,
+						whispersyncStatus = "ready"
+					)
+				)
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS + 1L }
+		)
+
+		val manifest = repository.getCachedManifest("3816").getOrThrow()
+		val resources = repository.getCachedBookResources("3816").getOrThrow()
+		val audiobooks = repository.getCachedAudiobookVersions("3816").getOrThrow()
+		val sync = repository.getCachedBookSync("3816").getOrThrow()
+
+		assertEquals("Cached Hobbit", manifest?.title)
+		assertEquals("Cached Resources", resources?.title)
+		assertEquals("Cached EPUB", resources?.resources?.single()?.title)
+		assertEquals("Rob Inglis", audiobooks?.single()?.narrator)
+		assertEquals("ready", sync?.whispersyncStatus)
+		assertEquals(emptyList(), apiClient.manifestBookIds)
+		assertEquals(emptyList(), apiClient.resourceCatalogBookIds)
+		assertEquals(emptyList(), apiClient.audiobookVersionBookIds)
+		assertEquals(emptyList(), apiClient.bookSyncIds)
+	}
+
+	@Test
 	fun performActionRequiresEnabledConfiguredBinderyWithoutCallingApiClient() = runBlocking {
 		val apiClient = FakeBinderyApiClient()
 		val preferences = PreferenceManager(MapSettings()).apply {
@@ -282,4 +362,25 @@ class BinderyRepositoryProgressCacheTest {
 		assertEquals(0, apiClient.actionPaths.size)
 	}
 
+}
+
+private suspend fun RecordingBinderyMetadataCache.putBookDetailCacheRecord(
+	payloadType: String,
+	path: String,
+	payloadJson: String
+) {
+	put(
+		BinderyMetadataCacheRecord(
+			cacheKey = binderyMetadataCacheKey(
+				baseUrl = "https://bindery.example.com/opds",
+				payloadType = payloadType,
+				path = path
+			),
+			baseUrl = "https://bindery.example.com/opds",
+			payloadType = payloadType,
+			path = path,
+			payloadJson = payloadJson,
+			updatedAtMillis = 1_000L
+		)
+	)
 }

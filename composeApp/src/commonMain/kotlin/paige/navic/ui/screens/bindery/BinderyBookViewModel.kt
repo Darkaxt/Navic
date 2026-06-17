@@ -40,8 +40,13 @@ class BinderyBookViewModel(
 		bookJob?.cancel()
 		bookJob = viewModelScope.launch {
 			val currentData = _bookState.value.data
-			if (fullRefresh || currentData == null) {
-				_bookState.value = UiState.Loading(currentData)
+			val cachedData = if (!fullRefresh && currentData == null) cachedBookDataOrNull() else null
+			if (cachedData != null) {
+				_bookState.value = UiState.Success(cachedData)
+			}
+			val visibleData = cachedData ?: currentData
+			if (fullRefresh || visibleData == null) {
+				_bookState.value = UiState.Loading(visibleData)
 			}
 			repository.getManifest(bookId).fold(
 				onSuccess = { manifest ->
@@ -54,23 +59,41 @@ class BinderyBookViewModel(
 					val sync = repository.getBookSync(bookId).getOrElse {
 						BinderyBookSync(bookId = bookId.toLongOrNull())
 					}
-					_bookState.value = UiState.Success(
+					val freshData =
 						BinderyBookData(
 							manifest = manifest,
 							resources = resources,
 							audiobooks = audiobooks,
 							sync = sync
 						)
-					)
+					val state = _bookState.value
+					if (state !is UiState.Success || state.data != freshData) {
+						_bookState.value = UiState.Success(freshData)
+					}
 				},
 				onFailure = { error ->
 					_bookState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleData
 					)
 				}
 			)
 		}
+	}
+
+	private suspend fun cachedBookDataOrNull(): BinderyBookData? {
+		val manifest = repository.getCachedManifest(bookId).getOrNull() ?: return null
+		val audiobooks = repository.getCachedAudiobookVersions(bookId).getOrNull().orEmpty()
+		val resources = repository.getCachedBookResources(bookId).getOrNull()
+			?: BinderyResourceCatalog(title = "Resources")
+		val sync = repository.getCachedBookSync(bookId).getOrNull()
+			?: BinderyBookSync(bookId = bookId.toLongOrNull())
+		return BinderyBookData(
+			manifest = manifest,
+			resources = resources,
+			audiobooks = audiobooks,
+			sync = sync
+		)
 	}
 
 	fun clearBook() {

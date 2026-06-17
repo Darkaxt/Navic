@@ -38,6 +38,12 @@ internal class FakeBinderyApiClient(
 	val catalogBaseUrls = mutableListOf<String>()
 	val catalogHeaders = mutableListOf<Map<String, String>>()
 	val catalogPaths = mutableListOf<String>()
+	val manifestBaseUrls = mutableListOf<String>()
+	val manifestHeaders = mutableListOf<Map<String, String>>()
+	val manifestBookIds = mutableListOf<String>()
+	val resourceCatalogBaseUrls = mutableListOf<String>()
+	val resourceCatalogHeaders = mutableListOf<Map<String, String>>()
+	val resourceCatalogBookIds = mutableListOf<String>()
 	val bookFindingBaseUrls = mutableListOf<String>()
 	val bookFindingHeaders = mutableListOf<Map<String, String>>()
 	val bookFindingIds = mutableListOf<String>()
@@ -93,16 +99,26 @@ internal class FakeBinderyApiClient(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		bookId: String
-	): BinderyManifest = BinderyManifest(
-		id = "urn:bindery:book:$bookId",
-		title = "Book $bookId"
-	)
+	): BinderyManifest {
+		manifestBaseUrls += baseUrl
+		manifestHeaders += requestHeaders
+		manifestBookIds += bookId
+		return BinderyManifest(
+			id = "urn:bindery:book:$bookId",
+			title = "Book $bookId"
+		)
+	}
 
 	override suspend fun fetchBookResources(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
 		bookId: String
-	): BinderyResourceCatalog = BinderyResourceCatalog(title = "Book $bookId Resources")
+	): BinderyResourceCatalog {
+		resourceCatalogBaseUrls += baseUrl
+		resourceCatalogHeaders += requestHeaders
+		resourceCatalogBookIds += bookId
+		return BinderyResourceCatalog(title = "Book $bookId Resources")
+	}
 
 	override suspend fun fetchAudiobookVersions(
 		baseUrl: String,
