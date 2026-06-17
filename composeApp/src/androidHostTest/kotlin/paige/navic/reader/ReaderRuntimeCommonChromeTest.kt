@@ -912,7 +912,40 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(tabbedDialogBody, "KomikkuSettingsTabRow(")
 		assertContains(tabbedDialogBody, "HorizontalPager(")
 		assertContains(tabbedDialogBody, "content(page)")
-		assertContains(tabbedDialogBody, "footer()")
+	}
+
+	@Test
+	fun commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val komikkuSettingsDialogText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ReaderSettingsDialog.kt reference")
+		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val tabbedDialogSignature = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("content: @Composable (Int) -> Unit")
+		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(komikkuSettingsDialogText, "onDismissRequest = {")
+		assertContains(komikkuSettingsDialogText, "onDismissRequest()")
+		assertContains(komikkuSettingsDialogText, "onShowMenus()")
+		assertContains(settingsDialogBody, "onDismissRequest = {")
+		assertContains(settingsDialogBody, "onDismissRequest()")
+		assertContains(settingsDialogBody, "onShowMenus()")
+		assertFalse(
+			settingsDialogBody.contains("Text(\"Close\")") ||
+				settingsDialogText.contains("Text(\"Close\")"),
+			"Komikku's reader settings dialog dismisses through the dialog shell; a Navic-only Close footer is a non-faithful UI fork."
+		)
+		assertFalse(
+			tabbedDialogSignature.contains("footer:") ||
+				tabbedDialogBody.contains("footer()"),
+			"Komikku's TabbedDialog owns only shell, tabs, and paged content; it must not grow a Navic-only footer slot."
+		)
 	}
 
 	@Test

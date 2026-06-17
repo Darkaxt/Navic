@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -221,19 +220,14 @@ internal fun KomikkuReaderSettingsDialog(
 	BoxWithConstraints {
 		val dialogWidthFraction = if (maxWidth < 720.dp) 0.96f else 0.72f
 		KomikkuTabbedDialog(
-			onDismissRequest = onDismissRequest,
+			onDismissRequest = {
+				onDismissRequest()
+				onShowMenus()
+			},
 			tabs = tabs,
 			pagerState = pagerState,
 			modifier = Modifier.heightIn(max = maxHeight * 0.75f),
-			widthFraction = dialogWidthFraction,
-			footer = {
-				TextButton(
-					onClick = onDismissRequest,
-					modifier = Modifier.align(Alignment.End)
-				) {
-					Text("Close")
-				}
-			}
+			widthFraction = dialogWidthFraction
 		) { page ->
 			val settingsScrollState = rememberScrollState()
 			Column(
@@ -571,7 +565,6 @@ private fun KomikkuTabbedDialog(
 	pagerState: PagerState,
 	modifier: Modifier = Modifier,
 	widthFraction: Float,
-	footer: @Composable ColumnScope.() -> Unit = {},
 	content: @Composable (Int) -> Unit
 ) {
 	val scope = rememberCoroutineScope()
@@ -604,7 +597,6 @@ private fun KomikkuTabbedDialog(
 				) { page ->
 					content(page)
 				}
-				footer()
 			}
 		}
 	}

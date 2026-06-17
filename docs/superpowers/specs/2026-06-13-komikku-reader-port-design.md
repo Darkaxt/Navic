@@ -7648,3 +7648,51 @@ Remaining scope:
 - This is a settings item primitive port, not the full settings-dialog redesign.
 - The dialog surface, tab strip, theme palette, responsive tablet width, and option grouping still need direct visual comparison against Komikku screenshots/source before they can be called faithful.
 - No APK or GitHub release was created for this slice.
+
+## 2026-06-17 Komikku Settings Dismiss/Footer Slice
+
+Reference source:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt`.
+
+Reference behavior:
+
+- `ReaderSettingsDialog` passes `onDismissRequest = { onDismissRequest(); onShowMenus() }` into `TabbedDialog`.
+- This matters because the Custom filter tab hides the reader chrome while the dialog is open; dismissing the dialog must always restore the chrome.
+- `TabbedDialog` owns only the adaptive sheet/dialog shell, tab row, pager, optional overflow menu, and paged content. It does not expose or render a footer slot.
+- Komikku does not add a reader-settings `Close` footer button.
+
+Non-faithful Navic behavior found:
+
+- `KomikkuReaderSettingsDialog` passed `onDismissRequest` directly into `KomikkuTabbedDialog`, so dismissing from Custom filter could leave the reader chrome hidden.
+- `KomikkuTabbedDialog` had a Navic-only `footer` slot and `KomikkuReaderSettingsDialog` rendered `Text("Close")` in it. This made the settings surface look and behave like a Navic modal rather than Komikku's reader settings dialog.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter"
+```
+
+Result:
+
+- Failed as expected while production still passed `onDismissRequest` directly and still rendered the Navic-only `Close` footer.
+
+Change:
+
+- Wrapped settings-dialog dismiss with `onDismissRequest(); onShowMenus()`, matching Komikku's reader settings dialog.
+- Removed the `footer` parameter from `KomikkuTabbedDialog`.
+- Removed the reader settings `Close` footer button.
+
+Green guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogHidesChromeOnCustomFilterLikeKomikku"
+```
+
+Result: passed.
+
+Remaining scope:
+
+- This does not complete the settings-dialog visual redesign. The surface palette, tab text component, option grouping, tablet sizing, and interaction density still need direct visual comparison and further porting against Komikku.
+- No APK or GitHub release was created for this slice.
