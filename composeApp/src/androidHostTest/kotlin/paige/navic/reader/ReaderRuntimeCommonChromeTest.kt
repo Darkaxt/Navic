@@ -329,10 +329,13 @@ class ReaderRuntimeCommonChromeTest {
 				readerScreenText.contains("private fun KomikkuChapterProgressSlider("),
 			"Komikku chapter/progress navigation must live in its own reader component file, not inside ReaderScreen."
 		)
-		assertContains(navigatorText, "internal const val KomikkuReaderVerticalRailHeightFraction = 0.82f")
 		assertContains(navigatorText, "internal fun KomikkuChapterNavigator(")
 		assertContains(navigatorText, "private fun KomikkuChapterNavigatorVertical(")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
+		assertFalse(
+			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
+			"The dedicated navigator file must not preserve a Navic-only vertical rail height constant; Komikku derives rail height from the app-bar layout slots."
+		)
 		assertFalse(
 			navigatorText.contains("private fun KomikkuVerticalChapterProgressRail("),
 			"The dedicated navigator file must not recreate Komikku's vertical slider as a separate fake rail layer."
@@ -397,26 +400,26 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(navigatorText, "KomikkuChapterNavigatorVertical(")
 		assertContains(appBarsBody, "ReaderNavBarTypeVerticalRight")
-		assertContains(appBarsBody, "Box(modifier = modifier.fillMaxSize())")
-		assertContains(appBarsBody, ".align(Alignment.CenterEnd)")
-		assertContains(appBarsBody, ".align(Alignment.CenterStart)")
-		assertContains(appBarsBody, "KomikkuReaderVerticalRailHeightFraction")
+		assertContains(appBarsBody, "Column(modifier = modifier.fillMaxHeight())")
+		assertContains(appBarsBody, ".weight(1f)")
+		assertContains(appBarsBody, ".align(Alignment.End)")
+		assertContains(appBarsBody, ".align(Alignment.Start)")
 		assertFalse(
-			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") ||
-				appBarsBody.contains(".weight(1f)"),
-			"Komikku app bars must mount top chrome, side rail, and bottom chrome as independent overlays; stacking them in a weighted Column can center the rail over the page."
+			appBarsBody.contains("Box(modifier = modifier.fillMaxSize())") ||
+				appBarsBody.contains("Alignment.CenterEnd") ||
+				appBarsBody.contains("Alignment.CenterStart") ||
+				appBarsBody.contains("KomikkuReaderVerticalRailHeightFraction"),
+			"Komikku app bars place the vertical navigator in the weighted middle slot of the app-bar Column; Navic must not keep a hard-coded centered height fraction."
 		)
-		assertContains(
-			navigatorText,
-			"internal const val KomikkuReaderVerticalRailHeightFraction = 0.82f",
-			message = "The vertical rail should be long enough to feel useful while still avoiding top/bottom chrome collisions."
+		assertFalse(
+			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
+			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
 		assertContains(navigatorText, "MutableInteractionSource")
 		assertContains(navigatorText, "collectIsDraggedAsState")
 		assertContains(navigatorText, "HapticFeedbackType.TextHandleMove")
 		assertContains(navigatorText, "roundToInt()")
-		assertContains(appBarsBody, "Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)")
 		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
 		assertContains(sideRailBody, "rotationZ = 90f")
 		assertContains(sideRailBody, "valueRange = 1..totalPages")

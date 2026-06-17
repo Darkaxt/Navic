@@ -7361,6 +7361,67 @@ Observed remaining gaps:
 
 - The rail is correctly bounded, but the light Material slider styling is still not visually faithful to Komikku's darker side navigator in the user's reference screenshots.
 
+## 2026-06-17 Komikku Weighted App-Bar Rail Placement Follow-Up
+
+Reference:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt:98-240`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt:193-276`.
+
+Root cause:
+
+- Navic still preserved a prior workaround from the centered-rail fix: `KomikkuReaderVerticalRailHeightFraction = 0.82f`.
+- `ReaderAppBars` still mounted the vertical navigator from a full-size `Box` with `Alignment.CenterStart/CenterEnd` and then constrained the navigator with the Navic-only height fraction.
+- That was not faithful. Komikku uses a root `Column(fillMaxHeight())`, top app bar, a weighted middle slot for the vertical `ChapterNavigator`, and bottom app bar. The rail height is a result of that app-bar structure, not a separate hard-coded fraction.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result:
+
+- Failed at `ReaderRuntimeCommonChromeTest.kt:400` while `ReaderAppBars` still used the centered `Box`/height-fraction model.
+
+Fix:
+
+- Removed `KomikkuReaderVerticalRailHeightFraction`.
+- Changed `KomikkuReaderAppBars` from a full-size `Box` placement model to the Komikku root `Column(fillMaxHeight())`.
+- Changed vertical-left and vertical-right rail placement to `Modifier.weight(1f).align(Alignment.Start/End)`.
+- Removed the centered wrapper boxes and the explicit `Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)` rail constraint.
+- Kept the bottom-nav case as the Komikku `Spacer(modifier = Modifier.weight(1f))` middle slot.
+
+Green guards:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result: passed.
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile"
+```
+
+Result: passed.
+
+Local reader-dev validation:
+
+- Built and installed local `readerDev` on `emulator-5554`; no GitHub release was created.
+- Installed build launched through the Bindery OPDS env path and opened `Alcatraz versus the Evil Librarians`.
+- The install script's first screenshot raced the activity transition and captured launcher wallpaper, but `dumpsys window` showed `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity` focused and logs showed Foliate opened the EPUB.
+- Settled cover capture: `captures/reader-dev/reader-dev-20260617-progress-rail-before-tap.png`.
+- Center tap logged `Reader native tap action=MENU x=616.0 y=987.0 width=1848 height=2960`.
+- Chrome capture after the menu tap: `captures/reader-dev/reader-dev-20260617-progress-rail-third-tap.png`.
+- The capture shows the top app bar, bottom app bar, and side progress navigator in the Komikku weighted middle slot at the right edge, not as a centered full-reader overlay.
+
+Remaining fidelity notes:
+
+- The side navigator placement now follows Komikku's app-bar structure.
+- The visual style is still not fully faithful: colors, opacity, button shape, and slider styling remain closer to Navic/Material defaults than to the user's Komikku screenshots.
+- Because a working but non-faithful feature is still failing, the next rail pass must redesign the visual styling from Komikku reference/screenshots instead of adding cosmetic patches over the current Material look.
+
 ## 2026-06-17 Native Cover Tap Dispatch Parity Slice
 
 Reference source:

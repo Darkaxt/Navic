@@ -9,13 +9,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,14 +72,13 @@ internal fun KomikkuReaderAppBars(
 	}
 	val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
-	Box(modifier = modifier.fillMaxSize()) {
+	Column(modifier = modifier.fillMaxHeight()) {
 		AnimatedVisibility(
 			visible = visible,
 			enter = slideInVertically(initialOffsetY = { -it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeIn(animationSpec = readerBarsFadeAnimationSpec),
 			exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = readerBarsSlideAnimationSpec) +
-				fadeOut(animationSpec = readerBarsFadeAnimationSpec),
-			modifier = Modifier.align(Alignment.TopCenter)
+				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
 		) {
 			KomikkuReaderTopBar(
 				title = reader.title,
@@ -106,28 +104,23 @@ internal fun KomikkuReaderAppBars(
 						animationSpec = readerBarsSlideAnimationSpec
 					) + fadeOut(animationSpec = readerBarsFadeAnimationSpec),
 					modifier = Modifier
-						.align(Alignment.CenterStart)
+						.weight(1f)
+						.align(Alignment.Start)
 				) {
-					Box(
-						modifier = Modifier.fillMaxHeight(),
-						contentAlignment = Alignment.CenterStart
-					) {
-						KomikkuChapterNavigator(
-							isRtl = isRtl,
-							isVerticalSlider = true,
-							onNextChapter = onNextPage,
-							enabledNext = true,
-							onPreviousChapter = onPreviousPage,
-							enabledPrevious = !controllerState.shellCoverVisible,
-							currentPage = chapterProgress.displayPage,
-							currentPageText = chapterProgress.displayPage.toString(),
-							totalPages = chapterProgress.pageCount,
-							onPageIndexChange = { pageIndex ->
-								onGoToChapterPage(pageIndex)
-							},
-							modifier = Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)
-						)
-					}
+					KomikkuChapterNavigator(
+						isRtl = isRtl,
+						isVerticalSlider = true,
+						onNextChapter = onNextPage,
+						enabledNext = true,
+						onPreviousChapter = onPreviousPage,
+						enabledPrevious = !controllerState.shellCoverVisible,
+						currentPage = chapterProgress.displayPage,
+						currentPageText = chapterProgress.displayPage.toString(),
+						totalPages = chapterProgress.pageCount,
+						onPageIndexChange = { pageIndex ->
+							onGoToChapterPage(pageIndex)
+						}
+					)
 				}
 			}
 
@@ -143,32 +136,28 @@ internal fun KomikkuReaderAppBars(
 						animationSpec = readerBarsSlideAnimationSpec
 					) + fadeOut(animationSpec = readerBarsFadeAnimationSpec),
 					modifier = Modifier
-						.align(Alignment.CenterEnd)
+						.weight(1f)
+						.align(Alignment.End)
 				) {
-					Box(
-						modifier = Modifier.fillMaxHeight(),
-						contentAlignment = Alignment.CenterEnd
-					) {
-						KomikkuChapterNavigator(
-							isRtl = isRtl,
-							isVerticalSlider = true,
-							onNextChapter = onNextPage,
-							enabledNext = true,
-							onPreviousChapter = onPreviousPage,
-							enabledPrevious = !controllerState.shellCoverVisible,
-							currentPage = chapterProgress.displayPage,
-							currentPageText = chapterProgress.displayPage.toString(),
-							totalPages = chapterProgress.pageCount,
-							onPageIndexChange = { pageIndex ->
-								onGoToChapterPage(pageIndex)
-							},
-							modifier = Modifier.fillMaxHeight(KomikkuReaderVerticalRailHeightFraction)
-						)
-					}
+					KomikkuChapterNavigator(
+						isRtl = isRtl,
+						isVerticalSlider = true,
+						onNextChapter = onNextPage,
+						enabledNext = true,
+						onPreviousChapter = onPreviousPage,
+						enabledPrevious = !controllerState.shellCoverVisible,
+						currentPage = chapterProgress.displayPage,
+						currentPageText = chapterProgress.displayPage.toString(),
+						totalPages = chapterProgress.pageCount,
+						onPageIndexChange = { pageIndex ->
+							onGoToChapterPage(pageIndex)
+						}
+					)
 				}
 			}
 
 			ReaderNavBarTypeBottom -> {
+				Spacer(modifier = Modifier.weight(1f))
 			}
 		}
 
@@ -177,8 +166,7 @@ internal fun KomikkuReaderAppBars(
 			enter = slideInVertically(initialOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeIn(animationSpec = readerBarsFadeAnimationSpec),
 			exit = slideOutVertically(targetOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
-				fadeOut(animationSpec = readerBarsFadeAnimationSpec),
-			modifier = Modifier.align(Alignment.BottomCenter)
+				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				if (navBarType == ReaderNavBarTypeBottom) {

@@ -42,8 +42,6 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.filled.SkipPrevious
 
-internal const val KomikkuReaderVerticalRailHeightFraction = 0.82f
-
 @Composable
 internal fun KomikkuChapterNavigator(
 	isRtl: Boolean,
