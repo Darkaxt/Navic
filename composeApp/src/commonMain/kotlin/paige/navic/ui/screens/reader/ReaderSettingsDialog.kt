@@ -19,13 +19,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,20 +35,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
-import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderColorFilterModeSrcOver
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
@@ -208,7 +209,6 @@ internal fun KomikkuReaderSettingsDialog(
 		initialPage = initialTab.coerceIn(tabs.indices),
 		pageCount = { tabs.size }
 	)
-	val chromeState = ReaderChromeState(settings = settings)
 
 	LaunchedEffect(pagerState.currentPage) {
 		if (tabs[pagerState.currentPage] == KomikkuSettingsTab.CustomFilter) {
@@ -307,14 +307,14 @@ internal fun KomikkuReaderSettingsDialog(
 								}
 							)
 						}
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Smaller tap zones",
 							checked = settings.smallerTapZone == true,
 							onCheckedChange = { smallerTapZone ->
 								onSettingsChange(settings.copy(smallerTapZone = smallerTapZone))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Show tap zones",
 							checked = settings.showTapZones == true,
 							onCheckedChange = { showTapZones ->
@@ -345,44 +345,41 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(fontSource = fontSource))
 							}
 						)
-						KomikkuSettingsStepperRow(
+						KomikkuSettingsSliderItem(
 							title = "Font size",
-							value = "${settings.fontSizePercent ?: 100}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustFontSize(-8).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustFontSize(8).settings)
+							value = settings.fontSizePercent ?: 100,
+							valueRange = 80..180,
+							valueString = "${settings.fontSizePercent ?: 100}%",
+							onChange = { fontSizePercent ->
+								onSettingsChange(settings.copy(fontSizePercent = fontSizePercent))
 							}
 						)
-						KomikkuSettingsStepperRow(
+						val lineHeightPercent = ((settings.lineHeight ?: 1.55) * 100.0).roundToInt()
+						KomikkuSettingsSliderItem(
 							title = "Line height",
-							value = "${settings.lineHeight ?: 1.55}",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustLineHeight(-0.1).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustLineHeight(0.1).settings)
+							value = lineHeightPercent,
+							valueRange = 120..220,
+							valueString = readerPercentAsDecimalString(lineHeightPercent),
+							onChange = { nextLineHeightPercent ->
+								onSettingsChange(settings.copy(lineHeight = nextLineHeightPercent / 100.0))
 							}
 						)
-						KomikkuSettingsStepperRow(
+						KomikkuSettingsSliderItem(
 							title = "Paragraph spacing",
-							value = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustParagraphSpacing(-25).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustParagraphSpacing(25).settings)
+							value = settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
+							valueRange = 0..200,
+							valueString = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
+							onChange = { paragraphSpacingPercent ->
+								onSettingsChange(settings.copy(paragraphSpacingPercent = paragraphSpacingPercent))
 							}
 						)
-						KomikkuSettingsStepperRow(
+						KomikkuSettingsSliderItem(
 							title = "Margins",
-							value = "${settings.marginPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustMargin(-4).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustMargin(4).settings)
+							value = settings.marginPercent ?: 0,
+							valueRange = 0..24,
+							valueString = "${settings.marginPercent ?: 0}%",
+							onChange = { marginPercent ->
+								onSettingsChange(settings.copy(marginPercent = marginPercent))
 							}
 						)
 						KomikkuSettingsChipRow(
@@ -403,21 +400,21 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(orientation = orientation))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Fullscreen",
 							checked = settings.fullscreen == true,
 							onCheckedChange = { fullscreen ->
 								onSettingsChange(settings.copy(fullscreen = fullscreen))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Keep screen on",
 							checked = settings.keepScreenOn == true,
 							onCheckedChange = { keepScreenOn ->
 								onSettingsChange(settings.copy(keepScreenOn = keepScreenOn))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Volume keys",
 							checked = settings.volumeKeyPageTurns == true,
 							onCheckedChange = { volumeKeyPageTurns ->
@@ -438,38 +435,36 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(pdfFitMode = fitMode))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Crop borders",
 							checked = settings.pdfCropBorders == true,
 							onCheckedChange = { cropBorders ->
 								onSettingsChange(settings.copy(pdfCropBorders = cropBorders))
 							}
 						)
-						KomikkuSettingsStepperRow(
+						KomikkuSettingsSliderItem(
 							title = "Page gap",
-							value = "${settings.pdfPageGapPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustPdfPageGap(-4).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustPdfPageGap(4).settings)
+							value = settings.pdfPageGapPercent ?: 0,
+							valueRange = 0..48,
+							valueString = "${settings.pdfPageGapPercent ?: 0}%",
+							onChange = { pdfPageGapPercent ->
+								onSettingsChange(settings.copy(pdfPageGapPercent = pdfPageGapPercent))
 							}
 						)
 					}
 					KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(
 						title = "Custom filter"
 					) {
-						KomikkuSettingsStepperRow(
+						KomikkuSettingsSliderItem(
 							title = "Dim overlay",
-							value = "${settings.dimOverlayPercent ?: 0}%",
-							onDecrease = {
-								onSettingsChange(chromeState.adjustDimOverlay(-10).settings)
-							},
-							onIncrease = {
-								onSettingsChange(chromeState.adjustDimOverlay(10).settings)
+							value = settings.dimOverlayPercent ?: 0,
+							valueRange = 0..80,
+							valueString = "${settings.dimOverlayPercent ?: 0}%",
+							onChange = { dimOverlayPercent ->
+								onSettingsChange(settings.copy(dimOverlayPercent = dimOverlayPercent))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Color filter",
 							checked = settings.colorFilterEnabled == true,
 							onCheckedChange = { colorFilterEnabled ->
@@ -478,27 +473,19 @@ internal fun KomikkuReaderSettingsDialog(
 						)
 						if (settings.colorFilterEnabled == true) {
 							ReaderColorFilterChannel.entries.forEach { channel ->
-								KomikkuSettingsStepperRow(
+								val channelValue = readerColorFilterChannelIntValue(settings.colorFilterArgb, channel)
+								KomikkuSettingsSliderItem(
 									title = channel.label,
-									value = readerColorFilterChannelValue(settings.colorFilterArgb, channel),
-									onDecrease = {
+									value = channelValue,
+									valueRange = 0..255,
+									valueString = "$channelValue",
+									onChange = { value ->
 										onSettingsChange(
 											settings.copy(
-												colorFilterArgb = updateReaderColorFilterChannel(
+												colorFilterArgb = setReaderColorFilterChannel(
 													settings.colorFilterArgb,
 													channel,
-													-16
-												)
-											)
-										)
-									},
-									onIncrease = {
-										onSettingsChange(
-											settings.copy(
-												colorFilterArgb = updateReaderColorFilterChannel(
-													settings.colorFilterArgb,
-													channel,
-													16
+													value
 												)
 											)
 										)
@@ -516,21 +503,21 @@ internal fun KomikkuReaderSettingsDialog(
 								}
 							)
 						}
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Grayscale",
 							checked = settings.grayscaleEnabled == true,
 							onCheckedChange = { grayscaleEnabled ->
 								onSettingsChange(settings.copy(grayscaleEnabled = grayscaleEnabled))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Inverted colors",
 							checked = settings.invertedColors == true,
 							onCheckedChange = { invertedColors ->
 								onSettingsChange(settings.copy(invertedColors = invertedColors))
 							}
 						)
-						KomikkuSettingsSwitchRow(
+						KomikkuSettingsCheckboxItem(
 							title = "Publisher styles",
 							checked = settings.publisherStyles == true,
 							onCheckedChange = { publisherStyles ->
@@ -724,22 +711,27 @@ private enum class ReaderColorFilterChannel(
 	Alpha("Alpha", 24, -0x1000000)
 }
 
-private fun updateReaderColorFilterChannel(
+private fun setReaderColorFilterChannel(
 	argb: Int?,
 	channel: ReaderColorFilterChannel,
-	delta: Int
+	value: Int
 ): Int {
 	val color = argb ?: 0
-	val current = ((color ushr channel.shift) and 0xFF)
-	val next = (current + delta).coerceIn(0, 255)
+	val next = value.coerceIn(0, 255)
 	return (color and channel.mask.inv()) or (next shl channel.shift)
 }
 
-private fun readerColorFilterChannelValue(
+private fun readerColorFilterChannelIntValue(
 	argb: Int?,
 	channel: ReaderColorFilterChannel
-): String =
-	"${(((argb ?: 0) ushr channel.shift) and 0xFF)}"
+): Int =
+	((argb ?: 0) ushr channel.shift) and 0xFF
+
+private fun readerPercentAsDecimalString(value: Int): String {
+	val whole = value / 100
+	val fraction = (value % 100).toString().padStart(2, '0')
+	return "$whole.$fraction"
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -779,7 +771,7 @@ private fun KomikkuSettingsChipRow(
 }
 
 @Composable
-private fun KomikkuSettingsSwitchRow(
+private fun KomikkuSettingsCheckboxItem(
 	title: String,
 	checked: Boolean,
 	onCheckedChange: (Boolean) -> Unit
@@ -787,57 +779,79 @@ private fun KomikkuSettingsSwitchRow(
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.clip(RoundedCornerShape(18.dp))
 			.clickable { onCheckedChange(!checked) }
-			.padding(horizontal = 10.dp, vertical = 6.dp),
-		horizontalArrangement = Arrangement.SpaceBetween,
+			.padding(horizontal = 24.dp, vertical = 10.dp),
+		horizontalArrangement = Arrangement.spacedBy(24.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
+		Checkbox(
+			checked = checked,
+			onCheckedChange = null
+		)
 		Text(
 			text = title,
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurface
 		)
-		Switch(
-			checked = checked,
-			onCheckedChange = onCheckedChange
+	}
+}
+
+@Composable
+private fun KomikkuSettingsSliderItem(
+	title: String,
+	value: Int,
+	valueRange: IntRange,
+	valueString: String = value.toString(),
+	onChange: (Int) -> Unit
+) {
+	val haptic = LocalHapticFeedback.current
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = 24.dp, vertical = 10.dp),
+		verticalArrangement = Arrangement.spacedBy(2.dp)
+	) {
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(8.dp)
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurface,
+				modifier = Modifier.weight(1f),
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+			KomikkuSettingsValuePill(valueString)
+		}
+		Slider(
+			value = value.coerceIn(valueRange).toFloat(),
+			onValueChange = { nextValue ->
+				val next = nextValue.roundToInt().coerceIn(valueRange)
+				if (next != value) {
+					onChange(next)
+					haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+				}
+			},
+			valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+			steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0)
 		)
 	}
 }
 
 @Composable
-private fun KomikkuSettingsStepperRow(
-	title: String,
-	value: String,
-	onDecrease: () -> Unit,
-	onIncrease: () -> Unit
-) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.padding(horizontal = 10.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically
+private fun KomikkuSettingsValuePill(text: String) {
+	Surface(
+		shape = RoundedCornerShape(50),
+		color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp)
 	) {
 		Text(
-			text = title,
+			text = text,
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurface,
-			modifier = Modifier.weight(1f),
 			maxLines = 1,
-			overflow = TextOverflow.Ellipsis
+			modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
 		)
-		IconButton(onClick = onDecrease) {
-			Text("-", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-		}
-		Text(
-			text = value,
-			style = MaterialTheme.typography.labelMedium,
-			color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-			maxLines = 1
-		)
-		IconButton(onClick = onIncrease) {
-			Text("+", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-		}
 	}
 }

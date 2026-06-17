@@ -7587,3 +7587,64 @@ Remaining scope:
 - It does not claim the drag animation is Komikku-equivalent yet. The current cover swipe still dispatches a page turn after release; the richer page-following drag/curl behavior remains a separate low-priority animation slice.
 - It does not address the still-not-faithful visual styling of the progress rail/settings sheet.
 - This validation did not prove normal-page rail behavior because the current cover input path kept the test on the cover until the edge tap surfaced chrome. Cover input remains a separate high-priority defect.
+
+## 2026-06-17 Komikku Settings Item Component Slice
+
+Reference source:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/GeneralSettingsPage.kt`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt`.
+- Komikku `tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt:139-252`.
+
+Reference behavior:
+
+- Binary reader options are `CheckboxItem(...)` rows, with the checkbox as the leading widget and row click toggling the setting.
+- Numeric reader options are `SliderItem(...)` rows with a value pill and haptic feedback while dragging.
+- Color filter channels are absolute slider values, not repeated plus/minus deltas.
+
+Non-faithful Navic behavior found:
+
+- `ReaderSettingsDialog.kt` still used Navic-only `KomikkuSettingsSwitchRow(...)` and `KomikkuSettingsStepperRow(...)`.
+- The stepper rows used tiny `-` / `+` text buttons, which looked like a cramped settings-page workaround rather than Komikku's slider item.
+- Color filter channels were adjusted by `updateReaderColorFilterChannel(..., delta)` instead of direct slider selection.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups"
+```
+
+Result:
+
+- Failed as expected while production still exposed `KomikkuSettingsSwitchRow(...)` and `KomikkuSettingsStepperRow(...)`.
+
+Change:
+
+- Replaced `KomikkuSettingsSwitchRow(...)` with `KomikkuSettingsCheckboxItem(...)` modeled after Komikku's `CheckboxItem`.
+- Replaced `KomikkuSettingsStepperRow(...)` with `KomikkuSettingsSliderItem(...)` modeled after Komikku's `SliderItem`.
+- Added `KomikkuSettingsValuePill(...)` for slider values.
+- Font size, line height, paragraph spacing, margins, PDF page gap, dim overlay, and color channels now select absolute values through sliders.
+- Replaced the color-filter delta helper with `setReaderColorFilterChannel(...)`.
+
+Green guards:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeExposesDimOverlayControl" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderCustomFilterPortsKomikkuColorFilterControls" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogLivesInDedicatedKomikkuComponentFile" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderOptionsUseKomikkuStyleChipGroups"
+```
+
+Result: passed.
+
+Backbone settings guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogAppliesTapZoneOverlayThroughControllerSettingsCommand" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogUsesKomikkuTapZonePresetControlsInsteadOfStaticLabels" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.settingsDialogUsesKomikkuReadingModePresetControlsInsteadOfStaticLabels"
+```
+
+Result: passed.
+
+Remaining scope:
+
+- This is a settings item primitive port, not the full settings-dialog redesign.
+- The dialog surface, tab strip, theme palette, responsive tablet width, and option grouping still need direct visual comparison against Komikku screenshots/source before they can be called faithful.
+- No APK or GitHub release was created for this slice.

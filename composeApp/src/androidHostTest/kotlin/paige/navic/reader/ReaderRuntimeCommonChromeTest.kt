@@ -63,7 +63,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerRootText, "Modifier.matchParentSize()")
 		assertContains(contentOverlayText, "drawRect(Color.Black.copy")
 		assertContains(settingsDialogText, "Dim overlay")
-		assertContains(settingsDialogText, "adjustDimOverlay")
+		assertContains(settingsDialogText, "KomikkuSettingsSliderItem(")
+		assertContains(settingsDialogText, "dimOverlayPercent = dimOverlayPercent")
 		assertContains(ebooksSettingsText, "readerDimOverlayPercent")
 		assertContains(ebooksSettingsText, "option_ebook_reader_dim_overlay")
 		assertContains(searchSettingsText, "ebooks.dim-overlay")
@@ -94,7 +95,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "Green")
 		assertContains(settingsDialogText, "Blue")
 		assertContains(settingsDialogText, "Alpha")
-		assertContains(settingsDialogText, "updateReaderColorFilterChannel")
+		assertContains(settingsDialogText, "setReaderColorFilterChannel")
 		assertContains(preferencesText, "readerColorFilterEnabled")
 		assertContains(preferencesText, "readerColorFilterArgb")
 		assertContains(preferencesText, "readerColorFilterMode")
@@ -354,8 +355,8 @@ class ReaderRuntimeCommonChromeTest {
 				readerScreenText.contains("private fun KomikkuTabbedDialog(") ||
 				readerScreenText.contains("private fun KomikkuSettingsTabRow(") ||
 				readerScreenText.contains("private fun KomikkuSettingsChipRow(") ||
-				readerScreenText.contains("private fun KomikkuSettingsSwitchRow(") ||
-				readerScreenText.contains("private fun KomikkuSettingsStepperRow("),
+				readerScreenText.contains("private fun KomikkuSettingsCheckboxItem(") ||
+				readerScreenText.contains("private fun KomikkuSettingsSliderItem("),
 			"Komikku reader settings must live in its own reader component file, not inside ReaderScreen."
 		)
 		assertContains(settingsDialogText, "internal val TabbedDialogPaddingsVertical = 8.dp")
@@ -364,8 +365,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "private fun KomikkuTabbedDialog(")
 		assertContains(settingsDialogText, "private fun KomikkuSettingsTabRow(")
 		assertContains(settingsDialogText, "private fun KomikkuSettingsChipRow(")
-		assertContains(settingsDialogText, "private fun KomikkuSettingsSwitchRow(")
-		assertContains(settingsDialogText, "private fun KomikkuSettingsStepperRow(")
+		assertContains(settingsDialogText, "private fun KomikkuSettingsCheckboxItem(")
+		assertContains(settingsDialogText, "private fun KomikkuSettingsSliderItem(")
 	}
 
 	@Test
@@ -824,10 +825,10 @@ class ReaderRuntimeCommonChromeTest {
 		val dialogPageBody = settingsDialogText.substringAfter("private fun KomikkuSettingsDialogPage(")
 			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuSettingsDialogLine(")
 		val chipRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsChipRow(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsSwitchRow(")
-		val switchRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsSwitchRow(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsStepperRow(")
-		val stepperRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsStepperRow(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsCheckboxItem(")
+		val checkboxItemBody = settingsDialogText.substringAfter("private fun KomikkuSettingsCheckboxItem(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsSliderItem(")
+		val sliderItemBody = settingsDialogText.substringAfter("private fun KomikkuSettingsSliderItem(")
 
 		assertContains(settingsDialogText, "internal val TabbedDialogPaddingsVertical = 8.dp")
 		assertContains(settingsDialogText, "private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
@@ -848,17 +849,23 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(dialogPageBody, "MaterialTheme.typography.titleSmall")
 		assertContains(chipRowBody, "MaterialTheme.typography.labelLarge")
 		assertContains(chipRowBody, "MaterialTheme.typography.labelMedium")
-		assertContains(switchRowBody, "MaterialTheme.typography.bodyMedium")
-		assertContains(stepperRowBody, "MaterialTheme.typography.bodyMedium")
-		assertContains(stepperRowBody, "MaterialTheme.typography.labelMedium")
+		assertContains(checkboxItemBody, "MaterialTheme.typography.bodyMedium")
+		assertContains(sliderItemBody, "MaterialTheme.typography.bodyMedium")
+		assertContains(sliderItemBody, "KomikkuSettingsValuePill(")
 		assertFalse(
 			chipRowBody.contains("MaterialTheme.typography.bodyLarge"),
 			"Settings chip groups should use compact labels instead of bodyLarge headings in the constrained overlay."
 		)
 		assertFalse(
-			switchRowBody.contains("MaterialTheme.typography.bodyLarge") ||
-				stepperRowBody.contains("MaterialTheme.typography.bodyLarge"),
-			"Switch and stepper rows should use compact row text so the settings sheet does not feel like a docked settings page."
+			checkboxItemBody.contains("MaterialTheme.typography.bodyLarge") ||
+				sliderItemBody.contains("MaterialTheme.typography.bodyLarge"),
+			"Checkbox and slider rows should use compact row text so the settings sheet does not feel like a docked settings page."
+		)
+		assertFalse(
+			sliderItemBody.contains("IconButton(") ||
+				sliderItemBody.contains("Text(\"-\")") ||
+				sliderItemBody.contains("Text(\"+\")"),
+			"Komikku reader settings use slider rows with a value pill, not Navic plus/minus steppers."
 		)
 	}
 
@@ -1000,10 +1007,12 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
 
 		assertContains(settingsDialogText, "KomikkuSettingsChipRow")
-		assertContains(settingsDialogText, "KomikkuSettingsSwitchRow")
-		assertContains(settingsDialogText, "KomikkuSettingsStepperRow")
+		assertContains(settingsDialogText, "KomikkuSettingsCheckboxItem")
+		assertContains(settingsDialogText, "KomikkuSettingsSliderItem")
 		assertContains(settingsDialogText, "FilterChip(")
 		assertContains(settingsDialogText, "FlowRow(")
+		assertContains(settingsDialogText, "Checkbox(")
+		assertContains(settingsDialogText, "Slider(")
 		assertContains(settingsDialogText, "KomikkuReadingModeOptions")
 		assertContains(settingsDialogBody, "ReaderSupportedDirections")
 		assertContains(settingsDialogBody, "ReaderSupportedFontFamilies")
@@ -1014,6 +1023,11 @@ class ReaderRuntimeCommonChromeTest {
 		assertFalse(
 			settingsDialogBody.contains("ReaderCycleRow("),
 			"Reader settings should use Komikku-style selectable chip groups instead of cyclic value rows."
+		)
+		assertFalse(
+			settingsDialogText.contains("private fun KomikkuSettingsSwitchRow(") ||
+				settingsDialogText.contains("private fun KomikkuSettingsStepperRow("),
+			"Working Navic-only switch/stepper rows are still non-faithful; settings controls must be rebuilt around Komikku CheckboxItem and SliderItem primitives."
 		)
 	}
 
