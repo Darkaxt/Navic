@@ -347,6 +347,61 @@ class BinderyRepositoryProgressCacheTest {
 	}
 
 	@Test
+	fun binderyEntityCacheAccessorsReturnStaleMetadataWithoutCallingApiClient() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			catalog = BinderyCatalog(title = "Live Catalog"),
+			bookFindings = BinderyCatalog(title = "Live Findings"),
+			audiobookVersion = BinderyAudiobookVersion(id = 999, narrator = "Live Narrator"),
+			audiobookManifest = BinderyManifest(id = "urn:bindery:audiobook:999", title = "Live Manifest")
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.Catalog,
+				path = "/opds/books?owned=1",
+				payloadJson = BinderyJson.encodeToString(BinderyCatalog(title = "Cached Catalog"))
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.AudiobookDetail,
+				path = "88",
+				payloadJson = BinderyJson.encodeToString(
+					BinderyAudiobookVersion(id = 88, narrator = "Cached Narrator")
+				)
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.AudiobookManifest,
+				path = "88",
+				payloadJson = BinderyJson.encodeToString(
+					BinderyManifest(id = "urn:bindery:audiobook:88", title = "Cached Manifest")
+				)
+			)
+			putBookDetailCacheRecord(
+				payloadType = BinderyMetadataPayloadType.BookFindings,
+				path = "3816",
+				payloadJson = BinderyJson.encodeToString(BinderyCatalog(title = "Cached Findings"))
+			)
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L + BINDERY_METADATA_CACHE_FRESH_MILLIS + 1L }
+		)
+
+		val catalog = repository.getCachedCatalog("/opds/books?owned=1").getOrThrow()
+		val audiobookDetail = repository.getCachedAudiobookDetail("88").getOrThrow()
+		val audiobookManifest = repository.getCachedAudiobookManifest("88").getOrThrow()
+		val findings = repository.getCachedBookFindings("3816").getOrThrow()
+
+		assertEquals("Cached Catalog", catalog?.title)
+		assertEquals("Cached Narrator", audiobookDetail?.narrator)
+		assertEquals("Cached Manifest", audiobookManifest?.title)
+		assertEquals("Cached Findings", findings?.title)
+		assertEquals(emptyList(), apiClient.catalogPaths)
+		assertEquals(emptyList(), apiClient.audiobookDetailIds)
+		assertEquals(emptyList(), apiClient.audiobookManifestIds)
+		assertEquals(emptyList(), apiClient.bookFindingIds)
+	}
+
+	@Test
 	fun performActionRequiresEnabledConfiguredBinderyWithoutCallingApiClient() = runBlocking {
 		val apiClient = FakeBinderyApiClient()
 		val preferences = PreferenceManager(MapSettings()).apply {

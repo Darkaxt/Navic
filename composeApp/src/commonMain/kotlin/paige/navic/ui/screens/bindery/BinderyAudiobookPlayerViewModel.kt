@@ -32,32 +32,56 @@ class BinderyAudiobookPlayerViewModel(
 		manifestJob?.cancel()
 		manifestJob = viewModelScope.launch {
 			val currentData = _manifestState.value.data
-			if (fullRefresh || currentData == null) {
-				_manifestState.value = UiState.Loading(currentData)
+			val cachedManifest = if (!fullRefresh && currentData == null) {
+				repository.getCachedAudiobookManifest(audiobookId).getOrNull()
+			} else {
+				null
+			}
+			if (cachedManifest != null) {
+				_manifestState.value = UiState.Success(cachedManifest)
+			}
+			val visibleManifest = cachedManifest ?: currentData
+			if (fullRefresh || visibleManifest == null) {
+				_manifestState.value = UiState.Loading(visibleManifest)
 			}
 			val currentDetail = _detailState.value.data
-			if (fullRefresh || currentDetail == null) {
-				_detailState.value = UiState.Loading(currentDetail)
+			val cachedDetail = if (!fullRefresh && currentDetail == null) {
+				repository.getCachedAudiobookDetail(audiobookId).getOrNull()
+			} else {
+				null
+			}
+			if (cachedDetail != null) {
+				_detailState.value = UiState.Success(cachedDetail)
+			}
+			val visibleDetail = cachedDetail ?: currentDetail
+			if (fullRefresh || visibleDetail == null) {
+				_detailState.value = UiState.Loading(visibleDetail)
 			}
 			repository.getAudiobookDetail(audiobookId).fold(
 				onSuccess = { detail ->
-					_detailState.value = UiState.Success(detail)
+					val state = _detailState.value
+					if (state !is UiState.Success || state.data != detail) {
+						_detailState.value = UiState.Success(detail)
+					}
 				},
 				onFailure = { error ->
 					_detailState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentDetail
+						data = visibleDetail
 					)
 				}
 			)
 			repository.getAudiobookManifest(audiobookId).fold(
 				onSuccess = { manifest ->
-					_manifestState.value = UiState.Success(manifest)
+					val state = _manifestState.value
+					if (state !is UiState.Success || state.data != manifest) {
+						_manifestState.value = UiState.Success(manifest)
+					}
 				},
 				onFailure = { error ->
 					_manifestState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleManifest
 					)
 				}
 			)

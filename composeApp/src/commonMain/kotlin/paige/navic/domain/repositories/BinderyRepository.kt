@@ -152,6 +152,13 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
 
+	suspend fun getCachedCatalog(path: String): Result<BinderyCatalog?> =
+		getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.Catalog,
+			path = path,
+			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
+		)
+
 	suspend fun getManifest(bookId: String): Result<BinderyManifest> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.Manifest,
@@ -215,12 +222,26 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyAudiobookVersion>(json) }
 		)
 
+	suspend fun getCachedAudiobookDetail(audiobookId: String): Result<BinderyAudiobookVersion?> =
+		getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookDetail,
+			path = audiobookId,
+			decode = { json -> BinderyJson.decodeFromString<BinderyAudiobookVersion>(json) }
+		)
+
 	suspend fun getAudiobookManifest(audiobookId: String): Result<BinderyManifest> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
 			path = audiobookId,
 			fetch = { baseUrl, headers -> apiClient.fetchAudiobookManifest(baseUrl, headers, audiobookId) },
 			encode = { manifest -> BinderyJson.encodeToString(manifest) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
+		)
+
+	suspend fun getCachedAudiobookManifest(audiobookId: String): Result<BinderyManifest?> =
+		getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
+			path = audiobookId,
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
@@ -271,6 +292,13 @@ class BinderyRepository(
 			path = bookId,
 			fetch = { baseUrl, headers -> apiClient.fetchBookFindings(baseUrl, headers, bookId) },
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
+		)
+
+	suspend fun getCachedBookFindings(bookId: String): Result<BinderyCatalog?> =
+		getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.BookFindings,
+			path = bookId,
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
 

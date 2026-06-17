@@ -49,27 +49,41 @@ class BinderyCatalogViewModel(
 			collectionArtworkResolver.clear()
 		}
 		catalogJob = viewModelScope.launch {
-			val currentData = _catalogState.value.data
-			if (fullRefresh || currentData == null) {
-				_catalogState.value = UiState.Loading(currentData)
-			}
 			val requestedPath = binderyAvailabilityFilteredCatalogPath(
 				path = binderyInitialCatalogPath(path),
 				languageFilter = languageFilter,
 				mode = queryMode
 			)
+			val currentData = _catalogState.value.data
+			val cachedData = if (!fullRefresh && currentData == null) {
+				repository.getCachedCatalog(requestedPath).getOrNull()
+			} else {
+				null
+			}
+			if (cachedData != null) {
+				nextPagePath = cachedData.nextPagePath()
+				_hasNextPage.value = nextPagePath != null
+				_catalogState.value = UiState.Success(cachedData)
+			}
+			val visibleData = cachedData ?: currentData
+			if (fullRefresh || visibleData == null) {
+				_catalogState.value = UiState.Loading(visibleData)
+			}
 			repository.getCatalog(requestedPath).fold(
 				onSuccess = { catalog ->
 					nextPagePath = catalog.nextPagePath()
 					_hasNextPage.value = nextPagePath != null
-					_catalogState.value = UiState.Success(catalog)
+					val state = _catalogState.value
+					if (state !is UiState.Success || state.data != catalog) {
+						_catalogState.value = UiState.Success(catalog)
+					}
 				},
 				onFailure = { error ->
-					nextPagePath = currentData?.nextPagePath()
+					nextPagePath = visibleData?.nextPagePath()
 					_hasNextPage.value = nextPagePath != null
 					_catalogState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleData
 					)
 				}
 			)
@@ -137,24 +151,36 @@ class BinderyCatalogViewModel(
 		}
 		relatedCatalogJob?.cancel()
 		relatedCatalogJob = viewModelScope.launch {
+			val filteredPath = binderyAvailabilityFilteredCatalogPath(
+				path = requestedPath,
+				languageFilter = languageFilter,
+				mode = BinderyAvailabilityQueryMode.Detail
+			)
 			val currentData = _relatedCollectionsState.value.data
-			if (fullRefresh || currentData == null || currentData.navigation.isEmpty()) {
-				_relatedCollectionsState.value = UiState.Loading(currentData)
+			val needsInitialData = currentData == null || currentData.navigation.isEmpty()
+			val cachedData = if (!fullRefresh && needsInitialData) {
+				repository.getCachedCatalog(filteredPath).getOrNull()
+			} else {
+				null
 			}
-			repository.getCatalog(
-				binderyAvailabilityFilteredCatalogPath(
-					path = requestedPath,
-					languageFilter = languageFilter,
-					mode = BinderyAvailabilityQueryMode.Detail
-				)
-			).fold(
+			if (cachedData != null) {
+				_relatedCollectionsState.value = UiState.Success(cachedData)
+			}
+			val visibleData = cachedData ?: currentData
+			if (fullRefresh || visibleData == null || visibleData.navigation.isEmpty()) {
+				_relatedCollectionsState.value = UiState.Loading(visibleData)
+			}
+			repository.getCatalog(filteredPath).fold(
 				onSuccess = { catalog ->
-					_relatedCollectionsState.value = UiState.Success(catalog)
+					val state = _relatedCollectionsState.value
+					if (state !is UiState.Success || state.data != catalog) {
+						_relatedCollectionsState.value = UiState.Success(catalog)
+					}
 				},
 				onFailure = { error ->
 					_relatedCollectionsState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleData
 					)
 				}
 			)

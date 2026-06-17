@@ -23,6 +23,11 @@ class BinderyCollectionArtworkResolver(
 		if (path in requestedPaths || path in _artworkByPath.value) return
 		requestedPaths += path
 		jobsByPath[path] = scope.launch {
+			repository.getCachedCatalog(path).getOrNull()
+				?.firstPublicationImageHref()
+				?.let { imageHref ->
+					_artworkByPath.value = _artworkByPath.value + (path to imageHref)
+				}
 			repository.getCatalog(path).getOrNull()
 				?.firstPublicationImageHref()
 				?.let { imageHref ->
