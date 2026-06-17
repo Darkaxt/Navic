@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,8 +40,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.SkipNext
-import paige.navic.icons.filled.SkipPrevious
+import paige.navic.icons.outlined.SkipNext
+import paige.navic.icons.outlined.SkipPrevious
 
 @Composable
 internal fun KomikkuChapterNavigator(
@@ -73,12 +74,13 @@ internal fun KomikkuChapterNavigator(
 
 	val backgroundColor = MaterialTheme.colorScheme
 		.surfaceColorAtElevation(3.dp)
-		.copy(alpha = 0.92f)
+		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
 	val buttonColor = IconButtonDefaults.filledIconButtonColors(
 		containerColor = backgroundColor,
 		disabledContainerColor = backgroundColor,
 		contentColor = MaterialTheme.colorScheme.primary
 	)
+	val textColor = MaterialTheme.colorScheme.onSurface
 	val layoutDirection = if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr
 
 	CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -94,7 +96,7 @@ internal fun KomikkuChapterNavigator(
 				colors = buttonColor
 			) {
 				Icon(
-					Icons.Filled.SkipPrevious,
+					Icons.Outlined.SkipPrevious,
 					contentDescription = if (isRtl) "Next" else "Previous"
 				)
 			}
@@ -110,7 +112,10 @@ internal fun KomikkuChapterNavigator(
 						verticalAlignment = Alignment.CenterVertically
 					) {
 						Box(contentAlignment = Alignment.CenterEnd) {
-							Text(text = currentPageText)
+							Text(
+								text = currentPageText,
+								color = textColor
+							)
 							Text(text = totalPages.toString(), color = Color.Transparent)
 						}
 						val haptic = LocalHapticFeedback.current
@@ -134,7 +139,10 @@ internal fun KomikkuChapterNavigator(
 							},
 							interactionSource = interactionSource
 						)
-						Text(text = totalPages.toString())
+						Text(
+							text = totalPages.toString(),
+							color = textColor
+						)
 					}
 				}
 			} else {
@@ -147,7 +155,7 @@ internal fun KomikkuChapterNavigator(
 				colors = buttonColor
 			) {
 				Icon(
-					Icons.Filled.SkipNext,
+					Icons.Outlined.SkipNext,
 					contentDescription = if (isRtl) "Previous" else "Next"
 				)
 			}
@@ -189,12 +197,13 @@ private fun KomikkuChapterNavigatorVertical(
 ) {
 	val backgroundColor = MaterialTheme.colorScheme
 		.surfaceColorAtElevation(3.dp)
-		.copy(alpha = 0.92f)
+		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
 	val buttonColor = IconButtonDefaults.filledIconButtonColors(
 		containerColor = backgroundColor,
 		disabledContainerColor = backgroundColor,
 		contentColor = MaterialTheme.colorScheme.primary
 	)
+	val textColor = MaterialTheme.colorScheme.onSurface
 
 	Column(
 		modifier = modifier
@@ -208,7 +217,7 @@ private fun KomikkuChapterNavigatorVertical(
 			colors = buttonColor
 		) {
 			Icon(
-				Icons.Filled.SkipPrevious,
+				Icons.Outlined.SkipPrevious,
 				contentDescription = "Previous",
 				modifier = Modifier.rotate(90f)
 			)
@@ -223,7 +232,10 @@ private fun KomikkuChapterNavigatorVertical(
 					.padding(vertical = 16.dp),
 				horizontalAlignment = Alignment.CenterHorizontally
 			) {
-				Text(text = currentPageText)
+				Text(
+					text = currentPageText,
+					color = textColor
+				)
 				val haptic = LocalHapticFeedback.current
 				val interactionSource = remember { MutableInteractionSource() }
 				val sliderDragged by interactionSource.collectIsDraggedAsState()
@@ -262,7 +274,10 @@ private fun KomikkuChapterNavigatorVertical(
 					},
 					interactionSource = interactionSource
 				)
-				Text(text = totalPages.toString())
+				Text(
+					text = totalPages.toString(),
+					color = textColor
+				)
 			}
 		} else {
 			Spacer(Modifier.weight(1f))
@@ -274,7 +289,7 @@ private fun KomikkuChapterNavigatorVertical(
 			colors = buttonColor
 		) {
 			Icon(
-				Icons.Filled.SkipNext,
+				Icons.Outlined.SkipNext,
 				contentDescription = "Next",
 				modifier = Modifier.rotate(90f)
 			)

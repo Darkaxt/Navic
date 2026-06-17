@@ -154,8 +154,13 @@ class ReaderRuntimeShellProgressTest {
 			readerScreenText.contains("ReaderBridgeCommand.NextPage"),
 			"The Komikku reader shell must not dispatch raw bridge page-turn commands."
 		)
-		assertContains(chapterNavigatorText, "Icons.Filled.SkipPrevious")
-		assertContains(chapterNavigatorText, "Icons.Filled.SkipNext")
+		assertContains(chapterNavigatorText, "Icons.Outlined.SkipPrevious")
+		assertContains(chapterNavigatorText, "Icons.Outlined.SkipNext")
+		assertFalse(
+			chapterNavigatorText.contains("Icons.Filled.SkipPrevious") ||
+				chapterNavigatorText.contains("Icons.Filled.SkipNext"),
+			"Komikku page-turn controls use outlined skip icons; Navic must not lock the reader chrome to filled icons."
+		)
 	}
 
 	@Test

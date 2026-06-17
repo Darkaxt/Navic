@@ -54,6 +54,8 @@ Before implementing or fixing anything in the reader:
 
 A feature is not accepted just because it appears to work. If it diverges from the reference product's ownership model, layout model, gesture model, visual model, or engine contract, it must be redesigned or explicitly recorded as a temporary adapter with a removal path. A working but non-faithful implementation is still a failing implementation until it is redesigned to match the reference contract. This applies equally to new features, bugfixes, and existing code that is currently "working" but is not faithful. "Komikku-style", "inspired by", or "equivalent-looking" implementations are not enough for the reader shell. The default requirement is a faithful port/adaptation of the reference behavior.
 
+Non-faithful behavior is a product defect even when it passes existing Navic tests or appears usable on a device. Do not preserve a non-faithful implementation because it is already working; redesign it around the reference product first, then adapt Navic integration around that contract. If a slice cannot reach faithfulness yet, it must be marked as temporary debt with the missing reference behavior named explicitly, and it must not be called complete.
+
 Temporary divergence is allowed only when all of these are true:
 
 - The reference behavior cannot be applied directly because Navic's content type or platform boundary is materially different.
@@ -7421,6 +7423,57 @@ Remaining fidelity notes:
 - The side navigator placement now follows Komikku's app-bar structure.
 - The visual style is still not fully faithful: colors, opacity, button shape, and slider styling remain closer to Navic/Material defaults than to the user's Komikku screenshots.
 - Because a working but non-faithful feature is still failing, the next rail pass must redesign the visual styling from Komikku reference/screenshots instead of adding cosmetic patches over the current Material look.
+
+## 2026-06-17 Komikku Chapter Navigator Visual Token Slice
+
+Reference:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt:74-276`.
+- Official Google Material Symbols outlined SVGs:
+  - `https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/skip_next/materialsymbolsoutlined/skip_next_24px.svg`
+  - `https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/skip_previous/materialsymbolsoutlined/skip_previous_24px.svg`
+
+Root cause:
+
+- Navic still rendered the chapter navigator with a fixed `.copy(alpha = 0.92f)`, while Komikku uses `.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)`.
+- Navic did not set the page number text color from `MaterialTheme.colorScheme.onSurface`.
+- Navic used `Icons.Filled.SkipPrevious` and `Icons.Filled.SkipNext`, but Komikku uses `Icons.Outlined.SkipPrevious` and `Icons.Outlined.SkipNext`.
+- That meant the side rail worked mechanically but remained a non-faithful visual fork.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.commonReaderChromeExposesPageTurnControls"
+```
+
+Result:
+
+- Failed on all 3 tests while Navic still used fixed alpha and filled skip icons.
+
+Fix:
+
+- Added official Material Symbols outlined `skip_next` and `skip_previous` SVGs under `composeApp/src/commonMain/valkyrieResources/outlined/`.
+- Switched `ReaderChapterNavigator.kt` to `paige.navic.icons.outlined.SkipPrevious` and `SkipNext`.
+- Matched Komikku's dark-mode-dependent rail alpha.
+- Matched Komikku's explicit `MaterialTheme.colorScheme.onSurface` page-number text color.
+- Updated guards so filled skip icons are rejected in the reader chrome.
+
+Green guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.commonReaderChromeExposesPageTurnControls"
+```
+
+Result:
+
+- Passed.
+- Valkyrie generated 65 outlined icons, confirming the two new outlined skip assets were picked up.
+- No APK or GitHub release was created for this visual-token slice.
+
+Remaining fidelity notes:
+
+- This is not the full progress-rail redesign. It only removes the concrete non-faithful visual tokens that were already identified.
+- Button shape, slider colors, settings sheet polish, texture movement, page drag preview, and deterministic paging remain active Komikku-backbone acceptance items.
 
 ## 2026-06-17 Native Cover Tap Dispatch Parity Slice
 

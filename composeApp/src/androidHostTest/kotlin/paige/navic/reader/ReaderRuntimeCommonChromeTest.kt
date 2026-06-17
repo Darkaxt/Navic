@@ -416,18 +416,27 @@ class ReaderRuntimeCommonChromeTest {
 			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
+		assertContains(navigatorText, "import androidx.compose.foundation.isSystemInDarkTheme")
 		assertContains(navigatorText, "MutableInteractionSource")
 		assertContains(navigatorText, "collectIsDraggedAsState")
 		assertContains(navigatorText, "HapticFeedbackType.TextHandleMove")
 		assertContains(navigatorText, "roundToInt()")
+		assertContains(sideRailBody, ".copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)")
+		assertContains(sideRailBody, "val textColor = MaterialTheme.colorScheme.onSurface")
 		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
 		assertContains(sideRailBody, "rotationZ = 90f")
 		assertContains(sideRailBody, "valueRange = 1..totalPages")
 		assertContains(sideRailBody, "onPageIndexChange(page - 1)")
-		assertContains(sideRailBody, "Text(text = currentPageText)")
-		assertContains(sideRailBody, "Text(text = totalPages.toString())")
-		assertContains(sideRailBody, "Icons.Filled.SkipPrevious")
-		assertContains(sideRailBody, "Icons.Filled.SkipNext")
+		assertContains(sideRailBody, "text = currentPageText")
+		assertContains(sideRailBody, "text = totalPages.toString()")
+		assertContains(sideRailBody, "color = textColor")
+		assertContains(sideRailBody, "Icons.Outlined.SkipPrevious")
+		assertContains(sideRailBody, "Icons.Outlined.SkipNext")
+		assertFalse(
+			sideRailBody.contains("Icons.Filled.SkipPrevious") ||
+				sideRailBody.contains("Icons.Filled.SkipNext"),
+			"Komikku's chapter navigator uses outlined skip icons; keeping Navic filled icons is a non-faithful visual fork."
+		)
 		assertFalse(
 			sideRailBody.contains("ReaderProgressSeekControl("),
 			"The Komikku side rail must not reuse the old bottom progress control."
@@ -454,11 +463,19 @@ class ReaderRuntimeCommonChromeTest {
 			.substringBefore("\n}\n\n@Preview")
 
 		assertContains(komikkuVerticalBody, "Slider(")
+		assertContains(komikkuVerticalBody, "copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)")
+		assertContains(komikkuVerticalBody, "val textColor = MaterialTheme.colorScheme.onSurface")
+		assertContains(komikkuVerticalBody, "Icons.Outlined.SkipPrevious")
+		assertContains(komikkuVerticalBody, "Icons.Outlined.SkipNext")
 		assertContains(komikkuVerticalBody, "graphicsLayer {")
 		assertContains(komikkuVerticalBody, "rotationZ = 90f")
 		assertContains(komikkuVerticalBody, "transformOrigin = TransformOrigin(0f, 0f)")
 		assertContains(komikkuVerticalBody, ".layout { measurable, constraints ->")
 		assertContains(komikkuVerticalBody, ".weight(1f)")
+		assertContains(sideRailBody, "copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)")
+		assertContains(sideRailBody, "val textColor = MaterialTheme.colorScheme.onSurface")
+		assertContains(sideRailBody, "Icons.Outlined.SkipPrevious")
+		assertContains(sideRailBody, "Icons.Outlined.SkipNext")
 		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
 		assertContains(sideRailBody, "graphicsLayer {")
 		assertContains(sideRailBody, "rotationZ = 90f")
