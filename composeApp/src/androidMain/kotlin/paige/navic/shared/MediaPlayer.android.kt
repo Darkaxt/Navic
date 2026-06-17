@@ -275,7 +275,9 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	}
 
 	override fun onTaskRemoved(rootIntent: Intent?) {
-		onDestroy()
+		if (exoPlayer?.isPlaying != true) {
+			stopSelf()
+		}
 	}
 
 	override fun onDestroy() {
@@ -293,7 +295,6 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		super.onDestroy()
 		mediaSession = null
 		exoPlayer = null
-		stopSelf()
 	}
 
 	private fun registerAudioEffectsListener(player: ExoPlayer) {
