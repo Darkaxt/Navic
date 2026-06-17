@@ -307,39 +307,48 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling() {
+	fun komikkuAppBarsOwnSideNavigatorAsWeightedAppBarSlot() {
 		val appBarsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		).readText()
+		val komikkuAppBarsText = root.resolve(
+			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt"
 		).readText()
 		val appBarsBody = appBarsText
 			.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
+		val komikkuAppBarsBody = komikkuAppBarsText
+			.substringAfter("fun ReaderAppBars(")
+			.substringBefore("\n}\n")
 
 		assertTrue(
-			appBarsBody.contains("Box(modifier = modifier.fillMaxSize())"),
-			"KomikkuReaderAppBars must mount reader chrome as a full-window overlay surface."
+			komikkuAppBarsBody.contains("Column(modifier = Modifier.fillMaxHeight())"),
+			"Komikku ReaderAppBars uses a full-height Column as the app-bar host."
+		)
+		assertTrue(
+			komikkuAppBarsBody.contains(".weight(1f)") &&
+				komikkuAppBarsBody.contains(".align(Alignment.Start)") &&
+				komikkuAppBarsBody.contains(".align(Alignment.End)"),
+			"Komikku places the side chapter navigator in the weighted middle slot, aligned to Start or End."
+		)
+		assertTrue(
+			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())"),
+			"Navic's KomikkuReaderAppBars must match Komikku's full-height Column host."
 		)
 		assertTrue(
 			appBarsBody.contains("ReaderNavBarTypeVerticalRight ->") &&
-				appBarsBody.contains(".align(Alignment.CenterEnd)") &&
+				appBarsBody.contains(".weight(1f)") &&
+				appBarsBody.contains(".align(Alignment.End)") &&
 				appBarsBody.contains("ReaderNavBarTypeVerticalLeft ->") &&
-				appBarsBody.contains(".align(Alignment.CenterStart)"),
-			"The vertical progress navigator must be anchored as a side overlay, not stacked into the center of the reader."
-		)
-		assertTrue(
-			appBarsBody.contains(".align(Alignment.TopCenter)") &&
-				appBarsBody.contains(".align(Alignment.BottomCenter)"),
-			"Top and bottom chrome must be independent overlays so the side rail cannot resize or center itself between them."
-		)
-		assertFalse(
-			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") ||
-				appBarsBody.contains(".weight(1f)"),
-			"The active Komikku app bars must not stack controls in a weighted Column; eta68 showed that this centers the progress rail over the content."
-		)
-		assertFalse(
-			appBarsBody.contains(".align(Alignment.End)") ||
 				appBarsBody.contains(".align(Alignment.Start)"),
-			"The side navigator must use explicit CenterStart/CenterEnd anchoring."
+			"The side progress navigator must live in Komikku's weighted middle slot instead of a Navic-only centered overlay."
+		)
+		assertFalse(
+			appBarsBody.contains("Box(modifier = modifier.fillMaxSize())") ||
+				appBarsBody.contains("Alignment.CenterEnd") ||
+				appBarsBody.contains("Alignment.CenterStart") ||
+				appBarsBody.contains("KomikkuReaderVerticalRailHeightFraction"),
+			"The active Komikku app bars must not preserve the eta68 centered-Box/height-fraction workaround."
 		)
 	}
 

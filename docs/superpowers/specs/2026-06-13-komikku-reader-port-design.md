@@ -7424,6 +7424,46 @@ Remaining fidelity notes:
 - The visual style is still not fully faithful: colors, opacity, button shape, and slider styling remain closer to Navic/Material defaults than to the user's Komikku screenshots.
 - Because a working but non-faithful feature is still failing, the next rail pass must redesign the visual styling from Komikku reference/screenshots instead of adding cosmetic patches over the current Material look.
 
+## 2026-06-17 App-Bar Guard Reconciliation
+
+Problem:
+
+- The spec and host tests had two conflicting rail-placement histories.
+- The eta68 diagnosis correctly described the visible failure on that release, but it converted the local workaround into an acceptance guard requiring `Box(fillMaxSize())`, `Alignment.CenterStart`, and `Alignment.CenterEnd`.
+- That guard contradicted the actual Komikku source, which uses `Column(fillMaxHeight())`, top app bar, weighted middle side navigator slot, and bottom app bar.
+
+Reference:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/appbars/ReaderAppBars.kt:98-240`.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result:
+
+- `ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorAsIndependentOverlaySibling` failed while `ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail` passed.
+- This proved the acceptance suite was internally inconsistent, not that the current weighted-slot app-bar code was less faithful to Komikku.
+
+Fix:
+
+- Renamed the backbone guard to `komikkuAppBarsOwnSideNavigatorAsWeightedAppBarSlot`.
+- The guard now reads the Komikku `ReaderAppBars.kt` reference and asserts the source's full-height `Column`, weighted middle slot, and `Alignment.Start/End` placement before checking Navic.
+- The guard now rejects the eta68 centered `Box`, `Alignment.CenterStart/CenterEnd`, and `KomikkuReaderVerticalRailHeightFraction` workaround.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuAppBarsOwnSideNavigatorAsWeightedAppBarSlot" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+```
+
+Result:
+
+- Passed.
+- No production code changed in this reconciliation slice.
+
 ## 2026-06-17 Komikku Chapter Navigator Visual Token Slice
 
 Reference:
