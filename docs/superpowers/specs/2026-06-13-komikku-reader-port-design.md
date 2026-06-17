@@ -56,6 +56,8 @@ A feature is not accepted just because it appears to work. If it diverges from t
 
 Non-faithful behavior is a product defect even when it passes existing Navic tests or appears usable on a device. Do not preserve a non-faithful implementation because it is already working; redesign it around the reference product first, then adapt Navic integration around that contract. If a slice cannot reach faithfulness yet, it must be marked as temporary debt with the missing reference behavior named explicitly, and it must not be called complete.
 
+There is no "working exception" for the reader. A feature that appears functional but is not faithful to its source authority must be redesigned, not polished, stabilized, or released as complete. This includes UI that only resembles Komikku, input handling that works by bypassing Komikku's ownership model, progress/page logic that gives plausible numbers without the reference chapter/page contract, and EPUB/PDF engine behavior that works through Navic-specific shortcuts instead of the Anx/Foliate capability boundary. The redesign requirement applies even when the non-faithful implementation is already shipped in a test release.
+
 Temporary divergence is allowed only when all of these are true:
 
 - The reference behavior cannot be applied directly because Navic's content type or platform boundary is materially different.
