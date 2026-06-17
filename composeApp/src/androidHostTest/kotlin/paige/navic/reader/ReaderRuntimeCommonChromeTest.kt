@@ -286,18 +286,19 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerRootText, "KomikkuReaderAppBars(")
 		assertContains(appBarsText, "KomikkuReaderTopBar(")
 		assertContains(readerRootText, "KomikkuReaderSettingsDialog(")
-		assertContains(settingsDialogText, "BasicAlertDialog(")
+		assertContains(settingsDialogText, "KomikkuAdaptiveSheet(")
 		assertContains(readerRootText, "Modifier.matchParentSize()")
-		assertContains(appBarsText, "Box(modifier = modifier.fillMaxSize())")
-		assertContains(appBarsText, ".align(Alignment.TopCenter)")
-		assertContains(appBarsText, ".align(Alignment.CenterEnd)")
-		assertContains(appBarsText, ".align(Alignment.CenterStart)")
-		assertContains(appBarsText, ".align(Alignment.BottomCenter)")
+		assertContains(appBarsBody, "Column(modifier = modifier.fillMaxHeight())")
+		assertContains(appBarsBody, ".weight(1f)")
+		assertContains(appBarsBody, ".align(Alignment.End)")
+		assertContains(appBarsBody, ".align(Alignment.Start)")
 		assertContains(appBarsText, "Ported from Komikku ReaderAppBars")
 		assertContains(settingsDialogText, "Ported from Komikku ReaderSettingsDialog")
 		assertFalse(
-			appBarsBody.contains("Column(modifier = modifier.fillMaxHeight())") || appBarsBody.contains(".weight(1f)"),
-			"Komikku reader app bars must be independent full-window overlays, not a weighted vertical layout that can center the progress rail."
+			appBarsBody.contains("Box(modifier = modifier.fillMaxSize())") ||
+				appBarsBody.contains("Alignment.CenterEnd") ||
+				appBarsBody.contains("Alignment.CenterStart"),
+			"Komikku reader app bars place the vertical navigator in the weighted middle slot of the app-bar Column, not a centered full-screen Box."
 		)
 		assertFalse(
 			readerScreenText.contains("Scaffold(") || readerScreenText.contains("bottomBar ="),
@@ -819,7 +820,7 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
 		val tabRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsTabRow(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
 		val dialogPageBody = settingsDialogText.substringAfter("private fun KomikkuSettingsDialogPage(")
@@ -834,8 +835,16 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label)")
 		assertContains(settingsDialogText, "Reading(\"Reading mode\", \"Reading\")")
 		assertContains(settingsDialogText, "CustomFilter(\"Custom filter\", \"Filter\")")
-		assertContains(settingsDialogBody, "val dialogWidthFraction = if (maxWidth < 720.dp) 0.96f else 0.72f")
-		assertContains(tabbedDialogBody, ".padding(horizontal = 20.dp, vertical = 16.dp)")
+		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
+		assertFalse(
+			settingsDialogBody.contains("dialogWidthFraction") ||
+				tabbedDialogBody.contains("widthFraction"),
+			"Komikku settings width is owned by AdaptiveSheet, not by Navic dialogWidthFraction plumbing."
+		)
+		assertFalse(
+			tabbedDialogBody.contains(".padding(horizontal = 20.dp, vertical = 16.dp)"),
+			"Komikku's TabbedDialog does not wrap the whole tab row and pager in Navic outer padding; settings items own their own padding."
+		)
 		assertContains(tabRowBody, "text = tab.compactLabel")
 		assertContains(tabRowBody, "MaterialTheme.typography.labelMedium")
 		assertFalse(
@@ -849,6 +858,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(dialogPageBody, "MaterialTheme.typography.titleSmall")
 		assertContains(chipRowBody, "MaterialTheme.typography.labelLarge")
 		assertContains(chipRowBody, "MaterialTheme.typography.labelMedium")
+		assertContains(chipRowBody, "horizontal = SettingsItemsPaddingsHorizontal")
+		assertContains(chipRowBody, "bottom = SettingsItemsPaddingsVertical")
 		assertContains(checkboxItemBody, "MaterialTheme.typography.bodyMedium")
 		assertContains(sliderItemBody, "MaterialTheme.typography.bodyMedium")
 		assertContains(sliderItemBody, "KomikkuSettingsValuePill(")
@@ -896,7 +907,7 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
 
 		assertContains(settingsDialogBody, "KomikkuTabbedDialog(")
 		assertContains(settingsDialogBody, "modifier = Modifier.heightIn(max = maxHeight * 0.75f)")
@@ -907,11 +918,56 @@ class ReaderRuntimeCommonChromeTest {
 				settingsDialogBody.contains("KomikkuSettingsTabRow("),
 			"ReaderSettingsDialog should mirror Komikku by delegating shell, tabs, and pager ownership to a reusable TabbedDialog primitive."
 		)
-		assertContains(tabbedDialogBody, "BasicAlertDialog(")
-		assertContains(tabbedDialogBody, "Surface(")
+		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
 		assertContains(tabbedDialogBody, "KomikkuSettingsTabRow(")
 		assertContains(tabbedDialogBody, "HorizontalPager(")
 		assertContains(tabbedDialogBody, "content(page)")
+	}
+
+	@Test
+	fun commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val komikkuAppAdaptiveSheetText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku app AdaptiveSheet.kt reference")
+		val komikkuCoreAdaptiveSheetText = listOf(
+			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt"),
+			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku core AdaptiveSheet.kt reference")
+		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+		val adaptiveSheetBody = settingsDialogText.substringAfter("private fun KomikkuAdaptiveSheet(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(komikkuAppAdaptiveSheetText, "fun AdaptiveSheet(")
+		assertContains(komikkuAppAdaptiveSheetText, "Dialog(")
+		assertContains(komikkuAppAdaptiveSheetText, "DialogProperties(")
+		assertContains(komikkuCoreAdaptiveSheetText, "if (isTabletUi)")
+		assertContains(komikkuCoreAdaptiveSheetText, "contentAlignment = Alignment.Center")
+		assertContains(komikkuCoreAdaptiveSheetText, "contentAlignment = Alignment.BottomCenter")
+		assertContains(komikkuCoreAdaptiveSheetText, "surfaceContainerHigh")
+
+		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
+		assertFalse(
+			tabbedDialogBody.contains("BasicAlertDialog(") ||
+				tabbedDialogBody.contains("DialogProperties(usePlatformDefaultWidth = false)") ||
+				tabbedDialogBody.contains("Surface("),
+			"Komikku TabbedDialog routes through AdaptiveSheet; keeping a direct BasicAlertDialog/Surface shell is a non-faithful settings UI fork."
+		)
+		assertContains(adaptiveSheetBody, "Dialog(")
+		assertContains(adaptiveSheetBody, "DialogProperties(")
+		assertContains(adaptiveSheetBody, "decorFitsSystemWindows = true")
+		assertContains(adaptiveSheetBody, "val isTabletUi = maxWidth >= 720.dp")
+		assertContains(adaptiveSheetBody, "contentAlignment = Alignment.Center")
+		assertContains(adaptiveSheetBody, "contentAlignment = Alignment.BottomCenter")
+		assertContains(adaptiveSheetBody, "widthIn(max = 460.dp)")
+		assertContains(adaptiveSheetBody, "requiredWidthIn(max = 460.dp)")
+		assertContains(adaptiveSheetBody, "MaterialTheme.colorScheme.surfaceContainerHigh")
 	}
 
 	@Test
@@ -928,7 +984,7 @@ class ReaderRuntimeCommonChromeTest {
 		val tabbedDialogSignature = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
 			.substringBefore("content: @Composable (Int) -> Unit")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
 
 		assertContains(komikkuSettingsDialogText, "onDismissRequest = {")
 		assertContains(komikkuSettingsDialogText, "onDismissRequest()")
@@ -973,7 +1029,13 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+		val komikkuTabbedDialogText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku TabbedDialog.kt reference")
 
 		assertContains(settingsDialogBody, "BoxWithConstraints")
 		assertContains(settingsDialogBody, ".heightIn(max = maxHeight * 0.75f)")
@@ -986,10 +1048,8 @@ class ReaderRuntimeCommonChromeTest {
 			"Komikku settings should use the shared bounded dialog modifier instead of only fixed-width surface sizing."
 		)
 		assertContains(tabbedDialogBody, "HorizontalPager(")
-		assertFalse(
-			tabbedDialogBody.contains("modifier = Modifier.animateContentSize()"),
-			"Pager content should be bounded and scrollable like Komikku's TabbedDialog body, not unbounded animated content."
-		)
+		assertContains(komikkuTabbedDialogText, "modifier = Modifier.animateContentSize()")
+		assertContains(tabbedDialogBody, "modifier = Modifier.animateContentSize()")
 	}
 
 	@Test
@@ -998,16 +1058,24 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+		val adaptiveSheetBody = settingsDialogText.substringAfter("private fun KomikkuAdaptiveSheet(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 
-		assertContains(settingsDialogBody, "val dialogWidthFraction = if (maxWidth < 720.dp) 0.96f else 0.72f")
-		assertContains(settingsDialogBody, "widthFraction = dialogWidthFraction")
-		assertContains(tabbedDialogBody, "DialogProperties(usePlatformDefaultWidth = false)")
-		assertContains(tabbedDialogBody, "widthFraction: Float")
-		assertContains(tabbedDialogBody, "modifier.fillMaxWidth(widthFraction)")
+		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
+		assertContains(adaptiveSheetBody, "DialogProperties(")
+		assertContains(adaptiveSheetBody, "usePlatformDefaultWidth = false")
+		assertContains(adaptiveSheetBody, "decorFitsSystemWindows = true")
+		assertContains(adaptiveSheetBody, "val isTabletUi = maxWidth >= 720.dp")
+		assertContains(adaptiveSheetBody, "widthIn(max = 460.dp)")
+		assertContains(adaptiveSheetBody, "requiredWidthIn(max = 460.dp)")
 		assertFalse(
-			tabbedDialogBody.contains("modifier.fillMaxWidth(0.78f)"),
-			"Settings dialog width must not stay trapped in the old fixed/platform-capped width that truncates Komikku tab labels."
+			settingsDialogBody.contains("dialogWidthFraction") ||
+				settingsDialogBody.contains("widthFraction =") ||
+				tabbedDialogBody.contains("widthFraction: Float") ||
+				tabbedDialogBody.contains("fillMaxWidth(widthFraction)") ||
+				tabbedDialogBody.contains("modifier.fillMaxWidth(0.78f)"),
+			"Settings dialog width must be owned by Komikku AdaptiveSheet, not by Navic's old fixed/platform-capped width plumbing."
 		)
 	}
 

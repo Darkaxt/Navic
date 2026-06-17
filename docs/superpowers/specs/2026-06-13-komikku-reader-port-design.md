@@ -58,6 +58,12 @@ Non-faithful behavior is a product defect even when it passes existing Navic tes
 
 There is no "working exception" for the reader. A feature that appears functional but is not faithful to its source authority must be redesigned, not polished, stabilized, or released as complete. This includes UI that only resembles Komikku, input handling that works by bypassing Komikku's ownership model, progress/page logic that gives plausible numbers without the reference chapter/page contract, and EPUB/PDF engine behavior that works through Navic-specific shortcuts instead of the Anx/Foliate capability boundary. The redesign requirement applies even when the non-faithful implementation is already shipped in a test release.
 
+Reader feature status must use these labels:
+
+- `Faithful`: the reference source has been named, Navic behavior matches that source's ownership/layout/input/engine contract, and an acceptance guard or visual/device validation proves the match.
+- `Temporary adapter`: the reference behavior cannot be applied directly yet, the exact missing behavior is documented, and the adapter has an explicit removal path.
+- `Failing`: the feature works locally or on device but is not faithful to the reference source. This status requires redesign before it can be treated as a bugfix, milestone, or release candidate.
+
 Temporary divergence is allowed only when all of these are true:
 
 - The reference behavior cannot be applied directly because Navic's content type or platform boundary is materially different.
@@ -7695,4 +7701,73 @@ Result: passed.
 Remaining scope:
 
 - This does not complete the settings-dialog visual redesign. The surface palette, tab text component, option grouping, tablet sizing, and interaction density still need direct visual comparison and further porting against Komikku.
+- No APK or GitHub release was created for this slice.
+
+## 2026-06-17 Komikku Adaptive Settings Sheet Slice
+
+Reference source:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt`.
+- Komikku `tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt`.
+- Komikku `tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt`.
+
+Reference behavior:
+
+- `TabbedDialog` routes through `AdaptiveSheet`; it does not own `BasicAlertDialog`, `DialogProperties`, direct `Surface`, or width plumbing.
+- `AdaptiveSheet` owns platform-default-width bypass, tablet centered placement, phone bottom placement, `surfaceContainerHigh`, extra-large shape, and 460dp width bounds.
+- `TabbedDialog` uses `PrimaryTabRow(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)`, `HorizontalDivider`, and `HorizontalPager(modifier = Modifier.animateContentSize())`.
+- Settings items own their own 24dp horizontal and 10dp vertical padding; the dialog shell does not wrap the entire tab row and pager in a Navic-only 20dp padding block.
+
+Non-faithful Navic behavior found:
+
+- `ReaderSettingsDialog.kt` still used `BasicAlertDialog(...)` directly.
+- `KomikkuTabbedDialog` owned direct `DialogProperties(usePlatformDefaultWidth = false)`, direct `Surface(...)`, `RoundedCornerShape(28.dp)`, `surfaceColorAtElevation(8.dp)`, and `widthFraction` / `dialogWidthFraction` plumbing.
+- Older acceptance guards still required that Navic-only width fraction and rejected Komikku's `animateContentSize()` pager, so the tests themselves were preserving a non-faithful workaround.
+- The settings tab row and pager were wrapped in `.padding(horizontal = 20.dp, vertical = 16.dp)`, which is not how Komikku's `TabbedDialog` delegates spacing.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell"
+```
+
+Result:
+
+- Failed as expected while production still routed the settings shell through direct `BasicAlertDialog` / `Surface`.
+
+Change:
+
+- Added `KomikkuAdaptiveSheet(...)` to `ReaderSettingsDialog.kt`.
+- `KomikkuTabbedDialog(...)` now delegates shell ownership to `KomikkuAdaptiveSheet(...)` and no longer accepts or applies `widthFraction`.
+- `KomikkuAdaptiveSheet(...)` now owns `DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)`.
+- Tablet layout uses `contentAlignment = Alignment.Center`, `requiredWidthIn(max = 460.dp)`, `systemBarsPadding()`, and `MaterialTheme.colorScheme.surfaceContainerHigh`.
+- Phone layout uses `contentAlignment = Alignment.BottomCenter`, `widthIn(max = 460.dp)`, and `MaterialTheme.colorScheme.surfaceContainerHigh`.
+- Tab row color now uses `surfaceContainerHigh`.
+- The settings pager now uses `Modifier.animateContentSize()`, matching Komikku.
+- Settings page headings and chip rows now use Komikku-style item padding constants instead of relying on the old outer dialog padding block.
+- Guard reconciliation changed stale tests so they reject the old width-fraction workaround instead of requiring it.
+- The project guardrail now records feature status labels: `Faithful`, `Temporary adapter`, and `Failing`. A working but non-faithful reader feature is explicitly failing until redesigned.
+
+Green guards:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndCompactTabLabels" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderShellUsesKomikkuEquivalentOverlayStack" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter"
+```
+
+Result: passed.
+
+Broader guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: passed.
+
+Status:
+
+- `Faithful` for the settings dialog ownership chain, width ownership, tablet/phone placement branch, surface token, tab row shell, divider, pager animation, and removal of the old Navic width-fraction shell.
+- `Temporary adapter` for Komikku's full `AdaptiveSheet` gesture behavior. The Android-only Komikku implementation uses `BackHandler`, anchored draggable state, nested scroll, and swipe-to-dismiss animation. Navic's current commonMain slice does not yet port those pieces, so the settings sheet must not be called complete until the gesture/dismiss parity is either ported into a platform-specific implementation or explicitly accepted as out of scope.
+- `Failing` remains for overall settings-dialog visual parity: palette, typography density, option grouping, and phone/tablet screenshots still need direct comparison against Komikku before this surface can be considered complete.
 - No APK or GitHub release was created for this slice.

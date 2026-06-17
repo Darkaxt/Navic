@@ -1,26 +1,32 @@
 package paige.navic.ui.screens.reader
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidthIn
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
@@ -45,6 +51,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -101,6 +108,8 @@ import paige.navic.reader.readerSettingsScopeLabel
 import paige.navic.reader.readerThemeShortLabel
 
 internal val TabbedDialogPaddingsVertical = 8.dp
+private val SettingsItemsPaddingsHorizontal = 24.dp
+private val SettingsItemsPaddingsVertical = 10.dp
 
 private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label) {
 	Reading("Reading mode", "Reading"),
@@ -218,7 +227,6 @@ internal fun KomikkuReaderSettingsDialog(
 	}
 
 	BoxWithConstraints {
-		val dialogWidthFraction = if (maxWidth < 720.dp) 0.96f else 0.72f
 		KomikkuTabbedDialog(
 			onDismissRequest = {
 				onDismissRequest()
@@ -226,8 +234,7 @@ internal fun KomikkuReaderSettingsDialog(
 			},
 			tabs = tabs,
 			pagerState = pagerState,
-			modifier = Modifier.heightIn(max = maxHeight * 0.75f),
-			widthFraction = dialogWidthFraction
+			modifier = Modifier.heightIn(max = maxHeight * 0.75f)
 		) { page ->
 			val settingsScrollState = rememberScrollState()
 			Column(
@@ -564,38 +571,83 @@ private fun KomikkuTabbedDialog(
 	tabs: List<KomikkuSettingsTab>,
 	pagerState: PagerState,
 	modifier: Modifier = Modifier,
-	widthFraction: Float,
 	content: @Composable (Int) -> Unit
 ) {
 	val scope = rememberCoroutineScope()
 
-	BasicAlertDialog(
+	KomikkuAdaptiveSheet(
 		onDismissRequest = onDismissRequest,
-		properties = DialogProperties(usePlatformDefaultWidth = false)
+		modifier = modifier
 	) {
-		Surface(
-			shape = RoundedCornerShape(28.dp),
-			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
-			contentColor = MaterialTheme.colorScheme.onSurface,
-			modifier = modifier.fillMaxWidth(widthFraction)
-		) {
-			Column(
-				modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-				verticalArrangement = Arrangement.spacedBy(14.dp)
-			) {
+		Column {
+			Row {
 				KomikkuSettingsTabRow(
 					tabs = tabs,
 					selectedTab = pagerState.currentPage,
+					modifier = Modifier.weight(1f),
 					onSelectTab = { index ->
 						scope.launch { pagerState.animateScrollToPage(index) }
 					}
 				)
-				HorizontalPager(
-					modifier = Modifier.weight(1f, fill = false),
-					state = pagerState,
-					verticalAlignment = Alignment.Top
-				) { page ->
-					content(page)
+			}
+			HorizontalDivider()
+			HorizontalPager(
+				modifier = Modifier.animateContentSize(),
+				state = pagerState,
+				verticalAlignment = Alignment.Top
+			) { page ->
+				content(page)
+			}
+		}
+	}
+}
+
+@Composable
+private fun KomikkuAdaptiveSheet(
+	onDismissRequest: () -> Unit,
+	modifier: Modifier = Modifier,
+	content: @Composable () -> Unit
+) {
+	BoxWithConstraints {
+		val isTabletUi = maxWidth >= 720.dp
+		Dialog(
+			onDismissRequest = onDismissRequest,
+			properties = DialogProperties(
+				usePlatformDefaultWidth = false,
+				decorFitsSystemWindows = true
+			)
+		) {
+			if (isTabletUi) {
+				Box(
+					modifier = Modifier.fillMaxSize(),
+					contentAlignment = Alignment.Center
+				) {
+					Surface(
+						modifier = Modifier
+							.requiredWidthIn(max = 460.dp)
+							.systemBarsPadding()
+							.padding(vertical = 16.dp)
+							.then(modifier),
+						shape = MaterialTheme.shapes.extraLarge,
+						color = MaterialTheme.colorScheme.surfaceContainerHigh,
+						contentColor = MaterialTheme.colorScheme.onSurface,
+						content = content
+					)
+				}
+			} else {
+				Box(
+					modifier = Modifier.fillMaxSize(),
+					contentAlignment = Alignment.BottomCenter
+				) {
+					Surface(
+						modifier = Modifier
+							.widthIn(max = 460.dp)
+							.then(modifier),
+						shape = MaterialTheme.shapes.extraLarge,
+						color = MaterialTheme.colorScheme.surfaceContainerHigh,
+						contentColor = MaterialTheme.colorScheme.onSurface,
+						content = content
+					)
 				}
 			}
 		}
@@ -606,13 +658,14 @@ private fun KomikkuTabbedDialog(
 private fun KomikkuSettingsTabRow(
 	tabs: List<KomikkuSettingsTab>,
 	selectedTab: Int,
+	modifier: Modifier = Modifier,
 	onSelectTab: (Int) -> Unit
 ) {
 	PrimaryTabRow(
 		selectedTabIndex = selectedTab,
-		containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+		containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
 		divider = {},
-		modifier = Modifier.fillMaxWidth()
+		modifier = modifier
 	) {
 		tabs.forEachIndexed { index, tab ->
 			Tab(
@@ -637,11 +690,17 @@ private fun KomikkuSettingsDialogPage(
 	title: String,
 	content: @Composable () -> Unit
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+	Column {
 		Text(
 			text = title,
 			style = MaterialTheme.typography.titleSmall,
-			fontWeight = FontWeight.Bold
+			fontWeight = FontWeight.Bold,
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(
+					horizontal = SettingsItemsPaddingsHorizontal,
+					vertical = SettingsItemsPaddingsVertical
+				)
 		)
 		content()
 	}
@@ -733,14 +792,26 @@ private fun KomikkuSettingsChipRow(
 	selectedValue: String,
 	onSelect: (String) -> Unit
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+	Column {
 		Text(
 			text = title,
 			style = MaterialTheme.typography.labelLarge,
 			fontWeight = FontWeight.SemiBold,
-			color = MaterialTheme.colorScheme.onSurface
+			color = MaterialTheme.colorScheme.onSurface,
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(
+					horizontal = SettingsItemsPaddingsHorizontal,
+					vertical = SettingsItemsPaddingsVertical
+				)
 		)
 		FlowRow(
+			modifier = Modifier.padding(
+				start = SettingsItemsPaddingsHorizontal,
+				top = 0.dp,
+				end = SettingsItemsPaddingsHorizontal,
+				bottom = SettingsItemsPaddingsVertical
+			),
 			horizontalArrangement = Arrangement.spacedBy(6.dp),
 			verticalArrangement = Arrangement.spacedBy(6.dp)
 		) {
@@ -772,7 +843,7 @@ private fun KomikkuSettingsCheckboxItem(
 		modifier = Modifier
 			.fillMaxWidth()
 			.clickable { onCheckedChange(!checked) }
-			.padding(horizontal = 24.dp, vertical = 10.dp),
+			.padding(horizontal = SettingsItemsPaddingsHorizontal, vertical = SettingsItemsPaddingsVertical),
 		horizontalArrangement = Arrangement.spacedBy(24.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
@@ -800,7 +871,7 @@ private fun KomikkuSettingsSliderItem(
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
-			.padding(horizontal = 24.dp, vertical = 10.dp),
+			.padding(horizontal = SettingsItemsPaddingsHorizontal, vertical = SettingsItemsPaddingsVertical),
 		verticalArrangement = Arrangement.spacedBy(2.dp)
 	) {
 		Row(
