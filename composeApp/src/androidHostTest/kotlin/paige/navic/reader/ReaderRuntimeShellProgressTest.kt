@@ -276,7 +276,11 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(nativeFrameHostText, "MotionEvent.ACTION_DOWN")
 		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
-		assertContains(nativeFrameHostText, "val consumed = handled || nativeShortTapIntercepted")
+		assertContains(nativeFrameHostText, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
+		assertFalse(
+			nativeFrameHostText.contains("nativeShortTapIntercepted"),
+			"Komikku's Pager does not intercept plain ACTION_UP taps; it lets the child receive the stream, then observes confirmed taps through GestureDetector."
+		)
 		assertTrue(
 			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
 				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
@@ -458,12 +462,20 @@ class ReaderRuntimeShellProgressTest {
 		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val interceptTouchEvent = nativeFrameHostText
+			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t}\n\n\t")
 
 		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
 		assertContains(dispatchTouchEvent, "handleSwipeTouchEvent(event)")
 		assertContains(dispatchTouchEvent, "gestureDetector.onTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "val consumed = handled || nativeShortTapIntercepted")
+		assertContains(dispatchTouchEvent, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
 		assertContains(dispatchTouchEvent, "return consumed")
+		assertFalse(
+			interceptTouchEvent.contains("nativeShortTapIntercepted") ||
+				interceptTouchEvent.contains("return nativeTapCandidate"),
+			"Shell-cover taps must follow Komikku's child-first Pager dispatch; the native container must not intercept ACTION_UP just to own short taps."
+		)
 		assertTrue(
 			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
 				dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)"),

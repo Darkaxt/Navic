@@ -295,7 +295,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeDragPreviewDiagnosticLogged: Boolean = false
 	private var nativeTapCandidate: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
-	private var nativeShortTapIntercepted: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
 
 	init {
@@ -375,7 +374,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			MotionEvent.ACTION_DOWN -> {
 				nativeTapCandidate = true
 				nativeTapLongConfirmed = false
-				nativeShortTapIntercepted = false
 				nativeSwipeIntercepted = false
 				swipeStartX = event.x
 				swipeStartY = event.y
@@ -405,8 +403,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			}
 			MotionEvent.ACTION_UP -> {
 				if (nativeSwipeIntercepted) return true
-				nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed
-				return nativeShortTapIntercepted
+				return false
 			}
 			MotionEvent.ACTION_CANCEL,
 			MotionEvent.ACTION_POINTER_DOWN -> {
@@ -425,7 +422,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted) {
 			gestureDetector.onTouchEvent(event)
 		}
-		val consumed = handled || nativeShortTapIntercepted || nativeSwipeIntercepted || horizontalSwipeDispatched
+		val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched
 		if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
 			clearNativeTapState()
 		}
@@ -607,7 +604,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun clearNativeTapState() {
 		nativeTapCandidate = false
 		nativeTapLongConfirmed = false
-		nativeShortTapIntercepted = false
 		nativeSwipeIntercepted = false
 	}
 

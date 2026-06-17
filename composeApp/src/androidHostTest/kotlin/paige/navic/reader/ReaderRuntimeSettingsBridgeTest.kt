@@ -131,7 +131,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(nativeFrameHostText, "val handled = super.dispatchTouchEvent(event)")
 		assertContains(nativeFrameHostText, "handleSwipeTouchEvent(event)")
 		assertContains(nativeFrameHostText, "gestureDetector.onTouchEvent(event)")
-		assertContains(nativeFrameHostText, "val consumed = handled || nativeShortTapIntercepted")
+		assertContains(nativeFrameHostText, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
+		assertFalse(
+			nativeFrameHostText.contains("nativeShortTapIntercepted"),
+			"Komikku's Pager does not use a separate short-tap intercept flag; confirmed tap ownership comes from GestureDetector after child dispatch."
+		)
 		assertContains(nativeFrameHostText, "return consumed")
 		assertContains(nativeFrameHostText, "GestureDetector(context, listener)")
 		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")

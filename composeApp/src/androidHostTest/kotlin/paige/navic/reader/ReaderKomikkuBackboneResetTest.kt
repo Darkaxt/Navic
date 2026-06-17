@@ -749,8 +749,8 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			viewerContainerBody.contains("override fun onInterceptTouchEvent(event: MotionEvent): Boolean") &&
-				viewerContainerBody.contains("nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed"),
-			"Short taps must be intercepted by the native viewer container before WebView can turn them into link/image clicks."
+				!viewerContainerBody.contains("nativeShortTapIntercepted"),
+			"Short taps must follow Komikku's child-first Pager dispatch and be classified by the native GestureDetector, not by an ACTION_UP intercept workaround."
 		)
 		assertTrue(
 			viewerContainerBody.contains("nativeTapLongConfirmed = true") &&

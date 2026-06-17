@@ -7360,4 +7360,74 @@ Local reader-dev validation:
 Observed remaining gaps:
 
 - The rail is correctly bounded, but the light Material slider styling is still not visually faithful to Komikku's darker side navigator in the user's reference screenshots.
+
+## 2026-06-17 Native Cover Tap Dispatch Parity Slice
+
+Reference source:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/Pager.kt:73-80`.
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/pager/PagerViewer.kt:120-134`.
+
+Reference behavior:
+
+- The pager dispatches the touch stream to the child page first with `super.dispatchTouchEvent(ev)`.
+- The same stream is then observed by `GestureDetectorWithLongTap`.
+- Plain short taps are not owned through an `ACTION_UP` intercept flag.
+- Confirmed taps are classified by the viewer navigator and forwarded as `MENU`, `NEXT`, `PREV`, `RIGHT`, or `LEFT`.
+
+Root cause found:
+
+- Navic still carried `nativeShortTapIntercepted`.
+- `KomikkuReaderNativeViewerContainer.onInterceptTouchEvent(...)` intercepted plain `ACTION_UP` when a tap candidate had not become a long press.
+- That was a Navic-only workaround and not faithful to Komikku's pager model. It also explained why cover image taps and child-dispatched touch streams could diverge from normal reader gestures.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.commonReaderUsesLongPressContentClaimsWithoutNativeTapCancellation" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent"
+```
+
+Result:
+
+- Failed on the expected source guards while production still used `nativeShortTapIntercepted`.
+- The fourth filter name was stale and did not match a current image/link test; the corrected filter was used for the green run below.
+
+Change:
+
+- Removed `nativeShortTapIntercepted` from `KomikkuReaderNativeFrameHost.android.kt`.
+- `onInterceptTouchEvent(...)` now intercepts only actual horizontal swipe ownership, not plain tap release.
+- `dispatchTouchEvent(...)` still follows the Komikku order: child dispatch first, native drag observation second, gesture detector observation third.
+- The consumed state is now based on `handled || nativeSwipeIntercepted || horizontalSwipeDispatched`.
+
+Green guards:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsMediaInteractionBelowNativeShortTapOwner" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent"
+```
+
+Result: passed.
+
+Broader affected guard run:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest"
+```
+
+Result: passed.
+
+Reader-dev runtime validation:
+
+- Installed and launched `androidApp:assembleReaderDev` with `scripts/install-reader-dev.ps1 -DeviceSerial emulator-5554 -Capture`.
+- The initial script capture raced launch and showed the Android launcher, but `dumpsys window` showed `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity` focused and a settled capture showed the native cover.
+- Settled native cover capture: `captures/reader-dev/reader-dev-20260617-settled-after-input-fix.png`.
+- Center tap on the native cover logged `Reader native tap action=MENU x=616.0 y=987.0 width=1848 height=2960` and surfaced the chrome over the cover. Capture: `captures/reader-dev/reader-dev-20260617-cover-center-tap.png`.
+- Right-side tap from the native cover logged `Reader native tap action=RIGHT x=1700.001 y=1480.0 width=1848 height=2960` and moved to the first readable page. Capture: `captures/reader-dev/reader-dev-20260617-cover-right-tap.png`.
+- Left-side tap from the first readable page logged `Reader native tap action=LEFT x=100.0 y=1480.0 width=1848 height=2960` and returned to the native cover. Capture: `captures/reader-dev/reader-dev-20260617-return-cover-left-tap.png`.
+- Swipe left on the native cover logged `Reader shell cover drag candidate dx=-26.572266 dy=0.0 threshold=12.0`, `Reader shell cover swipe action=Right dx=-1200.001 dy=0.0 threshold=12.0`, and `Reader shell cover command action=Right`, then moved to the first readable page. Capture: `captures/reader-dev/reader-dev-20260617-cover-swipe-left.png`.
+
+Remaining scope:
+
+- This slice fixes the non-faithful short-tap intercept path and validates native cover tap/swipe ownership on reader-dev.
+- It does not claim the drag animation is Komikku-equivalent yet. The current cover swipe still dispatches a page turn after release; the richer page-following drag/curl behavior remains a separate low-priority animation slice.
+- It does not address the still-not-faithful visual styling of the progress rail/settings sheet.
 - This validation did not prove normal-page rail behavior because the current cover input path kept the test on the cover until the edge tap surfaced chrome. Cover input remains a separate high-priority defect.

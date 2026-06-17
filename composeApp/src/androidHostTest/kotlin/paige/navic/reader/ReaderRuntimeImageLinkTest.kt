@@ -430,7 +430,10 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeViewerContainer")
 		assertContains(viewerContainerBody, "override fun onInterceptTouchEvent(event: MotionEvent): Boolean")
-		assertContains(viewerContainerBody, "nativeShortTapIntercepted = nativeTapCandidate && !nativeTapLongConfirmed")
+		assertFalse(
+			viewerContainerBody.contains("nativeShortTapIntercepted"),
+			"Plain short taps must not be owned through an ACTION_UP intercept workaround; Komikku observes confirmed taps after child dispatch."
+		)
 		assertContains(viewerContainerBody, "override fun onLongTapConfirmed(event: MotionEvent)")
 		assertContains(viewerContainerBody, "nativeTapLongConfirmed = true")
 		assertContains(viewerContainerBody, "onAction(action)")
