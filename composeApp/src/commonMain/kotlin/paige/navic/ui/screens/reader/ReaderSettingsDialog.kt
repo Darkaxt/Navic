@@ -4,19 +4,14 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidthIn
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -51,8 +46,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
@@ -597,58 +590,6 @@ private fun KomikkuTabbedDialog(
 				verticalAlignment = Alignment.Top
 			) { page ->
 				content(page)
-			}
-		}
-	}
-}
-
-@Composable
-private fun KomikkuAdaptiveSheet(
-	onDismissRequest: () -> Unit,
-	modifier: Modifier = Modifier,
-	content: @Composable () -> Unit
-) {
-	BoxWithConstraints {
-		val isTabletUi = maxWidth >= 720.dp
-		Dialog(
-			onDismissRequest = onDismissRequest,
-			properties = DialogProperties(
-				usePlatformDefaultWidth = false,
-				decorFitsSystemWindows = true
-			)
-		) {
-			if (isTabletUi) {
-				Box(
-					modifier = Modifier.fillMaxSize(),
-					contentAlignment = Alignment.Center
-				) {
-					Surface(
-						modifier = Modifier
-							.requiredWidthIn(max = 460.dp)
-							.systemBarsPadding()
-							.padding(vertical = 16.dp)
-							.then(modifier),
-						shape = MaterialTheme.shapes.extraLarge,
-						color = MaterialTheme.colorScheme.surfaceContainerHigh,
-						contentColor = MaterialTheme.colorScheme.onSurface,
-						content = content
-					)
-				}
-			} else {
-				Box(
-					modifier = Modifier.fillMaxSize(),
-					contentAlignment = Alignment.BottomCenter
-				) {
-					Surface(
-						modifier = Modifier
-							.widthIn(max = 460.dp)
-							.then(modifier),
-						shape = MaterialTheme.shapes.extraLarge,
-						color = MaterialTheme.colorScheme.surfaceContainerHigh,
-						contentColor = MaterialTheme.colorScheme.onSurface,
-						content = content
-					)
-				}
 			}
 		}
 	}

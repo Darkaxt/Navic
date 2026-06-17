@@ -58,6 +58,13 @@ expect fun ReaderSystemBarsEffect(
 )
 
 @Composable
+expect fun KomikkuAdaptiveSheet(
+	onDismissRequest: () -> Unit,
+	modifier: Modifier = Modifier,
+	content: @Composable () -> Unit
+)
+
+@Composable
 expect fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
 	onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit,

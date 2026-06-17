@@ -820,7 +820,7 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 		val tabRowBody = settingsDialogText.substringAfter("private fun KomikkuSettingsTabRow(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsDialogPage(")
 		val dialogPageBody = settingsDialogText.substringAfter("private fun KomikkuSettingsDialogPage(")
@@ -927,6 +927,19 @@ class ReaderRuntimeCommonChromeTest {
 	@Test
 	fun commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val platformHostsText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val androidAdaptiveSheetText = listOf(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.android.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.android.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: ""
+		val iosAdaptiveSheetText = listOf(
+			File("src/iosMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.ios.kt"),
+			File("composeApp/src/iosMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.ios.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: ""
 		val komikkuAppAdaptiveSheetText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt")
@@ -940,9 +953,7 @@ class ReaderRuntimeCommonChromeTest {
 			?.readText()
 			?: error("Could not locate Komikku core AdaptiveSheet.kt reference")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
-		val adaptiveSheetBody = settingsDialogText.substringAfter("private fun KomikkuAdaptiveSheet(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 
 		assertContains(komikkuAppAdaptiveSheetText, "fun AdaptiveSheet(")
 		assertContains(komikkuAppAdaptiveSheetText, "Dialog(")
@@ -951,6 +962,12 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(komikkuCoreAdaptiveSheetText, "contentAlignment = Alignment.Center")
 		assertContains(komikkuCoreAdaptiveSheetText, "contentAlignment = Alignment.BottomCenter")
 		assertContains(komikkuCoreAdaptiveSheetText, "surfaceContainerHigh")
+		assertContains(komikkuCoreAdaptiveSheetText, "BackHandler(")
+		assertContains(komikkuCoreAdaptiveSheetText, "AnchoredDraggableState(")
+		assertContains(komikkuCoreAdaptiveSheetText, "DraggableAnchors")
+		assertContains(komikkuCoreAdaptiveSheetText, ".anchoredDraggable(")
+		assertContains(komikkuCoreAdaptiveSheetText, ".nestedScroll(")
+		assertContains(komikkuCoreAdaptiveSheetText, "snapshotFlow { anchoredDraggableState.settledValue }")
 
 		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
 		assertFalse(
@@ -959,15 +976,36 @@ class ReaderRuntimeCommonChromeTest {
 				tabbedDialogBody.contains("Surface("),
 			"Komikku TabbedDialog routes through AdaptiveSheet; keeping a direct BasicAlertDialog/Surface shell is a non-faithful settings UI fork."
 		)
-		assertContains(adaptiveSheetBody, "Dialog(")
-		assertContains(adaptiveSheetBody, "DialogProperties(")
-		assertContains(adaptiveSheetBody, "decorFitsSystemWindows = true")
-		assertContains(adaptiveSheetBody, "val isTabletUi = maxWidth >= 720.dp")
-		assertContains(adaptiveSheetBody, "contentAlignment = Alignment.Center")
-		assertContains(adaptiveSheetBody, "contentAlignment = Alignment.BottomCenter")
-		assertContains(adaptiveSheetBody, "widthIn(max = 460.dp)")
-		assertContains(adaptiveSheetBody, "requiredWidthIn(max = 460.dp)")
-		assertContains(adaptiveSheetBody, "MaterialTheme.colorScheme.surfaceContainerHigh")
+		assertFalse(
+			settingsDialogText.contains("private fun KomikkuAdaptiveSheet(") ||
+				settingsDialogText.contains("import androidx.compose.ui.window.Dialog") ||
+				settingsDialogText.contains("import androidx.compose.ui.window.DialogProperties") ||
+				settingsDialogText.contains("\n\t\tDialog(") ||
+				settingsDialogText.contains("\n\tDialog("),
+			"Komikku AdaptiveSheet uses Android-only BackHandler/anchoredDraggable behavior; Navic must not keep a static commonMain approximation."
+		)
+		assertContains(platformHostsText, "expect fun KomikkuAdaptiveSheet(")
+		assertContains(androidAdaptiveSheetText, "actual fun KomikkuAdaptiveSheet(")
+		assertContains(androidAdaptiveSheetText, "DialogProperties(")
+		assertContains(androidAdaptiveSheetText, "usePlatformDefaultWidth = false")
+		assertContains(androidAdaptiveSheetText, "decorFitsSystemWindows = true")
+		assertContains(androidAdaptiveSheetText, "val isTabletUi = maxWidth >= 720.dp")
+		assertContains(androidAdaptiveSheetText, "animateFloatAsState(")
+		assertContains(androidAdaptiveSheetText, ".alpha(alpha)")
+		assertContains(androidAdaptiveSheetText, "BackHandler(")
+		assertContains(androidAdaptiveSheetText, "AnchoredDraggableState(")
+		assertContains(androidAdaptiveSheetText, "DraggableAnchors")
+		assertContains(androidAdaptiveSheetText, ".anchoredDraggable(")
+		assertContains(androidAdaptiveSheetText, ".nestedScroll(")
+		assertContains(androidAdaptiveSheetText, ".offset {")
+		assertContains(androidAdaptiveSheetText, ".navigationBarsPadding()")
+		assertContains(androidAdaptiveSheetText, ".statusBarsPadding()")
+		assertContains(androidAdaptiveSheetText, "snapshotFlow { anchoredDraggableState.settledValue }")
+		assertContains(androidAdaptiveSheetText, "collectLatest")
+		assertContains(androidAdaptiveSheetText, "requiredWidthIn(max = 460.dp)")
+		assertContains(androidAdaptiveSheetText, "widthIn(max = 460.dp)")
+		assertContains(androidAdaptiveSheetText, "MaterialTheme.colorScheme.surfaceContainerHigh")
+		assertContains(iosAdaptiveSheetText, "actual fun KomikkuAdaptiveSheet(")
 	}
 
 	@Test
@@ -984,7 +1022,7 @@ class ReaderRuntimeCommonChromeTest {
 		val tabbedDialogSignature = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
 			.substringBefore("content: @Composable (Int) -> Unit")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 
 		assertContains(komikkuSettingsDialogText, "onDismissRequest = {")
 		assertContains(komikkuSettingsDialogText, "onDismissRequest()")
@@ -1029,7 +1067,7 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
 		val komikkuTabbedDialogText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/TabbedDialog.kt")
@@ -1058,17 +1096,21 @@ class ReaderRuntimeCommonChromeTest {
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
 			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
 		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuAdaptiveSheet(")
-		val adaptiveSheetBody = settingsDialogText.substringAfter("private fun KomikkuAdaptiveSheet(")
-			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+		val androidAdaptiveSheetText = listOf(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.android.kt"),
+			File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.android.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: ""
 
 		assertContains(tabbedDialogBody, "KomikkuAdaptiveSheet(")
-		assertContains(adaptiveSheetBody, "DialogProperties(")
-		assertContains(adaptiveSheetBody, "usePlatformDefaultWidth = false")
-		assertContains(adaptiveSheetBody, "decorFitsSystemWindows = true")
-		assertContains(adaptiveSheetBody, "val isTabletUi = maxWidth >= 720.dp")
-		assertContains(adaptiveSheetBody, "widthIn(max = 460.dp)")
-		assertContains(adaptiveSheetBody, "requiredWidthIn(max = 460.dp)")
+		assertContains(androidAdaptiveSheetText, "DialogProperties(")
+		assertContains(androidAdaptiveSheetText, "usePlatformDefaultWidth = false")
+		assertContains(androidAdaptiveSheetText, "decorFitsSystemWindows = true")
+		assertContains(androidAdaptiveSheetText, "val isTabletUi = maxWidth >= 720.dp")
+		assertContains(androidAdaptiveSheetText, "widthIn(max = 460.dp)")
+		assertContains(androidAdaptiveSheetText, "requiredWidthIn(max = 460.dp)")
 		assertFalse(
 			settingsDialogBody.contains("dialogWidthFraction") ||
 				settingsDialogBody.contains("widthFraction =") ||

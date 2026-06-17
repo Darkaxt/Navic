@@ -7771,3 +7771,67 @@ Status:
 - `Temporary adapter` for Komikku's full `AdaptiveSheet` gesture behavior. The Android-only Komikku implementation uses `BackHandler`, anchored draggable state, nested scroll, and swipe-to-dismiss animation. Navic's current commonMain slice does not yet port those pieces, so the settings sheet must not be called complete until the gesture/dismiss parity is either ported into a platform-specific implementation or explicitly accepted as out of scope.
 - `Failing` remains for overall settings-dialog visual parity: palette, typography density, option grouping, and phone/tablet screenshots still need direct comparison against Komikku before this surface can be considered complete.
 - No APK or GitHub release was created for this slice.
+
+## 2026-06-17 Komikku AdaptiveSheet Gesture Port Slice
+
+Reference source:
+
+- Komikku `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/components/AdaptiveSheet.kt`.
+- Komikku `tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/AdaptiveSheet.kt`.
+- Navic platform split reference: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt` plus existing Android/iOS actual reader host files.
+
+Reference behavior:
+
+- `AdaptiveSheet` is not only a static dialog layout. The Android behavior includes tablet fade-in/out, outside tap dismissal, a surface click shield, `BackHandler`, phone anchored draggable state, nested scroll cooperation, `anchoredDraggable`, `offset`, navigation/status bar padding, and snapshot-based dismissal after the sheet settles.
+- Komikku's app-layer `AdaptiveSheet` owns `DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)` and delegates the actual sheet mechanics to the core `AdaptiveSheet`.
+- Because Komikku's full behavior imports Android-only APIs, Navic must not keep pretending a commonMain-only static sheet is faithful.
+
+Non-faithful Navic behavior found:
+
+- `ReaderSettingsDialog.kt` still contained a private commonMain `KomikkuAdaptiveSheet(...)` implementation.
+- That implementation only created `Dialog`, centered/bottom `Surface`, and width constraints. It did not include Komikku's Android `BackHandler`, `AnchoredDraggableState`, `DraggableAnchors`, `anchoredDraggable`, `nestedScroll`, `offset`, navigation/status bar padding, alpha animation, outside tap shield, or settled-value dismissal.
+- The earlier status correctly marked this as `Temporary adapter`; keeping it after identifying the reference behavior would violate the reference parity gate.
+
+Red guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter"
+```
+
+Result:
+
+- Failed as expected. The updated guard rejected the private commonMain `KomikkuAdaptiveSheet(...)` and the missing Android actual implementation.
+
+Change:
+
+- Added an `expect fun KomikkuAdaptiveSheet(...)` to `ReaderPlatformHosts.kt`.
+- Removed the private commonMain `KomikkuAdaptiveSheet(...)` from `ReaderSettingsDialog.kt`.
+- Added Android actual `KomikkuAdaptiveSheet.android.kt` ported from Komikku's app/core `AdaptiveSheet` behavior:
+  - `DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)`.
+  - tablet `animateFloatAsState` fade, outside tap dismissal, surface click shield, `BackHandler`, `requiredWidthIn(max = 460.dp)`, `systemBarsPadding()`, and `surfaceContainerHigh`.
+  - phone `AnchoredDraggableState`, `DraggableAnchors`, nested scroll, `settle`, `offset`, `anchoredDraggable`, `navigationBarsPadding()`, `statusBarsPadding()`, `BackHandler`, and `snapshotFlow { anchoredDraggableState.settledValue }`.
+- Added an iOS actual fallback so the multiplatform reader contract remains explicit. This fallback is not considered full Komikku behavior; it exists to keep non-Android targets compiling until a reference-equivalent platform behavior is defined.
+- Updated static guards so they reject a commonMain static approximation and require the Android actual port.
+
+Focused green guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogPortsKomikkuAdaptiveSheetInsteadOfBasicAlertDialogShell" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesResponsiveWidthInsteadOfPlatformDialogCap" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesReusableKomikkuTabbedDialogPrimitive" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogDismissRestoresChromeAndDoesNotAddNavicCloseFooter"
+```
+
+Result: passed.
+
+Broader guard:
+
+```powershell
+.\gradlew.bat --no-daemon --no-build-cache --no-parallel --rerun-tasks "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest"
+```
+
+Result: passed.
+
+Status:
+
+- `Faithful` for Android settings `AdaptiveSheet` gesture/dismiss ownership against Komikku's app/core sheet contract.
+- `Temporary adapter` for iOS settings sheet behavior; it is a compile-preserving fallback, not a claim of Komikku parity.
+- `Failing` still remains for overall settings-dialog visual parity: palette, typography density, option grouping, phone/tablet screenshots, and direct screenshot comparison against Komikku.
+- No APK or GitHub release was created for this slice.
