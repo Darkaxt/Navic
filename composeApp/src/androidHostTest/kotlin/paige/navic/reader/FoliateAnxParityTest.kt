@@ -95,7 +95,10 @@ class FoliateAnxParityTest {
 	}
 
 	private sealed class GapStatus {
-		data class Exists(val note: String) : GapStatus()
+		data class Exists(
+			val note: String,
+			val behaviorRoute: List<RouteStop> = emptyList()
+		) : GapStatus()
 		data class Missing(val targetPhase: Int, val note: String) : GapStatus()
 		data class Partial(val targetPhase: Int, val note: String) : GapStatus()
 		data class ProductDivergence(val navicRoute: List<RouteStop>, val rationale: String) : GapStatus()
@@ -114,6 +117,18 @@ class FoliateAnxParityTest {
 		}
 		return RouteStop(file, symbol)
 	}
+
+	private fun exists(note: String, vararg behaviorRoute: RouteStop): GapStatus.Exists =
+		GapStatus.Exists(note = note, behaviorRoute = behaviorRoute.toList())
+
+	private fun controllerTest(symbol: String): RouteStop =
+		routeStop("composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderControllerTest.kt", symbol)
+
+	private fun coordinatorTest(symbol: String): RouteStop =
+		routeStop("composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderCoordinatorTest.kt", symbol)
+
+	private fun readerUiRoute(fileName: String, symbol: String): RouteStop =
+		routeStop("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/$fileName", symbol)
 
 	private val knownGaps: Map<String, GapStatus> = mapOf(
 		"onClick" to GapStatus.ProductDivergence(
@@ -162,25 +177,110 @@ class FoliateAnxParityTest {
 		"translateText" to GapStatus.OutOfScope(
 			rationale = "Anx-specific translation service integration (text -> translation API). Not a reader behavior parity item."
 		),
-		"onRelocated" to GapStatus.Exists("LocationChanged with Anx relocation payload parity"),
-		"onSetToc" to GapStatus.Exists("Toc"),
-		"onSearch" to GapStatus.Exists("SearchResults"),
-		"renderAnnotations" to GapStatus.Exists("ApplyAnnotations command"),
-		"relocate" to GapStatus.Exists("locationChanged with Anx relocation payload parity"),
-		"onLoadEnd" to GapStatus.Exists("LoadDoc event with serializable payload"),
-		"onExternalLink" to GapStatus.Exists("ExternalLink distinct event"),
-		"onSelectionCleared" to GapStatus.Exists("SelectionCleared distinct event"),
-		"onAnnotationClick" to GapStatus.Exists("AnnotationClick from show-annotation"),
-		"onPushState" to GapStatus.Exists("PushState event"),
-		"onFootnoteClose" to GapStatus.Exists("FootnoteClose event on overlay dismissal"),
-		"onPullUp" to GapStatus.Exists("PullUp event from scroll-end hook"),
-		"link" to GapStatus.Exists("InternalLinkRequested with prevented/source semantics"),
-		"load" to GapStatus.Exists("LoadDoc event"),
-		"external-link" to GapStatus.Exists("ExternalLink event"),
-		"draw-annotation" to GapStatus.Exists("AnnotationDrawn event"),
-		"show-annotation" to GapStatus.Exists("AnnotationClick event"),
-		"create-overlay" to GapStatus.Exists("OverlayCreated event"),
-		"onSelectionEnd" to GapStatus.Exists("SelectionChanged carries Anx text/cfi/footnote/contextText/pos payload"),
+		"onRelocated" to exists(
+			"LocationChanged with Anx relocation payload parity",
+			controllerTest("engineRelocationFeedsControllerChromeWithoutEmittingEngineCommands"),
+			coordinatorTest("relocationsRouteProgressSaveIntentThroughControllerWithoutEngineBridgeCommands"),
+			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom")
+		),
+		"onSetToc" to exists(
+			"Toc",
+			controllerTest("engineCapabilityEventsFeedControllerStateWithoutOwningChrome"),
+			routeStop("ReaderController.kt", "is ReaderEngineEvent.Toc")
+		),
+		"onSearch" to exists(
+			"SearchResults",
+			coordinatorTest("searchRoutesThroughControllerAndCurrentEngineAdapter"),
+			readerUiRoute("ReaderSearchDialog.kt", "KomikkuReaderSearchDialog"),
+			readerUiRoute("ReaderRoot.kt", "ReaderControllerDialog.Search")
+		),
+		"renderAnnotations" to exists(
+			"ApplyAnnotations command",
+			coordinatorTest("selectionHighlightsRouteThroughControllerAndCurrentEngineAdapter"),
+			routeStop("ReaderController.kt", "fun addSelectionHighlight"),
+			readerUiRoute("ReaderSelectionActions.kt", "onHighlightSelection")
+		),
+		"relocate" to exists(
+			"locationChanged with Anx relocation payload parity",
+			controllerTest("engineRelocationFeedsControllerChromeWithoutEmittingEngineCommands"),
+			coordinatorTest("relocationsRouteProgressSaveIntentThroughControllerWithoutEngineBridgeCommands"),
+			routeStop("ReaderController.kt", "chrome = nextChrome")
+		),
+		"onLoadEnd" to exists(
+			"LoadDoc event with serializable payload",
+			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
+			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+		),
+		"onExternalLink" to exists(
+			"ExternalLink distinct event",
+			controllerTest("externalLinksOpenControllerOwnedExternalLinkPrompt"),
+			readerUiRoute("ReaderExternalLinkDialog.kt", "KomikkuReaderExternalLinkDialog"),
+			readerUiRoute("ReaderScreen.kt", "uriHandler.openUri")
+		),
+		"onSelectionCleared" to exists(
+			"SelectionCleared distinct event",
+			controllerTest("selectionActionStateIsControllerOwnedAndClearedByEngine"),
+			readerUiRoute("ReaderSelectionActions.kt", "KomikkuReaderSelectionActions"),
+			readerUiRoute("ReaderRoot.kt", "selectionActions = controllerState.selectionActions")
+		),
+		"onAnnotationClick" to exists(
+			"AnnotationClick from show-annotation",
+			controllerTest("annotationClicksOpenControllerOwnedAnnotationPopup"),
+			readerUiRoute("ReaderAnnotationDialog.kt", "KomikkuReaderAnnotationDialog"),
+			readerUiRoute("ReaderRoot.kt", "controllerState.annotationPopup")
+		),
+		"onPushState" to exists(
+			"PushState event",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState")
+		),
+		"onFootnoteClose" to exists(
+			"FootnoteClose event on overlay dismissal",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
+		),
+		"onPullUp" to exists(
+			"PullUp event from scroll-end hook",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "ReaderOverlayInteraction.PullUp")
+		),
+		"link" to exists(
+			"InternalLinkRequested with prevented/source semantics",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "lastLinkInteraction = ReaderLinkInteraction.Internal"),
+			routeStop("navic-reader.js", "type: 'internalLink'")
+		),
+		"load" to exists(
+			"LoadDoc event",
+			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
+			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+		),
+		"external-link" to exists(
+			"ExternalLink event",
+			controllerTest("externalLinksOpenControllerOwnedExternalLinkPrompt"),
+			readerUiRoute("ReaderExternalLinkDialog.kt", "KomikkuReaderExternalLinkDialog")
+		),
+		"draw-annotation" to exists(
+			"AnnotationDrawn event",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "ReaderAnnotationInteractionKind.Drawn")
+		),
+		"show-annotation" to exists(
+			"AnnotationClick event",
+			controllerTest("annotationClicksOpenControllerOwnedAnnotationPopup"),
+			readerUiRoute("ReaderAnnotationDialog.kt", "KomikkuReaderAnnotationDialog")
+		),
+		"create-overlay" to exists(
+			"OverlayCreated event",
+			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("ReaderController.kt", "ReaderOverlayInteraction.Created")
+		),
+		"onSelectionEnd" to exists(
+			"SelectionChanged carries Anx text/cfi/footnote/contextText/pos payload",
+			controllerTest("selectionActionStateIsControllerOwnedAndClearedByEngine"),
+			readerUiRoute("ReaderSelectionActions.kt", "KomikkuReaderSelectionActions"),
+			readerUiRoute("ReaderRoot.kt", "selectionActions = controllerState.selectionActions")
+		),
 		"fontSize" to GapStatus.Exists("Navic has fontSizePercent (different scaling but concept exists)"),
 		"fontFamily" to GapStatus.Exists("Navic has fontFamily"),
 		"lineHeight" to GapStatus.Exists("Navic has lineHeight"),
@@ -319,6 +419,50 @@ class FoliateAnxParityTest {
 				anxPlayerText.contains(key),
 				"OutOfScope entry $key must exist in Anx reference"
 			)
+		}
+	}
+
+	@Test
+	fun existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes() {
+		val behaviorKeys = setOf(
+			"onRelocated",
+			"onSetToc",
+			"onSearch",
+			"renderAnnotations",
+			"relocate",
+			"onLoadEnd",
+			"onExternalLink",
+			"onSelectionCleared",
+			"onAnnotationClick",
+			"onPushState",
+			"onFootnoteClose",
+			"onPullUp",
+			"link",
+			"load",
+			"external-link",
+			"draw-annotation",
+			"show-annotation",
+			"create-overlay",
+			"onSelectionEnd"
+		)
+
+		for (key in behaviorKeys) {
+			val status = assertIs<GapStatus.Exists>(
+				knownGaps[key],
+				"$key must be tracked as an implemented behavior, not a missing or partial gap."
+			)
+			assertTrue(
+				status.behaviorRoute.isNotEmpty(),
+				"$key is marked Exists but has no verified controller/UI behavior route."
+			)
+			for (stop in status.behaviorRoute) {
+				assertTrue(stop.file.isFile, "$key behavior route file must exist: ${stop.file.path}")
+				val fileText = stop.file.readText()
+				assertTrue(
+					fileText.contains(stop.symbol),
+					"$key behavior route: ${stop.file.name} must contain '${stop.symbol}'"
+				)
+			}
 		}
 	}
 

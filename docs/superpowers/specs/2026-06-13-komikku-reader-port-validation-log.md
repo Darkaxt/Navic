@@ -1421,3 +1421,40 @@ Result:
 Remaining:
 
 - Android/emulator validation is still required: trigger a real external EPUB/PDF link, confirm the native prompt appears, verify Close does not open the browser, verify Open launches through Android, and verify no menu/tap-zone regression.
+
+## 2026-06-18 Host Guard: Anx Exists Entries Require Behavior Routes
+
+Trigger:
+
+- GLM audit correctly identified that a parity registry can go green while only proving symbols exist.
+- The current implementation already routes the quoted controller no-ops into state/UI, but `FoliateAnxParityTest` still allowed high-risk `Exists` entries to be plain notes.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes"
+```
+
+Result:
+
+- FAIL as expected before route metadata: `onRelocated` was marked `Exists` without any verified controller/UI behavior route.
+
+Implemented:
+
+- `GapStatus.Exists` now carries optional `behaviorRoute` metadata.
+- High-risk Anx/Foliate behavior entries now point at both behavior tests and production controller/UI symbols.
+- The guarded keys include relocation, TOC, search, annotations, internal/external links, selection clear/end, annotation click/draw, overlay creation, document load, push-state navigation, footnote close, and pull-up.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes"
+```
+
+Result:
+
+- PASS: each guarded `Exists` entry now has at least one verified controller or native UI route.
+
+Remaining:
+
+- Full host/unit verification is still required before committing this guard.

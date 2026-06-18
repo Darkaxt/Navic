@@ -45,6 +45,8 @@ Every Anx bridge callback/event exposed by the reference EPUB/Foliate layer must
 
 Current enforcement note: Komikku parity is already guarded by source-reading tests. Anx behavior parity is now executed through `2026-06-17-anx-parity-7-phase-plan.md`. Phase 1 is closed with source citations, a green known-gaps registry, and route/order guards in `FoliateAnxParityTest.kt`. Phases 2-8 are host-verified for internal link suppression, the missing bridge event catalog, relocation payload parity, selection payload parity, all 10 Anx style dimensions, PDF parity guards, and font-source parity guards. The older `2026-06-17-komikku-reader-port-status-audit.md` and `2026-06-17-anx-middleware-complaint-brief.md` are diagnostic inputs, not the active implementation plan.
 
+`FoliateAnxParityTest` must not treat an Anx entry as `Exists` based only on bridge/event/type/debug-label symbols. Behavior entries marked `Exists` must carry a verified controller or native UI route, usually including a behavior test plus the production controller/UI component that consumes the event. This specifically guards against the "types-only parity" regression where JS emits, bridge decode, adapter mapping, and debug labels all exist but the reader silently discards the event.
+
 If a Navic feature works but is not faithful to the reference, treat it as unfinished. Do not polish or build dependent behavior on a non-faithful workaround.
 
 ## Non-Negotiable Guardrails
