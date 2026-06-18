@@ -68,17 +68,29 @@ class BinderyHubViewModel(
 		}
 		hubJob = viewModelScope.launch {
 			val currentData = _hubState.value.data
-			if (fullRefresh || currentData == null) {
-				_hubState.value = UiState.Loading(currentData)
+			val cachedData = if (!fullRefresh && currentData == null) {
+				loadCachedHub(languageFilter)
+			} else {
+				null
+			}
+			if (cachedData != null) {
+				_hubState.value = UiState.Success(cachedData)
+			}
+			val visibleData = cachedData ?: currentData
+			if (fullRefresh || visibleData == null) {
+				_hubState.value = UiState.Loading(visibleData)
 			}
 			loadHub(languageFilter).fold(
 				onSuccess = { state ->
-					_hubState.value = UiState.Success(state)
+					val currentState = _hubState.value
+					if (currentState !is UiState.Success || currentState.data != state) {
+						_hubState.value = UiState.Success(state)
+					}
 				},
 				onFailure = { error ->
 					_hubState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleData
 					)
 				}
 			)
@@ -104,6 +116,25 @@ class BinderyHubViewModel(
 
 	fun resolveCollectionArtwork(card: BinderyCatalogCard.Link) {
 		collectionArtworkResolver.resolve(card)
+	}
+
+	private suspend fun loadCachedHub(languageFilter: String?): BinderyHubState? {
+		val rootCatalog = repository.getCachedCatalog("/").getOrNull() ?: return null
+		val rows = binderyHubRows(rootCatalog).mapNotNull { row ->
+			repository.getCachedCatalog(
+				binderyAvailabilityFilteredCatalogPath(
+					path = row.catalogPath,
+					languageFilter = languageFilter,
+					mode = BinderyAvailabilityQueryMode.List
+				)
+			).getOrNull()?.let { catalog ->
+				BinderyHubCatalogRow(row, catalog)
+			}
+		}
+		return BinderyHubState(
+			root = rootCatalog,
+			rows = rows
+		)
 	}
 
 	private suspend fun loadHub(languageFilter: String?): Result<BinderyHubState> {

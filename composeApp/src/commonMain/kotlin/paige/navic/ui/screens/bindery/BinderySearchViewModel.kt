@@ -11,6 +11,7 @@ import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,12 +51,21 @@ class BinderySearchViewModel(
 					if (query.isBlank()) {
 						_searchState.value = UiState.Success(emptyList())
 					} else {
-						_searchState.value = UiState.Loading()
+						val cachedResults = searchCachedBindery(query)
+						if (cachedResults.isNotEmpty()) {
+							_searchState.value = UiState.Success(cachedResults)
+						} else {
+							_searchState.value = UiState.Loading()
+						}
 						try {
-							_searchState.value = UiState.Success(searchBindery(query))
+							val liveResults = searchBindery(query)
+							val currentState = _searchState.value
+							if (currentState !is UiState.Success || currentState.data != liveResults) {
+								_searchState.value = UiState.Success(liveResults)
+							}
 						} catch (e: Exception) {
 							if (e !is CancellationException) {
-								_searchState.value = UiState.Error(e)
+								_searchState.value = UiState.Error(e, data = _searchState.value.data)
 							}
 						}
 					}
@@ -65,49 +75,46 @@ class BinderySearchViewModel(
 
 	private suspend fun searchBindery(query: String): List<BinderySearchResult> = coroutineScope {
 		val terms = query.searchTerms()
-		val encodedQuery = query.trim().encodeURLParameter()
-		val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
-		val books = async {
-			repository.getCatalog(
-				binderySearchCatalogPath(
-					path = "/opds/search?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
-					languageFilter = languageFilter
-				)
-			)
-		}
-		val collections = async {
-			repository.getCatalog(
-				binderySearchCatalogPath(
-					path = BinderyCatalogTab.Collections.path,
-					languageFilter = languageFilter
-				)
-			)
-		}
-		val authors = async {
-			repository.getCatalog(
-				binderyDiscoverAuthorsPath(query)
-			)
-		}
-		val findings = async {
-			repository.getCatalog(
-				binderySearchCatalogPath(
-					path = "${BinderyCatalogTab.Findings.path}?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
-					languageFilter = languageFilter
-				)
-			)
-		}
-		val results = listOf(
-			books.await().toSearchResults(BinderyCatalogTab.Books, terms),
-			findings.await().toSearchResults(BinderyCatalogTab.Findings, terms),
-			collections.await().toSearchResults(BinderyCatalogTab.Collections, terms),
-			authors.await().toSearchResults(BinderyCatalogTab.Authors, terms)
-		)
+		val results = binderySearchCatalogRequests(query).map { (tab, path) ->
+			async {
+				repository.getCatalog(path).toSearchResults(tab, terms)
+			}
+		}.awaitAll()
 		val failures = results.mapNotNull { result -> result.exceptionOrNull() }
 		val successes = results.mapNotNull { result -> result.getOrNull() }.flatten()
 		if (successes.isEmpty() && failures.isNotEmpty()) {
 			throw failures.first() as? Exception ?: Exception(failures.first())
 		}
 		successes
+	}
+
+	private suspend fun searchCachedBindery(query: String): List<BinderySearchResult> {
+		val terms = query.searchTerms()
+		return binderySearchCatalogRequests(query).mapNotNull { (tab, path) ->
+			repository.getCachedCatalog(path).getOrNull()
+				?.let { catalog -> Result.success(catalog).toSearchResults(tab, terms) }
+				?.getOrNull()
+		}.flatten()
+	}
+
+	private fun binderySearchCatalogRequests(query: String): List<Pair<BinderyCatalogTab, String>> {
+		val encodedQuery = query.trim().encodeURLParameter()
+		val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
+		return listOf(
+			BinderyCatalogTab.Books to binderySearchCatalogPath(
+				path = "/opds/search?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
+				languageFilter = languageFilter
+			),
+			BinderyCatalogTab.Findings to binderySearchCatalogPath(
+				path = "${BinderyCatalogTab.Findings.path}?q=$encodedQuery&limit=$BINDERY_SEARCH_BOOK_LIMIT",
+				languageFilter = languageFilter
+			),
+			BinderyCatalogTab.Collections to binderySearchCatalogPath(
+				path = BinderyCatalogTab.Collections.path,
+				languageFilter = languageFilter
+			),
+			BinderyCatalogTab.Authors to binderyDiscoverAuthorsPath(query)
+		)
 	}
 
 	fun performAction(link: BinderyLink) {

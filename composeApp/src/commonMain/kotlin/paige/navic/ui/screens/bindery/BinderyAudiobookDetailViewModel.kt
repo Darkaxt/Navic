@@ -23,17 +23,29 @@ class BinderyAudiobookDetailViewModel(
 		detailJob?.cancel()
 		detailJob = viewModelScope.launch {
 			val currentData = _detailState.value.data
-			if (fullRefresh || currentData == null) {
-				_detailState.value = UiState.Loading(currentData)
+			val cachedData = if (!fullRefresh && currentData == null) {
+				repository.getCachedAudiobookDetail(audiobookId).getOrNull()
+			} else {
+				null
+			}
+			if (cachedData != null) {
+				_detailState.value = UiState.Success(cachedData)
+			}
+			val visibleData = cachedData ?: currentData
+			if (fullRefresh || visibleData == null) {
+				_detailState.value = UiState.Loading(visibleData)
 			}
 			repository.getAudiobookDetail(audiobookId).fold(
 				onSuccess = { detail ->
-					_detailState.value = UiState.Success(detail)
+					val state = _detailState.value
+					if (state !is UiState.Success || state.data != detail) {
+						_detailState.value = UiState.Success(detail)
+					}
 				},
 				onFailure = { error ->
 					_detailState.value = UiState.Error(
 						error = error as? Exception ?: Exception(error),
-						data = currentData
+						data = visibleData
 					)
 				}
 			)
