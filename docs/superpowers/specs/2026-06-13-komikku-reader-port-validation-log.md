@@ -6,6 +6,69 @@ The full historical log before compaction is preserved at:
 
 - `docs/superpowers/specs/archive/2026-06-13-komikku-reader-port-design-full-log.md`
 
+## 2026-06-18 Phone Corrupted Menu / Drag Preview Tap Leak
+
+Target:
+
+- Device: `RFCY80551LT` (`SM-F966B`, physical phone).
+- Package: `darkaxt.navic`.
+- App state supplied by user: EPUB already open in a corrupted menu state after a center tap on content.
+- User report: text pages sometimes resize/split when opening chrome; short taps over images may advance/skip pages instead of opening chrome; suspected page-curl/drag work leaking into tap actions.
+
+Evidence captured:
+
+- Screenshot: `tmp\phone-corrupted-menu-current.png`.
+- Visual state: Komikku chrome visible while the EPUB surface is split between an image column on the left and text on the right, showing page `8 / 273` and chapter rail `4 / 31`.
+- DevTools snapshot from the live WebView showed a single Foliate `Paginator` renderer, no `data-navic-page-drag-preview-layer`, and the viewport positioned mid-column in one long content iframe. This means the corruption was not a stale preview overlay left in the DOM; the paginator itself had been left at an intermediate horizontal offset.
+- Logcat around the gesture showed:
+  - `Reader native drag candidate dx=26.277344 dy=-1.7060547 threshold=21.0`
+  - multiple `Dispatching reader engine command: previewPageDrag(update)`
+  - `Dispatching reader engine command: previewPageDrag(cancel)`
+  - then `GestureDetector handleMessage TAP`
+  - then `Reader native tap action=MENU ...`
+
+Diagnosis:
+
+- A small movement during what the user experiences as a tap crossed touch slop and started the native drag/curl preview path.
+- The drag preview was cancelled, but `onSingleTapConfirmed` still accepted the same gesture as a normal center tap and toggled chrome.
+- This violates the Komikku ownership rule: drag/curl preview belongs only to dragging gestures; a movement-cancelled drag candidate must not be reclassified as a reader tap.
+
+Fix:
+
+- `KomikkuReaderNativeFrameHost.android.kt` now rejects `onSingleTapConfirmed` when `nativeTapCandidate` has already been cleared by movement beyond slop.
+- Added a host guard in `ReaderRuntimeShellProgressTest.nativeReaderSurfaceCenterMenuIsOwnedByNativeFrameInsteadOfWebViewHitTesting` requiring the `nativeTapCandidate` guard before tap-zone action classification.
+
+Red/green evidence:
+
+- RED: focused host test failed because `onSingleTapConfirmed` did not contain `if (!nativeTapCandidate) return false`.
+- GREEN: `:composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress"`.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`.
+- GREEN: `git diff --check`.
+
+Next required validation:
+
+- Build/install a new Android candidate before claiming phone behavior fixed; the current phone APK predates this source change.
+- On the physical phone, repeat: center tap over text, center tap over image, slight finger drift during center tap, and intentional drag/page turn. Expected result: slight-drift taps should not leave the paginator split or toggle chrome after a cancelled drag preview; intentional drags should still page normally.
+
+## 2026-06-18 Eta73 Candidate Staging
+
+Target:
+
+- Release candidate version: `v1.0.11-eta73`, `versionCode=406`.
+- Scope: gesture-leak guard, chapter-rail endpoint mapping changes already in the tree, and the matching host guards.
+
+Checks:
+
+- GREEN: `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta73`.
+- GREEN: `:composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest"`.
+- GREEN: broader reader host gate `:composeApp:testAndroidHost --tests "paige.navic.reader.*" --tests "paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest"`.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`.
+- GREEN: `git diff --check`.
+
+Release note:
+
+- Eta73 must be a new tag because `v1.0.11-eta72` already points at an older commit. Do not rebuild or republish eta72 for this fix.
+
 ## 2026-06-18 Selection Action UI Wiring
 
 Target:
@@ -1458,3 +1521,719 @@ Result:
 Remaining:
 
 - Full host/unit verification is still required before committing this guard.
+
+## 2026-06-18 Emulator Probe: Anx Relocation Payload Evidence
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: PID `21759`, `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 16:15:18`.
+- EPUB state: Bindery EPUB launched through `scripts\install-reader-dev.ps1`; native cover was dismissed with an edge tap and the WebView showed page `1 / 270`.
+
+Trigger:
+
+- GLM's audit correctly pushed against symbol-only Anx parity. The current controller/UI routes are no longer the quoted no-ops, but Phase 4 still needed runtime relocation payload evidence from a real WebView.
+- The first relocation DevTools probe returned a valid runtime `locationChanged` payload but still failed because the harness waited for a monkey-patched Android JS bridge method that DevTools could not reliably replace.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression"
+```
+
+Result:
+
+- FAIL before implementation. The helper could still await `observedLocation`, and runtime diagnostic snapshots could be suppressed as duplicate relocations.
+
+Implemented:
+
+- `diagnosticLocationSnapshot` now forces a duplicate-safe post and returns the runtime `locationChanged` payload.
+- `postCurrentLocationSnapshot` and `postLocationChanged` now return explicit posted/skipped status objects instead of fire-and-forget behavior.
+- `adb-webview-eval.mjs` no longer waits indefinitely for a monkey-patched Android bridge method. It accepts the returned runtime `locationChanged` payload as evidence when `observedMessageCount` is zero.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest"
+```
+
+Result:
+
+- PASS: JS syntax for the DevTools helper and reader runtime.
+- PASS: focused diagnostic-return host guards.
+- PASS: `FoliateAnxParityTest`.
+
+Emulator command:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe relocation-payload -ArtifactDir captures\reader-bridge-probes\20260618-161735-relocation
+```
+
+Artifact:
+
+- `captures\reader-bridge-probes\20260618-161735-relocation\reader-devtools-probe.json`
+
+Result:
+
+- PASS: `locationSnapshotResult.posted=true`.
+- PASS: returned `locationChanged` carried `href=OEBPS/Text/sinopsis.xhtml`, CFI `rangeCfi=epubcfi(/6/4!/4/2,,/4/1:586)`, `reason=adb-relocation-payload-probe`, `fraction=0.004370907849029098`, `pageCount=270`, `pageCountSource=pagination-profile`, and `paginationFingerprint=navic-pagination-v1:1062454681`.
+- Note: `observedMessageCount=0` is expected for this probe path because DevTools cannot reliably monkey-patch the injected Android bridge method. The returned runtime payload is the evidence source.
+
+Remaining:
+
+- User-driven relocation flows still need runtime validation: tap, drag, progress rail, TOC, and resume must keep posting `reason` and CFI/null `rangeCfi`.
+- Phase 3 still needs user-driven selection-clear and scrolled-edge pull-up gesture evidence before release-candidate claims; diagnostic bridge-path evidence is recorded in the later 2026-06-18 Phase 3 section.
+- Phase 5 real-flow selection UI still needs emulator/device evidence before release-candidate claims.
+
+## 2026-06-18 Emulator Probe: Phase 3 Bridge Events With Enforced Log Evidence
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:12:37`.
+- EPUB state: dirty readerdev source rebuilt and installed, then launched through `scripts\install-reader-dev.ps1` until `Reader bridge raw: {"type":"publicationReady"}`.
+
+Trigger:
+
+- GLM's audit identified the recurring failure mode where bridge types/debug labels can exist while behavior is not actually consumed or validated.
+- The first Phase 3 DevTools probe had the same shape: it appended `pullUp` to the probe JSON after synthetic touch dispatch, but the smoke script did not fail when Android logcat lacked `Reader bridge event: pullUp`.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -ArtifactDir captures\reader-bridge-probes\20260618-continue-phase3-pullup-enforced
+```
+
+Result:
+
+- FAIL as expected before implementation: the runtime did not expose `diagnosticScrolledEdgePullUp`.
+- FAIL as expected with enforced smoke-script evidence: `Reader DevTools probe 'phase3-events' expected log label 'Reader bridge event: pullUp' was not captured`.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now parses `reader-devtools-probe.json` and fails when any probe-declared `expectedLogLabels` entry is absent from `logcat-reader.log`.
+- `navic-reader.js` exposes a diagnostic `diagnosticScrolledEdgePullUp` command.
+- `navic-reader-page-turns.js` implements that diagnostic command by temporarily placing the renderer at a scrolled bottom edge and invoking the real `turnScrolledEdgePage(-(ScrollEdgeTurnSwipeThreshold + 10))` path.
+- `adb-webview-eval.mjs` now requires the diagnostic command to return `{ posted: true }` before it records `pullUp`.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoLaunch -NoDiscoverPublication
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -ArtifactDir captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\logcat-reader.log`
+
+Result:
+
+- PASS: focused host guards for the diagnostic command, DevTools helper, and smoke-script expected-label enforcement.
+- PASS: edited JS files parse with `node --check`.
+- PASS: dirty readerdev APK installed and launched into a real EPUB with `publicationReady`.
+- PASS: `reader-devtools-probe.json` records `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, `pushState`, `footnoteClose`, and `pullUp`.
+- PASS: `diagnosticScrolledEdgePullUp` returned `posted=true`.
+- PASS: `logcat-reader.log` contains all required Android bridge labels: `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and `pullUp`.
+
+Remaining:
+
+- This is bridge-path evidence for the same scrolled-edge turn function used by the real listener, not manual proof that a user scrolled-edge gesture reliably reaches that function.
+- Real-flow Phase 3 validation still needs user-driven or scripted selection-clear and scrolled-edge pull-up gestures without diagnostic commands.
+- Phase 5 selection UI still needs Android/emulator proof: Highlight/Copy/Note must appear and behave without toggling reader chrome.
+
+## 2026-06-18 Emulator Probe: Phase 5 Selection Payload and Native Action Overlay
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:34:00`.
+- EPUB state: dirty readerdev build installed and launched into a real EPUB. The shell cover initially masked the selection action overlay, so the final evidence run first dismissed the shell cover through the native tap path.
+
+Trigger:
+
+- GLM's bridge audit correctly warned against symbol-only Anx parity. The current controller no longer discards the nine Phase 3 bridge events, but Phase 5 still needed proof that the selection payload reaches Android and produces user-visible selection actions.
+- The first `selection-payload` probe showed a backend `selectionChanged` event but reported `footnote=false` even though the probe fixture set `role="doc-footnote"`.
+
+Root cause:
+
+- `selectionContextText()` and `selectionLooksLikeFootnote()` called `closestElement(node)` without a selector.
+- `closestElement()` is selector-based, so the selectorless call returned null and footnote detection never started from the selected element.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence"
+```
+
+Result:
+
+- FAIL before implementation: the DevTools helper did not require `Reader bridge event: selectionChanged(footnote=true`.
+
+Implemented:
+
+- `navic-reader.js` now derives the selected element from `Range.commonAncestorContainer` through `selectionElement(range)` before reading context text or testing footnote selectors.
+- `adb-webview-eval.mjs` now marks the selection probe successful only when Android logcat contains `Reader bridge event: selectionChanged(footnote=true`.
+- `ReaderRuntimeAssetsTest` now guards that the probe fixture uses `role="doc-footnote"` and requires the footnote-positive Android log label.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -TapFraction '0.90,0.50,900' -ReaderDevtoolsProbe selection-payload -ArtifactDir captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\window.xml`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\screen.png`
+
+Result:
+
+- PASS: JS syntax for the DevTools helper and reader runtime.
+- PASS: focused host guard for footnote-positive selection evidence.
+- PASS: Android logcat contains `Reader bridge event: selectionChanged(footnote=true, pos=...)`.
+- PASS: raw Android bridge payload contains `footnote:true`, CFI, `contextText`, and `pos` bounds.
+- PASS: Android UI hierarchy contains native selection action controls: `Highlight`, `Copy`, and `Note`.
+
+Remaining:
+
+- This proves selection payload decoding and native action overlay presentation in a dirty emulator build. It does not yet prove the full action behavior for each button.
+- Next Phase 5 validation should tap `Highlight`, `Copy`, and `Note`, then assert `ApplyHighlight`, clipboard write, note dialog/save, and `selectionCleared` behavior through controller-owned state.
+- This is not a clean release APK validation.
+
+## 2026-06-18 Emulator Probe: Native Highlight Selection Action
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:34:00`.
+
+Trigger:
+
+- The previous Phase 5 probe proved that the native `Highlight`, `Copy`, and `Note` overlay appears. It did not prove that tapping a native selection action reaches the engine adapter.
+- `adb-reader-smoke.ps1` could not express this flow because all taps ran before DevTools probes. Selection-action validation needs the opposite order: create WebView selection through DevTools, then tap the native overlay.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe"
+```
+
+Result:
+
+- FAIL before implementation: the smoke script had no `PostProbeTap`, no `PostProbeTapFraction`, and no `RequireReaderEngineCommand` assertion.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now supports `-PostProbeTap` and `-PostProbeTapFraction`. These taps execute after the DevTools probe and before screenshot/logcat capture.
+- `adb-reader-smoke.ps1` now supports `-RequireReaderEngineCommand`, asserting `Dispatching reader engine command: <command>` appears in captured Android logcat.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeTapFraction '0.28,0.06,1200' -RequireReaderEngineCommand applyHighlights -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\window.xml`
+
+Result:
+
+- PASS: host guard for post-probe native selection action taps.
+- PASS: DevTools probe created a footnote-positive selection with CFI and context payload.
+- PASS: native Highlight tap dispatched `applyHighlights(count=2)` through `ReaderEngineWebViewHost`.
+- PASS: Foliate emitted `annotationDrawn` for the selected CFI after the engine command.
+- PASS: smoke-script bridge assertion recorded `bridgeEvent:annotationDrawn=True`.
+
+Remaining:
+
+- This proves the Highlight action reaches the engine and Foliate annotation draw path in a dirty emulator build.
+- Superseded by the later `2026-06-18 Emulator Probe: Native Copy and Note Selection Actions`: Copy now has a repeatable native app-boundary assertion, and Note now has a repeatable native dialog/save assertion.
+- Selection clear after action remains a UX behavior decision and is not yet validated.
+
+## 2026-06-18 Host Check: GLM Types-Only Bridge Audit Reconciliation
+
+Trigger:
+
+- GLM reported that Anx Phase 2-8 work was types-only and that the nine new bridge/engine events were discarded in `ReaderController.kt`.
+
+Inspection:
+
+- The current branch no longer contains the quoted no-op controller branches.
+- `ReaderController.kt` routes internal/external links, annotation click/draw, overlay creation, loaded document, navigation state, footnote close, and pull-up into controller state or UI-facing prompt/popup state.
+- `FoliateAnxParityTest.kt` now requires behavior routes for Anx entries marked `Exists` and rejects the old no-op branch strings.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.FoliateAnxParityTest
+```
+
+Result:
+
+- PASS: `ReaderControllerTest` and `FoliateAnxParityTest` completed through `testAndroidHostTest`.
+- PASS: Gradle output reported `BUILD SUCCESSFUL in 7s`.
+
+Conclusion:
+
+- GLM's concrete no-op diagnosis is stale for the current branch.
+- The underlying guardrail is valid and remains mandatory: an Anx entry must not be marked `Exists` unless it has a controller behavior route or native UI route.
+
+Remaining:
+
+- Clean release APK validation is still required for the high-priority reader bugs.
+- Resume/persistence after disrupted drag/app recreation still needs device evidence.
+- Superseded by the later `2026-06-18 Emulator Probe: Native Copy and Note Selection Actions`: Copy and Note now have button-level dirty-emulator smoke gates after the existing selection overlay and Highlight gates.
+
+## 2026-06-18 Emulator Probe: Native Copy and Note Selection Actions
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 18:22:03`.
+
+Trigger:
+
+- GLM's bridge audit correctly warned that source-level Anx parity can still be behavior-empty.
+- Previous Phase 5 evidence proved the selection payload, native action overlay, and Highlight action. Copy and Note still needed behavior gates at the native UI boundary.
+- Coordinate-based post-probe taps were too brittle after menu/selection overlay movement. The smoke harness needed to tap visible Android UI nodes by `text` or `content-desc`.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --rerun-tasks --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted
+```
+
+Result:
+
+- FAIL before implementation: `ReaderRuntimeAssetsTest.kt:287` because `adb-reader-smoke.ps1` had no `tapText:`, `tapDesc:`, `Get-AdbUiNodeCenter`, or `Invoke-PostProbeUiNodeAction` support.
+- Earlier Copy evidence also showed that Android shell clipboard content is not a reliable assertion surface, so the app boundary needed an explicit log after `LocalClipboardManager.setText`.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now supports ordered pipe-delimited `-PostProbeAction` entries after a DevTools probe: `tap:`, `tapFraction:`, `tapText:`, `tapDesc:`, `text:`, and `keyevent:`.
+- `tapText:` and `tapDesc:` dump the current Android hierarchy through `uiautomator`, resolve the matching node bounds, and tap the node center.
+- `adb-reader-smoke.ps1` now supports `-RequireReaderLog` so native app-boundary logs can be required, not just bridge/debug-label logs.
+- `ReaderScreen` logs `Reader selection copied length=<n>` immediately after the native clipboard write.
+
+Green host check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --rerun-tasks --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted
+```
+
+Result:
+
+- PASS: focused host gate completed through `testAndroidHostTest`.
+- PASS: Gradle output reported `BUILD SUCCESSFUL in 2m 29s`.
+
+Dirty emulator checks:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Note,1200' -ArtifactDir captures\reader-bridge-probes\20260618-selection-note-open-capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapText:Annotation,700|text:Codex_note_gate,1000|tapText:Save,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent 'annotationDrawn' -ArtifactDir captures\reader-bridge-probes\20260618-selection-note-save-node-gate
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Copy,1200' -RequireReaderLog 'Reader selection copied length=' -ArtifactDir captures\reader-bridge-probes\20260618-selection-copy-node-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-note-open-capture\window.xml`
+- `captures\reader-bridge-probes\20260618-selection-note-open-capture\screen.png`
+- `captures\reader-bridge-probes\20260618-selection-note-save-node-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-note-save-node-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-copy-node-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-copy-node-gate\reader-devtools-probe.json`
+
+Result:
+
+- PASS: `tapText:Note` opens the native note dialog. The captured hierarchy contains `Note`, selected text, `Annotation`, `Cancel`, and disabled `Save`.
+- PASS: after tapping `Annotation` and entering `Codex_note_gate`, tapping `Save` dispatches `applyHighlights(count=1)`.
+- PASS: the note save path emits `annotationDrawn` through the WebView bridge.
+- PASS: the Copy action receives a fresh footnote-positive `selectionChanged` payload and reaches the native clipboard boundary, proven by `Reader selection copied length=31`.
+
+Important failed attempt:
+
+- The combined Note flow `tapText:Note|tapText:Annotation|text:...|keyevent:KEYCODE_BACK|tapText:Save` failed because `KEYCODE_BACK` dismissed the native note dialog instead of only closing the IME. Do not use Back as a required part of this gate.
+
+Remaining:
+
+- This is dirty emulator evidence, not a clean release APK validation.
+- User-driven normal text selection, selection clear, and real scrolled-edge pull-up still need validation.
+- Copy's observable proof is the native app boundary log after `LocalClipboardManager.setText`; Android shell does not provide a reliable cross-app clipboard read for this assertion.
+
+## 2026-06-18 Host/Emulator Check: GLM Audit Follow-Up and Selection Clear
+
+Trigger:
+
+- GLM repeated the bridge-events-are-types-only warning and cited stale `ReaderController` no-op branches.
+- The remaining active gap was not controller wiring, but proving that selection clear reaches Android from a user-like action.
+
+Host verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes --tests paige.navic.reader.FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes
+```
+
+Result:
+
+- PASS: Gradle reported `BUILD SUCCESSFUL in 15s`.
+- PASS: the current branch still rejects the quoted no-op Phase 3 controller branches and requires behavior routes for Anx `Exists` entries.
+
+Dirty emulator check:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapFraction:0.12,0.82,1200' -RequireReaderBridgeEvent 'selectionCleared' -ArtifactDir captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\reader-devtools-probe.json`
+
+Result:
+
+- PASS: the probe produced a footnote-positive `selectionChanged` payload.
+- PASS: the post-probe ADB tap produced `Reader bridge event: selectionCleared()`.
+- PASS: diagnostics reported `readerCenterDispatch=False`, so clearing the selection did not toggle the reader menu.
+
+Remaining:
+
+- This is dirty-emulator evidence. The installed release APK still needs validation before a release-candidate claim.
+- The selection was created by DevTools and cleared by an ADB tap. Real manual normal-text selection and real scrolled-edge pull-up still need validation without diagnostic setup.
+
+## 2026-06-18 Dirty Emulator Matrix: eta71 Continuation
+
+Trigger:
+
+- Continue from the GLM audit follow-up after confirming the controller no-op finding was stale on the current branch.
+- Re-run the scripted Komikku reader matrix on the installed dirty emulator build to check whether native tap/drag/texture paths still held after the Anx parity and selection-action work.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 18:22:03`.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta71 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\eta71-continuation-20260618
+```
+
+Artifacts:
+
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\baseline-native-cover\screen.png`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\cover-drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\drag-previous\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\texture-next-walk\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\texture-previous-walk\reader-diagnostics-summary.txt`
+
+Result:
+
+- PASS: all matrix rows passed: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- PASS: `reader-matrix-failures.txt` reported `No matrix failures`.
+- PASS: cover drag used the shell-cover path: `shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`.
+- PASS: normal page drag used the native drag-preview path in both directions: `readerNativeDragPreview=True` for `drag-next` and `drag-previous`.
+- PASS: scripted texture direction sampling did not flag inversion: `wrongTextureDirection=False` for `drag-next`, `drag-previous`, `texture-next-walk`, and `texture-previous-walk`.
+- PASS: visual inspection of `baseline-native-cover\screen.png` showed the native cover on a black cover surface without the bottom menu overlay.
+
+Remaining:
+
+- This is dirty-emulator evidence, not physical-phone release evidence.
+- The matrix does not exercise progress rail endpoints, progress rail chapter buttons, resume after app/window interruption, real manual normal-text selection, or real scrolled-edge pull-up.
+- Manual drag feel remains Priority 1 because the matrix only proves the native drag-preview log path and direction sampling, not the final perceptual quality.
+
+## 2026-06-18 Host Check: Progress Rail Native Targeting Guard
+
+Trigger:
+
+- The progress rail still needs release/device validation for endpoint bugs (`10 / 12`, `2 / 4`, and page-1 chapter button behavior).
+- Coordinate-based progress tests are too brittle because the Komikku rail is responsive and can be hidden for one-page or two-page sections.
+
+Implemented:
+
+- The chapter progress slider now exposes a merged native semantics descriptor: `Chapter page slider`.
+- `adb-reader-smoke.ps1` can now resolve an Android UI node by content description and tap a fractional point inside it with `tapDescFraction:value,xFraction,yFraction,waitMs`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe
+```
+
+Result:
+
+- PASS: Gradle reported `BUILD SUCCESSFUL in 2m 38s`.
+- PASS: `scripts\adb-reader-smoke.ps1` parsed successfully with PowerShell's parser.
+- PASS: `git diff --check` reported no whitespace errors.
+
+Runtime note:
+
+- A dirty emulator probe for `tapDescFraction:Chapter page slider,...` was attempted, but the current section had too few local pages and correctly did not render the slider. Do not count progress rail endpoints as fixed until a visible-slider section is targeted and first/last page navigation is verified from UI-node fractions.
+
+## 2026-06-18 Dirty Emulator Matrix: eta72 Pre-Release
+
+Trigger:
+
+- Prepare `v1.0.11-eta72` only after host verification and an emulator gate.
+- Confirm that the progress-rail targeting guard did not regress the Komikku-owned reader shell.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta72`, `versionCode=405`, `lastUpdateTime=2026-06-18 20:23:48`.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta72 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\eta72-pre-release-20260618
+```
+
+Artifacts:
+
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\baseline-native-cover\screen.png`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\cover-drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\texture-previous-walk\reader-diagnostics-summary.txt`
+
+Result:
+
+- PASS: all matrix rows passed: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- PASS: `reader-matrix-failures.txt` reported `No matrix failures`.
+- PASS: cover drag still uses the shell-cover path: `shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`.
+- PASS: normal page drag still uses native drag preview: `readerNativeDragPreview=True` for `drag-next`.
+- PASS: scripted texture direction sampling did not flag inversion: `wrongTextureDirection=False`.
+
+Remaining:
+
+- Progress rail endpoints are still not closed. Eta72 only makes the rail targetable by native semantics and ADB fractional node taps; endpoint behavior must still be validated on a visible-slider section and on the phone release.
+- This is dirty readerdev emulator evidence, not physical-phone release evidence.
+
+## 2026-06-18 Dirty Emulator Check: eta72 Progress Rail Endpoint
+
+Trigger:
+
+- Follow up the eta72 note that the current section did not render `Chapter page slider`.
+- Classify whether the hidden rail was a rendering/control bug or expected chapter-local behavior.
+- Exercise a visible-slider section before making any production change.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta72`, `versionCode=405`.
+
+Evidence:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+adb -s emulator-5554 shell input tap 997 2064
+adb -s emulator-5554 shell input tap 996 1810
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+```
+
+Artifacts:
+
+- `captures\reader-progress-rail\eta72-slider-bottom-current.png`
+
+Result:
+
+- PASS: Foreword hidden-slider behavior is expected for the current section. The live relocation payload reported `href=OEBPS/Text/authorsforeword.xhtml`, global `pageIndex=5`, global `pageCount=270`, but chapter-local `chapterPageIndex=0`, `chapterPageCount=2`; the Komikku rail intentionally hides the slider for chapters with fewer than 3 local pages.
+- PASS: Native next-chapter button moved from Foreword to Chapter 1. The live relocation payload reported `href=OEBPS/Text/capitancebolleta01.xhtml`, `tocTitle=Chapter 1`, `chapterPageIndex=0`, `chapterPageCount=10`.
+- PASS: On Chapter 1, the native hierarchy exposed `Chapter page slider` and the endpoint tap at the bottom of the rail dispatched `goToChapterProgress(OEBPS/Text/capitancebolleta01.xhtml, 1.0)`.
+- PASS: The engine landed at the final local chapter page: relocation reported `chapterProgress=1`, `chapterPageIndex=9`, `chapterPageCount=10`, with global `pageIndex=17`, `pageCount=270`.
+
+Remaining:
+
+- This closes only the eta72 dirty-emulator visible-slider endpoint check for one known-good section.
+- It does not close the phone/release report of `10 / 12`, `2 / 4`, or page-1 rail-button failures. Those still need release-device reproduction or a broader scripted matrix across multiple chapters.
+- The test used direct ADB taps after identifying the native node bounds. A scripted `tapDescFraction:Chapter page slider,...` release-device check should be preferred for repeatable release validation.
+
+## 2026-06-18 Host Guard: Anx PullUp Must Show Controller Chrome
+
+Trigger:
+
+- Continue the GLM audit follow-up: prove Anx bridge events are not only typed/decoded but routed into behavior.
+- `onPullUp` was still weaker than the Anx reference. Anx `epub_player.dart` routes it to `widget.showOrHideAppBarAndBottomBar(true)`, while Navic only stored `ReaderOverlayInteraction.PullUp`.
+
+Implemented:
+
+- `ReaderController` now handles `ReaderEngineEvent.PullUp` by storing `ReaderOverlayInteraction.PullUp` and setting `menuVisible = true`.
+- `FoliateAnxParityTest` now requires the `onPullUp` behavior route to include `menuVisible = true`, not only `ReaderOverlayInteraction.PullUp`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Result:
+
+- RED: before implementation, `ReaderControllerTest.anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded` failed at `ReaderControllerTest.kt:222` because `PullUp` did not show controller chrome.
+- GREEN: after implementation, `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 2m 24s`.
+
+Remaining:
+
+- This is host verification only. A real scrolled-edge pull-up gesture still needs emulator/device validation without diagnostic injection.
+
+## 2026-06-18 Host Guard: Anx PushState Must Surface Native History Controls
+
+Trigger:
+
+- Continue the GLM types-only parity audit: Anx `onPushState` was decoded into state but did not expose the same user-facing history route as the reference.
+- Anx `epub_player.dart` sets history visibility from `canGoBack || canGoForward` and renders a back/close/forward capsule; Foliate history actions call `reader.view.history.back()` / `forward()`.
+
+Implemented:
+
+- `ReaderEngineNavigationState` now carries `visible` and `ReaderController` updates it from `ReaderEngineEvent.NavigationStateChanged`.
+- `KomikkuReaderHistoryCapsule` renders a native bottom-centered history capsule outside the WebView surface.
+- `ReaderCoordinator` and `ReaderController` route history back/forward/dismiss actions through the controller boundary.
+- `ReaderEngineCommand.NavigateHistory` maps through `FoliateEpubEngineAdapter` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward`.
+- `navic-reader.js` dispatches `historyBack` / `historyForward` to Foliate `view.history.back()` / `forward()`.
+- `FoliateAnxParityTest` now requires controller behavior, UI route, bridge commands, adapter route, and runtime dispatch before `onPushState` can remain marked `Exists`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+git diff --check
+```
+
+Result:
+
+- RED: the first `:composeApp:testAndroid` run failed at compile time because the new behavior test referenced missing `ReaderEngineCommand.NavigateHistory`, `ReaderHistoryDirection`, `ReaderBridgeCommand.HistoryBack`, `ReaderBridgeCommand.HistoryForward`, history coordinator functions, and `ReaderEngineNavigationState.visible`.
+- GREEN: after implementation, `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
+- GREEN: `node --check` passed for `navic-reader.js`.
+- GREEN: `git diff --check` passed.
+- FRESH CHECK after design/log sync: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 9s`, `node --check composeApp\src\androidMain\assets\reader\navic-reader.js` passed, and `git diff --check` passed.
+
+Remaining:
+
+- This is host verification only. Emulator/device validation must still open a real EPUB, navigate through an internal link/search result that creates Foliate history, confirm the native capsule appears, tap back/forward, and confirm close hides only the capsule.
+
+## 2026-06-18 Dirty Emulator Check: PushState History Capsule Route
+
+Trigger:
+
+- Validate the current uncommitted PushState/history capsule slice on the reader-dev package before committing it.
+- Confirm whether the earlier missing `History back` / `Close history controls` hierarchy check was a real route failure or a blocked/covered UI state.
+
+Environment:
+
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed package evidence: `versionName=v1.0.11-eta72`, `versionCode=405`, `lastUpdateTime=2026-06-18 21:48:05`
+- Reader state: real EPUB loaded through Bindery debug credentials, title `Alcatraz versus the Evil Librarians`
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe history-controls
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-history-after-probe.xml
+adb -s emulator-5554 shell input tap 1010 1200
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-cover-edge.xml
+adb -s emulator-5554 logcat -c
+adb -s emulator-5554 shell input tap 478 2228
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-history-back.xml
+adb -s emulator-5554 logcat -d -t 100
+```
+
+Artifacts:
+
+- `captures\reader-history-controls\clean-reader-before-history-probe.png`
+- `captures\reader-history-controls\history-controls-clean-after-probe.png`
+- `captures\reader-history-controls\after-cover-edge-tap.png`
+- `captures\reader-history-controls\after-history-back-tap.png`
+- `tmp\reader-test-runs\navic-history-after-probe.xml`
+- `tmp\reader-test-runs\navic-after-cover-edge.xml`
+- `tmp\reader-test-runs\navic-after-history-back.xml`
+
+Result:
+
+- PASS: the WebView history probe returned `canGoBack=true`, `canGoForward=false`, and logcat emitted `Reader bridge event: pushState(back=true, forward=false)`.
+- PASS: the first missing-capsule hierarchy check was explained by state, not by a broken route. The native shell cover was still visible, and `ReaderRoot.kt` intentionally suppresses `KomikkuReaderHistoryCapsule` while `controllerState.shellCoverVisible` is true.
+- PASS: after dismissing the native cover through the reader surface, the native hierarchy exposed `History back` and `Close history controls`.
+- PASS: tapping `History back` dispatched `Dispatching reader engine command: historyBack`, and Foliate emitted `Reader bridge event: pushState(back=false, forward=true)`.
+- PASS: after the back command, the native hierarchy exposed `Close history controls` and `History forward`.
+
+Remaining:
+
+- This validates the dirty-emulator PushState/capsule command route only.
+- It does not validate a user-driven internal-link/search-result flow, phone release behavior, or whether the capsule should also be visible above the native shell cover. The current implementation intentionally hides it while the shell cover is active.
+
+Post-check verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+git diff --check
+```
+
+Result:
+
+- GREEN: `:composeApp:testAndroid` completed with `BUILD SUCCESSFUL in 16s`, `24 actionable tasks: 1 executed, 23 up-to-date`.
+- GREEN: both `node --check` commands passed.
+- GREEN: `git diff --check` passed.
+
+## 2026-06-18 Host Guard: Bottom Toolbar Must Not Duplicate Settings
+
+Trigger:
+
+- User asked whether the bottom toolbar needs two buttons that effectively open the same settings window.
+- Reference decision: no. Komikku-style bottom actions must be distinct controller actions. The Reading tab remains inside the settings sheet, but the bottom bar must not render a second book/reading-mode icon that opens the same dialog family as settings.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomToolbarDoesNotExposeDuplicateSettingsDialogs
+```
+
+Result:
+
+- RED: the first targeted host run failed at `ReaderRuntimeCommonChromeTest.kt:586` because `KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS` still included `ReadingMode`.
+- GREEN: after implementation, the same targeted host run completed with `BUILD SUCCESSFUL in 2m 32s`.
+- FRESH BROADER CHECK: `.\gradlew.bat --no-daemon :composeApp:testAndroid` completed with `BUILD SUCCESSFUL in 28s`, `24 actionable tasks: 2 executed, 22 up-to-date`.
+
+Implementation notes:
+
+- `ReaderAppBars.kt` keeps Komikku's `ReaderBottomButton` model but no longer exposes `ReadingMode` in `NAVIC_SUPPORTED_DEFAULTS`.
+- The bottom toolbar now exposes contents, search, and a single settings entry point.
+- `ReaderControllerDialog.ReadingMode` remains available internally so the Reading tab route is not deleted; it is only removed as a duplicate bottom action.
+
+Remaining:
+
+- This is a host/source guard only. No release build was created for this micro-cleanup because it is not a major reader milestone.

@@ -37,6 +37,7 @@ sealed interface ReaderEngineCommand {
 		val viewWidth: Double? = null,
 		val viewHeight: Double? = null
 	) : ReaderEngineCommand
+	data class NavigateHistory(val direction: ReaderHistoryDirection) : ReaderEngineCommand
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand
 	data class ApplyMediaOverlay(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
@@ -57,6 +58,11 @@ enum class ReaderPageDragPreviewPhase {
 enum class ReaderViewportScrollDirection {
 	Up,
 	Down
+}
+
+enum class ReaderHistoryDirection {
+	Back,
+	Forward
 }
 
 sealed interface ReaderEngineEvent {

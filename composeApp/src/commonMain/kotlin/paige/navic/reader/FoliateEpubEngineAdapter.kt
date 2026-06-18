@@ -76,6 +76,7 @@ sealed class FoliateWebViewEngineAdapter(
 					viewHeight = command.viewHeight
 				)
 			)
+			is ReaderEngineCommand.NavigateHistory -> navigateHistory(command.direction)
 			is ReaderEngineCommand.ApplySettings -> dispatch(
 				ReaderBridgeCommand.ApplySettings(command.settings.normalizedReaderSettings())
 			)
@@ -214,6 +215,14 @@ sealed class FoliateWebViewEngineAdapter(
 
 	private fun scrollViewport(direction: ReaderViewportScrollDirection): ReaderEngineStep =
 		dispatch(ReaderBridgeCommand.ScrollViewport(direction))
+
+	private fun navigateHistory(direction: ReaderHistoryDirection): ReaderEngineStep =
+		dispatch(
+			when (direction) {
+				ReaderHistoryDirection.Back -> ReaderBridgeCommand.HistoryBack
+				ReaderHistoryDirection.Forward -> ReaderBridgeCommand.HistoryForward
+			}
+		)
 
 	private fun dispatch(command: ReaderBridgeCommand): ReaderEngineStep {
 		val nextCommandKey = currentCommandKey + 1L

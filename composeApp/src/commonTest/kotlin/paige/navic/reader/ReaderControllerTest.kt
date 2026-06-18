@@ -208,7 +208,7 @@ class ReaderControllerTest {
 			overlayCreated.state.lastOverlayInteraction
 		)
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
 			navigation.state.engineNavigation
 		)
 		assertEquals(
@@ -219,7 +219,39 @@ class ReaderControllerTest {
 			ReaderOverlayInteraction.PullUp,
 			pullUp.controller.state.lastOverlayInteraction
 		)
+		assertTrue(pullUp.controller.state.menuVisible)
 		assertEquals(emptyList(), pullUp.engineCommands)
+	}
+
+	@Test
+	fun pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine() {
+		val controller = ReaderController().onEngineEvent(
+			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
+		).controller
+
+		assertEquals(
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
+			controller.state.engineNavigation
+		)
+
+		val back = controller.navigateHistoryBack()
+		assertEquals(
+			listOf(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Back)),
+			back.engineCommands
+		)
+
+		val forward = controller.navigateHistoryForward()
+		assertEquals(
+			listOf(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Forward)),
+			forward.engineCommands
+		)
+
+		val dismissed = controller.dismissHistoryNavigation()
+		assertEquals(
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
+			dismissed.controller.state.engineNavigation
+		)
+		assertEquals(emptyList(), dismissed.engineCommands)
 	}
 
 	@Test

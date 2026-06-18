@@ -5,6 +5,9 @@ param(
     [string] $ArtifactDir,
     [string[]] $Tap = @(),
     [string[]] $TapFraction = @(),
+    [string[]] $PostProbeTap = @(),
+    [string[]] $PostProbeTapFraction = @(),
+    [string[]] $PostProbeAction = @(),
     [string[]] $Swipe = @(),
     [string[]] $SwipeFraction = @(),
     [string[]] $LongPress = @(),
@@ -23,6 +26,8 @@ param(
     [switch] $RequireNativeLongTap,
     [switch] $RequireContentTapHandled,
     [string[]] $RequireReaderBridgeEvent = @(),
+    [string[]] $RequireReaderEngineCommand = @(),
+    [string[]] $RequireReaderLog = @(),
     [ValidateSet("", "internal-link-native", "phase3-events", "selection-payload", "relocation-payload")]
     [string] $ReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
@@ -333,6 +338,13 @@ if ($TapFraction.Count -gt 0) {
     }
 }
 
+if ($PostProbeTapFraction.Count -gt 0) {
+    $screenSize = Get-AdbScreenSize
+    foreach ($tapFractionSpec in $PostProbeTapFraction) {
+        $PostProbeTap += Convert-TapFraction -TapSpec $tapFractionSpec -Width $screenSize.Width -Height $screenSize.Height
+    }
+}
+
 if ($SwipeFraction.Count -gt 0) {
     $screenSize = Get-AdbScreenSize
     foreach ($swipeFractionSpec in $SwipeFraction) {
@@ -443,6 +455,282 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
     }
 }
 
+foreach ($tapSpec in $PostProbeTap) {
+    if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid post-probe tap spec '$tapSpec'. Use x,y or x,y,waitMs."
+    }
+
+    $x = $Matches[1]
+    $y = $Matches[2]
+    $waitMs = if ($Matches[3]) { [int] $Matches[3] } else { 1000 }
+
+    Invoke-Adb @("shell", "input", "tap", $x, $y)
+    Start-Sleep -Milliseconds $waitMs
+}
+
+$expandedPostProbeActions = @()
+foreach ($postProbeActionSpec in @($PostProbeAction)) {
+    foreach ($rawPostProbeActionSpec in @($postProbeActionSpec)) {
+        $postProbeActionText = [string] $rawPostProbeActionSpec
+        if ([string]::IsNullOrWhiteSpace($postProbeActionText)) {
+            continue
+        }
+        foreach ($postProbeActionPart in ($postProbeActionText -split '\|')) {
+            $trimmedPostProbeAction = $postProbeActionPart.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmedPostProbeAction)) {
+                $expandedPostProbeActions += $trimmedPostProbeAction
+            }
+        }
+    }
+}
+$PostProbeAction = [string[]] $expandedPostProbeActions
+
+function Invoke-PostProbeTapSpec {
+    param(
+        [Parameter(Mandatory = $true)]
+        $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        $TapSpec
+    )
+
+    $actionLabelText = "$ActionLabel"
+    $tapSpecText = "$TapSpec"
+    $tapParts = @($tapSpecText.Split(",") | ForEach-Object { $_.Trim() })
+    if ($tapParts.Count -lt 2 -or $tapParts.Count -gt 3) {
+        throw "Invalid post-probe action '$actionLabelText'. Use tap:x,y or tap:x,y,waitMs."
+    }
+
+    $parsedX = 0
+    $parsedY = 0
+    $parsedWaitMs = 1000
+    if (-not [int]::TryParse($tapParts[0], [ref] $parsedX) -or
+        -not [int]::TryParse($tapParts[1], [ref] $parsedY) -or
+        ($tapParts.Count -eq 3 -and -not [int]::TryParse($tapParts[2], [ref] $parsedWaitMs))) {
+        throw "Invalid post-probe action '$actionLabelText'. Use tap:x,y or tap:x,y,waitMs."
+    }
+
+    $x = [string] $parsedX
+    $y = [string] $parsedY
+    Invoke-Adb @("shell", "input", "tap", $x, $y)
+    Start-Sleep -Milliseconds $parsedWaitMs
+}
+
+function Get-AdbUiNodeAttribute {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $NodeText,
+        [Parameter(Mandatory = $true)]
+        [string] $AttributeName
+    )
+
+    $attributePattern = "\b$([regex]::Escape($AttributeName))=""([^""]*)"""
+    $attributeMatch = [regex]::Match($NodeText, $attributePattern)
+    if (-not $attributeMatch.Success) {
+        return $null
+    }
+    return [System.Net.WebUtility]::HtmlDecode($attributeMatch.Groups[1].Value)
+}
+
+function Get-AdbUiNodeBounds {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedValue
+    )
+
+    $windowDumpText = (Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru) -join "`n"
+    $nodeMatches = [regex]::Matches($windowDumpText, '<node\b[^>]*>')
+    foreach ($nodeMatch in $nodeMatches) {
+        $nodeText = $nodeMatch.Value
+        $actualValue = if ($MatcherKind -eq "text") {
+            Get-AdbUiNodeAttribute -NodeText $nodeText -AttributeName "text"
+        } else {
+            Get-AdbUiNodeAttribute -NodeText $nodeText -AttributeName "content-desc"
+        }
+        if ($actualValue -ne $ExpectedValue) {
+            continue
+        }
+
+        $bounds = Get-AdbUiNodeAttribute -NodeText $nodeText -AttributeName "bounds"
+        $boundsMatch = [regex]::Match($bounds, '^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$')
+        if (-not $boundsMatch.Success) {
+            continue
+        }
+        $left = [int] $boundsMatch.Groups[1].Value
+        $top = [int] $boundsMatch.Groups[2].Value
+        $right = [int] $boundsMatch.Groups[3].Value
+        $bottom = [int] $boundsMatch.Groups[4].Value
+        if ($right -le $left -or $bottom -le $top) {
+            continue
+        }
+
+        return [pscustomobject]@{
+            Left = $left
+            Top = $top
+            Right = $right
+            Bottom = $bottom
+            Width = $right - $left
+            Height = $bottom - $top
+            Bounds = $bounds
+            Value = $actualValue
+        }
+    }
+
+    throw "Could not find UI node by $MatcherKind '$ExpectedValue' in post-probe hierarchy."
+}
+
+function Get-AdbUiNodeCenter {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedValue
+    )
+
+    $bounds = Get-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $ExpectedValue
+    return [pscustomobject]@{
+        X = [int] (($bounds.Left + $bounds.Right) / 2)
+        Y = [int] (($bounds.Top + $bounds.Bottom) / 2)
+        Bounds = $bounds.Bounds
+        Value = $bounds.Value
+    }
+}
+
+function Get-AdbUiNodeFractionPoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedValue,
+        [Parameter(Mandatory = $true)]
+        [double] $XFraction,
+        [Parameter(Mandatory = $true)]
+        [double] $YFraction
+    )
+
+    $bounds = Get-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $ExpectedValue
+    $clampedXFraction = [math]::Min(1.0, [math]::Max(0.0, $XFraction))
+    $clampedYFraction = [math]::Min(1.0, [math]::Max(0.0, $YFraction))
+    return [pscustomobject]@{
+        X = [int] [math]::Round($bounds.Left + ($bounds.Width * $clampedXFraction))
+        Y = [int] [math]::Round($bounds.Top + ($bounds.Height * $clampedYFraction))
+        Bounds = $bounds.Bounds
+        Value = $bounds.Value
+    }
+}
+
+function Invoke-PostProbeUiNodeAction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?)(?:\s*,\s*(\d+))?$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use tapText:value or tapText:value,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $waitMs = if ($nodeSpecMatch.Groups[2].Success) { [int] $nodeSpecMatch.Groups[2].Value } else { 1000 }
+    $center = Get-AdbUiNodeCenter -MatcherKind $MatcherKind -ExpectedValue $expectedValue
+    Invoke-Adb @("shell", "input", "tap", ([string] $center.X), ([string] $center.Y))
+    Start-Sleep -Milliseconds $waitMs
+}
+
+function Invoke-PostProbeUiNodeFractionAction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+))?$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $xFraction = [double]::Parse($nodeSpecMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $yFraction = [double]::Parse($nodeSpecMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $waitMs = if ($nodeSpecMatch.Groups[4].Success) { [int] $nodeSpecMatch.Groups[4].Value } else { 1000 }
+    $point = Get-AdbUiNodeFractionPoint `
+        -MatcherKind $MatcherKind `
+        -ExpectedValue $expectedValue `
+        -XFraction $xFraction `
+        -YFraction $yFraction
+    Invoke-Adb @("shell", "input", "tap", ([string] $point.X), ([string] $point.Y))
+    Start-Sleep -Milliseconds $waitMs
+}
+
+foreach ($postProbeActionEntry in $PostProbeAction) {
+    $postProbeAction = [string] $postProbeActionEntry
+    $postProbeAction = $postProbeAction.Trim()
+    if ($postProbeAction.StartsWith("tap:")) {
+        $tapSpec = $postProbeAction.Substring("tap:".Length)
+        Invoke-PostProbeTapSpec -ActionLabel $postProbeAction -TapSpec $tapSpec
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("tapFraction:")) {
+        $tapSpec = $postProbeAction.Substring("tapFraction:".Length)
+        $screenSize = Get-AdbScreenSize
+        $convertedTapSpec = Convert-TapFraction -TapSpec $tapSpec -Width $screenSize.Width -Height $screenSize.Height
+        Invoke-PostProbeTapSpec -ActionLabel $postProbeAction -TapSpec ([string] $convertedTapSpec)
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("tapText:")) {
+        $nodeSpec = $postProbeAction.Substring("tapText:".Length)
+        Invoke-PostProbeUiNodeAction -ActionLabel ([string] $postProbeAction) -MatcherKind "text" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("tapDesc:")) {
+        $nodeSpec = $postProbeAction.Substring("tapDesc:".Length)
+        Invoke-PostProbeUiNodeAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("tapDescFraction:")) {
+        $nodeSpec = $postProbeAction.Substring("tapDescFraction:".Length)
+        Invoke-PostProbeUiNodeFractionAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("text:")) {
+        $textPayload = $postProbeAction.Substring("text:".Length)
+        $textWaitMatch = [regex]::Match($textPayload, '^(.*?)(?:\s*,\s*(\d+))?$')
+        $text = $textWaitMatch.Groups[1].Value.Replace(" ", "%s")
+        $waitMs = if ($textWaitMatch.Groups[2].Success) { [int] $textWaitMatch.Groups[2].Value } else { 500 }
+        Invoke-Adb @("shell", "input", "text", $text)
+        Start-Sleep -Milliseconds $waitMs
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("keyevent:")) {
+        $keyEventPayload = $postProbeAction.Substring("keyevent:".Length)
+        $keyEventWaitMatch = [regex]::Match($keyEventPayload, '^(.*?)(?:\s*,\s*(\d+))?$')
+        $keyEvent = $keyEventWaitMatch.Groups[1].Value
+        $waitMs = if ($keyEventWaitMatch.Groups[2].Success) { [int] $keyEventWaitMatch.Groups[2].Value } else { 500 }
+        Invoke-Adb @("shell", "input", "keyevent", $keyEvent)
+        Start-Sleep -Milliseconds $waitMs
+        continue
+    }
+
+    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapText:, tapDesc:, tapDescFraction:, text:, or keyevent:."
+}
+
 Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
 
 Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
@@ -468,6 +756,37 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-reader.log")
 
 $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader.log") -Raw
+
+if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
+    $probeJsonPath = Join-Path $ArtifactDir "reader-devtools-probe.json"
+    $probeJsonText = Get-Content -LiteralPath $probeJsonPath -Raw
+    try {
+        $probeJson = $probeJsonText | ConvertFrom-Json
+    } catch {
+        throw "Reader DevTools probe '$ReaderDevtoolsProbe' did not return parseable JSON. See $probeJsonPath"
+    }
+    $expectedLogLabels = @($probeJson.result.expectedLogLabels)
+    foreach ($expectedLogLabel in $expectedLogLabels) {
+        if ([string]::IsNullOrWhiteSpace($expectedLogLabel)) {
+            continue
+        }
+        if ($readerLogText -notmatch [regex]::Escape($expectedLogLabel)) {
+            throw "Reader DevTools probe '$ReaderDevtoolsProbe' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
+        }
+    }
+}
+
+foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {
+    if ($readerLogText -notmatch [regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")) {
+        throw "Reader smoke validation failed: required engine command '$requiredEngineCommand' was not captured. See $ArtifactDir\logcat-reader.log"
+    }
+}
+
+foreach ($requiredReaderLog in $RequireReaderLog) {
+    if ($readerLogText -notmatch [regex]::Escape($requiredReaderLog)) {
+        throw "Reader smoke validation failed: required reader log '$requiredReaderLog' was not captured. See $ArtifactDir\logcat-reader.log"
+    }
+}
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
@@ -528,6 +847,7 @@ if ($CaptureReaderDiagnostics) {
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "requiredBridgeEvents=$($RequireReaderBridgeEvent -join ',')",
+        "requiredReaderLogs=$($RequireReaderLog -join ',')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
         "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
         "pdfRuntimeDiagnostics=$pdfRuntimeDiagnostics",

@@ -146,6 +146,17 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun historyCommandsDispatchAnxFoliateHistoryIntents() {
+		val backScript = ReaderBridgeCommand.HistoryBack.toJavaScript()
+		val forwardScript = ReaderBridgeCommand.HistoryForward.toJavaScript()
+
+		assertContains(backScript, "window.NavicReaderBridge.dispatch")
+		assertContains(backScript, "\"type\":\"historyBack\"")
+		assertContains(forwardScript, "window.NavicReaderBridge.dispatch")
+		assertContains(forwardScript, "\"type\":\"historyForward\"")
+	}
+
+	@Test
 	fun clearSearchCommandDispatchesAnxSearchClearIntent() {
 		val script = ReaderBridgeCommand.ClearSearch.toJavaScript()
 

@@ -308,11 +308,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onGoToChapterPage = { pageIndex ->
 			applyCoordinatorStep(coordinator.navigateToChapterPage(pageIndex))
 		},
+		onHistoryBack = {
+			applyCoordinatorStep(coordinator.navigateHistoryBack())
+		},
+		onHistoryForward = {
+			applyCoordinatorStep(coordinator.navigateHistoryForward())
+		},
+		onDismissHistory = {
+			applyCoordinatorStep(coordinator.dismissHistoryNavigation())
+		},
 		onContents = {
 			applyCoordinatorStep(coordinator.openContentsDialog())
-		},
-		onReadingMode = {
-			applyCoordinatorStep(coordinator.openReadingModeDialog())
 		},
 		onSearch = {
 			applyCoordinatorStep(coordinator.openSearchDialog())
@@ -357,6 +363,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onCopySelection = { text ->
 			clipboard.setText(AnnotatedString(text))
+			Logger.i(ReaderScreenTag, "Reader selection copied length=${text.length}")
 		},
 		onStartSelectionNote = {
 			applyCoordinatorStep(coordinator.startSelectionNote())

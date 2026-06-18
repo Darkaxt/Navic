@@ -35,8 +35,10 @@ internal fun KomikkuReaderRoot(
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
+	onHistoryBack: () -> Unit,
+	onHistoryForward: () -> Unit,
+	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
-	onReadingMode: () -> Unit,
 	onSearch: () -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
@@ -124,8 +126,10 @@ internal fun KomikkuReaderRoot(
 				onPreviousChapter = onPreviousChapter,
 				onNextChapter = onNextChapter,
 				onGoToChapterPage = onGoToChapterPage,
+				onHistoryBack = onHistoryBack,
+				onHistoryForward = onHistoryForward,
+				onDismissHistory = onDismissHistory,
 				onContents = onContents,
-				onReadingMode = onReadingMode,
 				onSearch = onSearch,
 				onSearchQuery = onSearchQuery,
 				onNavigateToSearchResult = onNavigateToSearchResult,
@@ -173,8 +177,10 @@ private fun KomikkuComposeOverlay(
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
+	onHistoryBack: () -> Unit,
+	onHistoryForward: () -> Unit,
+	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
-	onReadingMode: () -> Unit,
 	onSearch: () -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
@@ -217,13 +223,23 @@ private fun KomikkuComposeOverlay(
 			onNextChapter = onNextChapter,
 			onGoToChapterPage = onGoToChapterPage,
 			onContents = onContents,
-			onReadingMode = onReadingMode,
 			onSearch = onSearch,
 			onNavigateBack = onNavigateBack,
 			onSettings = onSettings,
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
+		if (!controllerState.shellCoverVisible) {
+			KomikkuReaderHistoryCapsule(
+				navigation = controllerState.engineNavigation,
+				onHistoryBack = onHistoryBack,
+				onHistoryForward = onHistoryForward,
+				onDismissHistory = onDismissHistory,
+				modifier = Modifier
+					.align(Alignment.BottomCenter)
+					.padding(bottom = if (controllerState.menuVisible) 96.dp else 40.dp)
+			)
+		}
 		if (!controllerState.shellCoverVisible) {
 			KomikkuReaderSelectionActions(
 				selectionActions = controllerState.selectionActions,

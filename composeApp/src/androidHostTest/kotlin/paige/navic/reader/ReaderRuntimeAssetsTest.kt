@@ -195,6 +195,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
 		assertContains(scriptText, "required bridge event '\$requiredBridgeEvent' was not captured")
+		assertContains(scriptText, "expectedLogLabels")
+		assertContains(scriptText, "ConvertFrom-Json")
+		assertContains(scriptText, "Reader DevTools probe '\$ReaderDevtoolsProbe' expected log label")
 		assertContains(scriptText, "readerContentTapHandled")
 		assertContains(scriptText, "reader-diagnostics-summary.txt")
 		assertContains(scriptText, "reader-texture-diagnostics.log")
@@ -229,10 +232,72 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "new CustomEvent('draw-annotation'")
 		assertContains(helperText, "new CustomEvent('show-annotation'")
 		assertContains(helperText, "new CustomEvent('create-overlay'")
+		assertContains(helperText, "type: 'diagnosticScrolledEdgePullUp'")
+		assertContains(helperText, "diagnosticScrolledEdgePullUp did not post pullUp")
+		assertContains(helperText, "Reader bridge event: pullUp")
 		assertContains(helperText, "selectionchange")
 		assertContains(helperText, "Reader bridge event: locationChanged")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(helperText, "locationSnapshotResult = await Promise.resolve(dispatchResult)")
+		assertContains(helperText, "locationSnapshotResult?.message?.type === 'locationChanged'")
+		assertContains(helperText, "|| returnedLocation")
+		assertContains(helperText, "observedPayloads.find(payload => payload.type === 'locationChanged')")
+		assertContains(helperText, "diagnosticLocationSnapshot did not emit locationChanged")
+		assertFalse(
+			helperText.contains("await observedLocation"),
+			"Relocation payload probing must not wait indefinitely for a bridge message after the diagnostic dispatch has settled."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(helperText, "paragraph.setAttribute('role', 'doc-footnote')")
+		assertContains(helperText, "Reader bridge event: selectionChanged(footnote=true")
+	}
+
+	@Test
+	fun adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val postProbeGestureBlock = scriptText
+			.substringAfter("if (-not [string]::IsNullOrWhiteSpace(\$ReaderDevtoolsProbe))")
+			.substringAfter("if (\$probeExitCode -ne 0)")
+			.substringBefore("Invoke-AdbExecOutToFile")
+
+		assertContains(scriptText, "[string[]] \$PostProbeTap = @()")
+		assertContains(scriptText, "[string[]] \$PostProbeTapFraction = @()")
+		assertContains(scriptText, "[string[]] \$PostProbeAction = @()")
+		assertContains(scriptText, "\$expandedPostProbeActions")
+		assertContains(scriptText, "-split '\\|'")
+		assertContains(scriptText, "[string[]] \$RequireReaderEngineCommand = @()")
+		assertContains(scriptText, "[string[]] \$RequireReaderLog = @()")
+		assertContains(scriptText, "\$PostProbeTap += Convert-TapFraction")
+		assertContains(postProbeGestureBlock, "foreach (\$tapSpec in \$PostProbeTap)")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"tap\", \$x, \$y)")
+		assertContains(postProbeGestureBlock, "foreach (\$postProbeActionEntry in \$PostProbeAction)")
+		assertContains(postProbeGestureBlock, "tapFraction:")
+		assertContains(postProbeGestureBlock, "tapText:")
+		assertContains(postProbeGestureBlock, "tapDesc:")
+		assertContains(postProbeGestureBlock, "tapDescFraction:")
+		assertContains(postProbeGestureBlock, "Get-AdbUiNodeCenter")
+		assertContains(postProbeGestureBlock, "Get-AdbUiNodeFractionPoint")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeAction")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionAction")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"keyevent\", \$keyEvent)")
+		assertContains(scriptText, "Dispatching reader engine command: \$requiredEngineCommand")
+		assertContains(scriptText, "required engine command '\$requiredEngineCommand' was not captured")
+		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
+		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
+		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
 	}
 
 	@Test

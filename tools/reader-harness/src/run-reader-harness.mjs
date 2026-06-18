@@ -285,6 +285,56 @@ if (mode === 'texture-offset-logic') {
     }),
     { x: 0, y: 0 }
   )
+  assertOffset(
+    'directionless near-wrap uses fallback next direction',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 40,
+      baseOffset: 560,
+      viewportWidth: 600,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+      fallbackPageTurnDirection: 'next',
+    }),
+    { x: -520, y: 0 }
+  )
+  assertOffset(
+    'directionless near-wrap uses fallback previous direction',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 560,
+      baseOffset: 40,
+      viewportWidth: 600,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+      fallbackPageTurnDirection: 'previous',
+    }),
+    { x: 520, y: 0 }
+  )
+  assertOffset(
+    'directionless near-wrap without fallback does not invert texture',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 40,
+      baseOffset: 560,
+      viewportWidth: 600,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+    }),
+    { x: 0, y: 0 }
+  )
+  assertOffset(
+    'small directionless movement still counter-moves texture',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 120,
+      baseOffset: 0,
+      viewportWidth: 600,
+      viewportHeight: 873,
+      flowMode: 'paged',
+      pageTurnDirection: null,
+    }),
+    { x: -120, y: 0 }
+  )
   const assertDirection = (name, actual, expected) => {
     if (actual !== expected) {
       throw new Error(`${name} expected ${expected} but got ${actual}`)
@@ -307,6 +357,26 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
     }),
     'previous'
+  )
+  assertDirection(
+    'rtl horizontal left drag seeds previous texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: -84,
+      deltaY: 8,
+      flowMode: 'paged',
+      readerDirection: 'rtl',
+    }),
+    'previous'
+  )
+  assertDirection(
+    'rtl horizontal right drag seeds next texture direction',
+    helpers.readerPaperTextureDragDirection({
+      deltaX: 84,
+      deltaY: 8,
+      flowMode: 'paged',
+      readerDirection: 'rtl',
+    }),
+    'next'
   )
   assertDirection(
     'vertical paged upward drag seeds next texture direction',

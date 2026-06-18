@@ -152,6 +152,15 @@ async function runPhase3EventsProbe(page) {
     }
 
     const events = []
+    const diagnostics = {
+      contentEntryCount: 0,
+      selectedContentIndex: null,
+      scrolledEdgeListenerAttachedBeforeLoad: false,
+      scrolledEdgeListenerAttachedAfterLoad: false,
+      syntheticTouchEventsDispatched: false,
+      rendererBeforeOverride: null,
+      rendererDuringOverride: null,
+    }
     const externalAnchor = document.createElement('a')
     externalAnchor.setAttribute('href', '../Text/chapter-01.xhtml#note')
     const externalLink = new CustomEvent('external-link', {
@@ -204,7 +213,29 @@ async function runPhase3EventsProbe(page) {
     view.history?.dispatchEvent?.(new Event('index-change'))
     events.push({ type: 'pushState' })
 
-    const contentDoc = view.renderer?.getContents?.()?.find?.(entry => entry?.doc)?.doc
+    const contentEntries = view.renderer?.getContents?.()?.filter?.(entry => entry?.doc?.body) || []
+    diagnostics.contentEntryCount = contentEntries.length
+    let contentEntry = contentEntries.find(entry => entry.doc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) ||
+      contentEntries[0]
+    let contentDoc = contentEntry?.doc
+    diagnostics.selectedContentIndex = Number.isFinite(contentEntry?.index) ? contentEntry.index : null
+    diagnostics.scrolledEdgeListenerAttachedBeforeLoad =
+      contentDoc?.defaultView?.__navicScrolledEdgeTurnGesturesAttached === true
+    if (contentDoc?.body && !contentDoc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) {
+      view.dispatchEvent(new CustomEvent('load', {
+        bubbles: true,
+        detail: {
+          doc: contentDoc,
+          index: Number.isFinite(contentEntry?.index) ? contentEntry.index : 0,
+        },
+      }))
+      contentEntry = contentEntries.find(entry => entry.doc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) ||
+        contentEntry
+      contentDoc = contentEntry?.doc
+      diagnostics.selectedContentIndex = Number.isFinite(contentEntry?.index) ? contentEntry.index : null
+    }
+    diagnostics.scrolledEdgeListenerAttachedAfterLoad =
+      contentDoc?.defaultView?.__navicScrolledEdgeTurnGesturesAttached === true
     if (contentDoc?.body) {
       const marker = contentDoc.createElement('span')
       marker.className = 'navic-active-overlay-fragment'
@@ -212,11 +243,21 @@ async function runPhase3EventsProbe(page) {
       contentDoc.body.appendChild(marker)
       await window.NavicReaderBridge.dispatch({ type: 'clearOverlay' })
       events.push({ type: 'footnoteClose' })
+
+      const pullUpResult = await Promise.resolve(window.NavicReaderBridge.dispatch({
+        type: 'diagnosticScrolledEdgePullUp',
+      }))
+      diagnostics.diagnosticScrolledEdgePullUp = pullUpResult
+      if (!pullUpResult?.posted) {
+        throw new Error(`diagnosticScrolledEdgePullUp did not post pullUp; result=${JSON.stringify(pullUpResult)}`)
+      }
+      events.push({ type: 'pullUp', result: pullUpResult })
     }
 
     return {
       probe: 'phase3-events',
       events,
+      diagnostics,
       expectedLogLabels: [
         'Reader bridge event: externalLink',
         'Reader bridge event: annotationDrawn',
@@ -225,7 +266,32 @@ async function runPhase3EventsProbe(page) {
         'Reader bridge event: loadDoc',
         'Reader bridge event: pushState',
         'Reader bridge event: footnoteClose',
+        'Reader bridge event: pullUp',
       ],
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
+async function runHistoryControlsProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view?.history) {
+      throw new Error('Missing foliate-view history')
+    }
+    view.history.clear?.()
+    view.history.pushState({ fraction: 0.1, probe: 'navic-history-controls-start' })
+    view.history.pushState({ fraction: 0.2, probe: 'navic-history-controls-current' })
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    return {
+      probe: 'history-controls',
+      canGoBack: view.history.canGoBack === true,
+      canGoForward: view.history.canGoForward === true,
+      expectedNativeControls: ['History back', 'Close history controls'],
       pageTitle: document.title,
       pageUrl: window.location.href,
     }
@@ -262,7 +328,7 @@ async function runSelectionPayloadProbe(page) {
       selectedText: selection.toString(),
       role: paragraph.getAttribute('role'),
       expectedLogLabels: [
-        'Reader bridge event: selectionChanged',
+        'Reader bridge event: selectionChanged(footnote=true',
       ],
       pageTitle: document.title,
       pageUrl: window.location.href,
@@ -286,38 +352,49 @@ async function runRelocationPayloadProbe(page) {
       throw new Error('Missing NavicReaderBridge.dispatch')
     }
     const observed = []
-    const observedLocation = new Promise(resolve => {
-      window.NavicAndroidBridge.postMessage = message => {
-        observed.push(message)
-        originalPostMessage(message)
-        try {
-          const payload = JSON.parse(message)
-          if (payload.type === 'locationChanged') {
-            resolve(payload)
-          }
-        } catch {
-          // Keep forwarding malformed messages to Android; they are not this probe's target.
-        }
+    const observedPayloads = []
+    window.NavicAndroidBridge.postMessage = message => {
+      observed.push(message)
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
       }
-    })
+    }
 
     try {
       const dispatchResult = readerBridgeDispatch({
         type: 'diagnosticLocationSnapshot',
         reason: 'adb-relocation-payload-probe',
       })
-      Promise.resolve(dispatchResult).catch(error => {
+      let locationSnapshotResult = null
+      try {
+        locationSnapshotResult = await Promise.resolve(dispatchResult)
+      } catch (error) {
         originalPostMessage(JSON.stringify({
           type: 'error',
           code: 'relocation_payload_probe_dispatch_failed',
           message: error?.message || String(error),
         }))
-      })
-      const locationChanged = await observedLocation
+        throw error
+      }
+      const returnedLocation = locationSnapshotResult?.message?.type === 'locationChanged'
+        ? locationSnapshotResult.message
+        : null
+      const locationChanged = observedPayloads.find(payload => payload.type === 'locationChanged') || returnedLocation
+      if (!locationChanged) {
+        throw new Error(
+          `diagnosticLocationSnapshot did not emit locationChanged; result=${
+            JSON.stringify(locationSnapshotResult)
+          }; observedMessageCount=${observed.length}`
+        )
+      }
 
       return {
         probe: 'relocation-payload',
         reason: 'adb-relocation-payload-probe',
+        locationSnapshotResult,
         observedLocation: locationChanged,
         observedMessageCount: observed.length,
         expectedLogLabels: [
@@ -348,6 +425,7 @@ async function main() {
     const probeHandlers = {
       'internal-link-native': runInternalLinkNativeProbe,
       'phase3-events': runPhase3EventsProbe,
+      'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
     }

@@ -1,16 +1,21 @@
 package paige.navic.ui.screens.reader
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -25,16 +30,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
@@ -44,6 +51,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.SkipNext
 import paige.navic.icons.outlined.SkipPrevious
+import kotlin.math.roundToInt
 
 @Composable
 internal fun KomikkuChapterNavigator(
@@ -135,7 +143,10 @@ internal fun KomikkuChapterNavigator(
 						KomikkuChapterProgressSlider(
 							modifier = Modifier
 								.weight(1f)
-								.padding(horizontal = 8.dp),
+								.padding(horizontal = 8.dp)
+								.semantics(mergeDescendants = true) {
+									contentDescription = "Chapter page slider"
+								},
 							value = currentPage,
 							valueRange = 1..totalPages,
 							onValueChange = { page ->
@@ -248,43 +259,16 @@ private fun KomikkuChapterNavigatorVertical(
 					text = currentPageText,
 					color = textColor
 				)
-				val haptic = LocalHapticFeedback.current
-				val interactionSource = remember { MutableInteractionSource() }
-				val sliderDragged by interactionSource.collectIsDraggedAsState()
-				LaunchedEffect(currentPage) {
-					if (sliderDragged) {
-						haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-					}
-				}
-				KomikkuChapterProgressSlider(
+				KomikkuVerticalChapterProgressRail(
 					modifier = Modifier
+						.weight(1f)
 						.padding(vertical = 8.dp)
-						.graphicsLayer {
-							rotationZ = 90f
-							transformOrigin = TransformOrigin(0f, 0f)
-						}
-						.layout { measurable, constraints ->
-							val placeable = measurable.measure(
-								Constraints(
-									minWidth = constraints.minHeight,
-									maxWidth = constraints.maxHeight,
-									minHeight = constraints.minWidth,
-									maxHeight = constraints.maxWidth
-								)
-							)
-							layout(placeable.height, placeable.width) {
-								placeable.place(0, -placeable.height)
-							}
-						}
-						.weight(1f),
-					value = currentPage,
-					valueRange = 1..totalPages,
-					onValueChange = { page ->
-						if (page != currentPage) {
-							onPageIndexChange(page - 1)
-						}
-					},
-					interactionSource = interactionSource
+						.semantics(mergeDescendants = true) {
+							contentDescription = "Chapter page slider"
+						},
+					currentPage = currentPage,
+					totalPages = totalPages,
+					onPageChange = { page -> onPageIndexChange(page - 1) }
 				)
 				Text(
 					text = totalPages.toString(),
@@ -307,4 +291,128 @@ private fun KomikkuChapterNavigatorVertical(
 			)
 		}
 	}
+}
+
+@Composable
+private fun KomikkuVerticalChapterProgressRail(
+	currentPage: Int,
+	totalPages: Int,
+	onPageChange: (Int) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	val haptic = LocalHapticFeedback.current
+	val pageCount = totalPages.coerceAtLeast(1)
+	val progress = komikkuChapterRailProgress(currentPage, pageCount)
+	val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSystemInDarkTheme()) 0.18f else 0.14f)
+	val activeColor = MaterialTheme.colorScheme.primary
+	val tickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
+
+	fun emitPage(page: Int) {
+		if (page != currentPage.coerceIn(1, pageCount)) {
+			onPageChange(page)
+			haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+		}
+	}
+
+	Box(
+		modifier = modifier
+			.width(52.dp)
+			.pointerInput(pageCount, currentPage) {
+				detectTapGestures { offset ->
+					emitPage(
+						komikkuChapterRailPageForOffset(
+							offsetY = offset.y,
+							heightPx = size.height.toFloat(),
+							totalPages = pageCount
+						)
+					)
+				}
+			}
+			.pointerInput(pageCount, currentPage) {
+				detectDragGestures(
+					onDragStart = { offset ->
+						emitPage(
+							komikkuChapterRailPageForOffset(
+								offsetY = offset.y,
+								heightPx = size.height.toFloat(),
+								totalPages = pageCount
+							)
+						)
+					},
+					onDrag = { change, _ ->
+						emitPage(
+							komikkuChapterRailPageForOffset(
+								offsetY = change.position.y,
+								heightPx = size.height.toFloat(),
+								totalPages = pageCount
+							)
+						)
+						change.consume()
+					}
+				)
+			},
+		contentAlignment = Alignment.Center
+	) {
+		Canvas(modifier = Modifier.fillMaxSize()) {
+			val railWidth = 22.dp.toPx().coerceAtMost(size.width)
+			val railLeft = (size.width - railWidth) / 2f
+			val railRadius = railWidth / 2f
+			drawRoundRect(
+				color = trackColor,
+				topLeft = Offset(railLeft, 0f),
+				size = Size(railWidth, size.height),
+				cornerRadius = CornerRadius(railRadius, railRadius)
+			)
+			drawRoundRect(
+				color = activeColor.copy(alpha = 0.7f),
+				topLeft = Offset(railLeft, 0f),
+				size = Size(railWidth, size.height * progress),
+				cornerRadius = CornerRadius(railRadius, railRadius)
+			)
+			val tickCount = pageCount.coerceIn(2, 18)
+			val tickRadius = 2.dp.toPx()
+			repeat(tickCount) { index ->
+				val tickProgress = if (tickCount <= 1) 0f else index.toFloat() / (tickCount - 1).toFloat()
+				drawCircle(
+					color = tickColor,
+					radius = tickRadius,
+					center = Offset(size.width / 2f, size.height * tickProgress)
+				)
+			}
+			val thumbWidth = 34.dp.toPx().coerceAtMost(size.width)
+			val thumbHeight = 64.dp.toPx().coerceAtMost(size.height)
+			val thumbLeft = (size.width - thumbWidth) / 2f
+			val thumbTop = (size.height * progress - thumbHeight / 2f)
+				.coerceIn(0f, (size.height - thumbHeight).coerceAtLeast(0f))
+			drawRoundRect(
+				color = activeColor,
+				topLeft = Offset(thumbLeft, thumbTop),
+				size = Size(thumbWidth, thumbHeight),
+				cornerRadius = CornerRadius(thumbWidth / 2f, thumbWidth / 2f)
+			)
+		}
+	}
+}
+
+internal fun komikkuChapterRailPageForOffset(
+	offsetY: Float,
+	heightPx: Float,
+	totalPages: Int
+): Int {
+	val pageCount = totalPages.coerceAtLeast(1)
+	if (pageCount <= 1 || !offsetY.isFinite() || !heightPx.isFinite() || heightPx <= 0f) {
+		return 1
+	}
+	val fraction = (offsetY / heightPx).coerceIn(0f, 1f)
+	return (1 + (fraction * (pageCount - 1)).roundToInt()).coerceIn(1, pageCount)
+}
+
+private fun komikkuChapterRailProgress(
+	currentPage: Int,
+	totalPages: Int
+): Float {
+	val pageCount = totalPages.coerceAtLeast(1)
+	if (pageCount <= 1) return 0f
+	return ((currentPage.coerceIn(1, pageCount) - 1).toFloat() / (pageCount - 1).toFloat())
+		.coerceIn(0f, 1f)
 }

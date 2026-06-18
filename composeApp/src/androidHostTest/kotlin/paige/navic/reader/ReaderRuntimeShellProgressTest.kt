@@ -83,7 +83,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "case 'goToProgress'")
 		assertContains(bridgeText, "async function goToProgress(progress)")
 		assertContains(bridgeText, "case 'diagnosticLocationSnapshot'")
-		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot')")
+		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot'")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
 		assertContains(bridgeText, "case 'goToChapterProgress'")
@@ -106,6 +106,31 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(chapterNavigatorText, "Slider(")
 		assertContains(appBarsText, "onGoToChapterPage: (Int) -> Unit")
+	}
+
+	@Test
+	fun androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression() {
+		val bridgeText = readerBridgeText()
+
+		assertContains(bridgeText, "forceDuplicatePost: true")
+		assertContains(bridgeText, "postCurrentLocationSnapshot(reason = 'snapshot', options = {})")
+		assertContains(bridgeText, "postLocationChanged(detail, reason, options)")
+		assertContains(bridgeText, "postLocationChanged(detail, reason = 'relocate', options = {})")
+		assertContains(bridgeText, "locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost")
+		assertContains(bridgeText, "message,")
+	}
+
+	@Test
+	fun androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath() {
+		val bridgeText = readerBridgeText()
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(bridgeText, "case 'diagnosticScrolledEdgePullUp':")
+		assertContains(bridgeText, "diagnosticScrolledEdgePullUp()")
+		assertContains(bridgeText, "turnScrolledEdgePage(-(ScrollEdgeTurnSwipeThreshold + 10))")
+		assertContains(helperText, "type: 'diagnosticScrolledEdgePullUp'")
+		assertContains(helperText, "diagnosticScrolledEdgePullUp did not post pullUp")
+		assertContains(helperText, "Reader bridge event: pullUp")
 	}
 
 	@Test
@@ -569,6 +594,18 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(singleTap, "navigator.getAction(")
 		assertContains(singleTap, "dispatchSingleTapAction(action)")
+		assertContains(
+			singleTap,
+			"if (nativeTapCancelledByDrag) return false",
+			message = "A movement-cancelled drag preview must not also be accepted as a center tap that opens reader chrome."
+		)
+		assertFalse(
+			singleTap.contains("if (!nativeTapCandidate) return false"),
+			"Confirmed taps must not depend on nativeTapCandidate; GestureDetector confirms taps after ACTION_UP can clear that lifecycle flag."
+		)
+		assertContains(viewerContainerBody, "private var nativeTapCancelledByDrag: Boolean = false")
+		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = false")
+		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = true")
 		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
 		assertFalse(
 			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
@@ -577,6 +614,11 @@ class ReaderRuntimeShellProgressTest {
 				singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
 				webViewHostText.contains("readerContentHandledCenterTap("),
 			"Short center-menu taps must be native-owned; WebView content hit testing belongs to deliberate long press."
+		)
+		assertTrue(
+			singleTap.indexOf("if (nativeTapCancelledByDrag) return false") <
+				singleTap.indexOf("navigator.getAction("),
+			"Native tap classification must reject cancelled drag candidates before calculating a menu/edge action."
 		)
 		assertTrue(
 			singleTap.indexOf("navigator.getAction(") <
@@ -749,7 +791,7 @@ class ReaderRuntimeShellProgressTest {
 	fun androidReaderPostsPageModelDiagnosticsWithLocationChanges() {
 		val bridgeText = readerBridgeText()
 		val postLocationBody = bridgeText
-			.substringAfter("postLocationChanged(detail, reason = 'relocate') {")
+			.substringAfter("postLocationChanged(detail, reason = 'relocate', options = {}) {")
 			.substringBefore("\n  onRelocate(detail) {")
 
 		assertContains(postLocationBody, "pageCountSource: pagePosition?.pageCountSource || null")

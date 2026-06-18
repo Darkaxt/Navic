@@ -111,16 +111,34 @@ As of the 2026-06-18 dirty emulator Phase 6 refactor check:
 
 This is local/dirty validation, not a GitHub release validation.
 
+As of the later 2026-06-18 eta71 continuation matrix:
+
+- The dirty `readerdev` APK on `emulator-5554` reported `versionName=v1.0.11-eta71`, `versionCode=404`, and `lastUpdateTime=2026-06-18 18:22:03`.
+- `adb-reader-komikku-matrix.ps1` passed all scripted checks: baseline current reader, baseline native cover, cover center tap, cover drag next, center tap toggle, native long press, edge tap next, drag next, texture next walk, edge tap previous, drag previous, and texture previous walk.
+- `reader-matrix-failures.txt` reported `No matrix failures`.
+- The dirty-emulator diagnostics showed cover drag using the shell-cover path (`shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`), normal page drags using the native drag-preview path in both directions, and texture direction sampling without inversion for the scripted next/previous walks.
+- Visual inspection of the `baseline-native-cover` screenshot showed the native cover on a black cover surface without the bottom menu overlay.
+- This does not validate progress rail endpoints, resume after app/window interruption, physical-phone release behavior, or manual drag feel. Keep those as active Priority 0/1 work.
+
 As of the 2026-06-18 Anx parity guard check:
 
+- GLM's "types-only bridge parity" audit was reviewed against the current branch. The general risk is accepted and is now a guardrail: bridge/event/type/debug-label symbols are not enough. The specific quoted `ReaderController.kt` no-op block is stale on this branch. `ReaderController` now routes the Phase 3 bridge events into controller state or UI-facing prompt/popup state, and the targeted `ReaderControllerTest` + `FoliateAnxParityTest` host gate passed on 2026-06-18 for that route.
+- The remaining GLM audit work is not more type plumbing. It is behavior proof: clean release validation for high-priority reader bugs, resume persistence after disrupted gestures/app recreation, user-driven selection-clear/pull-up validation, and release-device confirmation of behavior already proven in the dirty emulator.
 - `FoliateAnxParityTest` exists as the Phase 1 green known-gaps registry and reads the Anx reference files instead of only round-tripping Navic's own mappings.
 - Anx source citations exist in `FoliateEpubEngineAdapter.kt`, `ReaderBridgeProtocol.kt`, `navic-reader.js`, and `navic-reader-content-interactions.js`.
 - Phase 2 adds a cancelable Foliate `link` listener in `navic-reader.js`, an `internalLink` bridge message, `ReaderBridgeEvent.InternalLinkRequested`, `ReaderEngineEvent.InternalLinkRequested`, and an ADB-visible `internalLink(...)` debug label.
 - Phase 3 adds bridge/engine events and ADB-visible labels for `ExternalLink`, `SelectionCleared`, `AnnotationClick`, `AnnotationDrawn`, `OverlayCreated`, `LoadDoc`, `PushState`, `FootnoteClose`, and `PullUp`.
 - Phase 3 runtime hooks are in `navic-reader.js` for Foliate `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, and history `index-change`; selection clear posts `selectionCleared`; scrolled-edge overscroll posts `pullUp`; overlay clearing posts `footnoteClose`.
+- The nine Phase 3 bridge events must not be treated as type-only parity. `ReaderController` currently routes them into controller state (`lastLinkInteraction`, `externalLinkPrompt`, `lastAnnotationInteraction`, `annotationPopup`, `lastOverlayInteraction`, `loadedDocument`, and `engineNavigation`), and `FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes` guards against restoring the old no-op branches.
+- Phase 5 dirty emulator evidence now proves the selection payload can reach Android with `footnote=true`, CFI, context text, and bounds, and that the native Komikku-style `Highlight`, `Copy`, and `Note` action overlay appears after shell-cover dismissal. Highlight has a repeatable smoke gate through `applyHighlights` + `annotationDrawn`; Copy has a repeatable node-tap smoke gate that reaches the native clipboard boundary (`Reader selection copied length=31`); Note has a repeatable node-tap smoke gate that opens the native note dialog, saves a note-bearing annotation, dispatches `applyHighlights`, and receives `annotationDrawn`.
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
+- `PushState` is not passive history metadata: Anx routes it to a visible history capsule when `canGoBack || canGoForward`. Navic now stores `ReaderEngineNavigationState.visible`, renders `KomikkuReaderHistoryCapsule`, and routes capsule back/forward through `ReaderEngineCommand.NavigateHistory` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward` and Foliate `view.history.back()` / `forward()`.
+- `PullUp` is not a passive diagnostic event: Anx routes it to `showOrHideAppBarAndBottomBar(true)`, so Navic must route it to controller-owned `menuVisible = true` while keeping the renderer command list empty.
+- Phase 3 now has dirty-emulator WebView evidence for the high-risk bridge path. `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json` shows `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and diagnostic `pullUp` crossing into Android logcat. This is bridge-path evidence, not a replacement for user-driven scrolled-edge gesture validation.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
+- Phase 4 now has dirty-emulator WebView evidence for the relocation payload path. `captures\reader-bridge-probes\20260618-161735-relocation\reader-devtools-probe.json` shows a real `locationChanged` message from `darkaxt.navic.readerdev` on `emulator-5554` carrying `rangeCfi`, `reason`, `fraction`, pagination profile metadata, and page counts.
+- The DevTools relocation probe must not wait on monkey-patching Android's injected JS bridge method. The runtime diagnostic command returns the posted `locationChanged` payload, and the harness accepts that returned payload as evidence when `observedMessageCount` is zero.
 - Phase 5 extends `SelectionChanged` through bridge, engine, controller, runtime, and debug logging with Anx `onSelectionEnd` payload fields: `footnote`, `contextText`, and `pos.left/top/right/bottom`.
 - Phase 5 now has a controller/UI route for selected text: `ReaderControllerState.selectionActions` drives a native Komikku overlay with Highlight, Copy, and Note actions. Highlight and Note apply through the annotation engine command path; Copy is handled at the app boundary with the native clipboard.
 - Note is not a hidden no-op route: `startSelectionNote` opens a native draft dialog, and `saveSelectionNote` stores a note-bearing `ReaderAnnotation` and emits `ApplyAnnotations`.
@@ -174,20 +192,22 @@ Phase 3 is host-verified:
 - `AnnotationClick` now has a visible controller-owned UI route: tapping an existing Foliate/Anx annotation can surface a native Komikku annotation popup instead of only updating debug/controller state.
 - `ExternalLink` now has a visible controller-owned UI route: Foliate external-link events surface a native confirmation prompt and open only through the app boundary, not through WebView chrome.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
-- Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `selectionCleared`, `footnoteClose`, and `pullUp` under real reader flows.
+- Android/emulator bridge-path validation now covers `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `footnoteClose`, and diagnostic `pullUp` in a dirty readerdev WebView.
+- Dirty-emulator validation now proves a user-like ADB tap can clear an existing WebView selection and emit Android-side `selectionCleared` without center-menu dispatch. This still used a DevTools probe to create the selection, so real manual text selection and scrolled-edge pull-up gestures remain release-readiness validation items.
 
 Phase 4 is host-verified:
 
 - `ReaderLocator` carries Anx relocation payload fields without giving the WebView chrome/progress ownership.
 - `locationChanged` posts `rangeCfi` from `detail.cfi`; do not stringify DOM `Range` objects.
-- Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `reason` and `rangeCfi` on real EPUB relocations, and `rangeCfi` must be a CFI string or null, never `[object Range]`.
+- Dirty-emulator WebView validation passed on 2026-06-18 for the diagnostic relocation path: the runtime returned a posted `locationChanged` payload with `reason=adb-relocation-payload-probe`, a CFI `rangeCfi`, `fraction`, and pagination profile metadata.
+- Remaining runtime validation before treating this behavior as release-ready: real user-driven relocations under tap, drag, progress rail, TOC, and resume must keep posting `reason` and CFI/null `rangeCfi`; `rangeCfi` must never become `[object Range]`.
 
 Phase 5 is host-verified:
 
 - `SelectionChanged` now carries Anx `onSelectionEnd` payload fields through the bridge, engine adapter, and controller state.
 - Runtime selection posts include a DOM selection bounding rectangle, bounded context text, and footnote detection for footnote/noteref-like elements.
 - Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
-- Android/emulator validation is still required before treating this behavior as release-ready: select normal text and footnote/reference text, confirm the toolbar appears without noisy menu/tap regressions, verify Copy reaches the clipboard, verify Highlight renders, verify Note opens/saves, and confirm logcat shows `selectionChanged(footnote=..., pos=...)`.
+- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Highlight, Copy, Note save, and selection-clear-after-selection paths. Before treating this behavior as release-ready, still validate a clean release APK on the phone and a user-driven normal-text selection path.
 
 Reader search is host-verified:
 
@@ -214,12 +234,12 @@ Phase 8 is host- and emulator-verified:
 
 Priority 0:
 
-- When continuing Anx/Foliate parity work, execute Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md` before starting new visual polish or unrelated reader fixes.
 - Validate the host-verified selection action UI on emulator/device: text selection must surface Highlight/Copy/Note without opening reader chrome, Copy must reach the clipboard, Highlight/Note must render as annotations, and footnote selections must keep the Anx payload fields.
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
+  The 2026-06-18 host guard only made the rail targetable by native UI semantics (`Chapter page slider`) and ADB `tapDescFraction`; it did not close endpoint behavior.
 - Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.
-- Validate cover chrome layering on the installed APK. The bottom menu must not appear over the cover.
+- Validate cover chrome layering on the installed APK/phone release. Dirty-emulator eta71 visual evidence shows the native cover on a black cover surface without the bottom menu overlay, but this still needs physical/release confirmation before closure.
 
 Priority 1:
 
@@ -227,6 +247,7 @@ Priority 1:
 - Correct remaining texture transition weirdness during page movement and page/section transitions.
 - Confirm cover drag behavior is faithful: cover should not vanish on touch; drag should produce reader-owned feedback and commit on release.
 - Keep progress rail chapter-local and Komikku-like; avoid whole-book rail behavior unless explicitly designed as a separate UI.
+- Remove duplicate bottom-toolbar settings entry points. The bottom toolbar must not open the same settings window from multiple buttons; keep a single settings entry, and map the remaining buttons to distinct Komikku-reader actions such as contents, search, bookmark, or remove them until their route exists.
 
 Priority 2:
 
@@ -237,13 +258,13 @@ Priority 2:
 
 ## Implementation Order
 
-1. Execute Anx/Foliate Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md`: PDF and font source parity guards.
-2. Validate Phase 3, Phase 4, and Phase 5 bridge events on emulator/device with logcat before any release-candidate discussion.
+1. Validate Phase 5 selection actions on emulator/device with logcat and visible UI evidence before any release-candidate discussion.
+2. Validate remaining user-driven Phase 3 bridge flows: normal-text selection and scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.
-6. Continue the remaining Anx/Foliate phases behind the controller boundary: PDF integration, font sources, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
-7. Continue Komikku UI parity: rail proportions, bottom menu placement, settings overlay, tap-zone visibility.
+6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
+7. Continue Komikku UI parity: rail proportions, bottom menu placement, non-duplicated bottom actions, settings overlay, tap-zone visibility.
 8. Only after the shell is stable, revisit lower-priority page curl animation and optional visual polish.
 
 ## Required Emulator Gate
@@ -255,7 +276,8 @@ After every major reader code/asset/script change:
 3. If stale or ambiguous, rebuild/install/open with `scripts\install-reader-dev.ps1` using `-DeviceSerial` and the Bindery env file.
 4. Run `scripts\adb-reader-komikku-matrix.ps1` with `-DeviceSerial`, `-ExpectedVersionName`, `-NoLaunch`, `-IncludeCoverChecks`, and a fresh artifact root.
 5. Inspect baseline screenshot, hierarchy, summary CSV, failures file, logs, and relevant screenshots.
-6. Append only a concise result to `2026-06-13-komikku-reader-port-validation-log.md`.
+6. For DevTools bridge probes, require deterministic evidence in the artifact JSON. Do not rely on replacing Android-injected bridge methods from DevTools; commands must return the payload or a concrete failure.
+7. Append only a concise result to `2026-06-13-komikku-reader-port-validation-log.md`.
 
 If emulator launch, install, Bindery seed, or the matrix script fails, that validation path failure becomes the current task.
 

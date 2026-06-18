@@ -294,6 +294,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var shellCoverDragDiagnosticLogged: Boolean = false
 	private var nativeDragPreviewDiagnosticLogged: Boolean = false
 	private var nativeTapCandidate: Boolean = false
+	private var nativeTapCancelledByDrag: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
 
@@ -328,6 +329,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
 				if (width <= 0 || height <= 0) return false
 				if (nativeTapLongConfirmed) return false
+				if (nativeTapCancelledByDrag) return false
 				val point = KomikkuPoint(
 					x = (event.x / width.toFloat()).coerceIn(0f, 1f),
 					y = (event.y / height.toFloat()).coerceIn(0f, 1f)
@@ -373,6 +375,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
 				nativeTapCandidate = true
+				nativeTapCancelledByDrag = false
 				nativeTapLongConfirmed = false
 				nativeSwipeIntercepted = false
 				swipeStartX = event.x
@@ -435,6 +438,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				swipeStartX = event.x
 				swipeStartY = event.y
 				horizontalSwipeDispatched = false
+				nativeTapCancelledByDrag = false
 				shellCoverDragDiagnosticLogged = false
 				nativeDragPreviewDiagnosticLogged = false
 			}
@@ -444,12 +448,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					val dy = event.y - swipeStartY
 					cancelPendingLongTapForDrag(dx, dy)
 					logReaderDragCandidate(dx, dy)
-					val shellCoverVisible = shellCoverView?.visibility == VISIBLE
-					if (shellCoverVisible) {
-						updateShellCoverDragOffset(dx)
-					} else {
-						updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)
-						logReaderReadableDragPreview(dx, dy)
+					if (nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
+						nativeTapCancelledByDrag = true
+						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+						if (shellCoverVisible) {
+							updateShellCoverDragOffset(dx)
+						} else {
+							updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)
+							logReaderReadableDragPreview(dx, dy)
+						}
 					}
 				}
 			}
@@ -459,32 +466,34 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					val dy = event.y - swipeStartY
 					cancelPendingLongTapForDrag(dx, dy)
 					logReaderDragCandidate(dx, dy)
-					val shellCoverVisible = shellCoverView?.visibility == VISIBLE
-					if (shellCoverVisible) {
-						updateShellCoverDragOffset(dx)
-						dispatchHorizontalSwipeViewerAction(
-							deltaX = dx,
-							deltaY = dy
-						)
-					} else {
-						logReaderReadableDragPreview(dx, dy)
-						val readableSwipeAction = readerNativeReaderSwipeAction(
-							deltaX = dx,
-							deltaY = dy,
-							thresholdPx = touchSlopPx
-						)
-						updateReadableViewerDragOffset(
-							deltaX = dx,
-							phase = if (readableSwipeAction != null) {
-								ReaderPageDragPreviewPhase.Release
-							} else {
-								ReaderPageDragPreviewPhase.Cancel
-							}
-						)
-						dispatchHorizontalSwipeViewerAction(
-							deltaX = dx,
-							deltaY = dy
-						)
+					if (nativeTapCancelledByDrag || nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
+						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+						if (shellCoverVisible) {
+							updateShellCoverDragOffset(dx)
+							dispatchHorizontalSwipeViewerAction(
+								deltaX = dx,
+								deltaY = dy
+							)
+						} else {
+							logReaderReadableDragPreview(dx, dy)
+							val readableSwipeAction = readerNativeReaderSwipeAction(
+								deltaX = dx,
+								deltaY = dy,
+								thresholdPx = touchSlopPx
+							)
+							updateReadableViewerDragOffset(
+								deltaX = dx,
+								phase = if (readableSwipeAction != null) {
+									ReaderPageDragPreviewPhase.Release
+								} else {
+									ReaderPageDragPreviewPhase.Cancel
+								}
+							)
+							dispatchHorizontalSwipeViewerAction(
+								deltaX = dx,
+								deltaY = dy
+							)
+						}
 					}
 				}
 				clearSwipeTouchState()
@@ -506,6 +515,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		} ?: return false
 		horizontalSwipeDispatched = true
 		nativeTapCandidate = false
+		nativeTapCancelledByDrag = true
 		nativeSwipeIntercepted = true
 		if (shellCoverVisible) {
 			Logger.i(
@@ -603,6 +613,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun clearNativeTapState() {
 		nativeTapCandidate = false
+		nativeTapCancelledByDrag = false
 		nativeTapLongConfirmed = false
 		nativeSwipeIntercepted = false
 	}

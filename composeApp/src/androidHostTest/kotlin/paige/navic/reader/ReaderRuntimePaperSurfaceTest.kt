@@ -318,7 +318,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
 		assertContains(
 			bridgeText,
-			"const expectedDirectionSign = pageTurnDirection === 'next' ? 1 : -1",
+			"const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)",
+			message = "Texture movement needs the recent logical page-turn direction when renderer coordinates wrap at section boundaries."
+		)
+		assertContains(
+			bridgeText,
+			"const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1",
 			message = "Texture movement needs the logical turn sign for normal in-flight movement."
 		)
 		assertContains(bridgeText, "hasKnownDirection &&")
