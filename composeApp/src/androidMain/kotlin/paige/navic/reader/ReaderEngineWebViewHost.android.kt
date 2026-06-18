@@ -310,11 +310,27 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 		ReaderBridgeEvent.PublicationReady -> "publicationReady"
 		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
 		is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled(${action.name.lowercase()})"
-		is ReaderBridgeEvent.LocationChanged -> "locationChanged(${locator.href?.engineUrlLabel().orEmpty()})"
+		is ReaderBridgeEvent.InternalLinkRequested ->
+			"internalLink(${href?.engineUrlLabel().orEmpty()}, prevented=$prevented, source=${source.orEmpty()})"
+		is ReaderBridgeEvent.ExternalLink -> "externalLink(${href?.engineUrlLabel().orEmpty()})"
+		is ReaderBridgeEvent.LocationChanged ->
+			"locationChanged(${locator.href?.engineUrlLabel().orEmpty()}, " +
+				"reason=${locator.reason.orEmpty()}, " +
+				"rangeCfi=${locator.rangeCfi?.take(80).orEmpty()})"
 		is ReaderBridgeEvent.CfiChanged -> "cfiChanged"
 		is ReaderBridgeEvent.TocItemChanged -> "tocItemChanged(${href?.engineUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.PaginationProfileStatusChanged -> "paginationProfileStatus(${profile.status})"
-		is ReaderBridgeEvent.SelectionChanged -> "selectionChanged"
+		is ReaderBridgeEvent.SelectionChanged ->
+			"selectionChanged(footnote=${footnote ?: false}, " +
+				"pos=${posLeft ?: ""},${posTop ?: ""},${posRight ?: ""},${posBottom ?: ""})"
+		ReaderBridgeEvent.SelectionCleared -> "selectionCleared()"
+		is ReaderBridgeEvent.AnnotationClick -> "annotationClick(index=${index ?: ""}, value=${value?.take(80).orEmpty()})"
+		is ReaderBridgeEvent.AnnotationDrawn -> "annotationDrawn(index=${index ?: ""}, value=${value?.take(80).orEmpty()})"
+		is ReaderBridgeEvent.OverlayCreated -> "overlayCreated(index=${index ?: ""})"
+		is ReaderBridgeEvent.LoadDoc -> "loadDoc(index=${index ?: ""}, href=${href?.engineUrlLabel().orEmpty()})"
+		is ReaderBridgeEvent.PushState -> "pushState(back=$canGoBack, forward=$canGoForward)"
+		ReaderBridgeEvent.FootnoteClose -> "footnoteClose()"
+		ReaderBridgeEvent.PullUp -> "pullUp()"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.SearchResults -> "searchResults(count=${results.size})"

@@ -1,4 +1,7 @@
 /* global pdfjsLib */
+// Adapted from Anx Reader: tmp/references/anx-reader/assets/foliate-js/src/pdf.js:568-614
+// Preserves the Foliate makePDF(file) book contract while Navic adds Android PDF.js loading,
+// diagnostics, page image metadata, and adjacent-page prefetch.
 
 const pdfjsScriptUrl = new URL('./vendor/pdfjs/pdf.js', import.meta.url).href
 const pdfjsWorkerUrl = new URL('./vendor/pdfjs/pdf.worker.js', import.meta.url).href

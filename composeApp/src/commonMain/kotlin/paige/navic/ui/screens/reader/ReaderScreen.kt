@@ -65,6 +65,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerLineHeightPercent,
 		preferenceManager.readerParagraphSpacingPercent,
 		preferenceManager.readerMarginPercent,
+		preferenceManager.readerFontWeight,
+		preferenceManager.readerLetterSpacing,
+		preferenceManager.readerWordSpacing,
+		preferenceManager.readerSideMargin,
+		preferenceManager.readerTopMargin,
+		preferenceManager.readerBottomMargin,
+		preferenceManager.readerTextIndent,
+		preferenceManager.readerHeadingFontSize,
 		preferenceManager.readerDimOverlayPercent,
 		preferenceManager.readerColorFilterEnabled,
 		preferenceManager.readerColorFilterArgb,
@@ -261,19 +269,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 		publicationFormat = reader.publicationFormat,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action -> applyCoordinatorStep(coordinator.onViewerAction(action)) },
-		onPreviousPage = {
-			applyCoordinatorStep(
-				coordinator.onViewerAction(
-					ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
-				)
-			)
+		onPreviousChapter = {
+			applyCoordinatorStep(coordinator.navigateToPreviousChapter())
 		},
-		onNextPage = {
-			applyCoordinatorStep(
-				coordinator.onViewerAction(
-					ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
-				)
-			)
+		onNextChapter = {
+			applyCoordinatorStep(coordinator.navigateToNextChapter())
 		},
 		onGoToChapterPage = { pageIndex ->
 			applyCoordinatorStep(coordinator.navigateToChapterPage(pageIndex))

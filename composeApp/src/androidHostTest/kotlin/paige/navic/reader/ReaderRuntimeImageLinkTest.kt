@@ -235,7 +235,7 @@ class ReaderRuntimeImageLinkTest {
 
 	@Test
 	fun androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerRuntimeImplementationText()
 		val readerScreenText = readerScreenFile().readText()
 		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
@@ -278,8 +278,8 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			chromeStateText,
-			"(locator?.pageIndex ?: -1) <= 0",
-			message = "The shell-cover boundary must remain controller-owned and based on committed reader location."
+			"(locator?.pageIndex ?: -1) <= 1",
+			message = "The shell-cover boundary must remain controller-owned and tolerate Foliate's first-readable sentinel offset."
 		)
 	}
 
@@ -457,7 +457,7 @@ class ReaderRuntimeImageLinkTest {
 	fun readerNormalLinksReportContentActionClaimsBeforeNavigation() {
 		val bridgeText = readerBridgeText()
 		val normalLinkNavigation = bridgeText
-			.substringAfter("async activateReaderLinkFromEvent(doc, event, index, source = 'link') {")
+			.substringAfter("async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {")
 			.substringAfter("const rawHref = anchor.getAttribute('href')")
 			.substringBefore("await this.goTo(href)")
 
@@ -465,7 +465,7 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(normalLinkNavigation, "post(this.readerContentActionClaimPayload(doc, event, {")
 		assertContains(
 			bridgeText,
-			"async activateReaderLinkFromEvent(doc, event, index, source = 'link') {"
+			"async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {"
 		)
 		assertContains(normalLinkNavigation, "source,")
 		assertTrue(
@@ -856,6 +856,36 @@ class ReaderRuntimeImageLinkTest {
 			assertionsText,
 			"Expected native coordinate long-press text-link navigation",
 			message = "The renderer assertion must fail when native coordinate long-press link activation is missing."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesFoliateLinkDefaultPrevented",
+			message = "CSS smoke must dispatch Foliate's own link event and prove native short taps cancel it."
+		)
+		assertContains(
+			harnessText,
+			"nativeTapZonesInternalLinkSources",
+			message = "CSS smoke must verify the Anx-style internalLink bridge event source for suppressed native short taps."
+		)
+		assertContains(
+			harnessText,
+			"nonNativeInternalLinkSources",
+			message = "CSS smoke must verify Foliate link events remain allowed outside native tap-zone ownership."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones Foliate link event to be canceled",
+			message = "The renderer assertion must fail when short-tap link suppression no longer cancels Foliate navigation."
+		)
+		assertContains(
+			assertionsText,
+			"Expected native tap zones internalLink bridge post",
+			message = "The renderer assertion must fail when suppressed Foliate link events do not reach the Anx-style bridge event."
+		)
+		assertContains(
+			assertionsText,
+			"Expected non-native Foliate link event to remain uncanceled",
+			message = "The renderer assertion must fail if the engine blocks Foliate links outside native tap-zone ownership."
 		)
 		assertContains(
 			harnessText,

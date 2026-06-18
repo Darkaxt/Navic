@@ -695,9 +695,7 @@ class ReaderKomikkuBackboneResetTest {
 		val bridgeText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt"
 		).readText()
-		val runtimeText = root.resolve(
-			"composeApp/src/androidMain/assets/reader/navic-reader.js"
-		).readText()
+		val runtimeText = readerRuntimeImplementationText()
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
 			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
@@ -720,13 +718,22 @@ class ReaderKomikkuBackboneResetTest {
 			"Readable drag preview must be a typed controller/engine/bridge command so EPUB and PDF adapters can own renderer-specific behavior."
 		)
 		assertTrue(
-			runtimeText.contains("case 'previewPageDrag':") &&
+				runtimeText.contains("case 'previewPageDrag':") &&
 				runtimeText.contains("previewPageDrag(command)") &&
+				runtimeText.contains("readerRendererReadyForPageDrag(renderer)") &&
 				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)") &&
+				runtimeText.contains("preloadPageDragPreviewTargets(") &&
+				runtimeText.indexOf("preloadPageDragPreviewTargets(") < runtimeText.indexOf("updatePageDragPreviewLayer({") &&
+				runtimeText.contains("safeNativeDragPreviewAtSectionBoundary(renderer, direction)") &&
 				runtimeText.contains("updatePageDragPreviewLayer({") &&
 				runtimeText.contains("dataset.navicPageDragPreviewLayer") &&
 				runtimeText.contains("adjacentReadableSectionIndex(direction)"),
-			"Foliate runtime preview should scroll same-section columns and mount a clipped adjacent-section preview underlay at section boundaries instead of exposing a black native background."
+			"Foliate runtime preview should preload adjacent-section content before drag exposure, scroll same-section columns, and mount a clipped underlay instead of exposing a black native background."
+		)
+		assertTrue(
+			runtimeText.contains("function buildPageDragPreviewTargetKey(") &&
+				runtimeText.contains("this.buildPageDragPreviewTargetKey("),
+			"Page drag preview target-key generation must not reuse the pageDragPreviewTargetKey instance field name; class fields shadow prototype methods at runtime."
 		)
 	}
 
@@ -741,9 +748,7 @@ class ReaderKomikkuBackboneResetTest {
 		val platformHostText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
 		).readText()
-		val bridgeText = root.resolve(
-			"composeApp/src/androidMain/assets/reader/navic-reader.js"
-		).readText()
+		val bridgeText = readerBridgeText()
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
 			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
@@ -842,6 +847,7 @@ class ReaderKomikkuBackboneResetTest {
 		val smokeText = smokeScript.readText()
 		assertTrue(matrixText.contains("adb-reader-smoke.ps1"))
 		assertTrue(matrixText.contains("[string] \$Package"))
+		assertTrue(matrixText.contains("[string] \$DeviceSerial"))
 		assertTrue(matrixText.contains("[string] \$ApkPath"))
 		assertTrue(matrixText.contains("[string] \$ExpectedVersionName"))
 		assertTrue(matrixText.contains("[string] \$ArtifactRoot"))
@@ -861,15 +867,15 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("pdf-edge-tap-previous"))
 		assertTrue(matrixText.contains("pdf-drag-next"))
 		assertTrue(matrixText.contains("pdf-drag-previous"))
-		assertTrue(matrixText.contains("-CaptureReaderDiagnostics"))
-		assertTrue(matrixText.contains("-LongPressFraction"))
-		assertTrue(matrixText.contains("-ValidateReaderTaps"))
-		assertTrue(matrixText.contains("-RequireReaderTapAction"))
-		assertTrue(matrixText.contains("-RequireNativeLongTap"))
-		assertTrue(matrixText.contains("-RequireShellCoverSwipe"))
-		assertTrue(matrixText.contains("-RequireShellCoverCommand"))
-		assertTrue(matrixText.contains("-RequireTextureDiagnostics"))
-		assertTrue(matrixText.contains("-RequirePdfDiagnostics"))
+		assertTrue(matrixText.contains("CaptureReaderDiagnostics = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.LongPressFraction = \$LongPressFraction"))
+		assertTrue(matrixText.contains("\$smokeArgs.ValidateReaderTaps = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireReaderTapAction = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireNativeLongTap = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireShellCoverSwipe = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireShellCoverCommand = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireTextureDiagnostics = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequirePdfDiagnostics = \$true"))
 		assertTrue(matrixText.contains("[switch] \$IncludePdfChecks"))
 		assertTrue(
 			smokeText.contains("[ValidateSet(\"\", \"next\", \"previous\")]") &&
@@ -907,7 +913,7 @@ class ReaderKomikkuBackboneResetTest {
 			"The morning matrix must include a multi-page texture walk because the reported inversion appears after several transitions."
 		)
 		assertTrue(
-			matrixText.contains("-NoLaunch"),
+			matrixText.contains("\$smokeArgs.NoLaunch = \$true"),
 			"After the first launch/install step, matrix steps must keep the same open reader state instead of relaunching into the library."
 		)
 		assertTrue(
@@ -924,6 +930,70 @@ class ReaderKomikkuBackboneResetTest {
 				matrixText.contains("\$matrixFailures.Count") &&
 				matrixText.contains("Komikku reader matrix failed"),
 			"The matrix must record step outcomes and still exit non-zero after a full diagnostic run with failures."
+		)
+		assertTrue(
+			matrixText.contains("\$smokeArgs = @{") &&
+				matrixText.contains("\$smokeArgs.DeviceSerial = \$DeviceSerial") &&
+				matrixText.contains("& \$smokeScript @smokeArgs") &&
+				!matrixText.contains("& \$smokeScript @args"),
+			"The matrix wrapper must forward adb-reader-smoke.ps1 parameters by name; positional array forwarding binds Package/TapFraction to the wrong parameters."
+		)
+	}
+
+	@Test
+	fun adbKomikkuReaderMatrixSeparatesCoverAndReadableContentState() {
+		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1")
+
+		assertTrue(matrixScript.exists(), "Komikku reader matrix script must be present.")
+		val matrixText = matrixScript.readText()
+
+		assertTrue(
+			matrixText.contains("function Invoke-ReaderCoverMatrixSteps"),
+			"The matrix must isolate shell-cover checks so they run while the native cover is still visible."
+		)
+		assertTrue(
+			matrixText.contains("function Invoke-ReadableContentMatrixSteps"),
+			"The matrix must isolate readable-content checks so EPUB taps/drags are not tested against the shell cover."
+		)
+		assertTrue(
+			matrixText.contains("-Name \"enter-readable-content\""),
+			"The matrix needs an explicit transition step for runs that skip cover checks but still need readable EPUB content."
+		)
+		val coverFunction = matrixText.indexOf("function Invoke-ReaderCoverMatrixSteps")
+		val readableFunction = matrixText.indexOf("function Invoke-ReadableContentMatrixSteps")
+		val coverInvocation = matrixText.lastIndexOf("Invoke-ReaderCoverMatrixSteps")
+		val readableInvocation = matrixText.lastIndexOf("Invoke-ReadableContentMatrixSteps")
+		assertTrue(
+			coverFunction in 0 until readableFunction,
+			"The matrix script should define the cover-state group before the readable-content group."
+		)
+		assertTrue(
+			coverInvocation > readableFunction && coverInvocation < readableInvocation,
+			"The matrix must invoke the cover-state group before invoking readable-content checks."
+		)
+		assertTrue(
+			matrixText.indexOf("-Name \"cover-drag-next\"") in coverFunction until readableFunction,
+			"`cover-drag-next` must belong to the cover-state group because it validates and exits the shell cover."
+		)
+		assertTrue(
+			matrixText.indexOf("-Name \"edge-tap-next\"") > readableFunction &&
+				matrixText.indexOf("-Name \"drag-next\"") > readableFunction &&
+				matrixText.indexOf("-Name \"texture-next-walk\"") > readableFunction,
+			"Edge taps, readable drags, and texture walks must belong to the readable-content group, not the cover-state group."
+		)
+		val edgeTapNext = matrixText.indexOf("-Name \"edge-tap-next\"")
+		val dragNext = matrixText.indexOf("-Name \"drag-next\"")
+		val textureNextWalk = matrixText.indexOf("-Name \"texture-next-walk\"")
+		val edgeTapPrevious = matrixText.indexOf("-Name \"edge-tap-previous\"")
+		val dragPrevious = matrixText.indexOf("-Name \"drag-previous\"")
+		val texturePreviousWalk = matrixText.indexOf("-Name \"texture-previous-walk\"")
+		assertTrue(
+			edgeTapNext in 0 until dragNext &&
+				dragNext in 0 until textureNextWalk &&
+				textureNextWalk in 0 until edgeTapPrevious &&
+				edgeTapPrevious in 0 until dragPrevious &&
+				dragPrevious in 0 until texturePreviousWalk,
+			"The readable matrix must run forward checks first. Previous checks can cross the native-cover boundary when started from page 1, which makes later readable-drag assertions false positives."
 		)
 	}
 
@@ -1331,7 +1401,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			settingsDialogText.contains("Show tap zones") &&
-				settingsDialogText.contains("settings.copy(showTapZones = showTapZones)"),
+				settingsDialogText.contains("settings.copy(showTapZones = settings.showTapZones != true)"),
 			"The first migrated control should toggle tap-zone visualization through ReaderSettings, not through a local UI flag."
 		)
 		assertFalse(
@@ -1383,7 +1453,7 @@ class ReaderKomikkuBackboneResetTest {
 			"Navic's settings dialog tap-zone order must match Komikku: default, L-shaped, Kindle-ish, edge, right/left, disabled."
 		)
 		assertTrue(
-			settingsDialogText.contains("KomikkuSettingsChipRow(") &&
+			settingsDialogText.contains("SettingsSelectableChipRow(") &&
 				settingsDialogText.contains("FilterChip(") &&
 				settingsDialogText.contains("onSettingsChange(settings.copy(tapZone = tapZone))"),
 			"Tap-zone presets must be real settings chips routed through ReaderSettings."
@@ -1396,7 +1466,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			settingsDialogText.contains("Smaller tap zones") &&
-				settingsDialogText.contains("settings.copy(smallerTapZone = smallerTapZone)"),
+				settingsDialogText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
 			"Komikku's smaller tap-zone checkbox must migrate as a real settings control."
 		)
 		assertFalse(

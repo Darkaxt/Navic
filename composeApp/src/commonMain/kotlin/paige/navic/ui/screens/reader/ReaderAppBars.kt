@@ -8,33 +8,49 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_reader_reading_mode
+import navic.composeapp.generated.resources.title_chapters
+import navic.composeapp.generated.resources.title_settings
+import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
-import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
-import paige.navic.icons.outlined.List
+import paige.navic.icons.outlined.FormatListNumbered
+import paige.navic.icons.outlined.Settings
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDirectionRtl
 import paige.navic.reader.ReaderNavBarTypeBottom
@@ -52,8 +68,8 @@ internal fun KomikkuReaderAppBars(
 	visible: Boolean,
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
-	onPreviousPage: () -> Unit,
-	onNextPage: () -> Unit,
+	onPreviousChapter: () -> Unit,
+	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
@@ -72,6 +88,12 @@ internal fun KomikkuReaderAppBars(
 	}
 	val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
+	val enabledButtons = KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS
+	val backgroundColor = MaterialTheme.colorScheme
+		.surfaceColorAtElevation(3.dp)
+		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
+	val showChapterNavigator = visible && !controllerState.shellCoverVisible
+	val showBottomBar = visible && !controllerState.shellCoverVisible
 	Column(modifier = modifier.fillMaxHeight()) {
 		AnimatedVisibility(
 			visible = visible,
@@ -87,14 +109,17 @@ internal fun KomikkuReaderAppBars(
 				canBookmark = controllerState.canBookmarkCurrentLocation,
 				onNavigateBack = onNavigateBack,
 				onToggleBookmarked = onToggleCurrentBookmark,
-				modifier = Modifier.fillMaxWidth()
+				modifier = Modifier
+					.fillMaxWidth()
+					.background(backgroundColor)
+					.pointerInput(Unit) {}
 			)
 		}
 
 		when (navBarType) {
 			ReaderNavBarTypeVerticalLeft -> {
 				AnimatedVisibility(
-					visible = visible,
+					visible = showChapterNavigator,
 					enter = slideInHorizontally(
 						initialOffsetX = { -it },
 						animationSpec = readerBarsSlideAnimationSpec
@@ -110,10 +135,10 @@ internal fun KomikkuReaderAppBars(
 					KomikkuChapterNavigator(
 						isRtl = isRtl,
 						isVerticalSlider = true,
-						onNextChapter = onNextPage,
-						enabledNext = true,
-						onPreviousChapter = onPreviousPage,
-						enabledPrevious = !controllerState.shellCoverVisible,
+						onNextChapter = onNextChapter,
+						enabledNext = controllerState.canNavigateToNextChapter,
+						onPreviousChapter = onPreviousChapter,
+						enabledPrevious = controllerState.canNavigateToPreviousChapter,
 						currentPage = chapterProgress.displayPage,
 						currentPageText = chapterProgress.displayPage.toString(),
 						totalPages = chapterProgress.pageCount,
@@ -126,7 +151,7 @@ internal fun KomikkuReaderAppBars(
 
 			ReaderNavBarTypeVerticalRight -> {
 				AnimatedVisibility(
-					visible = visible,
+					visible = showChapterNavigator,
 					enter = slideInHorizontally(
 						initialOffsetX = { it },
 						animationSpec = readerBarsSlideAnimationSpec
@@ -142,10 +167,10 @@ internal fun KomikkuReaderAppBars(
 					KomikkuChapterNavigator(
 						isRtl = isRtl,
 						isVerticalSlider = true,
-						onNextChapter = onNextPage,
-						enabledNext = true,
-						onPreviousChapter = onPreviousPage,
-						enabledPrevious = !controllerState.shellCoverVisible,
+						onNextChapter = onNextChapter,
+						enabledNext = controllerState.canNavigateToNextChapter,
+						onPreviousChapter = onPreviousChapter,
+						enabledPrevious = controllerState.canNavigateToPreviousChapter,
 						currentPage = chapterProgress.displayPage,
 						currentPageText = chapterProgress.displayPage.toString(),
 						totalPages = chapterProgress.pageCount,
@@ -162,21 +187,21 @@ internal fun KomikkuReaderAppBars(
 		}
 
 		AnimatedVisibility(
-			visible = visible,
+			visible = showBottomBar,
 			enter = slideInVertically(initialOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeIn(animationSpec = readerBarsFadeAnimationSpec),
 			exit = slideOutVertically(targetOffsetY = { it }, animationSpec = readerBarsSlideAnimationSpec) +
 				fadeOut(animationSpec = readerBarsFadeAnimationSpec)
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				if (navBarType == ReaderNavBarTypeBottom) {
+				if (navBarType == ReaderNavBarTypeBottom && !controllerState.shellCoverVisible) {
 					KomikkuChapterNavigator(
 						isRtl = isRtl,
 						isVerticalSlider = false,
-						onNextChapter = onNextPage,
-						enabledNext = true,
-						onPreviousChapter = onPreviousPage,
-						enabledPrevious = !controllerState.shellCoverVisible,
+						onNextChapter = onNextChapter,
+						enabledNext = controllerState.canNavigateToNextChapter,
+						onPreviousChapter = onPreviousChapter,
+						enabledPrevious = controllerState.canNavigateToPreviousChapter,
 						currentPage = chapterProgress.displayPage,
 						currentPageText = chapterProgress.displayPage.toString(),
 						totalPages = chapterProgress.pageCount,
@@ -186,10 +211,15 @@ internal fun KomikkuReaderAppBars(
 					)
 				}
 				KomikkuReaderBottomBar(
+					enabledButtons = enabledButtons,
 					onContents = onContents,
 					onReadingMode = onReadingMode,
 					onSettings = onSettings,
-					modifier = Modifier.fillMaxWidth()
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(backgroundColor)
+						.padding(horizontal = 36.dp, vertical = 12.dp)
+						.windowInsetsPadding(WindowInsets.navigationBars)
 				)
 			}
 		}
@@ -206,90 +236,183 @@ private fun KomikkuReaderTopBar(
 	onToggleBookmarked: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val backgroundColor = MaterialTheme.colorScheme
-		.surfaceColorAtElevation(3.dp)
-		.copy(alpha = 0.92f)
+	KomikkuReaderAppBar(
+		modifier = modifier,
+		backgroundColor = Color.Transparent,
+		title = title,
+		subtitle = chapterTitle,
+		navigateUp = onNavigateBack,
+		actions = {
+			KomikkuReaderAppBarActions(
+				actions = listOf(
+					KomikkuReaderAppBarAction.Action(
+						title = if (bookmarked) "Remove bookmark" else "Bookmark",
+						icon = if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+						onClick = onToggleBookmarked,
+						enabled = canBookmark
+					)
+				)
+			)
+		}
+	)
+}
 
-	Surface(
-		color = backgroundColor,
-		contentColor = MaterialTheme.colorScheme.onSurface,
-		modifier = modifier
-			.pointerInput(Unit) {}
-	) {
-		Row(
-			modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(14.dp)
-		) {
-			IconButton(onClick = onNavigateBack) {
-				Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
+@Composable
+private fun KomikkuReaderAppBar(
+	title: String?,
+	subtitle: String?,
+	navigateUp: (() -> Unit)?,
+	modifier: Modifier = Modifier,
+	backgroundColor: Color? = null,
+	actions: @Composable RowScope.() -> Unit = {}
+) {
+	TopAppBar(
+		modifier = modifier,
+		navigationIcon = {
+			navigateUp?.let {
+				IconButton(onClick = it) {
+					Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
+				}
 			}
-			Column(
-				modifier = Modifier.weight(1f),
-				verticalArrangement = Arrangement.spacedBy(2.dp)
-			) {
-				Text(
-					text = title,
-					style = MaterialTheme.typography.headlineSmall,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-				Text(
-					text = chapterTitle,
-					style = MaterialTheme.typography.bodyLarge,
-					color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
-			IconButton(
-				enabled = canBookmark,
-				onClick = onToggleBookmarked
-			) {
-				Icon(
-					if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-					contentDescription = if (bookmarked) "Remove bookmark" else "Bookmark"
-				)
-			}
+		},
+		title = {
+			KomikkuReaderAppBarTitle(title = title, subtitle = subtitle)
+		},
+		actions = actions,
+		colors = TopAppBarDefaults.topAppBarColors(
+			containerColor = backgroundColor ?: MaterialTheme.colorScheme.surfaceColorAtElevation(0.dp)
+		)
+	)
+}
+
+@Composable
+private fun KomikkuReaderAppBarTitle(
+	title: String?,
+	subtitle: String?,
+	modifier: Modifier = Modifier
+) {
+	Column(modifier = modifier) {
+		title?.let {
+			Text(
+				text = it,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+		}
+		subtitle?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodyMedium,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.basicMarquee(repeatDelayMillis = 2_000)
+			)
 		}
 	}
 }
 
 @Composable
+private fun KomikkuReaderAppBarActions(
+	actions: List<KomikkuReaderAppBarAction>
+) {
+	actions.filterIsInstance<KomikkuReaderAppBarAction.Action>().forEach { action ->
+		IconButton(
+			onClick = action.onClick,
+			enabled = action.enabled
+		) {
+			Icon(
+				imageVector = action.icon,
+				tint = action.iconTint ?: LocalContentColor.current,
+				contentDescription = action.title
+			)
+		}
+	}
+}
+
+private sealed interface KomikkuReaderAppBarAction {
+	data class Action(
+		val title: String,
+		val icon: ImageVector,
+		val iconTint: Color? = null,
+		val onClick: () -> Unit,
+		val enabled: Boolean = true
+	) : KomikkuReaderAppBarAction
+}
+
+@Composable
 private fun KomikkuReaderBottomBar(
+	enabledButtons: Set<String>,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
 	onSettings: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val backgroundColor = MaterialTheme.colorScheme
-		.surfaceColorAtElevation(3.dp)
-		.copy(alpha = 0.92f)
 	val iconColor = MaterialTheme.colorScheme.primary
 
-	Surface(
-		color = backgroundColor,
-		contentColor = iconColor,
+	// Ported from Komikku ReaderBottomBar: centered, evenly distributed actions.
+	Row(
 		modifier = modifier
-			.pointerInput(Unit) {}
+			.fillMaxWidth()
+			.pointerInput(Unit) {},
+		horizontalArrangement = Arrangement.SpaceEvenly,
+		verticalAlignment = Alignment.CenterVertically
 	) {
-		// Ported from Komikku ReaderBottomBar: centered, evenly distributed actions.
-		Row(
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(horizontal = 36.dp, vertical = 12.dp),
-			horizontalArrangement = Arrangement.SpaceEvenly,
-			verticalAlignment = Alignment.CenterVertically
-		) {
+		if (KomikkuReaderBottomButton.ViewChapters.isIn(enabledButtons)) {
 			IconButton(onClick = onContents) {
-				Icon(Icons.Outlined.List, contentDescription = "Contents", tint = iconColor)
-			}
-			IconButton(onClick = onReadingMode) {
-				Icon(Icons.Outlined.Book, contentDescription = "Reading mode", tint = iconColor)
-			}
-			IconButton(onClick = onSettings) {
-				Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = iconColor)
+				Icon(
+					imageVector = Icons.Outlined.FormatListNumbered,
+					contentDescription = stringResource(Res.string.title_chapters),
+					tint = iconColor
+				)
 			}
 		}
+
+		if (KomikkuReaderBottomButton.ReadingMode.isIn(enabledButtons)) {
+			IconButton(onClick = onReadingMode) {
+				Icon(
+					imageVector = Icons.Outlined.Book,
+					contentDescription = stringResource(Res.string.action_reader_reading_mode),
+					tint = iconColor
+				)
+			}
+		}
+
+		IconButton(onClick = onSettings) {
+			Icon(
+				imageVector = Icons.Outlined.Settings,
+				contentDescription = stringResource(Res.string.title_settings),
+				tint = iconColor
+			)
+		}
+	}
+}
+
+private enum class KomikkuReaderBottomButton(val value: String) {
+	ViewChapters("vc"),
+	WebView("wb"),
+	Browser("br"),
+	Share("sh"),
+	ReadingMode("rm"),
+	Rotation("rot"),
+	CropBordersPager("cbp"),
+	CropBordersContinuesVertical("cbc"),
+	CropBordersWebtoon("cbw"),
+	PageLayout("pl");
+
+	fun isIn(buttons: Collection<String>) = value in buttons
+
+	companion object {
+		val BUTTONS_DEFAULTS = setOf(
+			ViewChapters,
+			WebView,
+			CropBordersPager,
+			CropBordersContinuesVertical,
+			PageLayout
+		).map { it.value }.toSet()
+
+		val NAVIC_SUPPORTED_DEFAULTS = setOf(
+			ViewChapters,
+			ReadingMode
+		).map { it.value }.toSet()
 	}
 }

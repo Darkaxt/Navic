@@ -16,7 +16,25 @@ internal fun readerAssetRoot(): File =
 		?: error("Could not locate Android reader assets")
 
 internal fun readerBridgeText(root: File = readerAssetRoot()): String =
-	listOf("navic-reader-settings.js", "navic-reader-helpers.js", "navic-reader.js")
+	listOf(
+		"navic-reader-settings.js",
+		"navic-reader-helpers.js",
+		"navic-reader-page-turns.js",
+		"navic-reader-content-interactions.js",
+		"navic-reader-pagination.js",
+		"navic-reader-appearance.js",
+		"navic-reader.js"
+	)
+		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
+
+internal fun readerRuntimeImplementationText(root: File = readerAssetRoot()): String =
+	listOf(
+		"navic-reader-page-turns.js",
+		"navic-reader-content-interactions.js",
+		"navic-reader-pagination.js",
+		"navic-reader-appearance.js",
+		"navic-reader.js"
+	)
 		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
 
 internal fun readerWebRuntimeFile(): File =
@@ -102,6 +120,13 @@ internal fun repoScriptFile(fileName: String): File =
 		File("../scripts/$fileName")
 	).firstOrNull { it.isFile }
 		?: error("Could not locate script $fileName")
+
+internal fun repoFile(path: String): File =
+	listOf(
+		File(path),
+		File("../$path")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate repo file $path")
 
 internal fun File.hasPngAlphaChannel(): Boolean {
 	val bytes = readBytes()

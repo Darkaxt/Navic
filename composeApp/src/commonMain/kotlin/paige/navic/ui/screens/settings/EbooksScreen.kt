@@ -18,10 +18,23 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import kotlinx.coroutines.launch
 import kotlinx.collections.immutable.toImmutableList
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_delete
+import navic.composeapp.generated.resources.action_download
+import navic.composeapp.generated.resources.action_refresh
+import navic.composeapp.generated.resources.action_resume
 import navic.composeapp.generated.resources.info_ebook_reader_clear_imported_font_success
 import navic.composeapp.generated.resources.info_ebook_reader_import_font_success
+import navic.composeapp.generated.resources.info_downloaded
+import navic.composeapp.generated.resources.info_download_status_failed
 import navic.composeapp.generated.resources.info_error
+import navic.composeapp.generated.resources.info_status_downloading
 import navic.composeapp.generated.resources.option_ebook_reader_clear_imported_font
+import navic.composeapp.generated.resources.option_ebook_reader_column_mode
+import navic.composeapp.generated.resources.option_ebook_reader_column_mode_auto
+import navic.composeapp.generated.resources.option_ebook_reader_column_mode_double
+import navic.composeapp.generated.resources.option_ebook_reader_column_mode_single
+import navic.composeapp.generated.resources.option_ebook_reader_column_threshold
 import navic.composeapp.generated.resources.option_ebook_reader_font_family
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_book
 import navic.composeapp.generated.resources.option_ebook_reader_font_family_dyslexic
@@ -75,6 +88,8 @@ import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_page
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_width
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_page_gap
 import navic.composeapp.generated.resources.option_ebook_reader_publisher_styles
+import navic.composeapp.generated.resources.option_ebook_reader_remote_font_catalog
+import navic.composeapp.generated.resources.option_ebook_reader_remote_font_delete
 import navic.composeapp.generated.resources.option_ebook_reader_scroll
 import navic.composeapp.generated.resources.option_ebook_reader_scroll_gaps
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone
@@ -99,6 +114,8 @@ import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
 import navic.composeapp.generated.resources.option_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.subtitle_ebook_reader_clear_imported_font
+import navic.composeapp.generated.resources.subtitle_ebook_reader_column_mode
+import navic.composeapp.generated.resources.subtitle_ebook_reader_column_threshold
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_family
 import navic.composeapp.generated.resources.subtitle_ebook_reader_font_source
 import navic.composeapp.generated.resources.subtitle_ebook_reader_import_font
@@ -121,6 +138,8 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_crop_borde
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_fit
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_page_gap
 import navic.composeapp.generated.resources.subtitle_ebook_reader_publisher_styles
+import navic.composeapp.generated.resources.subtitle_ebook_reader_remote_font_catalog
+import navic.composeapp.generated.resources.subtitle_ebook_reader_remote_font_delete
 import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone_invert
@@ -168,6 +187,10 @@ import paige.navic.reader.ReaderPdfFitOriginal
 import paige.navic.reader.ReaderPdfFitPage
 import paige.navic.reader.ReaderPdfFitWidth
 import paige.navic.reader.ReaderPublisherFontFamily
+import paige.navic.reader.ReaderRemoteFontDownloadState
+import paige.navic.reader.ReaderRemoteFontDownloadStatusDownloading
+import paige.navic.reader.ReaderRemoteFontDownloadStatusFailed
+import paige.navic.reader.ReaderRemoteFontDownloadStatusPaused
 import paige.navic.reader.ReaderSansFontFamily
 import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
@@ -205,6 +228,7 @@ fun SettingsEbooksScreen() {
 	val direction = ReaderDirectionOption.forDirection(settings.direction)
 	val navBarType = ReaderNavBarTypeOption.forNavBarType(settings.navBarType)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
+	val columnMode = ReaderColumnModeOption.forMaxColumnCount(settings.maxColumnCount)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val tapZoneInvertMode = ReaderTapZoneInvertOption.forTapZoneInvertMode(settings.tapZoneInvertMode)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
@@ -233,6 +257,12 @@ fun SettingsEbooksScreen() {
 		storageSizeText(fontImporter.cachedFontBytes)
 	} else {
 		stringResource(Res.string.option_off)
+	}
+	val remoteFontCatalogValue = when {
+		fontImporter.remoteFontLoading -> stringResource(Res.string.info_status_downloading)
+		fontImporter.remoteFonts.isNotEmpty() -> fontImporter.remoteFonts.size.toString()
+		fontImporter.remoteFontError != null -> stringResource(Res.string.info_error)
+		else -> stringResource(Res.string.action_refresh)
 	}
 	val hasImportedFont = !settings.customFontFamily.isNullOrBlank() ||
 		!settings.customFontUrl.isNullOrBlank() ||
@@ -295,6 +325,71 @@ fun SettingsEbooksScreen() {
 									preferenceManager.readerCustomFontUrl = ""
 									coroutineScope.launch {
 										snackbarState.showSnackbar(clearImportedFontSuccessMessage)
+									}
+								}
+							)
+						}
+						SettingValueRow(
+							title = { Text(stringResource(Res.string.option_ebook_reader_remote_font_catalog)) },
+							value = remoteFontCatalogValue,
+							subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_remote_font_catalog)) },
+							onClick = { fontImporter.refreshRemoteFonts() }
+						)
+						val cachedRemoteFontIds = fontImporter.cachedRemoteFonts.map { cachedRemoteFont -> cachedRemoteFont.id }.toSet()
+						fontImporter.remoteFonts.forEach { remoteFont ->
+							if (remoteFont.id !in cachedRemoteFontIds) {
+								val remoteFontDownload = fontImporter.remoteFontDownloads[remoteFont.id]
+								val remoteFontDownloadValue = readerRemoteFontDownloadValue(remoteFontDownload)
+								SettingValueRow(
+									title = { Text(remoteFont.name) },
+									value = remoteFontDownloadValue,
+									subtitle = { Text(remoteFont.description.ifBlank { remoteFont.license.name }) },
+									onClick = {
+										when (remoteFontDownload?.status) {
+											ReaderRemoteFontDownloadStatusDownloading ->
+												fontImporter.pauseRemoteFontDownload(remoteFont.id)
+											ReaderRemoteFontDownloadStatusPaused ->
+												fontImporter.resumeRemoteFontDownload(remoteFont)
+											ReaderRemoteFontDownloadStatusFailed ->
+												fontImporter.downloadRemoteFont(remoteFont)
+											else ->
+												fontImporter.downloadRemoteFont(remoteFont)
+										}
+									}
+								)
+								if (remoteFontDownload?.status == ReaderRemoteFontDownloadStatusDownloading ||
+									remoteFontDownload?.status == ReaderRemoteFontDownloadStatusPaused
+								) {
+									SettingValueRow(
+										title = { Text("${stringResource(Res.string.action_cancel)}: ${remoteFont.name}") },
+										value = stringResource(Res.string.action_cancel),
+										subtitle = { Text(remoteFontDownloadValue) },
+										onClick = { fontImporter.cancelRemoteFontDownload(remoteFont.id) }
+									)
+								}
+							}
+						}
+						fontImporter.cachedRemoteFonts.forEach { cachedRemoteFont ->
+							SettingValueRow(
+								title = { Text(cachedRemoteFont.name) },
+								value = stringResource(Res.string.info_downloaded),
+								subtitle = { Text(storageSizeText(cachedRemoteFont.byteSize)) },
+								onClick = {
+									preferenceManager.readerFontSource = ReaderFontSourceCustom
+									preferenceManager.readerCustomFontFamily = cachedRemoteFont.family
+									preferenceManager.readerCustomFontUrl = cachedRemoteFont.fonts.firstOrNull()?.url.orEmpty()
+								}
+							)
+							SettingValueRow(
+								title = { Text("${stringResource(Res.string.option_ebook_reader_remote_font_delete)}: ${cachedRemoteFont.name}") },
+								value = stringResource(Res.string.action_delete),
+								subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_remote_font_delete)) },
+								onClick = {
+									fontImporter.deleteRemoteFont(cachedRemoteFont.id)
+									if (cachedRemoteFont.fonts.any { font -> font.url == settings.customFontUrl }) {
+										preferenceManager.readerFontSource = ReaderFontSourceNavic
+										preferenceManager.readerCustomFontFamily = ""
+										preferenceManager.readerCustomFontUrl = ""
 									}
 								}
 							)
@@ -400,6 +495,22 @@ fun SettingsEbooksScreen() {
 							preferenceManager.readerFlowMode = option.flowMode
 							preferenceManager.readerPaged = option.paged
 						}
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_column_mode)) },
+						items = ReaderColumnModeOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_column_mode),
+						selection = columnMode,
+						onSelect = { option -> preferenceManager.readerMaxColumnCount = option.maxColumnCount }
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_column_threshold)) },
+						items = readerColumnThresholdOptions.toImmutableList(),
+						label = { threshold -> "${threshold}px" },
+						description = stringResource(Res.string.subtitle_ebook_reader_column_threshold),
+						selection = (settings.columnThreshold ?: 720.0).roundToInt(),
+						onSelect = { threshold -> preferenceManager.readerColumnThreshold = threshold.toFloat() }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_pdf_fit)) },
@@ -542,6 +653,20 @@ private enum class ReaderFlowOption(
 	}
 }
 
+private enum class ReaderColumnModeOption(
+	val maxColumnCount: Int,
+	val title: StringResource
+) {
+	Auto(0, Res.string.option_ebook_reader_column_mode_auto),
+	Single(1, Res.string.option_ebook_reader_column_mode_single),
+	Double(2, Res.string.option_ebook_reader_column_mode_double);
+
+	companion object {
+		fun forMaxColumnCount(maxColumnCount: Int?): ReaderColumnModeOption =
+			entries.firstOrNull { option -> option.maxColumnCount == maxColumnCount } ?: Auto
+	}
+}
+
 private enum class ReaderPdfFitOption(
 	val pdfFitMode: String,
 	val title: StringResource
@@ -639,6 +764,7 @@ private val readerFontSizeOptions = listOf(90, 100, 112, 125, 140, 160, 180)
 private val readerLineHeightOptions = listOf(120, 135, 155, 170, 190, 220)
 private val readerParagraphSpacingOptions = listOf(0, 25, 50, 75, 100, 150, 200)
 private val readerMarginOptions = listOf(0, 4, 8, 12, 16, 24)
+private val readerColumnThresholdOptions = listOf(400, 520, 640, 720, 840, 960, 1080, 1200)
 private val readerDimOverlayOptions = listOf(0, 10, 20, 30, 40, 50, 60, 70, 80)
 private val readerPdfPageGapOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 
@@ -649,3 +775,19 @@ private fun readerLineHeightLabel(percent: Int): String =
 @Composable
 private fun readerDimOverlayLabel(percent: Int): String =
 	if (percent <= 0) stringResource(Res.string.option_off) else "$percent%"
+
+@Composable
+private fun readerRemoteFontDownloadValue(download: ReaderRemoteFontDownloadState?): String =
+	when (download?.status) {
+		ReaderRemoteFontDownloadStatusDownloading ->
+			"${stringResource(Res.string.info_status_downloading)} ${remoteFontProgress(download)}%"
+		ReaderRemoteFontDownloadStatusPaused ->
+			"${stringResource(Res.string.action_resume)} ${remoteFontProgress(download)}%"
+		ReaderRemoteFontDownloadStatusFailed ->
+			stringResource(Res.string.info_download_status_failed)
+		else ->
+			stringResource(Res.string.action_download)
+	}
+
+private fun remoteFontProgress(download: ReaderRemoteFontDownloadState?): Int =
+	(((download?.progress ?: 0.0) * 100.0).roundToInt()).coerceIn(0, 100)

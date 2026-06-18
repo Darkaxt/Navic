@@ -140,7 +140,6 @@ data class ReaderProgressSaveGate(
 			)
 			is ReaderBridgeEvent.LocationChanged -> {
 				val shouldSkipStartupPlaceholder = publicationReady &&
-					!readableLocationSaved &&
 					event.locator.isReaderStartPlaceholder()
 				ReaderProgressSaveDecision(
 					state = if (publicationReady) {

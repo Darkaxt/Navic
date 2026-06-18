@@ -144,6 +144,37 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun engineRelocationDoesNotFeedKomikkuRailFromGlobalPageModel() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+		val locator = ReaderLocator(
+			href = "chapter-14.xhtml",
+			progress = 0.84,
+			pageIndex = 1,
+			pageCount = 1748
+		)
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = locator,
+				tocTitle = "Chapter XIV: Fire and Water"
+			)
+		)
+
+		assertEquals(locator, step.controller.state.chrome.currentLocator)
+		assertEquals(
+			ReaderChapterProgressState(
+				href = "chapter-14.xhtml",
+				title = "Chapter XIV: Fire and Water",
+				pageIndex = 0,
+				pageCount = 1,
+				progress = 0.0
+			),
+			step.controller.state.chapterProgress
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationsBuildControllerOwnedProgressSnapshotsAfterPublicationReady() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
@@ -181,14 +212,6 @@ class ReaderControllerTest {
 			fragmentId = "p9",
 			progressFraction = 0.62
 		)
-		val expectedLaterCoverProgress = BinderyReadingProgress(
-			bookId = "book-1",
-			kind = BinderyReadingProgressKind.Ebook,
-			resourceHref = "publication.epub",
-			textHref = "EPUB/Text/cover.xhtml",
-			progressFraction = 0.0
-		)
-
 		assertEquals(null, startupCover.progressToSave)
 		assertEquals(
 			null,
@@ -210,7 +233,15 @@ class ReaderControllerTest {
 		assertEquals(resumedLocator, resumed.controller.state.chrome.currentLocator)
 		assertEquals("Chapter 4", resumed.controller.state.chrome.currentSectionTitle)
 		assertEquals(emptyList(), resumed.engineCommands)
-		assertEquals(expectedLaterCoverProgress, laterCover.progressToSave)
+		assertEquals(null, laterCover.progressToSave)
+		assertEquals(
+			expectedProgress,
+			laterCover.controller.state.readingProgress.progressFor(
+				bookId = "book-1",
+				resourceHref = "publication.epub",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
 	}
 
 	@Test
@@ -230,6 +261,37 @@ class ReaderControllerTest {
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
 			next.engineCommands
 		)
+	}
+
+	@Test
+	fun previousFromFirstReadablePageReturnsToNativeCoverInsteadOfSuppressedWebViewCover() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val readable = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.004370907849029098,
+						pageIndex = 1,
+						pageCount = 270
+					),
+					tocTitle = "Alcatraz versus the Evil Librarians"
+				)
+			).controller
+
+		val previous = readable.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous))
+
+		assertTrue(previous.controller.state.shellCoverVisible)
+		assertFalse(previous.controller.state.menuVisible)
+		assertEquals(emptyList(), previous.engineCommands)
 	}
 
 	@Test
@@ -434,6 +496,97 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun chapterNavigatorArrowsNavigateAdjacentTocEntriesInsteadOfTurningPages() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Toc(
+					listOf(
+						ReaderTocItem(
+							id = "chapter-1",
+							title = "Chapter 1",
+							href = "EPUB/Text/chapter-01.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-2",
+							title = "Chapter 2",
+							href = "EPUB/Text/chapter-02.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-3",
+							title = "Chapter 3",
+							href = "EPUB/Text/chapter-03.xhtml#start"
+						)
+					)
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "EPUB/Text/chapter-02.xhtml#p3",
+						chapterPageIndex = 3,
+						chapterPageCount = 12
+					),
+					tocTitle = "Chapter 2"
+				)
+			).controller
+
+		val previous = controller.navigateToPreviousChapter()
+		val next = controller.navigateToNextChapter()
+
+		assertTrue(controller.state.canNavigateToPreviousChapter)
+		assertTrue(controller.state.canNavigateToNextChapter)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/chapter-01.xhtml")
+				)
+			),
+			previous.engineCommands
+		)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/chapter-03.xhtml#start")
+				)
+			),
+			next.engineCommands
+		)
+	}
+
+	@Test
+	fun chapterNavigatorArrowsDisableAtTocBounds() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Toc(
+					listOf(
+						ReaderTocItem(
+							id = "chapter-1",
+							title = "Chapter 1",
+							href = "EPUB/Text/chapter-01.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-2",
+							title = "Chapter 2",
+							href = "EPUB/Text/chapter-02.xhtml"
+						)
+					)
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(href = "EPUB/Text/chapter-01.xhtml"),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+
+		val previous = controller.navigateToPreviousChapter()
+
+		assertFalse(controller.state.canNavigateToPreviousChapter)
+		assertTrue(controller.state.canNavigateToNextChapter)
+		assertEquals(emptyList(), previous.engineCommands)
+	}
+
+	@Test
 	fun mediaOverlayCommandsAreControllerOwnedAndForwardedAsEngineCapabilities() {
 		val fragment = ReaderOverlayFragment(
 			resourceHref = "audio/chapter-01.mp3",
@@ -603,7 +756,13 @@ class ReaderControllerTest {
 			ReaderEngineEvent.SelectionChanged(
 				text = "In a hole in the ground",
 				cfi = "epubcfi(/6/8!/4/2:0)",
-				href = "chapter-01.xhtml"
+				href = "chapter-01.xhtml",
+				footnote = true,
+				contextText = "In a hole in the ground there lived a hobbit.",
+				posLeft = 10.5,
+				posTop = 20.25,
+				posRight = 120.75,
+				posBottom = 140.0
 			)
 		).controller
 		val overlay = selected.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment)).controller
@@ -615,7 +774,13 @@ class ReaderControllerTest {
 			ReaderSelection(
 				text = "In a hole in the ground",
 				cfi = "epubcfi(/6/8!/4/2:0)",
-				href = "chapter-01.xhtml"
+				href = "chapter-01.xhtml",
+				footnote = true,
+				contextText = "In a hole in the ground there lived a hobbit.",
+				posLeft = 10.5,
+				posTop = 20.25,
+				posRight = 120.75,
+				posBottom = 140.0
 			),
 			selected.state.selection
 		)

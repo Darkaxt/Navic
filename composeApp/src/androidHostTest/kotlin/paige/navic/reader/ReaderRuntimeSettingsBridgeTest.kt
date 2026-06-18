@@ -70,7 +70,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 	@Test
 	fun androidReaderNormalizesReadableTapZonesThroughNativeReaderSurfaceLikeKomikku() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
@@ -160,7 +160,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 	@Test
 	fun androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeSurfaceOwnsTaps() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val openPublication = runtimeText
@@ -168,7 +168,7 @@ class ReaderRuntimeSettingsBridgeTest {
 			.substringBefore("\n  close()")
 		val tapHandler = runtimeText
 			.substringAfter("attachReaderTapZoneGesture(target) {")
-			.substringBefore("\n  attachScrolledEdgeTurnGestures")
+			.substringBefore("\nfunction attachScrolledEdgeTurnGestures")
 
 		assertContains(bridgeProtocolText, "val nativeTapZones: Boolean? = null")
 		assertContains(bridgeProtocolText, "nativeTapZones?.let { put(\"nativeTapZones\", it) }")
@@ -191,7 +191,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 	@Test
 	fun androidReaderExposesKomikkuSmallerTapZoneControl() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
@@ -200,8 +200,8 @@ class ReaderRuntimeSettingsBridgeTest {
 
 		assertContains(runtimeText, "settings.smallerTapZone === true")
 		assertContains(runtimeText, "this.smallerTapZone = settings.smallerTapZone === true")
-		assertContains(settingsDialogText, "title = \"Smaller tap zones\"")
-		assertContains(settingsDialogText, "settings.copy(smallerTapZone = smallerTapZone)")
+		assertContains(settingsDialogText, "label = \"Smaller tap zones\"")
+		assertContains(settingsDialogText, "settings.copy(smallerTapZone = settings.smallerTapZone != true)")
 		assertContains(ebooksSettingsText, "readerSmallerTapZone")
 		assertContains(ebooksSettingsText, "option_ebook_reader_smaller_tap_zones")
 		assertContains(searchSettingsText, "ebooks.smaller-tap-zones")
@@ -213,7 +213,7 @@ class ReaderRuntimeSettingsBridgeTest {
 
 	@Test
 	fun androidReaderExposesVisibleTapZoneOverlayControl() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
@@ -227,8 +227,8 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
 		assertContains(runtimeText, "settings.showTapZones !== true")
 		assertContains(readerRootText, "navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true")
-		assertContains(settingsDialogText, "title = \"Show tap zones\"")
-		assertContains(settingsDialogText, "settings.copy(showTapZones = showTapZones)")
+		assertContains(settingsDialogText, "label = \"Show tap zones\"")
+		assertContains(settingsDialogText, "settings.copy(showTapZones = settings.showTapZones != true)")
 		assertFalse(
 			ebooksSettingsText.contains("option_ebook_reader_show_tap_zones"),
 			"Visible tap-zone overlays are diagnostics and should not be shown as an Ebook reading default."
@@ -352,6 +352,54 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertFalse(
 			applyDocumentTheme.contains("updatePaperTextureLayer"),
 			"Paper texture must not be applied to rendered EPUB elements."
+		)
+	}
+
+	@Test
+	fun androidReaderCapsExcessiveChapterOpeningTopMargins() {
+		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertContains(helperText, "readerNormalizeChapterOpeningMargins")
+		assertContains(helperText, "data-navic-chapter-opening-margin-capped")
+		assertContains(helperText, "margin-block-start")
+		assertContains(helperText, "margin-top")
+		assertContains(
+			helperText,
+			"0.045",
+			message = "Chapter opening heading top margins should be capped to a tight Komikku-like page-relative value instead of preserving large publisher margins."
+		)
+		assertContains(
+			helperText,
+			"Math.min(96",
+			message = "Chapter opening headings should not be allowed to drift far down large EPUB page boxes."
+		)
+		assertContains(
+			applyDocumentTheme,
+			"readerNormalizeChapterOpeningMargins(doc, settings)",
+			message = "The margin cap must run for every loaded EPUB document after the reader stylesheet is injected."
+		)
+	}
+
+	@Test
+	fun androidReaderRefreshesContentThemeAfterRelocation() {
+		val bridgeText = readerBridgeText()
+		val scheduleCommittedRelocation = bridgeText
+			.substringAfter("scheduleCommittedRelocation(detail, reason = 'relocate-committed') {")
+			.substringBefore("\n  suppressLoadedCoverDocument")
+
+		assertContains(
+			scheduleCommittedRelocation,
+			"this.applyThemeToLoadedContent(this.readerSettings)",
+			message = "Foliate can reuse or swap the active content document during navigation, so EPUB document normalization must be refreshed before posting the committed relocation."
+		)
+		assertTrue(
+			scheduleCommittedRelocation.indexOf("this.applyThemeToLoadedContent(this.readerSettings)") <
+				scheduleCommittedRelocation.indexOf("this.postLocationChanged(pendingDetail, pendingReason)"),
+			"Content theming must be refreshed before the committed location is posted so page geometry and visible content agree."
 		)
 	}
 

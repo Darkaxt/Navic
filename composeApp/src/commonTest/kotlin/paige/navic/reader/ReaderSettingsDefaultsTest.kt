@@ -10,6 +10,20 @@ class ReaderSettingsDefaultsTest {
 	}
 
 	@Test
+	fun readerSettingsDefaultsExposeAnxStyleDimensions() {
+		assertEquals(400.0, defaultReaderSettings().fontWeight)
+		assertEquals(0.0, defaultReaderSettings().letterSpacing)
+		assertEquals(0.0, defaultReaderSettings().wordSpacing)
+		assertEquals(6.0, defaultReaderSettings().sideMargin)
+		assertEquals(90.0, defaultReaderSettings().topMargin)
+		assertEquals(50.0, defaultReaderSettings().bottomMargin)
+		assertEquals(0.0, defaultReaderSettings().indent)
+		assertEquals(1.0, defaultReaderSettings().headingFontSize)
+		assertEquals(0, defaultReaderSettings().maxColumnCount)
+		assertEquals(720.0, defaultReaderSettings().columnThreshold)
+	}
+
+	@Test
 	fun readerSettingsDefaultsNormalizePersistedValues() {
 		assertEquals(
 			ReaderSettings(
@@ -19,6 +33,16 @@ class ReaderSettingsDefaultsTest {
 				lineHeight = 1.2,
 				paragraphSpacingPercent = 200,
 				marginPercent = 24,
+				fontWeight = 900.0,
+				letterSpacing = 7.0,
+				wordSpacing = 12.0,
+				sideMargin = 20.0,
+				topMargin = 200.0,
+				bottomMargin = 0.0,
+				indent = 8.0,
+				headingFontSize = 2.0,
+				maxColumnCount = 2,
+				columnThreshold = 1200.0,
 				dimOverlayPercent = 80,
 				colorFilterEnabled = false,
 				colorFilterArgb = 0,
@@ -51,6 +75,16 @@ class ReaderSettingsDefaultsTest {
 				lineHeightPercent = 80,
 				paragraphSpacingPercent = 500,
 				marginPercent = 60,
+				fontWeight = 1600.0,
+				letterSpacing = 20.0,
+				wordSpacing = 30.0,
+				sideMargin = 60.0,
+				topMargin = 250.0,
+				bottomMargin = -50.0,
+				indent = 20.0,
+				headingFontSize = 3.0,
+				maxColumnCount = 5,
+				columnThreshold = 2000.0,
 				dimOverlayPercent = 120,
 				orientation = "sideways",
 				theme = "neon",
@@ -79,6 +113,16 @@ class ReaderSettingsDefaultsTest {
 				lineHeight = 1.7,
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
+				fontWeight = 650.0,
+				letterSpacing = 1.25,
+				wordSpacing = 2.5,
+				sideMargin = 12.0,
+				topMargin = 80.0,
+				bottomMargin = 60.0,
+				indent = 1.5,
+				headingFontSize = 1.25,
+				maxColumnCount = 2,
+				columnThreshold = 840.0,
 				dimOverlayPercent = 30,
 				colorFilterEnabled = false,
 				colorFilterArgb = 0,
@@ -111,6 +155,16 @@ class ReaderSettingsDefaultsTest {
 				lineHeightPercent = 170,
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
+				fontWeight = 650.0,
+				letterSpacing = 1.25,
+				wordSpacing = 2.5,
+				sideMargin = 12.0,
+				topMargin = 80.0,
+				bottomMargin = 60.0,
+				indent = 1.5,
+				headingFontSize = 1.25,
+				maxColumnCount = 2,
+				columnThreshold = 840.0,
 				dimOverlayPercent = 30,
 				grayscaleEnabled = true,
 				invertedColors = true,

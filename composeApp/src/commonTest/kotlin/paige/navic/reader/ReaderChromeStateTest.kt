@@ -311,6 +311,14 @@ class ReaderChromeStateTest {
 				locator = ReaderLocator(pageIndex = 0, pageCount = 411)
 			)
 		)
+		assertTrue(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(pageIndex = 1, pageCount = 411)
+			),
+			"Foliate can report the first readable page after cover suppression as page index 1."
+		)
 		assertFalse(
 			readerShouldReturnToNativeShellCover(
 				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",

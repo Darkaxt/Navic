@@ -11,7 +11,13 @@ data class ReaderSearchState(
 data class ReaderSelection(
 	val text: String? = null,
 	val cfi: String? = null,
-	val href: String? = null
+	val href: String? = null,
+	val footnote: Boolean? = null,
+	val contextText: String? = null,
+	val posLeft: Double? = null,
+	val posTop: Double? = null,
+	val posRight: Double? = null,
+	val posBottom: Double? = null
 )
 
 enum class ReaderControllerDialog {
@@ -70,6 +76,12 @@ data class ReaderControllerState(
 			val currentPublication = publication ?: return false
 			return bookmarks.isBookmarked(currentPublication.bookId, chrome.currentLocator)
 		}
+
+	val canNavigateToPreviousChapter: Boolean
+		get() = adjacentTocChapter(direction = -1) != null
+
+	val canNavigateToNextChapter: Boolean
+		get() = adjacentTocChapter(direction = 1) != null
 }
 
 data class ReaderControllerStep(
@@ -155,6 +167,15 @@ data class ReaderController(
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
 				copy(state = state.copy(lastContentActionClaim = event.claim))
 			)
+			is ReaderEngineEvent.InternalLinkRequested -> ReaderControllerStep(this)
+			is ReaderEngineEvent.ExternalLinkOpened -> ReaderControllerStep(this)
+			is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(this)
+			is ReaderEngineEvent.AnnotationDrawn -> ReaderControllerStep(this)
+			is ReaderEngineEvent.OverlayCreated -> ReaderControllerStep(this)
+			is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(this)
+			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(this)
+			ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(this)
+			ReaderEngineEvent.PullUp -> ReaderControllerStep(this)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
 					state = state.copy(
@@ -175,10 +196,19 @@ data class ReaderController(
 						selection = ReaderSelection(
 							text = event.text,
 							cfi = event.cfi,
-							href = event.href
+							href = event.href,
+							footnote = event.footnote,
+							contextText = event.contextText,
+							posLeft = event.posLeft,
+							posTop = event.posTop,
+							posRight = event.posRight,
+							posBottom = event.posBottom
 						)
 					)
 				)
+			)
+			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
+				copy(state = state.copy(selection = ReaderSelection()))
 			)
 			is ReaderEngineEvent.MediaOverlayActive -> ReaderControllerStep(
 				copy(
@@ -256,6 +286,21 @@ data class ReaderController(
 				chapterPageCount = pageCount
 			)
 		)
+	}
+
+	fun navigateToPreviousChapter(): ReaderControllerStep =
+		navigateToAdjacentTocChapter(direction = -1)
+
+	fun navigateToNextChapter(): ReaderControllerStep =
+		navigateToAdjacentTocChapter(direction = 1)
+
+	private fun navigateToAdjacentTocChapter(direction: Int): ReaderControllerStep {
+		val targetHref = state.adjacentTocChapter(direction)
+			?.href
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?: return ReaderControllerStep(this)
+		return navigateTo(ReaderLocator(href = targetHref))
 	}
 
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
@@ -488,20 +533,18 @@ private fun ReaderChapterProgressState.updatedFrom(
 	tocTitle: String?
 ): ReaderChapterProgressState {
 	val nextPageCount = locator.chapterPageCount?.takeIf { it > 0 }
-		?: locator.pageCount?.takeIf { it > 0 }
 		?: pageCount
 	val normalizedPageCount = nextPageCount.coerceAtLeast(1)
 	val nextPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }
-		?: locator.pageIndex?.takeIf { it >= 0 }
 		?: pageIndex
 	val normalizedPageIndex = nextPageIndex.coerceIn(0, normalizedPageCount - 1)
 	val normalizedProgress = locator.chapterProgress
 		?.takeIf(Double::isFinite)
 		?.coerceIn(0.0, 1.0)
-		?: if (normalizedPageCount > 1) {
+		?: if (locator.chapterPageIndex != null && normalizedPageCount > 1) {
 			(normalizedPageIndex.toDouble() / (normalizedPageCount - 1)).coerceIn(0.0, 1.0)
 		} else {
-			0.0
+			progress
 		}
 	return copy(
 		href = locator.href?.trim()?.takeIf { it.isNotEmpty() } ?: href,
@@ -510,4 +553,32 @@ private fun ReaderChapterProgressState.updatedFrom(
 		pageCount = normalizedPageCount,
 		progress = normalizedProgress
 	)
+}
+
+private fun ReaderControllerState.adjacentTocChapter(direction: Int): ReaderTocItem? {
+	val currentHref = readerTocHrefKey(chapterProgress.href)
+		?: readerTocHrefKey(chrome.currentLocator?.href)
+		?: return null
+	val navigableItems = toc.filter { readerTocHrefKey(it.href) != null }
+	val currentIndex = navigableItems.indexOfFirst { item ->
+		readerTocHrefKey(item.href) == currentHref
+	}
+	if (currentIndex < 0) {
+		return null
+	}
+	return navigableItems.getOrNull(currentIndex + direction)
+}
+
+private fun readerTocHrefKey(href: String?): String? {
+	val trimmed = href
+		?.trim()
+		?.replace('\\', '/')
+		?.takeIf { it.isNotEmpty() }
+		?: return null
+	val withoutFragment = trimmed.substringBefore('#')
+	val withoutQuery = withoutFragment.substringBefore('?')
+	return withoutQuery
+		.trim()
+		.trimStart('.', '/')
+		.takeIf { it.isNotEmpty() }
 }

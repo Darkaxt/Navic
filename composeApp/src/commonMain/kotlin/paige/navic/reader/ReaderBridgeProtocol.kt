@@ -1,10 +1,17 @@
 package paige.navic.reader
 
+// Adapted from Anx Reader: tmp/references/anx-reader/lib/page/book_player/epub_player.dart:627-879
+// (callback catalog, including translateText at 864)
+// tmp/references/anx-reader/assets/foliate-js/src/view.js:115-194 (relocation)
+// :216-327 (link/image taxonomy)
+// :335-397 (annotations)
+
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -27,7 +34,13 @@ data class ReaderLocator(
 	val pageCount: Int? = null,
 	val chapterProgress: Double? = null,
 	val chapterPageIndex: Int? = null,
-	val chapterPageCount: Int? = null
+	val chapterPageCount: Int? = null,
+	val rangeCfi: String? = null,
+	val reason: String? = null,
+	val fraction: Double? = null,
+	val size: Double? = null,
+	val tocItemLabel: String? = null,
+	val pageItemLabel: String? = null
 )
 
 data class ReaderPaginationProfileStatus(
@@ -95,6 +108,16 @@ data class ReaderSettings(
 	val lineHeight: Double? = null,
 	val paragraphSpacingPercent: Int? = null,
 	val marginPercent: Int? = null,
+	val fontWeight: Double? = null,
+	val letterSpacing: Double? = null,
+	val wordSpacing: Double? = null,
+	val sideMargin: Double? = null,
+	val topMargin: Double? = null,
+	val bottomMargin: Double? = null,
+	val indent: Double? = null,
+	val headingFontSize: Double? = null,
+	val maxColumnCount: Int? = null,
+	val columnThreshold: Double? = null,
 	val dimOverlayPercent: Int? = null,
 	val colorFilterEnabled: Boolean? = null,
 	val colorFilterArgb: Int? = null,
@@ -371,6 +394,15 @@ sealed interface ReaderBridgeEvent {
 		val action: ReaderContentAction
 			get() = claim.action
 	}
+	data class InternalLinkRequested(
+		val href: String? = null,
+		val prevented: Boolean = false,
+		val source: String? = null
+	) : ReaderBridgeEvent
+	data class ExternalLink(
+		val href: String? = null,
+		val anchorHref: String? = null
+	) : ReaderBridgeEvent
 	data class LocationChanged(
 		val locator: ReaderLocator,
 		val tocTitle: String? = null
@@ -386,8 +418,40 @@ sealed interface ReaderBridgeEvent {
 	data class SelectionChanged(
 		val text: String? = null,
 		val cfi: String? = null,
-		val href: String? = null
+		val href: String? = null,
+		val footnote: Boolean? = null,
+		val contextText: String? = null,
+		val posLeft: Double? = null,
+		val posTop: Double? = null,
+		val posRight: Double? = null,
+		val posBottom: Double? = null
 	) : ReaderBridgeEvent
+	data object SelectionCleared : ReaderBridgeEvent
+	data class AnnotationClick(
+		val value: String? = null,
+		val index: Int? = null,
+		val rangeCfi: String? = null
+	) : ReaderBridgeEvent
+	data class AnnotationDrawn(
+		val value: String? = null,
+		val index: Int? = null,
+		val rangeCfi: String? = null
+	) : ReaderBridgeEvent
+	data class OverlayCreated(
+		val index: Int? = null
+	) : ReaderBridgeEvent
+	data class LoadDoc(
+		val index: Int? = null,
+		val href: String? = null,
+		val title: String? = null,
+		val sectionId: String? = null
+	) : ReaderBridgeEvent
+	data class PushState(
+		val canGoBack: Boolean = false,
+		val canGoForward: Boolean = false
+	) : ReaderBridgeEvent
+	data object FootnoteClose : ReaderBridgeEvent
+	data object PullUp : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -409,6 +473,15 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
 			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(json.toContentActionClaim())
+			"internalLink" -> ReaderBridgeEvent.InternalLinkRequested(
+				href = json.stringValue("href"),
+				prevented = json.booleanValue("prevented") ?: false,
+				source = json.stringValue("source")
+			)
+			"externalLink" -> ReaderBridgeEvent.ExternalLink(
+				href = json.stringValue("href"),
+				anchorHref = json.stringValue("anchorHref")
+			)
 			"locationChanged" -> ReaderBridgeEvent.LocationChanged(
 				locator = ReaderLocator(
 					href = json.stringValue("href"),
@@ -418,7 +491,13 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 					pageCount = json.intValue("pageCount"),
 					chapterProgress = json.doubleValue("chapterProgress"),
 					chapterPageIndex = json.intValue("chapterPageIndex"),
-					chapterPageCount = json.intValue("chapterPageCount")
+					chapterPageCount = json.intValue("chapterPageCount"),
+					rangeCfi = json.stringValue("rangeCfi"),
+					reason = json.stringValue("reason"),
+					fraction = json.doubleValue("fraction"),
+					size = json.doubleValue("size"),
+					tocItemLabel = json.stringValue("tocItemLabel"),
+					pageItemLabel = json.stringValue("pageItemLabel")
 				),
 				tocTitle = json.stringValue("tocTitle")
 			)
@@ -440,8 +519,38 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"selectionChanged" -> ReaderBridgeEvent.SelectionChanged(
 				text = json.stringValue("text"),
 				cfi = json.stringValue("cfi"),
-				href = json.stringValue("href")
+				href = json.stringValue("href"),
+				footnote = json.booleanValue("footnote"),
+				contextText = json.stringValue("contextText"),
+				posLeft = json["pos"]?.jsonObject?.doubleValue("left"),
+				posTop = json["pos"]?.jsonObject?.doubleValue("top"),
+				posRight = json["pos"]?.jsonObject?.doubleValue("right"),
+				posBottom = json["pos"]?.jsonObject?.doubleValue("bottom")
 			)
+			"selectionCleared" -> ReaderBridgeEvent.SelectionCleared
+			"annotationClick" -> ReaderBridgeEvent.AnnotationClick(
+				value = json.stringValue("value"),
+				index = json.intValue("index"),
+				rangeCfi = json.stringValue("rangeCfi")
+			)
+			"annotationDrawn" -> ReaderBridgeEvent.AnnotationDrawn(
+				value = json.stringValue("value"),
+				index = json.intValue("index"),
+				rangeCfi = json.stringValue("rangeCfi")
+			)
+			"overlayCreated" -> ReaderBridgeEvent.OverlayCreated(index = json.intValue("index"))
+			"loadDoc" -> ReaderBridgeEvent.LoadDoc(
+				index = json.intValue("index"),
+				href = json.stringValue("href"),
+				title = json.stringValue("title"),
+				sectionId = json.stringValue("sectionId")
+			)
+			"pushState" -> ReaderBridgeEvent.PushState(
+				canGoBack = json.booleanValue("canGoBack") ?: false,
+				canGoForward = json.booleanValue("canGoForward") ?: false
+			)
+			"footnoteClose" -> ReaderBridgeEvent.FootnoteClose
+			"pullUp" -> ReaderBridgeEvent.PullUp
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -503,6 +612,12 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 		chapterProgress?.let { put("chapterProgress", it) }
 		chapterPageIndex?.let { put("chapterPageIndex", it) }
 		chapterPageCount?.let { put("chapterPageCount", it) }
+		rangeCfi?.let { put("rangeCfi", it) }
+		reason?.let { put("reason", it) }
+		fraction?.let { put("fraction", it) }
+		size?.let { put("size", it) }
+		tocItemLabel?.let { put("tocItemLabel", it) }
+		pageItemLabel?.let { put("pageItemLabel", it) }
 	}
 
 private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
@@ -533,6 +648,16 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		lineHeight?.let { put("lineHeight", it) }
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }
 		marginPercent?.let { put("marginPercent", it) }
+		fontWeight?.let { put("fontWeight", it) }
+		letterSpacing?.let { put("letterSpacing", it) }
+		wordSpacing?.let { put("wordSpacing", it) }
+		sideMargin?.let { put("sideMargin", it) }
+		topMargin?.let { put("topMargin", it) }
+		bottomMargin?.let { put("bottomMargin", it) }
+		indent?.let { put("indent", it) }
+		headingFontSize?.let { put("headingFontSize", it) }
+		maxColumnCount?.let { put("maxColumnCount", it) }
+		columnThreshold?.let { put("columnThreshold", it) }
 		dimOverlayPercent?.let { put("dimOverlayPercent", it) }
 		colorFilterEnabled?.let { put("colorFilterEnabled", it) }
 		colorFilterArgb?.let { put("colorFilterArgb", it) }
@@ -620,3 +745,9 @@ private fun Map<String, JsonElement>.intValue(key: String): Int? =
 		?.value
 		?.jsonPrimitive
 		?.intOrNull
+
+private fun Map<String, JsonElement>.booleanValue(key: String): Boolean? =
+	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }
+		?.value
+		?.jsonPrimitive
+		?.booleanOrNull

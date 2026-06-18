@@ -88,6 +88,60 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripAnxStyleDimensions() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerFontWeight = 650f
+		preferences.readerLetterSpacing = 1.25f
+		preferences.readerWordSpacing = 2.5f
+		preferences.readerSideMargin = 12f
+		preferences.readerTopMargin = 80f
+		preferences.readerBottomMargin = 60f
+		preferences.readerTextIndent = 1.5f
+		preferences.readerHeadingFontSize = 1.25f
+		preferences.readerMaxColumnCount = 2
+		preferences.readerColumnThreshold = 840f
+
+		val defaults = preferences.readerDefaultSettings()
+		assertEquals(650.0, defaults.fontWeight)
+		assertEquals(1.25, defaults.letterSpacing)
+		assertEquals(2.5, defaults.wordSpacing)
+		assertEquals(12.0, defaults.sideMargin)
+		assertEquals(80.0, defaults.topMargin)
+		assertEquals(60.0, defaults.bottomMargin)
+		assertEquals(1.5, defaults.indent)
+		assertEquals(1.25, defaults.headingFontSize)
+		assertEquals(2, defaults.maxColumnCount)
+		assertEquals(840.0, defaults.columnThreshold)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(
+				fontWeight = 500.0,
+				letterSpacing = -1.0,
+				wordSpacing = 3.0,
+				sideMargin = 10.0,
+				topMargin = 100.0,
+				bottomMargin = 40.0,
+				indent = 2.0,
+				headingFontSize = 1.5,
+				maxColumnCount = 1,
+				columnThreshold = 960.0
+			)
+		)
+
+		assertEquals(500f, preferences.readerFontWeight)
+		assertEquals(-1f, preferences.readerLetterSpacing)
+		assertEquals(3f, preferences.readerWordSpacing)
+		assertEquals(10f, preferences.readerSideMargin)
+		assertEquals(100f, preferences.readerTopMargin)
+		assertEquals(40f, preferences.readerBottomMargin)
+		assertEquals(2f, preferences.readerTextIndent)
+		assertEquals(1.5f, preferences.readerHeadingFontSize)
+		assertEquals(1, preferences.readerMaxColumnCount)
+		assertEquals(960f, preferences.readerColumnThreshold)
+	}
+
+	@Test
 	fun readerDefaultSettingsMigratesLegacyParagraphSpacingDefault() {
 		val preferences = PreferenceManager(MapSettings())
 
@@ -344,6 +398,16 @@ class ReaderPreferenceSettingsTest {
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
 				tapZoneInvertMode = ReaderTapZoneInvertVertical,
+				fontWeight = 650.0,
+				letterSpacing = 1.25,
+				wordSpacing = 2.5,
+				sideMargin = 12.0,
+				topMargin = 80.0,
+				bottomMargin = 60.0,
+				indent = 1.5,
+				headingFontSize = 1.25,
+				maxColumnCount = 2,
+				columnThreshold = 840.0,
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x44225588,
 				colorFilterMode = ReaderColorFilterModeOverlay,
@@ -358,6 +422,16 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(ReaderDirectionRtl, bookSettings.direction)
 		assertEquals(ReaderNavBarTypeBottom, bookSettings.navBarType)
 		assertEquals(ReaderTapZoneInvertVertical, bookSettings.tapZoneInvertMode)
+		assertEquals(650.0, bookSettings.fontWeight)
+		assertEquals(1.25, bookSettings.letterSpacing)
+		assertEquals(2.5, bookSettings.wordSpacing)
+		assertEquals(12.0, bookSettings.sideMargin)
+		assertEquals(80.0, bookSettings.topMargin)
+		assertEquals(60.0, bookSettings.bottomMargin)
+		assertEquals(1.5, bookSettings.indent)
+		assertEquals(1.25, bookSettings.headingFontSize)
+		assertEquals(2, bookSettings.maxColumnCount)
+		assertEquals(840.0, bookSettings.columnThreshold)
 		assertEquals(true, bookSettings.colorFilterEnabled)
 		assertEquals(0x44225588, bookSettings.colorFilterArgb)
 		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)

@@ -223,7 +223,13 @@ class FoliateEpubEngineAdapterTest {
 			cfi = "epubcfi(/6/4!/4/2:0)",
 			progress = 0.25,
 			pageIndex = 5,
-			pageCount = 411
+			pageCount = 411,
+			rangeCfi = "epubcfi(/6/4!/4/2:0,/1:0,/1:14)",
+			reason = "page",
+			fraction = 0.5,
+			size = 0.1,
+			tocItemLabel = "Chapter 1",
+			pageItemLabel = "Page 8"
 		)
 		val adapter = FoliateEpubEngineAdapter()
 
@@ -248,6 +254,109 @@ class FoliateEpubEngineAdapterTest {
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.ContentTapHandled(ReaderContentAction.Image))
 		)
 		assertEquals(
+			ReaderEngineEvent.InternalLinkRequested(
+				href = "chapter-02.xhtml#door",
+				prevented = true,
+				source = "native-short-tap"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.InternalLinkRequested(
+					href = "chapter-02.xhtml#door",
+					prevented = true,
+					source = "native-short-tap"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.InternalLinkRequested(
+				href = "chapter-03.xhtml#hall",
+				prevented = false,
+				source = "content-long-press-command"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.InternalLinkRequested(
+					href = "chapter-03.xhtml#hall",
+					prevented = false,
+					source = "content-long-press-command"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.ExternalLinkOpened(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.ExternalLink(
+					href = "https://example.test/notes",
+					anchorHref = "../Text/chapter-01.xhtml#note"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.SelectionCleared,
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.SelectionCleared)
+		)
+		assertEquals(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.AnnotationClick(
+					value = "epubcfi(/6/8!/4/2:12)",
+					index = 3,
+					rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.AnnotationDrawn(
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.AnnotationDrawn(
+					value = "epubcfi(/6/8!/4/2:12)",
+					index = 3,
+					rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.OverlayCreated(index = 3),
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.OverlayCreated(index = 3))
+		)
+		assertEquals(
+			ReaderEngineEvent.DocLoaded(
+				index = 3,
+				href = "EPUB/Text/chapter-01.xhtml",
+				title = "Chapter 1"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.LoadDoc(
+					index = 3,
+					href = "EPUB/Text/chapter-01.xhtml",
+					title = "Chapter 1",
+					sectionId = "chapter-01"
+				)
+			)
+		)
+		assertEquals(
+			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false),
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.PushState(canGoBack = true, canGoForward = false))
+		)
+		assertEquals(
+			ReaderEngineEvent.FootnoteClose,
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.FootnoteClose)
+		)
+		assertEquals(
+			ReaderEngineEvent.PullUp,
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.PullUp)
+		)
+		assertEquals(
 			ReaderEngineEvent.Error(message = "Failed", code = "open"),
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.Error(message = "Failed", code = "open"))
 		)
@@ -267,13 +376,25 @@ class FoliateEpubEngineAdapterTest {
 			ReaderEngineEvent.SelectionChanged(
 				text = "selected",
 				cfi = "epubcfi(/6/8!/4/2:12)",
-				href = "chapter-01.xhtml"
+				href = "chapter-01.xhtml",
+				footnote = true,
+				contextText = "The selected sentence and its surrounding context.",
+				posLeft = 10.5,
+				posTop = 20.25,
+				posRight = 120.75,
+				posBottom = 140.0
 			),
 			adapter.onBridgeHostEvent(
 				ReaderBridgeEvent.SelectionChanged(
 					text = "selected",
 					cfi = "epubcfi(/6/8!/4/2:12)",
-					href = "chapter-01.xhtml"
+					href = "chapter-01.xhtml",
+					footnote = true,
+					contextText = "The selected sentence and its surrounding context.",
+					posLeft = 10.5,
+					posTop = 20.25,
+					posRight = 120.75,
+					posBottom = 140.0
 				)
 			)
 		)

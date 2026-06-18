@@ -259,6 +259,46 @@ export const assertTextureUpdatesAreCommittedPageBounded = trace => {
   }
 }
 
+const textureUpdateStablePageIdentity = payload => [
+  payload?.href || '',
+  Number.isFinite(payload?.pageIndex) ? payload.pageIndex : '',
+].join('|')
+
+const textureUpdatePageTotal = payload =>
+  Number.isFinite(payload?.pageCount) ? payload.pageCount : null
+
+export const assertTextureKeysIgnorePageCountOnlyRelabels = trace => {
+  if (!Array.isArray(trace)) {
+    throw new Error('Expected reader trace to be an array')
+  }
+  const textureUpdates = trace
+    .filter(event => event?.type === 'texture:update')
+    .map(event => event?.payload)
+    .filter(payload => payload && typeof payload === 'object')
+  if (textureUpdates.length === 0) {
+    throw new Error('Expected texture update trace events')
+  }
+  const seenByStablePage = new Map()
+  for (const payload of textureUpdates) {
+    const identity = textureUpdateStablePageIdentity(payload)
+    if (!identity || identity === '|') continue
+    const previous = seenByStablePage.get(identity)
+    if (
+      previous &&
+      previous.key &&
+      payload.key &&
+      previous.key !== payload.key &&
+      textureUpdatePageTotal(previous) !== textureUpdatePageTotal(payload)
+    ) {
+      throw new Error(
+        `Expected same-page texture key to ignore changing page totals; ` +
+        `${identity} changed ${previous.key} -> ${payload.key}`
+      )
+    }
+    seenByStablePage.set(identity, payload)
+  }
+}
+
 export const assertPdfSmoke = result => {
   if (!result?.initialLocation || !Number.isFinite(result.initialLocation.pageIndex)) {
     throw new Error('Expected PDF smoke to receive an initial page location')
@@ -677,6 +717,28 @@ export const assertRendererCssSmoke = result => {
     result.nativeTapZonesCoordinateLongPressSources.filter(source => source === 'native-long-press-command').length < 2) {
     throw new Error(
       `Expected native coordinate long-press traces for image and link; observed ${JSON.stringify(result.nativeTapZonesCoordinateLongPressSources || [])}`
+    )
+  }
+  if (result.nativeTapZonesFoliateLinkDefaultPrevented !== true) {
+    throw new Error('Expected native tap zones Foliate link event to be canceled')
+  }
+  if (!Number.isFinite(Number(result.nativeTapZonesInternalLinkPreventedCount)) ||
+    result.nativeTapZonesInternalLinkPreventedCount < 1 ||
+    !Array.isArray(result.nativeTapZonesInternalLinkSources) ||
+    !result.nativeTapZonesInternalLinkSources.includes('native-short-tap')) {
+    throw new Error(
+      `Expected native tap zones internalLink bridge post with native-short-tap source; observed count=${result.nativeTapZonesInternalLinkPreventedCount || 0} sources=${JSON.stringify(result.nativeTapZonesInternalLinkSources || [])}`
+    )
+  }
+  if (result.nonNativeFoliateLinkDefaultPrevented !== false) {
+    throw new Error('Expected non-native Foliate link event to remain uncanceled')
+  }
+  if (!Number.isFinite(Number(result.nonNativeInternalLinkAllowedCount)) ||
+    result.nonNativeInternalLinkAllowedCount < 1 ||
+    !Array.isArray(result.nonNativeInternalLinkSources) ||
+    !result.nonNativeInternalLinkSources.includes('foliate-link')) {
+    throw new Error(
+      `Expected non-native internalLink bridge post with foliate-link source; observed count=${result.nonNativeInternalLinkAllowedCount || 0} sources=${JSON.stringify(result.nonNativeInternalLinkSources || [])}`
     )
   }
   if (result.imageNativeCenterContentHit !== true) {

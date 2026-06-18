@@ -1,5 +1,6 @@
 param(
     [string] $Package = "darkaxt.navic",
+    [string] $DeviceSerial,
     [string] $ApkPath,
     [string] $ExpectedVersionName,
     [string] $ArtifactRoot,
@@ -103,6 +104,7 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireNativeLongTap,
         [switch] $RequireShellCoverSwipe,
         [switch] $RequireShellCoverCommand,
+        [switch] $RequireNativeShellCover,
         [switch] $RequireNoReaderCenterDispatch,
         [switch] $RequireTextureDiagnostics,
         [switch] $RequirePdfDiagnostics,
@@ -113,56 +115,62 @@ function Invoke-ReaderMatrixStep {
     )
 
     $artifactDir = Join-Path $ArtifactRoot $Name
-    $args = @(
-        "-Package", $Package,
-        "-ArtifactDir", $artifactDir,
-        "-CaptureReaderDiagnostics"
-    )
+    $smokeArgs = @{
+        Package = $Package
+        ArtifactDir = $artifactDir
+        CaptureReaderDiagnostics = $true
+    }
 
     if ($InstallApk -and -not [string]::IsNullOrWhiteSpace($ApkPath)) {
-        $args += @("-ApkPath", $ApkPath)
+        $smokeArgs.ApkPath = $ApkPath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        $smokeArgs.DeviceSerial = $DeviceSerial
     }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
-        $args += @("-ExpectedVersionName", $ExpectedVersionName)
+        $smokeArgs.ExpectedVersionName = $ExpectedVersionName
     }
     if (-not $Launch -or $NoLaunch) {
-        $args += "-NoLaunch"
+        $smokeArgs.NoLaunch = $true
     }
-    foreach ($tap in $TapFraction) {
-        $args += @("-TapFraction", $tap)
+    if ($TapFraction.Count -gt 0) {
+        $smokeArgs.TapFraction = $TapFraction
     }
-    foreach ($swipe in $SwipeFraction) {
-        $args += @("-SwipeFraction", $swipe)
+    if ($SwipeFraction.Count -gt 0) {
+        $smokeArgs.SwipeFraction = $SwipeFraction
     }
-    foreach ($longPress in $LongPressFraction) {
-        $args += @("-LongPressFraction", $longPress)
+    if ($LongPressFraction.Count -gt 0) {
+        $smokeArgs.LongPressFraction = $LongPressFraction
     }
     if ($ValidateReaderTaps) {
-        $args += "-ValidateReaderTaps"
+        $smokeArgs.ValidateReaderTaps = $true
     }
     if ($RequireReaderTapAction) {
-        $args += "-RequireReaderTapAction"
+        $smokeArgs.RequireReaderTapAction = $true
     }
     if ($RequireNativeSwipeAction) {
-        $args += "-RequireNativeSwipeAction"
+        $smokeArgs.RequireNativeSwipeAction = $true
     }
     if ($RequireNativeLongTap) {
-        $args += "-RequireNativeLongTap"
+        $smokeArgs.RequireNativeLongTap = $true
     }
     if ($RequireShellCoverSwipe) {
-        $args += "-RequireShellCoverSwipe"
+        $smokeArgs.RequireShellCoverSwipe = $true
     }
     if ($RequireShellCoverCommand) {
-        $args += "-RequireShellCoverCommand"
+        $smokeArgs.RequireShellCoverCommand = $true
+    }
+    if ($RequireNativeShellCover) {
+        $smokeArgs.RequireNativeShellCover = $true
     }
     if ($RequireNoReaderCenterDispatch) {
-        $args += "-RequireNoReaderCenterDispatch"
+        $smokeArgs.RequireNoReaderCenterDispatch = $true
     }
     if ($RequireTextureDiagnostics) {
-        $args += "-RequireTextureDiagnostics"
+        $smokeArgs.RequireTextureDiagnostics = $true
     }
     if ($RequirePdfDiagnostics) {
-        $args += "-RequirePdfDiagnostics"
+        $smokeArgs.RequirePdfDiagnostics = $true
     }
     $stepTextureDirection = if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
         $RequireTextureDirection
@@ -172,12 +180,12 @@ function Invoke-ReaderMatrixStep {
         ""
     }
     if (-not [string]::IsNullOrWhiteSpace($stepTextureDirection)) {
-        $args += @("-RequireTextureDirection", $stepTextureDirection)
+        $smokeArgs.RequireTextureDirection = $stepTextureDirection
     }
 
     Write-Host "reader-matrix step: $Name"
     try {
-        & $smokeScript @args
+        & $smokeScript @smokeArgs
         if ($LASTEXITCODE -ne 0) {
             throw "adb-reader-smoke exited with code $LASTEXITCODE"
         }
@@ -194,12 +202,33 @@ function Invoke-ReaderMatrixStep {
     }
 }
 
-Invoke-ReaderMatrixStep `
-    -Name "baseline-current-reader" `
-    -Launch:(!$NoLaunch) `
-    -InstallApk:(!$NoLaunch)
+function Invoke-ReaderCoverMatrixSteps {
+    if ($IncludeCoverChecks) {
+        Invoke-ReaderMatrixStep `
+            -Name "baseline-native-cover" `
+            -RequireNativeShellCover
 
-if (-not $OnlyPdfChecks) {
+        Invoke-ReaderMatrixStep `
+            -Name "cover-center-tap-toggle" `
+            -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
+            -ValidateReaderTaps `
+            -RequireReaderTapAction
+
+        Invoke-ReaderMatrixStep `
+            -Name "cover-drag-next" `
+            -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
+            -RequireShellCoverSwipe `
+            -RequireShellCoverCommand
+    } else {
+        Invoke-ReaderMatrixStep `
+            -Name "enter-readable-content" `
+            -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
+            -RequireShellCoverSwipe `
+            -RequireShellCoverCommand
+    }
+}
+
+function Invoke-ReadableContentMatrixSteps {
     Invoke-ReaderMatrixStep `
         -Name "center-tap-toggle" `
         -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
@@ -221,26 +250,11 @@ if (-not $OnlyPdfChecks) {
         -RequireTextureDirection "next"
 
     Invoke-ReaderMatrixStep `
-        -Name "edge-tap-previous" `
-        -TapFraction @("0.10,0.50,900") `
-        -ValidateReaderTaps `
-        -RequireReaderTapAction `
-        -RequireTextureDiagnostics `
-        -RequireTextureDirection "previous"
-
-    Invoke-ReaderMatrixStep `
         -Name "drag-next" `
         -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
         -RequireNativeSwipeAction `
         -RequireTextureDiagnostics `
         -RequireTextureDirection "next"
-
-    Invoke-ReaderMatrixStep `
-        -Name "drag-previous" `
-        -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
-        -RequireNativeSwipeAction `
-        -RequireTextureDiagnostics `
-        -RequireTextureDirection "previous"
 
     Invoke-ReaderMatrixStep `
         -Name "texture-next-walk" `
@@ -251,6 +265,21 @@ if (-not $OnlyPdfChecks) {
         -RequireTextureDirection "next"
 
     Invoke-ReaderMatrixStep `
+        -Name "edge-tap-previous" `
+        -TapFraction @("0.10,0.50,900") `
+        -ValidateReaderTaps `
+        -RequireReaderTapAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "previous"
+
+    Invoke-ReaderMatrixStep `
+        -Name "drag-previous" `
+        -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
+        -RequireNativeSwipeAction `
+        -RequireTextureDiagnostics `
+        -RequireTextureDirection "previous"
+
+    Invoke-ReaderMatrixStep `
         -Name "texture-previous-walk" `
         -TapFraction $ReaderPreviousWalkTapFractions `
         -ValidateReaderTaps `
@@ -259,18 +288,14 @@ if (-not $OnlyPdfChecks) {
         -RequireTextureDirection "previous"
 }
 
-if ($IncludeCoverChecks) {
-    Invoke-ReaderMatrixStep `
-        -Name "cover-center-tap-toggle" `
-        -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
-        -ValidateReaderTaps `
-        -RequireReaderTapAction
+Invoke-ReaderMatrixStep `
+    -Name "baseline-current-reader" `
+    -Launch:(!$NoLaunch) `
+    -InstallApk:(!$NoLaunch)
 
-    Invoke-ReaderMatrixStep `
-        -Name "cover-drag-next" `
-        -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
-        -RequireShellCoverSwipe `
-        -RequireShellCoverCommand
+if (-not $OnlyPdfChecks) {
+    Invoke-ReaderCoverMatrixSteps
+    Invoke-ReadableContentMatrixSteps
 }
 
 if ($IncludePdfChecks -or $OnlyPdfChecks) {

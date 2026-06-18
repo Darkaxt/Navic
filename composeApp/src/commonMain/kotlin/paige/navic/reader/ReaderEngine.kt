@@ -79,6 +79,15 @@ sealed interface ReaderEngineEvent {
 		val action: ReaderContentAction
 			get() = claim.action
 	}
+	data class InternalLinkRequested(
+		val href: String? = null,
+		val prevented: Boolean = false,
+		val source: String? = null
+	) : ReaderEngineEvent
+	data class ExternalLinkOpened(
+		val href: String? = null,
+		val anchorHref: String? = null
+	) : ReaderEngineEvent
 	data class SearchResults(
 		val query: String,
 		val results: List<ReaderSearchResult>
@@ -88,8 +97,39 @@ sealed interface ReaderEngineEvent {
 	data class SelectionChanged(
 		val text: String? = null,
 		val cfi: String? = null,
-		val href: String? = null
+		val href: String? = null,
+		val footnote: Boolean? = null,
+		val contextText: String? = null,
+		val posLeft: Double? = null,
+		val posTop: Double? = null,
+		val posRight: Double? = null,
+		val posBottom: Double? = null
 	) : ReaderEngineEvent
+	data object SelectionCleared : ReaderEngineEvent
+	data class AnnotationClicked(
+		val value: String? = null,
+		val index: Int? = null,
+		val rangeCfi: String? = null
+	) : ReaderEngineEvent
+	data class AnnotationDrawn(
+		val value: String? = null,
+		val index: Int? = null,
+		val rangeCfi: String? = null
+	) : ReaderEngineEvent
+	data class OverlayCreated(
+		val index: Int? = null
+	) : ReaderEngineEvent
+	data class DocLoaded(
+		val index: Int? = null,
+		val href: String? = null,
+		val title: String? = null
+	) : ReaderEngineEvent
+	data class NavigationStateChanged(
+		val canGoBack: Boolean = false,
+		val canGoForward: Boolean = false
+	) : ReaderEngineEvent
+	data object FootnoteClose : ReaderEngineEvent
+	data object PullUp : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
 	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent

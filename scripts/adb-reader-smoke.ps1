@@ -1,5 +1,6 @@
 param(
     [string] $Package = "darkaxt.navic",
+    [string] $DeviceSerial,
     [string] $ApkPath,
     [string] $ArtifactDir,
     [string[]] $Tap = @(),
@@ -21,9 +22,13 @@ param(
     [switch] $RequireNativeSwipeAction,
     [switch] $RequireNativeLongTap,
     [switch] $RequireContentTapHandled,
+    [string[]] $RequireReaderBridgeEvent = @(),
+    [ValidateSet("", "internal-link-native", "phase3-events", "selection-payload", "relocation-payload")]
+    [string] $ReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
     [switch] $RequirePdfDiagnostics,
+    [switch] $RequireNativeShellCover,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $CaptureReaderDiagnostics,
@@ -32,26 +37,90 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+    $env:ANDROID_SERIAL = $DeviceSerial
+}
+
 function Invoke-Adb {
     param(
         [Parameter(Mandatory = $true)]
-        [string[]] $Arguments
+        [string[]] $Arguments,
+        [switch] $PassThru
     )
 
-    & adb @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "adb $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & adb @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "adb $($Arguments -join ' ') failed with exit code $exitCode`n$($output -join "`n")"
+    }
+    if ($PassThru) {
+        return @($output)
+    }
+}
+
+function Invoke-AdbExecOutToFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]] $Arguments,
+        [Parameter(Mandatory = $true)]
+        [string] $OutputPath
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = "adb"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.Arguments = ($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + ($_.Replace('"', '\"')) + '"'
+        } else {
+            $_
+        }
+    }) -join " "
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $process.Start()
+    if (-not $started) {
+        throw "Failed to start adb $($Arguments -join ' ')"
+    }
+
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $fileStream = [System.IO.File]::Create($OutputPath)
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($fileStream)
+    } finally {
+        $fileStream.Dispose()
+    }
+    $process.WaitForExit()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+
+    if ($process.ExitCode -ne 0) {
+        throw "adb $($Arguments -join ' ') failed with exit code $($process.ExitCode)`n$stderr"
+    }
+    $outputFile = Get-Item -LiteralPath $OutputPath
+    if ($outputFile.Length -le 0) {
+        throw "adb $($Arguments -join ' ') produced an empty file: $OutputPath"
     }
 }
 
 function Get-AdbScreenSize {
-    $wmSize = (& adb shell wm size) -join "`n"
-    if ($wmSize -notmatch '(\d+)x(\d+)') {
+    $wmSize = (Invoke-Adb @("shell", "wm", "size") -PassThru) -join "`n"
+    $sizeMatches = [regex]::Matches($wmSize, '(\d+)x(\d+)')
+    if ($sizeMatches.Count -le 0) {
         throw "Could not parse adb shell wm size output: $wmSize"
     }
+    $effectiveSize = $sizeMatches[$sizeMatches.Count - 1]
     return [pscustomobject]@{
-        Width = [int] $Matches[1]
-        Height = [int] $Matches[2]
+        Width = [int] $effectiveSize.Groups[1].Value
+        Height = [int] $effectiveSize.Groups[2].Value
     }
 }
 
@@ -166,8 +235,7 @@ function Get-ReaderLogIntField {
 
 function Get-ReaderTextureDirectionSamples {
     param(
-        [Parameter(Mandatory = $true)]
-        [string[]] $Lines,
+        [string[]] $Lines = @(),
         [Parameter(Mandatory = $true)]
         [ValidateSet("next", "previous")]
         [string] $Direction
@@ -206,7 +274,16 @@ function Get-ReaderTextureDirectionSamples {
             Line = $line
         })
     }
-    return @($samples)
+    return @($samples.ToArray())
+}
+
+function Get-ReaderNativeShellCoverVisible {
+    param([Parameter(Mandatory = $true)][string] $WindowXmlText)
+
+    return [regex]::IsMatch(
+        $WindowXmlText,
+        '<node(?=[^>]*NAF="true")(?=[^>]*class="android\.view\.View")(?=[^>]*clickable="true")(?=[^>]*bounds="\[0,0\]\[\d+,\d+\]")[^>]*>'
+    )
 }
 
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
@@ -214,7 +291,7 @@ if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
 }
 
 $devices = @(
-    & adb devices |
+    Invoke-Adb @("devices") -PassThru |
         Select-Object -Skip 1 |
         Where-Object { $_ -match '\bdevice\b' }
 )
@@ -240,10 +317,8 @@ if (-not [string]::IsNullOrWhiteSpace($ApkPath)) {
 Invoke-Adb @("logcat", "-c")
 
 if (-not $NoLaunch) {
-    & adb shell monkey -p $Package 1 | Out-File -Encoding utf8 (Join-Path $ArtifactDir "launch.txt")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to launch $Package"
-    }
+    $launchOutput = Invoke-Adb @("shell", "monkey", "-p", $Package, "1") -PassThru
+    $launchOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir "launch.txt")
     Start-Sleep -Seconds $LaunchWaitSeconds
 }
 
@@ -320,12 +395,12 @@ if ($CaptureWaitSeconds -gt 0) {
     Start-Sleep -Seconds $CaptureWaitSeconds
 }
 
-$processId = (& adb shell pidof $Package).Trim()
+$processId = ((Invoke-Adb @("shell", "pidof", $Package) -PassThru) -join "`n").Trim()
 if ([string]::IsNullOrWhiteSpace($processId)) {
     throw "Package is not running: $Package"
 }
 
-adb shell dumpsys package $Package |
+Invoke-Adb @("shell", "dumpsys", "package", $Package) -PassThru |
     Select-String -Pattern "versionCode|versionName|lastUpdateTime" |
     ForEach-Object { $_.Line.Trim() } |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "package-version.txt")
@@ -337,19 +412,54 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
     }
 }
 
-adb shell cat /proc/net/unix |
+Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
     Select-String -Pattern "webview_devtools|chrome_devtools" -CaseSensitive:$false |
     ForEach-Object { $_.Line.Trim() } |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "webview-devtools-sockets.txt")
 
-Invoke-Adb @("shell", "screencap", "-p", "/sdcard/navic-reader-smoke.png")
-Invoke-Adb @("pull", "/sdcard/navic-reader-smoke.png", (Join-Path $ArtifactDir "screen.png"))
-Invoke-Adb @("shell", "rm", "/sdcard/navic-reader-smoke.png")
+if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $probeScript = Join-Path $repoRoot "tools\reader-harness\src\adb-webview-eval.mjs"
+    if (-not (Test-Path -LiteralPath $probeScript -PathType Leaf)) {
+        throw "Reader DevTools probe helper was not found: $probeScript"
+    }
 
-adb exec-out uiautomator dump /dev/tty 2>$null |
+    $probeArguments = @($probeScript, "--package", $Package, "--probe", $ReaderDevtoolsProbe)
+    if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        $probeArguments += @("--device", $DeviceSerial)
+    }
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $probeOutput = & node @probeArguments 2>&1
+        $probeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $probeOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-devtools-probe.json")
+    if ($probeExitCode -ne 0) {
+        throw "Reader DevTools probe '$ReaderDevtoolsProbe' failed with exit code $probeExitCode. See $ArtifactDir\reader-devtools-probe.json"
+    }
+}
+
+Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
+
+Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "window.xml")
 
-adb logcat -d "--pid=$processId" -v time |
+$windowXmlText = Get-Content -LiteralPath (Join-Path $ArtifactDir "window.xml") -Raw
+$nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible -WindowXmlText $windowXmlText
+@(
+    "nativeShellCoverVisible=$nativeShellCoverVisible",
+    "marker=full-window-clickable-naf-view"
+) | Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-native-cover-validation.txt")
+
+if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
+    throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
+}
+
+Invoke-Adb @("logcat", "-d", "--pid=$processId", "-v", "time") -PassThru |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-full.log")
 
 Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
@@ -361,10 +471,12 @@ $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader
 
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
-    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native drag preview|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event: contentTapHandled|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native drag preview|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event:|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"
+    $bridgeDiagnosticPattern = "Reader bridge raw|Reader bridge event:"
 
     $textureDiagnosticsPath = Join-Path $ArtifactDir "reader-texture-diagnostics.log"
     $touchDiagnosticsPath = Join-Path $ArtifactDir "reader-touch-diagnostics.log"
+    $bridgeDiagnosticsPath = Join-Path $ArtifactDir "reader-bridge-events.log"
     $summaryPath = Join-Path $ArtifactDir "reader-diagnostics-summary.txt"
 
     Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
@@ -377,8 +489,14 @@ if ($CaptureReaderDiagnostics) {
         ForEach-Object { $_.Line } |
         Out-File -Encoding utf8 $touchDiagnosticsPath
 
+    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
+        Select-String -Pattern $bridgeDiagnosticPattern -CaseSensitive:$false |
+        ForEach-Object { $_.Line } |
+        Out-File -Encoding utf8 $bridgeDiagnosticsPath
+
     $textureDiagnosticsText = Get-Content -LiteralPath $textureDiagnosticsPath -Raw
     $touchDiagnosticsText = Get-Content -LiteralPath $touchDiagnosticsPath -Raw
+    $bridgeDiagnosticsText = Get-Content -LiteralPath $bridgeDiagnosticsPath -Raw
     $logcatFullText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") -Raw
     $pdfRuntimeDiagnostics = $logcatFullText -match '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf'
     $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
@@ -409,6 +527,7 @@ if ($CaptureReaderDiagnostics) {
         "readerNativeLongTap=$($touchDiagnosticsText -match 'Reader native long tap')",
         "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
         "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
+        "requiredBridgeEvents=$($RequireReaderBridgeEvent -join ',')",
         "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
         "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
         "pdfRuntimeDiagnostics=$pdfRuntimeDiagnostics",
@@ -424,6 +543,9 @@ if ($CaptureReaderDiagnostics) {
         "textureDirectionSamples=$($textureDirectionSamples.Count)",
         "wrongTextureDirection=$wrongTextureDirection"
     )
+    foreach ($requiredBridgeEvent in $RequireReaderBridgeEvent) {
+        $summaryLines += "bridgeEvent:$requiredBridgeEvent=$($bridgeDiagnosticsText -match [regex]::Escape("Reader bridge event: $requiredBridgeEvent"))"
+    }
     $summaryLines | Out-File -Encoding utf8 $summaryPath
 
     if ($RequireShellCoverSwipe -and -not ($touchDiagnosticsText -match 'Reader shell cover swipe')) {
@@ -443,6 +565,11 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"
+    }
+    foreach ($requiredBridgeEvent in $RequireReaderBridgeEvent) {
+        if ($bridgeDiagnosticsText -notmatch [regex]::Escape("Reader bridge event: $requiredBridgeEvent")) {
+            throw "Reader diagnostics validation failed: required bridge event '$requiredBridgeEvent' was not captured. See $ArtifactDir"
+        }
     }
     if ($RequireNoReaderCenterDispatch -and ($touchDiagnosticsText -match 'Reader surface dispatch center tap')) {
         throw "Reader diagnostics validation failed: reader center dispatch was captured. See $ArtifactDir"

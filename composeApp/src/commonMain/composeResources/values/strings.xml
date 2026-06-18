@@ -111,6 +111,9 @@
 	<string name="title_lastfm_top_tracks">Most popular tracks</string>
 	<string name="action_play_preview">Play preview</string>
 	<string name="action_pause_preview">Pause preview</string>
+	<string name="action_reader_reading_mode">Reading mode</string>
+	<string name="action_previous_chapter">Previous chapter</string>
+	<string name="action_next_chapter">Next chapter</string>
 	<string name="title_music_video">Music video</string>
 	<string name="title_musicbrainz_info">MusicBrainz info</string>
 	<string name="title_integrations">Integrations</string>
@@ -216,6 +219,8 @@
 	<string name="subtitle_ebook_reader_import_font">Choose a TTF, OTF, WOFF, WOFF2, or TTC file for ebook rendering.</string>
 	<string name="subtitle_ebook_reader_imported_font_storage">Storage used by imported ebook fonts in the reader cache.</string>
 	<string name="subtitle_ebook_reader_clear_imported_font">Remove imported ebook fonts and return the default font source to Navic bundled fonts.</string>
+	<string name="subtitle_ebook_reader_remote_font_catalog">Browse Anx-compatible remote fonts and cache them for ebook rendering.</string>
+	<string name="subtitle_ebook_reader_remote_font_delete">Remove this downloaded remote font from the reader cache.</string>
 	<string name="subtitle_ebook_reader_font_size">Default text scale for EPUB content.</string>
 	<string name="subtitle_ebook_reader_line_height">Default spacing between lines in the reader.</string>
 	<string name="subtitle_ebook_reader_paragraph_spacing">Extra space after EPUB paragraphs.</string>
@@ -229,6 +234,8 @@
 	<string name="subtitle_ebook_reader_direction">Override left-to-right or right-to-left page progression when the publication metadata is wrong.</string>
 	<string name="subtitle_ebook_reader_nav_bar_type">Choose whether reader progress controls appear on the right, left, or bottom overlay.</string>
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
+	<string name="subtitle_ebook_reader_column_mode">Choose automatic, single, or double-column EPUB layout.</string>
+	<string name="subtitle_ebook_reader_column_threshold">Set the page width threshold used by automatic columns.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
 	<string name="subtitle_ebook_reader_tap_zone_invert">Mirror tap navigation regions horizontally, vertically, or both like Komikku.</string>
 	<string name="subtitle_ebook_reader_smaller_tap_zones">Shrink page-turn regions so the center menu area is easier to reach.</string>
@@ -555,6 +562,8 @@
 	<string name="option_ebook_reader_import_font">Import font file</string>
 	<string name="option_ebook_reader_imported_font_storage">Imported font storage</string>
 	<string name="option_ebook_reader_clear_imported_font">Clear imported font</string>
+	<string name="option_ebook_reader_remote_font_catalog">Remote font catalog</string>
+	<string name="option_ebook_reader_remote_font_delete">Delete remote font</string>
 	<string name="option_ebook_reader_font_size">Font size</string>
 	<string name="option_ebook_reader_line_height">Line height</string>
 	<string name="option_ebook_reader_paragraph_spacing">Paragraph spacing</string>
@@ -588,6 +597,11 @@
 	<string name="option_ebook_reader_flow">Reading flow</string>
 	<string name="option_ebook_reader_paged">Paged</string>
 	<string name="option_ebook_reader_paged_vertical">Paged vertical</string>
+	<string name="option_ebook_reader_column_mode">Column mode</string>
+	<string name="option_ebook_reader_column_mode_auto">Auto</string>
+	<string name="option_ebook_reader_column_mode_single">Single</string>
+	<string name="option_ebook_reader_column_mode_double">Double</string>
+	<string name="option_ebook_reader_column_threshold">Column threshold</string>
 	<string name="option_ebook_reader_scroll">Scroll</string>
 	<string name="option_ebook_reader_scroll_gaps">Scroll with gaps</string>
 	<string name="option_ebook_reader_tap_zone">Tap zones</string>
@@ -881,6 +895,8 @@
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_download">Download</string>
+	<string name="action_pause">Pause</string>
+	<string name="action_resume">Resume</string>
 	<string name="action_delete_download">Delete download</string>
 	<string name="action_cancel_download">Cancel download</string>
 	<string name="action_cancel_pending_downloads">Cancel pending downloads</string>

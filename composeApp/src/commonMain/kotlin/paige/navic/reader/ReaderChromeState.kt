@@ -15,6 +15,34 @@ const val LegacyReaderParagraphSpacingPercent = 0
 private const val MinReaderMarginPercent = 0
 private const val MaxReaderMarginPercent = 24
 private const val DefaultReaderMarginPercent = 0
+private const val MinReaderFontWeight = 100.0
+private const val MaxReaderFontWeight = 900.0
+private const val DefaultReaderFontWeight = 400.0
+private const val MinReaderLetterSpacing = -3.0
+private const val MaxReaderLetterSpacing = 7.0
+private const val DefaultReaderLetterSpacing = 0.0
+private const val MinReaderWordSpacing = -4.0
+private const val MaxReaderWordSpacing = 12.0
+private const val DefaultReaderWordSpacing = 0.0
+private const val MinReaderSideMargin = 0.0
+private const val MaxReaderSideMargin = 20.0
+private const val DefaultReaderSideMargin = 6.0
+private const val MinReaderTopBottomMargin = 0.0
+private const val MaxReaderTopBottomMargin = 200.0
+private const val DefaultReaderTopMargin = 90.0
+private const val DefaultReaderBottomMargin = 50.0
+private const val MinReaderTextIndent = -0.5
+private const val MaxReaderTextIndent = 8.0
+private const val DefaultReaderTextIndent = 0.0
+private const val MinReaderHeadingFontSize = 0.5
+private const val MaxReaderHeadingFontSize = 2.0
+private const val DefaultReaderHeadingFontSize = 1.0
+private const val MinReaderMaxColumnCount = 0
+private const val MaxReaderMaxColumnCount = 2
+private const val DefaultReaderMaxColumnCount = 0
+private const val MinReaderColumnThreshold = 400.0
+private const val MaxReaderColumnThreshold = 1200.0
+private const val DefaultReaderColumnThreshold = 720.0
 private const val MinReaderDimOverlayPercent = 0
 private const val MaxReaderDimOverlayPercent = 80
 private const val DefaultReaderDimOverlayPercent = 0
@@ -391,10 +419,10 @@ fun readerShouldReturnToNativeShellCover(
 	shellCoverVisible: Boolean,
 	locator: ReaderLocator?
 ): Boolean =
-	!shellCoverVisible &&
+		!shellCoverVisible &&
 		!shellCoverUrl.isNullOrBlank() &&
 		readerLocatorCanRepresentNativeShellCoverBoundary(locator) &&
-		(locator?.pageIndex ?: -1) <= 0 &&
+		(locator?.pageIndex ?: -1) <= 1 &&
 		(locator?.pageCount ?: 0) > 0
 
 private fun readerLocatorCanRepresentNativeShellCoverBoundary(locator: ReaderLocator?): Boolean {
@@ -660,6 +688,16 @@ fun normalizedReaderSettings(
 	lineHeightPercent: Int,
 	paragraphSpacingPercent: Int = DefaultReaderParagraphSpacingPercent,
 	marginPercent: Int,
+	fontWeight: Double = DefaultReaderFontWeight,
+	letterSpacing: Double = DefaultReaderLetterSpacing,
+	wordSpacing: Double = DefaultReaderWordSpacing,
+	sideMargin: Double = DefaultReaderSideMargin,
+	topMargin: Double = DefaultReaderTopMargin,
+	bottomMargin: Double = DefaultReaderBottomMargin,
+	indent: Double = DefaultReaderTextIndent,
+	headingFontSize: Double = DefaultReaderHeadingFontSize,
+	maxColumnCount: Int = DefaultReaderMaxColumnCount,
+	columnThreshold: Double = DefaultReaderColumnThreshold,
 	dimOverlayPercent: Int = DefaultReaderDimOverlayPercent,
 	colorFilterEnabled: Boolean = false,
 	colorFilterArgb: Int = DefaultReaderColorFilterArgb,
@@ -712,6 +750,34 @@ fun normalizedReaderSettings(
 			MaxReaderParagraphSpacingPercent
 		),
 		marginPercent = marginPercent.coerceIn(MinReaderMarginPercent, MaxReaderMarginPercent),
+		fontWeight = fontWeight.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderFontWeight, MaxReaderFontWeight)
+			?: DefaultReaderFontWeight,
+		letterSpacing = letterSpacing.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderLetterSpacing, MaxReaderLetterSpacing)
+			?: DefaultReaderLetterSpacing,
+		wordSpacing = wordSpacing.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderWordSpacing, MaxReaderWordSpacing)
+			?: DefaultReaderWordSpacing,
+		sideMargin = sideMargin.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderSideMargin, MaxReaderSideMargin)
+			?: DefaultReaderSideMargin,
+		topMargin = topMargin.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderTopBottomMargin, MaxReaderTopBottomMargin)
+			?: DefaultReaderTopMargin,
+		bottomMargin = bottomMargin.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderTopBottomMargin, MaxReaderTopBottomMargin)
+			?: DefaultReaderBottomMargin,
+		indent = indent.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderTextIndent, MaxReaderTextIndent)
+			?: DefaultReaderTextIndent,
+		headingFontSize = headingFontSize.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderHeadingFontSize, MaxReaderHeadingFontSize)
+			?: DefaultReaderHeadingFontSize,
+		maxColumnCount = maxColumnCount.coerceIn(MinReaderMaxColumnCount, MaxReaderMaxColumnCount),
+		columnThreshold = columnThreshold.takeIf(Double::isFinite)
+			?.coerceIn(MinReaderColumnThreshold, MaxReaderColumnThreshold)
+			?: DefaultReaderColumnThreshold,
 		dimOverlayPercent = dimOverlayPercent.coerceIn(
 			MinReaderDimOverlayPercent,
 			MaxReaderDimOverlayPercent
@@ -757,6 +823,16 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		lineHeightPercent = (((lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()),
 		paragraphSpacingPercent = paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
 		marginPercent = marginPercent ?: DefaultReaderMarginPercent,
+		fontWeight = fontWeight ?: DefaultReaderFontWeight,
+		letterSpacing = letterSpacing ?: DefaultReaderLetterSpacing,
+		wordSpacing = wordSpacing ?: DefaultReaderWordSpacing,
+		sideMargin = sideMargin ?: DefaultReaderSideMargin,
+		topMargin = topMargin ?: DefaultReaderTopMargin,
+		bottomMargin = bottomMargin ?: DefaultReaderBottomMargin,
+		indent = indent ?: DefaultReaderTextIndent,
+		headingFontSize = headingFontSize ?: DefaultReaderHeadingFontSize,
+		maxColumnCount = maxColumnCount ?: DefaultReaderMaxColumnCount,
+		columnThreshold = columnThreshold ?: DefaultReaderColumnThreshold,
 		dimOverlayPercent = dimOverlayPercent ?: DefaultReaderDimOverlayPercent,
 		colorFilterEnabled = colorFilterEnabled ?: false,
 		colorFilterArgb = colorFilterArgb ?: DefaultReaderColorFilterArgb,

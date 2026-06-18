@@ -1,5 +1,11 @@
 package paige.navic.reader
 
+// Adapted from Anx Reader: tmp/references/anx-reader/lib/page/book_player/epub_player.dart:627-879
+// (callback catalog, including translateText at 864)
+// tmp/references/anx-reader/assets/foliate-js/src/view.js:115-194 (relocation)
+// :216-327 (link/image taxonomy)
+// :335-397 (annotations)
+
 data class FoliateEpubEngineAdapter(
 	private val currentViewState: ReaderEngineViewState.WebViewPublication? = null,
 	private val currentCommandKey: Long = 0L
@@ -90,6 +96,15 @@ sealed class FoliateWebViewEngineAdapter(
 		when (event) {
 			ReaderBridgeEvent.PublicationReady -> ReaderEngineEvent.PublicationReady
 			is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.claim)
+			is ReaderBridgeEvent.InternalLinkRequested -> ReaderEngineEvent.InternalLinkRequested(
+				href = event.href,
+				prevented = event.prevented,
+				source = event.source
+			)
+			is ReaderBridgeEvent.ExternalLink -> ReaderEngineEvent.ExternalLinkOpened(
+				href = event.href,
+				anchorHref = event.anchorHref
+			)
 			is ReaderBridgeEvent.LocationChanged -> ReaderEngineEvent.Relocated(
 				locator = event.locator,
 				tocTitle = event.tocTitle
@@ -108,8 +123,37 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderBridgeEvent.SelectionChanged -> ReaderEngineEvent.SelectionChanged(
 				text = event.text,
 				cfi = event.cfi,
-				href = event.href
+				href = event.href,
+				footnote = event.footnote,
+				contextText = event.contextText,
+				posLeft = event.posLeft,
+				posTop = event.posTop,
+				posRight = event.posRight,
+				posBottom = event.posBottom
 			)
+			ReaderBridgeEvent.SelectionCleared -> ReaderEngineEvent.SelectionCleared
+			is ReaderBridgeEvent.AnnotationClick -> ReaderEngineEvent.AnnotationClicked(
+				value = event.value,
+				index = event.index,
+				rangeCfi = event.rangeCfi
+			)
+			is ReaderBridgeEvent.AnnotationDrawn -> ReaderEngineEvent.AnnotationDrawn(
+				value = event.value,
+				index = event.index,
+				rangeCfi = event.rangeCfi
+			)
+			is ReaderBridgeEvent.OverlayCreated -> ReaderEngineEvent.OverlayCreated(index = event.index)
+			is ReaderBridgeEvent.LoadDoc -> ReaderEngineEvent.DocLoaded(
+				index = event.index,
+				href = event.href,
+				title = event.title
+			)
+			is ReaderBridgeEvent.PushState -> ReaderEngineEvent.NavigationStateChanged(
+				canGoBack = event.canGoBack,
+				canGoForward = event.canGoForward
+			)
+			ReaderBridgeEvent.FootnoteClose -> ReaderEngineEvent.FootnoteClose
+			ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(

@@ -749,6 +749,14 @@ export const readerPaginationRenderState = input => ({
   lineHeight: readerPaginationNumber(input?.lineHeight, 1),
   paragraphSpacingPercent: readerPaginationInteger(input?.paragraphSpacingPercent, 0),
   marginPercent: readerPaginationInteger(input?.marginPercent, 0),
+  fontWeight: readerPaginationNumber(input?.fontWeight, 400),
+  letterSpacing: readerPaginationNumber(input?.letterSpacing, 0),
+  wordSpacing: readerPaginationNumber(input?.wordSpacing, 0),
+  sideMargin: readerPaginationNumber(input?.sideMargin, 6),
+  topMargin: readerPaginationNumber(input?.topMargin, 90),
+  bottomMargin: readerPaginationNumber(input?.bottomMargin, 50),
+  indent: readerPaginationNumber(input?.indent, 0),
+  headingFontSize: readerPaginationNumber(input?.headingFontSize, 1),
   publisherCss: String(input?.publisherCss || ''),
   direction: String(input?.direction || ''),
   runtimeVersion: String(input?.runtimeVersion || ''),
@@ -848,9 +856,8 @@ export const readerPaginationPositionForLocator = (profile, locator = {}) => {
 
 export const readerPaperTexturePageLocator = detail => {
   const pageIndex = Number(detail?.pageIndex)
-  const pageCount = Number(detail?.pageCount)
-  if (Number.isFinite(pageIndex) && Number.isFinite(pageCount) && pageCount > 0) {
-    return `page:${Math.max(0, Math.floor(pageIndex))}:${Math.floor(pageCount)}`
+  if (Number.isFinite(pageIndex)) {
+    return `page:${Math.max(0, Math.floor(pageIndex))}`
   }
   const cfi = String(detail?.cfi || '').trim()
   if (cfi) return `cfi:${cfi}`
@@ -1123,6 +1130,64 @@ export const applyReaderParagraphSpacing = (doc, settings) => {
       'margin-block-start': '0',
       'margin-top': '0',
     })
+  }
+}
+
+const readerChapterOpeningHeadingSelector = 'h1,h2,h3,h4,h5,h6'
+
+const readerElementHasContent = element => {
+  const tagName = element?.tagName || ''
+  if (!tagName || ['SCRIPT', 'STYLE', 'LINK', 'META', 'TITLE'].includes(tagName)) return false
+  if (element.matches?.(readerMediaSelector)) return true
+  return Boolean(String(element.textContent || '').replace(/\s+/g, ''))
+}
+
+const readerVisibleContentElement = element => {
+  if (!readerElementHasContent(element)) return false
+  const win = element.ownerDocument?.defaultView
+  const style = win?.getComputedStyle?.(element)
+  if (style?.display === 'none' || style?.visibility === 'hidden') return false
+  const rect = element.getBoundingClientRect?.()
+  return Boolean(rect && rect.width > 0 && rect.height > 0)
+}
+
+const readerFirstVisibleContentElement = doc =>
+  Array.from(doc?.body?.querySelectorAll?.('body *') || [])
+    .slice(0, 160)
+    .find(readerVisibleContentElement) || null
+
+const readerChapterOpeningHeading = doc => {
+  const heading = Array.from(doc?.body?.querySelectorAll?.(readerChapterOpeningHeadingSelector) || [])
+    .slice(0, 12)
+    .find(readerVisibleContentElement)
+  if (!heading) return null
+  const firstVisible = readerFirstVisibleContentElement(doc)
+  if (!firstVisible) return heading
+  if (firstVisible === heading || firstVisible.contains(heading) || heading.contains(firstVisible)) return heading
+  return null
+}
+
+export const readerNormalizeChapterOpeningMargins = (doc, settings = {}) => {
+  if (!doc?.body || readerFlowMode(settings) === ReaderFlowScrolled || readerFlowMode(settings) === ReaderFlowScrolledGaps) return null
+  const heading = readerChapterOpeningHeading(doc)
+  if (!heading) return null
+  const win = doc.defaultView
+  const viewportHeight = Number(win?.innerHeight || doc.documentElement?.clientHeight || doc.body?.clientHeight || 0)
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return null
+  const style = win?.getComputedStyle?.(heading)
+  const currentMargin = Number.parseFloat(style?.marginBlockStart || style?.marginTop || '0')
+  if (!Number.isFinite(currentMargin) || currentMargin <= 0) return null
+  const cap = Math.round(Math.min(96, Math.max(48, viewportHeight * 0.045)))
+  if (currentMargin <= cap) return null
+  heading.style.setProperty('margin-block-start', `${cap}px`, 'important')
+  heading.style.setProperty('margin-top', `${cap}px`, 'important')
+  heading.setAttribute('data-navic-chapter-opening-margin-capped', 'true')
+  heading.dataset.navicChapterOpeningOriginalMargin = String(currentMargin)
+  heading.dataset.navicChapterOpeningMarginCap = String(cap)
+  return {
+    tagName: heading.tagName,
+    originalMargin: currentMargin,
+    cap,
   }
 }
 
@@ -1436,6 +1501,72 @@ export const readerViewportSize = () => {
   return { width, height }
 }
 
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value))
+
+const readerStyleNumber = (settings, key, fallback, min, max) => {
+  const value = Number(settings?.[key])
+  return Number.isFinite(value) ? clampNumber(value, min, max) : fallback
+}
+
+export const readerFontWeightValue = settings =>
+  readerStyleNumber(settings, 'fontWeight', 400, 100, 900)
+
+export const readerLetterSpacingValue = settings =>
+  readerStyleNumber(settings, 'letterSpacing', 0, -3, 7)
+
+export const readerWordSpacingValue = settings =>
+  readerStyleNumber(settings, 'wordSpacing', 0, -4, 12)
+
+export const readerSideMarginValue = settings =>
+  readerStyleNumber(settings, 'sideMargin', 6, 0, 20)
+
+export const readerTopMarginValue = settings =>
+  readerStyleNumber(settings, 'topMargin', 90, 0, 200)
+
+export const readerBottomMarginValue = settings =>
+  readerStyleNumber(settings, 'bottomMargin', 50, 0, 200)
+
+export const readerTextIndentValue = settings =>
+  readerStyleNumber(settings, 'indent', 0, -0.5, 8)
+
+export const readerHeadingFontSizeValue = settings =>
+  readerStyleNumber(settings, 'headingFontSize', 1, 0.5, 2)
+
+export const readerMaxColumnCountValue = settings => {
+  const value = Number(settings?.maxColumnCount)
+  return Number.isFinite(value) ? Math.min(2, Math.max(0, Math.floor(value))) : 0
+}
+
+export const readerColumnThresholdValue = settings =>
+  readerStyleNumber(settings, 'columnThreshold', 720, 400, 1200)
+
+export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), settings = {}) => {
+  const width = Math.max(1, Math.round(Number(viewport?.width) || 1))
+  const height = Math.max(1, Math.round(Number(viewport?.height) || 1))
+  const flowMode = readerFlowMode(settings)
+  const vertical = flowMode === ReaderFlowPagedVertical
+  const inlineViewport = vertical ? height : width
+  const blockViewport = vertical ? width : height
+  const userMargin = clampNumber(Number(settings?.marginPercent) || 0, 0, 35) / 100
+  const naturalInlineReserve = Math.max(32, Math.round(inlineViewport * (0.08 + userMargin * 0.35)))
+  const naturalBlockReserve = Math.max(48, Math.round(blockViewport * 0.065))
+  const maxColumnCount = readerMaxColumnCountValue(settings)
+  const columnThreshold = readerColumnThresholdValue(settings)
+  const maxInline = maxColumnCount > 0
+    ? clampNumber(inlineViewport - naturalInlineReserve, 320, 1280)
+    : columnThreshold
+  const maxBlock = clampNumber(blockViewport - naturalBlockReserve, 720, 2200)
+  return {
+    maxInlineSize: `${Math.round(maxInline)}px`,
+    maxBlockSize: `${Math.round(maxBlock)}px`,
+    maxColumnCount: String(maxColumnCount),
+    columnThreshold: `${Math.round(columnThreshold)}px`,
+    viewportWidth: width,
+    viewportHeight: height,
+    flowMode,
+  }
+}
+
 export const readerStartLocatorHasPosition = startLocator =>
   Boolean(
     startLocator?.cfi ||
@@ -1465,18 +1596,50 @@ export const readerNavigationItemMatches = (left, right) => {
 export const readerTypographyCss = settings => {
   if (settings.publisherStyles === true) return ''
   const fontFamily = readerEffectiveFontFamily(settings)
+  const fontWeight = readerFontWeightValue(settings)
+  const letterSpacing = readerLetterSpacingValue(settings)
+  const wordSpacing = readerWordSpacingValue(settings)
+  const textIndent = readerTextIndentValue(settings)
+  const headingFontSize = readerHeadingFontSizeValue(settings)
   return `
   ${readerFlowMode(settings) === ReaderFlowPagedVertical ? `
   html, body {
     writing-mode: vertical-rl !important;
   }
   ` : ''}
+  html {
+    letter-spacing: ${letterSpacing}px !important;
+  }
   body {
     line-height: ${settings.lineHeight || 1.55} !important;
     ${fontFamily ? `font-family: ${fontFamily} !important;` : ''}
+    word-spacing: ${wordSpacing}px !important;
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
+  p, li, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))), font {
+    font-weight: ${fontWeight} !important;
+    ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
+  }
+  p:has(> img:only-child),
+  p:has(> span:only-child > img:only-child),
+  p:has(> img:not(.has-text-siblings)),
+  p:has(> a:first-child + img:last-child),
+  div:has(> img:only-child),
+  div:has(> span:only-child > img:only-child),
+  div:has(> img:not(.has-text-siblings)),
+  div:has(> a:first-child + img:last-child),
+  li > p,
+  ol > p,
+  ul > p {
+    text-indent: 0 !important;
+  }
+  h1 { font-size: calc(2em * ${headingFontSize}) !important; }
+  h2 { font-size: calc(1.5em * ${headingFontSize}) !important; }
+  h3 { font-size: calc(1.17em * ${headingFontSize}) !important; }
+  h4 { font-size: calc(1em * ${headingFontSize}) !important; }
+  h5 { font-size: calc(0.83em * ${headingFontSize}) !important; }
+  h6 { font-size: calc(0.67em * ${headingFontSize}) !important; }
 `
 }
 

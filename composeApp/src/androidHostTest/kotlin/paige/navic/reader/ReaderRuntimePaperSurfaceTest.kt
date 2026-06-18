@@ -270,7 +270,7 @@ class ReaderRuntimePaperSurfaceTest {
 		val bridgeText = readerBridgeText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
-			.substringBefore("\n  readerTapZoneActionForPoint")
+			.substringBefore("\nfunction readerTapZoneActionForPoint")
 
 		assertFalse(
 			surfaceGesture.contains("handleReaderTapZone"),
@@ -415,7 +415,7 @@ class ReaderRuntimePaperSurfaceTest {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText
 			.substringAfter("previewPageDrag(command) {")
-			.substringBefore("\n  async scrollViewport")
+			.substringBefore("\nasync function scrollViewport")
 
 		assertContains(
 			previewPageDrag,
@@ -431,6 +431,38 @@ class ReaderRuntimePaperSurfaceTest {
 			previewPageDrag,
 			"readerTrace('texture:drag-direction'",
 			message = "Texture direction seeded by native drag preview must be visible in harness and ADB trace diagnostics."
+		)
+	}
+
+	@Test
+	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
+		val bridgeText = readerBridgeText()
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		assertContains(
+			previewPageDrag,
+			"if (phase === 'release') {",
+			message = "Release must have an explicit cleanup branch separate from update and cancel."
+		)
+		val releaseBranch = previewPageDrag
+			.substringAfter("if (phase === 'release') {")
+			.substringBefore("\n  const deltaX = Number(command?.deltaX)")
+
+		assertContains(
+			releaseBranch,
+			"renderer.scrollBy(previousDeltaX, 0)",
+			message = "Release must restore Foliate's synthetic drag scroll before dispatching the real page turn."
+		)
+		assertContains(
+			releaseBranch,
+			"this.removePageDragPreviewLayer()",
+			message = "Release must remove the visual underlay immediately; relocation is not guaranteed to fire after a queued/blocked page turn."
+		)
+		assertContains(
+			releaseBranch,
+			"this.nativePageDragPreview = null",
+			message = "Release must clear the tracked preview delta before page-turn commands can queue or coalesce."
 		)
 	}
 
@@ -460,9 +492,13 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderPaperTextureVariesByRenderedPageLocatorInsideSameEpubSection() {
 		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val textureKey = bridgeText
 			.substringAfter("const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {}) =>")
 			.substringBefore("\n\nconst readerPaperTextureVariantForPage")
+		val texturePageLocator = helperText
+			.substringAfter("export const readerPaperTexturePageLocator = detail =>")
+			.substringBefore("\n\nexport const readerPaperTextureVariantKey")
 		val surfaceTextureUpdater = bridgeText
 			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
@@ -470,6 +506,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "readerPaperTexturePageLocator")
 		assertContains(bridgeText, "detail?.cfi")
 		assertContains(bridgeText, "detail?.fraction ?? detail?.progress ?? detail?.totalProgress")
+		assertContains(texturePageLocator, "detail?.pageIndex")
+		assertFalse(
+			texturePageLocator.contains("detail?.pageCount") ||
+				texturePageLocator.contains("\${Math.floor(pageCount)}"),
+			"Paper texture identity must follow the visible page, not the provisional/final page-count denominator."
+		)
 		assertContains(textureKey, "readerPaperTexturePageLocator(detail)")
 		assertContains(
 			surfaceTextureUpdater,

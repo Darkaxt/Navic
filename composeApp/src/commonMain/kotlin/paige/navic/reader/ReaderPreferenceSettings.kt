@@ -43,6 +43,16 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		lineHeightPercent = readerLineHeightPercent,
 		paragraphSpacingPercent = paragraphSpacingPercent,
 		marginPercent = readerMarginPercent,
+		fontWeight = readerFontWeight.toDouble(),
+		letterSpacing = readerLetterSpacing.toDouble(),
+		wordSpacing = readerWordSpacing.toDouble(),
+		sideMargin = readerSideMargin.toDouble(),
+		topMargin = readerTopMargin.toDouble(),
+		bottomMargin = readerBottomMargin.toDouble(),
+		indent = readerTextIndent.toDouble(),
+		headingFontSize = readerHeadingFontSize.toDouble(),
+		maxColumnCount = readerMaxColumnCount,
+		columnThreshold = readerColumnThreshold.toDouble(),
 		dimOverlayPercent = readerDimOverlayPercent,
 		colorFilterEnabled = readerColorFilterEnabled,
 		colorFilterArgb = readerColorFilterArgb,
@@ -83,6 +93,16 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerParagraphSpacingDefaultMigrated = true
 	readerParagraphSpacingReadableDefaultMigrated = true
 	readerMarginPercent = normalized.marginPercent ?: 0
+	readerFontWeight = (normalized.fontWeight ?: 400.0).toFloat()
+	readerLetterSpacing = (normalized.letterSpacing ?: 0.0).toFloat()
+	readerWordSpacing = (normalized.wordSpacing ?: 0.0).toFloat()
+	readerSideMargin = (normalized.sideMargin ?: 6.0).toFloat()
+	readerTopMargin = (normalized.topMargin ?: 90.0).toFloat()
+	readerBottomMargin = (normalized.bottomMargin ?: 50.0).toFloat()
+	readerTextIndent = (normalized.indent ?: 0.0).toFloat()
+	readerHeadingFontSize = (normalized.headingFontSize ?: 1.0).toFloat()
+	readerMaxColumnCount = normalized.maxColumnCount ?: 0
+	readerColumnThreshold = (normalized.columnThreshold ?: 720.0).toFloat()
 	readerDimOverlayPercent = normalized.dimOverlayPercent ?: 0
 	readerColorFilterEnabled = normalized.colorFilterEnabled ?: false
 	readerColorFilterArgb = normalized.colorFilterArgb ?: 0
@@ -148,6 +168,16 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		lineHeight = override.lineHeight ?: lineHeight,
 		paragraphSpacingPercent = override.paragraphSpacingPercent ?: paragraphSpacingPercent,
 		marginPercent = override.marginPercent ?: marginPercent,
+		fontWeight = override.fontWeight ?: fontWeight,
+		letterSpacing = override.letterSpacing ?: letterSpacing,
+		wordSpacing = override.wordSpacing ?: wordSpacing,
+		sideMargin = override.sideMargin ?: sideMargin,
+		topMargin = override.topMargin ?: topMargin,
+		bottomMargin = override.bottomMargin ?: bottomMargin,
+		indent = override.indent ?: indent,
+		headingFontSize = override.headingFontSize ?: headingFontSize,
+		maxColumnCount = override.maxColumnCount ?: maxColumnCount,
+		columnThreshold = override.columnThreshold ?: columnThreshold,
 		dimOverlayPercent = override.dimOverlayPercent ?: dimOverlayPercent,
 		colorFilterEnabled = override.colorFilterEnabled ?: colorFilterEnabled,
 		colorFilterArgb = override.colorFilterArgb ?: colorFilterArgb,
@@ -188,6 +218,16 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		lineHeight = if (lineHeight != null) normalized.lineHeight else null,
 		paragraphSpacingPercent = if (paragraphSpacingPercent != null) normalized.paragraphSpacingPercent else null,
 		marginPercent = if (marginPercent != null) normalized.marginPercent else null,
+		fontWeight = if (fontWeight != null) normalized.fontWeight else null,
+		letterSpacing = if (letterSpacing != null) normalized.letterSpacing else null,
+		wordSpacing = if (wordSpacing != null) normalized.wordSpacing else null,
+		sideMargin = if (sideMargin != null) normalized.sideMargin else null,
+		topMargin = if (topMargin != null) normalized.topMargin else null,
+		bottomMargin = if (bottomMargin != null) normalized.bottomMargin else null,
+		indent = if (indent != null) normalized.indent else null,
+		headingFontSize = if (headingFontSize != null) normalized.headingFontSize else null,
+		maxColumnCount = if (maxColumnCount != null) normalized.maxColumnCount else null,
+		columnThreshold = if (columnThreshold != null) normalized.columnThreshold else null,
 		dimOverlayPercent = if (dimOverlayPercent != null) normalized.dimOverlayPercent else null,
 		colorFilterEnabled = if (colorFilterEnabled != null) normalized.colorFilterEnabled else null,
 		colorFilterArgb = if (colorFilterArgb != null) normalized.colorFilterArgb else null,
@@ -263,6 +303,16 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		lineHeight = doubleValue("lineHeight"),
 		paragraphSpacingPercent = intValue("paragraphSpacingPercent"),
 		marginPercent = intValue("marginPercent"),
+		fontWeight = doubleValue("fontWeight"),
+		letterSpacing = doubleValue("letterSpacing"),
+		wordSpacing = doubleValue("wordSpacing"),
+		sideMargin = doubleValue("sideMargin"),
+		topMargin = doubleValue("topMargin"),
+		bottomMargin = doubleValue("bottomMargin"),
+		indent = doubleValue("indent"),
+		headingFontSize = doubleValue("headingFontSize"),
+		maxColumnCount = intValue("maxColumnCount"),
+		columnThreshold = doubleValue("columnThreshold"),
 		dimOverlayPercent = intValue("dimOverlayPercent"),
 		colorFilterEnabled = booleanValue("colorFilterEnabled"),
 		colorFilterArgb = intValue("colorFilterArgb"),
@@ -300,6 +350,16 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		lineHeight?.let { put("lineHeight", it) }
 		paragraphSpacingPercent?.let { put("paragraphSpacingPercent", it) }
 		marginPercent?.let { put("marginPercent", it) }
+		fontWeight?.let { put("fontWeight", it) }
+		letterSpacing?.let { put("letterSpacing", it) }
+		wordSpacing?.let { put("wordSpacing", it) }
+		sideMargin?.let { put("sideMargin", it) }
+		topMargin?.let { put("topMargin", it) }
+		bottomMargin?.let { put("bottomMargin", it) }
+		indent?.let { put("indent", it) }
+		headingFontSize?.let { put("headingFontSize", it) }
+		maxColumnCount?.let { put("maxColumnCount", it) }
+		columnThreshold?.let { put("columnThreshold", it) }
 		dimOverlayPercent?.let { put("dimOverlayPercent", it) }
 		colorFilterEnabled?.let { put("colorFilterEnabled", it) }
 		colorFilterArgb?.let { put("colorFilterArgb", it) }

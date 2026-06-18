@@ -78,6 +78,7 @@ class ReaderDevEnvironmentContractTest {
 		val viewportScript = root.resolve("scripts/set-reader-dev-viewport.ps1")
 		val envExample = root.resolve("navic-reader-dev.env.example")
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
+		val installScriptText = installScript.readText()
 
 		assertTrue(setupScript.exists(), "The local Android reader lab must have an SDK/AVD setup script.")
 		assertTrue(installScript.exists(), "The local Android reader lab must have a dirty build/install script.")
@@ -88,31 +89,61 @@ class ReaderDevEnvironmentContractTest {
 			"Local reader dev credentials must be ignored."
 		)
 		assertTrue(
-			spec.contains("Local Android Reader Lab"),
+			spec.contains("Required Emulator Gate") &&
+				spec.contains("install-reader-dev"),
 			"The active Komikku reader plan must record the emulator/dev-build loop."
 		)
 		assertTrue(
-			installScript.readText().contains("Resolve-ReaderDevPublicationFromBindery") &&
-				installScript.readText().contains("BINDERY_API_KEY_HEADER"),
+			installScriptText.contains("Resolve-ReaderDevPublicationFromBindery") &&
+				installScriptText.contains("BINDERY_API_KEY_HEADER"),
 			"The install script must be able to derive a reader launch target from Bindery OPDS credentials without printing secrets."
 		)
 		assertTrue(
-			installScript.readText().contains("Get-ReaderDevPublicationEbookLink") &&
-				installScript.readText().contains("http://opds-spec.org/acquisition") &&
-				installScript.readText().contains("Use catalog acquisition links before probing /resources"),
+			installScriptText.contains("Get-ReaderDevPublicationEbookLink") &&
+				installScriptText.contains("http://opds-spec.org/acquisition") &&
+				installScriptText.contains("Use catalog acquisition links before probing /resources"),
 			"The install script must prefer EPUB/PDF acquisition links already present in /opds/books before slow per-book resource catalog probing."
 		)
 		assertTrue(
-			installScript.readText().contains("ConvertTo-AdbShellQuotedValue") &&
-				installScript.readText().contains("Add-ShellStringExtra") &&
-				!installScript.readText().contains("Add-StringExtra -Arguments \$launchArgs"),
+			installScriptText.contains("ConvertTo-AdbShellQuotedValue") &&
+				installScriptText.contains("Add-ShellStringExtra") &&
+				!installScriptText.contains("Add-StringExtra -Arguments \$launchArgs"),
 			"The install script must quote adb shell string extras so discovered titles with spaces do not become stray am-start package arguments."
 		)
 		assertTrue(
 			setupScript.readText().contains("immersive_mode_confirmations") &&
-				installScript.readText().contains("immersive_mode_confirmations") &&
-				installScript.readText().contains("confirmed"),
+				installScriptText.contains("immersive_mode_confirmations") &&
+				installScriptText.contains("confirmed"),
 			"The readerDev loop must suppress Android's fullscreen education overlay so screenshots and gestures hit the reader surface."
+		)
+		assertTrue(
+			installScriptText.contains("\$previousErrorActionPreference = \$ErrorActionPreference") &&
+				installScriptText.contains("\$ErrorActionPreference = \"Continue\"") &&
+				installScriptText.contains("\$output = & adb @adbArgs 2>&1"),
+			"The install script must capture adb stderr/progress output and throw only on non-zero exit; adb pull progress is not a failed setup."
+		)
+		assertTrue(
+			installScriptText.contains("function Wait-ReaderDevForeground") &&
+				installScriptText.contains("\"dumpsys\", \"activity\", \"activities\"") &&
+				installScriptText.contains("mCurrentFocus") &&
+				installScriptText.contains("Wait-ReaderDevForeground -Package \$Package"),
+			"The install script must wait until the launched reader package is foreground before capture; otherwise screencap can record the Android launcher during the app transition."
+		)
+		assertTrue(
+			installScriptText.contains("function Wait-ReaderDevPublicationReady") &&
+				installScriptText.contains("\"logcat\", \"-d\"") &&
+				installScriptText.contains("\"-t\", \"1000\"") &&
+				installScriptText.contains("publicationReady") &&
+				installScriptText.contains("Wait-ReaderDevPublicationReady -Package \$Package"),
+			"The install script must wait for the reader bridge publicationReady event after launch using a bounded recent logcat window; foreground alone can still capture the splash screen, while full logcat dumps can fail on noisy emulators."
+		)
+		assertTrue(
+			installScriptText.contains("[switch] \$RequireReaderLaunch") &&
+				installScriptText.contains("Reader launch target required") &&
+				installScriptText.contains("NAVIC_READER_DEV_PUBLICATION_URL") &&
+				installScriptText.contains("NAVIC_READER_DEV_RESOURCE_HREF") &&
+				installScriptText.contains("BINDERY_TEST_RESOURCE_ID"),
+			"The install script must have a required-reader mode for validation; if no EPUB/PDF target is resolved it must fail instead of silently launching the catalog and producing false reader screenshots."
 		)
 		val viewportScriptText = viewportScript.readText()
 		assertTrue(
@@ -133,26 +164,27 @@ class ReaderDevEnvironmentContractTest {
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
 
 		assertTrue(
-			spec.contains("## Hard Procedure: Reference Parity Gate"),
+			spec.contains("## Reference Authority"),
 			"The active reader plan must keep reference parity as a top-level procedure, not only as transient chat context."
 		)
 		assertTrue(
-			spec.contains("Every reader feature and every reader bugfix must start from the reference product") &&
-				spec.contains("Komikku is the reference authority for reader layout") &&
-				spec.contains("Anx Reader/Foliate is the reference authority for EPUB/PDF engine capabilities"),
+			spec.contains("Komikku is authoritative for the reader UI layer") &&
+				spec.contains("Anx Reader/Foliate is authoritative for the reader behavior layer"),
 			"Reader work must distinguish Komikku UI/shell authority from Anx/Foliate engine authority before implementation."
 		)
 		assertTrue(
-			spec.contains("A feature is not accepted just because it appears to work") &&
-				spec.contains("If it diverges from the reference product's ownership model") &&
-				spec.contains("A working but non-faithful implementation is still a failing implementation") &&
-				spec.contains("must be redesigned"),
+			spec.contains("If a Navic feature works but is not faithful to the reference, treat it as unfinished") &&
+				spec.contains("Do not polish or build dependent behavior on a non-faithful workaround"),
 			"Working but non-faithful reader behavior must be treated as incomplete and redesigned."
 		)
 		assertTrue(
-			spec.contains("Each new feature or bugfix must name the reference source file/function it is matching") &&
-				spec.contains("The guard must protect behavior and ownership from the reference product") &&
-				spec.contains("If a Navic implementation works but remains less faithful than the reference model, it is not done"),
+			spec.contains("Every Anx bridge callback/event exposed by the reference EPUB/Foliate layer must have a Navic bridge/engine counterpart") &&
+				spec.contains("Missing Anx events are failing behavior parity, not optional future polish"),
+			"Working but non-faithful behavior must block dependent work and release candidates until redesigned."
+		)
+		assertTrue(
+			spec.contains("## Non-Negotiable Guardrails") &&
+				spec.contains("Do not invent Navic-specific reader behavior where Anx already defines a bridge callback"),
 			"The per-slice acceptance map must force concrete reference matching for both new features and fixes."
 		)
 	}

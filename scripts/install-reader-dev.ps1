@@ -9,6 +9,7 @@ param(
     [switch] $Capture,
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
+    [switch] $RequireReaderLaunch,
     [int] $MaxDiscoveryBooks = 150
 )
 
@@ -40,9 +41,62 @@ function Invoke-Adb {
         $adbArgs += @("-s", $DeviceSerial)
     }
     $adbArgs += $Arguments
-    & adb @adbArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "adb $($adbArgs -join ' ') failed with exit code $LASTEXITCODE"
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & adb @adbArgs 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $output = @($output | ForEach-Object { "$_" })
+
+    if ($exitCode -ne 0) {
+        throw "adb $($adbArgs -join ' ') failed with exit code $exitCode`n$($output -join "`n")"
+    }
+
+    return $output
+}
+
+function Wait-ReaderDevForeground {
+    param([Parameter(Mandatory = $true)][string] $Package)
+
+    $escapedPackage = [regex]::Escape($Package)
+    Write-Output "Waiting for $Package to become the focused Android window before capture..."
+    while ($true) {
+        $windowDump = Invoke-Adb -Arguments @("shell", "dumpsys", "activity", "activities")
+        $focusLine = @(
+            $windowDump |
+                Where-Object { $_ -match "mCurrentFocus=.*$escapedPackage" -or $_ -match "mFocusedApp=.*$escapedPackage" } |
+                Select-Object -First 1
+        )
+        if ($focusLine.Count -gt 0) {
+            Write-Output ("Foreground confirmed: {0}" -f $focusLine[0].Trim())
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+}
+
+function Wait-ReaderDevPublicationReady {
+    param([Parameter(Mandatory = $true)][string] $Package)
+
+    Write-Output "Waiting for reader publicationReady bridge event before capture..."
+    while ($true) {
+        $logLines = Invoke-Adb -Arguments @("logcat", "-d", "-v", "brief", "-t", "1000")
+        $readyLine = @(
+            $logLines |
+                Where-Object { $_ -match "Reader bridge event: publicationReady" -or $_ -match '"type":"publicationReady"' } |
+                Select-Object -First 1
+        )
+        if ($readyLine.Count -gt 0) {
+            Write-Output ("Reader publication ready: {0}" -f $readyLine[0].Trim())
+            return
+        }
+
+        Start-Sleep -Seconds 1
     }
 }
 
@@ -481,6 +535,11 @@ if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
     }
 }
 
+$readerLaunchHasPublication = ![string]::IsNullOrWhiteSpace($publicationUrl) -or ![string]::IsNullOrWhiteSpace($resourceHref)
+if ($RequireReaderLaunch -and !$NoLaunch -and !$readerLaunchHasPublication) {
+    throw "Reader launch target required, but no publication URL or resource href was resolved from $EnvFile. Set NAVIC_READER_DEV_PUBLICATION_URL, NAVIC_READER_DEV_RESOURCE_HREF, BINDERY_TEST_RESOURCE_ID, or allow Bindery discovery to find an EPUB/PDF resource."
+}
+
 if (!$NoBuild) {
     Write-Host "Building androidApp:assembleReaderDev..."
     & .\gradlew.bat --no-daemon :androidApp:assembleReaderDev
@@ -504,6 +563,9 @@ if ($ReaderAssetServerPort -gt 0) {
 
 if (!$NoLaunch) {
     Invoke-Adb -Arguments @("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
+    if ($readerLaunchHasPublication) {
+        Invoke-Adb -Arguments @("logcat", "-c")
+    }
     $launchArgs = [System.Collections.Generic.List[string]]::new()
     $launchArgs.AddRange([string[]] @("shell", "am", "start", "-S", "-n", "$Package/$Activity"))
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.opds_url" -Value $opdsBaseUrl
@@ -523,14 +585,21 @@ if (!$NoLaunch) {
 
     Write-Host "Launching $Package. Secrets are passed through adb extras and not printed."
     Invoke-Adb -Arguments $launchArgs.ToArray()
+    if ($readerLaunchHasPublication) {
+        Wait-ReaderDevForeground -Package $Package
+        Wait-ReaderDevPublicationReady -Package $Package
+    }
 }
 
 if ($Capture) {
+    if ($NoLaunch) {
+        Wait-ReaderDevForeground -Package $Package
+    }
     $captureDir = Join-Path (Get-Location) "captures\reader-dev"
     New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
     $remote = "/sdcard/navic-reader-dev.png"
     $local = Join-Path $captureDir ("reader-dev-{0:yyyyMMdd-HHmmss}.png" -f (Get-Date))
     Invoke-Adb -Arguments @("shell", "screencap", "-p", $remote)
     Invoke-Adb -Arguments @("pull", $remote, $local)
-    Write-Host "Pulled screenshot: $local"
+    Write-Output "Pulled screenshot: $local"
 }

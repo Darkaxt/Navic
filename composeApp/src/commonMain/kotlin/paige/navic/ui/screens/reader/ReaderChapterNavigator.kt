@@ -16,7 +16,6 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
@@ -38,7 +37,10 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_next_chapter
+import navic.composeapp.generated.resources.action_previous_chapter
+import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.SkipNext
 import paige.navic.icons.outlined.SkipPrevious
@@ -72,6 +74,8 @@ internal fun KomikkuChapterNavigator(
 		return
 	}
 
+	val isTabletUi = komikkuReaderIsTabletUi()
+	val horizontalPadding = if (isTabletUi) 24.dp else 8.dp
 	val backgroundColor = MaterialTheme.colorScheme
 		.surfaceColorAtElevation(3.dp)
 		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
@@ -87,7 +91,7 @@ internal fun KomikkuChapterNavigator(
 		Row(
 			modifier = modifier
 				.fillMaxWidth()
-				.padding(horizontal = 8.dp),
+				.padding(horizontal = horizontalPadding),
 			verticalAlignment = Alignment.CenterVertically
 		) {
 			FilledIconButton(
@@ -97,11 +101,13 @@ internal fun KomikkuChapterNavigator(
 			) {
 				Icon(
 					Icons.Outlined.SkipPrevious,
-					contentDescription = if (isRtl) "Next" else "Previous"
+					contentDescription = stringResource(
+						if (isRtl) Res.string.action_next_chapter else Res.string.action_previous_chapter
+					)
 				)
 			}
 
-			if (totalPages > 1) {
+			if (readerShouldShowChapterProgressSlider(totalPages)) {
 				CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
 					Row(
 						modifier = Modifier
@@ -156,12 +162,16 @@ internal fun KomikkuChapterNavigator(
 			) {
 				Icon(
 					Icons.Outlined.SkipNext,
-					contentDescription = if (isRtl) "Previous" else "Next"
+					contentDescription = stringResource(
+						if (isRtl) Res.string.action_previous_chapter else Res.string.action_next_chapter
+					)
 				)
 			}
 		}
 	}
 }
+
+private fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3
 
 @Composable
 private fun KomikkuChapterProgressSlider(
@@ -172,12 +182,12 @@ private fun KomikkuChapterProgressSlider(
 	enabled: Boolean = true,
 	interactionSource: MutableInteractionSource = remember { MutableInteractionSource() }
 ) {
-	Slider(
-		value = value.toFloat(),
-		onValueChange = { changedValue -> onValueChange(changedValue.roundToInt()) },
+	KomikkuIntegerSlider(
+		value = value,
+		onValueChange = onValueChange,
 		modifier = modifier,
 		enabled = enabled,
-		valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+		valueRange = valueRange,
 		steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0),
 		interactionSource = interactionSource
 	)
@@ -195,6 +205,8 @@ private fun KomikkuChapterNavigatorVertical(
 	onPageIndexChange: (Int) -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val isTabletUi = komikkuReaderIsTabletUi()
+	val verticalPadding = if (isTabletUi) 24.dp else 8.dp
 	val backgroundColor = MaterialTheme.colorScheme
 		.surfaceColorAtElevation(3.dp)
 		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
@@ -208,7 +220,7 @@ private fun KomikkuChapterNavigatorVertical(
 	Column(
 		modifier = modifier
 			.fillMaxHeight()
-			.padding(vertical = 8.dp, horizontal = 8.dp),
+			.padding(vertical = verticalPadding, horizontal = 8.dp),
 		horizontalAlignment = Alignment.CenterHorizontally
 	) {
 		FilledIconButton(
@@ -218,12 +230,12 @@ private fun KomikkuChapterNavigatorVertical(
 		) {
 			Icon(
 				Icons.Outlined.SkipPrevious,
-				contentDescription = "Previous",
+				contentDescription = stringResource(Res.string.action_previous_chapter),
 				modifier = Modifier.rotate(90f)
 			)
 		}
 
-		if (totalPages > 1) {
+		if (readerShouldShowChapterProgressSlider(totalPages)) {
 			Column(
 				modifier = Modifier
 					.weight(1f)
@@ -290,7 +302,7 @@ private fun KomikkuChapterNavigatorVertical(
 		) {
 			Icon(
 				Icons.Outlined.SkipNext,
-				contentDescription = "Next",
+				contentDescription = stringResource(Res.string.action_next_chapter),
 				modifier = Modifier.rotate(90f)
 			)
 		}

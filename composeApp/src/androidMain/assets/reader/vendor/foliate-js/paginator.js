@@ -111,6 +111,7 @@ const getVisibleRange = (doc, start, end, mapRect) => {
         }
         return FILTER_SKIP
     }
+    if (!doc) return
     const walker = doc.createTreeWalker(doc.body, filter, { acceptNode })
     const nodes = []
     for (let node = walker.nextNode(); node; node = walker.nextNode())
@@ -512,7 +513,7 @@ class View {
 export class Paginator extends HTMLElement {
     static observedAttributes = [
         'flow', 'gap', 'margin',
-        'max-inline-size', 'max-block-size', 'max-column-count',
+        'max-inline-size', 'max-block-size', 'max-column-count', 'column-threshold',
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.render())
@@ -725,6 +726,7 @@ export class Paginator extends HTMLElement {
             case 'margin':
             case 'max-block-size':
             case 'max-column-count':
+            case 'column-threshold':
                 this.#top.style.setProperty('--_' + name, value)
                 this.render()
                 break
@@ -814,7 +816,8 @@ export class Paginator extends HTMLElement {
         const size = vertical ? height : width
 
         const style = getComputedStyle(this.#top)
-        const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))
+        const maxInlineSize = parseFloat(style.getPropertyValue('--_column-threshold')) ||
+            parseFloat(style.getPropertyValue('--_max-inline-size'))
         const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
         const margin = parseFloat(style.getPropertyValue('--_margin'))
         this.#margin = margin
@@ -854,7 +857,9 @@ export class Paginator extends HTMLElement {
             return { flow, margin, gap, columnWidth }
         }
 
-        const divisor = Math.min(maxColumnCount, Math.ceil(size / maxInlineSize))
+        const divisor = maxColumnCount === 0
+            ? Math.min(2, Math.ceil(size / maxInlineSize))
+            : maxColumnCount
         const columnWidth = vertical ? (size / divisor - margin) : (size / divisor - gap)
         this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
 

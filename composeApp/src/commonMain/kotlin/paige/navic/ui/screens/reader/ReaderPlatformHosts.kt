@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.reader.ReaderEngineCommand
@@ -63,6 +64,10 @@ expect fun KomikkuAdaptiveSheet(
 	modifier: Modifier = Modifier,
 	content: @Composable () -> Unit
 )
+
+@Composable
+@ReadOnlyComposable
+expect fun komikkuReaderIsTabletUi(): Boolean
 
 @Composable
 expect fun ReaderPublicationRuntimeHost(

@@ -17,6 +17,10 @@ class ReaderRuntimeAssetsTest {
 		val bridge = root.resolve("navic-reader.js")
 		val bridgeHelpers = root.resolve("navic-reader-helpers.js")
 		val bridgeSettings = root.resolve("navic-reader-settings.js")
+		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
+		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
+		val bridgePagination = root.resolve("navic-reader-pagination.js")
+		val bridgeAppearance = root.resolve("navic-reader-appearance.js")
 		val foliatePackage = root.resolve("vendor/foliate-js/package.json")
 		val foliateView = root.resolve("vendor/foliate-js/view.js")
 		val foliateFixedLayout = root.resolve("vendor/foliate-js/fixed-layout.js")
@@ -29,6 +33,10 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridge.isFile, "Navic reader bridge must be packaged")
 		assertTrue(bridgeHelpers.isFile, "Navic reader helper module must be packaged")
 		assertTrue(bridgeSettings.isFile, "Navic reader settings module must be packaged")
+		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
+		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
+		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
+		assertTrue(bridgeAppearance.isFile, "Navic reader appearance module must be packaged")
 		assertTrue(foliatePackage.isFile, "foliate-js package metadata must be packaged")
 		assertTrue(foliateView.isFile, "foliate-js view runtime must be packaged")
 		assertTrue(foliateFixedLayout.isFile, "foliate fixed-layout runtime must be packaged")
@@ -78,6 +86,31 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(foliatePackage.readText(), "\"name\": \"foliate-js\"")
 		assertContains(foliatePackage.readText(), "\"version\": \"1.0.1\"")
+	}
+
+	@Test
+	fun androidReaderRuntimeIsSplitIntoFocusedBridgeModules() {
+		val root = readerAssetRoot()
+		val bridge = root.resolve("navic-reader.js")
+		val bridgeText = bridge.readText()
+		val lineCount = bridge.readLines().size
+
+		assertTrue(
+			lineCount < 2_400,
+			"navic-reader.js should stay below 2400 lines; risky listener/pagination work belongs in focused bridge modules."
+		)
+		listOf(
+			"navic-reader-page-turns.js",
+			"navic-reader-content-interactions.js",
+			"navic-reader-pagination.js",
+			"navic-reader-appearance.js"
+		).forEach { fileName ->
+			val module = root.resolve(fileName)
+			assertTrue(module.isFile, "$fileName must exist so GLM/Codex do not have to edit the whole bridge.")
+			assertContains(bridgeText, "./$fileName")
+			assertContains(module.readText(), "export const")
+		}
+		assertContains(bridgeText, "Object.assign(NavicReaderRuntime.prototype")
 	}
 
 	@Test
@@ -150,10 +183,94 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "Reader surface touch down")
 		assertContains(scriptText, "Reader surface tap action=")
 		assertContains(scriptText, "Reader bridge raw")
+		assertContains(scriptText, "[string[]] \$RequireReaderBridgeEvent = @()")
+		assertContains(scriptText, "[string] \$ReaderDevtoolsProbe")
+		assertContains(scriptText, "adb-webview-eval.mjs")
+		assertContains(scriptText, "reader-devtools-probe.json")
+		assertContains(scriptText, "internal-link-native")
+		assertContains(scriptText, "phase3-events")
+		assertContains(scriptText, "selection-payload")
+		assertContains(scriptText, "relocation-payload")
+		assertContains(scriptText, "reader-bridge-events.log")
+		assertContains(scriptText, "requiredBridgeEvents=")
+		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
+		assertContains(scriptText, "required bridge event '\$requiredBridgeEvent' was not captured")
 		assertContains(scriptText, "readerContentTapHandled")
 		assertContains(scriptText, "reader-diagnostics-summary.txt")
 		assertContains(scriptText, "reader-texture-diagnostics.log")
 		assertContains(scriptText, "reader-touch-diagnostics.log")
+		assertContains(scriptText, "[string] \$DeviceSerial")
+		assertContains(scriptText, "\$env:ANDROID_SERIAL = \$DeviceSerial")
+		assertContains(scriptText, "\$previousErrorActionPreference = \$ErrorActionPreference")
+		assertContains(scriptText, "\$ErrorActionPreference = \"Continue\"")
+		assertContains(scriptText, "\$output = & adb @Arguments 2>&1")
+		assertContains(scriptText, "Invoke-Adb @(\"shell\", \"monkey\", \"-p\", \$Package, \"1\")")
+		assertContains(scriptText, "[string[]] \$Lines = @()")
+		assertContains(scriptText, "return @(\$samples.ToArray())")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(helperText, "/json/list")
+		assertContains(helperText, "new WebSocket")
+		assertContains(helperText, "Runtime.evaluate")
+		assertContains(helperText, "webview_devtools_remote_")
+		assertContains(helperText, "adb forward")
+		assertContains(helperText, "internal-link-native")
+		assertContains(helperText, "phase3-events")
+		assertContains(helperText, "selection-payload")
+		assertContains(helperText, "relocation-payload")
+		assertContains(helperText, "NavicReaderBridge.dispatch")
+		assertContains(helperText, "type: 'diagnosticLocationSnapshot'")
+		assertContains(helperText, "new CustomEvent('link'")
+		assertContains(helperText, "new CustomEvent('external-link'")
+		assertContains(helperText, "new CustomEvent('draw-annotation'")
+		assertContains(helperText, "new CustomEvent('show-annotation'")
+		assertContains(helperText, "new CustomEvent('create-overlay'")
+		assertContains(helperText, "selectionchange")
+		assertContains(helperText, "Reader bridge event: locationChanged")
+		assertContains(helperText, "defaultPrevented")
+		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbReaderSmokeUsesSerialAwareAdbHelperForCaptureAndDiagnostics() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val bodyAfterHelper = scriptText
+			.substringAfter("function Get-AdbScreenSize")
+
+		assertFalse(
+			Regex("""(?m)^\s*&?\s*adb\s""").containsMatchIn(bodyAfterHelper),
+			"adb-reader-smoke.ps1 must route capture and diagnostic commands through Invoke-Adb so the selected DeviceSerial/ANDROID_SERIAL is consistently honored."
+		)
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"wm\", \"size\")")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"devices\")")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"pidof\", \$Package)")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"dumpsys\", \"package\", \$Package)")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"cat\", \"/proc/net/unix\")")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"exec-out\", \"uiautomator\", \"dump\", \"/dev/tty\")")
+		assertContains(bodyAfterHelper, "Invoke-Adb @(\"logcat\", \"-d\", \"--pid=\$processId\", \"-v\", \"time\")")
+	}
+
+	@Test
+	fun adbReaderSmokeUsesEffectiveOverrideDisplaySizeForFractionGestures() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val screenSizeFunction = scriptText
+			.substringAfter("function Get-AdbScreenSize")
+			.substringBefore("\nfunction Convert-TapFraction")
+
+		assertContains(
+			screenSizeFunction,
+			"[regex]::Matches",
+			message = "Fraction gestures must parse all wm size entries instead of accepting the first physical size."
+		)
+		assertContains(
+			screenSizeFunction,
+			"\$sizeMatches[\$sizeMatches.Count - 1]",
+			message = "When Android reports both Physical size and Override size, adb fractions must target the effective override/logical size used by the reader view."
+		)
 	}
 
 	@Test
@@ -187,6 +304,24 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "no native reader long tap was captured")
 		assertContains(scriptText, "no PDF runtime diagnostics were captured")
 		assertContains(scriptText, "reader center dispatch was captured")
+	}
+
+	@Test
+	fun adbKomikkuMatrixRequiresNativeCoverBaselineBeforeCoverSpecificChecks() {
+		val smokeText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val matrixText = repoScriptFile("adb-reader-komikku-matrix.ps1").readText()
+
+		assertContains(smokeText, "[switch] \$RequireNativeShellCover")
+		assertContains(smokeText, "reader-native-cover-validation.txt")
+		assertContains(smokeText, "Reader diagnostics validation failed: native shell cover was not visible")
+		assertContains(smokeText, "Get-ReaderNativeShellCoverVisible")
+		assertContains(matrixText, "-Name \"baseline-native-cover\"")
+		assertContains(matrixText, "\$smokeArgs.RequireNativeShellCover = \$true")
+		assertTrue(
+			matrixText.indexOf("-Name \"baseline-native-cover\"") <
+				matrixText.indexOf("-Name \"cover-center-tap-toggle\""),
+			"Cover-specific matrix steps must be gated by a native-cover baseline so readable-page swipes are not mislabeled as cover regressions."
+		)
 	}
 
 	@Test

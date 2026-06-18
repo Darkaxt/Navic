@@ -24,7 +24,7 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
-	fun progressSaveGateIgnoresFirstPostReadyCoverPlaceholderBeforeSavingResumeLocation() {
+	fun progressSaveGateIgnoresCoverPlaceholdersBeforeAndAfterSavingResumeLocation() {
 		val coverLocator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0)
 		val resumedLocator = ReaderLocator(
 			href = "EPUB/Text/chapter-04.xhtml",
@@ -40,7 +40,29 @@ class ReaderProgressSyncTest {
 
 		assertEquals(null, startupCover.locatorToSave)
 		assertEquals(resumedLocator, resumed.locatorToSave)
-		assertEquals(coverLocator, laterCover.locatorToSave)
+		assertEquals(null, laterCover.locatorToSave)
+		assertEquals(true, laterCover.state.readableLocationSaved)
+	}
+
+	@Test
+	fun progressSaveGateDoesNotLetCoverPlaceholdersOverwriteReadableResumeLocation() {
+		val coverLocator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0)
+		val resumedLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.62
+		)
+		val ready = ReaderProgressSaveGate()
+			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
+			.state
+		val resumed = ready
+			.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+			.state
+
+		val laterCover = resumed.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+
+		assertEquals(null, laterCover.locatorToSave)
+		assertEquals(true, laterCover.state.readableLocationSaved)
 	}
 
 	@Test
@@ -64,7 +86,8 @@ class ReaderProgressSyncTest {
 		assertEquals(null, startupCover.locatorToSave)
 		assertEquals(null, startupNav.locatorToSave)
 		assertEquals(resumedLocator, resumed.locatorToSave)
-		assertEquals(coverLocator, laterCover.locatorToSave)
+		assertEquals(null, laterCover.locatorToSave)
+		assertEquals(true, laterCover.state.readableLocationSaved)
 	}
 
 	@Test

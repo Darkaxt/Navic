@@ -66,7 +66,7 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(bridgeText, "case 'scrollViewport'")
 		assertContains(bridgeText, "scrollViewport(command.direction)")
-		assertContains(bridgeText, "async scrollViewport(direction)")
+		assertContains(bridgeText, "async function scrollViewport(direction)")
 		assertContains(bridgeText, "viewport-scroll:start")
 		assertContains(bridgeText, "viewport-scroll:done")
 		assertContains(bridgeText, "renderer.scrolled")
@@ -81,11 +81,13 @@ class ReaderRuntimeShellProgressTest {
 		val chapterNavigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 
 		assertContains(bridgeText, "case 'goToProgress'")
-		assertContains(bridgeText, "async goToProgress(progress)")
+		assertContains(bridgeText, "async function goToProgress(progress)")
+		assertContains(bridgeText, "case 'diagnosticLocationSnapshot'")
+		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot')")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
 		assertContains(bridgeText, "case 'goToChapterProgress'")
-		assertContains(bridgeText, "async goToChapterProgress(href, progress)")
+		assertContains(bridgeText, "async function goToChapterProgress(href, progress)")
 		assertContains(bridgeText, "chapter-progress-seek")
 		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: fraction })")
 		assertFalse(
@@ -104,6 +106,44 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(chapterNavigatorText, "Slider(")
 		assertContains(appBarsText, "onGoToChapterPage: (Int) -> Unit")
+	}
+
+	@Test
+	fun androidReaderChapterRailSeekCommitsWithControlledReasonInsteadOfPassiveClamp() {
+		val bridgeText = readerBridgeText()
+		val chapterProgressSeek = bridgeText.substringAfter("async function goToChapterProgress(href, progress) {")
+			.substringBefore("\nfunction nextPage()")
+		val onRelocate = bridgeText.substringAfter("onRelocate(detail) {")
+			.substringBefore("\n  cancelPendingCommittedRelocation")
+		val scheduleCommittedRelocation = bridgeText.substringAfter("scheduleCommittedRelocation(detail, reason = 'relocate-committed') {")
+			.substringBefore("\n  suppressLoadedCoverDocument")
+
+		assertContains(bridgeText, "beginControlledRelocation('chapter-progress-seek')")
+		assertContains(bridgeText, "consumeControlledRelocationReason('relocate-committed')")
+		assertContains(bridgeText, "scheduleControlledRelocationFallback('chapter-progress-seek')")
+		assertContains(bridgeText, "readerRelocationReasonIsExplicit(reason)")
+		assertContains(bridgeText, "relocateSequence += 1")
+		assertTrue(
+			chapterProgressSeek.indexOf("beginControlledRelocation('chapter-progress-seek')") <
+				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: fraction })"),
+			"Chapter rail seeks must arm their controlled relocation reason before Foliate emits relocate events."
+		)
+		assertContains(
+			onRelocate,
+			"this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))"
+		)
+		assertFalse(
+			onRelocate.contains("this.scheduleCommittedRelocation(detail)\n"),
+			"Controlled navigation relocations must not be scheduled as generic relocate-committed events; that path activates passive one-page clamping and prevents rail endpoint seeks."
+		)
+		assertFalse(
+			chapterProgressSeek.contains("this.scheduleCommittedRelocation(this.lastRelocateDetail, 'chapter-progress-seek')"),
+			"Chapter rail seeks must not immediately commit the previous lastRelocateDetail; the controlled reason has to survive until the next real Foliate relocate detail."
+		)
+		assertContains(scheduleCommittedRelocation, "const previousReason = this.pendingRelocateReason")
+		assertContains(scheduleCommittedRelocation, "this.pendingRelocateReason = preserveExplicitReason ? previousReason : reason")
+		assertContains(scheduleCommittedRelocation, "readerRelocationReasonIsExplicit(previousReason)")
+		assertContains(scheduleCommittedRelocation, "!readerRelocationReasonIsExplicit(reason)")
 	}
 
 	@Test
@@ -137,15 +177,23 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun commonReaderChromeExposesPageTurnControls() {
+	fun commonReaderSurfaceExposesPageTurnControlsOutsideChapterNavigator() {
 		val readerScreenText = readerScreenFile().readText()
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val chapterNavigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 
-		assertContains(appBarsText, "onPreviousPage: () -> Unit")
-		assertContains(appBarsText, "onNextPage: () -> Unit")
 		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)")
 		assertContains(readerScreenText, "ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)")
+		assertContains(nativeFrameHostText, "KomikkuNavigationRegion.PREV")
+		assertContains(nativeFrameHostText, "KomikkuNavigationRegion.NEXT")
+		assertContains(appBarsText, "onPreviousChapter: () -> Unit")
+		assertContains(appBarsText, "onNextChapter: () -> Unit")
+		assertFalse(
+			appBarsText.contains("onPreviousPage: () -> Unit") ||
+				appBarsText.contains("onNextPage: () -> Unit"),
+			"Page turns belong to the native tap/drag surface; the Komikku chapter navigator must not own page-turn callbacks."
+		)
 		assertFalse(
 			readerScreenText.contains("ReaderBridgeCommand.PreviousPage"),
 			"The Komikku reader shell must not dispatch raw bridge page-turn commands."
@@ -165,7 +213,7 @@ class ReaderRuntimeShellProgressTest {
 
 	@Test
 	fun readerChromeIsImmersiveAndDrivenByNativeReaderSurfaceTaps() {
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
@@ -213,10 +261,10 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderSupportsPdfSurfaceNavigationAndScrolling() {
 		val bridgeText = readerBridgeText()
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerBridgeText()
 		val surfaceGesture = bridgeText
 			.substringAfter("attachSurfaceTapGesture(element) {")
-			.substringBefore("\n  readerTapZoneActionForPoint")
+			.substringBefore("\nfunction readerTapZoneActionForPoint")
 
 		assertContains(bridgeText, "attachSurfaceTapGesture")
 		assertContains(bridgeText, "this.attachSurfaceTapGesture(this.view)")
@@ -243,7 +291,7 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderKeepsSyntheticTapSuppressionForFixedLayoutSwipeNavigation() {
 		val bridgeText = readerBridgeText()
-		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val runtimeText = readerRuntimeImplementationText()
 		val surfaceTouchEnd = bridgeText
 			.substringAfter("element.addEventListener('touchend', async event => {")
 			.substringBefore("\n    }, { passive: false })")
@@ -597,7 +645,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "postLocationChanged(detail")
 		assertContains(bridgeText, "postCurrentLocationSnapshot('initial-resume')")
 		assertContains(onRelocate, "this.lastRelocateDetail = detail")
-		assertContains(onRelocate, "this.scheduleCommittedRelocation(detail)")
+		assertContains(onRelocate, "this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))")
 		assertTrue(
 			openPublication.indexOf("post({ type: 'publicationReady' })") <
 				openPublication.indexOf("this.postCurrentLocationSnapshot('initial-resume')"),
@@ -645,7 +693,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "page = Number(renderer.page)")
 		assertContains(bridgeText, "pages = Number(renderer.pages)")
 		assertContains(bridgeText, "reflowable-section-pages:pending")
-		assertContains(bridgeText, "const pageCount = Math.max(1, Math.round(pages) - 1)")
+		assertContains(bridgeText, "reflowablePaginatedTextPageCount(pages)")
+		assertContains(bridgeText, "Math.round(pages) - 2")
+		assertFalse(
+			bridgeText.contains("Math.round(pages) - 1"),
+			"Foliate paginated sections include leading/trailing sentinel columns. Navic must count text pages as pages - 2 so chapter rail endpoints can reach the final displayed page."
+		)
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
 		assertContains(bridgeText, "reflowableBookPageModel")
@@ -708,6 +761,22 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(postLocationBody, "rawLocationTotal: diagnosticNumber(detail.location?.total)")
 		assertContains(postLocationBody, "readerTrace('location:page-model'")
 		assertContains(postLocationBody, "log('location-page-model'")
+	}
+
+	@Test
+	fun androidReaderDoesNotBackfillChapterProgressFromWholeBookPageModel() {
+		val bridgeText = readerBridgeText()
+		val chapterPagePositionBody = bridgeText
+			.substringAfter("chapterPagePosition(detail, fallback = null) {")
+			.substringBefore("\n  detailSectionKey(detail) {")
+
+		assertContains(chapterPagePositionBody, "const resolved = this.view?.isFixedLayout === true")
+		assertContains(chapterPagePositionBody, "? pagePosition || fallback")
+		assertContains(chapterPagePositionBody, ": pagePosition")
+		assertFalse(
+			chapterPagePositionBody.contains("const resolved = pagePosition || fallback"),
+			"Komikku's chapter rail is chapter-scoped; reflowable EPUB rail state must not fall back to whole-book pagePosition when section page math is missing."
+		)
 	}
 
 	@Test
@@ -783,13 +852,13 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))")
 		assertContains(
 			bridgeText,
-			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'go-to')",
+			"this.scheduleControlledRelocationFallback('go-to')",
 			message = "Link and explicit href navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
 		)
 		assertContains(bridgeText, "this.recentPageTurnDirection = null")
 		assertContains(
 			bridgeText,
-			"this.scheduleCommittedRelocation(this.lastRelocateDetail, 'progress-seek')",
+			"this.scheduleControlledRelocationFallback('progress-seek')",
 			message = "Progress rail navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
 		)
 	}

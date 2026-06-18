@@ -31,8 +31,8 @@ internal fun KomikkuReaderRoot(
 	publicationFormat: ReaderPublicationFormat,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
-	onPreviousPage: () -> Unit,
-	onNextPage: () -> Unit,
+	onPreviousChapter: () -> Unit,
+	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
@@ -108,8 +108,8 @@ internal fun KomikkuReaderRoot(
 			KomikkuComposeOverlay(
 				reader = reader,
 				controllerState = controllerState,
-				onPreviousPage = onPreviousPage,
-				onNextPage = onNextPage,
+				onPreviousChapter = onPreviousChapter,
+				onNextChapter = onNextChapter,
 				onGoToChapterPage = onGoToChapterPage,
 				onContents = onContents,
 				onReadingMode = onReadingMode,
@@ -145,8 +145,8 @@ private fun shellCoverTitleFor(
 private fun KomikkuComposeOverlay(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
-	onPreviousPage: () -> Unit,
-	onNextPage: () -> Unit,
+	onPreviousChapter: () -> Unit,
+	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
@@ -176,8 +176,8 @@ private fun KomikkuComposeOverlay(
 			visible = controllerState.menuVisible,
 			reader = reader,
 			controllerState = controllerState,
-			onPreviousPage = onPreviousPage,
-			onNextPage = onNextPage,
+			onPreviousChapter = onPreviousChapter,
+			onNextChapter = onNextChapter,
 			onGoToChapterPage = onGoToChapterPage,
 			onContents = onContents,
 			onReadingMode = onReadingMode,
@@ -186,12 +186,14 @@ private fun KomikkuComposeOverlay(
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
-		KomikkuPaginationProfileStatusBadge(
-			profile = controllerState.paginationProfile,
-			modifier = Modifier
-				.align(Alignment.BottomCenter)
-				.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
-		)
+		if (!controllerState.shellCoverVisible) {
+			KomikkuPaginationProfileStatusBadge(
+				profile = controllerState.paginationProfile,
+				modifier = Modifier
+					.align(Alignment.BottomCenter)
+					.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
+			)
+		}
 		when (controllerState.dialog) {
 			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(
 				toc = controllerState.toc,

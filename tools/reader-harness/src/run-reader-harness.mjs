@@ -20,6 +20,7 @@ import {
   assertSurfaceTextureTracksForwardContentMovement,
   assertTextureTracksRealPageTurnSamples,
   assertTextureTracePayloadsTrackTurnDirection,
+  assertTextureKeysIgnorePageCountOnlyRelabels,
   assertTextureUpdatesAreCommittedPageBounded,
   assertTraceType,
 } from './reader-trace-assertions.mjs'
@@ -461,6 +462,75 @@ if (mode === 'pagination-profile-logic') {
   }
 
   console.log('reader harness pagination-profile-logic passed')
+  process.exit(0)
+}
+
+if (mode === 'adaptive-page-box-logic') {
+  globalThis.document = globalThis.document || {
+    body: {},
+    documentElement: { clientWidth: 1232, clientHeight: 1974 },
+  }
+  globalThis.window = globalThis.window || {
+    innerWidth: 1232,
+    innerHeight: 1974,
+    devicePixelRatio: 3,
+    visualViewport: { width: 1232, height: 1974, scale: 1 },
+    location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
+  }
+  const helpers = await import(`${pathToFileURL(readerHelpers).href}?adaptive-page-box-logic=${Date.now()}`)
+  if (typeof helpers.readerAdaptiveFoliatePageBox !== 'function') {
+    throw new Error('readerAdaptiveFoliatePageBox helper is not exported')
+  }
+
+  const parsePx = value => Number(String(value).replace(/px$/, ''))
+  const portrait = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 0 })
+  const portraitInline = parsePx(portrait.maxInlineSize)
+  const portraitBlock = parsePx(portrait.maxBlockSize)
+  if (portraitInline <= 1000 || portraitBlock <= 1800) {
+    throw new Error(
+      'Expected large portrait EPUB surfaces to use available text capacity instead of Foliate defaults, got ' +
+      JSON.stringify(portrait)
+    )
+  }
+  if (portraitBlock > 1860) {
+    throw new Error(
+      'Expected large portrait EPUB surfaces to keep a natural bottom paper reserve instead of filling the page edge, got ' +
+      JSON.stringify(portrait)
+    )
+  }
+  if (portraitInline === 720 || portraitBlock === 1440) {
+    throw new Error('Adaptive page box must not preserve Foliate 720x1440 defaults')
+  }
+  if (portrait.maxColumnCount !== '1') {
+    throw new Error(`Expected portrait single-page composition until same-section spread is explicit, got ${JSON.stringify(portrait)}`)
+  }
+
+  const userMargin = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 20 })
+  if (parsePx(userMargin.maxInlineSize) >= portraitInline || parsePx(userMargin.maxBlockSize) !== portraitBlock) {
+    throw new Error(
+      'User margin should reserve natural horizontal paper without reducing vertical text capacity, got ' +
+      JSON.stringify({ portrait, userMargin })
+    )
+  }
+
+  const normalPhone = helpers.readerAdaptiveFoliatePageBox({ width: 393, height: 873 }, { marginPercent: 0 })
+  const normalPhoneBlock = parsePx(normalPhone.maxBlockSize)
+  if (normalPhoneBlock < 800) {
+    throw new Error(
+      'Normal phone-sized EPUB surfaces should not become cramped when reserving bottom paper, got ' +
+      JSON.stringify(normalPhone)
+    )
+  }
+
+  const landscape = helpers.readerAdaptiveFoliatePageBox({ width: 1974, height: 1232 }, { marginPercent: 0 })
+  if (landscape.maxColumnCount !== '2') {
+    throw new Error(`Expected wide surfaces to enable controlled two-column same-section composition, got ${JSON.stringify(landscape)}`)
+  }
+  if (parsePx(landscape.maxInlineSize) < 1200 || parsePx(landscape.maxBlockSize) < 1100) {
+    throw new Error(`Expected landscape page box to use wide viewport capacity, got ${JSON.stringify(landscape)}`)
+  }
+
+  console.log('reader harness adaptive-page-box-logic passed')
   process.exit(0)
 }
 
@@ -2017,6 +2087,7 @@ if (mode === 'epub-texture-page-turns') {
       result,
     }, null, 2))
     assertNoConsoleErrors(errors)
+    assertTextureKeysIgnorePageCountOnlyRelabels(result.trace)
     assertTextureTracksRealPageTurnSamples(result)
     console.log(`reader harness epub-texture-page-turns passed: ${outputPath}`)
   } catch (error) {
@@ -2311,6 +2382,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
       result,
     }, null, 2))
     assertNoConsoleErrors(errors)
+    assertTextureKeysIgnorePageCountOnlyRelabels(result.trace)
     assertTextureTracksRealPageTurnSamples(result)
     assertTextureTracePayloadsTrackTurnDirection(result.trace)
     console.log(`reader harness epub-texture-frontmatter-transition passed: ${outputPath}`)
@@ -3293,6 +3365,43 @@ if (mode === 'css-smoke') {
         ? win.parent.__navicReaderTrace.slice(traceLengthBeforeNativeCoordinateLongPress)
         : []
       const postedAfterNativeCoordinateLongPress = postedMessages().slice(postedLengthBeforeNativeCoordinateLongPress)
+      const dispatchFoliateLinkEvent = (href, anchorElement) => {
+        const event = new CustomEvent('link', {
+          cancelable: true,
+          detail: {
+            href,
+            a: anchorElement,
+          },
+        })
+        view.dispatchEvent(event)
+        return event.defaultPrevented
+      }
+      const internalLinkMessages = messages => messages.filter(message => message?.type === 'internalLink')
+      const internalLinkSources = messages => internalLinkMessages(messages).map(message => message?.source || '')
+      const postedLengthBeforeNativeInternalLink = postedMessages().length
+      const nativeTapZonesFoliateLinkDefaultPrevented = dispatchFoliateLinkEvent(
+        '#navic-css-smoke-target',
+        nativeTextLink
+      )
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const nativeTapZonesInternalLinkMessages = internalLinkMessages(
+        postedMessages().slice(postedLengthBeforeNativeInternalLink)
+      )
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          nativeTapZones: false,
+        },
+      })
+      const postedLengthBeforeNonNativeInternalLink = postedMessages().length
+      const nonNativeFoliateLinkDefaultPrevented = dispatchFoliateLinkEvent(
+        '#navic-css-smoke-target',
+        nativeTextLink
+      )
+      await new Promise(resolve => win.setTimeout(resolve, 100))
+      const nonNativeInternalLinkMessages = internalLinkMessages(
+        postedMessages().slice(postedLengthBeforeNonNativeInternalLink)
+      )
       const nativeTapZoneSuppressionSources = traceAfterNativeTapZonesShortTap
         .filter(event => event?.type === 'native-tap-zones:content-click-suppressed')
         .map(event => event?.payload?.source || '')
@@ -3351,6 +3460,14 @@ if (mode === 'css-smoke') {
         nativeTapZonesCoordinateLongPressTextLinkNavigationTraceCount: traceAfterNativeCoordinateLongPress.filter(event => event?.type === 'link:navigate').length,
         nativeTapZonesCoordinateLongPressContentPostSources: contentTapHandledSources(postedAfterNativeCoordinateLongPress),
         nativeTapZonesCoordinateLongPressSources: nativeTapZoneCoordinateLongPressSources,
+        nativeTapZonesFoliateLinkDefaultPrevented,
+        nativeTapZonesInternalLinkPreventedCount: nativeTapZonesInternalLinkMessages
+          .filter(message => message?.prevented === true).length,
+        nativeTapZonesInternalLinkSources: internalLinkSources(nativeTapZonesInternalLinkMessages),
+        nonNativeFoliateLinkDefaultPrevented,
+        nonNativeInternalLinkAllowedCount: nonNativeInternalLinkMessages
+          .filter(message => message?.prevented === false).length,
+        nonNativeInternalLinkSources: internalLinkSources(nonNativeInternalLinkMessages),
         imageNativeCenterContentHit,
         imageNativeScaledContentHit,
         textLinkNativeCenterContentHit,

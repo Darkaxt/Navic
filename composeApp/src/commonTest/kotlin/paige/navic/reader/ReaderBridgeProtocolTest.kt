@@ -24,6 +24,16 @@ class ReaderBridgeProtocolTest {
 					lineHeight = 1.7,
 				paragraphSpacingPercent = 75,
 				marginPercent = 8,
+				fontWeight = 650.0,
+				letterSpacing = 1.25,
+				wordSpacing = 2.5,
+				sideMargin = 12.0,
+				topMargin = 80.0,
+				bottomMargin = 60.0,
+				indent = 1.5,
+				headingFontSize = 1.25,
+				maxColumnCount = 2,
+				columnThreshold = 840.0,
 				dimOverlayPercent = 30,
 				colorFilterEnabled = true,
 				colorFilterArgb = 0x66336699,
@@ -62,6 +72,16 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"lineHeight\":1.7")
 		assertContains(script, "\"paragraphSpacingPercent\":75")
 		assertContains(script, "\"marginPercent\":8")
+		assertContains(script, "\"fontWeight\":650.0")
+		assertContains(script, "\"letterSpacing\":1.25")
+		assertContains(script, "\"wordSpacing\":2.5")
+		assertContains(script, "\"sideMargin\":12.0")
+		assertContains(script, "\"topMargin\":80.0")
+		assertContains(script, "\"bottomMargin\":60.0")
+		assertContains(script, "\"indent\":1.5")
+		assertContains(script, "\"headingFontSize\":1.25")
+		assertContains(script, "\"maxColumnCount\":2")
+		assertContains(script, "\"columnThreshold\":840.0")
 		assertContains(script, "\"dimOverlayPercent\":30")
 		assertContains(script, "\"colorFilterEnabled\":true")
 		assertContains(script, "\"colorFilterArgb\":1714644633")
@@ -185,6 +205,40 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun selectionChangedDecodesAnxSelectionEndPayload() {
+		val selection = assertIs<ReaderBridgeEvent.SelectionChanged>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "selectionChanged",
+				  "text": "selected",
+				  "cfi": "epubcfi(/6/8!/4/2:12)",
+				  "href": "chapter-01.xhtml",
+				  "footnote": true,
+				  "contextText": "The selected sentence and its surrounding context.",
+				  "pos": {
+				    "left": 10.5,
+				    "top": 20.25,
+				    "right": 120.75,
+				    "bottom": 140.0
+				  }
+				}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals("selected", selection.text)
+		assertEquals("epubcfi(/6/8!/4/2:12)", selection.cfi)
+		assertEquals("chapter-01.xhtml", selection.href)
+		assertEquals(true, selection.footnote)
+		assertEquals("The selected sentence and its surrounding context.", selection.contextText)
+		assertEquals(10.5, selection.posLeft)
+		assertEquals(20.25, selection.posTop)
+		assertEquals(120.75, selection.posRight)
+		assertEquals(140.0, selection.posBottom)
+	}
+
+	@Test
 	fun progressSeekCommandDispatchesClampedFractionNavigationIntent() {
 		val script = ReaderBridgeCommand.GoToProgress(1.4).toJavaScript()
 
@@ -224,6 +278,12 @@ class ReaderBridgeProtocolTest {
 			  "href": "chapter-01.xhtml",
 			  "cfi": "epubcfi(/6/2!/4/1:0)",
 			  "progress": 0.24,
+			  "rangeCfi": "epubcfi(/6/2!/4/1:0,/1:0,/1:12)",
+			  "reason": "page",
+			  "fraction": 0.42,
+			  "size": 0.08,
+			  "tocItemLabel": "Chapter 1",
+			  "pageItemLabel": "Page 7",
 			  "tocTitle": "Chapter 1"
 			}
 			""".trimIndent()
@@ -246,6 +306,12 @@ class ReaderBridgeProtocolTest {
 		assertEquals("chapter-01.xhtml", locationChanged.locator.href)
 		assertEquals("epubcfi(/6/2!/4/1:0)", locationChanged.locator.cfi)
 		assertEquals(0.24, locationChanged.locator.progress)
+		assertEquals("epubcfi(/6/2!/4/1:0,/1:0,/1:12)", locationChanged.locator.rangeCfi)
+		assertEquals("page", locationChanged.locator.reason)
+		assertEquals(0.42, locationChanged.locator.fraction)
+		assertEquals(0.08, locationChanged.locator.size)
+		assertEquals("Chapter 1", locationChanged.locator.tocItemLabel)
+		assertEquals("Page 7", locationChanged.locator.pageItemLabel)
 		assertEquals("Chapter 1", locationChanged.tocTitle)
 
 		val active = assertIs<ReaderBridgeEvent.OverlayFragmentActive>(overlay)
@@ -430,6 +496,124 @@ class ReaderBridgeProtocolTest {
 	fun bridgeEventsDecodeReaderCenterTap() {
 		assertIs<ReaderBridgeEvent.CenterTap>(
 			decodeReaderBridgeEvent("""{"type":"readerCenterTap"}""")
+		)
+	}
+
+	@Test
+	fun bridgeEventsDecodeInternalLinkRequestsWithSuppressionMetadata() {
+		val prevented = assertIs<ReaderBridgeEvent.InternalLinkRequested>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "internalLink",
+				  "href": "EPUB/Text/chapter-02.xhtml#door",
+				  "prevented": true,
+				  "source": "native-short-tap"
+				}
+				""".trimIndent()
+			)
+		)
+		val allowed = assertIs<ReaderBridgeEvent.InternalLinkRequested>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "internalLink",
+				  "href": "EPUB/Text/chapter-02.xhtml#door",
+				  "prevented": false,
+				  "source": "link-long-press"
+				}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals("EPUB/Text/chapter-02.xhtml#door", prevented.href)
+		assertEquals(true, prevented.prevented)
+		assertEquals("native-short-tap", prevented.source)
+		assertEquals("EPUB/Text/chapter-02.xhtml#door", allowed.href)
+		assertEquals(false, allowed.prevented)
+		assertEquals("link-long-press", allowed.source)
+	}
+
+	@Test
+	fun bridgeEventsDecodePhase3AnxBridgeEvents() {
+		val externalLink = assertIs<ReaderBridgeEvent.ExternalLink>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "externalLink",
+				  "href": "https://example.test/notes",
+				  "anchorHref": "../Text/chapter-01.xhtml#note"
+				}
+				""".trimIndent()
+			)
+		)
+		val annotationClick = assertIs<ReaderBridgeEvent.AnnotationClick>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "annotationClick",
+				  "value": "epubcfi(/6/8!/4/2:12)",
+				  "index": 3,
+				  "rangeCfi": "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+				}
+				""".trimIndent()
+			)
+		)
+		val annotationDrawn = assertIs<ReaderBridgeEvent.AnnotationDrawn>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "annotationDrawn",
+				  "value": "epubcfi(/6/8!/4/2:12)",
+				  "index": 3,
+				  "rangeCfi": "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+				}
+				""".trimIndent()
+			)
+		)
+		val overlayCreated = assertIs<ReaderBridgeEvent.OverlayCreated>(
+			decodeReaderBridgeEvent("""{"type":"overlayCreated","index":3}""")
+		)
+		val loadDoc = assertIs<ReaderBridgeEvent.LoadDoc>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "loadDoc",
+				  "index": 3,
+				  "href": "EPUB/Text/chapter-01.xhtml",
+				  "title": "Chapter 1",
+				  "sectionId": "chapter-01"
+				}
+				""".trimIndent()
+			)
+		)
+		val pushState = assertIs<ReaderBridgeEvent.PushState>(
+			decodeReaderBridgeEvent("""{"type":"pushState","canGoBack":true,"canGoForward":false}""")
+		)
+
+		assertEquals("https://example.test/notes", externalLink.href)
+		assertEquals("../Text/chapter-01.xhtml#note", externalLink.anchorHref)
+		assertIs<ReaderBridgeEvent.SelectionCleared>(
+			decodeReaderBridgeEvent("""{"type":"selectionCleared"}""")
+		)
+		assertEquals("epubcfi(/6/8!/4/2:12)", annotationClick.value)
+		assertEquals(3, annotationClick.index)
+		assertEquals("epubcfi(/6/8!/4/2:12,/1:0,/1:8)", annotationClick.rangeCfi)
+		assertEquals(annotationClick.value, annotationDrawn.value)
+		assertEquals(annotationClick.index, annotationDrawn.index)
+		assertEquals(annotationClick.rangeCfi, annotationDrawn.rangeCfi)
+		assertEquals(3, overlayCreated.index)
+		assertEquals(3, loadDoc.index)
+		assertEquals("EPUB/Text/chapter-01.xhtml", loadDoc.href)
+		assertEquals("Chapter 1", loadDoc.title)
+		assertEquals("chapter-01", loadDoc.sectionId)
+		assertEquals(true, pushState.canGoBack)
+		assertEquals(false, pushState.canGoForward)
+		assertIs<ReaderBridgeEvent.FootnoteClose>(
+			decodeReaderBridgeEvent("""{"type":"footnoteClose"}""")
+		)
+		assertIs<ReaderBridgeEvent.PullUp>(
+			decodeReaderBridgeEvent("""{"type":"pullUp"}""")
 		)
 	}
 
