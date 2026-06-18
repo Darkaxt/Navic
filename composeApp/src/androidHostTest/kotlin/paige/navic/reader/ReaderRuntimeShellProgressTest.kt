@@ -83,7 +83,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "case 'goToProgress'")
 		assertContains(bridgeText, "async function goToProgress(progress)")
 		assertContains(bridgeText, "case 'diagnosticLocationSnapshot'")
-		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot')")
+		assertContains(bridgeText, "postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot'")
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
 		assertContains(bridgeText, "case 'goToChapterProgress'")
@@ -106,6 +106,18 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(chapterNavigatorText, "Slider(")
 		assertContains(appBarsText, "onGoToChapterPage: (Int) -> Unit")
+	}
+
+	@Test
+	fun androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression() {
+		val bridgeText = readerBridgeText()
+
+		assertContains(bridgeText, "forceDuplicatePost: true")
+		assertContains(bridgeText, "postCurrentLocationSnapshot(reason = 'snapshot', options = {})")
+		assertContains(bridgeText, "postLocationChanged(detail, reason, options)")
+		assertContains(bridgeText, "postLocationChanged(detail, reason = 'relocate', options = {})")
+		assertContains(bridgeText, "locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost")
+		assertContains(bridgeText, "message,")
 	}
 
 	@Test
@@ -749,7 +761,7 @@ class ReaderRuntimeShellProgressTest {
 	fun androidReaderPostsPageModelDiagnosticsWithLocationChanges() {
 		val bridgeText = readerBridgeText()
 		val postLocationBody = bridgeText
-			.substringAfter("postLocationChanged(detail, reason = 'relocate') {")
+			.substringAfter("postLocationChanged(detail, reason = 'relocate', options = {}) {")
 			.substringBefore("\n  onRelocate(detail) {")
 
 		assertContains(postLocationBody, "pageCountSource: pagePosition?.pageCountSource || null")

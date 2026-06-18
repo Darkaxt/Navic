@@ -1458,3 +1458,69 @@ Result:
 Remaining:
 
 - Full host/unit verification is still required before committing this guard.
+
+## 2026-06-18 Emulator Probe: Anx Relocation Payload Evidence
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: PID `21759`, `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 16:15:18`.
+- EPUB state: Bindery EPUB launched through `scripts\install-reader-dev.ps1`; native cover was dismissed with an edge tap and the WebView showed page `1 / 270`.
+
+Trigger:
+
+- GLM's audit correctly pushed against symbol-only Anx parity. The current controller/UI routes are no longer the quoted no-ops, but Phase 4 still needed runtime relocation payload evidence from a real WebView.
+- The first relocation DevTools probe returned a valid runtime `locationChanged` payload but still failed because the harness waited for a monkey-patched Android JS bridge method that DevTools could not reliably replace.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression"
+```
+
+Result:
+
+- FAIL before implementation. The helper could still await `observedLocation`, and runtime diagnostic snapshots could be suppressed as duplicate relocations.
+
+Implemented:
+
+- `diagnosticLocationSnapshot` now forces a duplicate-safe post and returns the runtime `locationChanged` payload.
+- `postCurrentLocationSnapshot` and `postLocationChanged` now return explicit posted/skipped status objects instead of fire-and-forget behavior.
+- `adb-webview-eval.mjs` no longer waits indefinitely for a monkey-patched Android bridge method. It accepts the returned runtime `locationChanged` payload as evidence when `observedMessageCount` is zero.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest"
+```
+
+Result:
+
+- PASS: JS syntax for the DevTools helper and reader runtime.
+- PASS: focused diagnostic-return host guards.
+- PASS: `FoliateAnxParityTest`.
+
+Emulator command:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe relocation-payload -ArtifactDir captures\reader-bridge-probes\20260618-161735-relocation
+```
+
+Artifact:
+
+- `captures\reader-bridge-probes\20260618-161735-relocation\reader-devtools-probe.json`
+
+Result:
+
+- PASS: `locationSnapshotResult.posted=true`.
+- PASS: returned `locationChanged` carried `href=OEBPS/Text/sinopsis.xhtml`, CFI `rangeCfi=epubcfi(/6/4!/4/2,,/4/1:586)`, `reason=adb-relocation-payload-probe`, `fraction=0.004370907849029098`, `pageCount=270`, `pageCountSource=pagination-profile`, and `paginationFingerprint=navic-pagination-v1:1062454681`.
+- Note: `observedMessageCount=0` is expected for this probe path because DevTools cannot reliably monkey-patch the injected Android bridge method. The returned runtime payload is the evidence source.
+
+Remaining:
+
+- User-driven relocation flows still need runtime validation: tap, drag, progress rail, TOC, and resume must keep posting `reason` and CFI/null `rangeCfi`.
+- Phase 3 and Phase 5 real-flow bridge events still need emulator/device evidence before release-candidate claims.

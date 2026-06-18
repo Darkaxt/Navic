@@ -236,6 +236,21 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperRelocationProbeReturnsEvidenceAfterDiagnosticDispatch() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(helperText, "locationSnapshotResult = await Promise.resolve(dispatchResult)")
+		assertContains(helperText, "locationSnapshotResult?.message?.type === 'locationChanged'")
+		assertContains(helperText, "|| returnedLocation")
+		assertContains(helperText, "observedPayloads.find(payload => payload.type === 'locationChanged')")
+		assertContains(helperText, "diagnosticLocationSnapshot did not emit locationChanged")
+		assertFalse(
+			helperText.contains("await observedLocation"),
+			"Relocation payload probing must not wait indefinitely for a bridge message after the diagnostic dispatch has settled."
+		)
+	}
+
+	@Test
 	fun adbReaderSmokeUsesSerialAwareAdbHelperForCaptureAndDiagnostics() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val bodyAfterHelper = scriptText

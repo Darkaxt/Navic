@@ -286,38 +286,49 @@ async function runRelocationPayloadProbe(page) {
       throw new Error('Missing NavicReaderBridge.dispatch')
     }
     const observed = []
-    const observedLocation = new Promise(resolve => {
-      window.NavicAndroidBridge.postMessage = message => {
-        observed.push(message)
-        originalPostMessage(message)
-        try {
-          const payload = JSON.parse(message)
-          if (payload.type === 'locationChanged') {
-            resolve(payload)
-          }
-        } catch {
-          // Keep forwarding malformed messages to Android; they are not this probe's target.
-        }
+    const observedPayloads = []
+    window.NavicAndroidBridge.postMessage = message => {
+      observed.push(message)
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
       }
-    })
+    }
 
     try {
       const dispatchResult = readerBridgeDispatch({
         type: 'diagnosticLocationSnapshot',
         reason: 'adb-relocation-payload-probe',
       })
-      Promise.resolve(dispatchResult).catch(error => {
+      let locationSnapshotResult = null
+      try {
+        locationSnapshotResult = await Promise.resolve(dispatchResult)
+      } catch (error) {
         originalPostMessage(JSON.stringify({
           type: 'error',
           code: 'relocation_payload_probe_dispatch_failed',
           message: error?.message || String(error),
         }))
-      })
-      const locationChanged = await observedLocation
+        throw error
+      }
+      const returnedLocation = locationSnapshotResult?.message?.type === 'locationChanged'
+        ? locationSnapshotResult.message
+        : null
+      const locationChanged = observedPayloads.find(payload => payload.type === 'locationChanged') || returnedLocation
+      if (!locationChanged) {
+        throw new Error(
+          `diagnosticLocationSnapshot did not emit locationChanged; result=${
+            JSON.stringify(locationSnapshotResult)
+          }; observedMessageCount=${observed.length}`
+        )
+      }
 
       return {
         probe: 'relocation-payload',
         reason: 'adb-relocation-payload-probe',
+        locationSnapshotResult,
         observedLocation: locationChanged,
         observedMessageCount: observed.length,
         expectedLogLabels: [

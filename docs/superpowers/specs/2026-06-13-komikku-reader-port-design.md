@@ -121,6 +121,8 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
+- Phase 4 now has dirty-emulator WebView evidence for the relocation payload path. `captures\reader-bridge-probes\20260618-161735-relocation\reader-devtools-probe.json` shows a real `locationChanged` message from `darkaxt.navic.readerdev` on `emulator-5554` carrying `rangeCfi`, `reason`, `fraction`, pagination profile metadata, and page counts.
+- The DevTools relocation probe must not wait on monkey-patching Android's injected JS bridge method. The runtime diagnostic command returns the posted `locationChanged` payload, and the harness accepts that returned payload as evidence when `observedMessageCount` is zero.
 - Phase 5 extends `SelectionChanged` through bridge, engine, controller, runtime, and debug logging with Anx `onSelectionEnd` payload fields: `footnote`, `contextText`, and `pos.left/top/right/bottom`.
 - Phase 5 now has a controller/UI route for selected text: `ReaderControllerState.selectionActions` drives a native Komikku overlay with Highlight, Copy, and Note actions. Highlight and Note apply through the annotation engine command path; Copy is handled at the app boundary with the native clipboard.
 - Note is not a hidden no-op route: `startSelectionNote` opens a native draft dialog, and `saveSelectionNote` stores a note-bearing `ReaderAnnotation` and emits `ApplyAnnotations`.
@@ -180,7 +182,8 @@ Phase 4 is host-verified:
 
 - `ReaderLocator` carries Anx relocation payload fields without giving the WebView chrome/progress ownership.
 - `locationChanged` posts `rangeCfi` from `detail.cfi`; do not stringify DOM `Range` objects.
-- Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `reason` and `rangeCfi` on real EPUB relocations, and `rangeCfi` must be a CFI string or null, never `[object Range]`.
+- Dirty-emulator WebView validation passed on 2026-06-18 for the diagnostic relocation path: the runtime returned a posted `locationChanged` payload with `reason=adb-relocation-payload-probe`, a CFI `rangeCfi`, `fraction`, and pagination profile metadata.
+- Remaining runtime validation before treating this behavior as release-ready: real user-driven relocations under tap, drag, progress rail, TOC, and resume must keep posting `reason` and CFI/null `rangeCfi`; `rangeCfi` must never become `[object Range]`.
 
 Phase 5 is host-verified:
 
@@ -238,7 +241,7 @@ Priority 2:
 ## Implementation Order
 
 1. Execute Anx/Foliate Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md`: PDF and font source parity guards.
-2. Validate Phase 3, Phase 4, and Phase 5 bridge events on emulator/device with logcat before any release-candidate discussion.
+2. Validate Phase 3 and Phase 5 bridge events on emulator/device with logcat before any release-candidate discussion; Phase 4 has dirty-emulator diagnostic proof but still needs broader user-driven relocation flow checks.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.
@@ -255,7 +258,8 @@ After every major reader code/asset/script change:
 3. If stale or ambiguous, rebuild/install/open with `scripts\install-reader-dev.ps1` using `-DeviceSerial` and the Bindery env file.
 4. Run `scripts\adb-reader-komikku-matrix.ps1` with `-DeviceSerial`, `-ExpectedVersionName`, `-NoLaunch`, `-IncludeCoverChecks`, and a fresh artifact root.
 5. Inspect baseline screenshot, hierarchy, summary CSV, failures file, logs, and relevant screenshots.
-6. Append only a concise result to `2026-06-13-komikku-reader-port-validation-log.md`.
+6. For DevTools bridge probes, require deterministic evidence in the artifact JSON. Do not rely on replacing Android-injected bridge methods from DevTools; commands must return the payload or a concrete failure.
+7. Append only a concise result to `2026-06-13-komikku-reader-port-validation-log.md`.
 
 If emulator launch, install, Bindery seed, or the matrix script fails, that validation path failure becomes the current task.
 

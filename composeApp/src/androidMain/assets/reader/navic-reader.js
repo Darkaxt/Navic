@@ -297,7 +297,9 @@ class NavicReaderRuntime {
       case 'goToProgress':
         return this.goToProgress(command.progress)
       case 'diagnosticLocationSnapshot':
-        return this.postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot')
+        return this.postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot', {
+          forceDuplicatePost: true,
+        })
       case 'goToChapterProgress':
         return this.goToChapterProgress(command.href, command.progress)
       case 'nextPage':
@@ -1149,23 +1151,23 @@ class NavicReaderRuntime {
     }
   }
 
-  postCurrentLocationSnapshot(reason = 'snapshot') {
+  postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
     const detail = this.lastRelocateDetail || this.currentFixedLayoutLocationDetail()
     if (!detail) {
       log('location-snapshot:missing', reason)
-      return
+      return { posted: false, skipped: 'missing-location', reason }
     }
     log('location-snapshot', reason)
-    this.postLocationChanged(detail, reason)
+    return this.postLocationChanged(detail, reason, options)
   }
 
-  postLocationChanged(detail, reason = 'relocate') {
+  postLocationChanged(detail, reason = 'relocate', options = {}) {
     this.removePageDragPreviewLayer()
     if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
       this.updateReaderPageNumberLayer(null)
       log('location-changed:cover-skipped', reason)
       readerTrace('location:cover-skipped', { reason, detail })
-      return
+      return { posted: false, skipped: 'cover', reason }
     }
     const sectionHref = this.sectionHrefForDetail(detail)
     const rawTocItem = detail.tocItem || {}
@@ -1203,10 +1205,10 @@ class NavicReaderRuntime {
       ...pageModelDiagnostics,
     }
     const locationKey = readerLocationPostKey(message)
-    if (locationKey === this.lastPostedLocationKey) {
+    if (locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost) {
       log('location-changed:duplicate-skipped', reason)
       readerTrace('location:duplicate-skipped', { reason, message })
-      return
+      return { posted: false, skipped: 'duplicate', reason }
     }
     this.updateSurfacePaperTexture(detail, pagePosition)
     this.committedRelocateDetail = detail
@@ -1238,6 +1240,7 @@ class NavicReaderRuntime {
     if (tocItem.href || tocItem.label || tocItem.title) {
       post({ type: 'tocItemChanged', href: tocItem.href, title: tocItem.label || tocItem.title })
     }
+    return { posted: true, reason, href: message.href || null, pageIndex: message.pageIndex ?? null, message }
   }
 
   beginControlledRelocation(reason) {
