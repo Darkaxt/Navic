@@ -40,13 +40,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_reader_reading_mode
 import navic.composeapp.generated.resources.title_chapters
 import navic.composeapp.generated.resources.title_settings
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
-import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.FormatListNumbered
@@ -73,7 +71,6 @@ internal fun KomikkuReaderAppBars(
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
-	onReadingMode: () -> Unit,
 	onSearch: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
@@ -215,7 +212,6 @@ internal fun KomikkuReaderAppBars(
 				KomikkuReaderBottomBar(
 					enabledButtons = enabledButtons,
 					onContents = onContents,
-					onReadingMode = onReadingMode,
 					onSearch = onSearch,
 					onSettings = onSettings,
 					modifier = Modifier
@@ -346,7 +342,6 @@ private sealed interface KomikkuReaderAppBarAction {
 private fun KomikkuReaderBottomBar(
 	enabledButtons: Set<String>,
 	onContents: () -> Unit,
-	onReadingMode: () -> Unit,
 	onSearch: () -> Unit,
 	onSettings: () -> Unit,
 	modifier: Modifier = Modifier
@@ -366,16 +361,6 @@ private fun KomikkuReaderBottomBar(
 				Icon(
 					imageVector = Icons.Outlined.FormatListNumbered,
 					contentDescription = stringResource(Res.string.title_chapters),
-					tint = iconColor
-				)
-			}
-		}
-
-		if (KomikkuReaderBottomButton.ReadingMode.isIn(enabledButtons)) {
-			IconButton(onClick = onReadingMode) {
-				Icon(
-					imageVector = Icons.Outlined.Book,
-					contentDescription = stringResource(Res.string.action_reader_reading_mode),
 					tint = iconColor
 				)
 			}
@@ -427,7 +412,6 @@ private enum class KomikkuReaderBottomButton(val value: String) {
 
 		val NAVIC_SUPPORTED_DEFAULTS = setOf(
 			ViewChapters,
-			ReadingMode,
 			Search
 		).map { it.value }.toSet()
 	}

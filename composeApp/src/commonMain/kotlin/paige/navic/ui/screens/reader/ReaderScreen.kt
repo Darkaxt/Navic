@@ -296,9 +296,6 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onContents = {
 			applyCoordinatorStep(coordinator.openContentsDialog())
 		},
-		onReadingMode = {
-			applyCoordinatorStep(coordinator.openReadingModeDialog())
-		},
 		onSearch = {
 			applyCoordinatorStep(coordinator.openSearchDialog())
 		},

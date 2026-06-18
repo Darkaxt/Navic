@@ -2145,3 +2145,32 @@ Result:
 - GREEN: `:composeApp:testAndroid` completed with `BUILD SUCCESSFUL in 16s`, `24 actionable tasks: 1 executed, 23 up-to-date`.
 - GREEN: both `node --check` commands passed.
 - GREEN: `git diff --check` passed.
+
+## 2026-06-18 Host Guard: Bottom Toolbar Must Not Duplicate Settings
+
+Trigger:
+
+- User asked whether the bottom toolbar needs two buttons that effectively open the same settings window.
+- Reference decision: no. Komikku-style bottom actions must be distinct controller actions. The Reading tab remains inside the settings sheet, but the bottom bar must not render a second book/reading-mode icon that opens the same dialog family as settings.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomToolbarDoesNotExposeDuplicateSettingsDialogs
+```
+
+Result:
+
+- RED: the first targeted host run failed at `ReaderRuntimeCommonChromeTest.kt:586` because `KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS` still included `ReadingMode`.
+- GREEN: after implementation, the same targeted host run completed with `BUILD SUCCESSFUL in 2m 32s`.
+- FRESH BROADER CHECK: `.\gradlew.bat --no-daemon :composeApp:testAndroid` completed with `BUILD SUCCESSFUL in 28s`, `24 actionable tasks: 2 executed, 22 up-to-date`.
+
+Implementation notes:
+
+- `ReaderAppBars.kt` keeps Komikku's `ReaderBottomButton` model but no longer exposes `ReadingMode` in `NAVIC_SUPPORTED_DEFAULTS`.
+- The bottom toolbar now exposes contents, search, and a single settings entry point.
+- `ReaderControllerDialog.ReadingMode` remains available internally so the Reading tab route is not deleted; it is only removed as a duplicate bottom action.
+
+Remaining:
+
+- This is a host/source guard only. No release build was created for this micro-cleanup because it is not a major reader milestone.

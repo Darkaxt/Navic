@@ -573,6 +573,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderBottomToolbarDoesNotExposeDuplicateSettingsDialogs() {
+		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
+		val bottomBarBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
+			.substringBefore("\n}\n\nprivate enum class KomikkuReaderBottomButton")
+		val defaultsBody = appBarsText.substringAfter("val NAVIC_SUPPORTED_DEFAULTS = setOf(")
+			.substringBefore("\n\t\t).map")
+
+		assertContains(bottomBarBody, "IconButton(onClick = onSettings)")
+		assertContains(bottomBarBody, "IconButton(onClick = onContents)")
+		assertContains(bottomBarBody, "IconButton(onClick = onSearch)")
+		assertFalse(
+			defaultsBody.contains("ReadingMode"),
+			"The bottom toolbar must not expose a second button that opens the same settings sheet."
+		)
+		assertFalse(
+			bottomBarBody.contains("onReadingMode"),
+			"The bottom toolbar should have one settings entry; reading-mode tabs live inside that settings sheet until a distinct route exists."
+		)
+		assertFalse(
+			bottomBarBody.contains("Icons.Outlined.Book"),
+			"The book icon currently duplicates the settings sheet and should not be rendered as a bottom action."
+		)
+	}
+
+	@Test
 	fun commonReaderProgressAndSettingsUseSharedKomikkuIntegerSliderPrimitive() {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
@@ -913,13 +938,16 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(appBarsBody, "val enabledButtons = KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS")
 		assertContains(bottomChromeBody, "enabledButtons: Set<String>")
 		assertContains(bottomChromeBody, "KomikkuReaderBottomButton.ViewChapters.isIn(enabledButtons)")
-		assertContains(bottomChromeBody, "KomikkuReaderBottomButton.ReadingMode.isIn(enabledButtons)")
 		assertContains(bottomChromeBody, "IconButton(onClick = onSettings)")
 		assertContains(bottomChromeBody, "Icons.Outlined.FormatListNumbered")
 		assertContains(bottomChromeBody, "Icons.Outlined.Settings")
 		assertContains(bottomChromeBody, "stringResource(Res.string.title_chapters)")
-		assertContains(bottomChromeBody, "stringResource(Res.string.action_reader_reading_mode)")
 		assertContains(bottomChromeBody, "stringResource(Res.string.title_settings)")
+		assertFalse(
+			bottomChromeBody.contains("KomikkuReaderBottomButton.ReadingMode.isIn(enabledButtons)") ||
+				bottomChromeBody.contains("stringResource(Res.string.action_reader_reading_mode)"),
+			"Navic keeps Komikku's ReaderBottomButton model, but must not render ReadingMode as a duplicate settings-sheet entry."
+		)
 		assertFalse(
 			appBarsBody.contains("val bottomActions = listOf(") ||
 				appBarsText.contains("private sealed interface KomikkuReaderBottomAction") ||
