@@ -78,6 +78,9 @@ data class ReaderCoordinator(
 	fun dismissSelectionNote(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissSelectionNote())
 
+	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissAnnotationPopup())
+
 	fun toggleCurrentBookmark(): ReaderCoordinatorStep =
 		applyControllerStep(controller.toggleCurrentBookmark())
 

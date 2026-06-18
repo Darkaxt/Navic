@@ -151,6 +151,33 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun annotationPopupDismissalIsControllerOwnedAndDoesNotTouchTheEngine() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val annotated = opened.onEngineEvent(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "A saved note",
+				index = 2,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			)
+		).coordinator
+
+		val dismissed = annotated.dismissAnnotationPopup()
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(dismissed.coordinator.viewState)
+
+		assertEquals(
+			ReaderAnnotationPopupState(
+				value = "A saved note",
+				index = 2,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			annotated.controller.state.annotationPopup
+		)
+		assertNull(dismissed.coordinator.controller.state.annotationPopup)
+		assertNull(viewState.command)
+		assertEquals(0L, viewState.commandKey)
+	}
+
+	@Test
 	fun readaloudAdapterCommandsRouteThroughControllerBeforeCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(
 			hobbitOpenRequest().copy(

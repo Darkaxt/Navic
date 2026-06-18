@@ -341,6 +341,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onDismissSelectionNote = {
 			applyCoordinatorStep(coordinator.dismissSelectionNote())
 		},
+		onDismissAnnotationPopup = {
+			applyCoordinatorStep(coordinator.dismissAnnotationPopup())
+		},
 		onSettingsChange = { settings ->
 			applyReaderSettings(settings)
 		},

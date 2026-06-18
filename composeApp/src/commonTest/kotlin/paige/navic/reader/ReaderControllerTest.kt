@@ -223,6 +223,61 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun annotationClicksOpenControllerOwnedAnnotationPopup() {
+		val event = ReaderEngineEvent.AnnotationClicked(
+			value = "A saved note",
+			index = 3,
+			rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+		)
+
+		val step = ReaderController().onEngineEvent(event)
+
+		assertEquals(
+			ReaderAnnotationInteraction(
+				kind = ReaderAnnotationInteractionKind.Clicked,
+				value = "A saved note",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			step.controller.state.lastAnnotationInteraction
+		)
+		assertEquals(
+			ReaderAnnotationPopupState(
+				value = "A saved note",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			step.controller.state.annotationPopup
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun dismissAnnotationPopupClearsOnlyTheVisiblePopup() {
+		val controller = ReaderController().onEngineEvent(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "A saved note",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			)
+		).controller
+
+		val dismissed = controller.dismissAnnotationPopup()
+
+		assertNull(dismissed.controller.state.annotationPopup)
+		assertEquals(
+			ReaderAnnotationInteraction(
+				kind = ReaderAnnotationInteractionKind.Clicked,
+				value = "A saved note",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			dismissed.controller.state.lastAnnotationInteraction
+		)
+		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationFeedsChapterLocalProgressForKomikkuRail() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 		val locator = ReaderLocator(

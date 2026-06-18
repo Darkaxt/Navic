@@ -1047,6 +1047,27 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderAnnotationClickIsKomikkuOverlayAndControllerRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val annotationDialogText = readerCommonUiFile("ReaderAnnotationDialog.kt").readText()
+
+		assertContains(readerRootText, "KomikkuReaderAnnotationDialog(")
+		assertContains(readerRootText, "controllerState.annotationPopup")
+		assertContains(readerRootText, "onDismissAnnotationPopup = onDismissAnnotationPopup")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderAnnotationDialog(") ||
+				readerScreenText.contains("ReaderAnnotationPopupState("),
+			"Annotation-click UI must be a Komikku overlay component routed through controller state, not local ReaderScreen state."
+		)
+		assertContains(annotationDialogText, "internal fun KomikkuReaderAnnotationDialog(")
+		assertContains(annotationDialogText, "ReaderAnnotationPopupState")
+		assertContains(annotationDialogText, "BasicAlertDialog(")
+		assertContains(annotationDialogText, "onDismissAnnotationPopup")
+		assertContains(readerScreenText, "coordinator.dismissAnnotationPopup()")
+	}
+
+	@Test
 	fun commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()

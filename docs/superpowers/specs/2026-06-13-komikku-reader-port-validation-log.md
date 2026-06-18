@@ -1336,3 +1336,45 @@ Result:
 Remaining:
 
 - Android/emulator validation is still required: open search in a real EPUB, submit a term, verify results render, tap a result, verify navigation, dismiss search, and verify Foliate highlights clear.
+
+## 2026-06-18 Host Guard: Annotation Click Must Reach Komikku UI
+
+Trigger:
+
+- GLM audit correctly identified the recurring risk that Anx bridge events can be typed and decoded while still producing no visible reader behavior.
+- `AnnotationClick` already reached `ReaderControllerState.lastAnnotationInteraction`, but tapping an existing highlight/note had no Komikku-owned UI route.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.annotationClicksOpenControllerOwnedAnnotationPopup" --tests "paige.navic.reader.ReaderControllerTest.dismissAnnotationPopupClearsOnlyTheVisiblePopup" --tests "paige.navic.reader.ReaderCoordinatorTest.annotationPopupDismissalIsControllerOwnedAndDoesNotTouchTheEngine" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderAnnotationClickIsKomikkuOverlayAndControllerRouted"
+```
+
+Result:
+
+- FAIL as expected before implementation: unresolved `ReaderAnnotationPopupState`, missing `annotationPopup`, missing `dismissAnnotationPopup`, and missing `ReaderAnnotationDialog.kt`.
+
+Implemented:
+
+- `ReaderControllerState.annotationPopup` now opens from `ReaderEngineEvent.AnnotationClicked`.
+- `ReaderController.dismissAnnotationPopup` and `ReaderCoordinator.dismissAnnotationPopup` close the popup without emitting engine/WebView commands.
+- `KomikkuReaderAnnotationDialog` is a dedicated native overlay component under `ReaderRoot`, not local `ReaderScreen` state.
+- `ReaderRuntimeCommonChromeTest` now guards the Komikku overlay routing so `AnnotationClick` cannot regress back to hidden state-only handling.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.annotationClicksOpenControllerOwnedAnnotationPopup" --tests "paige.navic.reader.ReaderControllerTest.dismissAnnotationPopupClearsOnlyTheVisiblePopup" --tests "paige.navic.reader.ReaderCoordinatorTest.annotationPopupDismissalIsControllerOwnedAndDoesNotTouchTheEngine" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderAnnotationClickIsKomikkuOverlayAndControllerRouted"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroid
+```
+
+Result:
+
+- PASS: focused controller/coordinator/Komikku overlay guard.
+- PASS: full Android host suite.
+- PASS: Android unit test task.
+
+Remaining:
+
+- Android/emulator validation is still required: create or load a highlight/note, tap the existing annotation, confirm the popup appears, dismiss it, and verify no menu/tap-zone regression.

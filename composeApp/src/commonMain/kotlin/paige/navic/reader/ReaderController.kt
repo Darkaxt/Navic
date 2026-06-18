@@ -92,6 +92,15 @@ data class ReaderAnnotationInteraction(
 	val rangeCfi: String? = null
 )
 
+data class ReaderAnnotationPopupState(
+	val value: String? = null,
+	val index: Int? = null,
+	val rangeCfi: String? = null
+) {
+	val visible: Boolean
+		get() = !value.isNullOrBlank() || index != null || !rangeCfi.isNullOrBlank()
+}
+
 sealed interface ReaderOverlayInteraction {
 	data class Created(val index: Int? = null) : ReaderOverlayInteraction
 	data object FootnoteClosed : ReaderOverlayInteraction
@@ -111,6 +120,7 @@ data class ReaderControllerState(
 	val loadedDocument: ReaderLoadedDocument? = null,
 	val lastLinkInteraction: ReaderLinkInteraction? = null,
 	val lastAnnotationInteraction: ReaderAnnotationInteraction? = null,
+	val annotationPopup: ReaderAnnotationPopupState? = null,
 	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
 	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
@@ -201,6 +211,7 @@ data class ReaderController(
 					loadedDocument = null,
 					lastLinkInteraction = null,
 					lastAnnotationInteraction = null,
+					annotationPopup = null,
 					lastOverlayInteraction = null,
 					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
@@ -286,14 +297,7 @@ data class ReaderController(
 			)
 			is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(
 				copy(
-					state = state.copy(
-						lastAnnotationInteraction = ReaderAnnotationInteraction(
-							kind = ReaderAnnotationInteractionKind.Clicked,
-							value = event.value,
-							index = event.index,
-							rangeCfi = event.rangeCfi
-						)
-					)
+					state = state.onAnnotationClicked(event)
 				)
 			)
 			is ReaderEngineEvent.AnnotationDrawn -> ReaderControllerStep(
@@ -579,6 +583,9 @@ data class ReaderController(
 	fun dismissSelectionNote(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(selectionNoteDraft = null)))
 
+	fun dismissAnnotationPopup(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(annotationPopup = null)))
+
 	fun toggleCurrentBookmark(): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)
 		val nextBookmarks = state.bookmarks.toggleBookmark(
@@ -772,6 +779,26 @@ data class ReaderController(
 				)
 			)
 		)
+}
+
+private fun ReaderControllerState.onAnnotationClicked(
+	event: ReaderEngineEvent.AnnotationClicked
+): ReaderControllerState {
+	val interaction = ReaderAnnotationInteraction(
+		kind = ReaderAnnotationInteractionKind.Clicked,
+		value = event.value,
+		index = event.index,
+		rangeCfi = event.rangeCfi
+	)
+	val popup = ReaderAnnotationPopupState(
+		value = event.value?.trim()?.takeIf { it.isNotEmpty() },
+		index = event.index,
+		rangeCfi = event.rangeCfi?.trim()?.takeIf { it.isNotEmpty() }
+	).takeIf { it.visible }
+	return copy(
+		lastAnnotationInteraction = interaction,
+		annotationPopup = popup
+	)
 }
 
 private fun ReaderChapterProgressState.updatedFrom(

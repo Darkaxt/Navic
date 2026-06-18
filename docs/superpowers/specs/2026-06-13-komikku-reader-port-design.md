@@ -122,6 +122,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 5 extends `SelectionChanged` through bridge, engine, controller, runtime, and debug logging with Anx `onSelectionEnd` payload fields: `footnote`, `contextText`, and `pos.left/top/right/bottom`.
 - Phase 5 now has a controller/UI route for selected text: `ReaderControllerState.selectionActions` drives a native Komikku overlay with Highlight, Copy, and Note actions. Highlight and Note apply through the annotation engine command path; Copy is handled at the app boundary with the native clipboard.
 - Note is not a hidden no-op route: `startSelectionNote` opens a native draft dialog, and `saveSelectionNote` stores a note-bearing `ReaderAnnotation` and emits `ApplyAnnotations`.
+- Anx `show-annotation`/`AnnotationClick` is no longer a hidden no-op route: `ReaderControllerState.annotationPopup` drives a dedicated Komikku-native annotation overlay, and dismissal is routed through `ReaderCoordinator` without WebView ownership.
 - Phase 6 adds Anx `BookStyle` dimensions to the settings contract: `fontWeight`, `letterSpacing`, `wordSpacing`, `sideMargin`, `topMargin`, `bottomMargin`, `indent`, and `headingFontSize`.
 - Phase 6 carries those fields through defaults, preference persistence, book overrides, bridge serialization, pagination cache metadata, Foliate renderer attributes, runtime CSS, and the Komikku settings dialog.
 - Phase 7 PDF and font-source parity guards are host-verified. `FoliatePdfAnxParityTest` guards the Anx/Foliate `makePDF(file)` contract, and `ReaderFontSourceAnxParityTest` guards local import, remote manifest, WebView-safe font URLs, deletion, and remote download progress/pause/resume/cancel routes.
@@ -167,6 +168,7 @@ Phase 3 is host-verified:
 
 - Missing bridge events now exist: `LoadDoc`, `ExternalLink`, `SelectionCleared`, annotation events, overlay creation, push state, footnote close, and pull-up.
 - These events are no longer allowed to remain adapter-only. `ReaderController` must retain link, annotation, overlay, loaded-document, and navigation state for downstream UI behavior.
+- `AnnotationClick` now has a visible controller-owned UI route: tapping an existing Foliate/Anx annotation can surface a native Komikku annotation popup instead of only updating debug/controller state.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
 - Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `selectionCleared`, `footnoteClose`, and `pullUp` under real reader flows.
 

@@ -52,6 +52,7 @@ internal fun KomikkuReaderRoot(
 	onStartSelectionNote: () -> Unit,
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
+	onDismissAnnotationPopup: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -141,6 +142,7 @@ internal fun KomikkuReaderRoot(
 				onStartSelectionNote = onStartSelectionNote,
 				onSaveSelectionNote = onSaveSelectionNote,
 				onDismissSelectionNote = onDismissSelectionNote,
+				onDismissAnnotationPopup = onDismissAnnotationPopup,
 				onSettingsChange = onSettingsChange,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
@@ -187,6 +189,7 @@ private fun KomikkuComposeOverlay(
 	onStartSelectionNote: () -> Unit,
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
+	onDismissAnnotationPopup: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -277,6 +280,12 @@ private fun KomikkuComposeOverlay(
 				draft = draft,
 				onSaveSelectionNote = onSaveSelectionNote,
 				onDismissSelectionNote = onDismissSelectionNote
+			)
+		}
+		controllerState.annotationPopup?.let { annotation ->
+			KomikkuReaderAnnotationDialog(
+				annotation = annotation,
+				onDismissAnnotationPopup = onDismissAnnotationPopup
 			)
 		}
 	}
