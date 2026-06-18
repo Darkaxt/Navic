@@ -2350,3 +2350,42 @@ Artifacts:
 Remaining:
 
 - This validates readerdev/emulator behavior only. It should be included in the next release candidate because it directly addresses a major touch regression class.
+
+## 2026-06-19 Release Candidate: v1.0.11-eta75
+
+Trigger:
+
+- Publish the mini-drag suppressor and restored center-tap behavior as a proper Android release candidate because this is a major reader input regression class.
+
+Local gates before tagging:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta75
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+git diff --check
+```
+
+Result:
+
+- `verify-android-release-version.ps1`: `Android versionName matches v1.0.11-eta75`.
+- `:composeApp:testAndroidHost`: `BUILD SUCCESSFUL in 16s`.
+- `node --check`: passed.
+- `git diff --check`: passed.
+- Release metadata commit: `8def3bd1 Prepare eta75 Android release`.
+- Release tag: `v1.0.11-eta75`.
+- GitHub Actions run: `https://github.com/Darkaxt/Navic/actions/runs/27795532041`.
+- Android release build completed successfully; release signing verification passed.
+- iOS IPA job was skipped, as expected for dashed eta tags.
+- GitHub release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta75`.
+- APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta75/Navic.apk`.
+- GitHub asset digest: `sha256:d0a0a6eabcd0f3dad683ebceaced436c5f5b0daa76ba603b2b284f93ff5bd4d5`.
+
+Readerdev/emulator note:
+
+- A readerdev reinstall attempt after the eta75 metadata bump did not complete inside the command-runner ceiling, and the emulator still reported `darkaxt.navic.readerdev` as `versionName=v1.0.11-eta74`.
+- Do not count that attempted readerdev matrix as eta75 validation. The eta75 proof is the host gates plus GitHub Android release build/signing only.
+
+Remaining:
+
+- User/phone validation is still required for the restored center tap, mini-drag suppression, real drag paging, and the existing progress rail/open P0 items.
