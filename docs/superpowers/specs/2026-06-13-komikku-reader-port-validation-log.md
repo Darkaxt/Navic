@@ -6,6 +6,36 @@ The full historical log before compaction is preserved at:
 
 - `docs/superpowers/specs/archive/2026-06-13-komikku-reader-port-design-full-log.md`
 
+## 2026-06-19 Host Guard: Readable Drag Slop Split
+
+Target:
+
+- Source branch: `master`.
+- Scope: fix the eta73/eta74 gesture split so readable-page mini-drift does not start a page-drag preview, while confirmed center taps remain native-owned.
+
+Diagnosis:
+
+- Eta73 guarded `onSingleTapConfirmed` with `!nativeTapCandidate`, which could reject legitimate center taps after GestureDetector confirmed them late in the touch lifecycle.
+- Eta74 removed that guard and introduced `nativeTapCancelledByDrag`, but readable-page drag preview still used normal tap slop. That let tiny center-tap drift enter the page-drag preview path.
+- Correct contract: shell-cover drag may use normal tap slop for responsiveness; readable EPUB/PDF page drag should use Android paging slop so the WebView/Foliate surface does not treat small tap drift as a page turn/preview.
+
+Change:
+
+- `KomikkuReaderNativeFrameHost.android.kt` now keeps `touchSlopPx` for shell-cover drag and adds `readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()` for readable-page drag preview/release/logging.
+- `onSingleTapConfirmed` still rejects only `nativeTapCancelledByDrag`; the eta73 `if (!nativeTapCandidate) return false` guard remains forbidden.
+- `ReaderRuntimeShellProgressTest.nativeReadableDragPreviewUsesPagingSlopWithoutRestoringCandidateTapGuard` protects that split.
+
+Evidence:
+
+- RED: focused host test failed because production did not contain `readablePageDragSlopPx`.
+- GREEN: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.nativeReadableDragPreviewUsesPagingSlopWithoutRestoringCandidateTapGuard"`.
+- GREEN: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress"`.
+- ADB limitation: the connected emulator release app is `v1.0.11-eta74` but blocked at login / `STOP, READ!`; the foreground readerdev task is `v1.0.11-eta72`. A controlled readerdev center tap did log `Reader native tap action=MENU`, proving ADB tap injection works, but it is not evidence for this HEAD fix.
+
+Next required validation:
+
+- Install a new release/dev candidate with this source and repeat real-reader checks: pure center tap, slight center-tap drift, intentional readable-page drag, cover center tap, and cover drag.
+
 ## 2026-06-18 Phone Corrupted Menu / Drag Preview Tap Leak
 
 Target:

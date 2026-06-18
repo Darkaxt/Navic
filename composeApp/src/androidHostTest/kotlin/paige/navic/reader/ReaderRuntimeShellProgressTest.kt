@@ -509,6 +509,63 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeReadableDragPreviewUsesPagingSlopWithoutRestoringCandidateTapGuard() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val singleTap = nativeFrameHostText
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}")
+		val nativeHorizontalSwipe = nativeFrameHostText
+			.substringAfter("private fun nativeHorizontalSwipeMovedBeyondSlop(x: Float, y: Float): Boolean =")
+			.substringBefore("\n\n\tprivate fun clearNativeTapState")
+		val dispatchHorizontalSwipe = nativeFrameHostText
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun updateShellCoverDragOffset")
+		val logDragCandidate = nativeFrameHostText
+			.substringAfter("private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {")
+			.substringBefore("\n\tprivate fun logReaderReadableDragPreview")
+
+		assertContains(
+			nativeFrameHostText,
+			"private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()",
+			message = "Readable page drags should not start from tiny tap drift; use Android's paging slop for the WebView/Foliate surface."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"readerShellCoverSwipeAction(",
+			message = "Shell-cover swipes still use the cover-specific physical side-zone drag behavior."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"thresholdPx = touchSlopPx",
+			message = "Native cover drags should remain responsive at normal tap slop."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"thresholdPx = readablePageDragSlopPx",
+			message = "Readable-page drag preview must not use normal tap slop, because that reclassifies small center-tap drift as a page drag."
+		)
+		assertContains(
+			dispatchHorizontalSwipe,
+			"readerSwipeThresholdPx(shellCoverVisible)",
+			message = "Swipe release must use the same cover/readable threshold as drag preview."
+		)
+		assertContains(
+			logDragCandidate,
+			"readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)",
+			message = "ADB drag diagnostics should follow the actual cover/readable drag threshold instead of logging mini-drifts as page drags."
+		)
+		assertContains(
+			singleTap,
+			"if (nativeTapCancelledByDrag) return false",
+			message = "A real drag preview must not also become a center-menu tap."
+		)
+		assertFalse(
+			singleTap.contains("if (!nativeTapCandidate) return false"),
+			"Do not reintroduce the eta73 fix: it kills confirmed center taps because GestureDetector may confirm after ACTION_UP lifecycle flags changed."
+		)
+	}
+
+	@Test
 	fun nativeShellCoverLogsDragCandidatesBeforeSwipeDispatch() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val handleTouch = nativeFrameHostText

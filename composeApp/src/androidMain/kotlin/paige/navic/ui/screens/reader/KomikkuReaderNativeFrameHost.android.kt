@@ -282,6 +282,7 @@ private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout(context) {
 	private val viewerContentContainer = FrameLayout(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
 	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
@@ -508,10 +509,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
 		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
+		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible)
 		val action = if (shellCoverVisible) {
-			readerShellCoverSwipeAction(deltaX, deltaY, touchSlopPx)
+			readerShellCoverSwipeAction(deltaX, deltaY, thresholdPx)
 		} else {
-			readerNativeReaderSwipeAction(deltaX, deltaY, touchSlopPx)
+			readerNativeReaderSwipeAction(deltaX, deltaY, thresholdPx)
 		} ?: return false
 		horizontalSwipeDispatched = true
 		nativeTapCandidate = false
@@ -520,7 +522,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (shellCoverVisible) {
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader shell cover swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+				"Reader shell cover swipe action=$action dx=$deltaX dy=$deltaY threshold=$thresholdPx"
 			)
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
@@ -529,7 +531,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		} else {
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader native readable swipe action=$action dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+				"Reader native readable swipe action=$action dx=$deltaX dy=$deltaY threshold=$thresholdPx"
 			)
 		}
 		if (shellCoverVisible) {
@@ -564,7 +566,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
-		if (shellCoverDragDiagnosticLogged || abs(deltaX) <= touchSlopPx) return
+		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)
+		if (shellCoverDragDiagnosticLogged || abs(deltaX) <= thresholdPx) return
 		shellCoverDragDiagnosticLogged = true
 		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 		val label = if (shellCoverVisible) {
@@ -607,8 +610,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			readerNativeReaderSwipeAction(
 				deltaX = x - swipeStartX,
 				deltaY = y - swipeStartY,
-				thresholdPx = touchSlopPx
+				thresholdPx = readablePageDragSlopPx
 			) != null
+		}
+
+	private fun readerSwipeThresholdPx(shellCoverVisible: Boolean): Float =
+		if (shellCoverVisible) {
+			touchSlopPx
+		} else {
+			readablePageDragSlopPx
 		}
 
 	private fun clearNativeTapState() {
