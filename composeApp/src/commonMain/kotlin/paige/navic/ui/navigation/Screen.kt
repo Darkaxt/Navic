@@ -155,7 +155,12 @@ sealed interface Screen : NavKey {
 		val publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 		val mediaOverlayEnabled: Boolean = false,
 		val startCfi: String? = null,
-		val startHref: String? = null
+		val startHref: String? = null,
+		val whispersyncSidecarUrl: String? = null,
+		val whispersyncArtifactId: String? = null,
+		val whispersyncAudiobookId: String? = null,
+		val whispersyncAudiobookBookFileId: String? = null,
+		val whispersyncAudiobookTitle: String? = null
 	) : Screen
 
 	// misc

@@ -127,6 +127,7 @@ fun BinderyBookScreen(
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
 	var syncSheetRow by remember { mutableStateOf<BinderyBookVersionRow?>(null) }
+	var syncLaunchSheetRow by remember { mutableStateOf<BinderyBookVersionRow?>(null) }
 	val versionRows = data?.let { bookData ->
 		binderyBookVersionRows(
 			manifest = bookData.manifest,
@@ -281,6 +282,10 @@ fun BinderyBookScreen(
 										onOpenWhispersync = { row ->
 											platformContext.clickSound()
 											syncSheetRow = row
+										},
+										onOpenWhispersyncReader = { row ->
+											platformContext.clickSound()
+											syncLaunchSheetRow = row
 										}
 									)
 								}
@@ -314,6 +319,10 @@ fun BinderyBookScreen(
 										onOpenWhispersync = { row ->
 											platformContext.clickSound()
 											syncSheetRow = row
+										},
+										onOpenWhispersyncReader = { row ->
+											platformContext.clickSound()
+											syncLaunchSheetRow = row
 										}
 									)
 								}
@@ -350,6 +359,21 @@ fun BinderyBookScreen(
 			onDismissRequest = { syncSheetRow = null },
 			onOpenSidecar = {
 				// The timing layer is not wired yet; this keeps the pairing UI discoverable without starting partial playback.
+			}
+		)
+	}
+
+	syncLaunchSheetRow?.let { row ->
+		BinderyWhispersyncLaunchSheet(
+			row = row,
+			bookId = bookId,
+			bookTitle = titleText,
+			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+			onDismissRequest = { syncLaunchSheetRow = null },
+			onOpenReader = { destination ->
+				platformContext.clickSound()
+				syncLaunchSheetRow = null
+				backStack.add(destination)
 			}
 		)
 	}
@@ -502,7 +526,8 @@ private fun BinderyBookVersionListItem(
 	onOpenReader: (Screen.Reader) -> Unit,
 	onOpenAudiobook: (Screen.BinderyAudiobookPlayer) -> Unit,
 	onOpenAudiobookDetail: (Screen.BinderyAudiobookDetail) -> Unit,
-	onOpenWhispersync: (BinderyBookVersionRow) -> Unit
+	onOpenWhispersync: (BinderyBookVersionRow) -> Unit,
+	onOpenWhispersyncReader: (BinderyBookVersionRow) -> Unit
 ) {
 	val readerDestination = binderyReaderDestinationForVersionRow(
 		row = row,
@@ -528,6 +553,8 @@ private fun BinderyBookVersionListItem(
 			title = row.title
 		)
 	}
+	val whispersyncLaunchMatches = row.whispersyncAudiobookLaunchMatches()
+	val whispersyncLaunchAction = row.whispersyncAudiobookLaunchAction()
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = RoundedCornerShape(8.dp),
@@ -593,6 +620,33 @@ private fun BinderyBookVersionListItem(
 						imageVector = Icons.Outlined.Info,
 						contentDescription = null,
 						tint = MaterialTheme.colorScheme.onSurfaceVariant
+					)
+				}
+			}
+			if (whispersyncLaunchAction != BinderyWhispersyncAudiobookLaunchAction.None) {
+				IconButton(
+					onClick = {
+						when (whispersyncLaunchAction) {
+							BinderyWhispersyncAudiobookLaunchAction.None -> Unit
+							BinderyWhispersyncAudiobookLaunchAction.OpenDirectly -> {
+								whispersyncLaunchMatches.singleOrNull()?.let { match ->
+									binderyWhispersyncReaderDestinationForMatch(
+										ebookRow = row,
+										match = match,
+										bookId = bookId,
+										bookTitle = bookTitle,
+										opdsBaseUrl = opdsBaseUrl
+									)?.let(onOpenReader)
+								}
+							}
+							BinderyWhispersyncAudiobookLaunchAction.ChooseAudiobook -> onOpenWhispersyncReader(row)
+						}
+					}
+				) {
+					Icon(
+						imageVector = Icons.Outlined.Audiobooks,
+						contentDescription = "Open with audiobook",
+						tint = MaterialTheme.colorScheme.primary
 					)
 				}
 			}
@@ -682,6 +736,95 @@ private fun BinderyWhispersyncMatchesSheet(
 				modifier = Modifier.align(Alignment.End)
 			) {
 				Text("Done")
+			}
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BinderyWhispersyncLaunchSheet(
+	row: BinderyBookVersionRow,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String,
+	onDismissRequest: () -> Unit,
+	onOpenReader: (Screen.Reader) -> Unit
+) {
+	val matches = row.whispersyncAudiobookLaunchMatches()
+	ModalBottomSheet(onDismissRequest = onDismissRequest) {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 20.dp, vertical = 8.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp)
+		) {
+			Text(
+				text = "Open with audiobook",
+				style = MaterialTheme.typography.titleMedium,
+				fontWeight = FontWeight.SemiBold
+			)
+			Text(
+				text = row.title,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+			matches.forEach { match ->
+				val destination = binderyWhispersyncReaderDestinationForMatch(
+					ebookRow = row,
+					match = match,
+					bookId = bookId,
+					bookTitle = bookTitle,
+					opdsBaseUrl = opdsBaseUrl
+				)
+				Surface(
+					modifier = Modifier.fillMaxWidth(),
+					shape = RoundedCornerShape(8.dp),
+					color = MaterialTheme.colorScheme.surfaceContainerHighest
+				) {
+					Row(
+						modifier = Modifier.padding(12.dp),
+						horizontalArrangement = Arrangement.spacedBy(12.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Column(
+							modifier = Modifier.weight(1f),
+							verticalArrangement = Arrangement.spacedBy(3.dp)
+						) {
+							Text(
+								text = match.oppositeTitle,
+								style = MaterialTheme.typography.titleSmall,
+								maxLines = 2,
+								overflow = TextOverflow.Ellipsis
+							)
+							Text(
+								text = listOfNotNull(
+									"Ready",
+									match.coveragePercent?.let { "Coverage $it%" },
+									match.scorePercent?.let { "Score $it%" }
+								).joinToString("  "),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Button(
+							onClick = {
+								destination?.let(onOpenReader)
+							},
+							enabled = destination != null
+						) {
+							Text("Open")
+						}
+					}
+				}
+			}
+			TextButton(
+				onClick = onDismissRequest,
+				modifier = Modifier.align(Alignment.End)
+			) {
+				Text("Cancel")
 			}
 		}
 	}

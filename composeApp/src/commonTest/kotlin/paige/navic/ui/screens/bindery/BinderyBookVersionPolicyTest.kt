@@ -165,6 +165,57 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun ebookWhispersyncLaunchDestinationCarriesSelectedAudiobookContract() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "ready")
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+		val match = ebook.whispersyncAudiobookLaunchMatches().single()
+
+		assertEquals(BinderyWhispersyncAudiobookLaunchAction.OpenDirectly, ebook.whispersyncAudiobookLaunchAction())
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-435",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-435",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				whispersyncSidecarUrl = "https://bindery.local/opds/books/3816/sync/3",
+				whispersyncArtifactId = "3",
+				whispersyncAudiobookId = "69",
+				whispersyncAudiobookBookFileId = "694",
+				whispersyncAudiobookTitle = "Andy Serkis"
+			),
+			binderyWhispersyncReaderDestinationForMatch(
+				ebookRow = ebook,
+				match = match,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
+	fun multipleWhispersyncAudiobookLaunchCandidatesRequireChooser() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "ready", extraReadyAudiobook = true)
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+
+		assertEquals(2, ebook.whispersyncAudiobookLaunchMatches().size)
+		assertEquals(BinderyWhispersyncAudiobookLaunchAction.ChooseAudiobook, ebook.whispersyncAudiobookLaunchAction())
+	}
+
+	@Test
+	fun pendingWhispersyncPairsDoNotCreateEbookLaunchCandidates() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "pending")
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+
+		assertEquals(BinderyWhispersyncAudiobookLaunchAction.None, ebook.whispersyncAudiobookLaunchAction())
+		assertTrue(ebook.whispersyncAudiobookLaunchMatches().isEmpty())
+	}
+
+
+	@Test
 	fun bookVersionRowsAggregateAudioAndListEbooks() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3693",
@@ -1004,5 +1055,86 @@ class BinderyBookVersionPolicyTest {
 			groups.ebooks
 		)
 	}
+
+	private fun hobbitVersionRowsWithWhispersync(
+		status: String,
+		extraReadyAudiobook: Boolean = false
+	): List<BinderyBookVersionRow> =
+		binderyBookVersionRows(
+			manifest = BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit"),
+			resourceCatalog = BinderyResourceCatalog(
+				title = "The Hobbit Resources",
+				resources = listOf(
+					BinderyBookResource(
+						href = "/opds/books/3816/resources/ebook-435",
+						title = "Houghton Mifflin Harcourt",
+						type = "application/epub+zip",
+						kind = "ebook",
+						properties = mapOf(
+							"bookFileId" to "435",
+							"language" to "eng",
+							"format" to "epub",
+							"publisher" to "Houghton Mifflin Harcourt"
+						)
+					)
+				)
+			),
+			languageFilter = "eng",
+			audiobookVersions = listOfNotNull(
+				BinderyAudiobookVersion(
+					id = 69,
+					bookId = 3816,
+					bookFileId = 694,
+					title = "The Hobbit",
+					language = "English",
+					narrator = "Andy Serkis"
+				),
+				if (extraReadyAudiobook) {
+					BinderyAudiobookVersion(
+						id = 70,
+						bookId = 3816,
+						bookFileId = 695,
+						title = "The Hobbit",
+						language = "English",
+						narrator = "Rob Inglis"
+					)
+				} else {
+					null
+				}
+			),
+			bookSync = BinderyBookSync(
+				bookId = 3816,
+				syncPairs = listOfNotNull(
+					BinderySyncPair(
+						bookId = 3816,
+						ebookBookFileId = 435,
+						audiobookBookFileId = 694,
+						whispersync = BinderyWhispersyncArtifact(
+							status = status,
+							artifactId = 3,
+							artifactHref = "/opds/books/3816/sync/3",
+							score = .989,
+							coverage = .96
+						)
+					),
+					if (extraReadyAudiobook) {
+						BinderySyncPair(
+							bookId = 3816,
+							ebookBookFileId = 435,
+							audiobookBookFileId = 695,
+							whispersync = BinderyWhispersyncArtifact(
+								status = "ready",
+								artifactId = 4,
+								artifactHref = "/opds/books/3816/sync/4",
+								score = .932,
+								coverage = .91
+							)
+						)
+					} else {
+						null
+					}
+				)
+			)
+		)
 
 }
