@@ -1590,3 +1590,68 @@ Remaining:
 - This is bridge-path evidence for the same scrolled-edge turn function used by the real listener, not manual proof that a user scrolled-edge gesture reliably reaches that function.
 - Real-flow Phase 3 validation still needs user-driven or scripted selection-clear and scrolled-edge pull-up gestures without diagnostic commands.
 - Phase 5 selection UI still needs Android/emulator proof: Highlight/Copy/Note must appear and behave without toggling reader chrome.
+
+## 2026-06-18 Emulator Probe: Phase 5 Selection Payload and Native Action Overlay
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:34:00`.
+- EPUB state: dirty readerdev build installed and launched into a real EPUB. The shell cover initially masked the selection action overlay, so the final evidence run first dismissed the shell cover through the native tap path.
+
+Trigger:
+
+- GLM's bridge audit correctly warned against symbol-only Anx parity. The current controller no longer discards the nine Phase 3 bridge events, but Phase 5 still needed proof that the selection payload reaches Android and produces user-visible selection actions.
+- The first `selection-payload` probe showed a backend `selectionChanged` event but reported `footnote=false` even though the probe fixture set `role="doc-footnote"`.
+
+Root cause:
+
+- `selectionContextText()` and `selectionLooksLikeFootnote()` called `closestElement(node)` without a selector.
+- `closestElement()` is selector-based, so the selectorless call returned null and footnote detection never started from the selected element.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence"
+```
+
+Result:
+
+- FAIL before implementation: the DevTools helper did not require `Reader bridge event: selectionChanged(footnote=true`.
+
+Implemented:
+
+- `navic-reader.js` now derives the selected element from `Range.commonAncestorContainer` through `selectionElement(range)` before reading context text or testing footnote selectors.
+- `adb-webview-eval.mjs` now marks the selection probe successful only when Android logcat contains `Reader bridge event: selectionChanged(footnote=true`.
+- `ReaderRuntimeAssetsTest` now guards that the probe fixture uses `role="doc-footnote"` and requires the footnote-positive Android log label.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -TapFraction '0.90,0.50,900' -ReaderDevtoolsProbe selection-payload -ArtifactDir captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\window.xml`
+- `captures\reader-bridge-probes\20260618-selection-ui-after-cover-dismiss\screen.png`
+
+Result:
+
+- PASS: JS syntax for the DevTools helper and reader runtime.
+- PASS: focused host guard for footnote-positive selection evidence.
+- PASS: Android logcat contains `Reader bridge event: selectionChanged(footnote=true, pos=...)`.
+- PASS: raw Android bridge payload contains `footnote:true`, CFI, `contextText`, and `pos` bounds.
+- PASS: Android UI hierarchy contains native selection action controls: `Highlight`, `Copy`, and `Note`.
+
+Remaining:
+
+- This proves selection payload decoding and native action overlay presentation in a dirty emulator build. It does not yet prove the full action behavior for each button.
+- Next Phase 5 validation should tap `Highlight`, `Copy`, and `Note`, then assert `ApplyHighlight`, clipboard write, note dialog/save, and `selectionCleared` behavior through controller-owned state.
+- This is not a clean release APK validation.

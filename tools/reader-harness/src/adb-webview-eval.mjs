@@ -304,7 +304,7 @@ async function runSelectionPayloadProbe(page) {
       selectedText: selection.toString(),
       role: paragraph.getAttribute('role'),
       expectedLogLabels: [
-        'Reader bridge event: selectionChanged',
+        'Reader bridge event: selectionChanged(footnote=true',
       ],
       pageTitle: document.title,
       pageUrl: window.location.href,

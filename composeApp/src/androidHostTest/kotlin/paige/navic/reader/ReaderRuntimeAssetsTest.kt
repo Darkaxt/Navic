@@ -257,6 +257,14 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperSelectionProbeRequiresFootnoteEvidence() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(helperText, "paragraph.setAttribute('role', 'doc-footnote')")
+		assertContains(helperText, "Reader bridge event: selectionChanged(footnote=true")
+	}
+
+	@Test
 	fun adbReaderSmokeUsesSerialAwareAdbHelperForCaptureAndDiagnostics() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val bodyAfterHelper = scriptText

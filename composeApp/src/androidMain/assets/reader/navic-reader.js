@@ -1450,17 +1450,23 @@ class NavicReaderRuntime {
   }
 
   selectionContextText(range, selectedText) {
-    const node = range?.commonAncestorContainer
-    const element = closestElement(node)
+    const element = this.selectionElement(range)
     const context = element?.innerText || element?.textContent || selectedText
     const normalized = String(context || '').replace(/\s+/g, ' ').trim()
     if (!normalized) return undefined
     return normalized.length > 500 ? normalized.slice(0, 500) : normalized
   }
 
-  selectionLooksLikeFootnote(range) {
+  selectionElement(range) {
     const node = range?.commonAncestorContainer
-    const element = closestElement(node)
+    if (!node) return null
+    if (node.nodeType === 1) return node
+    const parent = node.parentElement || node.parentNode
+    return parent?.nodeType === 1 ? parent : null
+  }
+
+  selectionLooksLikeFootnote(range) {
+    const element = this.selectionElement(range)
     return !!element?.closest?.(
       'a[href^="#fn"], a[href*="footnote"], ' +
       'a[role="doc-noteref"], [role="doc-footnote"], ' +
