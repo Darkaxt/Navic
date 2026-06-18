@@ -1168,3 +1168,49 @@ Emulator boundary:
 - Installed `darkaxt.navic.readerdev` on `emulator-5554` reported `versionName=v1.0.11-eta70`, `versionCode=403`.
 - The post-install reader DevTools probe was not counted as a reader validation pass because the app landed on the Books library, leaving no Navic Reader WebView page to attach to.
 - The ADB WebView relocation probe was converted to a diagnostic snapshot command so future probes do not hang while waiting for synthetic navigation side effects.
+
+Outcome:
+
+- CANCELED as a phone release candidate before publication.
+- Reason: the reader branch was current against the feature line but still behind `fork/master` by the Bindery cache/playback lifecycle commits.
+- Do not install eta70 on the phone; eta71 is the master-synced candidate.
+
+## 2026-06-18 Release Prep: v1.0.11-eta71
+
+Trigger:
+
+- Promote the Komikku reader backbone and Anx parity work onto the master release line before publishing a phone APK.
+
+Release version:
+
+- `versionName=v1.0.11-eta71`
+- `versionCode=404`
+
+Merge state:
+
+- `fork/master` was merged cleanly into `codex/komikku-reader-backbone-eta64`.
+- Included master commits:
+  - `68a92b88` `Fix playback service task removal lifecycle`
+  - `b2594013` `Show cached Bindery entities before refresh`
+  - `6bf864f1` `Show cached Bindery book detail before refresh`
+
+Required gate before tag publication:
+
+```powershell
+scripts\verify-android-release-version.ps1 -ExpectedVersionName "v1.0.11-eta71"
+node tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroid
+.\gradlew.bat --no-daemon --no-parallel :androidApp:packageReaderDev
+git diff --check
+```
+
+Result:
+
+- PASS: version name matches `v1.0.11-eta71`.
+- PASS: JS syntax checks for the reader harness.
+- PASS: reader harness smoke.
+- PASS: whitespace check.
+- PASS: Android host tests after merging `fork/master`.
+- PASS: Android tests after merging `fork/master`.
+- PASS: readerDev APK packaging after merging `fork/master`.
