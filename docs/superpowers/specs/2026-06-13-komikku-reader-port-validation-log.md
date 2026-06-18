@@ -1709,8 +1709,7 @@ Result:
 Remaining:
 
 - This proves the Highlight action reaches the engine and Foliate annotation draw path in a dirty emulator build.
-- Copy still needs a repeatable Android clipboard assertion.
-- Note still needs a repeatable native dialog/save assertion.
+- Superseded by the later `2026-06-18 Emulator Probe: Native Copy and Note Selection Actions`: Copy now has a repeatable native app-boundary assertion, and Note now has a repeatable native dialog/save assertion.
 - Selection clear after action remains a UX behavior decision and is not yet validated.
 
 ## 2026-06-18 Host Check: GLM Types-Only Bridge Audit Reconciliation
@@ -1745,4 +1744,81 @@ Remaining:
 
 - Clean release APK validation is still required for the high-priority reader bugs.
 - Resume/persistence after disrupted drag/app recreation still needs device evidence.
-- Copy and Note still need button-level smoke gates after the existing selection overlay and Highlight gates.
+- Superseded by the later `2026-06-18 Emulator Probe: Native Copy and Note Selection Actions`: Copy and Note now have button-level dirty-emulator smoke gates after the existing selection overlay and Highlight gates.
+
+## 2026-06-18 Emulator Probe: Native Copy and Note Selection Actions
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 18:22:03`.
+
+Trigger:
+
+- GLM's bridge audit correctly warned that source-level Anx parity can still be behavior-empty.
+- Previous Phase 5 evidence proved the selection payload, native action overlay, and Highlight action. Copy and Note still needed behavior gates at the native UI boundary.
+- Coordinate-based post-probe taps were too brittle after menu/selection overlay movement. The smoke harness needed to tap visible Android UI nodes by `text` or `content-desc`.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --rerun-tasks --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted
+```
+
+Result:
+
+- FAIL before implementation: `ReaderRuntimeAssetsTest.kt:287` because `adb-reader-smoke.ps1` had no `tapText:`, `tapDesc:`, `Get-AdbUiNodeCenter`, or `Invoke-PostProbeUiNodeAction` support.
+- Earlier Copy evidence also showed that Android shell clipboard content is not a reliable assertion surface, so the app boundary needed an explicit log after `LocalClipboardManager.setText`.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now supports ordered pipe-delimited `-PostProbeAction` entries after a DevTools probe: `tap:`, `tapFraction:`, `tapText:`, `tapDesc:`, `text:`, and `keyevent:`.
+- `tapText:` and `tapDesc:` dump the current Android hierarchy through `uiautomator`, resolve the matching node bounds, and tap the node center.
+- `adb-reader-smoke.ps1` now supports `-RequireReaderLog` so native app-boundary logs can be required, not just bridge/debug-label logs.
+- `ReaderScreen` logs `Reader selection copied length=<n>` immediately after the native clipboard write.
+
+Green host check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --rerun-tasks --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted
+```
+
+Result:
+
+- PASS: focused host gate completed through `testAndroidHostTest`.
+- PASS: Gradle output reported `BUILD SUCCESSFUL in 2m 29s`.
+
+Dirty emulator checks:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Note,1200' -ArtifactDir captures\reader-bridge-probes\20260618-selection-note-open-capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapText:Annotation,700|text:Codex_note_gate,1000|tapText:Save,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent 'annotationDrawn' -ArtifactDir captures\reader-bridge-probes\20260618-selection-note-save-node-gate
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Copy,1200' -RequireReaderLog 'Reader selection copied length=' -ArtifactDir captures\reader-bridge-probes\20260618-selection-copy-node-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-note-open-capture\window.xml`
+- `captures\reader-bridge-probes\20260618-selection-note-open-capture\screen.png`
+- `captures\reader-bridge-probes\20260618-selection-note-save-node-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-note-save-node-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-copy-node-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-copy-node-gate\reader-devtools-probe.json`
+
+Result:
+
+- PASS: `tapText:Note` opens the native note dialog. The captured hierarchy contains `Note`, selected text, `Annotation`, `Cancel`, and disabled `Save`.
+- PASS: after tapping `Annotation` and entering `Codex_note_gate`, tapping `Save` dispatches `applyHighlights(count=1)`.
+- PASS: the note save path emits `annotationDrawn` through the WebView bridge.
+- PASS: the Copy action receives a fresh footnote-positive `selectionChanged` payload and reaches the native clipboard boundary, proven by `Reader selection copied length=31`.
+
+Important failed attempt:
+
+- The combined Note flow `tapText:Note|tapText:Annotation|text:...|keyevent:KEYCODE_BACK|tapText:Save` failed because `KEYCODE_BACK` dismissed the native note dialog instead of only closing the IME. Do not use Back as a required part of this gate.
+
+Remaining:
+
+- This is dirty emulator evidence, not a clean release APK validation.
+- User-driven normal text selection, selection clear, and real scrolled-edge pull-up still need validation.
+- Copy's observable proof is the native app boundary log after `LocalClipboardManager.setText`; Android shell does not provide a reliable cross-app clipboard read for this assertion.

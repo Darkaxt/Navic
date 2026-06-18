@@ -1040,6 +1040,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(selectionNoteDialogText, "onDismissSelectionNote")
 		assertContains(readerScreenText, "LocalClipboardManager.current")
 		assertContains(readerScreenText, "AnnotatedString(text)")
+		assertContains(readerScreenText, "Logger.i(ReaderScreenTag, \"Reader selection copied length=")
 		assertContains(readerScreenText, "coordinator.addSelectionHighlight()")
 		assertContains(readerScreenText, "coordinator.startSelectionNote()")
 		assertContains(readerScreenText, "coordinator.saveSelectionNote(note)")

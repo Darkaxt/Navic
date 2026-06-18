@@ -274,12 +274,26 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(scriptText, "[string[]] \$PostProbeTap = @()")
 		assertContains(scriptText, "[string[]] \$PostProbeTapFraction = @()")
+		assertContains(scriptText, "[string[]] \$PostProbeAction = @()")
+		assertContains(scriptText, "\$expandedPostProbeActions")
+		assertContains(scriptText, "-split '\\|'")
 		assertContains(scriptText, "[string[]] \$RequireReaderEngineCommand = @()")
+		assertContains(scriptText, "[string[]] \$RequireReaderLog = @()")
 		assertContains(scriptText, "\$PostProbeTap += Convert-TapFraction")
 		assertContains(postProbeGestureBlock, "foreach (\$tapSpec in \$PostProbeTap)")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"tap\", \$x, \$y)")
+		assertContains(postProbeGestureBlock, "foreach (\$postProbeActionEntry in \$PostProbeAction)")
+		assertContains(postProbeGestureBlock, "tapFraction:")
+		assertContains(postProbeGestureBlock, "tapText:")
+		assertContains(postProbeGestureBlock, "tapDesc:")
+		assertContains(postProbeGestureBlock, "Get-AdbUiNodeCenter")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeAction")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"keyevent\", \$keyEvent)")
 		assertContains(scriptText, "Dispatching reader engine command: \$requiredEngineCommand")
 		assertContains(scriptText, "required engine command '\$requiredEngineCommand' was not captured")
+		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
+		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
 	}
 
 	@Test
