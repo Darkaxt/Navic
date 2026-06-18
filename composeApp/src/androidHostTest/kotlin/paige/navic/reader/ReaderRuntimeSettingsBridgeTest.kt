@@ -181,12 +181,27 @@ class ReaderRuntimeSettingsBridgeTest {
 			"Native tap-zone settings must be applied before Foliate loads content documents; otherwise onLoad can attach JS reader-wide tap handlers before Android owns taps."
 		)
 		assertContains(tapHandler, "if (this.nativeTapZones === true)")
+		assertContains(tapHandler, "this.attachNativeTapZoneTouchSuppressor(target)")
 		assertContains(tapHandler, "this.renderTapZoneOverlayLayer()")
 		assertContains(
 			tapHandler,
 			"return",
 			message = "Android native reader-surface ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
 		)
+
+		val touchSuppressor = runtimeText
+			.substringAfter("function attachNativeTapZoneTouchSuppressor(target) {")
+			.substringBefore("\nfunction handleReaderTapZoneTap")
+		assertContains(touchSuppressor, "__navicNativeTapZoneTouchSuppressorAttached")
+		assertContains(touchSuppressor, "this.nativeTapZones !== true")
+		assertContains(touchSuppressor, "event.stopPropagation?.()")
+		assertContains(touchSuppressor, "event.stopImmediatePropagation?.()")
+		assertContains(touchSuppressor, "if (event.type === 'touchmove' && event.cancelable)")
+		assertContains(touchSuppressor, "event.preventDefault?.()")
+		assertContains(touchSuppressor, "target.addEventListener('touchstart'")
+		assertContains(touchSuppressor, "target.addEventListener('touchmove'")
+		assertContains(touchSuppressor, "target.addEventListener('touchend'")
+		assertContains(touchSuppressor, "target.addEventListener('touchcancel'")
 	}
 
 	@Test

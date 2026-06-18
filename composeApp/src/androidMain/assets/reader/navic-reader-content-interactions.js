@@ -272,6 +272,24 @@ function shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {
   return false
 }
 
+function attachNativeTapZoneTouchSuppressor(target) {
+  const host = this.readerTapZoneGestureHost(target)
+  if (!target || !host || host.__navicNativeTapZoneTouchSuppressorAttached) return
+  host.__navicNativeTapZoneTouchSuppressorAttached = true
+  const suppressFoliateTouch = event => {
+    if (this.nativeTapZones !== true) return
+    if (event.type === 'touchmove' && event.cancelable) {
+      event.preventDefault?.()
+    }
+    event.stopPropagation?.()
+    event.stopImmediatePropagation?.()
+  }
+  target.addEventListener('touchstart', suppressFoliateTouch, { capture: true, passive: true })
+  target.addEventListener('touchmove', suppressFoliateTouch, { capture: true, passive: false })
+  target.addEventListener('touchend', suppressFoliateTouch, { capture: true, passive: true })
+  target.addEventListener('touchcancel', suppressFoliateTouch, { capture: true, passive: true })
+}
+
 function rememberReaderContentActionTouch(doc, event, detail = {}) {
   const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
   const x = Number(rootPoint?.x ?? rootPoint?.clientX)
@@ -624,6 +642,7 @@ function attachReaderTapZoneGesture(target) {
   if (!target || !host || host.__navicReaderTapZoneGestureAttached) return
   host.__navicReaderTapZoneGestureAttached = true
   if (this.nativeTapZones === true) {
+    this.attachNativeTapZoneTouchSuppressor(target)
     this.renderTapZoneOverlayLayer()
     return
   }
@@ -911,6 +930,7 @@ export const NavicReaderContentInteractionMethods = {
   markReaderTapZoneTouchHandled,
   shouldSuppressReaderTapZoneClick,
   shouldIgnoreReaderTapZoneTarget,
+  attachNativeTapZoneTouchSuppressor,
   rememberReaderContentActionTouch,
   suppressReaderNativeTapZoneContentActivation,
   handleNativeTapZoneContentLongPress,

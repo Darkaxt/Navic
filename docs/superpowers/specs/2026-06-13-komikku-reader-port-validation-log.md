@@ -2301,3 +2301,52 @@ Remaining:
 
 - This is a host/controller guard only. It does not close the clean-release rail endpoint validation item.
 - Device/emulator matrix still needs to prove contents/link jumps, rail dragging, rail endpoint taps, and adjacent chapter buttons against a real EPUB runtime.
+
+## 2026-06-19 Host + Readerdev: Mini-Drag Suppression Without Killing Center Tap
+
+Trigger:
+
+- User asked whether the intended mini-drag disablement had instead killed center tap.
+- Prior eta73-style guard tied confirmed taps to `nativeTapCandidate`, which can be stale by the time Android `GestureDetector` confirms a single tap.
+- Current HEAD already removed that guard and split readable-page drag slop from shell-cover drag slop, but ADB still showed sub-threshold movement leaking into Foliate's paginator `touchmove` path.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderDisablesJavaScriptReadableTapDispatchWhenNativeSurfaceOwnsTaps"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoDiscoverPublication
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall
+adb shell input tap 1000 1200
+adb shell input swipe 540 1200 570 1200 120
+adb shell input tap 540 1200
+adb shell input swipe 900 1200 180 1200 450
+```
+
+Result:
+
+- RED: the new host guard failed before implementation because native tap-zone mode rendered the overlay but did not attach any Foliate touch suppressor.
+- GREEN: after implementation, the focused host guard completed with `BUILD SUCCESSFUL in 12s`.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js` passed.
+- ADB before suppressor: 30px readable-page drift produced Foliate console errors from `vendor/foliate-js/paginator.js:990` (`Ignored attempt to cancel a touchmove event...`), proving sub-threshold movement still reached Foliate.
+- ADB after suppressor: same 30px drift produced no matching `Reader native drag`, `Reader native readable swipe`, `relocate`, `loadDoc`, `Reader console ERROR`, or `paginator.js` log entries, and the screenshot stayed on page `1 / 1534`.
+- ADB after suppressor: center tap on readable page still logged `Reader native tap action=MENU` and surfaced chrome.
+- ADB after suppressor: full leftward drag still logged `Reader native drag candidate`, `Reader native drag preview`, and `Reader native readable swipe action=Right ... threshold=42.0`, then advanced to page `2 / 1534`.
+
+Implementation notes:
+
+- `attachReaderTapZoneGesture()` now installs `attachNativeTapZoneTouchSuppressor(target)` when `nativeTapZones === true`.
+- The suppressor is JS-side and capture-phase. It stops Foliate's `touchstart/touchmove/touchend/touchcancel` propagation in native mode, and only calls `preventDefault()` for cancelable `touchmove`.
+- Android center taps remain owned by `KomikkuReaderNativeFrameHost`; the forbidden `if (!nativeTapCandidate) return false` guard was not restored.
+
+Artifacts:
+
+- `tmp\readerdev-suppressor-ready.png`: native cover baseline after current readerdev launch.
+- `tmp\readerdev-suppressor-readable.png`: readable page before post-fix gestures.
+- `tmp\readerdev-suppressor-small-drift.png`: readable page after 30px drift, unchanged.
+- `tmp\readerdev-suppressor-center-tap.png`: readable page after post-fix center tap, chrome visible.
+- `tmp\readerdev-suppressor-real-drag.png`: readable page after full native drag, advanced to `2 / 1534`.
+
+Remaining:
+
+- This validates readerdev/emulator behavior only. It should be included in the next release candidate because it directly addresses a major touch regression class.
