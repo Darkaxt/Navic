@@ -37,11 +37,59 @@ data class ReaderChapterProgressState(
 		get() = (pageIndex + 1).coerceIn(1, pageCount.coerceAtLeast(1))
 }
 
+data class ReaderLoadedDocument(
+	val index: Int? = null,
+	val href: String? = null,
+	val title: String? = null,
+	val sectionId: String? = null
+)
+
+sealed interface ReaderLinkInteraction {
+	data class Internal(
+		val href: String? = null,
+		val prevented: Boolean = false,
+		val source: String? = null
+	) : ReaderLinkInteraction
+
+	data class External(
+		val href: String? = null,
+		val anchorHref: String? = null
+	) : ReaderLinkInteraction
+}
+
+enum class ReaderAnnotationInteractionKind {
+	Clicked,
+	Drawn
+}
+
+data class ReaderAnnotationInteraction(
+	val kind: ReaderAnnotationInteractionKind,
+	val value: String? = null,
+	val index: Int? = null,
+	val rangeCfi: String? = null
+)
+
+sealed interface ReaderOverlayInteraction {
+	data class Created(val index: Int? = null) : ReaderOverlayInteraction
+	data object FootnoteClosed : ReaderOverlayInteraction
+	data object PullUp : ReaderOverlayInteraction
+}
+
+data class ReaderEngineNavigationState(
+	val canGoBack: Boolean = false,
+	val canGoForward: Boolean = false
+)
+
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
 	val chrome: ReaderChromeState = ReaderChromeState(),
 	val chapterProgress: ReaderChapterProgressState = ReaderChapterProgressState(),
+	val loadedDocument: ReaderLoadedDocument? = null,
+	val lastLinkInteraction: ReaderLinkInteraction? = null,
+	val lastAnnotationInteraction: ReaderAnnotationInteraction? = null,
+	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
+	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
 	val nativeShellCoverUrl: String? = null,
 	val canReturnToShellCover: Boolean = false,
@@ -109,6 +157,11 @@ data class ReaderController(
 					chapterProgress = normalizedRequest.startLocator
 						?.let { state.chapterProgress.updatedFrom(it, tocTitle = null) }
 						?: ReaderChapterProgressState(),
+					loadedDocument = null,
+					lastLinkInteraction = null,
+					lastAnnotationInteraction = null,
+					lastOverlayInteraction = null,
+					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
@@ -167,15 +220,86 @@ data class ReaderController(
 			is ReaderEngineEvent.ContentActionClaimed -> ReaderControllerStep(
 				copy(state = state.copy(lastContentActionClaim = event.claim))
 			)
-			is ReaderEngineEvent.InternalLinkRequested -> ReaderControllerStep(this)
-			is ReaderEngineEvent.ExternalLinkOpened -> ReaderControllerStep(this)
-			is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(this)
-			is ReaderEngineEvent.AnnotationDrawn -> ReaderControllerStep(this)
-			is ReaderEngineEvent.OverlayCreated -> ReaderControllerStep(this)
-			is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(this)
-			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(this)
-			ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(this)
-			ReaderEngineEvent.PullUp -> ReaderControllerStep(this)
+			is ReaderEngineEvent.InternalLinkRequested -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastLinkInteraction = ReaderLinkInteraction.Internal(
+							href = event.href,
+							prevented = event.prevented,
+							source = event.source
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.ExternalLinkOpened -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastLinkInteraction = ReaderLinkInteraction.External(
+							href = event.href,
+							anchorHref = event.anchorHref
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastAnnotationInteraction = ReaderAnnotationInteraction(
+							kind = ReaderAnnotationInteractionKind.Clicked,
+							value = event.value,
+							index = event.index,
+							rangeCfi = event.rangeCfi
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.AnnotationDrawn -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastAnnotationInteraction = ReaderAnnotationInteraction(
+							kind = ReaderAnnotationInteractionKind.Drawn,
+							value = event.value,
+							index = event.index,
+							rangeCfi = event.rangeCfi
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.OverlayCreated -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastOverlayInteraction = ReaderOverlayInteraction.Created(index = event.index)
+					)
+				)
+			)
+			is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						loadedDocument = ReaderLoadedDocument(
+							index = event.index,
+							href = event.href,
+							title = event.title,
+							sectionId = event.sectionId
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						engineNavigation = ReaderEngineNavigationState(
+							canGoBack = event.canGoBack,
+							canGoForward = event.canGoForward
+						)
+					)
+				)
+			)
+			ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(
+				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed))
+			)
+			ReaderEngineEvent.PullUp -> ReaderControllerStep(
+				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.PullUp))
+			)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
 					state = state.copy(

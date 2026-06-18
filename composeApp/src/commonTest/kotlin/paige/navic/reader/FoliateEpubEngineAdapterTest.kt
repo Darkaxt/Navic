@@ -333,7 +333,8 @@ class FoliateEpubEngineAdapterTest {
 			ReaderEngineEvent.DocLoaded(
 				index = 3,
 				href = "EPUB/Text/chapter-01.xhtml",
-				title = "Chapter 1"
+				title = "Chapter 1",
+				sectionId = "chapter-01"
 			),
 			adapter.onBridgeHostEvent(
 				ReaderBridgeEvent.LoadDoc(

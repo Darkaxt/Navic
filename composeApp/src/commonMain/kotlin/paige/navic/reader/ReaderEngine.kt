@@ -122,7 +122,8 @@ sealed interface ReaderEngineEvent {
 	data class DocLoaded(
 		val index: Int? = null,
 		val href: String? = null,
-		val title: String? = null
+		val title: String? = null,
+		val sectionId: String? = null
 	) : ReaderEngineEvent
 	data class NavigationStateChanged(
 		val canGoBack: Boolean = false,

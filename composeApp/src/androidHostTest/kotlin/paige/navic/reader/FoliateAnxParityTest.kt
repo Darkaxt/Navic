@@ -432,6 +432,77 @@ class FoliateAnxParityTest {
 	}
 
 	@Test
+	fun phase3AnxBridgeEventsHaveControllerBehaviorRoutes() {
+		data class ControllerRoute(
+			val engineEvent: String,
+			val controllerStateSymbol: String,
+			val noOpBranch: String
+		)
+		val controllerRoutes = listOf(
+			ControllerRoute(
+				engineEvent = "InternalLinkRequested",
+				controllerStateSymbol = "lastLinkInteraction",
+				noOpBranch = "is ReaderEngineEvent.InternalLinkRequested -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "ExternalLinkOpened",
+				controllerStateSymbol = "lastLinkInteraction",
+				noOpBranch = "is ReaderEngineEvent.ExternalLinkOpened -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "AnnotationClicked",
+				controllerStateSymbol = "lastAnnotationInteraction",
+				noOpBranch = "is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "AnnotationDrawn",
+				controllerStateSymbol = "lastAnnotationInteraction",
+				noOpBranch = "is ReaderEngineEvent.AnnotationDrawn -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "OverlayCreated",
+				controllerStateSymbol = "lastOverlayInteraction",
+				noOpBranch = "is ReaderEngineEvent.OverlayCreated -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "DocLoaded",
+				controllerStateSymbol = "loadedDocument",
+				noOpBranch = "is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "NavigationStateChanged",
+				controllerStateSymbol = "engineNavigation",
+				noOpBranch = "is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "FootnoteClose",
+				controllerStateSymbol = "lastOverlayInteraction",
+				noOpBranch = "ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(this)"
+			),
+			ControllerRoute(
+				engineEvent = "PullUp",
+				controllerStateSymbol = "lastOverlayInteraction",
+				noOpBranch = "ReaderEngineEvent.PullUp -> ReaderControllerStep(this)"
+			)
+		)
+
+		for (route in controllerRoutes) {
+			assertTrue(
+				readerControllerText.contains("ReaderEngineEvent.${route.engineEvent}"),
+				"ReaderController must handle ${route.engineEvent}."
+			)
+			assertTrue(
+				readerControllerText.contains(route.controllerStateSymbol),
+				"${route.engineEvent} must feed controller state symbol '${route.controllerStateSymbol}', not just pass through the adapter."
+			)
+			assertTrue(
+				!readerControllerText.contains(route.noOpBranch),
+				"${route.engineEvent} must not be discarded with `${route.noOpBranch}`."
+			)
+		}
+	}
+
+	@Test
 	fun phase4RelocationPayloadMatchesAnxLastLocationContract() {
 		val runtimeText = readerRuntimeImplementationText()
 		val anxRelocationBody = anxViewText

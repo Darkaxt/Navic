@@ -110,6 +110,119 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun loadedDocumentEventsFeedControllerStateWithoutNavigationCommands() {
+		val event = ReaderEngineEvent.DocLoaded(
+			index = 3,
+			href = "EPUB/Text/chapter-01.xhtml",
+			title = "Chapter 1",
+			sectionId = "chapter-01"
+		)
+
+		val step = ReaderController().onEngineEvent(event)
+
+		assertEquals(
+			ReaderLoadedDocument(
+				index = 3,
+				href = "EPUB/Text/chapter-01.xhtml",
+				title = "Chapter 1",
+				sectionId = "chapter-01"
+			),
+			step.controller.state.loadedDocument
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded() {
+		val internalLink = ReaderController().onEngineEvent(
+			ReaderEngineEvent.InternalLinkRequested(
+				href = "chapter-02.xhtml#door",
+				prevented = true,
+				source = "native-short-tap"
+			)
+		).controller
+		val externalLink = internalLink.onEngineEvent(
+			ReaderEngineEvent.ExternalLinkOpened(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			)
+		).controller
+		val annotationClicked = externalLink.onEngineEvent(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			)
+		).controller
+		val annotationDrawn = annotationClicked.onEngineEvent(
+			ReaderEngineEvent.AnnotationDrawn(
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			)
+		).controller
+		val overlayCreated = annotationDrawn.onEngineEvent(
+			ReaderEngineEvent.OverlayCreated(index = 4)
+		).controller
+		val navigation = overlayCreated.onEngineEvent(
+			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false)
+		).controller
+		val footnoteClosed = navigation.onEngineEvent(ReaderEngineEvent.FootnoteClose).controller
+		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp)
+
+		assertEquals(
+			ReaderLinkInteraction.Internal(
+				href = "chapter-02.xhtml#door",
+				prevented = true,
+				source = "native-short-tap"
+			),
+			internalLink.state.lastLinkInteraction
+		)
+		assertEquals(
+			ReaderLinkInteraction.External(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			externalLink.state.lastLinkInteraction
+		)
+		assertEquals(
+			ReaderAnnotationInteraction(
+				kind = ReaderAnnotationInteractionKind.Clicked,
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			annotationClicked.state.lastAnnotationInteraction
+		)
+		assertEquals(
+			ReaderAnnotationInteraction(
+				kind = ReaderAnnotationInteractionKind.Drawn,
+				value = "epubcfi(/6/8!/4/2:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/2:12,/1:0,/1:8)"
+			),
+			annotationDrawn.state.lastAnnotationInteraction
+		)
+		assertEquals(
+			ReaderOverlayInteraction.Created(index = 4),
+			overlayCreated.state.lastOverlayInteraction
+		)
+		assertEquals(
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false),
+			navigation.state.engineNavigation
+		)
+		assertEquals(
+			ReaderOverlayInteraction.FootnoteClosed,
+			footnoteClosed.state.lastOverlayInteraction
+		)
+		assertEquals(
+			ReaderOverlayInteraction.PullUp,
+			pullUp.controller.state.lastOverlayInteraction
+		)
+		assertEquals(emptyList(), pullUp.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationFeedsChapterLocalProgressForKomikkuRail() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 		val locator = ReaderLocator(

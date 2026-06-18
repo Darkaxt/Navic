@@ -1214,3 +1214,46 @@ Result:
 - PASS: Android host tests after merging `fork/master`.
 - PASS: Android tests after merging `fork/master`.
 - PASS: readerDev APK packaging after merging `fork/master`.
+
+## 2026-06-18 Host Guard: Anx Bridge Events Must Reach Controller State
+
+Trigger:
+
+- GLM audit found that Phase 2-8 parity work had added bridge/engine event types, decode paths, and debug labels, but several Anx events were still discarded by `ReaderController`.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderControllerTest"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes"
+```
+
+Result:
+
+- FAIL as expected before implementation: `ReaderEngineEvent.DocLoaded` had no `sectionId`; `ReaderLoadedDocument`, `ReaderLinkInteraction`, `ReaderAnnotationInteraction`, `ReaderOverlayInteraction`, and `ReaderEngineNavigationState` did not exist; controller state had no matching fields.
+
+Implemented:
+
+- `LoadDoc.sectionId` now survives `ReaderBridgeEvent -> ReaderEngineEvent.DocLoaded -> ReaderControllerState.loadedDocument`.
+- `ReaderController` now stores Anx bridge event controller state for internal/external links, annotation click/draw events, overlay creation, footnote close, pull-up, and WebView navigation availability.
+- `FoliateAnxParityTest` now rejects Phase 3 `Exists` entries that are still no-op'd in `ReaderController`.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.FoliateAnxParityTest"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+git diff --check
+```
+
+Result:
+
+- PASS: controller state behavior and the new source guard are green.
+- PASS: adapter boundary mapping preserves `LoadDoc.sectionId`.
+- PASS: full Android host suite.
+- PASS: whitespace check.
+
+Remaining:
+
+- Build UI routes on top of the new controller state, especially the selection action menu.

@@ -116,6 +116,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 2 adds a cancelable Foliate `link` listener in `navic-reader.js`, an `internalLink` bridge message, `ReaderBridgeEvent.InternalLinkRequested`, `ReaderEngineEvent.InternalLinkRequested`, and an ADB-visible `internalLink(...)` debug label.
 - Phase 3 adds bridge/engine events and ADB-visible labels for `ExternalLink`, `SelectionCleared`, `AnnotationClick`, `AnnotationDrawn`, `OverlayCreated`, `LoadDoc`, `PushState`, `FootnoteClose`, and `PullUp`.
 - Phase 3 runtime hooks are in `navic-reader.js` for Foliate `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, and history `index-change`; selection clear posts `selectionCleared`; scrolled-edge overscroll posts `pullUp`; overlay clearing posts `footnoteClose`.
+- Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
 - Phase 5 extends `SelectionChanged` through bridge, engine, controller, runtime, and debug logging with Anx `onSelectionEnd` payload fields: `footnote`, `contextText`, and `pos.left/top/right/bottom`.
@@ -162,6 +163,7 @@ Phase 2 is host-verified:
 Phase 3 is host-verified:
 
 - Missing bridge events now exist: `LoadDoc`, `ExternalLink`, `SelectionCleared`, annotation events, overlay creation, push state, footnote close, and pull-up.
+- These events are no longer allowed to remain adapter-only. `ReaderController` must retain link, annotation, overlay, loaded-document, and navigation state for downstream UI behavior.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
 - Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `selectionCleared`, `footnoteClose`, and `pullUp` under real reader flows.
 
@@ -195,6 +197,7 @@ Phase 8 is host- and emulator-verified:
 Priority 0:
 
 - When continuing Anx/Foliate parity work, execute Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md` before starting new visual polish or unrelated reader fixes.
+- Build the selection action UI from the existing controller selection state: text selection must surface reference-faithful actions such as highlight/copy/note instead of only collecting backend payloads.
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
 - Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.

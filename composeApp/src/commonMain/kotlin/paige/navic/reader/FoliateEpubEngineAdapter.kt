@@ -146,7 +146,8 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderBridgeEvent.LoadDoc -> ReaderEngineEvent.DocLoaded(
 				index = event.index,
 				href = event.href,
-				title = event.title
+				title = event.title,
+				sectionId = event.sectionId
 			)
 			is ReaderBridgeEvent.PushState -> ReaderEngineEvent.NavigationStateChanged(
 				canGoBack = event.canGoBack,
