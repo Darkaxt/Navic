@@ -92,14 +92,35 @@ class BinderyAudiobookPlayerViewModel(
 		_manifestState.value = _manifestState.value.data?.let { UiState.Success(it) } ?: UiState.Loading()
 	}
 
-	fun rememberedProgress(versionRowId: String): BinderyAudiobookPlaybackProgress? =
-		binderyAudiobookSavedProgress(
+	fun rememberedProgress(
+		versionRowId: String,
+		manifest: BinderyManifest?
+	): BinderyAudiobookPlaybackProgress? {
+		val direct = binderyAudiobookSavedProgress(
 			json = preferenceManager.binderyAudiobookProgressJson,
 			bookId = bookId,
 			versionRowId = versionRowId
-		).also { progress ->
-			lastSavedProgress = progress
+		)
+		val companion = if (direct == null && manifest != null) {
+			binderyWhispersyncCompanionProgressEntries(
+				preferenceManager.binderyWhispersyncCompanionProgressJson
+			)
+				.filter { progress -> progress.bookId == bookId && progress.audiobookId == versionRowId }
+				.maxByOrNull(BinderyWhispersyncCompanionProgress::updatedAtMs)
+				?.let { progress ->
+					binderyAudiobookProgressFromWhispersyncCompanion(
+						progress = progress,
+						manifest = manifest,
+						versionRowId = versionRowId
+					)
+				}
+		} else {
+			null
 		}
+		return (direct ?: companion).also { progress ->
+			lastSavedProgress = direct
+		}
+	}
 
 	fun savePlaybackProgress(
 		versionRowId: String,

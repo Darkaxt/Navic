@@ -46,6 +46,8 @@
 	<string name="title_chapters">Chapters</string>
 	<string name="title_current_chapter">Current chapter</string>
 	<string name="title_audiobook_recently_added">Recently added</string>
+	<string name="title_audiobook_continue_listening">Continue listening</string>
+	<string name="title_audiobook_continue_reading">Continue reading</string>
 	<string name="title_audiobook_wanted">Wanted</string>
 	<string name="title_audiobook_last_read">Last read</string>
 	<string name="title_audiobook_most_popular">Most popular</string>

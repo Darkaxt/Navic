@@ -10,13 +10,21 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.repositories.BinderyAudiobookVersion
+import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyCatalog
+import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyRepository
+import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.ui.core.UiState
 
 data class BinderyHubState(
 	val root: BinderyCatalog,
-	val rows: List<BinderyHubCatalogRow>
+	val rows: List<BinderyHubCatalogRow>,
+	val continueListening: List<BinderyContinueListeningItem> = emptyList(),
+	val continueReading: List<BinderyContinueReadingItem> = emptyList()
 )
 
 data class BinderyHubCatalogRow(
@@ -48,7 +56,8 @@ private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
 	}
 
 class BinderyHubViewModel(
-	private val repository: BinderyRepository
+	private val repository: BinderyRepository,
+	private val preferenceManager: PreferenceManager
 ) : ViewModel() {
 	private val _hubState = MutableStateFlow<UiState<BinderyHubState>>(UiState.Loading())
 	val hubState = _hubState.asStateFlow()
@@ -133,7 +142,12 @@ class BinderyHubViewModel(
 		}
 		return BinderyHubState(
 			root = rootCatalog,
-			rows = rows
+			rows = rows,
+			continueListening = loadContinueListening(refreshMetadata = false),
+			continueReading = loadContinueReading(
+				refreshMetadata = false,
+				languageFilter = languageFilter
+			)
 		)
 	}
 
@@ -160,7 +174,12 @@ class BinderyHubViewModel(
 					}
 					BinderyHubState(
 						root = rootCatalog,
-						rows = catalogs
+						rows = catalogs,
+						continueListening = loadContinueListening(refreshMetadata = true),
+						continueReading = loadContinueReading(
+							refreshMetadata = true,
+							languageFilter = languageFilter
+						)
 					)
 				}
 			},
@@ -169,4 +188,134 @@ class BinderyHubViewModel(
 			}
 		)
 	}
+
+	private suspend fun loadContinueListening(
+		refreshMetadata: Boolean
+	): List<BinderyContinueListeningItem> {
+		val progresses = binderyAudiobookProgressEntries(preferenceManager.binderyAudiobookProgressJson)
+		val companionProgresses = binderyWhispersyncCompanionProgressEntries(
+			preferenceManager.binderyWhispersyncCompanionProgressJson
+		)
+		if (progresses.isEmpty() && companionProgresses.isEmpty()) return emptyList()
+		val bookIds = (progresses.map { it.bookId } + companionProgresses.map { it.bookId })
+			.mapNotNull(String::safeProgressToken)
+			.distinct()
+		val manifestsByBookId = loadManifestsByBookId(bookIds, refreshMetadata)
+		val versionsByBookId = loadAudiobookVersionsByBookId(bookIds, refreshMetadata)
+		val detailsById = buildMap {
+			versionsByBookId.values.flatten().forEach { version ->
+				version.id?.toString()?.safeProgressToken()?.let { put(it, version) }
+			}
+			val audiobookIds = (progresses.map { it.versionRowId } + companionProgresses.map { it.audiobookId })
+				.mapNotNull(String::safeProgressToken)
+				.distinct()
+			audiobookIds.forEach { audiobookId ->
+				if (containsKey(audiobookId)) return@forEach
+				loadAudiobookDetail(audiobookId, refreshMetadata)?.let { put(audiobookId, it) }
+			}
+		}
+		return binderyContinueListeningItems(
+			progresses = progresses,
+			companionProgresses = companionProgresses,
+			manifestsByBookId = manifestsByBookId,
+			audiobookDetailsById = detailsById
+		)
+	}
+
+	private suspend fun loadContinueReading(
+		refreshMetadata: Boolean,
+		languageFilter: String?
+	): List<BinderyContinueReadingItem> {
+		val progresses = decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+		if (progresses.isEmpty()) return emptyList()
+		val bookIds = progresses.map { it.bookId }
+			.mapNotNull(String::safeProgressToken)
+			.distinct()
+		val manifestsByBookId = loadManifestsByBookId(bookIds, refreshMetadata)
+		val resourcesByBookId = bookIds.mapNotNull { bookId ->
+			loadBookResources(bookId, refreshMetadata)?.let { bookId to it }
+		}.toMap()
+		val versionsByBookId = loadAudiobookVersionsByBookId(bookIds, refreshMetadata)
+		val syncByBookId = bookIds.mapNotNull { bookId ->
+			loadBookSync(bookId, refreshMetadata)?.let { bookId to it }
+		}.toMap()
+		return binderyContinueReadingItems(
+			progresses = progresses,
+			manifestsByBookId = manifestsByBookId,
+			resourcesByBookId = resourcesByBookId,
+			audiobookVersionsByBookId = versionsByBookId,
+			syncByBookId = syncByBookId,
+			languageFilter = languageFilter,
+			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl
+		)
+	}
+
+	private suspend fun loadManifestsByBookId(
+		bookIds: List<String>,
+		refreshMetadata: Boolean
+	): Map<String, BinderyManifest> =
+		bookIds.mapNotNull { bookId ->
+			val manifest = if (refreshMetadata) {
+				repository.getManifest(bookId).getOrElse {
+					repository.getCachedManifest(bookId).getOrNull()
+				}
+			} else {
+				repository.getCachedManifest(bookId).getOrNull()
+			}
+			manifest?.let { bookId to it }
+		}.toMap()
+
+	private suspend fun loadAudiobookVersionsByBookId(
+		bookIds: List<String>,
+		refreshMetadata: Boolean
+	): Map<String, List<BinderyAudiobookVersion>> =
+		bookIds.mapNotNull { bookId ->
+			val versions = if (refreshMetadata) {
+				repository.getAudiobookVersions(bookId).getOrElse {
+					repository.getCachedAudiobookVersions(bookId).getOrNull().orEmpty()
+				}
+			} else {
+				repository.getCachedAudiobookVersions(bookId).getOrNull().orEmpty()
+			}
+			(bookId to versions).takeIf { versions.isNotEmpty() }
+		}.toMap()
+
+	private suspend fun loadAudiobookDetail(
+		audiobookId: String,
+		refreshMetadata: Boolean
+	): BinderyAudiobookVersion? =
+		if (refreshMetadata) {
+			repository.getAudiobookDetail(audiobookId).getOrElse {
+				repository.getCachedAudiobookDetail(audiobookId).getOrNull()
+			}
+		} else {
+			repository.getCachedAudiobookDetail(audiobookId).getOrNull()
+		}
+
+	private suspend fun loadBookResources(
+		bookId: String,
+		refreshMetadata: Boolean
+	): BinderyResourceCatalog? =
+		if (refreshMetadata) {
+			repository.getBookResources(bookId).getOrElse {
+				repository.getCachedBookResources(bookId).getOrNull()
+			}
+		} else {
+			repository.getCachedBookResources(bookId).getOrNull()
+		}
+
+	private suspend fun loadBookSync(
+		bookId: String,
+		refreshMetadata: Boolean
+	): BinderyBookSync? =
+		if (refreshMetadata) {
+			repository.getBookSync(bookId).getOrElse {
+				repository.getCachedBookSync(bookId).getOrNull()
+			}
+		} else {
+			repository.getCachedBookSync(bookId).getOrNull()
+		}
 }
+
+private fun String.safeProgressToken(): String? =
+	trim().takeIf { it.isNotEmpty() }

@@ -199,6 +199,7 @@ class PreferenceManager(
 	var binderyLanguageFilter by preference("eng")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	var binderyAudiobookProgressJson by preference("")
+	var binderyWhispersyncCompanionProgressJson by preference("")
 	private var aurralEnabledPreference by preference("aurralEnabled", false)
 	var aurralEnabled: Boolean
 		get() = aurralEnabledPreference

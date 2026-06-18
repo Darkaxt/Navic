@@ -138,6 +138,47 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun companionProgressCanBuildPlaybackResumePositionFromManifestDurations() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Chapter 1", "file-one"),
+				audioItem("one-b", "Chapter 2", "file-one"),
+				audioItem("one-c", "Chapter 3", "file-one")
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "book-1",
+			ebookResourceHref = "/opds/books/book-1/resources/ebook-1",
+			audiobookId = "69",
+			audiobookBookFileId = "file-one",
+			artifactId = "3",
+			progressFraction = 0.5,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "69"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 1,
+				mediaId = "readaloud:one-b",
+				positionMs = 30_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
 	fun progressStoreKeepsIndependentPositionsPerEdition() {
 		val first = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

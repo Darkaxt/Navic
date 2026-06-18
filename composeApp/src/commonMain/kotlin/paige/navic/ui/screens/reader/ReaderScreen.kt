@@ -41,8 +41,14 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.applyReaderCoordinatorStep
+import paige.navic.reader.decodeReaderReadingProgress
+import paige.navic.reader.encodeReaderReadingProgress
+import paige.navic.reader.ReaderReadingProgressState
+import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
+import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
+import kotlin.time.Clock
 
 private const val ReaderScreenTag = "ReaderScreen"
 
@@ -142,6 +148,24 @@ fun ReaderScreen(reader: Screen.Reader) {
 			step = step,
 			updateCoordinator = { coordinator = it },
 			saveProgress = { progress ->
+				val updatedAtMs = Clock.System.now().toEpochMilliseconds()
+				val localProgress = progress.copy(updatedAt = updatedAtMs.toString())
+				preferenceManager.readerReadingProgressJson = encodeReaderReadingProgress(
+					ReaderReadingProgressState(
+						decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+					).upsert(localProgress).progresses
+				)
+				binderyWhispersyncCompanionProgressForReader(
+					reader = reader,
+					progress = localProgress,
+					updatedAtMs = updatedAtMs
+				)?.let { companionProgress ->
+					preferenceManager.binderyWhispersyncCompanionProgressJson =
+						binderyWhispersyncCompanionProgressJsonWithUpdate(
+							json = preferenceManager.binderyWhispersyncCompanionProgressJson,
+							progress = companionProgress
+						)
+				}
 				coroutineScope.launch(Dispatchers.IO) {
 					binderyRepository.putReadingProgress(progress).onFailure { error ->
 						Logger.w(ReaderScreenTag, "Reader progress save failed", error)

@@ -189,6 +189,9 @@ fun binderyAudiobookSavedProgress(
 		.filter { progress -> progress.bookId == bookId && progress.versionRowId == versionRowId }
 		.maxByOrNull(BinderyAudiobookPlaybackProgress::updatedAtMs)
 
+fun binderyAudiobookProgressEntries(json: String): List<BinderyAudiobookPlaybackProgress> =
+	decodeBinderyAudiobookProgressStore(json).entries
+
 fun binderyAudiobookProgressJsonWithUpdate(
 	json: String,
 	progress: BinderyAudiobookPlaybackProgress,
@@ -229,6 +232,40 @@ fun binderyAudiobookProgressForPosition(
 		durationMs = position.durationMs?.takeIf { it > 0L },
 		updatedAtMs = updatedAtMs.coerceAtLeast(0L)
 	)
+}
+
+fun binderyAudiobookProgressFromWhispersyncCompanion(
+	progress: BinderyWhispersyncCompanionProgress,
+	manifest: BinderyManifest,
+	versionRowId: String
+): BinderyAudiobookPlaybackProgress? {
+	val fraction = progress.progressFraction
+		.takeIf(Double::isFinite)
+		?.coerceIn(0.0, 1.0)
+		?: return null
+	val audioItems = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
+	if (audioItems.isEmpty()) return null
+	val durations = audioItems.map { item -> item.durationMs()?.takeIf { it > 0L } ?: return null }
+	val totalDuration = durations.sum().takeIf { it > 0L } ?: return null
+	var targetMs = (totalDuration.toDouble() * fraction).roundToLong()
+	targetMs = targetMs.coerceIn(0L, (totalDuration - 1L).coerceAtLeast(0L))
+	var elapsedBeforeTrack = 0L
+	durations.forEachIndexed { index, duration ->
+		val trackEnd = elapsedBeforeTrack + duration
+		if (targetMs < trackEnd || index == durations.lastIndex) {
+			return BinderyAudiobookPlaybackProgress(
+				bookId = progress.bookId,
+				versionRowId = versionRowId,
+				trackIndex = index,
+				mediaId = "readaloud:${audioItems[index].href}",
+				positionMs = (targetMs - elapsedBeforeTrack).coerceAtLeast(0L),
+				durationMs = duration,
+				updatedAtMs = progress.updatedAtMs
+			)
+		}
+		elapsedBeforeTrack = trackEnd
+	}
+	return null
 }
 
 fun shouldAutosaveBinderyAudiobookProgress(
