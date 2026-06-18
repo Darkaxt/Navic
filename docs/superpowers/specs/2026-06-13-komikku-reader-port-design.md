@@ -113,6 +113,8 @@ This is local/dirty validation, not a GitHub release validation.
 
 As of the 2026-06-18 Anx parity guard check:
 
+- GLM's "types-only bridge parity" audit was reviewed against the current branch. The general risk is accepted and is now a guardrail: bridge/event/type/debug-label symbols are not enough. The specific quoted `ReaderController.kt` no-op block is stale on this branch. `ReaderController` now routes the Phase 3 bridge events into controller state or UI-facing prompt/popup state, and the targeted `ReaderControllerTest` + `FoliateAnxParityTest` host gate passed on 2026-06-18 for that route.
+- The remaining GLM audit work is not more type plumbing. It is behavior proof: clean release validation for high-priority reader bugs, resume persistence after disrupted gestures/app recreation, and button-level native validation for Copy and Note after the already-proven selection overlay and Highlight gate.
 - `FoliateAnxParityTest` exists as the Phase 1 green known-gaps registry and reads the Anx reference files instead of only round-tripping Navic's own mappings.
 - Anx source citations exist in `FoliateEpubEngineAdapter.kt`, `ReaderBridgeProtocol.kt`, `navic-reader.js`, and `navic-reader-content-interactions.js`.
 - Phase 2 adds a cancelable Foliate `link` listener in `navic-reader.js`, an `internalLink` bridge message, `ReaderBridgeEvent.InternalLinkRequested`, `ReaderEngineEvent.InternalLinkRequested`, and an ADB-visible `internalLink(...)` debug label.

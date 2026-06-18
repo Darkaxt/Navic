@@ -1712,3 +1712,37 @@ Remaining:
 - Copy still needs a repeatable Android clipboard assertion.
 - Note still needs a repeatable native dialog/save assertion.
 - Selection clear after action remains a UX behavior decision and is not yet validated.
+
+## 2026-06-18 Host Check: GLM Types-Only Bridge Audit Reconciliation
+
+Trigger:
+
+- GLM reported that Anx Phase 2-8 work was types-only and that the nine new bridge/engine events were discarded in `ReaderController.kt`.
+
+Inspection:
+
+- The current branch no longer contains the quoted no-op controller branches.
+- `ReaderController.kt` routes internal/external links, annotation click/draw, overlay creation, loaded document, navigation state, footnote close, and pull-up into controller state or UI-facing prompt/popup state.
+- `FoliateAnxParityTest.kt` now requires behavior routes for Anx entries marked `Exists` and rejects the old no-op branch strings.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.FoliateAnxParityTest
+```
+
+Result:
+
+- PASS: `ReaderControllerTest` and `FoliateAnxParityTest` completed through `testAndroidHostTest`.
+- PASS: Gradle output reported `BUILD SUCCESSFUL in 7s`.
+
+Conclusion:
+
+- GLM's concrete no-op diagnosis is stale for the current branch.
+- The underlying guardrail is valid and remains mandatory: an Anx entry must not be marked `Exists` unless it has a controller behavior route or native UI route.
+
+Remaining:
+
+- Clean release APK validation is still required for the high-priority reader bugs.
+- Resume/persistence after disrupted drag/app recreation still needs device evidence.
+- Copy and Note still need button-level smoke gates after the existing selection overlay and Highlight gates.
