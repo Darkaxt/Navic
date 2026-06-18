@@ -1655,3 +1655,60 @@ Remaining:
 - This proves selection payload decoding and native action overlay presentation in a dirty emulator build. It does not yet prove the full action behavior for each button.
 - Next Phase 5 validation should tap `Highlight`, `Copy`, and `Note`, then assert `ApplyHighlight`, clipboard write, note dialog/save, and `selectionCleared` behavior through controller-owned state.
 - This is not a clean release APK validation.
+
+## 2026-06-18 Emulator Probe: Native Highlight Selection Action
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:34:00`.
+
+Trigger:
+
+- The previous Phase 5 probe proved that the native `Highlight`, `Copy`, and `Note` overlay appears. It did not prove that tapping a native selection action reaches the engine adapter.
+- `adb-reader-smoke.ps1` could not express this flow because all taps ran before DevTools probes. Selection-action validation needs the opposite order: create WebView selection through DevTools, then tap the native overlay.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe"
+```
+
+Result:
+
+- FAIL before implementation: the smoke script had no `PostProbeTap`, no `PostProbeTapFraction`, and no `RequireReaderEngineCommand` assertion.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now supports `-PostProbeTap` and `-PostProbeTapFraction`. These taps execute after the DevTools probe and before screenshot/logcat capture.
+- `adb-reader-smoke.ps1` now supports `-RequireReaderEngineCommand`, asserting `Dispatching reader engine command: <command>` appears in captured Android logcat.
+
+Green checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeTapFraction '0.28,0.06,1200' -RequireReaderEngineCommand applyHighlights -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-highlight-scripted-gate\window.xml`
+
+Result:
+
+- PASS: host guard for post-probe native selection action taps.
+- PASS: DevTools probe created a footnote-positive selection with CFI and context payload.
+- PASS: native Highlight tap dispatched `applyHighlights(count=2)` through `ReaderEngineWebViewHost`.
+- PASS: Foliate emitted `annotationDrawn` for the selected CFI after the engine command.
+- PASS: smoke-script bridge assertion recorded `bridgeEvent:annotationDrawn=True`.
+
+Remaining:
+
+- This proves the Highlight action reaches the engine and Foliate annotation draw path in a dirty emulator build.
+- Copy still needs a repeatable Android clipboard assertion.
+- Note still needs a repeatable native dialog/save assertion.
+- Selection clear after action remains a UX behavior decision and is not yet validated.

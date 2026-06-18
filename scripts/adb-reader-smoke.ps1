@@ -5,6 +5,8 @@ param(
     [string] $ArtifactDir,
     [string[]] $Tap = @(),
     [string[]] $TapFraction = @(),
+    [string[]] $PostProbeTap = @(),
+    [string[]] $PostProbeTapFraction = @(),
     [string[]] $Swipe = @(),
     [string[]] $SwipeFraction = @(),
     [string[]] $LongPress = @(),
@@ -23,6 +25,7 @@ param(
     [switch] $RequireNativeLongTap,
     [switch] $RequireContentTapHandled,
     [string[]] $RequireReaderBridgeEvent = @(),
+    [string[]] $RequireReaderEngineCommand = @(),
     [ValidateSet("", "internal-link-native", "phase3-events", "selection-payload", "relocation-payload")]
     [string] $ReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
@@ -333,6 +336,13 @@ if ($TapFraction.Count -gt 0) {
     }
 }
 
+if ($PostProbeTapFraction.Count -gt 0) {
+    $screenSize = Get-AdbScreenSize
+    foreach ($tapFractionSpec in $PostProbeTapFraction) {
+        $PostProbeTap += Convert-TapFraction -TapSpec $tapFractionSpec -Width $screenSize.Width -Height $screenSize.Height
+    }
+}
+
 if ($SwipeFraction.Count -gt 0) {
     $screenSize = Get-AdbScreenSize
     foreach ($swipeFractionSpec in $SwipeFraction) {
@@ -443,6 +453,19 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
     }
 }
 
+foreach ($tapSpec in $PostProbeTap) {
+    if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
+        throw "Invalid post-probe tap spec '$tapSpec'. Use x,y or x,y,waitMs."
+    }
+
+    $x = $Matches[1]
+    $y = $Matches[2]
+    $waitMs = if ($Matches[3]) { [int] $Matches[3] } else { 1000 }
+
+    Invoke-Adb @("shell", "input", "tap", $x, $y)
+    Start-Sleep -Milliseconds $waitMs
+}
+
 Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
 
 Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
@@ -485,6 +508,12 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
         if ($readerLogText -notmatch [regex]::Escape($expectedLogLabel)) {
             throw "Reader DevTools probe '$ReaderDevtoolsProbe' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
         }
+    }
+}
+
+foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {
+    if ($readerLogText -notmatch [regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")) {
+        throw "Reader smoke validation failed: required engine command '$requiredEngineCommand' was not captured. See $ArtifactDir\logcat-reader.log"
     }
 }
 

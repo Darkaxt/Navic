@@ -265,6 +265,24 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val postProbeGestureBlock = scriptText
+			.substringAfter("if (-not [string]::IsNullOrWhiteSpace(\$ReaderDevtoolsProbe))")
+			.substringAfter("if (\$probeExitCode -ne 0)")
+			.substringBefore("Invoke-AdbExecOutToFile")
+
+		assertContains(scriptText, "[string[]] \$PostProbeTap = @()")
+		assertContains(scriptText, "[string[]] \$PostProbeTapFraction = @()")
+		assertContains(scriptText, "[string[]] \$RequireReaderEngineCommand = @()")
+		assertContains(scriptText, "\$PostProbeTap += Convert-TapFraction")
+		assertContains(postProbeGestureBlock, "foreach (\$tapSpec in \$PostProbeTap)")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"tap\", \$x, \$y)")
+		assertContains(scriptText, "Dispatching reader engine command: \$requiredEngineCommand")
+		assertContains(scriptText, "required engine command '\$requiredEngineCommand' was not captured")
+	}
+
+	@Test
 	fun adbReaderSmokeUsesSerialAwareAdbHelperForCaptureAndDiagnostics() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val bodyAfterHelper = scriptText
