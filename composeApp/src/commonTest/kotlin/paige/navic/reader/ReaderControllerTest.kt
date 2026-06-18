@@ -752,6 +752,129 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun selectionActionStateIsControllerOwnedAndClearedByEngine() {
+		val opened = ReaderController().open(hobbitOpenRequest()).controller
+		val textOnly = opened.onEngineEvent(
+			ReaderEngineEvent.SelectionChanged(
+				text = "  copy only  ",
+				cfi = "  ",
+				href = "chapter-01.xhtml"
+			)
+		).controller
+		val actionable = opened.onEngineEvent(
+			ReaderEngineEvent.SelectionChanged(
+				text = "  In a hole in the ground  ",
+				cfi = " epubcfi(/6/8!/4/2:0) ",
+				href = " chapter-01.xhtml "
+			)
+		).controller
+		val cleared = actionable.onEngineEvent(ReaderEngineEvent.SelectionCleared).controller
+
+		assertEquals(ReaderSelectionActionState(), opened.state.selectionActions)
+		assertEquals(
+			ReaderSelectionActionState(
+				selectedText = "copy only",
+				selectedHref = "chapter-01.xhtml",
+				canCopy = true
+			),
+			textOnly.state.selectionActions
+		)
+		assertEquals(
+			ReaderSelectionActionState(
+				selectedText = "In a hole in the ground",
+				selectedCfi = "epubcfi(/6/8!/4/2:0)",
+				selectedHref = "chapter-01.xhtml",
+				canCopy = true,
+				canHighlight = true,
+				canNote = true
+			),
+			actionable.state.selectionActions
+		)
+		assertEquals(ReaderSelectionActionState(), cleared.state.selectionActions)
+		assertNull(cleared.state.selection)
+	}
+
+	@Test
+	fun selectionNotesStartNativeDraftWithoutEngineCommands() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The note sentence ",
+					cfi = " epubcfi(/6/8!/4/1:12) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+
+		val step = controller.startSelectionNote()
+
+		assertEquals(
+			ReaderSelectionNoteDraft(
+				bookId = "book-1",
+				bookTitle = "The Hobbit",
+				text = "The note sentence",
+				cfi = "epubcfi(/6/8!/4/1:12)",
+				href = "chapter-01.xhtml",
+				sectionTitle = "Chapter 1"
+			),
+			step.controller.state.selectionNoteDraft
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun selectionNotesSaveAsAnnotationsAndClearDraft() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The note sentence ",
+					cfi = " epubcfi(/6/8!/4/1:12) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+			.startSelectionNote().controller
+
+		val step = controller.saveSelectionNote("  Remember this later  ")
+		val annotation = ReaderAnnotation(
+			id = "book-1|epubcfi(/6/8!/4/1:12)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			cfi = "epubcfi(/6/8!/4/1:12)",
+			text = "The note sentence",
+			href = "chapter-01.xhtml",
+			color = DefaultReaderHighlightColor,
+			note = "Remember this later",
+			sectionTitle = "Chapter 1"
+		)
+
+		assertEquals(ReaderAnnotationState(listOf(annotation)), step.controller.state.annotations)
+		assertNull(step.controller.state.selectionNoteDraft)
+		assertEquals(
+			listOf(ReaderEngineCommand.ApplyAnnotations(listOf(annotation))),
+			step.engineCommands
+		)
+	}
+
+	@Test
 	fun selectionHighlightsAreControllerOwnedAndForwardedAsEngineCapabilities() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(

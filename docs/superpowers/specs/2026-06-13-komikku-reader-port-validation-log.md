@@ -6,6 +6,39 @@ The full historical log before compaction is preserved at:
 
 - `docs/superpowers/specs/archive/2026-06-13-komikku-reader-port-design-full-log.md`
 
+## 2026-06-18 Selection Action UI Wiring
+
+Target:
+
+- Host reader test suite.
+- Spec gate: Anx selection payloads must produce controller/UI behavior, not only bridge/event types.
+- Reference split: Anx owns selection/highlight/note behavior semantics; Komikku owns the native overlay surface.
+
+Changes validated:
+
+- `ReaderControllerState.selectionActions` now exposes native action availability from the current Anx selection payload.
+- `SelectionCleared` clears controller selection instead of leaving an empty selection object that could keep stale UI state alive.
+- `ReaderController.startSelectionNote`, `saveSelectionNote`, and `dismissSelectionNote` route note creation through controller state.
+- `ReaderAnnotationState.addSelectionNote` stores note-bearing annotations and reuses the existing `ApplyAnnotations` engine command path.
+- `KomikkuReaderSelectionActions` provides the native Highlight/Copy/Note overlay outside the WebView.
+- `KomikkuReaderSelectionNoteDialog` provides a native note draft editor with save/dismiss routes.
+- `ReaderScreen` wires Highlight and Note through `ReaderCoordinator`; Copy uses the Compose clipboard at the app boundary.
+
+Red/green evidence:
+
+- RED: focused host run failed because `ReaderSelectionActionState`, `selectionActions`, `ReaderSelectionNoteDraft`, and `startSelectionNote` did not exist.
+- GREEN: focused host run passed for `selectionActionStateIsControllerOwnedAndClearedByEngine`, `selectionNotesStartNativeDraftWithoutEngineCommands`, and `commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted`.
+- RED: focused host run failed because `saveSelectionNote` did not exist.
+- GREEN: focused host run passed for `selectionActionStateIsControllerOwnedAndClearedByEngine`, `selectionNotesStartNativeDraftWithoutEngineCommands`, `selectionNotesSaveAsAnnotationsAndClearDraft`, and `commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted`.
+
+Next required validation:
+
+- Select normal EPUB text and footnote/reference text on Android, then verify the selection toolbar appears without toggling reader chrome.
+- Verify Copy reaches the Android clipboard.
+- Verify Highlight renders through Foliate annotations.
+- Verify Note opens the native dialog, saves, and renders as an annotation; durable annotation persistence remains a separate follow-up unless covered by an existing store.
+- Confirm logcat still shows `selectionChanged(footnote=..., pos=...)`.
+
 ## 2026-06-18 Phase 7 PDF/Font Parity Guards
 
 Target:

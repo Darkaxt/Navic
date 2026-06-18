@@ -63,6 +63,15 @@ data class ReaderCoordinator(
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 
+	fun startSelectionNote(): ReaderCoordinatorStep =
+		applyControllerStep(controller.startSelectionNote())
+
+	fun saveSelectionNote(note: String): ReaderCoordinatorStep =
+		applyControllerStep(controller.saveSelectionNote(note))
+
+	fun dismissSelectionNote(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissSelectionNote())
+
 	fun toggleCurrentBookmark(): ReaderCoordinatorStep =
 		applyControllerStep(controller.toggleCurrentBookmark())
 

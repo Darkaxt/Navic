@@ -971,6 +971,48 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val selectionActionsText = readerCommonUiFile("ReaderSelectionActions.kt").readText()
+		val selectionNoteDialogText = readerCommonUiFile("ReaderSelectionNoteDialog.kt").readText()
+
+		assertContains(readerRootText, "KomikkuReaderSelectionActions(")
+		assertContains(readerRootText, "controllerState.selectionActions")
+		assertContains(readerRootText, "KomikkuReaderSelectionNoteDialog(")
+		assertContains(readerRootText, "controllerState.selectionNoteDraft")
+		assertContains(readerRootText, "onHighlightSelection = onHighlightSelection")
+		assertContains(readerRootText, "onCopySelection = onCopySelection")
+		assertContains(readerRootText, "onStartSelectionNote = onStartSelectionNote")
+		assertContains(readerRootText, "onSaveSelectionNote = onSaveSelectionNote")
+		assertContains(readerRootText, "onDismissSelectionNote = onDismissSelectionNote")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderSelectionActions(") ||
+				readerScreenText.contains("private fun KomikkuReaderSelectionNoteDialog(") ||
+				readerScreenText.contains("ReaderSelectionActionState("),
+			"Selection action UI must be a Komikku overlay component, not local ReaderScreen state."
+		)
+		assertContains(selectionActionsText, "internal fun KomikkuReaderSelectionActions(")
+		assertContains(selectionActionsText, "ReaderSelectionActionState")
+		assertContains(selectionActionsText, "Icons.Outlined.Copy")
+		assertContains(selectionActionsText, "Icons.Outlined.Note")
+		assertContains(selectionActionsText, "onHighlightSelection")
+		assertContains(selectionActionsText, "selectionActions.selectedText?.let(onCopySelection)")
+		assertContains(selectionActionsText, "onStartSelectionNote")
+		assertContains(selectionNoteDialogText, "internal fun KomikkuReaderSelectionNoteDialog(")
+		assertContains(selectionNoteDialogText, "ReaderSelectionNoteDraft")
+		assertContains(selectionNoteDialogText, "OutlinedTextField(")
+		assertContains(selectionNoteDialogText, "onSaveSelectionNote(noteText)")
+		assertContains(selectionNoteDialogText, "onDismissSelectionNote")
+		assertContains(readerScreenText, "LocalClipboardManager.current")
+		assertContains(readerScreenText, "AnnotatedString(text)")
+		assertContains(readerScreenText, "coordinator.addSelectionHighlight()")
+		assertContains(readerScreenText, "coordinator.startSelectionNote()")
+		assertContains(readerScreenText, "coordinator.saveSelectionNote(note)")
+		assertContains(readerScreenText, "coordinator.dismissSelectionNote()")
+	}
+
+	@Test
 	fun commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()

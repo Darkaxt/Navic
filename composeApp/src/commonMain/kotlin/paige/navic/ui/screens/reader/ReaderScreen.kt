@@ -17,6 +17,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -126,6 +128,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
+	@Suppress("DEPRECATION")
+	val clipboard = LocalClipboardManager.current
 	val readerFocusRequester = remember { FocusRequester() }
 	val navigator = remember(settings.tapZone, settings.tapZoneInvertMode, settings.smallerTapZone, settings.flowMode) {
 		komikkuNavigatorForReaderSettings(settings)
@@ -307,6 +311,21 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onToggleCurrentBookmark = {
 			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
+		},
+		onHighlightSelection = {
+			applyCoordinatorStep(coordinator.addSelectionHighlight())
+		},
+		onCopySelection = { text ->
+			clipboard.setText(AnnotatedString(text))
+		},
+		onStartSelectionNote = {
+			applyCoordinatorStep(coordinator.startSelectionNote())
+		},
+		onSaveSelectionNote = { note ->
+			applyCoordinatorStep(coordinator.saveSelectionNote(note))
+		},
+		onDismissSelectionNote = {
+			applyCoordinatorStep(coordinator.dismissSelectionNote())
 		},
 		onSettingsChange = { settings ->
 			applyReaderSettings(settings)

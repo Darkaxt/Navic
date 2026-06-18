@@ -42,6 +42,11 @@ internal fun KomikkuReaderRoot(
 	onHideMenus: () -> Unit,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
+	onHighlightSelection: () -> Unit,
+	onCopySelection: (String) -> Unit,
+	onStartSelectionNote: () -> Unit,
+	onSaveSelectionNote: (String) -> Unit,
+	onDismissSelectionNote: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -122,6 +127,11 @@ internal fun KomikkuReaderRoot(
 				publicationFormat = publicationFormat,
 				onNavigateToTocItem = onNavigateToTocItem,
 				onToggleCurrentBookmark = onToggleCurrentBookmark,
+				onHighlightSelection = onHighlightSelection,
+				onCopySelection = onCopySelection,
+				onStartSelectionNote = onStartSelectionNote,
+				onSaveSelectionNote = onSaveSelectionNote,
+				onDismissSelectionNote = onDismissSelectionNote,
 				onSettingsChange = onSettingsChange,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
@@ -159,6 +169,11 @@ private fun KomikkuComposeOverlay(
 	publicationFormat: ReaderPublicationFormat,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
+	onHighlightSelection: () -> Unit,
+	onCopySelection: (String) -> Unit,
+	onStartSelectionNote: () -> Unit,
+	onSaveSelectionNote: (String) -> Unit,
+	onDismissSelectionNote: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -187,6 +202,15 @@ private fun KomikkuComposeOverlay(
 			modifier = Modifier.matchParentSize()
 		)
 		if (!controllerState.shellCoverVisible) {
+			KomikkuReaderSelectionActions(
+				selectionActions = controllerState.selectionActions,
+				onHighlightSelection = onHighlightSelection,
+				onCopySelection = onCopySelection,
+				onStartSelectionNote = onStartSelectionNote,
+				modifier = Modifier
+					.align(Alignment.TopCenter)
+					.padding(top = if (controllerState.menuVisible) 96.dp else 24.dp)
+			)
 			KomikkuPaginationProfileStatusBadge(
 				profile = controllerState.paginationProfile,
 				modifier = Modifier
@@ -227,6 +251,13 @@ private fun KomikkuComposeOverlay(
 				onDismissRequest = onDismissDialog
 			)
 			null -> Unit
+		}
+		controllerState.selectionNoteDraft?.let { draft ->
+			KomikkuReaderSelectionNoteDialog(
+				draft = draft,
+				onSaveSelectionNote = onSaveSelectionNote,
+				onDismissSelectionNote = onDismissSelectionNote
+			)
 		}
 	}
 }

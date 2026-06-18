@@ -20,6 +20,28 @@ data class ReaderSelection(
 	val posBottom: Double? = null
 )
 
+data class ReaderSelectionActionState(
+	val selectedText: String? = null,
+	val selectedCfi: String? = null,
+	val selectedHref: String? = null,
+	val canCopy: Boolean = false,
+	val canHighlight: Boolean = false,
+	val canNote: Boolean = false
+) {
+	val visible: Boolean
+		get() = canCopy || canHighlight || canNote
+}
+
+data class ReaderSelectionNoteDraft(
+	val bookId: String,
+	val bookTitle: String,
+	val text: String,
+	val cfi: String,
+	val href: String? = null,
+	val sectionTitle: String? = null,
+	val note: String = ""
+)
+
 enum class ReaderControllerDialog {
 	Contents,
 	ReadingMode,
@@ -98,6 +120,7 @@ data class ReaderControllerState(
 	val search: ReaderSearchState = ReaderSearchState(),
 	val toc: List<ReaderTocItem> = emptyList(),
 	val selection: ReaderSelection? = null,
+	val selectionNoteDraft: ReaderSelectionNoteDraft? = null,
 	val annotations: ReaderAnnotationState = ReaderAnnotationState(),
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
@@ -130,6 +153,23 @@ data class ReaderControllerState(
 
 	val canNavigateToNextChapter: Boolean
 		get() = adjacentTocChapter(direction = 1) != null
+
+	val selectionActions: ReaderSelectionActionState
+		get() {
+			val selectedText = selection?.text.normalizedReaderSelectionValue()
+			val selectedCfi = selection?.cfi.normalizedReaderSelectionValue()
+			val selectedHref = selection?.href.normalizedReaderSelectionValue()
+			val canCopy = selectedText != null
+			val canAnchorSelection = canCopy && selectedCfi != null && publication != null
+			return ReaderSelectionActionState(
+				selectedText = selectedText,
+				selectedCfi = selectedCfi,
+				selectedHref = selectedHref,
+				canCopy = canCopy,
+				canHighlight = canAnchorSelection,
+				canNote = canAnchorSelection
+			)
+		}
 }
 
 data class ReaderControllerStep(
@@ -167,6 +207,8 @@ data class ReaderController(
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
+					selection = null,
+					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
 					lastContentActionClaim = null
 				)
@@ -332,7 +374,7 @@ data class ReaderController(
 				)
 			)
 			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
-				copy(state = state.copy(selection = ReaderSelection()))
+				copy(state = state.copy(selection = null))
 			)
 			is ReaderEngineEvent.MediaOverlayActive -> ReaderControllerStep(
 				copy(
@@ -471,6 +513,47 @@ data class ReaderController(
 			)
 		)
 	}
+
+	fun startSelectionNote(): ReaderControllerStep {
+		val publication = state.publication ?: return ReaderControllerStep(this)
+		val selectionActions = state.selectionActions
+		val selectedText = selectionActions.selectedText ?: return ReaderControllerStep(this)
+		val selectedCfi = selectionActions.selectedCfi ?: return ReaderControllerStep(this)
+		return ReaderControllerStep(
+			copy(
+				state = state.copy(
+					selectionNoteDraft = ReaderSelectionNoteDraft(
+						bookId = publication.bookId,
+						bookTitle = publication.title,
+						text = selectedText,
+						cfi = selectedCfi,
+						href = selectionActions.selectedHref,
+						sectionTitle = state.chrome.currentSectionTitle?.trim()?.takeIf { it.isNotEmpty() }
+					)
+				)
+			)
+		)
+	}
+
+	fun saveSelectionNote(note: String): ReaderControllerStep {
+		val publication = state.publication ?: return ReaderControllerStep(this)
+		val draft = state.selectionNoteDraft ?: return ReaderControllerStep(this)
+		val nextAnnotations = state.annotations.addSelectionNote(draft = draft, note = note)
+		if (nextAnnotations == state.annotations) {
+			return ReaderControllerStep(this)
+		}
+		return ReaderControllerStep(
+			controller = copy(state = state.copy(annotations = nextAnnotations, selectionNoteDraft = null)),
+			engineCommands = listOf(
+				ReaderEngineCommand.ApplyAnnotations(
+					nextAnnotations.annotationsForBook(publication.bookId)
+				)
+			)
+		)
+	}
+
+	fun dismissSelectionNote(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(selectionNoteDraft = null)))
 
 	fun toggleCurrentBookmark(): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)
@@ -706,3 +789,6 @@ private fun readerTocHrefKey(href: String?): String? {
 		.trimStart('.', '/')
 		.takeIf { it.isNotEmpty() }
 }
+
+private fun String?.normalizedReaderSelectionValue(): String? =
+	this?.trim()?.takeIf { it.isNotEmpty() }

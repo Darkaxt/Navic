@@ -74,6 +74,26 @@ data class ReaderAnnotationState(
 		)
 		return copy(annotations = annotations.filterNot { it.id == annotation.id } + annotation)
 	}
+
+	fun addSelectionNote(
+		draft: ReaderSelectionNoteDraft,
+		note: String,
+		color: String = DefaultReaderHighlightColor
+	): ReaderAnnotationState {
+		val normalizedNote = note.trim().takeIf { it.isNotEmpty() } ?: return this
+		val annotation = ReaderAnnotation(
+			id = "${draft.bookId}|${draft.cfi}",
+			bookId = draft.bookId,
+			bookTitle = draft.bookTitle,
+			cfi = draft.cfi,
+			text = draft.text,
+			href = draft.href,
+			color = color,
+			note = normalizedNote,
+			sectionTitle = draft.sectionTitle
+		)
+		return copy(annotations = annotations.filterNot { it.id == annotation.id } + annotation)
+	}
 }
 
 fun encodeReaderAnnotations(annotations: List<ReaderAnnotation>): String =

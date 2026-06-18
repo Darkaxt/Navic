@@ -120,6 +120,8 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
 - Phase 5 extends `SelectionChanged` through bridge, engine, controller, runtime, and debug logging with Anx `onSelectionEnd` payload fields: `footnote`, `contextText`, and `pos.left/top/right/bottom`.
+- Phase 5 now has a controller/UI route for selected text: `ReaderControllerState.selectionActions` drives a native Komikku overlay with Highlight, Copy, and Note actions. Highlight and Note apply through the annotation engine command path; Copy is handled at the app boundary with the native clipboard.
+- Note is not a hidden no-op route: `startSelectionNote` opens a native draft dialog, and `saveSelectionNote` stores a note-bearing `ReaderAnnotation` and emits `ApplyAnnotations`.
 - Phase 6 adds Anx `BookStyle` dimensions to the settings contract: `fontWeight`, `letterSpacing`, `wordSpacing`, `sideMargin`, `topMargin`, `bottomMargin`, `indent`, and `headingFontSize`.
 - Phase 6 carries those fields through defaults, preference persistence, book overrides, bridge serialization, pagination cache metadata, Foliate renderer attributes, runtime CSS, and the Komikku settings dialog.
 - Phase 7 PDF and font-source parity guards are host-verified. `FoliatePdfAnxParityTest` guards the Anx/Foliate `makePDF(file)` contract, and `ReaderFontSourceAnxParityTest` guards local import, remote manifest, WebView-safe font URLs, deletion, and remote download progress/pause/resume/cancel routes.
@@ -129,6 +131,7 @@ As of the 2026-06-18 Anx parity guard check:
 - The focused Phase 4 host test passed on 2026-06-18 for bridge decode, engine mapping, and Anx source parity.
 - The reader host suite passed on 2026-06-18 after Phase 4.
 - The focused Phase 5 host test passed on 2026-06-18 for bridge decode, engine mapping, controller state, and Anx source parity.
+- The focused selection-action host tests passed on 2026-06-18 for controller-owned action availability, native Komikku overlay routing, note draft creation, and note annotation saving.
 - The reader host suite passed on 2026-06-18 after Phase 5.
 - The focused Phase 6 host test passed on 2026-06-18 for bridge serialization, default normalization, preference round-trip, and Anx source parity.
 - The reader host suite passed on 2026-06-18 after Phase 6.
@@ -177,7 +180,8 @@ Phase 5 is host-verified:
 
 - `SelectionChanged` now carries Anx `onSelectionEnd` payload fields through the bridge, engine adapter, and controller state.
 - Runtime selection posts include a DOM selection bounding rectangle, bounded context text, and footnote detection for footnote/noteref-like elements.
-- Android/emulator validation is still required before treating this behavior as release-ready: select normal text and footnote/reference text, then confirm logcat shows `selectionChanged(footnote=..., pos=...)` and no noisy menu/tap regressions.
+- Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
+- Android/emulator validation is still required before treating this behavior as release-ready: select normal text and footnote/reference text, confirm the toolbar appears without noisy menu/tap regressions, verify Copy reaches the clipboard, verify Highlight renders, verify Note opens/saves, and confirm logcat shows `selectionChanged(footnote=..., pos=...)`.
 
 Phase 6 is host-verified:
 
@@ -197,7 +201,7 @@ Phase 8 is host- and emulator-verified:
 Priority 0:
 
 - When continuing Anx/Foliate parity work, execute Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md` before starting new visual polish or unrelated reader fixes.
-- Build the selection action UI from the existing controller selection state: text selection must surface reference-faithful actions such as highlight/copy/note instead of only collecting backend payloads.
+- Validate the host-verified selection action UI on emulator/device: text selection must surface Highlight/Copy/Note without opening reader chrome, Copy must reach the clipboard, Highlight/Note must render as annotations, and footnote selections must keep the Anx payload fields.
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
 - Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.
