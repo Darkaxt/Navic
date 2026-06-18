@@ -311,6 +311,7 @@ function surfacePaperTextureScrollOffset() {
     viewportHeight: height,
     flowMode: this.readerFlowModeValue,
     pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection,
+    fallbackPageTurnDirection: this.surfacePaperTextureFallbackDirection || this.recentPageTurnDirection,
   })
   return this.surfaceTextureScrollOffset
 }
@@ -341,9 +342,11 @@ function attachSurfacePaperTextureDragDirection(doc) {
       deltaX: (touch.screenX ?? touch.clientX ?? touchState.x) - touchState.x,
       deltaY: (touch.screenY ?? touch.clientY ?? touchState.y) - touchState.y,
       flowMode: this.readerFlowModeValue,
+      readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
     })
     if (!direction) return
     this.surfacePaperTextureTurnDirection = direction
+    this.surfacePaperTextureFallbackDirection = direction
     readerTrace('texture:drag-direction', { direction })
   }, { capture: true, passive: true })
   doc.addEventListener('touchend', () => {
@@ -451,6 +454,13 @@ function surfacePaperTextureIndex(detail = {}) {
 }
 
 function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
+  if (this.nativePageDragPreview) {
+    readerTrace('page-drag-preview:reset-on-texture-update', {
+      deltaX: Number(this.nativePageDragPreview?.deltaX) || 0,
+    })
+    this.nativePageDragPreview = null
+    this.removePageDragPreviewLayer?.()
+  }
   const index = this.surfacePaperTextureIndex(detail)
   const section = this.view?.book?.sections?.[index]
   const textureDetail = pagePosition

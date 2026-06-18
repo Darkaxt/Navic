@@ -613,7 +613,9 @@ function previewPageDrag(command) {
       ? 'cancel'
       : 'update'
   if (phase === 'cancel') {
-    const previousDeltaX = Number(this.nativePageDragPreview?.deltaX) || 0
+    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
+      ? Number(this.nativePageDragPreview?.deltaX) || 0
+      : 0
     if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
     readerTrace('page-drag-preview:cancel', { deltaX: previousDeltaX })
     this.nativePageDragPreview = null
@@ -623,7 +625,9 @@ function previewPageDrag(command) {
     return
   }
   if (phase === 'release') {
-    const previousDeltaX = Number(this.nativePageDragPreview?.deltaX) || 0
+    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
+      ? Number(this.nativePageDragPreview?.deltaX) || 0
+      : 0
     if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
     readerTrace('page-drag-preview:release', { deltaX: previousDeltaX })
     this.nativePageDragPreview = null
@@ -638,16 +642,20 @@ function previewPageDrag(command) {
     deltaX,
     deltaY: 0,
     flowMode: this.readerFlowModeValue,
+    readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
     threshold: 1,
   })
   if (textureDirection) {
     this.surfacePaperTextureTurnDirection = textureDirection
+    this.surfacePaperTextureFallbackDirection = textureDirection
     readerTrace('texture:drag-direction', {
       direction: textureDirection,
       source: 'native-preview',
     })
   }
-  const lastDeltaX = Number(this.nativePageDragPreview?.deltaX) || 0
+  const lastDeltaX = this.nativePageDragPreview?.renderer === renderer
+    ? Number(this.nativePageDragPreview?.deltaX) || 0
+    : 0
   const incrementalDeltaX = deltaX - lastDeltaX
   if (incrementalDeltaX !== 0) renderer.scrollBy(-incrementalDeltaX, 0)
   this.updatePageDragPreviewLayer({
@@ -658,7 +666,7 @@ function previewPageDrag(command) {
   })
   this.nativePageDragPreview = phase === 'release'
     ? null
-    : { deltaX }
+    : { deltaX, renderer }
   readerTrace('page-drag-preview', {
     phase,
     deltaX,
@@ -754,6 +762,7 @@ function startPageTurn(direction) {
   this.pageTurnInProgress = true
   this.pageTurnDirection = direction
   this.surfacePaperTextureTurnDirection = direction
+  this.surfacePaperTextureFallbackDirection = direction
   const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))
   let completionPromise = null
   completionPromise = turnPromise.finally(() => {

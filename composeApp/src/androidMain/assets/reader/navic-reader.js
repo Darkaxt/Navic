@@ -227,6 +227,7 @@ class NavicReaderRuntime {
   surfacePaperTextureScrollRenderer = null
   surfacePaperTextureScrollListener = null
   surfacePaperTextureTurnDirection = null
+  surfacePaperTextureFallbackDirection = null
   tapZoneOverlayLayer = null
   pageNumberLayer = null
   shellCoverLayer = null
@@ -562,6 +563,7 @@ class NavicReaderRuntime {
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.surfacePaperTextureTurnDirection = null
+    this.surfacePaperTextureFallbackDirection = null
     this.lastRelocateDetail = null
   }
 
@@ -1251,6 +1253,9 @@ class NavicReaderRuntime {
 
   beginControlledRelocation(reason) {
     this.controlledRelocateReason = reason || null
+    if (!String(reason || '').startsWith('page-turn:')) {
+      this.surfacePaperTextureFallbackDirection = null
+    }
     this.controlledRelocateStartSequence = this.relocateSequence
     log('controlled-relocate:begin', this.controlledRelocateReason || 'none', `seq=${this.controlledRelocateStartSequence}`)
   }

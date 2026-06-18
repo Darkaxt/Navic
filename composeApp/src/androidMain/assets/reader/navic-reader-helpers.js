@@ -923,6 +923,7 @@ export const readerPaperTextureDragDirection = ({
   deltaX,
   deltaY,
   flowMode,
+  readerDirection,
   threshold = 24,
 } = {}) => {
   const x = Number(deltaX)
@@ -934,8 +935,13 @@ export const readerPaperTextureDragDirection = ({
     return y < 0 ? 'next' : 'previous'
   }
   if (Math.abs(x) < min || Math.abs(x) <= Math.abs(y)) return null
-  return x < 0 ? 'next' : 'previous'
+  const rtl = readerDirection === ReaderDirectionRtl
+  if (x < 0) return rtl ? 'previous' : 'next'
+  return rtl ? 'next' : 'previous'
 }
+
+const readerPageTurnDirection = direction =>
+  direction === 'next' || direction === 'previous' ? direction : null
 
 export const readerSurfacePaperTextureScrollOffset = ({
   position,
@@ -944,6 +950,7 @@ export const readerSurfacePaperTextureScrollOffset = ({
   viewportHeight,
   flowMode,
   pageTurnDirection,
+  fallbackPageTurnDirection,
 } = {}) => {
   const currentPosition = Number(position)
   const basePosition = Number(baseOffset)
@@ -957,9 +964,14 @@ export const readerSurfacePaperTextureScrollOffset = ({
       : (Number.isFinite(width) ? width : 0)
   )
   const delta = currentPosition - basePosition
-  const hasKnownDirection = pageTurnDirection === 'next' || pageTurnDirection === 'previous'
-  const expectedDirectionSign = pageTurnDirection === 'next' ? 1 : -1
-  const wrapsDirectionlessBoundary = !hasKnownDirection && Math.abs(delta) > maxOffset
+  const explicitDirection = readerPageTurnDirection(pageTurnDirection)
+  const fallbackDirection = readerPageTurnDirection(fallbackPageTurnDirection)
+  const directionlessBoundaryThreshold = Math.max(1, maxOffset * 0.75)
+  const directionlessBoundaryLikeDelta = Math.abs(delta) >= directionlessBoundaryThreshold
+  const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)
+  const hasKnownDirection = Boolean(effectiveDirection)
+  const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1
+  const wrapsDirectionlessBoundary = !hasKnownDirection && directionlessBoundaryLikeDelta
   const bounded = wrapsDirectionlessBoundary
     ? 0
     : Math.max(-maxOffset, Math.min(maxOffset, delta))
