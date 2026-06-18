@@ -152,6 +152,15 @@ async function runPhase3EventsProbe(page) {
     }
 
     const events = []
+    const diagnostics = {
+      contentEntryCount: 0,
+      selectedContentIndex: null,
+      scrolledEdgeListenerAttachedBeforeLoad: false,
+      scrolledEdgeListenerAttachedAfterLoad: false,
+      syntheticTouchEventsDispatched: false,
+      rendererBeforeOverride: null,
+      rendererDuringOverride: null,
+    }
     const externalAnchor = document.createElement('a')
     externalAnchor.setAttribute('href', '../Text/chapter-01.xhtml#note')
     const externalLink = new CustomEvent('external-link', {
@@ -204,7 +213,29 @@ async function runPhase3EventsProbe(page) {
     view.history?.dispatchEvent?.(new Event('index-change'))
     events.push({ type: 'pushState' })
 
-    const contentDoc = view.renderer?.getContents?.()?.find?.(entry => entry?.doc)?.doc
+    const contentEntries = view.renderer?.getContents?.()?.filter?.(entry => entry?.doc?.body) || []
+    diagnostics.contentEntryCount = contentEntries.length
+    let contentEntry = contentEntries.find(entry => entry.doc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) ||
+      contentEntries[0]
+    let contentDoc = contentEntry?.doc
+    diagnostics.selectedContentIndex = Number.isFinite(contentEntry?.index) ? contentEntry.index : null
+    diagnostics.scrolledEdgeListenerAttachedBeforeLoad =
+      contentDoc?.defaultView?.__navicScrolledEdgeTurnGesturesAttached === true
+    if (contentDoc?.body && !contentDoc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) {
+      view.dispatchEvent(new CustomEvent('load', {
+        bubbles: true,
+        detail: {
+          doc: contentDoc,
+          index: Number.isFinite(contentEntry?.index) ? contentEntry.index : 0,
+        },
+      }))
+      contentEntry = contentEntries.find(entry => entry.doc.defaultView?.__navicScrolledEdgeTurnGesturesAttached) ||
+        contentEntry
+      contentDoc = contentEntry?.doc
+      diagnostics.selectedContentIndex = Number.isFinite(contentEntry?.index) ? contentEntry.index : null
+    }
+    diagnostics.scrolledEdgeListenerAttachedAfterLoad =
+      contentDoc?.defaultView?.__navicScrolledEdgeTurnGesturesAttached === true
     if (contentDoc?.body) {
       const marker = contentDoc.createElement('span')
       marker.className = 'navic-active-overlay-fragment'
@@ -212,11 +243,21 @@ async function runPhase3EventsProbe(page) {
       contentDoc.body.appendChild(marker)
       await window.NavicReaderBridge.dispatch({ type: 'clearOverlay' })
       events.push({ type: 'footnoteClose' })
+
+      const pullUpResult = await Promise.resolve(window.NavicReaderBridge.dispatch({
+        type: 'diagnosticScrolledEdgePullUp',
+      }))
+      diagnostics.diagnosticScrolledEdgePullUp = pullUpResult
+      if (!pullUpResult?.posted) {
+        throw new Error(`diagnosticScrolledEdgePullUp did not post pullUp; result=${JSON.stringify(pullUpResult)}`)
+      }
+      events.push({ type: 'pullUp', result: pullUpResult })
     }
 
     return {
       probe: 'phase3-events',
       events,
+      diagnostics,
       expectedLogLabels: [
         'Reader bridge event: externalLink',
         'Reader bridge event: annotationDrawn',
@@ -225,6 +266,7 @@ async function runPhase3EventsProbe(page) {
         'Reader bridge event: loadDoc',
         'Reader bridge event: pushState',
         'Reader bridge event: footnoteClose',
+        'Reader bridge event: pullUp',
       ],
       pageTitle: document.title,
       pageUrl: window.location.href,

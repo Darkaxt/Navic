@@ -469,6 +469,25 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
 
 $readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader.log") -Raw
 
+if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
+    $probeJsonPath = Join-Path $ArtifactDir "reader-devtools-probe.json"
+    $probeJsonText = Get-Content -LiteralPath $probeJsonPath -Raw
+    try {
+        $probeJson = $probeJsonText | ConvertFrom-Json
+    } catch {
+        throw "Reader DevTools probe '$ReaderDevtoolsProbe' did not return parseable JSON. See $probeJsonPath"
+    }
+    $expectedLogLabels = @($probeJson.result.expectedLogLabels)
+    foreach ($expectedLogLabel in $expectedLogLabels) {
+        if ([string]::IsNullOrWhiteSpace($expectedLogLabel)) {
+            continue
+        }
+        if ($readerLogText -notmatch [regex]::Escape($expectedLogLabel)) {
+            throw "Reader DevTools probe '$ReaderDevtoolsProbe' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
+        }
+    }
+}
+
 if ($CaptureReaderDiagnostics) {
     $textureDiagnosticPattern = "surface-texture-scroll|surface-texture-update|texture:scroll|texture:update"
     $touchDiagnosticPattern = "Reader surface touch down|Reader surface tap action=|Reader native tap action=|Reader native drag preview|Reader native drag candidate|Reader native long tap|Reader surface dispatch center tap|Reader surface tap ignored|Reader shell cover drag candidate|Reader shell cover swipe action=|Reader shell cover command action=|Reader bridge raw|Reader bridge event:|readerContentTapHandled|content-touch:media|content-touch:link|image:sepia-overlay|link:navigate|link:media-tap|link:text-hit-miss"

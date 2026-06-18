@@ -119,6 +119,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 3 adds bridge/engine events and ADB-visible labels for `ExternalLink`, `SelectionCleared`, `AnnotationClick`, `AnnotationDrawn`, `OverlayCreated`, `LoadDoc`, `PushState`, `FootnoteClose`, and `PullUp`.
 - Phase 3 runtime hooks are in `navic-reader.js` for Foliate `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, and history `index-change`; selection clear posts `selectionCleared`; scrolled-edge overscroll posts `pullUp`; overlay clearing posts `footnoteClose`.
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
+- Phase 3 now has dirty-emulator WebView evidence for the high-risk bridge path. `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json` shows `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and diagnostic `pullUp` crossing into Android logcat. This is bridge-path evidence, not a replacement for user-driven scrolled-edge gesture validation.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
 - Phase 4 now has dirty-emulator WebView evidence for the relocation payload path. `captures\reader-bridge-probes\20260618-161735-relocation\reader-devtools-probe.json` shows a real `locationChanged` message from `darkaxt.navic.readerdev` on `emulator-5554` carrying `rangeCfi`, `reason`, `fraction`, pagination profile metadata, and page counts.
@@ -176,7 +177,7 @@ Phase 3 is host-verified:
 - `AnnotationClick` now has a visible controller-owned UI route: tapping an existing Foliate/Anx annotation can surface a native Komikku annotation popup instead of only updating debug/controller state.
 - `ExternalLink` now has a visible controller-owned UI route: Foliate external-link events surface a native confirmation prompt and open only through the app boundary, not through WebView chrome.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
-- Android/emulator validation is still required before treating this behavior as release-ready: logcat must show `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `selectionCleared`, `footnoteClose`, and `pullUp` under real reader flows.
+- Android/emulator bridge-path validation now covers `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `footnoteClose`, and diagnostic `pullUp` in a dirty readerdev WebView. Remaining release-readiness validation: real user-driven flows must still prove selection clear and scrolled-edge pull-up gestures without diagnostic commands.
 
 Phase 4 is host-verified:
 
@@ -217,7 +218,6 @@ Phase 8 is host- and emulator-verified:
 
 Priority 0:
 
-- When continuing Anx/Foliate parity work, execute Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md` before starting new visual polish or unrelated reader fixes.
 - Validate the host-verified selection action UI on emulator/device: text selection must surface Highlight/Copy/Note without opening reader chrome, Copy must reach the clipboard, Highlight/Note must render as annotations, and footnote selections must keep the Anx payload fields.
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
@@ -240,12 +240,12 @@ Priority 2:
 
 ## Implementation Order
 
-1. Execute Anx/Foliate Phase 7 from `2026-06-17-anx-parity-7-phase-plan.md`: PDF and font source parity guards.
-2. Validate Phase 3 and Phase 5 bridge events on emulator/device with logcat before any release-candidate discussion; Phase 4 has dirty-emulator diagnostic proof but still needs broader user-driven relocation flow checks.
+1. Validate Phase 5 selection actions on emulator/device with logcat and visible UI evidence before any release-candidate discussion.
+2. Validate remaining user-driven Phase 3 bridge flows: selection clear and scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.
-6. Continue the remaining Anx/Foliate phases behind the controller boundary: PDF integration, font sources, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
+6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
 7. Continue Komikku UI parity: rail proportions, bottom menu placement, settings overlay, tap-zone visibility.
 8. Only after the shell is stable, revisit lower-priority page curl animation and optional visual polish.
 

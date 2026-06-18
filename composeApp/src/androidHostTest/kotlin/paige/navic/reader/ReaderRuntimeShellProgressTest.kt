@@ -121,6 +121,19 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath() {
+		val bridgeText = readerBridgeText()
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(bridgeText, "case 'diagnosticScrolledEdgePullUp':")
+		assertContains(bridgeText, "diagnosticScrolledEdgePullUp()")
+		assertContains(bridgeText, "turnScrolledEdgePage(-(ScrollEdgeTurnSwipeThreshold + 10))")
+		assertContains(helperText, "type: 'diagnosticScrolledEdgePullUp'")
+		assertContains(helperText, "diagnosticScrolledEdgePullUp did not post pullUp")
+		assertContains(helperText, "Reader bridge event: pullUp")
+	}
+
+	@Test
 	fun androidReaderChapterRailSeekCommitsWithControlledReasonInsteadOfPassiveClamp() {
 		val bridgeText = readerBridgeText()
 		val chapterProgressSeek = bridgeText.substringAfter("async function goToChapterProgress(href, progress) {")

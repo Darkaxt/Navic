@@ -898,6 +898,43 @@ function turnScrolledEdgePage(deltaY) {
   return false
 }
 
+function overrideReaderRendererValue(renderer, key, value) {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(renderer, key)
+  Object.defineProperty(renderer, key, {
+    configurable: true,
+    value,
+  })
+  return () => {
+    if (ownDescriptor) {
+      Object.defineProperty(renderer, key, ownDescriptor)
+    } else {
+      delete renderer[key]
+    }
+  }
+}
+
+function diagnosticScrolledEdgePullUp() {
+  const renderer = this.view?.renderer
+  if (!renderer) {
+    return { posted: false, reason: 'missing-renderer' }
+  }
+  const restoreRendererValues = [
+    overrideReaderRendererValue(renderer, 'scrolled', true),
+    overrideReaderRendererValue(renderer, 'start', 100),
+    overrideReaderRendererValue(renderer, 'end', 1000),
+    overrideReaderRendererValue(renderer, 'viewSize', 1000),
+  ]
+  try {
+    const posted = this.turnScrolledEdgePage(-(ScrollEdgeTurnSwipeThreshold + 10))
+    return {
+      posted,
+      reason: 'diagnostic-scrolled-edge-pull-up',
+    }
+  } finally {
+    restoreRendererValues.reverse().forEach(restore => restore())
+  }
+}
+
 async function turnFixedLayoutSwipePage(deltaX) {
   if (this.view?.isFixedLayout !== true) return false
   if (Math.abs(deltaX) < FixedLayoutSurfaceSwipeThreshold) return false
@@ -945,5 +982,6 @@ export const NavicReaderPageTurnMethods = {
   attachScrolledEdgeTurnGestures,
   effectiveReaderDirection,
   turnScrolledEdgePage,
+  diagnosticScrolledEdgePullUp,
   turnFixedLayoutSwipePage
 }

@@ -300,6 +300,8 @@ class NavicReaderRuntime {
         return this.postCurrentLocationSnapshot(command.reason || 'diagnostic-snapshot', {
           forceDuplicatePost: true,
         })
+      case 'diagnosticScrolledEdgePullUp':
+        return this.diagnosticScrolledEdgePullUp()
       case 'goToChapterProgress':
         return this.goToChapterProgress(command.href, command.progress)
       case 'nextPage':

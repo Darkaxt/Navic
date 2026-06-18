@@ -1523,4 +1523,70 @@ Result:
 Remaining:
 
 - User-driven relocation flows still need runtime validation: tap, drag, progress rail, TOC, and resume must keep posting `reason` and CFI/null `rangeCfi`.
-- Phase 3 and Phase 5 real-flow bridge events still need emulator/device evidence before release-candidate claims.
+- Phase 3 still needs user-driven selection-clear and scrolled-edge pull-up gesture evidence before release-candidate claims; diagnostic bridge-path evidence is recorded in the later 2026-06-18 Phase 3 section.
+- Phase 5 real-flow selection UI still needs emulator/device evidence before release-candidate claims.
+
+## 2026-06-18 Emulator Probe: Phase 3 Bridge Events With Enforced Log Evidence
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence from `adb-reader-smoke`: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 17:12:37`.
+- EPUB state: dirty readerdev source rebuilt and installed, then launched through `scripts\install-reader-dev.ps1` until `Reader bridge raw: {"type":"publicationReady"}`.
+
+Trigger:
+
+- GLM's audit identified the recurring failure mode where bridge types/debug labels can exist while behavior is not actually consumed or validated.
+- The first Phase 3 DevTools probe had the same shape: it appended `pullUp` to the probe JSON after synthetic touch dispatch, but the smoke script did not fail when Android logcat lacked `Reader bridge event: pullUp`.
+
+Red checks:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -ArtifactDir captures\reader-bridge-probes\20260618-continue-phase3-pullup-enforced
+```
+
+Result:
+
+- FAIL as expected before implementation: the runtime did not expose `diagnosticScrolledEdgePullUp`.
+- FAIL as expected with enforced smoke-script evidence: `Reader DevTools probe 'phase3-events' expected log label 'Reader bridge event: pullUp' was not captured`.
+
+Implemented:
+
+- `adb-reader-smoke.ps1` now parses `reader-devtools-probe.json` and fails when any probe-declared `expectedLogLabels` entry is absent from `logcat-reader.log`.
+- `navic-reader.js` exposes a diagnostic `diagnosticScrolledEdgePullUp` command.
+- `navic-reader-page-turns.js` implements that diagnostic command by temporarily placing the renderer at a scrolled bottom edge and invoking the real `turnScrolledEdgePage(-(ScrollEdgeTurnSwipeThreshold + 10))` path.
+- `adb-webview-eval.mjs` now requires the diagnostic command to return `{ posted: true }` before it records `pullUp`.
+
+Green checks:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoLaunch -NoDiscoverPublication
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -ArtifactDir captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json`
+- `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\logcat-reader.log`
+
+Result:
+
+- PASS: focused host guards for the diagnostic command, DevTools helper, and smoke-script expected-label enforcement.
+- PASS: edited JS files parse with `node --check`.
+- PASS: dirty readerdev APK installed and launched into a real EPUB with `publicationReady`.
+- PASS: `reader-devtools-probe.json` records `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, `pushState`, `footnoteClose`, and `pullUp`.
+- PASS: `diagnosticScrolledEdgePullUp` returned `posted=true`.
+- PASS: `logcat-reader.log` contains all required Android bridge labels: `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and `pullUp`.
+
+Remaining:
+
+- This is bridge-path evidence for the same scrolled-edge turn function used by the real listener, not manual proof that a user scrolled-edge gesture reliably reaches that function.
+- Real-flow Phase 3 validation still needs user-driven or scripted selection-clear and scrolled-edge pull-up gestures without diagnostic commands.
+- Phase 5 selection UI still needs Android/emulator proof: Highlight/Copy/Note must appear and behave without toggling reader chrome.
