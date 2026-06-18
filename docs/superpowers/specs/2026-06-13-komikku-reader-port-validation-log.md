@@ -1977,3 +1977,171 @@ Remaining:
 
 - Progress rail endpoints are still not closed. Eta72 only makes the rail targetable by native semantics and ADB fractional node taps; endpoint behavior must still be validated on a visible-slider section and on the phone release.
 - This is dirty readerdev emulator evidence, not physical-phone release evidence.
+
+## 2026-06-18 Dirty Emulator Check: eta72 Progress Rail Endpoint
+
+Trigger:
+
+- Follow up the eta72 note that the current section did not render `Chapter page slider`.
+- Classify whether the hidden rail was a rendering/control bug or expected chapter-local behavior.
+- Exercise a visible-slider section before making any production change.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta72`, `versionCode=405`.
+
+Evidence:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+adb -s emulator-5554 shell input tap 997 2064
+adb -s emulator-5554 shell input tap 996 1810
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+```
+
+Artifacts:
+
+- `captures\reader-progress-rail\eta72-slider-bottom-current.png`
+
+Result:
+
+- PASS: Foreword hidden-slider behavior is expected for the current section. The live relocation payload reported `href=OEBPS/Text/authorsforeword.xhtml`, global `pageIndex=5`, global `pageCount=270`, but chapter-local `chapterPageIndex=0`, `chapterPageCount=2`; the Komikku rail intentionally hides the slider for chapters with fewer than 3 local pages.
+- PASS: Native next-chapter button moved from Foreword to Chapter 1. The live relocation payload reported `href=OEBPS/Text/capitancebolleta01.xhtml`, `tocTitle=Chapter 1`, `chapterPageIndex=0`, `chapterPageCount=10`.
+- PASS: On Chapter 1, the native hierarchy exposed `Chapter page slider` and the endpoint tap at the bottom of the rail dispatched `goToChapterProgress(OEBPS/Text/capitancebolleta01.xhtml, 1.0)`.
+- PASS: The engine landed at the final local chapter page: relocation reported `chapterProgress=1`, `chapterPageIndex=9`, `chapterPageCount=10`, with global `pageIndex=17`, `pageCount=270`.
+
+Remaining:
+
+- This closes only the eta72 dirty-emulator visible-slider endpoint check for one known-good section.
+- It does not close the phone/release report of `10 / 12`, `2 / 4`, or page-1 rail-button failures. Those still need release-device reproduction or a broader scripted matrix across multiple chapters.
+- The test used direct ADB taps after identifying the native node bounds. A scripted `tapDescFraction:Chapter page slider,...` release-device check should be preferred for repeatable release validation.
+
+## 2026-06-18 Host Guard: Anx PullUp Must Show Controller Chrome
+
+Trigger:
+
+- Continue the GLM audit follow-up: prove Anx bridge events are not only typed/decoded but routed into behavior.
+- `onPullUp` was still weaker than the Anx reference. Anx `epub_player.dart` routes it to `widget.showOrHideAppBarAndBottomBar(true)`, while Navic only stored `ReaderOverlayInteraction.PullUp`.
+
+Implemented:
+
+- `ReaderController` now handles `ReaderEngineEvent.PullUp` by storing `ReaderOverlayInteraction.PullUp` and setting `menuVisible = true`.
+- `FoliateAnxParityTest` now requires the `onPullUp` behavior route to include `menuVisible = true`, not only `ReaderOverlayInteraction.PullUp`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Result:
+
+- RED: before implementation, `ReaderControllerTest.anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded` failed at `ReaderControllerTest.kt:222` because `PullUp` did not show controller chrome.
+- GREEN: after implementation, `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 2m 24s`.
+
+Remaining:
+
+- This is host verification only. A real scrolled-edge pull-up gesture still needs emulator/device validation without diagnostic injection.
+
+## 2026-06-18 Host Guard: Anx PushState Must Surface Native History Controls
+
+Trigger:
+
+- Continue the GLM types-only parity audit: Anx `onPushState` was decoded into state but did not expose the same user-facing history route as the reference.
+- Anx `epub_player.dart` sets history visibility from `canGoBack || canGoForward` and renders a back/close/forward capsule; Foliate history actions call `reader.view.history.back()` / `forward()`.
+
+Implemented:
+
+- `ReaderEngineNavigationState` now carries `visible` and `ReaderController` updates it from `ReaderEngineEvent.NavigationStateChanged`.
+- `KomikkuReaderHistoryCapsule` renders a native bottom-centered history capsule outside the WebView surface.
+- `ReaderCoordinator` and `ReaderController` route history back/forward/dismiss actions through the controller boundary.
+- `ReaderEngineCommand.NavigateHistory` maps through `FoliateEpubEngineAdapter` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward`.
+- `navic-reader.js` dispatches `historyBack` / `historyForward` to Foliate `view.history.back()` / `forward()`.
+- `FoliateAnxParityTest` now requires controller behavior, UI route, bridge commands, adapter route, and runtime dispatch before `onPushState` can remain marked `Exists`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+git diff --check
+```
+
+Result:
+
+- RED: the first `:composeApp:testAndroid` run failed at compile time because the new behavior test referenced missing `ReaderEngineCommand.NavigateHistory`, `ReaderHistoryDirection`, `ReaderBridgeCommand.HistoryBack`, `ReaderBridgeCommand.HistoryForward`, history coordinator functions, and `ReaderEngineNavigationState.visible`.
+- GREEN: after implementation, `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
+- GREEN: `node --check` passed for `navic-reader.js`.
+- GREEN: `git diff --check` passed.
+- FRESH CHECK after design/log sync: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 9s`, `node --check composeApp\src\androidMain\assets\reader\navic-reader.js` passed, and `git diff --check` passed.
+
+Remaining:
+
+- This is host verification only. Emulator/device validation must still open a real EPUB, navigate through an internal link/search result that creates Foliate history, confirm the native capsule appears, tap back/forward, and confirm close hides only the capsule.
+
+## 2026-06-18 Dirty Emulator Check: PushState History Capsule Route
+
+Trigger:
+
+- Validate the current uncommitted PushState/history capsule slice on the reader-dev package before committing it.
+- Confirm whether the earlier missing `History back` / `Close history controls` hierarchy check was a real route failure or a blocked/covered UI state.
+
+Environment:
+
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed package evidence: `versionName=v1.0.11-eta72`, `versionCode=405`, `lastUpdateTime=2026-06-18 21:48:05`
+- Reader state: real EPUB loaded through Bindery debug credentials, title `Alcatraz versus the Evil Librarians`
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe history-controls
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-history-after-probe.xml
+adb -s emulator-5554 shell input tap 1010 1200
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-cover-edge.xml
+adb -s emulator-5554 logcat -c
+adb -s emulator-5554 shell input tap 478 2228
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-history-back.xml
+adb -s emulator-5554 logcat -d -t 100
+```
+
+Artifacts:
+
+- `captures\reader-history-controls\clean-reader-before-history-probe.png`
+- `captures\reader-history-controls\history-controls-clean-after-probe.png`
+- `captures\reader-history-controls\after-cover-edge-tap.png`
+- `captures\reader-history-controls\after-history-back-tap.png`
+- `tmp\reader-test-runs\navic-history-after-probe.xml`
+- `tmp\reader-test-runs\navic-after-cover-edge.xml`
+- `tmp\reader-test-runs\navic-after-history-back.xml`
+
+Result:
+
+- PASS: the WebView history probe returned `canGoBack=true`, `canGoForward=false`, and logcat emitted `Reader bridge event: pushState(back=true, forward=false)`.
+- PASS: the first missing-capsule hierarchy check was explained by state, not by a broken route. The native shell cover was still visible, and `ReaderRoot.kt` intentionally suppresses `KomikkuReaderHistoryCapsule` while `controllerState.shellCoverVisible` is true.
+- PASS: after dismissing the native cover through the reader surface, the native hierarchy exposed `History back` and `Close history controls`.
+- PASS: tapping `History back` dispatched `Dispatching reader engine command: historyBack`, and Foliate emitted `Reader bridge event: pushState(back=false, forward=true)`.
+- PASS: after the back command, the native hierarchy exposed `Close history controls` and `History forward`.
+
+Remaining:
+
+- This validates the dirty-emulator PushState/capsule command route only.
+- It does not validate a user-driven internal-link/search-result flow, phone release behavior, or whether the capsule should also be visible above the native shell cover. The current implementation intentionally hides it while the shell cover is active.
+
+Post-check verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+git diff --check
+```
+
+Result:
+
+- GREEN: `:composeApp:testAndroid` completed with `BUILD SUCCESSFUL in 16s`, `24 actionable tasks: 1 executed, 23 up-to-date`.
+- GREEN: both `node --check` commands passed.
+- GREEN: `git diff --check` passed.

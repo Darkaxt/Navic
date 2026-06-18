@@ -231,8 +231,16 @@ class FoliateAnxParityTest {
 		),
 		"onPushState" to exists(
 			"PushState event",
-			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
-			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState")
+			controllerTest("pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine"),
+			readerUiRoute("ReaderRoot.kt", "KomikkuReaderHistoryCapsule"),
+			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryBack()"),
+			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryForward()"),
+			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState"),
+			routeStop("ReaderController.kt", "ReaderEngineCommand.NavigateHistory"),
+			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryBack"),
+			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryForward"),
+			routeStop("navic-reader.js", "case 'historyBack':"),
+			routeStop("navic-reader.js", "case 'historyForward':")
 		),
 		"onFootnoteClose" to exists(
 			"FootnoteClose event on overlay dismissal",
@@ -242,7 +250,8 @@ class FoliateAnxParityTest {
 		"onPullUp" to exists(
 			"PullUp event from scroll-end hook",
 			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
-			routeStop("ReaderController.kt", "ReaderOverlayInteraction.PullUp")
+			routeStop("ReaderController.kt", "ReaderOverlayInteraction.PullUp"),
+			routeStop("ReaderController.kt", "menuVisible = true")
 		),
 		"link" to exists(
 			"InternalLinkRequested with prevented/source semantics",

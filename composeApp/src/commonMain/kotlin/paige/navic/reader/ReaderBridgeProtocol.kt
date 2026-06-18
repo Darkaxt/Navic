@@ -249,6 +249,24 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
+	data object HistoryBack : ReaderBridgeCommand {
+		override val type: String = "historyBack"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+			}
+	}
+
+	data object HistoryForward : ReaderBridgeCommand {
+		override val type: String = "historyForward"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+			}
+	}
+
 	data class PreviewPageDrag(
 		val deltaX: Double,
 		val viewWidth: Double? = null,

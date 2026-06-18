@@ -114,7 +114,8 @@ sealed interface ReaderOverlayInteraction {
 
 data class ReaderEngineNavigationState(
 	val canGoBack: Boolean = false,
-	val canGoForward: Boolean = false
+	val canGoForward: Boolean = false,
+	val visible: Boolean = canGoBack || canGoForward
 )
 
 data class ReaderControllerState(
@@ -338,7 +339,8 @@ data class ReaderController(
 					state = state.copy(
 						engineNavigation = ReaderEngineNavigationState(
 							canGoBack = event.canGoBack,
-							canGoForward = event.canGoForward
+							canGoForward = event.canGoForward,
+							visible = event.canGoBack || event.canGoForward
 						)
 					)
 				)
@@ -347,7 +349,12 @@ data class ReaderController(
 				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed))
 			)
 			ReaderEngineEvent.PullUp -> ReaderControllerStep(
-				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.PullUp))
+				copy(
+					state = state.copy(
+						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
+						menuVisible = true
+					)
+				)
 			)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
@@ -489,6 +496,40 @@ data class ReaderController(
 
 	fun navigateToNextChapter(): ReaderControllerStep =
 		navigateToAdjacentTocChapter(direction = 1)
+
+	fun navigateHistoryBack(): ReaderControllerStep =
+		navigateHistory(
+			enabled = state.engineNavigation.canGoBack,
+			direction = ReaderHistoryDirection.Back
+		)
+
+	fun navigateHistoryForward(): ReaderControllerStep =
+		navigateHistory(
+			enabled = state.engineNavigation.canGoForward,
+			direction = ReaderHistoryDirection.Forward
+		)
+
+	fun dismissHistoryNavigation(): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					engineNavigation = state.engineNavigation.copy(visible = false)
+				)
+			)
+		)
+
+	private fun navigateHistory(
+		enabled: Boolean,
+		direction: ReaderHistoryDirection
+	): ReaderControllerStep =
+		if (enabled) {
+			ReaderControllerStep(
+				controller = this,
+				engineCommands = listOf(ReaderEngineCommand.NavigateHistory(direction))
+			)
+		} else {
+			ReaderControllerStep(this)
+		}
 
 	private fun navigateToAdjacentTocChapter(direction: Int): ReaderControllerStep {
 		val targetHref = state.adjacentTocChapter(direction)

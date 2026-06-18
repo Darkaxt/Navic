@@ -284,6 +284,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onGoToChapterPage = { pageIndex ->
 			applyCoordinatorStep(coordinator.navigateToChapterPage(pageIndex))
 		},
+		onHistoryBack = {
+			applyCoordinatorStep(coordinator.navigateHistoryBack())
+		},
+		onHistoryForward = {
+			applyCoordinatorStep(coordinator.navigateHistoryForward())
+		},
+		onDismissHistory = {
+			applyCoordinatorStep(coordinator.dismissHistoryNavigation())
+		},
 		onContents = {
 			applyCoordinatorStep(coordinator.openContentsDialog())
 		},

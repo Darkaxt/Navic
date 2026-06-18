@@ -274,6 +274,30 @@ async function runPhase3EventsProbe(page) {
   }})()`)
 }
 
+async function runHistoryControlsProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view?.history) {
+      throw new Error('Missing foliate-view history')
+    }
+    view.history.clear?.()
+    view.history.pushState({ fraction: 0.1, probe: 'navic-history-controls-start' })
+    view.history.pushState({ fraction: 0.2, probe: 'navic-history-controls-current' })
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    return {
+      probe: 'history-controls',
+      canGoBack: view.history.canGoBack === true,
+      canGoForward: view.history.canGoForward === true,
+      expectedNativeControls: ['History back', 'Close history controls'],
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runSelectionPayloadProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const view = document.querySelector('foliate-view')
@@ -401,6 +425,7 @@ async function main() {
     const probeHandlers = {
       'internal-link-native': runInternalLinkNativeProbe,
       'phase3-events': runPhase3EventsProbe,
+      'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
     }

@@ -293,6 +293,8 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 			"goToChapterProgress(${href.engineUrlLabel()}, ${progress.coerceIn(0.0, 1.0)})"
 		ReaderBridgeCommand.NextPage -> "nextPage"
 		ReaderBridgeCommand.PreviousPage -> "previousPage"
+		ReaderBridgeCommand.HistoryBack -> "historyBack"
+		ReaderBridgeCommand.HistoryForward -> "historyForward"
 		is ReaderBridgeCommand.PreviewPageDrag -> "previewPageDrag(${phase.name.lowercase()})"
 		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
 		is ReaderBridgeCommand.ContentLongPressAt -> "contentLongPressAt"

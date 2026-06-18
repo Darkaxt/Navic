@@ -316,6 +316,10 @@ class NavicReaderRuntime {
           queueLength: this.pageTurnQueue.length,
         })
         return this.previousPage()
+      case 'historyBack':
+        return this.view?.history?.back?.()
+      case 'historyForward':
+        return this.view?.history?.forward?.()
       case 'scrollViewport':
         return this.scrollViewport(command.direction)
       case 'previewPageDrag':

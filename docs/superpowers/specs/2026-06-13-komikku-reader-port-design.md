@@ -132,6 +132,8 @@ As of the 2026-06-18 Anx parity guard check:
 - The nine Phase 3 bridge events must not be treated as type-only parity. `ReaderController` currently routes them into controller state (`lastLinkInteraction`, `externalLinkPrompt`, `lastAnnotationInteraction`, `annotationPopup`, `lastOverlayInteraction`, `loadedDocument`, and `engineNavigation`), and `FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes` guards against restoring the old no-op branches.
 - Phase 5 dirty emulator evidence now proves the selection payload can reach Android with `footnote=true`, CFI, context text, and bounds, and that the native Komikku-style `Highlight`, `Copy`, and `Note` action overlay appears after shell-cover dismissal. Highlight has a repeatable smoke gate through `applyHighlights` + `annotationDrawn`; Copy has a repeatable node-tap smoke gate that reaches the native clipboard boundary (`Reader selection copied length=31`); Note has a repeatable node-tap smoke gate that opens the native note dialog, saves a note-bearing annotation, dispatches `applyHighlights`, and receives `annotationDrawn`.
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
+- `PushState` is not passive history metadata: Anx routes it to a visible history capsule when `canGoBack || canGoForward`. Navic now stores `ReaderEngineNavigationState.visible`, renders `KomikkuReaderHistoryCapsule`, and routes capsule back/forward through `ReaderEngineCommand.NavigateHistory` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward` and Foliate `view.history.back()` / `forward()`.
+- `PullUp` is not a passive diagnostic event: Anx routes it to `showOrHideAppBarAndBottomBar(true)`, so Navic must route it to controller-owned `menuVisible = true` while keeping the renderer command list empty.
 - Phase 3 now has dirty-emulator WebView evidence for the high-risk bridge path. `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json` shows `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and diagnostic `pullUp` crossing into Android logcat. This is bridge-path evidence, not a replacement for user-driven scrolled-edge gesture validation.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
@@ -245,6 +247,7 @@ Priority 1:
 - Correct remaining texture transition weirdness during page movement and page/section transitions.
 - Confirm cover drag behavior is faithful: cover should not vanish on touch; drag should produce reader-owned feedback and commit on release.
 - Keep progress rail chapter-local and Komikku-like; avoid whole-book rail behavior unless explicitly designed as a separate UI.
+- Remove duplicate bottom-toolbar settings entry points. The bottom toolbar must not open the same settings window from multiple buttons; keep a single settings entry, and map the remaining buttons to distinct Komikku-reader actions such as contents, search, bookmark, or remove them until their route exists.
 
 Priority 2:
 
@@ -261,7 +264,7 @@ Priority 2:
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.
 6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
-7. Continue Komikku UI parity: rail proportions, bottom menu placement, settings overlay, tap-zone visibility.
+7. Continue Komikku UI parity: rail proportions, bottom menu placement, non-duplicated bottom actions, settings overlay, tap-zone visibility.
 8. Only after the shell is stable, revisit lower-priority page curl animation and optional visual polish.
 
 ## Required Emulator Gate
