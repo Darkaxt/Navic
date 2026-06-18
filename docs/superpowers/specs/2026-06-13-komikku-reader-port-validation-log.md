@@ -2389,3 +2389,38 @@ Readerdev/emulator note:
 Remaining:
 
 - User/phone validation is still required for the restored center tap, mini-drag suppression, real drag paging, and the existing progress rail/open P0 items.
+
+## 2026-06-19 eta75 Readerdev Emulator Follow-Up
+
+Trigger:
+
+- Supersede the earlier eta75 readerdev note after isolating the command-runner ceiling from the actual build/install/reader launch path.
+- Verify the published eta75 source still opens a real Bindery EPUB and passes the Komikku native input matrix in the dirty readerdev environment.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :androidApp:assembleReaderDev --stacktrace
+adb -s emulator-5554 install -r androidApp\build\outputs\apk\readerDev\Navic.apk
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -IncludeCoverChecks -ArtifactRoot tmp\reader-matrix-eta75-readerdev-20260619-0245
+```
+
+Result:
+
+- PASS: `:androidApp:assembleReaderDev` completed successfully and produced `androidApp\build\outputs\apk\readerDev\Navic.apk`.
+- PASS: direct ADB install returned `Success`.
+- PASS: package manager reported `versionName=v1.0.11-eta75`, `versionCode=408`, and `lastUpdateTime=2026-06-19 02:43:07`.
+- PASS: `install-reader-dev.ps1 -NoBuild -NoInstall -RequireReaderLaunch` discovered `A Memory of Light (epub)`, foregrounded `darkaxt.navic.readerdev`, and received `Reader bridge raw: {"type":"publicationReady"}`.
+- PASS: full `install-reader-dev.ps1 -RequireReaderLaunch` completed after an up-to-date readerdev build/install and again received `publicationReady`.
+- PASS: Komikku matrix artifact root `tmp\reader-matrix-eta75-readerdev-20260619-0245`.
+- PASS: matrix rows `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` all reported `PASS`.
+- PASS: `reader-matrix-failures.txt` reported `No matrix failures.`
+
+Interpretation:
+
+- The earlier eta75 note remains historically true for that failed command invocation, but it is no longer the latest readerdev/emulator state.
+- eta75 now has dirty readerdev emulator evidence for restored center tap, mini-drag suppression, cover drag, readable drag, edge taps, and texture direction sampling.
+- This still does not close physical-phone release validation, progress rail endpoint validation, resume after app/window interruption, real manual text selection, or real scrolled-edge pull-up.
