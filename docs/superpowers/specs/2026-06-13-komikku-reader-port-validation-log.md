@@ -1908,3 +1908,72 @@ Remaining:
 - This is dirty-emulator evidence, not physical-phone release evidence.
 - The matrix does not exercise progress rail endpoints, progress rail chapter buttons, resume after app/window interruption, real manual normal-text selection, or real scrolled-edge pull-up.
 - Manual drag feel remains Priority 1 because the matrix only proves the native drag-preview log path and direction sampling, not the final perceptual quality.
+
+## 2026-06-18 Host Check: Progress Rail Native Targeting Guard
+
+Trigger:
+
+- The progress rail still needs release/device validation for endpoint bugs (`10 / 12`, `2 / 4`, and page-1 chapter button behavior).
+- Coordinate-based progress tests are too brittle because the Komikku rail is responsive and can be hidden for one-page or two-page sections.
+
+Implemented:
+
+- The chapter progress slider now exposes a merged native semantics descriptor: `Chapter page slider`.
+- `adb-reader-smoke.ps1` can now resolve an Android UI node by content description and tap a fractional point inside it with `tapDescFraction:value,xFraction,yFraction,waitMs`.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe
+```
+
+Result:
+
+- PASS: Gradle reported `BUILD SUCCESSFUL in 2m 38s`.
+- PASS: `scripts\adb-reader-smoke.ps1` parsed successfully with PowerShell's parser.
+- PASS: `git diff --check` reported no whitespace errors.
+
+Runtime note:
+
+- A dirty emulator probe for `tapDescFraction:Chapter page slider,...` was attempted, but the current section had too few local pages and correctly did not render the slider. Do not count progress rail endpoints as fixed until a visible-slider section is targeted and first/last page navigation is verified from UI-node fractions.
+
+## 2026-06-18 Dirty Emulator Matrix: eta72 Pre-Release
+
+Trigger:
+
+- Prepare `v1.0.11-eta72` only after host verification and an emulator gate.
+- Confirm that the progress-rail targeting guard did not regress the Komikku-owned reader shell.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta72`, `versionCode=405`, `lastUpdateTime=2026-06-18 20:23:48`.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta72 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\eta72-pre-release-20260618
+```
+
+Artifacts:
+
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\baseline-native-cover\screen.png`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\cover-drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta72-pre-release-20260618\texture-previous-walk\reader-diagnostics-summary.txt`
+
+Result:
+
+- PASS: all matrix rows passed: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- PASS: `reader-matrix-failures.txt` reported `No matrix failures`.
+- PASS: cover drag still uses the shell-cover path: `shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`.
+- PASS: normal page drag still uses native drag preview: `readerNativeDragPreview=True` for `drag-next`.
+- PASS: scripted texture direction sampling did not flag inversion: `wrongTextureDirection=False`.
+
+Remaining:
+
+- Progress rail endpoints are still not closed. Eta72 only makes the rail targetable by native semantics and ADB fractional node taps; endpoint behavior must still be validated on a visible-slider section and on the phone release.
+- This is dirty readerdev emulator evidence, not physical-phone release evidence.

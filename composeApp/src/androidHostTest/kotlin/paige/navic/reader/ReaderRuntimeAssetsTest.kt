@@ -286,14 +286,18 @@ class ReaderRuntimeAssetsTest {
 		assertContains(postProbeGestureBlock, "tapFraction:")
 		assertContains(postProbeGestureBlock, "tapText:")
 		assertContains(postProbeGestureBlock, "tapDesc:")
+		assertContains(postProbeGestureBlock, "tapDescFraction:")
 		assertContains(postProbeGestureBlock, "Get-AdbUiNodeCenter")
+		assertContains(postProbeGestureBlock, "Get-AdbUiNodeFractionPoint")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeAction")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionAction")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"keyevent\", \$keyEvent)")
 		assertContains(scriptText, "Dispatching reader engine command: \$requiredEngineCommand")
 		assertContains(scriptText, "required engine command '\$requiredEngineCommand' was not captured")
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
 		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
+		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
 	}
 
 	@Test

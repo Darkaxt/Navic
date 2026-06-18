@@ -34,6 +34,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -135,7 +137,10 @@ internal fun KomikkuChapterNavigator(
 						KomikkuChapterProgressSlider(
 							modifier = Modifier
 								.weight(1f)
-								.padding(horizontal = 8.dp),
+								.padding(horizontal = 8.dp)
+								.semantics(mergeDescendants = true) {
+									contentDescription = "Chapter page slider"
+								},
 							value = currentPage,
 							valueRange = 1..totalPages,
 							onValueChange = { page ->
@@ -259,6 +264,9 @@ private fun KomikkuChapterNavigatorVertical(
 				KomikkuChapterProgressSlider(
 					modifier = Modifier
 						.padding(vertical = 8.dp)
+						.semantics(mergeDescendants = true) {
+							contentDescription = "Chapter page slider"
+						}
 						.graphicsLayer {
 							rotationZ = 90f
 							transformOrigin = TransformOrigin(0f, 0f)

@@ -531,7 +531,7 @@ function Get-AdbUiNodeAttribute {
     return [System.Net.WebUtility]::HtmlDecode($attributeMatch.Groups[1].Value)
 }
 
-function Get-AdbUiNodeCenter {
+function Get-AdbUiNodeBounds {
     param(
         [Parameter(Mandatory = $true)]
         [ValidateSet("text", "desc")]
@@ -567,14 +567,60 @@ function Get-AdbUiNodeCenter {
         }
 
         return [pscustomobject]@{
-            X = [int] (($left + $right) / 2)
-            Y = [int] (($top + $bottom) / 2)
+            Left = $left
+            Top = $top
+            Right = $right
+            Bottom = $bottom
+            Width = $right - $left
+            Height = $bottom - $top
             Bounds = $bounds
             Value = $actualValue
         }
     }
 
     throw "Could not find UI node by $MatcherKind '$ExpectedValue' in post-probe hierarchy."
+}
+
+function Get-AdbUiNodeCenter {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedValue
+    )
+
+    $bounds = Get-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $ExpectedValue
+    return [pscustomobject]@{
+        X = [int] (($bounds.Left + $bounds.Right) / 2)
+        Y = [int] (($bounds.Top + $bounds.Bottom) / 2)
+        Bounds = $bounds.Bounds
+        Value = $bounds.Value
+    }
+}
+
+function Get-AdbUiNodeFractionPoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedValue,
+        [Parameter(Mandatory = $true)]
+        [double] $XFraction,
+        [Parameter(Mandatory = $true)]
+        [double] $YFraction
+    )
+
+    $bounds = Get-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $ExpectedValue
+    $clampedXFraction = [math]::Min(1.0, [math]::Max(0.0, $XFraction))
+    $clampedYFraction = [math]::Min(1.0, [math]::Max(0.0, $YFraction))
+    return [pscustomobject]@{
+        X = [int] [math]::Round($bounds.Left + ($bounds.Width * $clampedXFraction))
+        Y = [int] [math]::Round($bounds.Top + ($bounds.Height * $clampedYFraction))
+        Bounds = $bounds.Bounds
+        Value = $bounds.Value
+    }
 }
 
 function Invoke-PostProbeUiNodeAction {
@@ -596,6 +642,34 @@ function Invoke-PostProbeUiNodeAction {
     $waitMs = if ($nodeSpecMatch.Groups[2].Success) { [int] $nodeSpecMatch.Groups[2].Value } else { 1000 }
     $center = Get-AdbUiNodeCenter -MatcherKind $MatcherKind -ExpectedValue $expectedValue
     Invoke-Adb @("shell", "input", "tap", ([string] $center.X), ([string] $center.Y))
+    Start-Sleep -Milliseconds $waitMs
+}
+
+function Invoke-PostProbeUiNodeFractionAction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+))?$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $xFraction = [double]::Parse($nodeSpecMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $yFraction = [double]::Parse($nodeSpecMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $waitMs = if ($nodeSpecMatch.Groups[4].Success) { [int] $nodeSpecMatch.Groups[4].Value } else { 1000 }
+    $point = Get-AdbUiNodeFractionPoint `
+        -MatcherKind $MatcherKind `
+        -ExpectedValue $expectedValue `
+        -XFraction $xFraction `
+        -YFraction $yFraction
+    Invoke-Adb @("shell", "input", "tap", ([string] $point.X), ([string] $point.Y))
     Start-Sleep -Milliseconds $waitMs
 }
 
@@ -628,6 +702,12 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
+    if ($postProbeAction.StartsWith("tapDescFraction:")) {
+        $nodeSpec = $postProbeAction.Substring("tapDescFraction:".Length)
+        Invoke-PostProbeUiNodeFractionAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
     if ($postProbeAction.StartsWith("text:")) {
         $textPayload = $postProbeAction.Substring("text:".Length)
         $textWaitMatch = [regex]::Match($textPayload, '^(.*?)(?:\s*,\s*(\d+))?$')
@@ -648,7 +728,7 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
-    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapText:, tapDesc:, text:, or keyevent:."
+    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapText:, tapDesc:, tapDescFraction:, text:, or keyevent:."
 }
 
 Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
