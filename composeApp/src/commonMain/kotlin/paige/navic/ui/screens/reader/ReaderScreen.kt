@@ -18,6 +18,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,6 +51,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyRepository = koinInject<BinderyRepository>()
 	val backStack = LocalNavStack.current
+	val uriHandler = LocalUriHandler.current
 	val coroutineScope = rememberCoroutineScope()
 	val hasReaderBookSettings = readerHasBookSettings(preferenceManager, reader.bookId)
 	var readerSettingsScope by remember(reader.publicationUrl, reader.bookId) {
@@ -343,6 +345,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onDismissAnnotationPopup = {
 			applyCoordinatorStep(coordinator.dismissAnnotationPopup())
+		},
+		onOpenExternalLink = { url ->
+			uriHandler.openUri(url)
+			applyCoordinatorStep(coordinator.dismissExternalLinkPrompt())
+		},
+		onDismissExternalLinkPrompt = {
+			applyCoordinatorStep(coordinator.dismissExternalLinkPrompt())
 		},
 		onSettingsChange = { settings ->
 			applyReaderSettings(settings)

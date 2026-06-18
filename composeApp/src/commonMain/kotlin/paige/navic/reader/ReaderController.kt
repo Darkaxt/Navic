@@ -67,6 +67,11 @@ data class ReaderLoadedDocument(
 	val sectionId: String? = null
 )
 
+data class ReaderExternalLinkPromptState(
+	val href: String,
+	val anchorHref: String? = null
+)
+
 sealed interface ReaderLinkInteraction {
 	data class Internal(
 		val href: String? = null,
@@ -119,6 +124,7 @@ data class ReaderControllerState(
 	val chapterProgress: ReaderChapterProgressState = ReaderChapterProgressState(),
 	val loadedDocument: ReaderLoadedDocument? = null,
 	val lastLinkInteraction: ReaderLinkInteraction? = null,
+	val externalLinkPrompt: ReaderExternalLinkPromptState? = null,
 	val lastAnnotationInteraction: ReaderAnnotationInteraction? = null,
 	val annotationPopup: ReaderAnnotationPopupState? = null,
 	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
@@ -210,6 +216,7 @@ data class ReaderController(
 						?: ReaderChapterProgressState(),
 					loadedDocument = null,
 					lastLinkInteraction = null,
+					externalLinkPrompt = null,
 					lastAnnotationInteraction = null,
 					annotationPopup = null,
 					lastOverlayInteraction = null,
@@ -287,12 +294,7 @@ data class ReaderController(
 			)
 			is ReaderEngineEvent.ExternalLinkOpened -> ReaderControllerStep(
 				copy(
-					state = state.copy(
-						lastLinkInteraction = ReaderLinkInteraction.External(
-							href = event.href,
-							anchorHref = event.anchorHref
-						)
-					)
+					state = state.onExternalLinkOpened(event)
 				)
 			)
 			is ReaderEngineEvent.AnnotationClicked -> ReaderControllerStep(
@@ -586,6 +588,9 @@ data class ReaderController(
 	fun dismissAnnotationPopup(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(annotationPopup = null)))
 
+	fun dismissExternalLinkPrompt(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(externalLinkPrompt = null)))
+
 	fun toggleCurrentBookmark(): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)
 		val nextBookmarks = state.bookmarks.toggleBookmark(
@@ -778,7 +783,27 @@ data class ReaderController(
 					viewHeight = action.viewHeight
 				)
 			)
-		)
+	)
+}
+
+private fun ReaderControllerState.onExternalLinkOpened(
+	event: ReaderEngineEvent.ExternalLinkOpened
+): ReaderControllerState {
+	val interaction = ReaderLinkInteraction.External(
+		href = event.href,
+		anchorHref = event.anchorHref
+	)
+	val href = event.href?.trim()?.takeIf { it.isNotEmpty() }
+	val anchorHref = event.anchorHref?.trim()?.takeIf { it.isNotEmpty() }
+	return copy(
+		lastLinkInteraction = interaction,
+		externalLinkPrompt = href?.let {
+			ReaderExternalLinkPromptState(
+				href = it,
+				anchorHref = anchorHref
+			)
+		}
+	)
 }
 
 private fun ReaderControllerState.onAnnotationClicked(

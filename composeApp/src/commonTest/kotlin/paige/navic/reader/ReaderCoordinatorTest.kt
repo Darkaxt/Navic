@@ -178,6 +178,31 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun externalLinkPromptDismissalIsControllerOwnedAndDoesNotTouchTheEngine() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val prompted = opened.onEngineEvent(
+			ReaderEngineEvent.ExternalLinkOpened(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			)
+		).coordinator
+
+		val dismissed = prompted.dismissExternalLinkPrompt()
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(dismissed.coordinator.viewState)
+
+		assertEquals(
+			ReaderExternalLinkPromptState(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			prompted.controller.state.externalLinkPrompt
+		)
+		assertNull(dismissed.coordinator.controller.state.externalLinkPrompt)
+		assertNull(viewState.command)
+		assertEquals(0L, viewState.commandKey)
+	}
+
+	@Test
 	fun readaloudAdapterCommandsRouteThroughControllerBeforeCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(
 			hobbitOpenRequest().copy(

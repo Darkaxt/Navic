@@ -1378,3 +1378,46 @@ Result:
 Remaining:
 
 - Android/emulator validation is still required: create or load a highlight/note, tap the existing annotation, confirm the popup appears, dismiss it, and verify no menu/tap-zone regression.
+
+## 2026-06-18 Host Guard: External Links Must Reach Native Komikku UI
+
+Trigger:
+
+- `ExternalLink` was decoded and retained as `lastLinkInteraction`, but it still had no visible controller-owned route.
+- External links should not be opened directly by WebView-owned chrome. The reader shell must surface the event and hand confirmed URL opening to the app boundary.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.externalLinksOpenControllerOwnedExternalLinkPrompt" --tests "paige.navic.reader.ReaderControllerTest.dismissExternalLinkPromptClearsOnlyTheVisiblePrompt" --tests "paige.navic.reader.ReaderCoordinatorTest.externalLinkPromptDismissalIsControllerOwnedAndDoesNotTouchTheEngine" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderExternalLinksAreKomikkuOverlayAndNativeUriRouted"
+```
+
+Result:
+
+- FAIL as expected before implementation: unresolved `ReaderExternalLinkPromptState`, missing `externalLinkPrompt`, missing `dismissExternalLinkPrompt`, and missing `ReaderExternalLinkDialog.kt`.
+
+Implemented:
+
+- `ReaderControllerState.externalLinkPrompt` now opens from `ReaderEngineEvent.ExternalLinkOpened`.
+- `ReaderController.dismissExternalLinkPrompt` and `ReaderCoordinator.dismissExternalLinkPrompt` close the prompt without emitting engine/WebView commands.
+- `KomikkuReaderExternalLinkDialog` is a dedicated native overlay component under `ReaderRoot`.
+- `ReaderScreen` owns confirmed opening through `LocalUriHandler.current.openUri(url)` and clears the prompt after handing the URL to the native URI handler.
+- `ReaderRuntimeCommonChromeTest` now guards the route so `ExternalLink` cannot regress back to hidden state-only handling.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.externalLinksOpenControllerOwnedExternalLinkPrompt" --tests "paige.navic.reader.ReaderControllerTest.dismissExternalLinkPromptClearsOnlyTheVisiblePrompt" --tests "paige.navic.reader.ReaderCoordinatorTest.externalLinkPromptDismissalIsControllerOwnedAndDoesNotTouchTheEngine" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderExternalLinksAreKomikkuOverlayAndNativeUriRouted"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroid
+```
+
+Result:
+
+- PASS: focused controller/coordinator/Komikku overlay/native URI route guard.
+- PASS: full Android host suite.
+- PASS: Android unit test task.
+
+Remaining:
+
+- Android/emulator validation is still required: trigger a real external EPUB/PDF link, confirm the native prompt appears, verify Close does not open the browser, verify Open launches through Android, and verify no menu/tap-zone regression.

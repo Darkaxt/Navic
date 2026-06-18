@@ -1068,6 +1068,31 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderExternalLinksAreKomikkuOverlayAndNativeUriRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val externalLinkDialogText = readerCommonUiFile("ReaderExternalLinkDialog.kt").readText()
+
+		assertContains(readerRootText, "KomikkuReaderExternalLinkDialog(")
+		assertContains(readerRootText, "controllerState.externalLinkPrompt")
+		assertContains(readerRootText, "onOpenExternalLink = onOpenExternalLink")
+		assertContains(readerRootText, "onDismissExternalLinkPrompt = onDismissExternalLinkPrompt")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderExternalLinkDialog(") ||
+				readerScreenText.contains("ReaderExternalLinkPromptState("),
+			"External-link UI must be a Komikku overlay component routed through controller state, not local ReaderScreen state."
+		)
+		assertContains(externalLinkDialogText, "internal fun KomikkuReaderExternalLinkDialog(")
+		assertContains(externalLinkDialogText, "ReaderExternalLinkPromptState")
+		assertContains(externalLinkDialogText, "BasicAlertDialog(")
+		assertContains(externalLinkDialogText, "onOpenExternalLink(link.href)")
+		assertContains(externalLinkDialogText, "onDismissExternalLinkPrompt")
+		assertContains(readerScreenText, "LocalUriHandler.current")
+		assertContains(readerScreenText, "uriHandler.openUri(url)")
+		assertContains(readerScreenText, "coordinator.dismissExternalLinkPrompt()")
+	}
+
+	@Test
 	fun commonReaderNavigatorSettingsMappingLivesWithKomikkuNavigationModel() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()

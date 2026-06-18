@@ -223,6 +223,54 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun externalLinksOpenControllerOwnedExternalLinkPrompt() {
+		val step = ReaderController().onEngineEvent(
+			ReaderEngineEvent.ExternalLinkOpened(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			)
+		)
+
+		assertEquals(
+			ReaderLinkInteraction.External(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			step.controller.state.lastLinkInteraction
+		)
+		assertEquals(
+			ReaderExternalLinkPromptState(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			step.controller.state.externalLinkPrompt
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun dismissExternalLinkPromptClearsOnlyTheVisiblePrompt() {
+		val controller = ReaderController().onEngineEvent(
+			ReaderEngineEvent.ExternalLinkOpened(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			)
+		).controller
+
+		val dismissed = controller.dismissExternalLinkPrompt()
+
+		assertNull(dismissed.controller.state.externalLinkPrompt)
+		assertEquals(
+			ReaderLinkInteraction.External(
+				href = "https://example.test/notes",
+				anchorHref = "../Text/chapter-01.xhtml#note"
+			),
+			dismissed.controller.state.lastLinkInteraction
+		)
+		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
 	fun annotationClicksOpenControllerOwnedAnnotationPopup() {
 		val event = ReaderEngineEvent.AnnotationClicked(
 			value = "A saved note",

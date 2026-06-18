@@ -81,6 +81,9 @@ data class ReaderCoordinator(
 	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissAnnotationPopup())
 
+	fun dismissExternalLinkPrompt(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissExternalLinkPrompt())
+
 	fun toggleCurrentBookmark(): ReaderCoordinatorStep =
 		applyControllerStep(controller.toggleCurrentBookmark())
 

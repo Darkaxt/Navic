@@ -53,6 +53,8 @@ internal fun KomikkuReaderRoot(
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
 	onDismissAnnotationPopup: () -> Unit,
+	onOpenExternalLink: (String) -> Unit,
+	onDismissExternalLinkPrompt: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -143,6 +145,8 @@ internal fun KomikkuReaderRoot(
 				onSaveSelectionNote = onSaveSelectionNote,
 				onDismissSelectionNote = onDismissSelectionNote,
 				onDismissAnnotationPopup = onDismissAnnotationPopup,
+				onOpenExternalLink = onOpenExternalLink,
+				onDismissExternalLinkPrompt = onDismissExternalLinkPrompt,
 				onSettingsChange = onSettingsChange,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
@@ -190,6 +194,8 @@ private fun KomikkuComposeOverlay(
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
 	onDismissAnnotationPopup: () -> Unit,
+	onOpenExternalLink: (String) -> Unit,
+	onDismissExternalLinkPrompt: () -> Unit,
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
@@ -286,6 +292,13 @@ private fun KomikkuComposeOverlay(
 			KomikkuReaderAnnotationDialog(
 				annotation = annotation,
 				onDismissAnnotationPopup = onDismissAnnotationPopup
+			)
+		}
+		controllerState.externalLinkPrompt?.let { link ->
+			KomikkuReaderExternalLinkDialog(
+				link = link,
+				onOpenExternalLink = onOpenExternalLink,
+				onDismissExternalLinkPrompt = onDismissExternalLinkPrompt
 			)
 		}
 	}
