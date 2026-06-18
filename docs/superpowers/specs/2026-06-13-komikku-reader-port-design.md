@@ -181,7 +181,8 @@ Phase 3 is host-verified:
 - `AnnotationClick` now has a visible controller-owned UI route: tapping an existing Foliate/Anx annotation can surface a native Komikku annotation popup instead of only updating debug/controller state.
 - `ExternalLink` now has a visible controller-owned UI route: Foliate external-link events surface a native confirmation prompt and open only through the app boundary, not through WebView chrome.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
-- Android/emulator bridge-path validation now covers `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `footnoteClose`, and diagnostic `pullUp` in a dirty readerdev WebView. Remaining release-readiness validation: real user-driven flows must still prove selection clear and scrolled-edge pull-up gestures without diagnostic commands.
+- Android/emulator bridge-path validation now covers `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `footnoteClose`, and diagnostic `pullUp` in a dirty readerdev WebView.
+- Dirty-emulator validation now proves a user-like ADB tap can clear an existing WebView selection and emit Android-side `selectionCleared` without center-menu dispatch. This still used a DevTools probe to create the selection, so real manual text selection and scrolled-edge pull-up gestures remain release-readiness validation items.
 
 Phase 4 is host-verified:
 
@@ -195,7 +196,7 @@ Phase 5 is host-verified:
 - `SelectionChanged` now carries Anx `onSelectionEnd` payload fields through the bridge, engine adapter, and controller state.
 - Runtime selection posts include a DOM selection bounding rectangle, bounded context text, and footnote detection for footnote/noteref-like elements.
 - Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
-- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Highlight, Copy, and Note save paths. Before treating this behavior as release-ready, still validate a clean release APK on the phone and a user-driven normal-text selection path, then confirm selection clear does not cause noisy menu/tap regressions.
+- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Highlight, Copy, Note save, and selection-clear-after-selection paths. Before treating this behavior as release-ready, still validate a clean release APK on the phone and a user-driven normal-text selection path.
 
 Reader search is host-verified:
 
@@ -245,7 +246,7 @@ Priority 2:
 ## Implementation Order
 
 1. Validate Phase 5 selection actions on emulator/device with logcat and visible UI evidence before any release-candidate discussion.
-2. Validate remaining user-driven Phase 3 bridge flows: selection clear and scrolled-edge pull-up gestures must be observed without diagnostic commands.
+2. Validate remaining user-driven Phase 3 bridge flows: normal-text selection and scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.

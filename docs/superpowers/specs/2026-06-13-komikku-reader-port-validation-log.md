@@ -1822,3 +1822,44 @@ Remaining:
 - This is dirty emulator evidence, not a clean release APK validation.
 - User-driven normal text selection, selection clear, and real scrolled-edge pull-up still need validation.
 - Copy's observable proof is the native app boundary log after `LocalClipboardManager.setText`; Android shell does not provide a reliable cross-app clipboard read for this assertion.
+
+## 2026-06-18 Host/Emulator Check: GLM Audit Follow-Up and Selection Clear
+
+Trigger:
+
+- GLM repeated the bridge-events-are-types-only warning and cited stale `ReaderController` no-op branches.
+- The remaining active gap was not controller wiring, but proving that selection clear reaches Android from a user-like action.
+
+Host verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes --tests paige.navic.reader.FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes
+```
+
+Result:
+
+- PASS: Gradle reported `BUILD SUCCESSFUL in 15s`.
+- PASS: the current branch still rejects the quoted no-op Phase 3 controller branches and requires behavior routes for Anx `Exists` entries.
+
+Dirty emulator check:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapFraction:0.12,0.82,1200' -RequireReaderBridgeEvent 'selectionCleared' -ArtifactDir captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate
+```
+
+Artifacts:
+
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\reader-diagnostics-summary.txt`
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\logcat-reader.log`
+- `captures\reader-bridge-probes\20260618-selection-clear-user-tap-gate\reader-devtools-probe.json`
+
+Result:
+
+- PASS: the probe produced a footnote-positive `selectionChanged` payload.
+- PASS: the post-probe ADB tap produced `Reader bridge event: selectionCleared()`.
+- PASS: diagnostics reported `readerCenterDispatch=False`, so clearing the selection did not toggle the reader menu.
+
+Remaining:
+
+- This is dirty-emulator evidence. The installed release APK still needs validation before a release-candidate claim.
+- The selection was created by DevTools and cleared by an ADB tap. Real manual normal-text selection and real scrolled-edge pull-up still need validation without diagnostic setup.
