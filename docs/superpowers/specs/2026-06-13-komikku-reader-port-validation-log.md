@@ -1863,3 +1863,48 @@ Remaining:
 
 - This is dirty-emulator evidence. The installed release APK still needs validation before a release-candidate claim.
 - The selection was created by DevTools and cleared by an ADB tap. Real manual normal-text selection and real scrolled-edge pull-up still need validation without diagnostic setup.
+
+## 2026-06-18 Dirty Emulator Matrix: eta71 Continuation
+
+Trigger:
+
+- Continue from the GLM audit follow-up after confirming the controller no-op finding was stale on the current branch.
+- Re-run the scripted Komikku reader matrix on the installed dirty emulator build to check whether native tap/drag/texture paths still held after the Anx parity and selection-action work.
+
+Target:
+
+- Serial: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed evidence: `versionName=v1.0.11-eta71`, `versionCode=404`, `lastUpdateTime=2026-06-18 18:22:03`.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta71 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\eta71-continuation-20260618
+```
+
+Artifacts:
+
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\baseline-native-cover\screen.png`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\cover-drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\drag-next\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\drag-previous\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\texture-next-walk\reader-diagnostics-summary.txt`
+- `captures\reader-komikku-matrix\eta71-continuation-20260618\texture-previous-walk\reader-diagnostics-summary.txt`
+
+Result:
+
+- PASS: all matrix rows passed: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- PASS: `reader-matrix-failures.txt` reported `No matrix failures`.
+- PASS: cover drag used the shell-cover path: `shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`.
+- PASS: normal page drag used the native drag-preview path in both directions: `readerNativeDragPreview=True` for `drag-next` and `drag-previous`.
+- PASS: scripted texture direction sampling did not flag inversion: `wrongTextureDirection=False` for `drag-next`, `drag-previous`, `texture-next-walk`, and `texture-previous-walk`.
+- PASS: visual inspection of `baseline-native-cover\screen.png` showed the native cover on a black cover surface without the bottom menu overlay.
+
+Remaining:
+
+- This is dirty-emulator evidence, not physical-phone release evidence.
+- The matrix does not exercise progress rail endpoints, progress rail chapter buttons, resume after app/window interruption, real manual normal-text selection, or real scrolled-edge pull-up.
+- Manual drag feel remains Priority 1 because the matrix only proves the native drag-preview log path and direction sampling, not the final perceptual quality.

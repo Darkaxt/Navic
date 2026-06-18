@@ -111,6 +111,15 @@ As of the 2026-06-18 dirty emulator Phase 6 refactor check:
 
 This is local/dirty validation, not a GitHub release validation.
 
+As of the later 2026-06-18 eta71 continuation matrix:
+
+- The dirty `readerdev` APK on `emulator-5554` reported `versionName=v1.0.11-eta71`, `versionCode=404`, and `lastUpdateTime=2026-06-18 18:22:03`.
+- `adb-reader-komikku-matrix.ps1` passed all scripted checks: baseline current reader, baseline native cover, cover center tap, cover drag next, center tap toggle, native long press, edge tap next, drag next, texture next walk, edge tap previous, drag previous, and texture previous walk.
+- `reader-matrix-failures.txt` reported `No matrix failures`.
+- The dirty-emulator diagnostics showed cover drag using the shell-cover path (`shellCoverDragCandidate=True`, `shellCoverSwipe=True`, `shellCoverCommand=True`), normal page drags using the native drag-preview path in both directions, and texture direction sampling without inversion for the scripted next/previous walks.
+- Visual inspection of the `baseline-native-cover` screenshot showed the native cover on a black cover surface without the bottom menu overlay.
+- This does not validate progress rail endpoints, resume after app/window interruption, physical-phone release behavior, or manual drag feel. Keep those as active Priority 0/1 work.
+
 As of the 2026-06-18 Anx parity guard check:
 
 - GLM's "types-only bridge parity" audit was reviewed against the current branch. The general risk is accepted and is now a guardrail: bridge/event/type/debug-label symbols are not enough. The specific quoted `ReaderController.kt` no-op block is stale on this branch. `ReaderController` now routes the Phase 3 bridge events into controller state or UI-facing prompt/popup state, and the targeted `ReaderControllerTest` + `FoliateAnxParityTest` host gate passed on 2026-06-18 for that route.
@@ -227,7 +236,7 @@ Priority 0:
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
 - Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.
-- Validate cover chrome layering on the installed APK. The bottom menu must not appear over the cover.
+- Validate cover chrome layering on the installed APK/phone release. Dirty-emulator eta71 visual evidence shows the native cover on a black cover surface without the bottom menu overlay, but this still needs physical/release confirmation before closure.
 
 Priority 1:
 
