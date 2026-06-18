@@ -288,6 +288,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onReadingMode = {
 			applyCoordinatorStep(coordinator.openReadingModeDialog())
 		},
+		onSearch = {
+			applyCoordinatorStep(coordinator.openSearchDialog())
+		},
+		onSearchQuery = { query ->
+			applyCoordinatorStep(coordinator.search(query))
+		},
+		onNavigateToSearchResult = { result ->
+			val navigateStep = coordinator.navigateToSearchResult(result)
+			applyCoordinatorStep(navigateStep)
+			applyCoordinatorStep(navigateStep.coordinator.closeDialog())
+		},
+		onDismissSearch = {
+			applyCoordinatorStep(coordinator.closeSearchDialog())
+		},
 		onNavigateBack = {
 			if (backStack.size > 1) {
 				backStack.removeLastOrNull()

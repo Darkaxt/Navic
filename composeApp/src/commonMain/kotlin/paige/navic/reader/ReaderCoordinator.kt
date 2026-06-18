@@ -35,6 +35,12 @@ data class ReaderCoordinator(
 	fun search(query: String): ReaderCoordinatorStep =
 		applyControllerStep(controller.search(query))
 
+	fun clearSearch(): ReaderCoordinatorStep =
+		applyControllerStep(controller.clearSearch())
+
+	fun navigateToSearchResult(result: ReaderSearchResult): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToSearchResult(result))
+
 	fun navigateTo(locator: ReaderLocator): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateTo(locator))
 
@@ -87,6 +93,9 @@ data class ReaderCoordinator(
 	fun openReadingModeDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openReadingModeDialog())
 
+	fun openSearchDialog(): ReaderCoordinatorStep =
+		applyControllerStep(controller.openSearchDialog())
+
 	fun openSettingsDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openSettingsDialog())
 
@@ -98,6 +107,9 @@ data class ReaderCoordinator(
 
 	fun closeDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.closeDialog())
+
+	fun closeSearchDialog(): ReaderCoordinatorStep =
+		applyControllerStep(controller.closeSearchDialog())
 
 	private fun applyControllerStep(step: ReaderControllerStep): ReaderCoordinatorStep {
 		var next = copy(controller = step.controller)

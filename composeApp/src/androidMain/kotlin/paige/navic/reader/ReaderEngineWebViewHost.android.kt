@@ -302,6 +302,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"
 		is ReaderBridgeCommand.Search -> "search"
+		ReaderBridgeCommand.ClearSearch -> "clearSearch"
 	}
 
 private fun ReaderBridgeEvent.engineDebugLabel(): String =

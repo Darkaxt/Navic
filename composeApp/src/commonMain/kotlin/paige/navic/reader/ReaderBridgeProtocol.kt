@@ -381,6 +381,15 @@ sealed interface ReaderBridgeCommand {
 				put("query", query)
 			}
 	}
+
+	data object ClearSearch : ReaderBridgeCommand {
+		override val type: String = "clearSearch"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+			}
+	}
 }
 
 sealed interface ReaderBridgeEvent {

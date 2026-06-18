@@ -14,6 +14,7 @@ import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderPublicationFormat
+import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderTocItem
@@ -36,6 +37,10 @@ internal fun KomikkuReaderRoot(
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
+	onSearch: () -> Unit,
+	onSearchQuery: (String) -> Unit,
+	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
+	onDismissSearch: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onShowMenus: () -> Unit,
@@ -118,6 +123,10 @@ internal fun KomikkuReaderRoot(
 				onGoToChapterPage = onGoToChapterPage,
 				onContents = onContents,
 				onReadingMode = onReadingMode,
+				onSearch = onSearch,
+				onSearchQuery = onSearchQuery,
+				onNavigateToSearchResult = onNavigateToSearchResult,
+				onDismissSearch = onDismissSearch,
 				onNavigateBack = onNavigateBack,
 				onSettings = onSettings,
 				onShowMenus = onShowMenus,
@@ -160,6 +169,10 @@ private fun KomikkuComposeOverlay(
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
+	onSearch: () -> Unit,
+	onSearchQuery: (String) -> Unit,
+	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
+	onDismissSearch: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onShowMenus: () -> Unit,
@@ -196,6 +209,7 @@ private fun KomikkuComposeOverlay(
 			onGoToChapterPage = onGoToChapterPage,
 			onContents = onContents,
 			onReadingMode = onReadingMode,
+			onSearch = onSearch,
 			onNavigateBack = onNavigateBack,
 			onSettings = onSettings,
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
@@ -249,6 +263,12 @@ private fun KomikkuComposeOverlay(
 				onShowMenus = onShowMenus,
 				onHideMenus = onHideMenus,
 				onDismissRequest = onDismissDialog
+			)
+			ReaderControllerDialog.Search -> KomikkuReaderSearchDialog(
+				search = controllerState.search,
+				onSearchQuery = onSearchQuery,
+				onNavigateToSearchResult = onNavigateToSearchResult,
+				onDismissSearch = onDismissSearch
 			)
 			null -> Unit
 		}

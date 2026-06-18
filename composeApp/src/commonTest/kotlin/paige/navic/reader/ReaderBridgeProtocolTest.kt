@@ -146,6 +146,14 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun clearSearchCommandDispatchesAnxSearchClearIntent() {
+		val script = ReaderBridgeCommand.ClearSearch.toJavaScript()
+
+		assertContains(script, "window.NavicReaderBridge.dispatch")
+		assertContains(script, "\"type\":\"clearSearch\"")
+	}
+
+	@Test
 	fun pageDragPreviewCommandDispatchesRendererPreviewIntent() {
 		val updateScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = -184.0,

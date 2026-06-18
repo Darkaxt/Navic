@@ -1290,3 +1290,49 @@ Result:
 Remaining:
 
 - Build UI routes on top of the new controller state, especially the selection action menu.
+
+## 2026-06-18 Host Guard: Reader Search Must Reach Komikku UI
+
+Trigger:
+
+- GLM audit identified the broader parity failure pattern: bridge symbols can be green while controller/UI behavior is absent. Search was the next visible case: `ReaderEngineCommand.Search`, Foliate search, and `SearchResults` existed, but no Komikku-owned reader search UI or clear-search route consumed them.
+
+Red check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.searchDialogAndClearSearchAreControllerOwned" --tests "paige.navic.reader.ReaderControllerTest.searchResultNavigationIsControllerOwned" --tests "paige.navic.reader.ReaderCoordinatorTest.clearSearchAndSearchResultNavigationRouteThroughCurrentEngineAdapter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.clearSearchCommandDispatchesAnxSearchClearIntent" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesTypedEngineCapabilitiesAsFoliateBridgeCommands" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted"
+```
+
+Result:
+
+- FAIL as expected before implementation: unresolved `ReaderEngineCommand.ClearSearch`, `ReaderBridgeCommand.ClearSearch`, `ReaderControllerDialog.Search`, `openSearchDialog`, `closeSearchDialog`, and `navigateToSearchResult`.
+
+Implemented:
+
+- `ReaderController` now owns search dialog lifecycle, search clear state, and search-result navigation by CFI/HREF.
+- `ReaderCoordinator` routes search dialog, clear-search, and result navigation to the active engine adapter.
+- `ReaderBridgeCommand.ClearSearch`, `ReaderEngineCommand.ClearSearch`, `FoliateWebViewEngineAdapter`, Android debug labels, and `navic-reader.js` now carry a clear-search command down to Foliate `view.clearSearch()`.
+- `KomikkuReaderSearchDialog` is a dedicated native overlay component under `ReaderRoot`.
+- `ReaderAppBars` exposes search as a Komikku-style bottom reader action, not as Navic global top chrome.
+
+Green check:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.searchDialogAndClearSearchAreControllerOwned" --tests "paige.navic.reader.ReaderControllerTest.searchResultNavigationIsControllerOwned" --tests "paige.navic.reader.ReaderCoordinatorTest.clearSearchAndSearchResultNavigationRouteThroughCurrentEngineAdapter" --tests "paige.navic.reader.ReaderBridgeProtocolTest.clearSearchCommandDispatchesAnxSearchClearIntent" --tests "paige.navic.reader.FoliateEpubEngineAdapterTest.dispatchesTypedEngineCapabilitiesAsFoliateBridgeCommands" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroid
+git diff --check
+```
+
+Result:
+
+- PASS: focused search controller, coordinator, bridge, adapter, runtime source guard, and Komikku overlay guard.
+- PASS: `navic-reader.js` syntax check.
+- PASS: full Android host suite.
+- PASS: Android unit test task.
+- PASS: whitespace check.
+
+Remaining:
+
+- Android/emulator validation is still required: open search in a real EPUB, submit a term, verify results render, tap a result, verify navigation, dismiss search, and verify Foliate highlights clear.

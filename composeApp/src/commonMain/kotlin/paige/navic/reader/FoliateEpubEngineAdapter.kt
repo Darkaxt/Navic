@@ -58,6 +58,7 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.OpenPublication -> open(command.request)
 			is ReaderEngineCommand.NavigateTo -> navigateTo(command.locator)
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
+			ReaderEngineCommand.ClearSearch -> dispatch(ReaderBridgeCommand.ClearSearch)
 			is ReaderEngineCommand.TurnPage -> turnPage(command.direction)
 			is ReaderEngineCommand.PreviewPageDrag -> dispatch(
 				ReaderBridgeCommand.PreviewPageDrag(

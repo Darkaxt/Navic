@@ -23,6 +23,7 @@ sealed interface ReaderEngineCommand {
 	data class OpenPublication(val request: ReaderEngineOpenRequest) : ReaderEngineCommand
 	data class NavigateTo(val locator: ReaderLocator) : ReaderEngineCommand
 	data class Search(val query: String) : ReaderEngineCommand
+	data object ClearSearch : ReaderEngineCommand
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
 	data class PreviewPageDrag(
 		val deltaX: Double,

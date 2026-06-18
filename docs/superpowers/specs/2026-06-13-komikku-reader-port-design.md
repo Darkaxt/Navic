@@ -183,6 +183,14 @@ Phase 5 is host-verified:
 - Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
 - Android/emulator validation is still required before treating this behavior as release-ready: select normal text and footnote/reference text, confirm the toolbar appears without noisy menu/tap regressions, verify Copy reaches the clipboard, verify Highlight renders, verify Note opens/saves, and confirm logcat shows `selectionChanged(footnote=..., pos=...)`.
 
+Reader search is host-verified:
+
+- Anx/Foliate `search` is now surfaced through Komikku-owned native reader chrome rather than remaining a backend-only bridge symbol.
+- `ReaderController` owns the search dialog lifecycle, clear-search command, active result state, and search-result navigation by CFI/HREF.
+- `ReaderCoordinator`, `FoliateWebViewEngineAdapter`, `ReaderBridgeCommand.ClearSearch`, and `navic-reader.js` now clear WebView search highlights when the native search dialog is dismissed.
+- `KomikkuReaderSearchDialog` is a dedicated overlay component routed from `ReaderRoot`, with result taps navigating through controller/coordinator commands.
+- Android/emulator validation is still required before treating this behavior as release-ready: open search from the bottom reader chrome, search a real EPUB term, verify results render, tap a result, verify navigation lands on the right passage, dismiss search, and confirm highlights clear.
+
 Phase 6 is host-verified:
 
 - The eight non-architectural Anx `BookStyle` fields now exist in `ReaderSettings`, defaults, persistence, per-book overrides, bridge JSON, runtime CSS, renderer attributes, pagination fingerprints, and the Komikku settings dialog.
@@ -228,7 +236,7 @@ Priority 2:
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Fix resume persistence after disrupted drag/app interruption.
 5. Fix drag preview black void and texture movement as one interaction slice.
-6. Continue the remaining Anx/Foliate phases behind the controller boundary: PDF integration, font sources, annotations/highlights, EPUB search, media/readaloud sync, hyperlink behavior, and image interaction.
+6. Continue the remaining Anx/Foliate phases behind the controller boundary: PDF integration, font sources, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
 7. Continue Komikku UI parity: rail proportions, bottom menu placement, settings overlay, tap-zone visibility.
 8. Only after the shell is stable, revisit lower-priority page curl animation and optional visual polish.
 

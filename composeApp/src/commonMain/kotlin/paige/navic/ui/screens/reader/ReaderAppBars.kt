@@ -50,6 +50,7 @@ import paige.navic.icons.outlined.Book
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.FormatListNumbered
+import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Settings
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderDirectionRtl
@@ -73,6 +74,7 @@ internal fun KomikkuReaderAppBars(
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
+	onSearch: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
@@ -214,6 +216,7 @@ internal fun KomikkuReaderAppBars(
 					enabledButtons = enabledButtons,
 					onContents = onContents,
 					onReadingMode = onReadingMode,
+					onSearch = onSearch,
 					onSettings = onSettings,
 					modifier = Modifier
 						.fillMaxWidth()
@@ -344,6 +347,7 @@ private fun KomikkuReaderBottomBar(
 	enabledButtons: Set<String>,
 	onContents: () -> Unit,
 	onReadingMode: () -> Unit,
+	onSearch: () -> Unit,
 	onSettings: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -377,6 +381,16 @@ private fun KomikkuReaderBottomBar(
 			}
 		}
 
+		if (KomikkuReaderBottomButton.Search.isIn(enabledButtons)) {
+			IconButton(onClick = onSearch) {
+				Icon(
+					imageVector = Icons.Outlined.Search,
+					contentDescription = "Search",
+					tint = iconColor
+				)
+			}
+		}
+
 		IconButton(onClick = onSettings) {
 			Icon(
 				imageVector = Icons.Outlined.Settings,
@@ -393,6 +407,7 @@ private enum class KomikkuReaderBottomButton(val value: String) {
 	Browser("br"),
 	Share("sh"),
 	ReadingMode("rm"),
+	Search("se"),
 	Rotation("rot"),
 	CropBordersPager("cbp"),
 	CropBordersContinuesVertical("cbc"),
@@ -412,7 +427,8 @@ private enum class KomikkuReaderBottomButton(val value: String) {
 
 		val NAVIC_SUPPORTED_DEFAULTS = setOf(
 			ViewChapters,
-			ReadingMode
+			ReadingMode,
+			Search
 		).map { it.value }.toSet()
 	}
 }

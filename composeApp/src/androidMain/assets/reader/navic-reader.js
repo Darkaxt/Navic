@@ -330,6 +330,8 @@ class NavicReaderRuntime {
         return this.applySettings(command.settings || {})
       case 'search':
         return this.search(command.query)
+      case 'clearSearch':
+        return this.clearSearch()
       default:
         post({ type: 'error', code: 'unknown_command', message: `Unknown reader command: ${command.type}` })
     }
@@ -1117,6 +1119,15 @@ class NavicReaderRuntime {
       post({ type: 'searchResults', query, results })
     } catch (error) {
       reportError(error, 'search_failed')
+    }
+  }
+
+  clearSearch() {
+    try {
+      this.view?.clearSearch?.()
+      post({ type: 'searchResults', query: '', results: [] })
+    } catch (error) {
+      reportError(error, 'clear_search_failed')
     }
   }
 

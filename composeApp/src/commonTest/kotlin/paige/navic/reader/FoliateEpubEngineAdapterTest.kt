@@ -60,7 +60,8 @@ class FoliateEpubEngineAdapterTest {
 			.engine
 
 		val search = opened.onCommand(ReaderEngineCommand.Search("dragon"))
-		val navigateToCfi = search.engine.onCommand(
+		val clearSearch = search.engine.onCommand(ReaderEngineCommand.ClearSearch)
+		val navigateToCfi = clearSearch.engine.onCommand(
 			ReaderEngineCommand.NavigateTo(
 				ReaderLocator(
 					href = "chapter-01.xhtml",
@@ -95,6 +96,7 @@ class FoliateEpubEngineAdapterTest {
 		val clearOverlay = highlights.engine.onCommand(ReaderEngineCommand.ClearMediaOverlay)
 
 		assertEquals(ReaderBridgeCommand.Search("dragon"), assertIs<ReaderEngineViewState.WebViewPublication>(search.viewState).bridgeCommand())
+		assertEquals(ReaderBridgeCommand.ClearSearch, assertIs<ReaderEngineViewState.WebViewPublication>(clearSearch.viewState).bridgeCommand())
 		assertEquals(
 			ReaderBridgeCommand.GoToCfi("epubcfi(/6/8!/4/2:12)"),
 			assertIs<ReaderEngineViewState.WebViewPublication>(navigateToCfi.viewState).bridgeCommand()
@@ -107,22 +109,22 @@ class FoliateEpubEngineAdapterTest {
 			ReaderBridgeCommand.GoToProgress(0.75),
 			assertIs<ReaderEngineViewState.WebViewPublication>(navigateToProgress.viewState).bridgeCommand()
 		)
-		assertEquals(4L, assertIs<ReaderEngineViewState.WebViewPublication>(navigateToProgress.viewState).commandKey)
+		assertEquals(5L, assertIs<ReaderEngineViewState.WebViewPublication>(navigateToProgress.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ApplyOverlayFragment(fragment),
 			assertIs<ReaderEngineViewState.WebViewPublication>(overlay.viewState).bridgeCommand()
 		)
-		assertEquals(5L, assertIs<ReaderEngineViewState.WebViewPublication>(overlay.viewState).commandKey)
+		assertEquals(6L, assertIs<ReaderEngineViewState.WebViewPublication>(overlay.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ApplyHighlights(listOf(annotation)),
 			assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).bridgeCommand()
 		)
-		assertEquals(6L, assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).commandKey)
+		assertEquals(7L, assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ClearOverlay,
 			assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).bridgeCommand()
 		)
-		assertEquals(7L, assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).commandKey)
+		assertEquals(8L, assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).commandKey)
 	}
 
 	@Test

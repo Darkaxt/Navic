@@ -597,6 +597,45 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun searchDialogAndClearSearchAreControllerOwned() {
+		val controller = ReaderController()
+			.openSearchDialog().controller
+			.search("  unexpected party  ").controller
+
+		val cleared = controller.closeSearchDialog()
+
+		assertEquals(ReaderControllerDialog.Search, controller.state.dialog)
+		assertEquals(ReaderSearchState(query = "unexpected party", active = true), controller.state.search)
+		assertNull(cleared.controller.state.dialog)
+		assertEquals(ReaderSearchState(), cleared.controller.state.search)
+		assertEquals(listOf(ReaderEngineCommand.ClearSearch), cleared.engineCommands)
+	}
+
+	@Test
+	fun searchResultNavigationIsControllerOwned() {
+		val result = ReaderSearchResult(
+			id = "result-1",
+			cfi = " epubcfi(/6/8!/4/2:12) ",
+			href = " chapter-01.xhtml ",
+			excerpt = "unexpected party"
+		)
+
+		val step = ReaderController().navigateToSearchResult(result)
+
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/2:12)"
+					)
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
 	fun navigateToIsControllerOwnedAndForwardedAsEngineCapability() {
 		val locator = ReaderLocator(progress = 0.42)
 

@@ -45,6 +45,7 @@ data class ReaderSelectionNoteDraft(
 enum class ReaderControllerDialog {
 	Contents,
 	ReadingMode,
+	Search,
 	Settings
 }
 
@@ -412,6 +413,9 @@ data class ReaderController(
 
 	fun search(query: String): ReaderControllerStep {
 		val normalized = query.trim()
+		if (normalized.isBlank()) {
+			return clearSearch()
+		}
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -423,6 +427,26 @@ data class ReaderController(
 				)
 			),
 			engineCommands = listOf(ReaderEngineCommand.Search(normalized))
+		)
+	}
+
+	fun clearSearch(): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = copy(
+				state = state.copy(search = ReaderSearchState())
+			),
+			engineCommands = listOf(ReaderEngineCommand.ClearSearch)
+		)
+
+	fun navigateToSearchResult(result: ReaderSearchResult): ReaderControllerStep {
+		val cfi = result.cfi.normalizedReaderSelectionValue()
+		val href = result.href.normalizedReaderSelectionValue()
+		if (cfi == null && href == null) return ReaderControllerStep(this)
+		return navigateTo(
+			ReaderLocator(
+				href = href,
+				cfi = cfi
+			)
 		)
 	}
 
@@ -635,6 +659,9 @@ data class ReaderController(
 	fun openReadingModeDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.ReadingMode)
 
+	fun openSearchDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.Search)
+
 	fun openSettingsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Settings)
 
@@ -662,6 +689,18 @@ data class ReaderController(
 					menuVisible = true
 				)
 			)
+		)
+
+	fun closeSearchDialog(): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					dialog = null,
+					menuVisible = true,
+					search = ReaderSearchState()
+				)
+			),
+			engineCommands = listOf(ReaderEngineCommand.ClearSearch)
 		)
 
 	private fun onShellCoverViewerAction(action: ReaderViewerAction): ReaderControllerStep {

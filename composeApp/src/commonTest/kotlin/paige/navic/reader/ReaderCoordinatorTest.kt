@@ -93,6 +93,29 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun clearSearchAndSearchResultNavigationRouteThroughCurrentEngineAdapter() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val searched = opened.search("hobbit-hole").coordinator
+
+		val cleared = searched.closeSearchDialog()
+		val clearViewState = assertIs<ReaderEngineViewState.WebViewPublication>(cleared.coordinator.viewState)
+		val resultNavigation = cleared.coordinator.navigateToSearchResult(
+			ReaderSearchResult(
+				id = "result-1",
+				cfi = "epubcfi(/6/8!/4/2:12)",
+				href = "chapter-01.xhtml",
+				excerpt = "hobbit-hole"
+			)
+		)
+		val navigateViewState = assertIs<ReaderEngineViewState.WebViewPublication>(resultNavigation.coordinator.viewState)
+
+		assertEquals(ReaderSearchState(), cleared.coordinator.controller.state.search)
+		assertEquals(ReaderBridgeCommand.ClearSearch, clearViewState.bridgeCommand())
+		assertEquals(ReaderBridgeCommand.GoToCfi("epubcfi(/6/8!/4/2:12)"), navigateViewState.bridgeCommand())
+		assertEquals(3L, navigateViewState.commandKey)
+	}
+
+	@Test
 	fun progressNavigationRoutesThroughControllerAndCurrentEngineAdapter() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 

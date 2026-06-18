@@ -971,6 +971,40 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSearchIsKomikkuOverlayAndControllerRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
+		val searchDialogText = readerCommonUiFile("ReaderSearchDialog.kt").readText()
+
+		assertContains(appBarsText, "Icons.Outlined.Search")
+		assertContains(appBarsText, "onSearch")
+		assertContains(readerRootText, "KomikkuReaderSearchDialog(")
+		assertContains(readerRootText, "controllerState.search")
+		assertContains(readerRootText, "onSearchQuery = onSearchQuery")
+		assertContains(readerRootText, "onNavigateToSearchResult = onNavigateToSearchResult")
+		assertContains(readerRootText, "onDismissSearch = onDismissSearch")
+		assertContains(readerRootText, "ReaderControllerDialog.Search -> KomikkuReaderSearchDialog(")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderSearchDialog(") ||
+				readerScreenText.contains("ReaderSearchState("),
+			"Reader search UI must be a Komikku overlay component routed through controller state, not local ReaderScreen state."
+		)
+		assertContains(searchDialogText, "internal fun KomikkuReaderSearchDialog(")
+		assertContains(searchDialogText, "ReaderSearchState")
+		assertContains(searchDialogText, "ReaderSearchResult")
+		assertContains(searchDialogText, "TextField(")
+		assertContains(searchDialogText, "LazyColumn(")
+		assertContains(searchDialogText, "items(")
+		assertContains(searchDialogText, "onSearchQuery(queryText)")
+		assertContains(searchDialogText, "onNavigateToSearchResult(result)")
+		assertContains(readerScreenText, "coordinator.openSearchDialog()")
+		assertContains(readerScreenText, "coordinator.search(query)")
+		assertContains(readerScreenText, "coordinator.navigateToSearchResult(result)")
+		assertContains(readerScreenText, "coordinator.closeSearchDialog()")
+	}
+
+	@Test
 	fun commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
