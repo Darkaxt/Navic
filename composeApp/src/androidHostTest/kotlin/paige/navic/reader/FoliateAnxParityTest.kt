@@ -209,7 +209,9 @@ class FoliateAnxParityTest {
 		"onLoadEnd" to exists(
 			"LoadDoc event with serializable payload",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
-			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+			controllerTest("loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp"),
+			routeStop("ReaderController.kt", "loadedDocument = document"),
+			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
 		),
 		"onExternalLink" to exists(
 			"ExternalLink distinct event",
@@ -262,7 +264,9 @@ class FoliateAnxParityTest {
 		"load" to exists(
 			"LoadDoc event",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
-			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+			controllerTest("loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection"),
+			routeStop("ReaderController.kt", "loadedDocument = document"),
+			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
 		),
 		"external-link" to exists(
 			"ExternalLink event",

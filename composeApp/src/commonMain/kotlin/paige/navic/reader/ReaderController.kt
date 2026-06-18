@@ -324,14 +324,17 @@ data class ReaderController(
 			)
 			is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(
 				copy(
-					state = state.copy(
-						loadedDocument = ReaderLoadedDocument(
-							index = event.index,
-							href = event.href,
-							title = event.title,
-							sectionId = event.sectionId
+					state = ReaderLoadedDocument(
+						index = event.index,
+						href = event.href,
+						title = event.title,
+						sectionId = event.sectionId
+					).let { document ->
+						state.copy(
+							loadedDocument = document,
+							chapterProgress = state.chapterProgress.updatedFrom(document)
 						)
-					)
+					}
 				)
 			)
 			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(
@@ -892,6 +895,33 @@ private fun ReaderChapterProgressState.updatedFrom(
 		pageCount = normalizedPageCount,
 		progress = normalizedProgress
 	)
+}
+
+private fun ReaderChapterProgressState.updatedFrom(
+	document: ReaderLoadedDocument
+): ReaderChapterProgressState {
+	val nextHref = document.href?.trim()?.takeIf { it.isNotEmpty() }
+	val nextTitle = document.title?.trim()?.takeIf { it.isNotEmpty() }
+	if (nextHref == null) {
+		return copy(title = nextTitle ?: title)
+	}
+	val currentHrefKey = readerTocHrefKey(href)
+	val nextHrefKey = readerTocHrefKey(nextHref)
+	val documentChanged = nextHrefKey != null && nextHrefKey != currentHrefKey
+	return if (documentChanged) {
+		copy(
+			href = nextHref,
+			title = nextTitle ?: title,
+			pageIndex = 0,
+			pageCount = 1,
+			progress = 0.0
+		)
+	} else {
+		copy(
+			href = nextHref,
+			title = nextTitle ?: title
+		)
+	}
 }
 
 private fun ReaderControllerState.adjacentTocChapter(direction: Int): ReaderTocItem? {

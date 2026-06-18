@@ -841,6 +841,118 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Toc(
+					listOf(
+						ReaderTocItem(
+							id = "foreword",
+							title = "Foreword",
+							href = "EPUB/Text/foreword.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-1",
+							title = "Chapter 1",
+							href = "EPUB/Text/chapter-01.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-2",
+							title = "Chapter 2",
+							href = "EPUB/Text/chapter-02.xhtml"
+						)
+					)
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "EPUB/Text/foreword.xhtml",
+						chapterPageIndex = 3,
+						chapterPageCount = 4,
+						chapterProgress = 1.0
+					),
+					tocTitle = "Foreword"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.DocLoaded(
+					index = 1,
+					href = "EPUB/Text/chapter-01.xhtml",
+					title = "Chapter 1",
+					sectionId = "chapter-1"
+				)
+			).controller
+
+		val previous = controller.navigateToPreviousChapter()
+		val next = controller.navigateToNextChapter()
+
+		assertEquals("EPUB/Text/chapter-01.xhtml", controller.state.chapterProgress.href)
+		assertEquals("Chapter 1", controller.state.chapterProgress.title)
+		assertEquals(0, controller.state.chapterProgress.pageIndex)
+		assertEquals(1, controller.state.chapterProgress.pageCount)
+		assertEquals(0.0, controller.state.chapterProgress.progress)
+		assertTrue(controller.state.canNavigateToPreviousChapter)
+		assertTrue(controller.state.canNavigateToNextChapter)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/foreword.xhtml")
+				)
+			),
+			previous.engineCommands
+		)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/chapter-02.xhtml")
+				)
+			),
+			next.engineCommands
+		)
+	}
+
+	@Test
+	fun loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "EPUB/Text/foreword.xhtml",
+						chapterPageIndex = 3,
+						chapterPageCount = 4,
+						chapterProgress = 1.0
+					),
+					tocTitle = "Foreword"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.DocLoaded(
+					index = 1,
+					href = "EPUB/Text/chapter-01.xhtml",
+					title = "Chapter 1",
+					sectionId = "chapter-1"
+				)
+			).controller
+
+		val seek = controller.navigateToChapterPage(2)
+
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "EPUB/Text/chapter-01.xhtml",
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 1
+					)
+				)
+			),
+			seek.engineCommands
+		)
+	}
+
+	@Test
 	fun chapterNavigatorArrowsDisableAtTocBounds() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(

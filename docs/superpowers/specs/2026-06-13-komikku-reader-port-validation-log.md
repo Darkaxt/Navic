@@ -2237,3 +2237,37 @@ Implementation notes:
 Remaining:
 
 - This is a host/source guard only. No release build was created for this micro-cleanup because it is not a major reader milestone.
+
+## 2026-06-19 Host Guard: Loaded Document Resets Chapter Rail Anchor
+
+Trigger:
+
+- User-reported rail/navigation failures after jumping through contents/links: the UI could still look anchored to the previous section, making chapter arrows and page seeking target the wrong place.
+- Reference decision: Anx/Foliate `LoadDoc` is an engine section-boundary signal. Navic must not treat it as debug-only metadata; the Komikku controller-owned rail should reset to the newly loaded document until relocation/page-count data catches up.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp" --tests "paige.navic.reader.ReaderControllerTest.loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorArrowsUseTocChapterNavigationCallbacks" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+```
+
+Result:
+
+- RED: the first targeted host run failed both new tests because `DocLoaded` only updated `loadedDocument`; `chapterProgress` remained anchored to the previous section.
+- GREEN: after implementation, the targeted run completed with `BUILD SUCCESSFUL in 10s`.
+- GREEN: the broader controller/chrome run completed with `BUILD SUCCESSFUL in 21s`.
+- GREEN: full Android host suite completed with `BUILD SUCCESSFUL in 29s`, `1434 tests completed`.
+
+Implementation notes:
+
+- `ReaderController` now converts `ReaderEngineEvent.DocLoaded` into both `loadedDocument` state and a chapter-progress anchor update.
+- If the loaded document changes section, the controller resets chapter progress to the new href/title with `pageIndex=0`, `pageCount=1`, and `progress=0.0` until the next relocation supplies the real page model.
+- Same-document load events preserve the existing page model to avoid flicker.
+- `FoliateAnxParityTest` now guards the stronger Anx `LoadDoc` behavior route instead of accepting a type-only `loadedDocument` assignment.
+
+Remaining:
+
+- This is a host/controller guard only. It does not close the clean-release rail endpoint validation item.
+- Device/emulator matrix still needs to prove contents/link jumps, rail dragging, rail endpoint taps, and adjacent chapter buttons against a real EPUB runtime.
