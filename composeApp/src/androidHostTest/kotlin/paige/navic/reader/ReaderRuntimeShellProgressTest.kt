@@ -594,6 +594,11 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(singleTap, "navigator.getAction(")
 		assertContains(singleTap, "dispatchSingleTapAction(action)")
+		assertContains(
+			singleTap,
+			"if (!nativeTapCandidate) return false",
+			message = "A movement-cancelled drag preview must not also be accepted as a center tap that opens reader chrome."
+		)
 		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
 		assertFalse(
 			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
@@ -602,6 +607,11 @@ class ReaderRuntimeShellProgressTest {
 				singleTap.contains("WebView.HitTestResult.IMAGE_TYPE") ||
 				webViewHostText.contains("readerContentHandledCenterTap("),
 			"Short center-menu taps must be native-owned; WebView content hit testing belongs to deliberate long press."
+		)
+		assertTrue(
+			singleTap.indexOf("if (!nativeTapCandidate) return false") <
+				singleTap.indexOf("navigator.getAction("),
+			"Native tap classification must reject cancelled drag candidates before calculating a menu/edge action."
 		)
 		assertTrue(
 			singleTap.indexOf("navigator.getAction(") <

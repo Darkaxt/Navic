@@ -360,13 +360,11 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorText, "internal fun KomikkuChapterNavigator(")
 		assertContains(navigatorText, "private fun KomikkuChapterNavigatorVertical(")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
+		assertContains(navigatorText, "private fun KomikkuVerticalChapterProgressRail(")
+		assertContains(navigatorText, "internal fun komikkuChapterRailPageForOffset(")
 		assertFalse(
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"The dedicated navigator file must not preserve a Navic-only vertical rail height constant; Komikku derives rail height from the app-bar layout slots."
-		)
-		assertFalse(
-			navigatorText.contains("private fun KomikkuVerticalChapterProgressRail("),
-			"The dedicated navigator file must not recreate Komikku's vertical slider as a separate fake rail layer."
 		)
 	}
 
@@ -432,7 +430,9 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n}\n")
+			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
 		val bottomChromeBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
 
 		assertContains(navigatorText, "KomikkuChapterNavigatorVertical(")
@@ -475,9 +475,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(sliderPrimitiveText, "onValueChange = { onValueChange(it.roundToInt()) }")
 		assertContains(sideRailBody, ".copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)")
 		assertContains(sideRailBody, "val textColor = MaterialTheme.colorScheme.onSurface")
-		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
-		assertContains(sideRailBody, "rotationZ = 90f")
-		assertContains(sideRailBody, "valueRange = 1..totalPages")
+		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
 		assertContains(sideRailBody, "onPageIndexChange(page - 1)")
 		assertContains(sideRailBody, "text = currentPageText")
 		assertContains(sideRailBody, "text = totalPages.toString()")
@@ -505,13 +503,20 @@ class ReaderRuntimeCommonChromeTest {
 				bottomChromeBody.contains("LinearProgressIndicator("),
 			"Komikku-equivalent progress belongs in the side rail overlay, not inside the bottom chrome surface."
 		)
+		assertContains(verticalRailBody, "detectTapGestures")
+		assertContains(verticalRailBody, "detectDragGestures")
+		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
+		assertContains(verticalRailBody, "heightPx = size.height.toFloat()")
+		assertContains(navigatorText, "return (1 + (fraction * (pageCount - 1)).roundToInt()).coerceIn(1, pageCount)")
 	}
 
 	@Test
-	fun commonReaderVerticalProgressRailUsesKomikkuSliderOwnedNavigator() {
+	fun commonReaderVerticalProgressRailUsesKomikkuLayoutWithDeterministicEndpointMapping() {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n}\n")
+			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
 		val komikkuNavigatorText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
@@ -539,25 +544,22 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(sideRailBody, "Icons.Outlined.SkipNext")
 		assertContains(sideRailBody, "stringResource(Res.string.action_previous_chapter)")
 		assertContains(sideRailBody, "stringResource(Res.string.action_next_chapter)")
-		assertContains(sideRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
 		assertContains(sideRailBody, "contentDescription = \"Chapter page slider\"")
-		assertContains(sideRailBody, "graphicsLayer {")
-		assertContains(sideRailBody, "rotationZ = 90f")
-		assertContains(sideRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
-		assertContains(sideRailBody, ".layout { measurable, constraints ->")
 		assertContains(sideRailBody, ".weight(1f)")
+		assertContains(verticalRailBody, "Canvas(modifier = Modifier.fillMaxSize())")
+		assertContains(verticalRailBody, "drawRoundRect(")
+		assertContains(verticalRailBody, "drawCircle(")
+		assertContains(verticalRailBody, "detectTapGestures")
+		assertContains(verticalRailBody, "detectDragGestures")
+		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
+		assertContains(navigatorText, "val fraction = (offsetY / heightPx).coerceIn(0f, 1f)")
 		assertFalse(
-			navigatorText.contains("private fun KomikkuVerticalChapterProgressRail("),
-			"Navic must not replace Komikku's visible rotated slider with a custom Canvas rail plus a hidden hit-test slider."
+			verticalRailBody.contains("graphicsLayer {") ||
+				verticalRailBody.contains("transformOrigin = TransformOrigin(0f, 0f)") ||
+				verticalRailBody.contains(".layout { measurable, constraints ->"),
+			"Navic keeps Komikku's surrounding vertical navigator but uses explicit y-offset mapping for reliable chapter endpoint selection instead of opaque rotated-slider hit testing."
 		)
-		assertFalse(
-			sideRailBody.contains("Canvas(") ||
-				sideRailBody.contains("drawRoundRect(") ||
-				sideRailBody.contains("drawCircle(") ||
-				sideRailBody.contains("alpha = 0.01f"),
-			"Vertical progress visuals must come from the slider component, matching Komikku ownership, not from a separate fake rail layer."
-		)
-		assertContains(sideRailBody, "valueRange = 1..totalPages")
 	}
 
 	@Test

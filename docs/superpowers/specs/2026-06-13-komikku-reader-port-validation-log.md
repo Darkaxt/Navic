@@ -6,6 +6,69 @@ The full historical log before compaction is preserved at:
 
 - `docs/superpowers/specs/archive/2026-06-13-komikku-reader-port-design-full-log.md`
 
+## 2026-06-18 Phone Corrupted Menu / Drag Preview Tap Leak
+
+Target:
+
+- Device: `RFCY80551LT` (`SM-F966B`, physical phone).
+- Package: `darkaxt.navic`.
+- App state supplied by user: EPUB already open in a corrupted menu state after a center tap on content.
+- User report: text pages sometimes resize/split when opening chrome; short taps over images may advance/skip pages instead of opening chrome; suspected page-curl/drag work leaking into tap actions.
+
+Evidence captured:
+
+- Screenshot: `tmp\phone-corrupted-menu-current.png`.
+- Visual state: Komikku chrome visible while the EPUB surface is split between an image column on the left and text on the right, showing page `8 / 273` and chapter rail `4 / 31`.
+- DevTools snapshot from the live WebView showed a single Foliate `Paginator` renderer, no `data-navic-page-drag-preview-layer`, and the viewport positioned mid-column in one long content iframe. This means the corruption was not a stale preview overlay left in the DOM; the paginator itself had been left at an intermediate horizontal offset.
+- Logcat around the gesture showed:
+  - `Reader native drag candidate dx=26.277344 dy=-1.7060547 threshold=21.0`
+  - multiple `Dispatching reader engine command: previewPageDrag(update)`
+  - `Dispatching reader engine command: previewPageDrag(cancel)`
+  - then `GestureDetector handleMessage TAP`
+  - then `Reader native tap action=MENU ...`
+
+Diagnosis:
+
+- A small movement during what the user experiences as a tap crossed touch slop and started the native drag/curl preview path.
+- The drag preview was cancelled, but `onSingleTapConfirmed` still accepted the same gesture as a normal center tap and toggled chrome.
+- This violates the Komikku ownership rule: drag/curl preview belongs only to dragging gestures; a movement-cancelled drag candidate must not be reclassified as a reader tap.
+
+Fix:
+
+- `KomikkuReaderNativeFrameHost.android.kt` now rejects `onSingleTapConfirmed` when `nativeTapCandidate` has already been cleared by movement beyond slop.
+- Added a host guard in `ReaderRuntimeShellProgressTest.nativeReaderSurfaceCenterMenuIsOwnedByNativeFrameInsteadOfWebViewHitTesting` requiring the `nativeTapCandidate` guard before tap-zone action classification.
+
+Red/green evidence:
+
+- RED: focused host test failed because `onSingleTapConfirmed` did not contain `if (!nativeTapCandidate) return false`.
+- GREEN: `:composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress"`.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`.
+- GREEN: `git diff --check`.
+
+Next required validation:
+
+- Build/install a new Android candidate before claiming phone behavior fixed; the current phone APK predates this source change.
+- On the physical phone, repeat: center tap over text, center tap over image, slight finger drift during center tap, and intentional drag/page turn. Expected result: slight-drift taps should not leave the paginator split or toggle chrome after a cancelled drag preview; intentional drags should still page normally.
+
+## 2026-06-18 Eta73 Candidate Staging
+
+Target:
+
+- Release candidate version: `v1.0.11-eta73`, `versionCode=406`.
+- Scope: gesture-leak guard, chapter-rail endpoint mapping changes already in the tree, and the matching host guards.
+
+Checks:
+
+- GREEN: `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta73`.
+- GREEN: `:composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest"`.
+- GREEN: broader reader host gate `:composeApp:testAndroidHost --tests "paige.navic.reader.*" --tests "paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest"`.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`.
+- GREEN: `git diff --check`.
+
+Release note:
+
+- Eta73 must be a new tag because `v1.0.11-eta72` already points at an older commit. Do not rebuild or republish eta72 for this fix.
+
 ## 2026-06-18 Selection Action UI Wiring
 
 Target:

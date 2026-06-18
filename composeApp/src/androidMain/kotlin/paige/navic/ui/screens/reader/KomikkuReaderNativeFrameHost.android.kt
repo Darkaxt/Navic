@@ -328,6 +328,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
 				if (width <= 0 || height <= 0) return false
 				if (nativeTapLongConfirmed) return false
+				if (!nativeTapCandidate) return false
 				val point = KomikkuPoint(
 					x = (event.x / width.toFloat()).coerceIn(0f, 1f),
 					y = (event.y / height.toFloat()).coerceIn(0f, 1f)
