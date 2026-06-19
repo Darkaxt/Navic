@@ -43,6 +43,25 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(broadcasterText, "shouldSendNowPlayingWidgetUpdate(")
 		assertContains(broadcasterText, "activeArtworkUrl(")
 	}
+
+	@Test
+	fun playbackFadeJobStateLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val fader = androidSharedSourceFile("AndroidPlaybackVolumeFader.android.kt")
+		val viewModelText = viewModel.readText()
+		val faderText = fader.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_410,
+			"AndroidMediaPlayerViewModel should not own playback fade coroutine state."
+		)
+		assertContains(viewModelText, "private val playbackVolumeFader = AndroidPlaybackVolumeFader(")
+		assertContains(viewModelText, "playbackVolumeFader.start(")
+		assertContains(viewModelText, "playbackVolumeFader.cancel(")
+		assertContains(faderText, "internal class AndroidPlaybackVolumeFader")
+		assertContains(faderText, "private var fadeJob: Job? = null")
+		assertContains(faderText, "restoreVolumeOnCancel")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =

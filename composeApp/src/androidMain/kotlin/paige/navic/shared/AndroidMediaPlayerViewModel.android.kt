@@ -166,8 +166,6 @@ class AndroidMediaPlayerViewModel(
 
 	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
-	private var playbackFadeJob: Job? = null
-	private var playbackFadeRestoreVolume: Float? = null
 	private var autoFillQueueJob: Job? = null
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
 	private var lastPlaybackPrefetchSignature: String? = null
@@ -184,6 +182,10 @@ class AndroidMediaPlayerViewModel(
 		application = application,
 		sessionManager = sessionManager,
 		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+	)
+	private val playbackVolumeFader = AndroidPlaybackVolumeFader(
+		scope = viewModelScope,
+		effectiveVolume = ::effectivePlaybackVolume
 	)
 
 	init {
@@ -416,7 +418,7 @@ class AndroidMediaPlayerViewModel(
 	override fun setNowPlayingVideoClipAudioActive(active: Boolean) {
 		if (nowPlayingVideoClipAudioActive == active) return
 		nowPlayingVideoClipAudioActive = active
-		cancelPlaybackFade()
+		playbackVolumeFader.cancel(controller)
 		refreshPlaybackVolume()
 	}
 
@@ -1227,7 +1229,7 @@ class AndroidMediaPlayerViewModel(
 	override fun pause() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
-			cancelPlaybackFade(player)
+			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
 				!shouldFadePlaybackCommand(
@@ -1240,7 +1242,7 @@ class AndroidMediaPlayerViewModel(
 			}
 
 			val originalVolume = player.volume.coerceIn(0f, 1f)
-			startPlaybackVolumeFade(
+			playbackVolumeFader.start(
 				player = player,
 				startVolume = originalVolume,
 				targetVolume = 0f,
@@ -1257,7 +1259,7 @@ class AndroidMediaPlayerViewModel(
 	override fun resume() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
-			cancelPlaybackFade(player)
+			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
 				!shouldFadePlaybackCommand(
@@ -1279,7 +1281,7 @@ class AndroidMediaPlayerViewModel(
 				),
 				forceMuted = nowPlayingVideoClipAudioActive
 			)
-			startPlaybackVolumeFade(
+			playbackVolumeFader.start(
 				player = player,
 				startVolume = 0f,
 				targetVolume = targetVolume,
@@ -1294,45 +1296,8 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	private fun cancelPlaybackFade(player: MediaController? = controller) {
-		playbackFadeJob?.cancel()
-		playbackFadeJob = null
-		playbackFadeRestoreVolume?.let { volume ->
-			player?.volume = effectivePlaybackVolume(volume)
-		}
-		playbackFadeRestoreVolume = null
-	}
-
 	private fun effectivePlaybackVolume(volume: Float): Float =
 		if (nowPlayingVideoClipAudioActive) 0f else volume.coerceIn(0f, 1f)
-
-	private fun startPlaybackVolumeFade(
-		player: MediaController,
-		startVolume: Float,
-		targetVolume: Float,
-		durationMs: Long,
-		restoreVolumeOnCancel: Float,
-		onStart: () -> Unit = {},
-		onEnd: () -> Unit = {}
-	) {
-		playbackFadeJob?.cancel()
-		playbackFadeRestoreVolume = restoreVolumeOnCancel
-		playbackFadeJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-			onStart()
-			val steps = (durationMs / 16L).coerceAtLeast(1L).toInt()
-			repeat(steps) { step ->
-				val progress = (step + 1).toFloat() / steps.toFloat()
-				player.volume = effectivePlaybackVolume(
-					startVolume + ((targetVolume - startVolume) * progress)
-				)
-				delay(16L)
-			}
-			player.volume = effectivePlaybackVolume(targetVolume)
-			playbackFadeJob = null
-			playbackFadeRestoreVolume = null
-			onEnd()
-		}
-	}
 
 	override fun next() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
@@ -1393,7 +1358,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun onCleared() {
 		viewModelScope.launch {
-			cancelPlaybackFade()
+			playbackVolumeFader.cancel(controller)
 			autoFillQueueJob?.cancel()
 			autoFillQueueJob = null
 			super.onCleared()
