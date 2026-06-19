@@ -238,7 +238,7 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
-    'forward area boundary keeps known next texture direction',
+    'forward area boundary follows wrapped renderer delta',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: -750,
       baseOffset: 423,
@@ -247,10 +247,23 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'next',
     }),
-    { x: -698, y: 0 }
+    { x: 698, y: 0 }
   )
   assertOffset(
-    'previous area boundary keeps known previous texture direction',
+    'forward area boundary matches live tablet wrap trace',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 0,
+      baseOffset: 720,
+      viewportWidth: 720,
+      viewportHeight: 1581,
+      flowMode: 'paged',
+      pageTurnDirection: 'next',
+      fallbackPageTurnDirection: 'next',
+    }),
+    { x: 720, y: 0 }
+  )
+  assertOffset(
+    'previous area boundary follows wrapped renderer delta',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 1395,
       baseOffset: 697,
@@ -259,7 +272,7 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'previous',
     }),
-    { x: 698, y: 0 }
+    { x: -698, y: 0 }
   )
   assertOffset(
     'directionless area-wrap jump does not invert texture',
@@ -286,7 +299,7 @@ if (mode === 'texture-offset-logic') {
     { x: 0, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap uses fallback next direction',
+    'directionless near-wrap with fallback next follows wrapped renderer delta',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 40,
       baseOffset: 560,
@@ -296,10 +309,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'next',
     }),
-    { x: -520, y: 0 }
+    { x: 520, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap uses fallback previous direction',
+    'directionless near-wrap with fallback previous follows wrapped renderer delta',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 560,
       baseOffset: 40,
@@ -309,7 +322,7 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'previous',
     }),
-    { x: 520, y: 0 }
+    { x: -520, y: 0 }
   )
   assertOffset(
     'directionless near-wrap without fallback does not invert texture',

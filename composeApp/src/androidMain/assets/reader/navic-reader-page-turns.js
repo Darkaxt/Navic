@@ -335,6 +335,122 @@ function readerRendererReadyForPageDrag(renderer) {
   }
 }
 
+function positiveRect(rect) {
+  return rect &&
+    Number.isFinite(Number(rect.width)) &&
+    Number.isFinite(Number(rect.height)) &&
+    Number(rect.width) > 0 &&
+    Number(rect.height) > 0
+}
+
+function readerReflowablePageTurnReadiness() {
+  if (!this.view) return { ready: false, reason: 'missing-view' }
+  if (this.view?.isFixedLayout === true) return { ready: true, reason: 'fixed-layout' }
+  const renderer = this.view?.renderer
+  if (!renderer) return { ready: false, reason: 'missing-renderer' }
+  if (typeof renderer.getContents !== 'function') return { ready: false, reason: 'missing-contents-api' }
+  if (typeof renderer.getBoundingClientRect !== 'function') return { ready: false, reason: 'missing-renderer-rect' }
+  if (typeof this.view.getBoundingClientRect !== 'function') return { ready: false, reason: 'missing-view-rect' }
+  try {
+    const viewRect = this.view.getBoundingClientRect()
+    const rendererRect = renderer.getBoundingClientRect()
+    if (!positiveRect(viewRect)) return { ready: false, reason: 'empty-view-rect' }
+    if (!positiveRect(rendererRect)) return { ready: false, reason: 'empty-renderer-rect' }
+
+    const contents = renderer.getContents() || []
+    const activeContent = contents.find(content => content?.doc)
+    const doc = activeContent?.doc
+    if (!doc) return { ready: false, reason: 'missing-content-document' }
+    if (!doc.defaultView || !doc.documentElement || !doc.body) {
+      return { ready: false, reason: 'incomplete-content-document' }
+    }
+    if (!doc.defaultView.frameElement?.isConnected) {
+      return { ready: false, reason: 'detached-content-frame' }
+    }
+
+    const size = Number(renderer.size)
+    const viewSize = Number(renderer.viewSize)
+    if (!Number.isFinite(size) || size <= 0) return { ready: false, reason: 'invalid-renderer-size' }
+    if (!Number.isFinite(viewSize) || viewSize <= 0) return { ready: false, reason: 'invalid-renderer-view-size' }
+    if (!renderer.scrolled) {
+      const pages = Number(renderer.pages)
+      const page = Number(renderer.page)
+      if (!Number.isFinite(pages) || pages <= 0) return { ready: false, reason: 'invalid-renderer-pages' }
+      if (!Number.isFinite(page)) return { ready: false, reason: 'invalid-renderer-page' }
+    }
+    return { ready: true, reason: 'ready' }
+  } catch (error) {
+    return {
+      ready: false,
+      reason: 'readiness-exception',
+      message: error?.message || String(error),
+    }
+  }
+}
+
+function readerReflowablePageTurnReady() {
+  return this.readerReflowablePageTurnReadiness().ready
+}
+
+function clearDeferredReflowablePageTurn() {
+  const pending = this.deferredReflowablePageTurn
+  if (!pending) return
+  this.deferredReflowablePageTurn = null
+  pending.cleanup?.()
+}
+
+function retryDeferredReflowablePageTurn(direction) {
+  this.clearDeferredReflowablePageTurn()
+  const token = ++this.deferredReflowablePageTurnToken
+  const renderer = this.view?.renderer
+  const resizeObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => attempt())
+    : null
+  const cleanupCallbacks = []
+  const addCleanup = cleanup => cleanupCallbacks.push(cleanup)
+  const cleanup = () => {
+    while (cleanupCallbacks.length) cleanupCallbacks.pop()?.()
+  }
+  const attempt = () => {
+    requestAnimationFrame(() => {
+      if (this.deferredReflowablePageTurn?.token !== token) return
+      const readiness = this.readerReflowablePageTurnReadiness()
+      if (!readiness.ready) {
+        readerTrace('page-turn:deferred-still-not-ready', {
+          direction,
+          reason: readiness.reason,
+          message: readiness.message,
+        })
+        return
+      }
+      this.clearDeferredReflowablePageTurn()
+      void this.startPageTurn(direction)
+    })
+  }
+
+  this.deferredReflowablePageTurn = { direction, token, cleanup }
+  if (resizeObserver) {
+    const observe = target => {
+      if (!target) return
+      resizeObserver.observe(target)
+      addCleanup(() => resizeObserver.unobserve(target))
+    }
+    observe(this.view)
+    observe(renderer)
+    addCleanup(() => resizeObserver.disconnect())
+  }
+  const addEventListenerCleanup = (target, type) => {
+    if (!target?.addEventListener) return
+    target.addEventListener(type, attempt)
+    addCleanup(() => target.removeEventListener(type, attempt))
+  }
+  addEventListenerCleanup(renderer, 'load')
+  addEventListenerCleanup(renderer, 'relocate')
+  addEventListenerCleanup(window, 'resize')
+  addEventListenerCleanup(window.visualViewport, 'resize')
+  attempt()
+}
+
 function safeNativeDragPreviewAtSectionBoundary(renderer, direction) {
   if (!this.readerRendererReadyForPageDrag(renderer)) return false
   try {
@@ -791,10 +907,23 @@ function startNextQueuedPageTurn() {
 }
 
 function issueReflowablePageTurn(direction) {
+  const readiness = this.readerReflowablePageTurnReadiness()
+  if (!readiness.ready) {
+    log('page-turn:deferred-renderer-not-ready', direction, readiness.reason)
+    readerTrace('page-turn:deferred-renderer-not-ready', {
+      direction,
+      reason: readiness.reason,
+      message: readiness.message,
+    })
+    this.applyReaderViewportLayout(`page-turn:${direction}:deferred`)
+    this.retryDeferredReflowablePageTurn(direction)
+    return false
+  }
   const navigationPromise = direction === 'next'
     ? this.view?.next?.()
     : this.view?.prev?.()
   navigationPromise?.catch?.(error => reportError(error, 'navigation_failed'))
+  return true
 }
 
 async function performPageTurn(direction) {
@@ -802,6 +931,7 @@ async function performPageTurn(direction) {
   try {
     log('page-turn:start', direction)
     const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
+    let pageTurnIssued = true
     if (directFixedLayoutPageTarget != null) {
       log('page-turn:fixed-direct', direction, directFixedLayoutPageTarget)
       readerTrace('page-turn:fixed-direct', {
@@ -815,13 +945,22 @@ async function performPageTurn(direction) {
       await this.view.goTo(directFixedLayoutPageTarget)
     } else if (direction === 'next') {
       this.beginControlledRelocation(`page-turn:${direction}`)
-      this.issueReflowablePageTurn(direction)
-      this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
+      pageTurnIssued = this.issueReflowablePageTurn(direction)
+      if (pageTurnIssued) {
+        this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
+      } else {
+        this.controlledRelocateReason = null
+      }
     } else {
       this.beginControlledRelocation(`page-turn:${direction}`)
-      this.issueReflowablePageTurn(direction)
-      this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
+      pageTurnIssued = this.issueReflowablePageTurn(direction)
+      if (pageTurnIssued) {
+        this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
+      } else {
+        this.controlledRelocateReason = null
+      }
     }
+    if (!pageTurnIssued) return
     this.recentPageTurnDirection = direction
     this.applyReaderViewportLayout(`page-turn:${direction}`)
     requestAnimationFrame(() => {
@@ -973,6 +1112,10 @@ export const NavicReaderPageTurnMethods = {
   nativeDragPreviewAtSectionBoundary,
   readerRendererReadyForPageDrag,
   safeNativeDragPreviewAtSectionBoundary,
+  readerReflowablePageTurnReadiness,
+  readerReflowablePageTurnReady,
+  clearDeferredReflowablePageTurn,
+  retryDeferredReflowablePageTurn,
   ensurePageDragPreviewLayer,
   removePageDragPreviewLayer,
   pageDragPreviewDimensions,

@@ -179,6 +179,39 @@ class ReaderRuntimeNavigationFlowTest {
 	}
 
 	@Test
+	fun androidReaderDefersReflowablePageTurnsUntilRendererContentIsReadyAfterResize() {
+		val bridgeText = readerBridgeText()
+		val issueReflowablePageTurn = bridgeText
+			.substringAfter("function issueReflowablePageTurn(direction) {")
+			.substringBefore("\nasync function performPageTurn(direction) {")
+
+		assertContains(bridgeText, "readerReflowablePageTurnReady()")
+		assertContains(issueReflowablePageTurn, "const readiness = this.readerReflowablePageTurnReadiness()")
+		assertContains(issueReflowablePageTurn, "if (!readiness.ready)")
+		assertContains(issueReflowablePageTurn, "page-turn:deferred-renderer-not-ready")
+		assertContains(issueReflowablePageTurn, "this.applyReaderViewportLayout(`page-turn:${'$'}{direction}:deferred`)")
+		assertContains(issueReflowablePageTurn, "this.retryDeferredReflowablePageTurn(direction)")
+		assertContains(
+			bridgeText.substringAfter("close() {").substringBefore("\n  async loadShellCover"),
+			"this.clearDeferredReflowablePageTurn()",
+			message = "Deferred page-turn observers must not survive reader close/reload after a window resize."
+		)
+		val performPageTurn = bridgeText
+			.substringAfter("async function performPageTurn(direction) {")
+			.substringBefore("\nfunction attachScrolledEdgeTurnGestures")
+		assertContains(
+			performPageTurn,
+			"if (!pageTurnIssued) return",
+			message = "A deferred reflowable turn must not mark recentPageTurnDirection before Foliate actually navigates."
+		)
+		assertTrue(
+			issueReflowablePageTurn.indexOf("if (!readiness.ready)") <
+				issueReflowablePageTurn.indexOf("const navigationPromise = direction === 'next'"),
+			"Reflowable tap turns must not call Foliate next/prev while a tablet resize has left the renderer without a valid content document."
+		)
+	}
+
+	@Test
 	fun androidReaderKeepsAnxPaginatorNullDocumentGuardForSectionSwapPageTurns() {
 		val navicPaginator = readerAssetRoot()
 			.resolve("vendor/foliate-js/paginator.js")

@@ -268,6 +268,8 @@ class NavicReaderRuntime {
   pageTurnQueue = []
   pageTurnInProgress = false
   pageTurnDirection = null
+  deferredReflowablePageTurn = null
+  deferredReflowablePageTurnToken = 0
   recentPageTurnDirection = null
   nativePageDragPreview = null
   fixedLayoutNavigationPageIndex = null
@@ -506,6 +508,7 @@ class NavicReaderRuntime {
     this.clearOverlay()
     this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
+    this.clearDeferredReflowablePageTurn()
     this.view?.close?.()
     this.view?.remove?.()
     this.view = null

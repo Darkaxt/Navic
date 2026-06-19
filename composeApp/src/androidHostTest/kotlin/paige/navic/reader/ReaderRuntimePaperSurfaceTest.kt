@@ -324,17 +324,23 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			bridgeText,
 			"const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1",
-			message = "Texture movement needs the logical turn sign for normal in-flight movement."
+			message = "Texture movement needs the effective logical turn sign for normal in-flight movement."
 		)
 		assertContains(bridgeText, "hasKnownDirection &&")
 		assertContains(
 			bridgeText,
 			"? expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
-			message = "Known next/previous turns must dominate renderer coordinate wraps so area transitions do not invert texture motion."
+			message = "Known next/previous turns must still dominate normal in-flight renderer movement."
 		)
-		assertFalse(
-			bridgeText.contains("const knownDirectionBoundaryWrap ="),
-			"Known-direction boundary-wrap detection codified the maps-to-Author's-Note inversion as expected behavior."
+		assertContains(
+			bridgeText,
+			"const knownDirectionBoundaryWrap = hasKnownDirection &&",
+			message = "Full-page boundary wraps need a separate branch because the renderer delta can flip sign after a section boundary."
+		)
+		assertContains(
+			bridgeText,
+			"knownDirectionBoundaryWrap\n    ? bounded",
+			message = "When a known-direction turn lands on a wrapped boundary, the texture must follow the wrapped renderer delta instead of forcing the logical sign."
 		)
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
