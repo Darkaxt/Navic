@@ -378,6 +378,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.startSelectionNote())
 		},
 		onSaveSelectionNote = { note ->
+			Logger.i(ReaderScreenTag, "Reader selection note save length=${note.length}")
 			applyCoordinatorStep(coordinator.saveSelectionNote(note))
 		},
 		onDismissSelectionNote = {

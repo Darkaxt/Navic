@@ -3726,3 +3726,30 @@ Artifacts:
 Remaining:
 - This validates image-page short-tap behavior on emulator readerdev. It still needs physical/release package confirmation before closing the user-facing bug.
 - Long-press image behavior and sepia overlay toggling were not validated in this section.
+
+## 2026-06-19 Selection Action Validation During Bindery Maintenance
+
+Scope:
+- Continue Phase 5 selection-action validation on the already-open readerdev session without relaunching or reseeding the app.
+- Bindery was under server maintenance, so this pass deliberately avoided OPDS, login, download, or app restart flows.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed version: `v1.0.11-eta76`
+- Running PID: `19346`
+- EPUB session already open before validation started.
+
+Results:
+- PASS: Copy action was validated sequentially with the `selection-payload` probe. The smoke run exited `0` and found the required `Reader selection copied length=` log.
+- PARTIAL: Note action opened the Compose note dialog, accepted typed text in the `EditText`, and enabled `Save`.
+- FAIL/UNVERIFIED: tapping `Save` closed the note dialog, but logcat did not show `applyHighlights`, `annotationDrawn`, or another observable write/engine command. This means the Note path cannot be called validated on eta76.
+- INVALID SETUP: an earlier parallel Copy/Highlight/Note run produced collisions in UI hierarchy state. Only the sequential Copy result should be treated as evidence.
+
+Artifacts:
+- `captures\reader-selection\20260619-eta76-selection-copy-seq`
+- `captures\reader-selection\20260619-eta76-selection-note-open-seq`
+
+Follow-up:
+- Add or expose reliable note-save evidence before closing Phase 5. The minimum acceptable evidence is a controller log, engine command log, bridge event, or persisted annotation UI route after `Save`.
+- Re-run Highlight sequentially if this section is used as release-candidate evidence; the available Highlight pass came from the invalid parallel run and should remain advisory only.
