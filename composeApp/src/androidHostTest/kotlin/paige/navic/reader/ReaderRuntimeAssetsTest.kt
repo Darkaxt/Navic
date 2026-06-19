@@ -342,6 +342,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(pageBoxProbe, "closedShadowRoot")
 		assertContains(pageBoxProbe, "rendererRect")
 		assertContains(pageBoxProbe, "contentRects")
+		assertContains(pageBoxProbe, "documentToViewportWidthRatio")
+		assertContains(pageBoxProbe, "bodyToDocumentWidthRatio")
+		assertContains(pageBoxProbe, "firstProse")
+		assertContains(pageBoxProbe, "fontSize")
+		assertContains(pageBoxProbe, "maxWidth")
 		assertContains(pageBoxProbe, "contentDocument")
 		assertFalse(
 			pageBoxProbe.contains("NavicReaderBridge.dispatch"),

@@ -3330,3 +3330,41 @@ Remaining:
 
 - Physical Tab S9 Ultra validation is still required on the exact Hobbit page and settings that exposed the font-size issue.
 - If the body text still fails to scale on the physical release build, collect a computed-style sample from the release WebView with Publisher styles enabled.
+
+## 2026-06-19 Readerdev Runtime Probe: Tab S9 Page Box Diagnostics
+
+Trigger:
+
+- Follow up on the Tab S9 Ultra report where prose looked too narrow horizontally and cramped vertically.
+- Separate stale APK/font-size behavior from page-box math and publisher/content CSS.
+
+Setup:
+
+- Device: `emulator-5554`.
+- Viewport override: Galaxy Tab S9 Ultra portrait (`wm size 1848x2960`, `wm density 240`), observed WebView CSS viewport `1232x1974` at DPR `1.5`.
+- Package after dirty reinstall: `darkaxt.navic.readerdev`, `versionName=v1.0.11-eta76`, `versionCode=409`, `lastUpdateTime=2026-06-19 10:39:28`.
+- Loaded publication: `A Memory of Light (epub)`, section `OEBPS/Text/sinopsis.xhtml`.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9224
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box --local-port 9226
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+```
+
+Result:
+
+- PASS: fresh readerdev install reached `publicationReady`.
+- PASS: publisher-style font-size runtime probe still scales body prose from `16px` at 100% to `22.4px` at 140%, with `publisherParagraphDelta=6.4`.
+- PASS: enhanced page-box probe remains read-only and reports prose diagnostics without dispatching reader commands or injecting DOM.
+- PASS: page-box probe on the loaded text section reported `maxInlineSize=1133px`, renderer `1232x1974`, document width `1133px`, body width `1061px`, `documentToViewportWidthRatio=0.92`, and `bodyToDocumentWidthRatio=0.936`.
+- PASS: first visible prose element had `fontSize=16px`, `lineHeight=24.8px`, `maxWidth=none`, and no inline margins.
+- PASS: focused host guard and JS syntax check passed after adding these diagnostics.
+
+Conclusion:
+
+- On the current eta76 readerdev code path, Tab S9 portrait page-box math is not hard-capping prose to the 720px column threshold; the loaded text section uses most of the available folio width.
+- The reported physical Tab S9 narrow-looking Hobbit page should be rechecked on eta76. If it persists, the next evidence to collect is the enhanced `page-box` output for that exact page plus publisher-style state, because the cause is likely page/book CSS, a stale APK, or a page-specific layout rule rather than the current adaptive page-box calculation.

@@ -431,6 +431,13 @@ async function runPageBoxProbe(page) {
     }
     const rendererStyle = getComputedStyle(renderer)
     const contentEntries = Array.from(renderer.getContents?.() || [])
+    const ratio = (part, whole) => {
+      const numerator = Number(part)
+      const denominator = Number(whole)
+      return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0
+        ? Number((numerator / denominator).toFixed(3))
+        : null
+    }
     const contentRects = contentEntries.map((entry, index) => {
       const doc = entry?.doc || entry?.document || entry?.iframe?.contentDocument || null
       const contentDocument = Boolean(doc)
@@ -438,6 +445,17 @@ async function runPageBoxProbe(page) {
       const documentElement = doc?.documentElement || null
       const bodyRect = body?.getBoundingClientRect?.()
       const elementRect = documentElement?.getBoundingClientRect?.()
+      const firstProseElement = Array.from(body?.querySelectorAll?.('p, li, blockquote, dd, div, span, font') || [])
+        .find(element => {
+          const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+          if (text.length < 24) return false
+          const rect = element.getBoundingClientRect?.()
+          if (!rect || rect.width <= 0 || rect.height <= 0) return false
+          const style = doc.defaultView.getComputedStyle(element)
+          return style.display !== 'none' && style.visibility !== 'hidden'
+        })
+      const firstProseRect = firstProseElement?.getBoundingClientRect?.()
+      const firstProseStyle = firstProseElement ? doc.defaultView.getComputedStyle(firstProseElement) : null
       return {
         index,
         contentDocument,
@@ -445,6 +463,19 @@ async function runPageBoxProbe(page) {
         bodyTextLength: String(body?.textContent || '').trim().length,
         bodyRect: bodyRect ? roundRect(bodyRect) : null,
         documentElementRect: elementRect ? roundRect(elementRect) : null,
+        documentToViewportWidthRatio: elementRect ? ratio(elementRect.width, window.visualViewport?.width || window.innerWidth || 0) : null,
+        bodyToDocumentWidthRatio: bodyRect && elementRect ? ratio(bodyRect.width, elementRect.width) : null,
+        firstProse: firstProseElement ? {
+          tagName: firstProseElement.tagName,
+          textLength: String(firstProseElement.textContent || '').replace(/\s+/g, ' ').trim().length,
+          rect: firstProseRect ? roundRect(firstProseRect) : null,
+          fontSize: firstProseStyle?.fontSize || '',
+          lineHeight: firstProseStyle?.lineHeight || '',
+          maxWidth: firstProseStyle?.maxWidth || '',
+          marginInlineStart: firstProseStyle?.marginInlineStart || '',
+          marginInlineEnd: firstProseStyle?.marginInlineEnd || '',
+          display: firstProseStyle?.display || '',
+        } : null,
       }
     })
     return {
