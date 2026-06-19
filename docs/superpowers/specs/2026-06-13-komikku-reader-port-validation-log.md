@@ -4270,3 +4270,23 @@ Follow-up source fix:
 - RED: the focused host guard failed before the WebView long-click suppression existed.
 - GREEN: the focused host guard passed after the WebView host change.
 - LIMITATION: the fix has not been installed on the emulator yet. Rebuild/reinstall later, then rerun the same selection smoke and confirm the system WebView toolbar no longer appears while the native Highlight/Copy/Note strip still appears.
+
+Follow-up emulator observation:
+
+```powershell
+adb -s emulator-5554 exec-out screencap -p
+adb -s emulator-5554 shell dumpsys activity activities
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+adb -s emulator-5554 logcat -d -v time -t 600
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe visible-page-content --local-port 9281
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box --local-port 9282
+```
+
+Results:
+- PASS: `captures/reader-weird-screen/20260619-225556/screen.png` shows the page text is still rendered; the screen is not a blank WebView.
+- PASS: installed emulator build is still `darkaxt.navic.readerdev` `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+- PASS: `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, `visibleTextLength=235916`, visible item text beginning `CHAPTER 37 The Last Battle`, and a visible prose leaf `"A world without Shadow."`.
+- PASS: `page-box` reports a live `1232x1974` renderer, `bodyTextLength=242809`, `maxColumnCount=1`, `topMargin=90px`, and `bottomMargin=50px`.
+- PASS: the prior Highlight action dispatched `applyHighlights(count=4)` and emitted `annotationDrawn(value=epubcfi(/6/98!/4/2/2702,/1:65,/1:69))`.
+- FAIL/OPEN on eta76: the screenshot still shows Android WebView's system selection toolbar and the bottom history capsule. These are expected on the installed eta76 APK because the source fixes for WebView long-click suppression and hidden-by-default history capsule have not been rebuilt/reinstalled yet.
+- Interpretation: the current emulator visual defect is not a rendering failure. It is the already-known stale-installed-build overlay stack: controller selection strip + WebView system toolbar + history capsule.
