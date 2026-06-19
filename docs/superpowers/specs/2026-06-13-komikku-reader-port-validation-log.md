@@ -2802,3 +2802,45 @@ Result:
 - PASS: `git diff --check`.
 - Note: an initial `--rerun-tasks` host-test attempt was killed by the command runner before producing a test result; the rerun without forced task invalidation completed successfully.
 - Remaining: this is source/harness evidence. The fix still needs dirty-emulator or physical release validation on the real Tab S9 Ultra EPUB page where the body text stayed fixed.
+
+## 2026-06-19 Working Tree Follow-Up: Portrait Tablet Folio Composition
+
+Trigger:
+
+- User reported that on the Tab S9 Ultra the EPUB page had too much unused horizontal space and cramped/unnatural vertical composition.
+- User also questioned whether a folio page should have more balanced vertical and horizontal margins instead of a narrow text strip.
+
+Root-cause evidence:
+
+- `readerAdaptiveFoliatePageBox` preserved Anx `maxColumnCount=0` directly into the Foliate renderer.
+- Bundled Foliate interprets `maxColumnCount=0` as automatic split from `columnThreshold`; with the Anx default `columnThreshold=720`, a portrait tablet/fold viewport wider than 720 can become a two-column spread calculation.
+- The focused harness already encoded the expected Komikku shell behavior and failed before the fix:
+  `Expected portrait single-page composition until same-section spread is explicit, got {"maxInlineSize":"1133px","maxBlockSize":"1846px","maxColumnCount":"0","columnThreshold":"720px","viewportWidth":1232,"viewportHeight":1974,"flowMode":"paged"}`.
+
+Change under validation:
+
+- `maxColumnCount=0` is still stored and persisted as the Anx automatic setting.
+- The Komikku shell now resolves that automatic setting before mounting Foliate:
+  - portrait phone/fold/tablet surfaces resolve to one folio page;
+  - landscape/wide spread surfaces resolve to two columns when the viewport passes `columnThreshold`;
+  - explicit user settings `maxColumnCount=1` and `maxColumnCount=2` are preserved.
+- The active design spec now records this boundary so future work does not reintroduce portrait auto-spread by treating raw Anx defaults as UI ownership.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderAppliesAdaptiveViewportPageBoxToVisibleAndProfilingViews
+git diff --check
+```
+
+Result:
+
+- RED before fix: `adaptive-page-box-logic` failed because portrait tablet auto mode returned `maxColumnCount="0"` instead of resolving to the single-page Komikku shell behavior.
+- PASS after fix: `adaptive-page-box-logic`.
+- PASS: JavaScript syntax checks for `navic-reader-helpers.js` and `run-reader-harness.mjs`.
+- PASS: focused host parity/navigation guards.
+- PASS: `git diff --check`.
+- Remaining: this is source/harness evidence. Dirty emulator and physical Tab S9 Ultra validation are still required before claiming the visual tablet margins are release-ready.

@@ -906,16 +906,17 @@ class FoliateAnxParityTest {
 		}
 		assertTrue(
 			navicReaderHelpersText.contains("readerMaxColumnCountValue") &&
+				navicReaderHelpersText.contains("readerEffectiveMaxColumnCount") &&
 				navicReaderHelpersText.contains("readerColumnThresholdValue") &&
 				navicReaderHelpersText.contains("columnThreshold: `${'$'}{Math.round(columnThreshold)}px`") &&
 				navicReaderMainText.contains("setAttribute('column-threshold', pageBox.columnThreshold)") &&
 				navicPaginatorText.contains("'column-threshold'") &&
 				navicPaginatorText.contains("maxColumnCount === 0"),
-			"readerAdaptiveFoliatePageBox and the bundled paginator must derive columns from Anx maxColumnCount/columnThreshold settings."
+			"readerAdaptiveFoliatePageBox must carry Anx maxColumnCount/columnThreshold settings through Navic shell resolution and the bundled paginator."
 		)
 		val adaptivePageBoxBody = navicReaderHelpersText
 			.substringAfter("export const readerAdaptiveFoliatePageBox")
-			.substringBefore("\n}\n\nexport const readerFontWeightValue")
+			.substringBefore("\n}\n\nexport const readerStartLocatorHasPosition")
 		assertTrue(
 			!adaptivePageBoxBody.contains(": columnThreshold"),
 			"Auto column mode must not hard-cap the full page inline size to columnThreshold; threshold decides splitting, not tablet page width."

@@ -149,7 +149,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 7 PDF and font-source parity guards are host-verified. `FoliatePdfAnxParityTest` guards the Anx/Foliate `makePDF(file)` contract, and `ReaderFontSourceAnxParityTest` guards local import, remote manifest, WebView-safe font URLs, deletion, and remote download progress/pause/resume/cancel routes.
 - Phase 8 adds the remaining Anx `BookStyle` adaptive composition dimensions: `maxColumnCount` and `columnThreshold`.
 - Phase 8 carries those fields through defaults, preference persistence, book overrides, bridge serialization, pagination profile metadata, Foliate paginator attributes, runtime layout, global Ebook settings, and the Komikku settings dialog.
-- Phase 8 follows Anx semantics: `maxColumnCount=0` means automatic column selection with up to two columns based on viewport size and `columnThreshold`, not "single column" and not "disabled".
+- Phase 8 preserves Anx settings semantics, but the Komikku shell resolves `maxColumnCount=0` before mounting Foliate: portrait phone/fold/tablet viewports remain a single folio page, while landscape/wide spread viewports can use two columns based on `columnThreshold`.
 - The focused Phase 4 host test passed on 2026-06-18 for bridge decode, engine mapping, and Anx source parity.
 - The reader host suite passed on 2026-06-18 after Phase 4.
 - The focused Phase 5 host test passed on 2026-06-18 for bridge decode, engine mapping, controller state, and Anx source parity.
@@ -227,7 +227,7 @@ Phase 8 is host- and emulator-verified:
 
 - The remaining Anx `BookStyle` adaptive composition fields now exist: `maxColumnCount` and `columnThreshold`.
 - Anx defaults are preserved: `maxColumnCount=0`, `columnThreshold=720`.
-- `maxColumnCount=0` uses Anx automatic semantics, allowing up to two columns when the viewport exceeds the configured threshold.
+- `maxColumnCount=0` is stored as Anx automatic mode, then resolved by the Komikku shell: portrait uses one column, and landscape/wide spread uses two columns when the viewport exceeds the configured threshold.
 - The current dirty emulator matrix passed after rebuilding and installing the Phase 8 source, but visual/manual validation of the settings controls remains required before treating it as release-ready.
 
 ## Active Bugs And Open Risks

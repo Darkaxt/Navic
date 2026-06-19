@@ -637,6 +637,20 @@ if (mode === 'adaptive-page-box-logic') {
   if (portrait.maxColumnCount !== '1') {
     throw new Error(`Expected portrait single-page composition until same-section spread is explicit, got ${JSON.stringify(portrait)}`)
   }
+  const explicitPortraitSpread = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1232, height: 1974 },
+    { marginPercent: 0, maxColumnCount: 2 }
+  )
+  if (explicitPortraitSpread.maxColumnCount !== '2') {
+    throw new Error(`Expected explicit portrait spread setting to survive adaptive shell resolution, got ${JSON.stringify(explicitPortraitSpread)}`)
+  }
+  const explicitLandscapeSingle = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1974, height: 1232 },
+    { marginPercent: 0, maxColumnCount: 1 }
+  )
+  if (explicitLandscapeSingle.maxColumnCount !== '1') {
+    throw new Error(`Expected explicit landscape single-column setting to survive adaptive shell resolution, got ${JSON.stringify(explicitLandscapeSingle)}`)
+  }
 
   const userMargin = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 20 })
   if (parsePx(userMargin.maxInlineSize) >= portraitInline || parsePx(userMargin.maxBlockSize) !== portraitBlock) {
