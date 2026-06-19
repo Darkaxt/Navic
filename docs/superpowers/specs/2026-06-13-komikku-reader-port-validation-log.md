@@ -2877,3 +2877,38 @@ Result:
 - PASS after fix: focused host parity guard `drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent`.
 - PASS: JavaScript syntax check for `navic-reader.js`.
 - Remaining: this is source/host evidence. Dirty emulator or physical release validation still needs to confirm that a real saved note shows the cue, tapping it reopens `KomikkuReaderAnnotationDialog`, and plain highlights remain visually distinct.
+
+## 2026-06-19 Working Tree Follow-Up: Controller-Owned Footnote Popup Route
+
+Trigger:
+
+- The Anx parity registry treated `onFootnoteClose` as implemented because the close event reached controller state, but there was no native route for opening or displaying footnote content.
+- This repeated the "types-only/event-only" failure mode: Navic could observe that a footnote closed without providing a reader-owned footnote experience.
+
+Root-cause evidence:
+
+- Anx `book.js` uses `FootnoteHandler`, extracts the referenced footnote fragment into a footnote view, shows a footnote dialog, and emits `onFootnoteClose` when dismissed.
+- Navic already carried footnote metadata in `SelectionChanged`, and already decoded `FootnoteClose`, but `ReaderControllerState` had no `footnotePopup` state and `ReaderRoot` had no `KomikkuReaderFootnoteDialog`.
+- The first RED run failed at compile time on missing `ReaderBridgeEvent.FootnoteOpen`, `ReaderEngineEvent.FootnoteOpened`, `ReaderFootnotePopupState`, and footnote dialog symbols.
+
+Change under validation:
+
+- Added a typed `footnoteOpen` bridge event carrying `href`, extracted text, note type, and hidden state.
+- Mapped `ReaderBridgeEvent.FootnoteOpen` through `FoliateEpubEngineAdapter` to `ReaderEngineEvent.FootnoteOpened`.
+- Added `ReaderFootnotePopupState`, controller-owned open/close behavior, `ReaderCoordinator.dismissFootnotePopup()`, and a native `KomikkuReaderFootnoteDialog`.
+- Added same-document footnote extraction in `navic-reader-content-interactions.js`, posting `readerContentTapHandled(action=footnote)` plus `footnoteOpen` before suppressing normal link navigation.
+- Strengthened `FoliateAnxParityTest` so `onFootnoteClose` is not considered behavior-complete without the native open/close popup route and ADB-visible `footnoteOpen(...)` label.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --tests paige.navic.reader.ReaderControllerTest.footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderFootnotesAreKomikkuOverlayAndControllerRouted --tests paige.navic.reader.FoliateAnxParityTest.everyAnxHandlerIsDocumentedInKnownGaps --tests paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+```
+
+Result:
+
+- RED before fix: focused host compile failed on unresolved `FootnoteOpen`, `FootnoteOpened`, `ReaderFootnotePopupState`, and related popup-route symbols.
+- PASS after fix: focused bridge/adapter/controller/common-UI/Anx-parity host suite.
+- PASS: JavaScript syntax check for `navic-reader-content-interactions.js`.
+- Remaining: this is source/host evidence. Dirty emulator and physical release validation still need to confirm a real EPUB footnote reference opens the native popup, the close action emits/clears the route, and cross-section footnotes either render or are explicitly tracked as a follow-up beyond the same-document extractor.

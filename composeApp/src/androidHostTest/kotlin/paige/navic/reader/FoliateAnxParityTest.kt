@@ -249,8 +249,13 @@ class FoliateAnxParityTest {
 			routeStop("navic-reader.js", "case 'historyForward':")
 		),
 		"onFootnoteClose" to exists(
-			"FootnoteClose event on overlay dismissal",
-			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			"Footnote popup lifecycle with controller-owned open and close routes",
+			controllerTest("footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt"),
+			readerUiRoute("ReaderFootnoteDialog.kt", "KomikkuReaderFootnoteDialog"),
+			readerUiRoute("ReaderRoot.kt", "controllerState.footnotePopup"),
+			routeStop("ReaderController.kt", "footnotePopup ="),
+			routeStop("navic-reader-content-interactions.js", "type: 'footnoteOpen'"),
+			routeStop("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt", "footnoteOpen("),
 			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
 		"onPullUp" to exists(

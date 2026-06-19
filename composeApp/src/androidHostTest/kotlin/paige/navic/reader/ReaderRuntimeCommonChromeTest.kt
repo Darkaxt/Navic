@@ -1149,6 +1149,27 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderFootnotesAreKomikkuOverlayAndControllerRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val footnoteDialogText = readerCommonUiFile("ReaderFootnoteDialog.kt").readText()
+
+		assertContains(readerRootText, "KomikkuReaderFootnoteDialog(")
+		assertContains(readerRootText, "controllerState.footnotePopup")
+		assertContains(readerRootText, "onDismissFootnotePopup = onDismissFootnotePopup")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderFootnoteDialog(") ||
+				readerScreenText.contains("ReaderFootnotePopupState("),
+			"Footnote UI must be a Komikku overlay component routed through controller state, not local ReaderScreen state."
+		)
+		assertContains(footnoteDialogText, "internal fun KomikkuReaderFootnoteDialog(")
+		assertContains(footnoteDialogText, "ReaderFootnotePopupState")
+		assertContains(footnoteDialogText, "BasicAlertDialog(")
+		assertContains(footnoteDialogText, "onDismissFootnotePopup")
+		assertContains(readerScreenText, "coordinator.dismissFootnotePopup()")
+	}
+
+	@Test
 	fun commonReaderExternalLinksAreKomikkuOverlayAndNativeUriRouted() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()

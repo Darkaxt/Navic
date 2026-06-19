@@ -136,6 +136,12 @@ sealed interface ReaderEngineEvent {
 		val canGoBack: Boolean = false,
 		val canGoForward: Boolean = false
 	) : ReaderEngineEvent
+	data class FootnoteOpened(
+		val href: String? = null,
+		val text: String? = null,
+		val noteType: String? = null,
+		val hidden: Boolean = false
+	) : ReaderEngineEvent
 	data object FootnoteClose : ReaderEngineEvent
 	data object PullUp : ReaderEngineEvent
 

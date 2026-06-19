@@ -377,6 +377,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onDismissAnnotationPopup = {
 			applyCoordinatorStep(coordinator.dismissAnnotationPopup())
 		},
+		onDismissFootnotePopup = {
+			applyCoordinatorStep(coordinator.dismissFootnotePopup())
+		},
 		onOpenExternalLink = { url ->
 			uriHandler.openUri(url)
 			applyCoordinatorStep(coordinator.dismissExternalLinkPrompt())

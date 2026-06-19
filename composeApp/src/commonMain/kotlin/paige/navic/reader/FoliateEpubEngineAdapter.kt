@@ -155,6 +155,12 @@ sealed class FoliateWebViewEngineAdapter(
 				canGoBack = event.canGoBack,
 				canGoForward = event.canGoForward
 			)
+			is ReaderBridgeEvent.FootnoteOpen -> ReaderEngineEvent.FootnoteOpened(
+				href = event.href,
+				text = event.text,
+				noteType = event.noteType,
+				hidden = event.hidden
+			)
 			ReaderBridgeEvent.FootnoteClose -> ReaderEngineEvent.FootnoteClose
 			ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)

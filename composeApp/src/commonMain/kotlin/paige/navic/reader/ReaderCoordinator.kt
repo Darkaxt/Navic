@@ -90,6 +90,9 @@ data class ReaderCoordinator(
 	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissAnnotationPopup())
 
+	fun dismissFootnotePopup(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissFootnotePopup())
+
 	fun dismissExternalLinkPrompt(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissExternalLinkPrompt())
 

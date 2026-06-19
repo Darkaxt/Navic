@@ -719,6 +719,82 @@ function attachLinkNavigation(doc, index) {
   }, { capture: true })
 }
 
+function readerElementTokenSet(element, attributeName, namespace = null) {
+  const rawValue = namespace
+    ? element?.getAttributeNS?.(namespace, attributeName)
+    : element?.getAttribute?.(attributeName)
+  return new Set(String(rawValue || '').split(/\s+/).filter(Boolean))
+}
+
+function readerFootnoteReferenceKind(anchor) {
+  const roles = readerElementTokenSet(anchor, 'role')
+  const epubTypes = readerElementTokenSet(anchor, 'type', 'http://www.idpf.org/2007/ops')
+  const localTypes = readerElementTokenSet(anchor, 'type')
+  const hasType = type => epubTypes.has(type) || localTypes.has(type)
+  if (roles.has('doc-biblioref') || hasType('biblioref')) return 'biblioentry'
+  if (roles.has('doc-glossref') || hasType('glossref')) return 'definition'
+  if (roles.has('doc-noteref') || hasType('noteref')) return 'footnote'
+  return null
+}
+
+function readerReferencedNoteType(element) {
+  const roles = readerElementTokenSet(element, 'role')
+  const epubTypes = readerElementTokenSet(element, 'type', 'http://www.idpf.org/2007/ops')
+  const localTypes = readerElementTokenSet(element, 'type')
+  const hasType = type => epubTypes.has(type) || localTypes.has(type)
+  if (roles.has('doc-biblioentry') || hasType('biblioentry')) return 'biblioentry'
+  if (roles.has('definition') || hasType('glossdef')) return 'definition'
+  if (roles.has('doc-endnote') || hasType('endnote') || hasType('rearnote')) return 'endnote'
+  if (roles.has('doc-footnote') || hasType('footnote')) return 'footnote'
+  if (roles.has('note') || hasType('note')) return 'note'
+  return null
+}
+
+function readerFootnoteElementForHref(doc, rawHref, resolvedHref) {
+  const href = String(rawHref || resolvedHref || '')
+  const fragment = href.includes('#') ? href.substring(href.indexOf('#') + 1) : ''
+  if (!fragment) return null
+  const decodedFragment = (() => {
+    try {
+      return decodeURIComponent(fragment)
+    } catch {
+      return fragment
+    }
+  })()
+  const target = doc?.getElementById?.(decodedFragment) || doc?.getElementById?.(fragment)
+  if (!target) return null
+  let element = target
+  while (element?.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
+    const parent = element.parentElement
+    if (!parent) break
+    element = parent
+  }
+  if (element === doc.body) {
+    const sibling = target.nextElementSibling
+    if (sibling && !sibling.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
+      return sibling
+    }
+    return target
+  }
+  return element
+}
+
+function readerFootnoteOpenPayload(doc, anchor, rawHref, resolvedHref) {
+  const referenceKind = readerFootnoteReferenceKind(anchor)
+  const target = readerFootnoteElementForHref(doc, rawHref, resolvedHref)
+  const noteType = readerReferencedNoteType(target) || referenceKind
+  if (!noteType) return null
+  const text = target?.textContent?.replace(/\s+/g, ' ')?.trim?.() || ''
+  if (!text) return null
+  return {
+    type: 'footnoteOpen',
+    href: resolvedHref || rawHref || '',
+    text,
+    noteType,
+    hidden: Boolean(target?.matches?.('aside') && noteType === 'footnote'),
+  }
+}
+
 async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {
     const anchor = closestElement(event.target, 'a[href]')
     if (!anchor) return false
@@ -775,6 +851,30 @@ async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {
     if (!rawHref) return false
     const section = this.view?.book?.sections?.[index]
     const href = section?.resolveHref?.(rawHref) ?? rawHref
+    const footnoteOpen = readerFootnoteOpenPayload(doc, anchor, rawHref, href)
+    if (footnoteOpen) {
+      this.rememberReaderContentActionTouch(doc, event, {
+        kind: 'footnote',
+        href,
+        source,
+      })
+      post(this.readerContentActionClaimPayload(doc, event, {
+        kind: 'footnote',
+        href,
+        source,
+        anchor,
+      }))
+      post(footnoteOpen)
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+      readerTrace('footnote:open', {
+        href,
+        noteType: footnoteOpen.noteType,
+        length: footnoteOpen.text.length,
+      })
+      return true
+    }
     this.rememberReaderContentActionTouch(doc, event, {
       kind: 'link',
       href,

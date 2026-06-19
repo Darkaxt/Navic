@@ -477,6 +477,12 @@ sealed interface ReaderBridgeEvent {
 		val canGoBack: Boolean = false,
 		val canGoForward: Boolean = false
 	) : ReaderBridgeEvent
+	data class FootnoteOpen(
+		val href: String? = null,
+		val text: String? = null,
+		val noteType: String? = null,
+		val hidden: Boolean = false
+	) : ReaderBridgeEvent
 	data object FootnoteClose : ReaderBridgeEvent
 	data object PullUp : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
@@ -575,6 +581,12 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"pushState" -> ReaderBridgeEvent.PushState(
 				canGoBack = json.booleanValue("canGoBack") ?: false,
 				canGoForward = json.booleanValue("canGoForward") ?: false
+			)
+			"footnoteOpen" -> ReaderBridgeEvent.FootnoteOpen(
+				href = json.stringValue("href"),
+				text = json.stringValue("text"),
+				noteType = json.stringValue("noteType"),
+				hidden = json.booleanValue("hidden") ?: false
 			)
 			"footnoteClose" -> ReaderBridgeEvent.FootnoteClose
 			"pullUp" -> ReaderBridgeEvent.PullUp

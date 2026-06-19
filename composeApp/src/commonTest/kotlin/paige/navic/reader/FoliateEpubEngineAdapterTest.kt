@@ -364,6 +364,22 @@ class FoliateEpubEngineAdapterTest {
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.PushState(canGoBack = true, canGoForward = false))
 		)
 		assertEquals(
+			ReaderEngineEvent.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.FootnoteOpen(
+					href = "Text/chapter-01.xhtml#fn1",
+					text = "This is the footnote body.",
+					noteType = "footnote",
+					hidden = true
+				)
+			)
+		)
+		assertEquals(
 			ReaderEngineEvent.FootnoteClose,
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.FootnoteClose)
 		)

@@ -628,6 +628,23 @@ class ReaderBridgeProtocolTest {
 		assertEquals("chapter-01", loadDoc.sectionId)
 		assertEquals(true, pushState.canGoBack)
 		assertEquals(false, pushState.canGoForward)
+		val footnoteOpen = assertIs<ReaderBridgeEvent.FootnoteOpen>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "footnoteOpen",
+				  "href": "Text/chapter-01.xhtml#fn1",
+				  "text": "This is the footnote body.",
+				  "noteType": "footnote",
+				  "hidden": true
+				}
+				""".trimIndent()
+			)
+		)
+		assertEquals("Text/chapter-01.xhtml#fn1", footnoteOpen.href)
+		assertEquals("This is the footnote body.", footnoteOpen.text)
+		assertEquals("footnote", footnoteOpen.noteType)
+		assertEquals(true, footnoteOpen.hidden)
 		assertIs<ReaderBridgeEvent.FootnoteClose>(
 			decodeReaderBridgeEvent("""{"type":"footnoteClose"}""")
 		)

@@ -113,8 +113,24 @@ data class ReaderAnnotationPopupState(
 			!note.isNullOrBlank()
 }
 
+data class ReaderFootnotePopupState(
+	val href: String? = null,
+	val text: String? = null,
+	val noteType: String? = null,
+	val hidden: Boolean = false
+) {
+	val visible: Boolean
+		get() = !href.isNullOrBlank() ||
+			!text.isNullOrBlank() ||
+			!noteType.isNullOrBlank()
+}
+
 sealed interface ReaderOverlayInteraction {
 	data class Created(val index: Int? = null) : ReaderOverlayInteraction
+	data class FootnoteOpened(
+		val href: String? = null,
+		val noteType: String? = null
+	) : ReaderOverlayInteraction
 	data object FootnoteClosed : ReaderOverlayInteraction
 	data object PullUp : ReaderOverlayInteraction
 }
@@ -135,6 +151,7 @@ data class ReaderControllerState(
 	val externalLinkPrompt: ReaderExternalLinkPromptState? = null,
 	val lastAnnotationInteraction: ReaderAnnotationInteraction? = null,
 	val annotationPopup: ReaderAnnotationPopupState? = null,
+	val footnotePopup: ReaderFootnotePopupState? = null,
 	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
 	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
@@ -228,6 +245,7 @@ data class ReaderController(
 					externalLinkPrompt = null,
 					lastAnnotationInteraction = null,
 					annotationPopup = null,
+					footnotePopup = null,
 					lastOverlayInteraction = null,
 					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
@@ -371,8 +389,29 @@ data class ReaderController(
 					)
 				)
 			)
+			is ReaderEngineEvent.FootnoteOpened -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						footnotePopup = ReaderFootnotePopupState(
+							href = event.href,
+							text = event.text,
+							noteType = event.noteType,
+							hidden = event.hidden
+						),
+						lastOverlayInteraction = ReaderOverlayInteraction.FootnoteOpened(
+							href = event.href,
+							noteType = event.noteType
+						)
+					)
+				)
+			)
 			ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(
-				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed))
+				copy(
+					state = state.copy(
+						footnotePopup = null,
+						lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed
+					)
+				)
 			)
 			ReaderEngineEvent.PullUp -> ReaderControllerStep(
 				copy(
@@ -654,6 +693,16 @@ data class ReaderController(
 
 	fun dismissAnnotationPopup(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(annotationPopup = null)))
+
+	fun dismissFootnotePopup(): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					footnotePopup = null,
+					lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed
+				)
+			)
+		)
 
 	fun dismissExternalLinkPrompt(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(externalLinkPrompt = null)))

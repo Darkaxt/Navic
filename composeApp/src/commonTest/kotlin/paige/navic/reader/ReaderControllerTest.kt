@@ -303,6 +303,45 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt() {
+		val opened = ReaderController().onEngineEvent(
+			ReaderEngineEvent.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			)
+		)
+
+		assertEquals(
+			ReaderFootnotePopupState(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			),
+			opened.controller.state.footnotePopup
+		)
+		assertEquals(
+			ReaderOverlayInteraction.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				noteType = "footnote"
+			),
+			opened.controller.state.lastOverlayInteraction
+		)
+		assertEquals(emptyList(), opened.engineCommands)
+
+		val closed = opened.controller.onEngineEvent(ReaderEngineEvent.FootnoteClose)
+
+		assertNull(closed.controller.state.footnotePopup)
+		assertEquals(
+			ReaderOverlayInteraction.FootnoteClosed,
+			closed.controller.state.lastOverlayInteraction
+		)
+		assertEquals(emptyList(), closed.engineCommands)
+	}
+
+	@Test
 	fun annotationClicksOpenControllerOwnedAnnotationPopup() {
 		val event = ReaderEngineEvent.AnnotationClicked(
 			value = "A saved note",
