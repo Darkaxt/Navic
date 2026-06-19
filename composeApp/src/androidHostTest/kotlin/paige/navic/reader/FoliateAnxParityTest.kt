@@ -37,6 +37,10 @@ class FoliateAnxParityTest {
 		anxReferenceFile("lib/models/book_style.dart").readText()
 	}
 
+	private val anxFootnotesText: String by lazy {
+		anxReferenceFile("assets/foliate-js/src/footnotes.js").readText()
+	}
+
 	private val navicViewText: String by lazy {
 		readerAssetRoot().resolve("vendor/foliate-js/view.js").readText()
 	}
@@ -255,6 +259,9 @@ class FoliateAnxParityTest {
 			readerUiRoute("ReaderRoot.kt", "controllerState.footnotePopup"),
 			routeStop("ReaderController.kt", "footnotePopup ="),
 			routeStop("navic-reader-content-interactions.js", "type: 'footnoteOpen'"),
+			routeStop("navic-reader-content-interactions.js", "readerResolvedFootnoteOpenPayload"),
+			routeStop("navic-reader-content-interactions.js", "book?.resolveHref"),
+			routeStop("navic-reader-content-interactions.js", "section.load"),
 			routeStop("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt", "footnoteOpen("),
 			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
@@ -697,6 +704,34 @@ class FoliateAnxParityTest {
 				"${route.engineEvent} must not be discarded with `${route.noOpBranch}`."
 			)
 		}
+	}
+
+	@Test
+	fun footnotePopupRouteResolvesCrossSectionTargetsLikeAnxFootnoteHandler() {
+		for (symbol in listOf("book.resolveHref(href)", "document.createElement('foliate-view')", "view.open(book)", "view.goTo(index)")) {
+			assertTrue(
+				anxFootnotesText.contains(symbol),
+				"Anx FootnoteHandler must prove '$symbol' is part of the reference cross-section footnote route."
+			)
+		}
+		assertTrue(
+			navicContentInteractionsText.contains("readerResolvedFootnoteOpenPayload"),
+			"Navic footnote route must have an async resolved-footnote helper instead of only reading the current document."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("this.view?.book?.resolveHref") ||
+				navicContentInteractionsText.contains("book.resolveHref") ||
+				navicContentInteractionsText.contains("book?.resolveHref"),
+			"Navic footnote route must use Foliate book.resolveHref so same-document and cross-section references share Anx semantics."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("section.load"),
+			"Navic footnote route must load the resolved target section before extracting cross-section footnote content."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("readerFootnoteElementFromTarget"),
+			"Navic footnote route must handle Foliate anchor results that are Element or Range targets."
+		)
 	}
 
 	@Test

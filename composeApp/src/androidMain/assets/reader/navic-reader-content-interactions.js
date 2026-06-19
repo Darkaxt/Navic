@@ -2,6 +2,7 @@
 // (callback catalog, including translateText at 864)
 // tmp/references/anx-reader/assets/foliate-js/src/view.js:216-327 (link/image taxonomy)
 // :335-397 (annotations)
+// tmp/references/anx-reader/assets/foliate-js/src/footnotes.js:45-109 (cross-section footnote resolution)
 
 import {
   CenterTapMovementSlop,
@@ -763,18 +764,29 @@ function readerFootnoteElementForHref(doc, rawHref, resolvedHref) {
   })()
   const target = doc?.getElementById?.(decodedFragment) || doc?.getElementById?.(fragment)
   if (!target) return null
+  return readerFootnoteElementFromTarget(doc, target)
+}
+
+function readerFootnoteElementFromTarget(doc, target) {
+  if (!target) return null
   let element = target
+  if (target.startContainer) {
+    const ancestor = target.commonAncestorContainer || target.startContainer
+    element = ancestor?.nodeType === 1 ? ancestor : ancestor?.parentElement
+  }
+  if (!element || element.nodeType !== 1) return null
+  const originalTarget = element
   while (element?.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
     const parent = element.parentElement
     if (!parent) break
     element = parent
   }
   if (element === doc.body) {
-    const sibling = target.nextElementSibling
+    const sibling = originalTarget.nextElementSibling
     if (sibling && !sibling.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
       return sibling
     }
-    return target
+    return originalTarget
   }
   return element
 }
@@ -792,6 +804,56 @@ function readerFootnoteOpenPayload(doc, anchor, rawHref, resolvedHref) {
     text,
     noteType,
     hidden: Boolean(target?.matches?.('aside') && noteType === 'footnote'),
+  }
+}
+
+async function readerFootnoteDocumentForResolvedTarget(book, resolvedTarget, currentDoc, currentIndex) {
+  const index = Number(resolvedTarget?.index)
+  if (!Number.isFinite(index) || index < 0) return null
+  if (index === currentIndex) return currentDoc
+  const section = book?.sections?.[index]
+  if (!section) return null
+  if (typeof section.createDocument === 'function') {
+    return section.createDocument()
+  }
+  if (typeof section.load !== 'function') return null
+  let loadedWithSectionLoad = false
+  try {
+    const src = await section.load()
+    loadedWithSectionLoad = true
+    if (typeof src !== 'string') return null
+    const response = await fetch(src)
+    if (!response.ok) return null
+    const text = await response.text()
+    return new DOMParser().parseFromString(text, 'text/html')
+  } finally {
+    if (loadedWithSectionLoad) section.unload?.()
+  }
+}
+
+async function readerResolvedFootnoteOpenPayload(runtime, doc, anchor, rawHref, resolvedHref, currentIndex) {
+  const sameDocumentPayload = readerFootnoteOpenPayload(doc, anchor, rawHref, resolvedHref)
+  if (sameDocumentPayload) return sameDocumentPayload
+  const referenceKind = readerFootnoteReferenceKind(anchor)
+  if (!referenceKind) return null
+  const book = runtime?.view?.book
+  const targetHref = resolvedHref || rawHref || ''
+  const resolvedTarget = await Promise.resolve(book?.resolveHref?.(targetHref))
+  if (!resolvedTarget || typeof resolvedTarget.anchor !== 'function') return null
+  const targetDoc = await readerFootnoteDocumentForResolvedTarget(book, resolvedTarget, doc, currentIndex)
+  if (!targetDoc) return null
+  const target = resolvedTarget.anchor(targetDoc)
+  const element = readerFootnoteElementFromTarget(targetDoc, target)
+  const noteType = readerReferencedNoteType(element) || referenceKind
+  if (!noteType) return null
+  const text = element?.textContent?.replace(/\s+/g, ' ')?.trim?.() || ''
+  if (!text) return null
+  return {
+    type: 'footnoteOpen',
+    href: targetHref,
+    text,
+    noteType,
+    hidden: Boolean(element?.matches?.('aside') && noteType === 'footnote'),
   }
 }
 
@@ -851,7 +913,7 @@ async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {
     if (!rawHref) return false
     const section = this.view?.book?.sections?.[index]
     const href = section?.resolveHref?.(rawHref) ?? rawHref
-    const footnoteOpen = readerFootnoteOpenPayload(doc, anchor, rawHref, href)
+    const footnoteOpen = await readerResolvedFootnoteOpenPayload(this, doc, anchor, rawHref, href, index)
     if (footnoteOpen) {
       this.rememberReaderContentActionTouch(doc, event, {
         kind: 'footnote',

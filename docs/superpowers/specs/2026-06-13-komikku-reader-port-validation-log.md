@@ -2938,3 +2938,39 @@ Result:
 - PASS on attached emulator WebView style path: the injected probe paragraph scaled from `16px` at `fontSizePercent=100` to `22.4px` at `fontSizePercent=140`; root/body/probe deltas were all `+6.4px`.
 - Caveat: the emulator probe found no existing visible EPUB text elements on the current page, so it proves the installed WebView runtime style path is active but does not prove that the user's current physical-device EPUB page has the fixed asset version loaded.
 - Remaining: confirm on a clean release APK/physical device containing `66395740` by changing font size on a direct-body-text page and checking that the main text reflows, not only the chapter title.
+
+## 2026-06-19 Working Tree Follow-Up: Cross-Section Footnote Resolution
+
+Trigger:
+
+- The same-document footnote popup route was controller-owned, but it still diverged from Anx `FootnoteHandler`: Anx resolves footnote targets through `book.resolveHref(href)` and can render a referenced fragment from another spine section.
+- Navic's first implementation only called `getElementById(...)` in the current loaded document, so it could open nearby/same-document notes while still missing Anx cross-section semantics.
+
+Root-cause evidence:
+
+- Anx reference `tmp/references/anx-reader/assets/foliate-js/src/footnotes.js` proves the expected route: `book.resolveHref(href)`, temporary `foliate-view`, `view.open(book)`, and `view.goTo(index)`.
+- Foliate EPUB sections expose `createDocument()`, so Navic can load the resolved target section for extraction without moving the visible reader or giving the popup back to WebView ownership.
+
+Change under validation:
+
+- `navic-reader-content-interactions.js` now has `readerResolvedFootnoteOpenPayload(...)`.
+- The helper first preserves the same-document fast path, then resolves the href through `book.resolveHref`, loads the target section via `section.createDocument()` when available, falls back to `section.load()` only if needed, accepts Element or Range anchor results, and posts the same native `footnoteOpen` bridge event.
+- `FoliateAnxParityTest` now reads Anx `footnotes.js` directly and fails if Navic claims `onFootnoteClose` behavior without a cross-section target-resolution route.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.footnotePopupRouteResolvesCrossSectionTargetsLikeAnxFootnoteHandler
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --tests paige.navic.reader.ReaderControllerTest.footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderFootnotesAreKomikkuOverlayAndControllerRouted --tests paige.navic.reader.FoliateAnxParityTest.footnotePopupRouteResolvesCrossSectionTargetsLikeAnxFootnoteHandler --tests paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest
+```
+
+Result:
+
+- RED before fix: `footnotePopupRouteResolvesCrossSectionTargetsLikeAnxFootnoteHandler` failed because Navic had no async resolved-footnote helper and no target-section load path.
+- PASS after fix: targeted cross-section footnote parity guard.
+- PASS: JavaScript syntax check for `navic-reader-content-interactions.js`.
+- PASS: focused bridge/adapter/controller/common-UI/Anx-parity host suite.
+- PASS: full `FoliateAnxParityTest`.
+- Remaining: this is source/host evidence. A real EPUB with cross-section footnotes still needs emulator or physical-device validation to confirm the referenced section content appears in `KomikkuReaderFootnoteDialog`.
