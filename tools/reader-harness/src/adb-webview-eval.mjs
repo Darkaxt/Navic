@@ -409,6 +409,167 @@ async function runRelocationPayloadProbe(page) {
   }})()`)
 }
 
+async function runChapterProgressEndpointsProbe(page) {
+  return evaluateOnPage(page, `window.__navicChapterProgressProbePromise = (${async () => {
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const observedPayloads = []
+    const animationSettled = () => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    })
+    const latestLocation = startIndex => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (payload?.type === 'locationChanged') return payload
+      }
+      return null
+    }
+    const numeric = value => {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+
+    window.NavicAndroidBridge.postMessage = message => {
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const snapshot = async reason => {
+        const startIndex = observedPayloads.length
+        const result = await Promise.resolve(readerBridgeDispatch({
+          type: 'diagnosticLocationSnapshot',
+          reason,
+        }))
+        const returnedLocation = result?.message?.type === 'locationChanged'
+          ? result.message
+          : null
+        return {
+          result,
+          location: latestLocation(startIndex) || returnedLocation,
+        }
+      }
+      const endpoint = async (href, progress) => {
+        const startIndex = observedPayloads.length
+        const commandResult = await Promise.resolve(readerBridgeDispatch({
+          type: 'goToChapterProgress',
+          href,
+          progress,
+        }))
+        await animationSettled()
+        const locationSnapshot = await snapshot(`chapter-progress-endpoint-${progress}`)
+        const location = locationSnapshot.location || latestLocation(startIndex)
+        if (!location) {
+          throw new Error(`Expected chapter-progress endpoint ${progress} to emit locationChanged`)
+        }
+        return {
+          progress,
+          commandResult,
+          locationSnapshot,
+          location,
+        }
+      }
+
+      const initialSnapshot = await snapshot('chapter-progress-endpoints-initial')
+      const initialLocation = initialSnapshot.location
+      if (!initialLocation) {
+        throw new Error('Expected chapter-progress initial snapshot to emit locationChanged')
+      }
+      const candidateHrefs = []
+      const appendHref = href => {
+        const normalized = String(href || '').trim()
+        if (normalized && !candidateHrefs.includes(normalized)) candidateHrefs.push(normalized)
+      }
+      appendHref(initialLocation.href)
+      const sections = Array.from(view?.book?.sections || [])
+      for (const section of sections) {
+        appendHref(section?.href || section?.id)
+      }
+      if (!candidateHrefs.length) {
+        throw new Error('Expected chapter-progress probe to find at least one chapter href')
+      }
+      const candidateAttempts = []
+      let candidate = null
+      for (const href of candidateHrefs) {
+        let startProbe = null
+        try {
+          startProbe = await endpoint(href, 0)
+        } catch (error) {
+          candidateAttempts.push({ href, error: error?.message || String(error) })
+          continue
+        }
+        const chapterPageCount = numeric(startProbe.location.chapterPageCount)
+        candidateAttempts.push({
+          href,
+          chapterPageIndex: startProbe.location.chapterPageIndex,
+          chapterPageCount: startProbe.location.chapterPageCount,
+        })
+        if (chapterPageCount != null && chapterPageCount >= 2) {
+          candidate = {
+            href,
+            startProbe,
+          }
+          break
+        }
+      }
+      if (!candidate) {
+        throw new Error(
+          `Expected chapter-progress-candidate with at least 2 pages; attempts=${JSON.stringify(candidateAttempts)}`
+        )
+      }
+
+      const href = candidate.href
+      const start = candidate.startProbe
+      const end = await endpoint(href, 1)
+      const startIndex = numeric(start.location.chapterPageIndex)
+      if (startIndex !== 0) {
+        throw new Error(`Expected chapter-progress endpoint 0 to report chapterPageIndex 0, got ${start.location.chapterPageIndex}`)
+      }
+      const endIndex = numeric(end.location.chapterPageIndex)
+      const endCount = numeric(end.location.chapterPageCount)
+      if (endCount == null || endCount < 2) {
+        throw new Error(`Expected chapter-progress endpoint 1 to report a usable chapterPageCount, got ${end.location.chapterPageCount}`)
+      }
+      if (endIndex !== endCount - 1) {
+        throw new Error(
+          `Expected chapter-progress endpoint 1 to report last index ${endCount - 1}, got ${end.location.chapterPageIndex}`
+        )
+      }
+
+      return {
+        probe: 'chapter-progress-endpoints',
+        href,
+        initialLocation,
+        candidateAttempts,
+        endpoints: [start, end],
+        observedLocationCount: observedPayloads.filter(payload => payload?.type === 'locationChanged').length,
+        expectedLogLabels: [
+          'Reader bridge event: locationChanged',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+      window.__navicChapterProgressProbePromise = null
+    }
+  }})(); window.__navicChapterProgressProbePromise`)
+}
+
 async function runPageBoxProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const roundRect = rect => ({
@@ -745,6 +906,7 @@ async function main() {
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
+      'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,
       'font-size': runFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,

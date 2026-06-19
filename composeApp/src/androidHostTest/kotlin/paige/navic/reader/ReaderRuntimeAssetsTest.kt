@@ -275,6 +275,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "relocation-payload")
 		assertContains(scriptText, "page-box")
 		assertContains(scriptText, "font-size-publisher-styles")
+		assertContains(scriptText, "chapter-progress-endpoints")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
@@ -310,6 +311,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
 		assertContains(helperText, "page-box")
+		assertContains(helperText, "chapter-progress-endpoints")
 		assertContains(helperText, "NavicReaderBridge.dispatch")
 		assertContains(helperText, "type: 'diagnosticLocationSnapshot'")
 		assertContains(helperText, "new CustomEvent('link'")
@@ -406,6 +408,27 @@ class ReaderRuntimeAssetsTest {
 		assertContains(publisherProbe, "publisherParagraphDelta")
 		assertContains(publisherProbe, "probe.remove()")
 		assertContains(publisherProbe, "publisherStyles: originalPublisherStyles")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeChapterProgressEndpoints() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val chapterProgressProbe = helperText
+			.substringAfter("async function runChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(helperText, "'chapter-progress-endpoints': runChapterProgressEndpointsProbe")
+		assertContains(chapterProgressProbe, "__navicChapterProgressProbePromise")
+		assertContains(chapterProgressProbe, "type: 'goToChapterProgress'")
+		assertContains(chapterProgressProbe, "Array.from(view?.book?.sections || [])")
+		assertContains(chapterProgressProbe, "chapter-progress-candidate")
+		assertContains(chapterProgressProbe, "candidateAttempts.push({ href, error")
+		assertContains(chapterProgressProbe, "endpoint(href, 0)")
+		assertContains(chapterProgressProbe, "endpoint(href, 1)")
+		assertContains(chapterProgressProbe, "chapterPageIndex")
+		assertContains(chapterProgressProbe, "chapterPageCount")
+		assertContains(chapterProgressProbe, "Expected chapter-progress endpoint 0")
+		assertContains(chapterProgressProbe, "Expected chapter-progress endpoint 1")
 	}
 
 	@Test

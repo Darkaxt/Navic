@@ -28,7 +28,7 @@ param(
     [string[]] $RequireReaderBridgeEvent = @(),
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
-    [ValidateSet("", "internal-link-native", "phase3-events", "selection-payload", "relocation-payload", "page-box", "font-size", "font-size-publisher-styles")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "selection-payload", "relocation-payload", "page-box", "font-size", "font-size-publisher-styles", "chapter-progress-endpoints")]
     [string] $ReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,

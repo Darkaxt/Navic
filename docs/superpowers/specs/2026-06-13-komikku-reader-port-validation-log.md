@@ -3368,3 +3368,38 @@ Conclusion:
 
 - On the current eta76 readerdev code path, Tab S9 portrait page-box math is not hard-capping prose to the 720px column threshold; the loaded text section uses most of the available folio width.
 - The reported physical Tab S9 narrow-looking Hobbit page should be rechecked on eta76. If it persists, the next evidence to collect is the enhanced `page-box` output for that exact page plus publisher-style state, because the cause is likely page/book CSS, a stale APK, or a page-specific layout rule rather than the current adaptive page-box calculation.
+
+## 2026-06-19 Progress Rail Endpoint Probe
+
+Scope:
+- Close part of the Priority 0 progress-rail validation gap with a repeatable DevTools probe that exercises the same `goToChapterProgress` command path used by the native Komikku chapter rail.
+- Avoid false greens from one-page frontmatter sections by walking the EPUB spine until a chapter with at least two pages is found.
+
+Implementation:
+- Added `chapter-progress-endpoints` to `tools\reader-harness\src\adb-webview-eval.mjs`.
+- Added the probe to `scripts\adb-reader-smoke.ps1` so future phone/emulator runs can capture it through the normal artifact path.
+- The probe pins its long-running CDP promise on `window.__navicChapterProgressProbePromise`; without this, Chromium could collect the awaited promise while Foliate swapped EPUB sections.
+- The probe records candidate attempts, including sections that fail to emit a location snapshot, and only passes when endpoint `0` reports `chapterPageIndex=0` and endpoint `1` reports `chapterPageIndex=chapterPageCount - 1`.
+
+Verification:
+
+```
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeChapterProgressEndpoints --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe chapter-progress-endpoints --local-port 9238
+```
+
+Results:
+- RED before harness support: `adbWebViewEvalHelperCanProbeChapterProgressEndpoints` failed because the probe did not exist.
+- RED before candidate discovery: live probe stopped on `sinopsis.xhtml` with `chapterPageCount=1`.
+- RED before candidate-error capture: live probe aborted when `cubierta.xhtml` did not emit a `locationChanged` snapshot.
+- RED before promise pinning: live probe failed with DevTools `Promise was collected` while navigating EPUB sections.
+- PASS: focused host checks passed.
+- PASS: `node --check` passed.
+- PASS: live eta76 `readerdev` probe on `emulator-5554` walked five candidates from `sinopsis.xhtml`, selected `OEBPS/Text/TitlePage-01.xhtml` with `chapterPageCount=2`, and verified endpoint `0 -> chapterPageIndex 0 / 2` and endpoint `1 -> chapterPageIndex 1 / 2`.
+
+Artifact:
+- `tmp\chapter-progress-emulator.json`
+
+Remaining:
+- This is dirty-emulator readerdev evidence, not physical-phone release proof. The P0 still needs a clean release/phone run on a larger chapter that previously showed `10 / 12`, `2 / 4`, or page-1 rail-button failures.
