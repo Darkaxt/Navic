@@ -3502,3 +3502,32 @@ Results:
 
 Remaining:
 - This is source/browser-harness proof, not a physical Tab S9 Ultra release proof. The next release/phone validation should run the DevTools `font-size` probe on the exact visible Hobbit page if the symptom still appears.
+
+## 2026-06-19 ReaderDev Start Progress Hook
+
+Scope:
+- Add a deterministic readerdev launch path for resume/progress validation using a route-level 0..1 progress fraction.
+- This is an enabling hook for Priority 0 resume/persistence validation, not a claim that disrupted-drag resume is fully device-proven.
+
+Implementation:
+- `Screen.Reader` now accepts `startProgress`.
+- `ReaderOpenRequest` converts explicit route progress into `ReaderEngineOpenRequest.startLocator`.
+- Android readerdev launch extras accept `navic.dev.reader.start_progress` / `NAVIC_READER_DEV_START_PROGRESS`, clamp it to `0.0..1.0`, and pass it into the reader screen.
+- `scripts\install-reader-dev.ps1` can pass `-StartProgress` or the env-file value into the launch intent.
+- `navic-reader-dev.env.example` documents the optional progress fraction.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED before implementation: `ReaderOpenRequestFactoryTest.openRequestCarriesExplicitRouteProgressForReaderDevResumeValidation` failed to compile because `Screen.Reader` had no `startProgress` parameter.
+- PASS after implementation: `:composeApp:testAndroid` completed successfully with `BUILD SUCCESSFUL in 3m 13s`; the run executed `testAndroidHostTest` and `testAndroid` with `24 actionable tasks: 3 executed, 21 up-to-date`.
+- PASS: `git diff --check` passed.
+- Caveat: the first verification run stopped making log progress at `compileAndroidMain` while stale Gradle/Kotlin Java processes were present. After stopping the stale processes, the same logged run continued and completed successfully. The only warnings were existing Kotlin/daemon warnings unrelated to this hook.
+
+Remaining:
+- Use this hook in a readerdev/emulator or physical-device run to validate actual resume after disrupted drag/app interruption. Do not mark the P0 resume issue closed until that runtime flow is proven.

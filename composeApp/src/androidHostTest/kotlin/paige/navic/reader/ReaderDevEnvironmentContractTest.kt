@@ -54,6 +54,12 @@ class ReaderDevEnvironmentContractTest {
 			"readerDev must support direct reader launch from env-driven intent extras."
 		)
 		assertTrue(
+			mainActivity.contains("navic.dev.reader.start_progress") &&
+				mainActivity.contains("NAVIC_READER_DEV_START_PROGRESS") &&
+				mainActivity.contains("startProgress ="),
+			"readerDev must support direct progress-fraction launch so resume/persistence validation can bypass manual navigation."
+		)
+		assertTrue(
 			mainActivity.contains("Screen.BinderyBooks") &&
 				mainActivity.contains("preferenceManager.showedSideloadingWarning = true"),
 			"readerDev must fall back to Bindery Books when only Bindery credentials are seeded and must not block validation with the sideloading modal."
@@ -144,6 +150,11 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("NAVIC_READER_DEV_RESOURCE_HREF") &&
 				installScriptText.contains("BINDERY_TEST_RESOURCE_ID"),
 			"The install script must have a required-reader mode for validation; if no EPUB/PDF target is resolved it must fail instead of silently launching the catalog and producing false reader screenshots."
+		)
+		assertTrue(
+			installScriptText.contains("NAVIC_READER_DEV_START_PROGRESS") &&
+				installScriptText.contains("navic.dev.reader.start_progress"),
+			"The install script must pass explicit progress-fraction reader starts for resume/persistence validation."
 		)
 		val viewportScriptText = viewportScript.readText()
 		assertTrue(

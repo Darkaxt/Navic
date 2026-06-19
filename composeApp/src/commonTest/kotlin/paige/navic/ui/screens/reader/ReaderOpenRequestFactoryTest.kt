@@ -68,9 +68,24 @@ class ReaderOpenRequestFactoryTest {
 		assertEquals(routeLocator, request.startLocator)
 	}
 
+	@Test
+	fun openRequestCarriesExplicitRouteProgressForReaderDevResumeValidation() {
+		val request = hobbitReader(
+			startProgress = 0.37
+		).toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = null,
+			settings = defaultReaderSettings(),
+			savedProgress = null
+		)
+
+		assertEquals(ReaderLocator(progress = 0.37), request.startLocator)
+	}
+
 	private fun hobbitReader(
 		startHref: String? = null,
-		startCfi: String? = null
+		startCfi: String? = null,
+		startProgress: Double? = null
 	): Screen.Reader =
 		Screen.Reader(
 			title = "The Hobbit",
@@ -81,6 +96,7 @@ class ReaderOpenRequestFactoryTest {
 			publicationFormat = ReaderPublicationFormat.Epub,
 			mediaOverlayEnabled = false,
 			startHref = startHref,
-			startCfi = startCfi
+			startCfi = startCfi,
+			startProgress = startProgress
 		)
 }

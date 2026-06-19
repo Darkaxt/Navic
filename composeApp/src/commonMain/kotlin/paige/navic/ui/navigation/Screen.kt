@@ -156,6 +156,7 @@ sealed interface Screen : NavKey {
 		val mediaOverlayEnabled: Boolean = false,
 		val startCfi: String? = null,
 		val startHref: String? = null,
+		val startProgress: Double? = null,
 		val whispersyncSidecarUrl: String? = null,
 		val whispersyncArtifactId: String? = null,
 		val whispersyncAudiobookId: String? = null,

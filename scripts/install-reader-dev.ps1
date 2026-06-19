@@ -10,7 +10,8 @@ param(
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
-    [int] $MaxDiscoveryBooks = 150
+    [int] $MaxDiscoveryBooks = 150,
+    [string] $StartProgress
 )
 
 $ErrorActionPreference = "Stop"
@@ -514,6 +515,11 @@ $kind = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_KIND")
 $format = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_FORMAT")
 $startHref = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_HREF")
 $startCfi = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_CFI")
+$startProgress = if (![string]::IsNullOrWhiteSpace($StartProgress)) {
+    $StartProgress
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_PROGRESS")
+}
 
 if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
     $discoveredPublication = Resolve-ReaderDevPublicationFromBindery `
@@ -582,6 +588,7 @@ if (!$NoLaunch) {
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.format" -Value $format
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_href" -Value $startHref
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_cfi" -Value $startCfi
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_progress" -Value $startProgress
 
     Write-Host "Launching $Package. Secrets are passed through adb extras and not printed."
     Invoke-Adb -Arguments $launchArgs.ToArray()

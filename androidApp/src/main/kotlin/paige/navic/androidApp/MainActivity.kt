@@ -130,6 +130,7 @@ private const val ReaderDevExtraKind = "navic.dev.reader.kind"
 private const val ReaderDevExtraFormat = "navic.dev.reader.format"
 private const val ReaderDevExtraStartHref = "navic.dev.reader.start_href"
 private const val ReaderDevExtraStartCfi = "navic.dev.reader.start_cfi"
+private const val ReaderDevExtraStartProgress = "navic.dev.reader.start_progress"
 
 private fun Intent.stringExtra(primaryKey: String, vararg fallbackKeys: String): String? {
 	getStringExtra(primaryKey)?.let { return it }
@@ -165,7 +166,13 @@ private fun Intent.toReaderDevInitialScreen(): Screen.Reader? {
 		publicationFormat = readerDevPublicationFormat(),
 		mediaOverlayEnabled = readerDevPublicationKind() == ReaderPublicationKind.Readaloud,
 		startCfi = stringExtra(ReaderDevExtraStartCfi, "NAVIC_READER_DEV_START_CFI")?.trim()?.takeIf { it.isNotEmpty() },
-		startHref = stringExtra(ReaderDevExtraStartHref, "NAVIC_READER_DEV_START_HREF")?.trim()?.takeIf { it.isNotEmpty() }
+		startHref = stringExtra(ReaderDevExtraStartHref, "NAVIC_READER_DEV_START_HREF")?.trim()?.takeIf { it.isNotEmpty() },
+		startProgress = stringExtra(ReaderDevExtraStartProgress, "NAVIC_READER_DEV_START_PROGRESS")
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.toDoubleOrNull()
+			?.takeIf(Double::isFinite)
+			?.coerceIn(0.0, 1.0)
 	)
 }
 
