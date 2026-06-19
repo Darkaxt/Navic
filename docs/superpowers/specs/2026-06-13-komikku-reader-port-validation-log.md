@@ -3142,3 +3142,50 @@ Result:
 - PASS after fix: focused `FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract` passed.
 - After fix, the same Tab S9 Ultra portrait helper call returns `maxInlineSize=1600px`, `maxBlockSize=2768px`, `maxColumnCount=1`, which leaves a more folio-like reserve before Foliate header/footer marginals.
 - Remaining: physical tablet validation is still required because this is helper/host evidence, not a rendered Tab S9 Ultra screenshot.
+
+## 2026-06-19 Readerdev Emulator Follow-Up: Tab S9 Ultra Portrait Rendering Probe
+
+Trigger:
+
+- Turn the large-tablet page-box helper fix into runtime evidence on an Android emulator using the documented Tab S9 Ultra portrait viewport profile.
+- Recheck the reported font-size controller behavior against real EPUB paragraphs in the same tablet-shaped readerdev WebView.
+
+Setup:
+
+- Applied viewport profile: `scripts\set-reader-dev-viewport.ps1 -Profile tab-s9-ultra-portrait -DeviceSerial emulator-5554`.
+- ADB reported `Override size: 1848x2960`, `Override density: 240`.
+- Installed and launched current dirty `readerdev` source with `scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch`.
+- Installed package: `darkaxt.navic.readerdev`, `versionName=v1.0.11-eta75`, `versionCode=408`, `lastUpdateTime=2026-06-19 09:02:52`.
+- Reader launch evidence: `Reader bridge raw: {"type":"publicationReady"}`.
+
+Probe tooling change:
+
+- Added a read-only `page-box` probe to `tools\reader-harness\src\adb-webview-eval.mjs`.
+- Added `page-box` to `scripts\adb-reader-smoke.ps1` `ReaderDevtoolsProbe` values.
+- The probe reports Foliate host/renderer rectangles, renderer attributes, loaded content rectangles, and whether the paginator shadow root is closed. It does not dispatch reader commands and does not inject DOM.
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ArtifactDir captures\reader-tablet-folio\tab-s9-portrait-current
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ArtifactDir captures\reader-tablet-folio\tab-s9-portrait-after-cover-tap
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -ArtifactDir captures\reader-tablet-folio\tab-s9-portrait-page-box-probe
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe font-size -ArtifactDir captures\reader-tablet-folio\tab-s9-portrait-font-size-probe
+```
+
+Result:
+
+- PASS: native cover screenshot captured at `captures\reader-tablet-folio\tab-s9-portrait-current\screen.png`.
+- PASS: after-cover EPUB screenshot captured at `captures\reader-tablet-folio\tab-s9-portrait-after-cover-tap\screen.png`.
+- PASS: live page-box probe captured `captures\reader-tablet-folio\tab-s9-portrait-page-box-probe\reader-devtools-probe.json`.
+- Important runtime detail: Android physical override is `1848x2960`, but WebView CSS viewport is `1232x1974` at `devicePixelRatio=1.5`.
+- PASS: live Foliate renderer filled the CSS viewport: `rendererRect=1232x1974`.
+- PASS: renderer attributes were `maxInlineSize=1133px`, `maxBlockSize=1846px`, `maxColumnCount=1`, `columnThreshold=720px`, `topMargin=90px`, `bottomMargin=50px`; this confirms the live renderer is not stuck at Foliate's `720x1440` default and is consuming the Anx top/bottom margin attributes.
+- PASS: loaded EPUB content document existed with `bodyTextLength=1316`, `documentElementRect=1133x1834`, and visible paragraph body rect width `1061px`.
+- PASS: live font-size probe captured `captures\reader-tablet-folio\tab-s9-portrait-font-size-probe\reader-devtools-probe.json`.
+- PASS: real EPUB paragraphs scaled from `16px` to `22.4px` when the reader settings changed from `fontSizePercent=100` to `140`; every sampled paragraph had `delta=6.4px`.
+
+Remaining:
+
+- The after-cover page is frontmatter/synopsis, so the blank lower half is content-shortness, not by itself a page-box failure.
+- This remains emulator/runtime evidence. A physical Tab S9 Ultra release check is still required for the exact Hobbit page and the user's real device settings.

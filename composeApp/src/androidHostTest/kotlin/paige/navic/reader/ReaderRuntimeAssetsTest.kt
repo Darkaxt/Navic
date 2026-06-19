@@ -191,6 +191,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "phase3-events")
 		assertContains(scriptText, "selection-payload")
 		assertContains(scriptText, "relocation-payload")
+		assertContains(scriptText, "page-box")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
@@ -225,6 +226,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "phase3-events")
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
+		assertContains(helperText, "page-box")
 		assertContains(helperText, "NavicReaderBridge.dispatch")
 		assertContains(helperText, "type: 'diagnosticLocationSnapshot'")
 		assertContains(helperText, "new CustomEvent('link'")
@@ -239,6 +241,33 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "Reader bridge event: locationChanged")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val pageBoxProbe = helperText
+			.substringAfter("async function runPageBoxProbe(page)")
+			.substringBefore("async function runFontSizeProbe(page)")
+
+		assertContains(pageBoxProbe, "probe: 'page-box'")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-inline-size')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-block-size')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-column-count')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('top-margin')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('bottom-margin')")
+		assertContains(pageBoxProbe, "closedShadowRoot")
+		assertContains(pageBoxProbe, "rendererRect")
+		assertContains(pageBoxProbe, "contentRects")
+		assertContains(pageBoxProbe, "contentDocument")
+		assertFalse(
+			pageBoxProbe.contains("NavicReaderBridge.dispatch"),
+			"Page-box probing must be read-only and must not trigger reader commands."
+		)
+		assertFalse(
+			pageBoxProbe.contains("createElement"),
+			"Page-box probing must not inject diagnostic DOM into the reader."
+		)
 	}
 
 	@Test

@@ -409,6 +409,77 @@ async function runRelocationPayloadProbe(page) {
   }})()`)
 }
 
+async function runPageBoxProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const roundRect = rect => ({
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      left: Math.round(rect.left),
+    })
+    const view = document.querySelector('foliate-view')
+    const renderer = view?.renderer || document.querySelector('foliate-paginator')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    if (!renderer) {
+      throw new Error('Missing Foliate renderer')
+    }
+    const rendererStyle = getComputedStyle(renderer)
+    const contentEntries = Array.from(renderer.getContents?.() || [])
+    const contentRects = contentEntries.map((entry, index) => {
+      const doc = entry?.doc || entry?.document || entry?.iframe?.contentDocument || null
+      const contentDocument = Boolean(doc)
+      const body = doc?.body || null
+      const documentElement = doc?.documentElement || null
+      const bodyRect = body?.getBoundingClientRect?.()
+      const elementRect = documentElement?.getBoundingClientRect?.()
+      return {
+        index,
+        contentDocument,
+        href: entry?.section?.href || entry?.href || doc?.location?.href || '',
+        bodyTextLength: String(body?.textContent || '').trim().length,
+        bodyRect: bodyRect ? roundRect(bodyRect) : null,
+        documentElementRect: elementRect ? roundRect(elementRect) : null,
+      }
+    })
+    return {
+      probe: 'page-box',
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+      viewport: {
+        width: Math.round(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+        height: Math.round(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        innerWidth: Math.round(window.innerWidth || 0),
+        innerHeight: Math.round(window.innerHeight || 0),
+        devicePixelRatio: window.devicePixelRatio || 1,
+      },
+      viewRect: roundRect(view.getBoundingClientRect()),
+      rendererRect: roundRect(renderer.getBoundingClientRect()),
+      rendererAttributes: {
+        flow: renderer.getAttribute('flow') || '',
+        maxInlineSize: renderer.getAttribute('max-inline-size') || '',
+        maxBlockSize: renderer.getAttribute('max-block-size') || '',
+        maxColumnCount: renderer.getAttribute('max-column-count') || '',
+        columnThreshold: renderer.getAttribute('column-threshold') || '',
+        topMargin: renderer.getAttribute('top-margin') || '',
+        bottomMargin: renderer.getAttribute('bottom-margin') || '',
+      },
+      rendererComputed: {
+        display: rendererStyle.display,
+        width: rendererStyle.width,
+        height: rendererStyle.height,
+      },
+      closedShadowRoot: renderer.shadowRoot === null,
+      contentRects,
+    }
+  }})()`)
+}
+
 async function runFontSizeProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -552,6 +623,7 @@ async function main() {
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
+      'page-box': runPageBoxProbe,
       'font-size': runFontSizeProbe,
     }
     const handler = probeHandlers[probe]
