@@ -2844,3 +2844,36 @@ Result:
 - PASS: focused host parity/navigation guards.
 - PASS: `git diff --check`.
 - Remaining: this is source/harness evidence. Dirty emulator and physical Tab S9 Ultra validation are still required before claiming the visual tablet margins are release-ready.
+
+## 2026-06-19 Working Tree Follow-Up: Note Annotation Visual Cue
+
+Trigger:
+
+- User asked whether saving a note adds any visual cue and how the note can be found/opened later.
+
+Root-cause evidence:
+
+- `ReaderController.saveSelectionNote(...)` already stores note-bearing annotations and forwards them through `ReaderEngineCommand.ApplyAnnotations`.
+- `ReaderController.onAnnotationClicked(...)` already resolves the saved note body back into `ReaderAnnotationPopupState`, so tapping an emitted annotation can reopen the note dialog.
+- The missing behavior was in the Foliate draw path: `onAnnotationDrawn(...)` painted every annotation with the same `Overlayer.highlight`, which made note annotations indistinguishable from plain highlights.
+
+Change under validation:
+
+- `navic-reader.js` now draws note-bearing annotations through `readerDrawNoteAnnotation(...)`.
+- Plain annotations still use Foliate `Overlayer.highlight`.
+- Note annotations draw the same highlight plus a Foliate `Overlayer.squiggly` marker, tagged with `data-navic-note-annotation="true"`.
+- The Anx/Foliate parity guard now requires the draw callback path to preserve plain highlight behavior and visibly differentiate annotations whose payload contains `annotation.note`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+```
+
+Result:
+
+- RED before fix: the strengthened parity guard failed because Navic only painted annotation ranges as plain highlights and had no note-specific visual cue.
+- PASS after fix: focused host parity guard `drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent`.
+- PASS: JavaScript syntax check for `navic-reader.js`.
+- Remaining: this is source/host evidence. Dirty emulator or physical release validation still needs to confirm that a real saved note shows the cue, tapping it reopens `KomikkuReaderAnnotationDialog`, and plain highlights remain visually distinct.

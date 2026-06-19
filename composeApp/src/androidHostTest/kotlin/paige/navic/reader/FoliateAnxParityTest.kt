@@ -614,9 +614,12 @@ class FoliateAnxParityTest {
 		)
 		assertTrue(
 			navicReaderMainText.contains("import { Overlayer } from './vendor/foliate-js/overlayer.js'") &&
-				navicReaderMainText.contains("detail.draw?.(Overlayer.highlight") &&
+				navicReaderMainText.contains("readerDrawNoteAnnotation") &&
+				navicReaderMainText.contains("annotation.note") &&
+				navicReaderMainText.contains("Overlayer.squiggly") &&
+				navicReaderMainText.contains("hasNote ? readerDrawNoteAnnotation : Overlayer.highlight") &&
 				navicReaderMainText.contains("type: 'annotationDrawn'"),
-			"Navic must call Foliate's draw callback with Overlayer.highlight before reporting annotationDrawn."
+			"Navic must paint annotation ranges before reporting annotationDrawn, with note-bearing annotations visibly distinct from plain highlights."
 		)
 	}
 

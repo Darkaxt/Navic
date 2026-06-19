@@ -171,6 +171,22 @@ const ReaderPaginationProfileStatusMeasuring = 'measuring'
 const ReaderPaginationProfileStatusReady = 'ready'
 const ReaderPaginationProfileStatusCached = 'cached'
 const ReaderPaginationProfileStatusFailed = 'failed'
+const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
+
+const readerDrawNoteAnnotation = (rects, options = {}) => {
+  const group = document.createElementNS(ReaderSvgNamespace, 'g')
+  group.setAttribute('data-navic-note-annotation', 'true')
+  group.append(
+    Overlayer.highlight(rects, options),
+    Overlayer.squiggly(rects, {
+      color: options.noteColor || options.color || '#b86e00',
+      width: 1.6,
+      padding: 2,
+      writingMode: options.writingMode,
+    })
+  )
+  return group
+}
 
 const readerRelocationReasonIsExplicit = reason => {
   const normalized = String(reason || '').trim()
@@ -475,8 +491,13 @@ class NavicReaderRuntime {
   onAnnotationDrawn(detail = {}) {
     const annotation = detail.annotation || {}
     const color = annotation.color || detail.color || '#f4d35e'
+    const hasNote = String(annotation.note || '').trim().length > 0
     try {
-      detail.draw?.(Overlayer.highlight, { color })
+      detail.draw?.(hasNote ? readerDrawNoteAnnotation : Overlayer.highlight, {
+        color,
+        noteColor: color,
+        writingMode: this.view?.renderer?.writingMode,
+      })
     } catch (error) {
       logError('annotation:draw-failed', error?.message || String(error))
     }
