@@ -3046,3 +3046,35 @@ Result:
 - PASS: `node --check` for `run-reader-harness.mjs`.
 - PASS: `font-css-smoke`, including direct body text, span-wrapped body text, converted block text, fixed-size paragraph text, and heading scaling.
 - Remaining: physical release validation is still required on the Tab S9 Ultra page where the body text appeared fixed. If it still reproduces after this ordering fix, the next evidence to collect is a real computed-style sample from the physical release WebView with debugging enabled.
+
+## 2026-06-19 Follow-Up: Anx Top/Bottom Margin Observation
+
+Trigger:
+
+- User challenged the tablet folio margins after Tab S9 Ultra screenshots showed excessive width reserve and cramped-looking vertical composition.
+- Source inspection found that Navic was setting Foliate `top-margin` and `bottom-margin` attributes from Anx `BookStyle`, and the bundled paginator had `attributeChangedCallback` cases for those attributes, but `Paginator.observedAttributes` did not include them.
+
+Root-cause evidence:
+
+- A custom element only receives `attributeChangedCallback` for names listed in `static observedAttributes`.
+- Before this slice, `Paginator.observedAttributes` listed `flow`, `gap`, `margin`, `max-inline-size`, `max-block-size`, `max-column-count`, and `column-threshold`, but not `top-margin` or `bottom-margin`.
+- That meant the Komikku controller/Anx settings bridge could call `renderer.setAttribute('top-margin', ...)` and `renderer.setAttribute('bottom-margin', ...)`, while Foliate silently kept its default vertical margin CSS variables.
+
+Change under validation:
+
+- Added `top-margin` and `bottom-margin` to the bundled Foliate paginator's observed attributes.
+- Added `FoliateAnxParityTest.foliatePaginatorObservesAnxVerticalMarginAttributes` so Anx vertical margin parity requires both setting and observing the attributes.
+- Tightened `FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps` to inspect the observed-attributes list, not only the attribute handler cases.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.foliatePaginatorObservesAnxVerticalMarginAttributes
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.foliatePaginatorObservesAnxVerticalMarginAttributes --tests paige.navic.reader.FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps
+```
+
+Result:
+
+- RED before fix: `FoliateAnxParityTest.foliatePaginatorObservesAnxVerticalMarginAttributes` failed because `top-margin` was absent from `Paginator.observedAttributes`.
+- PASS after fix: the focused vertical-margin guard and broader Anx style-dimension parity guard passed.
+- Remaining: physical tablet validation still needs a release/emulator check to judge whether the default values themselves need retuning after the attributes actually apply.

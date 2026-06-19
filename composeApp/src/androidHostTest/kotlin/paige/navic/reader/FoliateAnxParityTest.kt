@@ -900,6 +900,14 @@ class FoliateAnxParityTest {
 				navicReaderMainText.contains("setAttribute('gap'"),
 			"Navic Foliate renderer setup must apply Anx top/bottom/gap attributes."
 		)
+		val paginatorObservedAttributes = navicPaginatorText
+			.substringAfter("static observedAttributes = [")
+			.substringBefore("]")
+		assertTrue(
+			paginatorObservedAttributes.contains("'top-margin'") &&
+				paginatorObservedAttributes.contains("'bottom-margin'"),
+			"Bundled Foliate paginator must observe Anx topMargin/bottomMargin attributes; handling them in attributeChangedCallback is inert unless the custom element observes them."
+		)
 		assertTrue(
 			navicPaginatorText.contains("case 'top-margin':") &&
 				navicPaginatorText.contains("case 'bottom-margin':") &&
@@ -908,6 +916,22 @@ class FoliateAnxParityTest {
 				navicPaginatorText.contains("var(--_top-margin)") &&
 				navicPaginatorText.contains("var(--_bottom-margin)"),
 			"Bundled Foliate paginator must consume Anx topMargin/bottomMargin separately; a single uniform margin is not Anx parity."
+		)
+	}
+
+	@Test
+	fun foliatePaginatorObservesAnxVerticalMarginAttributes() {
+		val paginatorObservedAttributes = navicPaginatorText
+			.substringAfter("static observedAttributes = [")
+			.substringBefore("]")
+
+		assertTrue(
+			paginatorObservedAttributes.contains("'top-margin'"),
+			"Foliate paginator must observe the top-margin attribute that Navic sets from Anx topMargin."
+		)
+		assertTrue(
+			paginatorObservedAttributes.contains("'bottom-margin'"),
+			"Foliate paginator must observe the bottom-margin attribute that Navic sets from Anx bottomMargin."
 		)
 	}
 

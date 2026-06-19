@@ -513,6 +513,7 @@ class View {
 export class Paginator extends HTMLElement {
     static observedAttributes = [
         'flow', 'gap', 'margin',
+        'top-margin', 'bottom-margin',
         'max-inline-size', 'max-block-size', 'max-column-count', 'column-threshold',
     ]
     #root = this.attachShadow({ mode: 'closed' })
