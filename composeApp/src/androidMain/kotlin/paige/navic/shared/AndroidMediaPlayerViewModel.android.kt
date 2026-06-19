@@ -47,7 +47,6 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
-import coil3.imageLoader
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -80,7 +79,6 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
-import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
@@ -181,6 +179,12 @@ class AndroidMediaPlayerViewModel(
 	private var nowPlayingVideoClipAudioActive = false
 	private val playbackOriginTracker = PlaybackOriginTracker()
 	private var lastPlaybackOriginCheckpointMillis = 0L
+	private val mediaItemFactory = AndroidMediaItemFactory(
+		sessionManager = sessionManager,
+		downloadManager = downloadManager,
+		platformContext = platformContext,
+		streamUriForSongId = ::getStreamUrl
+	)
 
 	init {
 		connectToService()
@@ -1462,62 +1466,6 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	private fun DomainSong.toMediaItem(): MediaItem {
-		val metadataBuilder = MediaMetadata.Builder()
-			.setTitle(title)
-			.setSubtitle(artistName)
-			.setArtist(artistName)
-			.setAlbumTitle(albumTitle)
-			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-
-		val artworkData = coverArtId?.let { coverId ->
-			val snapshot = platformContext.imageLoader.diskCache?.openSnapshot(coverId) ?: return@let null
-			try {
-				snapshot.use { it.data.toFile().readBytes() }
-			} catch (error: Exception) {
-				Logger.w("MediaPlayer", "Could not read cached artwork data", error)
-				null
-			}
-		}
-
-		if (artworkData != null) {
-			metadataBuilder.setArtworkData(artworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-		} else {
-			metadataBuilder.setArtworkUri(
-				coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
-			)
-		}
-
-		val metadata = metadataBuilder.build()
-
-		val uri = when {
-			id.startsWith(AurralFlowSongIdPrefix) && !filePath.isNullOrEmpty() -> {
-				filePath.toUri()
-			}
-
-			id.startsWith("radio_") && !filePath.isNullOrEmpty() -> {
-				filePath.toUri()
-			}
-
-			else -> {
-				val localPath = downloadManager.getDownloadedFilePath(id)
-				if (localPath != null) {
-					File(localPath).toUri()
-				} else {
-					getStreamUrl(id)
-				}
-			}
-		}
-
-		val builder = MediaItem.Builder()
-			.setUri(uri)
-			.setMediaId(id)
-			.setMediaMetadata(metadata)
-
-		if (id.startsWith("radio_")) {
-			builder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
-		}
-
-		return builder.build()
-	}
+	private fun DomainSong.toMediaItem(): MediaItem =
+		mediaItemFactory.toMediaItem(this)
 }
