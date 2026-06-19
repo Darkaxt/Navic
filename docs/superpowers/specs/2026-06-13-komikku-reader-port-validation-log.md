@@ -4417,3 +4417,23 @@ Results:
 - PASS: the uncached run executed the new preference tests, source guard, and existing annotation/bookmark state tests.
 - PASS: `git diff --check` reported no whitespace errors.
 - NOTE: Kotlin still printed its existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.
+
+## 2026-06-19 Post-Rebase Reader Validation
+
+Scope:
+- Rebasing local reader work onto the updated `fork/master` introduced conflicts in `App.kt` and `ReaderRoot.kt`.
+- Resolved `App.kt` by keeping the global sideload popup removal while retaining snackbar wiring.
+- Resolved `ReaderRoot.kt` by keeping the full-window native `Box`, overlay visibility gating, and logger from the chrome overlay fix while retaining the current vertical page-drag preview API.
+
+Validation:
+
+```powershell
+git diff --check
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "*ReaderMarksPreferenceTest*" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderMarksAreSeededAndPersistedOutsideTheWebView" --tests "*ReaderKomikkuBackboneResetTest*"
+```
+
+Results:
+- PASS: `git diff --check` reported no whitespace errors before rebase continuation.
+- PASS: post-rebase focused reader host run completed with `BUILD SUCCESSFUL in 7m 34s`.
+- PASS: the focused run covered the reader mark persistence test, the source guard for seeding/persisting marks outside WebView, and the Komikku backbone reset guards touched by `ReaderRoot.kt`.
+- NOTE: Kotlin again printed the existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.
