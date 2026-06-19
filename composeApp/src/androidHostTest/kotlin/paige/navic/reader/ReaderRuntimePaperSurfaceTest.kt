@@ -450,6 +450,21 @@ class ReaderRuntimePaperSurfaceTest {
 			"readerTrace('texture:drag-direction'",
 			message = "Texture direction seeded by native drag preview must be visible in harness and ADB trace diagnostics."
 		)
+		assertContains(
+			previewPageDrag,
+			"const deltaY = Number(command?.deltaY)",
+			message = "Native readable drag preview must preserve vertical deltas for paged-vertical books."
+		)
+		assertContains(
+			previewPageDrag,
+			"readerPageDragPreviewMotion({",
+			message = "Preview movement must use the shared reader motion contract instead of hard-coded horizontal math."
+		)
+		assertContains(
+			previewPageDrag,
+			"renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)",
+			message = "The page itself must move on the same axis as the texture during native drag previews."
+		)
 	}
 
 	@Test
@@ -469,7 +484,7 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(
 			releaseBranch,
-			"renderer.scrollBy(previousDeltaX, 0)",
+			"renderer.scrollBy(previousDelta.x, previousDelta.y)",
 			message = "Release must restore Foliate's synthetic drag scroll before dispatching the real page turn."
 		)
 		assertContains(

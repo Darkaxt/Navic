@@ -269,7 +269,9 @@ sealed interface ReaderBridgeCommand {
 
 	data class PreviewPageDrag(
 		val deltaX: Double,
+		val deltaY: Double = 0.0,
 		val viewWidth: Double? = null,
+		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
 	) : ReaderBridgeCommand {
 		override val type: String = "previewPageDrag"
@@ -278,7 +280,9 @@ sealed interface ReaderBridgeCommand {
 			buildJsonObject {
 				put("type", type)
 				put("deltaX", deltaX.takeIf(Double::isFinite) ?: 0.0)
+				put("deltaY", deltaY.takeIf(Double::isFinite) ?: 0.0)
 				viewWidth?.takeIf(Double::isFinite)?.let { put("viewWidth", it) }
+				viewHeight?.takeIf(Double::isFinite)?.let { put("viewHeight", it) }
 				put(
 					"phase",
 					when (phase) {

@@ -460,20 +460,20 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "val shellCoverVisible = shellCoverView?.visibility == VISIBLE")
 		assertContains(handleTouch, "if (shellCoverVisible)")
-		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)")
+		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Release")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Cancel")
 		assertContains(nativeFrameHostText, "Reader native drag preview")
 		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
-		assertContains(shellCoverSwipe, "readerNativeReaderSwipeAction(")
+		assertContains(shellCoverSwipe, "readableSwipeAction(")
 		assertContains(shellCoverSwipe, "touchSlopPx")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
 		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
 		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(")
-		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, width, phase)")
+		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, deltaY, width, height, phase)")
 		assertFalse(
 			nativeFrameHostText.contains("viewerContentContainer.translationX = deltaX"),
 			"Readable drag preview must not slide the whole WebView over the native background."

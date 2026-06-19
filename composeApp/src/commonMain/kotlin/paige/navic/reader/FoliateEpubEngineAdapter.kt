@@ -63,7 +63,9 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.PreviewPageDrag -> dispatch(
 				ReaderBridgeCommand.PreviewPageDrag(
 					deltaX = command.deltaX,
+					deltaY = command.deltaY,
 					viewWidth = command.viewWidth,
+					viewHeight = command.viewHeight,
 					phase = command.phase
 				)
 			)

@@ -403,8 +403,18 @@ fun readerShellCoverSwipeAction(
 fun readerNativeReaderSwipeAction(
 	deltaX: Float,
 	deltaY: Float,
-	thresholdPx: Float
+	thresholdPx: Float,
+	verticalPageDragPreview: Boolean = false
 ): ReaderTapZoneAction? {
+	if (verticalPageDragPreview) {
+		if (kotlin.math.abs(deltaY) <= thresholdPx) return null
+		if (kotlin.math.abs(deltaY) <= kotlin.math.abs(deltaX)) return null
+		return if (deltaY < 0f) {
+			ReaderTapZoneAction.Right
+		} else {
+			ReaderTapZoneAction.Left
+		}
+	}
 	if (kotlin.math.abs(deltaX) <= thresholdPx) return null
 	if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
 	return if (deltaX < 0f) {

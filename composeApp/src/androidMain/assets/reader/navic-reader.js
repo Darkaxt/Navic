@@ -5,6 +5,7 @@
 // :335-397 (annotations)
 
 import './vendor/foliate-js/view.js'
+import './navic-reader-motion.js'
 import { Overlayer } from './vendor/foliate-js/overlayer.js'
 import {
   CenterTapMovementSlop,

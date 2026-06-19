@@ -19,6 +19,7 @@ internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 	listOf(
 		"navic-reader-settings.js",
 		"navic-reader-helpers.js",
+		"navic-reader-motion.js",
 		"navic-reader-page-turns.js",
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",
@@ -29,6 +30,7 @@ internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 
 internal fun readerRuntimeImplementationText(root: File = readerAssetRoot()): String =
 	listOf(
+		"navic-reader-motion.js",
 		"navic-reader-page-turns.js",
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",

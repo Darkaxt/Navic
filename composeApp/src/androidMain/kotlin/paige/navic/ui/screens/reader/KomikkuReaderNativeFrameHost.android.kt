@@ -51,8 +51,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	viewerKey: ReaderViewerKey,
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
+	verticalPageDragPreview: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
-	onReadableDragPreview: (deltaX: Float, viewWidth: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
+	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
 	modifier: Modifier,
 	viewerContent: @Composable () -> Unit,
@@ -72,9 +73,10 @@ actual fun KomikkuReaderNativeFrameHost(
 				setComposeOverlay { currentComposeOverlay() }
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
+				setVerticalPageDragPreview(verticalPageDragPreview)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
-				setOnReadableDragPreview { deltaX, width, phase ->
-					currentOnReadableDragPreview(deltaX, width, phase)
+				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
+					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
 				}
 				setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 			}
@@ -84,11 +86,12 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
 			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
+			root.setVerticalPageDragPreview(verticalPageDragPreview)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
-			root.setOnReadableDragPreview { deltaX, width, phase ->
-				currentOnReadableDragPreview(deltaX, width, phase)
+			root.setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
+				currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
 			}
 			root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
 		}
@@ -165,7 +168,19 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.onAction = onAction
 	}
 
-	fun setOnReadableDragPreview(onReadableDragPreview: (deltaX: Float, viewWidth: Int, phase: ReaderPageDragPreviewPhase) -> Unit) {
+	fun setVerticalPageDragPreview(verticalPageDragPreview: Boolean) {
+		viewerContainer.verticalPageDragPreview = verticalPageDragPreview
+	}
+
+	fun setOnReadableDragPreview(
+		onReadableDragPreview: (
+			deltaX: Float,
+			deltaY: Float,
+			viewWidth: Int,
+			viewHeight: Int,
+			phase: ReaderPageDragPreviewPhase
+		) -> Unit
+	) {
 		viewerContainer.onReadableDragPreview = onReadableDragPreview
 	}
 
@@ -286,7 +301,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val shellCoverNavigator = KomikkuReaderNavigator(KomikkuRightAndLeftNavigation())
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
-	var onReadableDragPreview: (deltaX: Float, viewWidth: Int, phase: ReaderPageDragPreviewPhase) -> Unit = { _, _, _ -> }
+	var verticalPageDragPreview: Boolean = false
+	var onReadableDragPreview: (
+		deltaX: Float,
+		deltaY: Float,
+		viewWidth: Int,
+		viewHeight: Int,
+		phase: ReaderPageDragPreviewPhase
+	) -> Unit = { _, _, _, _, _ -> }
 	var onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit = { _, _, _, _ -> }
 	private var shellCoverView: View? = null
 	private var swipeStartX: Float = 0f
@@ -455,7 +477,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
 						} else {
-							updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)
+							updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)
 							logReaderReadableDragPreview(dx, dy)
 						}
 					}
@@ -477,13 +499,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 							)
 						} else {
 							logReaderReadableDragPreview(dx, dy)
-							val readableSwipeAction = readerNativeReaderSwipeAction(
+							val readableSwipeAction = readableSwipeAction(
 								deltaX = dx,
 								deltaY = dy,
 								thresholdPx = touchSlopPx
 							)
 							updateReadableViewerDragOffset(
 								deltaX = dx,
+								deltaY = dy,
 								phase = if (readableSwipeAction != null) {
 									ReaderPageDragPreviewPhase.Release
 								} else {
@@ -513,7 +536,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val action = if (shellCoverVisible) {
 			readerShellCoverSwipeAction(deltaX, deltaY, thresholdPx)
 		} else {
-			readerNativeReaderSwipeAction(deltaX, deltaY, thresholdPx)
+			readableSwipeAction(deltaX, deltaY, thresholdPx)
 		} ?: return false
 		horizontalSwipeDispatched = true
 		nativeTapCandidate = false
@@ -556,18 +579,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun updateReadableViewerDragOffset(
 		deltaX: Float,
+		deltaY: Float,
 		phase: ReaderPageDragPreviewPhase
 	) {
-		onReadableDragPreview(deltaX, width, phase)
+		onReadableDragPreview(deltaX, deltaY, width, height, phase)
 	}
 
 	private fun cancelReadableViewerDragPreview() {
-		onReadableDragPreview(0f, width, ReaderPageDragPreviewPhase.Cancel)
+		onReadableDragPreview(0f, 0f, width, height, ReaderPageDragPreviewPhase.Cancel)
 	}
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)
-		if (shellCoverDragDiagnosticLogged || abs(deltaX) <= thresholdPx) return
+		val magnitude = if (shellCoverView?.visibility == VISIBLE || !verticalPageDragPreview) {
+			abs(deltaX)
+		} else {
+			abs(deltaY)
+		}
+		if (shellCoverDragDiagnosticLogged || magnitude <= thresholdPx) return
 		shellCoverDragDiagnosticLogged = true
 		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 		val label = if (shellCoverVisible) {
@@ -582,7 +611,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun logReaderReadableDragPreview(deltaX: Float, deltaY: Float) {
-		if (nativeDragPreviewDiagnosticLogged || abs(deltaX) <= touchSlopPx) return
+		val magnitude = if (verticalPageDragPreview) abs(deltaY) else abs(deltaX)
+		if (nativeDragPreviewDiagnosticLogged || magnitude <= touchSlopPx) return
 		nativeDragPreviewDiagnosticLogged = true
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
@@ -607,12 +637,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				thresholdPx = touchSlopPx
 			) != null
 		} else {
-			readerNativeReaderSwipeAction(
+			readableSwipeAction(
 				deltaX = x - swipeStartX,
 				deltaY = y - swipeStartY,
 				thresholdPx = readablePageDragSlopPx
 			) != null
 		}
+
+	private fun readableSwipeAction(
+		deltaX: Float,
+		deltaY: Float,
+		thresholdPx: Float
+	): ReaderTapZoneAction? =
+		readerNativeReaderSwipeAction(
+			deltaX = deltaX,
+			deltaY = deltaY,
+			thresholdPx = thresholdPx,
+			verticalPageDragPreview = verticalPageDragPreview
+		)
 
 	private fun readerSwipeThresholdPx(shellCoverVisible: Boolean): Float =
 		if (shellCoverVisible) {

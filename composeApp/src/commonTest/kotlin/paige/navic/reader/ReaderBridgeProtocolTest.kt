@@ -168,29 +168,39 @@ class ReaderBridgeProtocolTest {
 	fun pageDragPreviewCommandDispatchesRendererPreviewIntent() {
 		val updateScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = -184.0,
+			deltaY = -96.0,
 			viewWidth = 1440.0,
+			viewHeight = 2200.0,
 			phase = ReaderPageDragPreviewPhase.Update
 		).toJavaScript()
 		val releaseScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = -512.0,
+			deltaY = -256.0,
 			viewWidth = 1440.0,
+			viewHeight = 2200.0,
 			phase = ReaderPageDragPreviewPhase.Release
 		).toJavaScript()
 		val cancelScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = Double.NaN,
+			deltaY = Double.NaN,
 			viewWidth = Double.POSITIVE_INFINITY,
+			viewHeight = Double.NEGATIVE_INFINITY,
 			phase = ReaderPageDragPreviewPhase.Cancel
 		).toJavaScript()
 
 		assertContains(updateScript, "window.NavicReaderBridge.dispatch")
 		assertContains(updateScript, "\"type\":\"previewPageDrag\"")
 		assertContains(updateScript, "\"deltaX\":-184.0")
+		assertContains(updateScript, "\"deltaY\":-96.0")
 		assertContains(updateScript, "\"viewWidth\":1440.0")
+		assertContains(updateScript, "\"viewHeight\":2200.0")
 		assertContains(updateScript, "\"phase\":\"update\"")
 		assertContains(releaseScript, "\"phase\":\"release\"")
 		assertContains(cancelScript, "\"deltaX\":0.0")
+		assertContains(cancelScript, "\"deltaY\":0.0")
 		assertContains(cancelScript, "\"phase\":\"cancel\"")
 		assertFalse(cancelScript.contains("\"viewWidth\""))
+		assertFalse(cancelScript.contains("\"viewHeight\""))
 	}
 
 	@Test

@@ -461,6 +461,7 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
   if (this.nativePageDragPreview) {
     readerTrace('page-drag-preview:reset-on-texture-update', {
       deltaX: Number(this.nativePageDragPreview?.deltaX) || 0,
+      deltaY: Number(this.nativePageDragPreview?.deltaY) || 0,
     })
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer?.()

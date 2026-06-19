@@ -97,6 +97,7 @@ import {
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
+  readerPageDragPreviewMotion,
   readerPaperTextureDragDirection,
   readerSurfacePaperTextureScrollOffset,
   readerSurfacePaperTextureOpacity,
@@ -495,11 +496,11 @@ function removePageDragPreviewLayer() {
   this.pageDragPreviewReadyKey = ''
 }
 
-function pageDragPreviewDimensions(viewWidth = null) {
+function pageDragPreviewDimensions(viewWidth = null, viewHeight = null) {
   const viewport = readerViewportSize()
   return {
     width: Math.max(1, Math.round(Number(viewWidth) || viewport.width || window.innerWidth || 1)),
-    height: Math.max(1, Math.round(viewport.height || window.innerHeight || 1)),
+    height: Math.max(1, Math.round(Number(viewHeight) || viewport.height || window.innerHeight || 1)),
   }
 }
 
@@ -582,11 +583,11 @@ function loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKe
     })
 }
 
-function ensurePageDragPreviewTarget({ direction, viewWidth = null, hidden = false }) {
+function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight = null, hidden = false }) {
   if (!direction) return null
   const targetIndex = this.adjacentReadableSectionIndex(direction)
   if (targetIndex == null) return null
-  const { width, height } = this.pageDragPreviewDimensions(viewWidth)
+  const { width, height } = this.pageDragPreviewDimensions(viewWidth, viewHeight)
   const side = direction === 'previous' ? 'left' : 'right'
   const palette = readerThemePalette(this.readerSettings?.theme)
   const { layer, frame } = this.ensurePageDragPreviewLayer()
@@ -664,28 +665,34 @@ function preloadPageDragPreviewTargets(label = 'unknown') {
   }
 }
 
-function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) {
+function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, viewHeight, renderer }) {
   if (!direction || !this.safeNativeDragPreviewAtSectionBoundary(renderer, direction)) {
     this.removePageDragPreviewLayer()
     return
   }
-  const preview = this.ensurePageDragPreviewTarget({ direction, viewWidth })
+  const preview = this.ensurePageDragPreviewTarget({ direction, viewWidth, viewHeight })
   if (!preview) {
     this.removePageDragPreviewLayer()
     return
   }
   const { layer, frame, targetIndex, targetKey, side, width, height, palette } = preview
-  const exposedWidth = Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
-  const left = side === 'right' ? width - exposedWidth : 0
+  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
+  const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
+  const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
+  const left = vertical || side !== 'right' ? 0 : width - exposedWidth
+  const top = vertical && direction === 'next' ? height - exposedHeight : 0
+  const frameLeft = vertical || side !== 'right' ? '0px' : `-${width - exposedWidth}px`
+  const frameTop = vertical && direction === 'next' ? `-${height - exposedHeight}px` : '0px'
   layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
+  layer.dataset.navicPageDragPreviewExposedHeight = String(exposedHeight)
   layer.dataset.navicPageDragPreviewReady = String(this.pageDragPreviewReadyKey === targetKey)
   setStylesImportant(layer, {
     position: 'fixed',
-    top: '0px',
+    top: `${top}px`,
     left: `${left}px`,
     width: `${exposedWidth}px`,
-    height: `${height}px`,
-    'min-height': `${height}px`,
+    height: `${exposedHeight}px`,
+    'min-height': `${exposedHeight}px`,
     overflow: 'hidden',
     'z-index': '2147483642',
     'pointer-events': 'none',
@@ -696,8 +703,8 @@ function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) 
   })
   setStylesImportant(frame, {
     position: 'absolute',
-    top: '0px',
-    left: side === 'right' ? `-${width - exposedWidth}px` : '0px',
+    top: frameTop,
+    left: frameLeft,
     width: `${width}px`,
     height: `${height}px`,
     border: '0',
@@ -714,6 +721,7 @@ function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) 
     side,
     targetIndex,
     exposedWidth,
+    exposedHeight,
     ready: this.pageDragPreviewReadyKey === targetKey,
     currentIndex: this.currentLoadedSectionIndex(),
   })
@@ -729,11 +737,19 @@ function previewPageDrag(command) {
       ? 'cancel'
       : 'update'
   if (phase === 'cancel') {
-    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
-      ? Number(this.nativePageDragPreview?.deltaX) || 0
-      : 0
-    if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
-    readerTrace('page-drag-preview:cancel', { deltaX: previousDeltaX })
+    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+      ? {
+        x: Number(this.nativePageDragPreview?.deltaX) || 0,
+        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+      }
+      : { x: 0, y: 0 }
+    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
+      renderer.scrollBy(previousDelta.x, previousDelta.y)
+    }
+    readerTrace('page-drag-preview:cancel', {
+      deltaX: previousDelta.x,
+      deltaY: previousDelta.y,
+    })
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
@@ -742,13 +758,17 @@ function previewPageDrag(command) {
     return
   }
   if (phase === 'release') {
-    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
-      ? Number(this.nativePageDragPreview?.deltaX) || 0
-      : 0
+    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+      ? {
+        x: Number(this.nativePageDragPreview?.deltaX) || 0,
+        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+      }
+      : { x: 0, y: 0 }
     const releaseDeltaX = Number(command?.deltaX)
+    const releaseDeltaY = Number(command?.deltaY)
     const releaseTextureDirection = readerPaperTextureDragDirection({
-      deltaX: Number.isFinite(releaseDeltaX) ? releaseDeltaX : previousDeltaX,
-      deltaY: 0,
+      deltaX: Number.isFinite(releaseDeltaX) ? releaseDeltaX : previousDelta.x,
+      deltaY: Number.isFinite(releaseDeltaY) ? releaseDeltaY : previousDelta.y,
       flowMode: this.readerFlowModeValue,
       readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
       threshold: 1,
@@ -760,8 +780,13 @@ function previewPageDrag(command) {
         source: 'native-preview-release',
       })
     }
-    if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
-    readerTrace('page-drag-preview:release', { deltaX: previousDeltaX })
+    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
+      renderer.scrollBy(previousDelta.x, previousDelta.y)
+    }
+    readerTrace('page-drag-preview:release', {
+      deltaX: previousDelta.x,
+      deltaY: previousDelta.y,
+    })
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
@@ -769,10 +794,13 @@ function previewPageDrag(command) {
     return
   }
   const deltaX = Number(command?.deltaX)
-  if (!Number.isFinite(deltaX)) return
+  const deltaY = Number(command?.deltaY)
+  if (!Number.isFinite(deltaX) && !Number.isFinite(deltaY)) return
+  const currentDeltaX = Number.isFinite(deltaX) ? deltaX : 0
+  const currentDeltaY = Number.isFinite(deltaY) ? deltaY : 0
   const textureDirection = readerPaperTextureDragDirection({
-    deltaX,
-    deltaY: 0,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
     flowMode: this.readerFlowModeValue,
     readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
     threshold: 1,
@@ -788,21 +816,36 @@ function previewPageDrag(command) {
   const lastDeltaX = this.nativePageDragPreview?.renderer === renderer
     ? Number(this.nativePageDragPreview?.deltaX) || 0
     : 0
-  const incrementalDeltaX = deltaX - lastDeltaX
-  if (incrementalDeltaX !== 0) renderer.scrollBy(-incrementalDeltaX, 0)
+  const lastDeltaY = this.nativePageDragPreview?.renderer === renderer
+    ? Number(this.nativePageDragPreview?.deltaY) || 0
+    : 0
+  const { incrementalDelta } = readerPageDragPreviewMotion({
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
+    lastDeltaX,
+    lastDeltaY,
+    flowMode: this.readerFlowModeValue,
+  })
+  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
+    renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
+  }
   this.updatePageDragPreviewLayer({
     direction: textureDirection,
-    deltaX,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
     viewWidth: command?.viewWidth,
+    viewHeight: command?.viewHeight,
     renderer,
   })
   this.nativePageDragPreview = phase === 'release'
     ? null
-    : { deltaX, renderer }
+    : { deltaX: currentDeltaX, deltaY: currentDeltaY, renderer }
   readerTrace('page-drag-preview', {
     phase,
-    deltaX,
-    incrementalDeltaX,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
+    incrementalDeltaX: incrementalDelta.x,
+    incrementalDeltaY: incrementalDelta.y,
     start: renderer.start,
     end: renderer.end,
     viewSize: renderer.viewSize,

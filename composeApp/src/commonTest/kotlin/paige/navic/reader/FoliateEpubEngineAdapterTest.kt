@@ -175,7 +175,9 @@ class FoliateEpubEngineAdapterTest {
 		val preview = opened.onCommand(
 			ReaderEngineCommand.PreviewPageDrag(
 				deltaX = -184.0,
+				deltaY = -96.0,
 				viewWidth = 1440.0,
+				viewHeight = 2200.0,
 				phase = ReaderPageDragPreviewPhase.Update
 			)
 		)
@@ -185,7 +187,9 @@ class FoliateEpubEngineAdapterTest {
 		assertEquals(
 			ReaderBridgeCommand.PreviewPageDrag(
 				deltaX = -184.0,
+				deltaY = -96.0,
 				viewWidth = 1440.0,
+				viewHeight = 2200.0,
 				phase = ReaderPageDragPreviewPhase.Update
 			),
 			assertIs<ReaderEngineViewState.WebViewPublication>(preview.viewState).bridgeCommand()

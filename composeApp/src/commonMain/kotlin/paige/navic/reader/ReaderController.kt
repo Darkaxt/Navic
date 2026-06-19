@@ -881,7 +881,9 @@ data class ReaderController(
 			engineCommands = listOf(
 				ReaderEngineCommand.PreviewPageDrag(
 					deltaX = action.deltaX,
+					deltaY = action.deltaY,
 					viewWidth = action.viewWidth,
+					viewHeight = action.viewHeight,
 					phase = action.phase
 				)
 			)

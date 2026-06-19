@@ -586,4 +586,47 @@ class ReaderChromeStateTest {
 			"Shell-cover drags can stay permissive because there is no readable scroll stream under the cover."
 		)
 	}
+
+	@Test
+	fun nativeReaderSwipeActionUsesVerticalDominanceForPagedVerticalPreview() {
+		assertEquals(
+			null,
+			readerNativeReaderSwipeAction(
+				deltaX = 2f,
+				deltaY = -9f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Right,
+			readerNativeReaderSwipeAction(
+				deltaX = 8f,
+				deltaY = -24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Dragging up in paged-vertical mode should preview and commit the next page."
+		)
+		assertEquals(
+			ReaderTapZoneAction.Left,
+			readerNativeReaderSwipeAction(
+				deltaX = 8f,
+				deltaY = 24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Dragging down in paged-vertical mode should preview and commit the previous page."
+		)
+		assertEquals(
+			null,
+			readerNativeReaderSwipeAction(
+				deltaX = 30f,
+				deltaY = -24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Paged-vertical reader drags must not convert mostly horizontal drift into page turns."
+		)
+	}
 }

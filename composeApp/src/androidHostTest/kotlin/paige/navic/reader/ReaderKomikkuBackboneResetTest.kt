@@ -650,9 +650,9 @@ class ReaderKomikkuBackboneResetTest {
 			"Horizontal drags should be intercepted by the native viewer container so readable content can follow the finger."
 		)
 		assertTrue(
-			handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
+				handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				handleTouch.contains("if (shellCoverVisible)") &&
-				handleTouch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)") &&
+				handleTouch.contains("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)") &&
 				handleTouch.contains("ReaderPageDragPreviewPhase.Release") &&
 				handleTouch.contains("ReaderPageDragPreviewPhase.Cancel") &&
 				handleTouch.contains("dispatchHorizontalSwipeViewerAction("),
@@ -662,7 +662,7 @@ class ReaderKomikkuBackboneResetTest {
 			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				swipeAction.contains("if (shellCoverVisible)") &&
 				swipeAction.contains("readerShellCoverSwipeAction(") &&
-				swipeAction.contains("readerNativeReaderSwipeAction("),
+				swipeAction.contains("readableSwipeAction("),
 			"Cover and readable drags need separate native swipe contracts under the same top-level frame."
 		)
 		assertFalse(
@@ -721,7 +721,7 @@ class ReaderKomikkuBackboneResetTest {
 				runtimeText.contains("case 'previewPageDrag':") &&
 				runtimeText.contains("previewPageDrag(command)") &&
 				runtimeText.contains("readerRendererReadyForPageDrag(renderer)") &&
-				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)") &&
+				runtimeText.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") &&
 				runtimeText.contains("preloadPageDragPreviewTargets(") &&
 				runtimeText.indexOf("preloadPageDragPreviewTargets(") < runtimeText.indexOf("updatePageDragPreviewLayer({") &&
 				runtimeText.contains("safeNativeDragPreviewAtSectionBoundary(renderer, direction)") &&
@@ -1824,7 +1824,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
-				moveBranch.indexOf("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
+				moveBranch.indexOf("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
 			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer preview keeps the drag stream."
 		)
 	}
@@ -1849,7 +1849,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		assertTrue(
 			moveBranch.contains("updateShellCoverDragOffset(dx)") &&
-				moveBranch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
+				moveBranch.contains("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
 			"Move events should provide visual drag feedback for both cover and readable pages without committing navigation."
 		)
 		assertFalse(

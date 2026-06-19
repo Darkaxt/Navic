@@ -17,6 +17,7 @@ class ReaderRuntimeAssetsTest {
 		val bridge = root.resolve("navic-reader.js")
 		val bridgeHelpers = root.resolve("navic-reader-helpers.js")
 		val bridgeSettings = root.resolve("navic-reader-settings.js")
+		val bridgeMotion = root.resolve("navic-reader-motion.js")
 		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
 		val bridgePagination = root.resolve("navic-reader-pagination.js")
@@ -33,6 +34,7 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridge.isFile, "Navic reader bridge must be packaged")
 		assertTrue(bridgeHelpers.isFile, "Navic reader helper module must be packaged")
 		assertTrue(bridgeSettings.isFile, "Navic reader settings module must be packaged")
+		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
 		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
 		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
@@ -100,6 +102,7 @@ class ReaderRuntimeAssetsTest {
 			"navic-reader.js should stay below 2400 lines; risky listener/pagination work belongs in focused bridge modules."
 		)
 		listOf(
+			"navic-reader-motion.js",
 			"navic-reader-page-turns.js",
 			"navic-reader-content-interactions.js",
 			"navic-reader-pagination.js",

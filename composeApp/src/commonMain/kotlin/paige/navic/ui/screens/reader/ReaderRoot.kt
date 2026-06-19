@@ -13,12 +13,14 @@ import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
+import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.ui.navigation.Screen
 
 @Composable
@@ -82,6 +84,10 @@ internal fun KomikkuReaderRoot(
 		viewerKey = viewer.key,
 		grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
 		invertedColors = controllerState.chrome.settings.invertedColors == true,
+		verticalPageDragPreview = normalizedReaderFlowMode(
+			controllerState.chrome.settings.flowMode,
+			controllerState.chrome.settings.paged
+		) == ReaderFlowPagedVertical,
 		onViewerAction = { action ->
 			onViewerAction(
 				if (controllerState.shellCoverVisible) {
@@ -91,11 +97,13 @@ internal fun KomikkuReaderRoot(
 				}
 			)
 		},
-		onReadableDragPreview = { deltaX, width, phase ->
+		onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
 			onViewerAction(
 				ReaderViewerAction.PreviewPageDrag(
 					deltaX = deltaX.toDouble(),
+					deltaY = deltaY.toDouble(),
 					viewWidth = width.toDouble(),
+					viewHeight = height.toDouble(),
 					phase = phase
 				)
 			)

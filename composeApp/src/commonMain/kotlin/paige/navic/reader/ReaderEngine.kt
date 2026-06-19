@@ -27,7 +27,9 @@ sealed interface ReaderEngineCommand {
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
 	data class PreviewPageDrag(
 		val deltaX: Double,
+		val deltaY: Double = 0.0,
 		val viewWidth: Double? = null,
+		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
 	) : ReaderEngineCommand
 	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderEngineCommand
