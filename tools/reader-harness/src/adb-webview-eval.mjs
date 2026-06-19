@@ -604,6 +604,97 @@ async function runFontSizeProbe(page) {
   }})()`)
 }
 
+async function runPublisherStyleFontSizeProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const content = view.renderer?.getContents?.()?.find?.(entry => entry?.doc?.body)
+    const doc = content?.doc
+    if (!doc?.body) {
+      throw new Error('Missing loaded content document')
+    }
+    const win = doc.defaultView
+    const originalPercentText = win.getComputedStyle(doc.documentElement)
+      .getPropertyValue('--reader-content-font-size')
+      .trim()
+    const originalPercent = Number.parseFloat(originalPercentText || '100')
+    const originalStyleText = doc.getElementById('navic-reader-document-theme')?.textContent || ''
+    const originalPublisherStyles = !originalStyleText.includes('font-weight:') &&
+      !originalStyleText.includes('letter-spacing:')
+    const probe = doc.createElement('section')
+    probe.setAttribute('data-navic-publisher-font-size-probe', 'true')
+    probe.innerHTML = '<p data-navic-publisher-font-size-probe-paragraph="true" style="font-size: 12px">Navic publisher style font-size probe paragraph text.</p>'
+    doc.body.prepend(probe)
+    try {
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const paragraph = doc.querySelector('[data-navic-publisher-font-size-probe-paragraph="true"]')
+      const readMetrics = label => {
+        const htmlStyle = win.getComputedStyle(doc.documentElement)
+        const paragraphStyle = win.getComputedStyle(paragraph)
+        return {
+          label,
+          rootFontSize: htmlStyle.fontSize,
+          rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
+          publisherParagraphFontSize: paragraphStyle.fontSize,
+          publisherParagraphFontSizeValue: Number.parseFloat(paragraphStyle.fontSize || '0'),
+          contentFontSizeVariable: htmlStyle.getPropertyValue('--reader-content-font-size').trim(),
+        }
+      }
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          publisherStyles: true,
+          fontSizePercent: 100,
+        },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const at100 = readMetrics('100')
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          publisherStyles: true,
+          fontSizePercent: 140,
+        },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const at140 = readMetrics('140')
+      const publisherParagraphDelta = at140.publisherParagraphFontSizeValue - at100.publisherParagraphFontSizeValue
+      const rootDelta = at140.rootFontSizeValue - at100.rootFontSizeValue
+      if (publisherParagraphDelta < 5) {
+        throw new Error(
+          'Publisher-style fixed paragraph did not scale with reader Font size: ' +
+          JSON.stringify({ at100, at140, publisherParagraphDelta, rootDelta })
+        )
+      }
+      return {
+        probe: 'font-size-publisher-styles',
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        restoredPublisherStyles: originalPublisherStyles,
+        at100,
+        at140,
+        publisherParagraphDelta,
+        rootDelta,
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      probe.remove()
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+          publisherStyles: originalPublisherStyles,
+        },
+      })
+    }
+  }})()`)
+}
+
 async function main() {
   const pidOutput = runAdb(['shell', 'pidof', packageName])
   const pid = pidOutput.split(/\s+/).find(Boolean)
@@ -625,6 +716,7 @@ async function main() {
       'relocation-payload': runRelocationPayloadProbe,
       'page-box': runPageBoxProbe,
       'font-size': runFontSizeProbe,
+      'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
     }
     const handler = probeHandlers[probe]
     if (!handler) {

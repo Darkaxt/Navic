@@ -192,6 +192,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "selection-payload")
 		assertContains(scriptText, "relocation-payload")
 		assertContains(scriptText, "page-box")
+		assertContains(scriptText, "font-size-publisher-styles")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
@@ -303,6 +304,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(fontSizeProbe, "probe.remove()")
 		assertContains(fontSizeProbe, "finally")
 		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val publisherProbe = helperText
+			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(helperText, "'font-size-publisher-styles': runPublisherStyleFontSizeProbe")
+		assertContains(publisherProbe, "publisherStyles: true")
+		assertContains(publisherProbe, "font-size: 12px")
+		assertContains(publisherProbe, "publisherParagraphDelta")
+		assertContains(publisherProbe, "probe.remove()")
+		assertContains(publisherProbe, "publisherStyles: originalPublisherStyles")
 	}
 
 	@Test

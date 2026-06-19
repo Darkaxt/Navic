@@ -3266,3 +3266,37 @@ Remaining:
 
 - This is a source/host guard. The installed eta75 emulator and any physical release APK still contain the old assets until a new build is installed.
 - Physical Tab S9 Ultra validation should repeat the exact reported page with Publisher styles on and off.
+
+## 2026-06-19 Readerdev Runtime Probe: Publisher Styles Still Scale Body Text
+
+Trigger:
+
+- Close the gap left by the host-only publisher-style font-size guard.
+- Prove the installed Android WebView runtime catches the old failure and passes after reinstalling a dirty readerdev build with the current assets.
+
+Setup:
+
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed package after dirty reinstall: `versionName=v1.0.11-eta75`, `versionCode=408`, `lastUpdateTime=2026-06-19 10:00:30`.
+- New DevTools probe: `font-size-publisher-styles`.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9232
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9233
+```
+
+Result:
+
+- RED before reinstall/current assets: old installed runtime changed root font size from `16px` to `22.4px`, but the injected publisher-styled paragraph stayed fixed at `12px -> 12px`; the probe failed with `publisherParagraphDelta=0`.
+- PASS after dirty reinstall/current assets: the injected publisher-styled paragraph scaled from `16px` at 100% to `22.4px` at 140%, with `publisherParagraphDelta=6.4` and `rootDelta=6.4`.
+- PASS: the probe restores the original reader font size and publisher-style setting after measuring.
+- PASS: this confirms the user Font size control now reaches visible body text even when publisher styles are enabled in the Android WebView path.
+
+Remaining:
+
+- This is dirty readerdev emulator evidence, not a packaged GitHub release claim.
+- Physical Tab S9 Ultra validation should still repeat the exact Hobbit page after a release build containing this fix is installed.
