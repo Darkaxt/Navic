@@ -448,6 +448,18 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperFontSizeProbeFailsWhenExistingProseDoesNotScale() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function runPublisherStyleFontSizeProbe(page)")
+
+		assertContains(fontSizeProbe, "existingProseDelta")
+		assertContains(fontSizeProbe, "Existing prose text did not scale with reader Font size")
+		assertContains(fontSizeProbe, "existingDeltas.filter")
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val publisherProbe = helperText

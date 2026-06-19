@@ -4290,3 +4290,51 @@ Results:
 - PASS: the prior Highlight action dispatched `applyHighlights(count=4)` and emitted `annotationDrawn(value=epubcfi(/6/98!/4/2/2702,/1:65,/1:69))`.
 - FAIL/OPEN on eta76: the screenshot still shows Android WebView's system selection toolbar and the bottom history capsule. These are expected on the installed eta76 APK because the source fixes for WebView long-click suppression and hidden-by-default history capsule have not been rebuilt/reinstalled yet.
 - Interpretation: the current emulator visual defect is not a rendering failure. It is the already-known stale-installed-build overlay stack: controller selection strip + WebView system toolbar + history capsule.
+
+Additional current-screen check:
+
+```powershell
+adb devices
+adb shell dumpsys window
+adb shell dumpsys package darkaxt.navic.readerdev
+adb shell screencap -p /sdcard/navic_reader_current.png
+adb pull /sdcard/navic_reader_current.png captures\reader-weird-screen\20260619-230711\screen.png
+node tools\reader-harness\src\adb-webview-eval.mjs --probe visible-page-content
+```
+
+Results:
+- PASS: `captures/reader-weird-screen/20260619-230711/screen.png` shows the same overlay stack while page text is still rendered.
+- PASS: current focus is `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS: installed emulator build remains `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+- PASS: `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, `visibleTextLength=235916`, and visible prose text. The renderer is not empty.
+- FAIL/OPEN on eta76: Android WebView's system selection toolbar remains visible with Navic's native selection strip because the newer WebView long-click suppression source fix is not installed on this emulator build.
+- FAIL/OPEN on eta76: the bottom arrow/X history capsule remains visible because the newer hidden-by-default history capsule source fix is not installed on this emulator build.
+
+## 2026-06-19 Font-Size Prose Scaling Guard
+
+Scope:
+- Investigated the reported behavior where the Font size control appears to affect chapter titles but not ebook prose.
+- Used the already-running emulator reader state to avoid Bindery calls during server maintenance.
+
+Evidence:
+- The settings dialog control is wired to `ReaderSettings.fontSizePercent`, not `headingFontSize`.
+- The controller route is `onSettingsChange -> applyReaderSettings -> coordinator.applySettings -> controller.applySettings -> ReaderEngineCommand.ApplySettings`.
+- Runtime CSS applies `--reader-content-font-size` on the content document root and prose blocks inherit `1rem`.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size-publisher-styles
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperFontSizeProbeFailsWhenExistingProseDoesNotScale
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+```
+
+Results:
+- PASS: direct runtime Font size dispatch on the current emulator page changes synthetic paragraph, body, root, and existing EPUB prose from `16px` to `22.4px`.
+- PASS: the strengthened `font-size` DevTools probe now fails if existing book prose does not scale with reader Font size. It no longer only trusts synthetic paragraph scaling.
+- PASS: live probe reported `existingProseDelta=6.4px` across visible `P` and `BLOCKQUOTE` elements.
+- PASS: publisher-style probe also scaled an inline `font-size: 12px` paragraph from `16px` to `22.4px`.
+- PASS: focused host guard passed after strengthening the probe.
+- PASS: helper syntax passed `node --check`.
+- OPEN: this does not yet prove the exact Tab S9/Hobbit state reported by the user. It proves the current emulator page and validation helper catch real-prose scaling regressions.

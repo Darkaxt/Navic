@@ -1142,6 +1142,19 @@ async function runFontSizeProbe(page) {
           delta: Number(after?.fontSizeValue) - Number(before.fontSizeValue),
         }
       })
+      const existingProseDeltas = existingDeltas.filter(item =>
+        Number.isFinite(item.delta) &&
+        (item.tagName === 'P' || item.tagName === 'BLOCKQUOTE' || item.tagName === 'LI' || item.tagName === 'DIV')
+      )
+      const existingProseDelta = existingProseDeltas.length
+        ? Math.min(...existingProseDeltas.map(item => item.delta))
+        : 0
+      if (existingProseDelta < 5) {
+        throw new Error(
+          'Existing prose text did not scale with reader Font size: ' +
+          JSON.stringify({ at100, at140, existingDeltas, existingProseDelta })
+        )
+      }
       return {
         probe: 'font-size',
         restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
@@ -1150,6 +1163,8 @@ async function runFontSizeProbe(page) {
         existingAt100,
         existingAt140,
         existingDeltas,
+        existingProseDeltas,
+        existingProseDelta,
         paragraphDelta: at140.paragraphFontSizeValue - at100.paragraphFontSizeValue,
         bodyDelta: at140.bodyFontSizeValue - at100.bodyFontSizeValue,
         rootDelta: at140.rootFontSizeValue - at100.rootFontSizeValue,
