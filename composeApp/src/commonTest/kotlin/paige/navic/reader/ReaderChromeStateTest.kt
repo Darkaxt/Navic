@@ -363,6 +363,26 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeShellCoverBoundaryAllowsFrontmatterWhenGlobalPageIndexIsAlreadyPastOne() {
+		assertTrue(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(
+					href = "OEBPS/Text/sinopsis.xhtml",
+					progress = 0.0007927082115140601,
+					pageIndex = 10,
+					pageCount = 1534,
+					chapterProgress = 0.0,
+					chapterPageIndex = 0,
+					chapterPageCount = 2
+				)
+			),
+			"Frontmatter can have several global pages before the first readable chapter; previous must still return to native cover."
+		)
+	}
+
+	@Test
 	fun nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter() {
 		assertFalse(
 			readerShouldReturnToNativeShellCover(

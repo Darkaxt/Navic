@@ -278,8 +278,18 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			chromeStateText,
-			"(locator?.pageIndex ?: -1) <= 1",
-			message = "The shell-cover boundary must remain controller-owned and tolerate Foliate's first-readable sentinel offset."
+			"readerLocatorIsNativeShellCoverPageBoundary(locator)",
+			message = "The shell-cover boundary must remain controller-owned before Foliate can enter the suppressed EPUB cover."
+		)
+		assertContains(
+			chromeStateText,
+			"(locator?.pageIndex ?: Int.MAX_VALUE) <= 1",
+			message = "The shell-cover boundary must tolerate Foliate's first-readable sentinel offset."
+		)
+		assertContains(
+			chromeStateText,
+			"(locator?.progress ?: 1.0) <= 0.02",
+			message = "Frontmatter can have several measured pages before the first readable chapter, so near-start progress must also return to native cover."
 		)
 	}
 

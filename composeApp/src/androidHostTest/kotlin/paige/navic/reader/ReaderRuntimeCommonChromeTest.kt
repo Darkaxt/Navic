@@ -360,8 +360,11 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorText, "internal fun KomikkuChapterNavigator(")
 		assertContains(navigatorText, "private fun KomikkuChapterNavigatorVertical(")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
-		assertContains(navigatorText, "private fun KomikkuVerticalChapterProgressRail(")
-		assertContains(navigatorText, "internal fun komikkuChapterRailPageForOffset(")
+		assertContains(navigatorText, "private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		assertFalse(
+			navigatorText.contains("komikkuChapterRailPageForOffset("),
+			"Komikku's vertical rail uses the shared rotated Slider; Navic must not keep a custom y-offset mapper."
+		)
 		assertFalse(
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"The dedicated navigator file must not preserve a Navic-only vertical rail height constant; Komikku derives rail height from the app-bar layout slots."
@@ -430,9 +433,9 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
-		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
-			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
+			.substringBefore("\n@Composable\nprivate fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\n}\n\nprivate fun readerShouldShowChapterProgressSlider(")
 		val bottomChromeBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
 
 		assertContains(navigatorText, "KomikkuChapterNavigatorVertical(")
@@ -455,7 +458,7 @@ class ReaderRuntimeCommonChromeTest {
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
-		assertContains(navigatorText, "private fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3")
+		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3")
 		assertContains(navigatorText, "if (readerShouldShowChapterProgressSlider(totalPages))")
 		assertFalse(
 			navigatorText.contains("if (totalPages > 1)"),
@@ -503,20 +506,32 @@ class ReaderRuntimeCommonChromeTest {
 				bottomChromeBody.contains("LinearProgressIndicator("),
 			"Komikku-equivalent progress belongs in the side rail overlay, not inside the bottom chrome surface."
 		)
-		assertContains(verticalRailBody, "detectTapGestures")
-		assertContains(verticalRailBody, "detectDragGestures")
-		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
-		assertContains(verticalRailBody, "heightPx = size.height.toFloat()")
-		assertContains(navigatorText, "return (1 + (fraction * (pageCount - 1)).roundToInt()).coerceIn(1, pageCount)")
+		assertContains(verticalRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(verticalRailBody, "graphicsLayer {")
+		assertContains(verticalRailBody, "rotationZ = 90f")
+		assertContains(verticalRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(verticalRailBody, ".layout { measurable, constraints ->")
+		assertContains(verticalRailBody, "Constraints(")
+		assertContains(verticalRailBody, "placeable.place(0, -placeable.height)")
+		assertContains(verticalRailBody, ".weight(1f)")
+		assertContains(verticalRailBody, "onValueChange = { page ->")
+		assertContains(verticalRailBody, "onPageChange(page)")
+		assertFalse(
+			verticalRailBody.contains("Canvas(") ||
+				verticalRailBody.contains("detectTapGestures") ||
+				verticalRailBody.contains("detectDragGestures") ||
+				verticalRailBody.contains("komikkuChapterRailPageForOffset("),
+			"Komikku's side rail is the shared Slider rotated vertically; a custom Canvas rail is a non-faithful fork."
+		)
 	}
 
 	@Test
 	fun commonReaderVerticalProgressRailUsesKomikkuLayoutWithDeterministicEndpointMapping() {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
-		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
-			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
+			.substringBefore("\n@Composable\nprivate fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\n}\n\nprivate fun readerShouldShowChapterProgressSlider(")
 		val komikkuNavigatorText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
@@ -547,18 +562,22 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
 		assertContains(sideRailBody, "contentDescription = \"Chapter page slider\"")
 		assertContains(sideRailBody, ".weight(1f)")
-		assertContains(verticalRailBody, "Canvas(modifier = Modifier.fillMaxSize())")
-		assertContains(verticalRailBody, "drawRoundRect(")
-		assertContains(verticalRailBody, "drawCircle(")
-		assertContains(verticalRailBody, "detectTapGestures")
-		assertContains(verticalRailBody, "detectDragGestures")
-		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
-		assertContains(navigatorText, "val fraction = (offsetY / heightPx).coerceIn(0f, 1f)")
+		assertContains(verticalRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(verticalRailBody, "graphicsLayer {")
+		assertContains(verticalRailBody, "rotationZ = 90f")
+		assertContains(verticalRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(verticalRailBody, ".layout { measurable, constraints ->")
+		assertContains(verticalRailBody, "Constraints(")
+		assertContains(verticalRailBody, "placeable.place(0, -placeable.height)")
+		assertContains(verticalRailBody, ".weight(1f)")
 		assertFalse(
-			verticalRailBody.contains("graphicsLayer {") ||
-				verticalRailBody.contains("transformOrigin = TransformOrigin(0f, 0f)") ||
-				verticalRailBody.contains(".layout { measurable, constraints ->"),
-			"Navic keeps Komikku's surrounding vertical navigator but uses explicit y-offset mapping for reliable chapter endpoint selection instead of opaque rotated-slider hit testing."
+			verticalRailBody.contains("Canvas(") ||
+				verticalRailBody.contains("drawRoundRect(") ||
+				verticalRailBody.contains("drawCircle(") ||
+				verticalRailBody.contains("detectTapGestures") ||
+				verticalRailBody.contains("detectDragGestures") ||
+				navigatorText.contains("komikkuChapterRailPageForOffset("),
+			"Navic must reuse Komikku's rotated Slider rail instead of a custom Canvas/tap implementation."
 		)
 	}
 

@@ -2522,7 +2522,7 @@ Changes under validation:
 Commands:
 
 ```powershell
-node tools\reader-harness\src\run-reader-harness.mjs font-css-smoke
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
 .\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest"
 node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
 node --check tools\reader-harness\src\run-reader-harness.mjs
@@ -2539,3 +2539,78 @@ Result:
 - PASS: emulator WebView probe on the updated readerdev showed inherited paragraph text scaling from `16px` at 100% to `22.4px` at 140%.
 - PASS: the same probe sampled existing loaded EPUB paragraphs (`A Memory of Light`) and each sampled paragraph scaled from `16px` to `22.4px`, proving the installed runtime now changes real ebook body text, not only synthetic probes/headings.
 - Remaining: physical/loaded-section validation is still required for the exact Tab S9 Ultra page/book that exposed the original symptom.
+
+2026-06-19 follow-up check:
+
+- User re-reported the same symptom on the tablet: the font-size controller affects headings/title-like text but not normal ebook body text.
+- Re-ran `node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke`; result: PASS.
+- Re-ran focused `FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract`; result: PASS.
+- ADB-visible installed builds on the emulator are `darkaxt.navic` `v1.0.11-eta74` and `darkaxt.navic.readerdev` `v1.0.11-eta75`; both predate local commits `e8527e22` and `889462cb`.
+- Diagnosis: the source-side fix exists on local `master` but is not present in the installed/released builds. Do not rework the CSS unless the same symptom reproduces after installing a build that includes `889462cb`.
+
+## 2026-06-19 Working Tree Follow-Up: Komikku Rotated Vertical Progress Rail
+
+Trigger:
+
+- Replace the remaining non-faithful Navic vertical progress rail implementation. The surrounding reader chrome had Komikku structure, but the rail itself still used a custom Canvas, manual y-offset mapping, and pointer gesture detectors instead of Komikku's rotated shared slider.
+
+Changes under validation:
+
+- `ReaderChapterNavigator.kt` now implements the vertical page rail through `KomikkuChapterProgressSlider` with Komikku's `graphicsLayer { rotationZ = 90f; transformOrigin = TransformOrigin(0f, 0f) }` and swapped-constraint `layout` pattern.
+- The custom `komikkuChapterRailPageForOffset` mapper, Canvas drawing, and rail-local tap/drag detectors were removed.
+- The Navic-specific rule to hide the rail on cover/very short sections remains guarded by `readerShouldShowChapterProgressSlider(totalPages) >= 3`.
+- Host source guards now reject the custom Canvas rail and require the rotated slider structure against the Komikku reference.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+.\scripts\install-reader-dev.ps1 -EnvFile "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env" -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -ArtifactRoot "captures\reader-komikku-matrix\vertical-rail-komikku-slider-20260619-043700" -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+Result:
+
+- RED before fix: `ReaderRuntimeCommonChromeTest` failed on the old custom rail guard after tests were changed to require the Komikku rotated slider.
+- PASS: focused `ReaderRuntimeCommonChromeTest`.
+- PASS: full Android host suite `:composeApp:testAndroidHost`.
+- PASS: dirty `readerdev` install and direct EPUB launch on `emulator-5554`; installed package reported `versionName=v1.0.11-eta75`, `versionCode=408`, `lastUpdateTime=2026-06-19 04:35:50`.
+- PASS: direct launch selected and opened `A Memory of Light (epub)` and emitted `Reader publication ready`.
+- PASS: Komikku matrix `captures\reader-komikku-matrix\vertical-rail-komikku-slider-20260619-043700` had no failures across baseline reader, native cover, cover tap, cover drag, center tap, long press, edge taps, drags, and texture walks.
+- Remaining: this is dirty-emulator evidence only. Physical/release validation is still required before claiming the rail behavior is release-ready on the phone/tablet builds.
+
+Follow-up corruption found after matrix:
+
+- Manual/ADB inspection after repeated previous navigation captured a corrupted reader state at `captures\reader-dev\current-corruption-check-20260619-1.png`.
+- Native tap logs still reported `KomikkuReaderNativeFrameHost: Reader native tap action=MENU`, so the top-level native tap overlay was not the broken layer.
+- WebView DevTools showed `foliate-view` and the paginator at full viewport size, but the active Foliate content was `about:srcdoc` with `bodyTextLength=0` and `bodyRect=0x0`.
+- Logcat showed the engine reached `cover-document:suppressed index=0 OEBPS/Text/cubierta.xhtml` after a previous turn from frontmatter; the runtime then skipped the cover relocation, leaving Foliate on an empty suppressed cover document instead of returning the controller to the native shell cover.
+- Root cause: `readerShouldReturnToNativeShellCover` required global `pageIndex <= 1`. Real frontmatter can have several measured global pages before the first readable chapter (`page=10/1534`, `progress=0.0007927`, `href=OEBPS/Text/sinopsis.xhtml`), so the controller forwarded a previous page command to Foliate instead of reclaiming the native cover.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryAllowsFrontmatterWhenGlobalPageIndexIsAlreadyPastOne --tests paige.navic.reader.ReaderControllerTest.previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryAllowsFrontmatterWhenGlobalPageIndexIsAlreadyPastOne --tests paige.navic.reader.ReaderControllerTest.previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne --tests paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryDoesNotTreatLaterChapterFirstPageAsBookStart --tests paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter --tests paige.navic.reader.ReaderControllerTest.previousFromFirstReadablePageReturnsToNativeCoverInsteadOfSuppressedWebViewCover
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderShellCoverTapsAndPreviousDoNotFallThroughToEpubCover
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+.\scripts\install-reader-dev.ps1 -EnvFile "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env" -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell screencap -p /sdcard/navic-reader-dev-direct.png
+adb -s emulator-5554 pull /sdcard/navic-reader-dev-direct.png captures\reader-dev\reader-dev-direct-after-cover-boundary-fix-20260619.png
+adb -s emulator-5554 shell input tap 1000 1200
+adb -s emulator-5554 shell input tap 80 1200
+adb -s emulator-5554 shell screencap -p /sdcard/navic-reader-cover-boundary-after-prev.png
+adb -s emulator-5554 pull /sdcard/navic-reader-cover-boundary-after-prev.png captures\reader-dev\reader-dev-cover-boundary-after-prev-20260619.png
+```
+
+Result:
+
+- RED before fix: both new frontmatter cover-boundary tests failed because the guard rejected `pageIndex=10` even though global progress was near zero.
+- PASS after fix: the same frontmatter tests passed, and the neighboring later-chapter guards still passed.
+- PASS: the Android host source guard was updated from the old page-index-only assertion to the new controller-owned boundary contract.
+- PASS: full Android host suite `:composeApp:testAndroidHost`.
+- PASS: dirty readerdev build/install completed, foregrounded `darkaxt.navic.readerdev`, and emitted `publicationReady`. The helper script then failed only while pulling its automatic screenshot artifact.
+- PASS: direct screenshot `captures\reader-dev\reader-dev-direct-after-cover-boundary-fix-20260619.png` showed the native shell cover, not the suppressed blank WebView cover.
+- PASS: narrow dirty-emulator gesture probe sent native RIGHT then LEFT taps; logs showed `Reader native tap action=RIGHT` and `Reader native tap action=LEFT`, and `captures\reader-dev\reader-dev-cover-boundary-after-prev-20260619.png` showed the native shell cover after previous.
+- Remaining: this is still dirty-emulator evidence. Physical/release validation is required before claiming the fix is present on the phone/tablet builds.

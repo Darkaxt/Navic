@@ -543,6 +543,40 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val frontmatter = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.0007927082115140601,
+						pageIndex = 10,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = "Synopsis"
+				)
+			).controller
+
+		val previous = frontmatter.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous))
+
+		assertTrue(previous.controller.state.shellCoverVisible)
+		assertFalse(previous.controller.state.menuVisible)
+		assertEquals(emptyList(), previous.engineCommands)
+	}
+
+	@Test
 	fun contentActionClaimsKeepMetadataInControllerState() {
 		val claim = ReaderContentActionClaim(
 			action = ReaderContentAction.Link,
