@@ -4011,3 +4011,32 @@ Interpretation:
 - Current-chapter rail endpoints are now validated in a Bindery-safe emulator flow.
 - This does not replace physical/release validation for the original user-reported rail issues, but it gives a reliable probe that can be used when the reader is already loaded and the server is unavailable.
 - The broad `chapter-progress-endpoints` probe should not be used as the first diagnostic while Bindery is unstable or when the current requirement is to validate the loaded chapter only.
+
+## 2026-06-19 Controller Guard: Selection Clear Dismisses Note Draft
+
+Scope:
+- Bindery-independent controller boundary fix.
+- Anx/Foliate owns the `selectionCleared` event; Navic/Komikku owns the native selection action UI and note draft state.
+- A stale native note draft must not survive after the engine reports that the underlying selection has been cleared.
+
+Fix:
+- `ReaderController` now clears both `selection` and `selectionNoteDraft` on `ReaderEngineEvent.SelectionCleared`.
+- Extended `ReaderControllerTest.selectionActionStateIsControllerOwnedAndClearedByEngine` to start a native note draft before sending `SelectionCleared`, then assert the draft is dismissed.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.selectionActionStateIsControllerOwnedAndClearedByEngine
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.selectionActionStateIsControllerOwnedAndClearedByEngine --tests paige.navic.reader.ReaderControllerTest.selectionNotesStartNativeDraftWithoutEngineCommands --tests paige.navic.reader.ReaderControllerTest.selectionNotesSaveAsAnnotationsAndClearDraft
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes
+```
+
+Results:
+- RED: the extended controller test failed before the production change because `selectionNoteDraft` stayed non-null after `SelectionCleared`.
+- GREEN: focused controller tests passed after clearing the draft with the selection.
+- PASS: `FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes` passed, preserving the Anx phase-3 controller-route guard.
+- NOTE: Kotlin daemon access was denied under the managed sandbox and Gradle fell back to non-daemon compilation; the build completed successfully.
+
+Interpretation:
+- Selection-cleared behavior is now owned consistently by the controller: native selection actions and note draft UI close when the engine clears the selection.
+- This is host/controller proof only. Runtime validation of user-driven selection clear and Note Save remains required on emulator/device before release-readiness claims.

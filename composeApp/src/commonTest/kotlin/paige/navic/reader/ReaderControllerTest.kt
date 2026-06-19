@@ -1228,7 +1228,8 @@ class ReaderControllerTest {
 				href = " chapter-01.xhtml "
 			)
 		).controller
-		val cleared = actionable.onEngineEvent(ReaderEngineEvent.SelectionCleared).controller
+		val draftingNote = actionable.startSelectionNote().controller
+		val cleared = draftingNote.onEngineEvent(ReaderEngineEvent.SelectionCleared).controller
 
 		assertEquals(ReaderSelectionActionState(), opened.state.selectionActions)
 		assertEquals(
@@ -1252,6 +1253,7 @@ class ReaderControllerTest {
 		)
 		assertEquals(ReaderSelectionActionState(), cleared.state.selectionActions)
 		assertNull(cleared.state.selection)
+		assertNull(cleared.state.selectionNoteDraft)
 	}
 
 	@Test

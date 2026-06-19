@@ -452,7 +452,7 @@ data class ReaderController(
 				)
 			)
 			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
-				copy(state = state.copy(selection = null))
+				copy(state = state.copy(selection = null, selectionNoteDraft = null))
 			)
 			is ReaderEngineEvent.MediaOverlayActive -> ReaderControllerStep(
 				copy(
