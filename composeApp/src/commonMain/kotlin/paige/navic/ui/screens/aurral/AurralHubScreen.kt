@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
 import navic.composeapp.generated.resources.action_open_station
@@ -80,7 +79,6 @@ import navic.composeapp.generated.resources.title_aurral
 import navic.composeapp.generated.resources.title_aurral_acquisition_queue
 import navic.composeapp.generated.resources.title_aurral_based_on_library
 import navic.composeapp.generated.resources.title_aurral_because_you_like
-import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_explore_by_tag
 import navic.composeapp.generated.resources.title_aurral_flows
@@ -91,9 +89,6 @@ import navic.composeapp.generated.resources.title_aurral_recommended_for_you
 import navic.composeapp.generated.resources.title_aurral_requests
 import navic.composeapp.generated.resources.title_aurral_search
 import navic.composeapp.generated.resources.option_aurral_artist_search
-import navic.composeapp.generated.resources.option_aurral_flow_name
-import navic.composeapp.generated.resources.option_aurral_flow_size
-import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -107,9 +102,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainPlaylist
-import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
-import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralArtistSearchResult
@@ -141,7 +134,6 @@ import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
-import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.TopBarButton
@@ -848,13 +840,13 @@ private fun AurralDiscoveryCollectionRow.collectionTitle(): String =
 	when (this) {
 		is AurralDiscoveryCollectionRow.Artists ->
 			if (kind == AurralDiscoveryCollectionKind.GenreArtists) {
-				stringResource(kind.titleResource(), tag.orEmpty())
+				stringResource(kind.aurralHubTitleResource(), tag.orEmpty())
 			} else {
-				stringResource(kind.titleResource())
+				stringResource(kind.aurralHubTitleResource())
 			}
 
-		is AurralDiscoveryCollectionRow.Albums -> stringResource(kind.titleResource())
-		is AurralDiscoveryCollectionRow.Tags -> stringResource(kind.titleResource())
+		is AurralDiscoveryCollectionRow.Albums -> stringResource(kind.aurralHubTitleResource())
+		is AurralDiscoveryCollectionRow.Tags -> stringResource(kind.aurralHubTitleResource())
 	}
 
 @Composable
@@ -1171,196 +1163,6 @@ private fun AurralHubFlowRow(
 				onCheckedChange = { onSetFlowEnabled(flow.id, it) },
 				enabled = !actionInProgress
 			)
-		}
-	}
-}
-
-@Composable
-fun AurralCreateFlowDialog(
-	defaultName: String,
-	creating: Boolean,
-	onDismissRequest: () -> Unit,
-	onCreate: (String, Int) -> Unit
-) {
-	var name by rememberSaveable(defaultName) { mutableStateOf(defaultName) }
-	var sizeText by rememberSaveable { mutableStateOf("30") }
-	val size = sizeText.trim().toIntOrNull()
-	val valid = name.trim().isNotEmpty() && size != null && size > 0
-
-	FormDialog(
-		onDismissRequest = onDismissRequest,
-		icon = { Icon(Icons.Outlined.Add, null) },
-		title = { Text(stringResource(Res.string.title_aurral_create_flow)) },
-		buttons = {
-			FormButton(
-				onClick = { onCreate(name, size ?: 30) },
-				enabled = valid && !creating,
-				color = MaterialTheme.colorScheme.primary
-			) {
-				if (creating) {
-					CircularProgressIndicator(modifier = Modifier.size(20.dp))
-				} else {
-					Text(stringResource(Res.string.action_create_aurral_flow))
-				}
-			}
-			FormButton(
-				onClick = onDismissRequest,
-				enabled = !creating
-			) {
-				Text(stringResource(Res.string.action_cancel))
-			}
-		},
-		content = {
-			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				TextField(
-					value = name,
-					onValueChange = { name = it },
-					label = { Text(stringResource(Res.string.option_aurral_flow_name)) },
-					singleLine = true
-				)
-				TextField(
-					value = sizeText,
-					onValueChange = { sizeText = it.filter(Char::isDigit).take(3) },
-					label = { Text(stringResource(Res.string.option_aurral_flow_size)) },
-					singleLine = true
-				)
-			}
-		}
-	)
-}
-
-@Composable
-private fun aurralFlowActionMessage(result: AurralFlowActionResult): String =
-	result.message
-		?: if (result.tracksQueued > 0) {
-			stringResource(Res.string.info_aurral_flow_action_queued, result.tracksQueued)
-		} else {
-			stringResource(Res.string.info_aurral_flow_action_updated)
-		}
-
-@Composable
-private fun AurralHubSummaryRow(card: AurralHubSummaryCard) {
-	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-		Column(Modifier.weight(1f)) {
-			Text(
-				text = when (card.section) {
-					AurralHubSection.Discover -> stringResource(Res.string.title_aurral_discover)
-					AurralHubSection.Requests -> stringResource(Res.string.title_aurral_requests)
-					AurralHubSection.Flows -> stringResource(Res.string.title_aurral_flows)
-				},
-				fontWeight = FontWeight.Medium
-			)
-			Text(
-				text = card.detail,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-		}
-		Text(
-			text = card.value,
-			modifier = Modifier.padding(start = 16.dp),
-			style = MaterialTheme.typography.bodyMedium,
-			color = if (card.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 2,
-			overflow = TextOverflow.Ellipsis
-		)
-	}
-}
-
-@Composable
-private fun AurralHubSectionTitle(title: String) {
-	Text(
-		text = title,
-		style = MaterialTheme.typography.titleSmall,
-		color = MaterialTheme.colorScheme.onSurfaceVariant,
-		modifier = Modifier.padding(start = 14.dp, bottom = 8.dp)
-	)
-}
-
-private fun AurralDiscoveryCollectionKind.titleResource(): StringResource =
-	when (this) {
-		AurralDiscoveryCollectionKind.RecentlyAddedArtists -> Res.string.title_aurral_recently_added
-		AurralDiscoveryCollectionKind.RecentReleases -> Res.string.title_aurral_recent_releases
-		AurralDiscoveryCollectionKind.RecommendedArtists -> Res.string.title_aurral_recommended_for_you
-		AurralDiscoveryCollectionKind.BasedOnArtists -> Res.string.title_aurral_based_on_library
-		AurralDiscoveryCollectionKind.GlobalTopArtists -> Res.string.title_aurral_global_top
-		AurralDiscoveryCollectionKind.GenreArtists -> Res.string.title_aurral_because_you_like
-		AurralDiscoveryCollectionKind.TopTags -> Res.string.title_aurral_explore_by_tag
-	}
-
-@Composable
-private fun AurralHubDiscoverTagRow(
-	tag: String,
-	onOpenTag: (String) -> Unit
-) {
-	FormRow(
-		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-		onClick = { onOpenTag(tag) }
-	) {
-		Text(
-			text = "#$tag",
-			fontWeight = FontWeight.Medium,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			color = MaterialTheme.colorScheme.primary
-		)
-	}
-}
-
-@Composable
-private fun AurralHubQueueRow(item: AurralAcquisitionQueueItem) {
-	val progress = aurralAcquisitionProgress(item.status)
-	FormRow(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-		Column(Modifier.fillMaxWidth()) {
-			Row(Modifier.fillMaxWidth()) {
-				Column(Modifier.weight(1f)) {
-					Text(
-						text = item.albumName,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-					Text(
-						text = item.artistName,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
-					)
-				}
-				Text(
-					text = item.status,
-					modifier = Modifier.padding(start = 16.dp),
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis
-				)
-			}
-			val color = when {
-				progress.failed -> MaterialTheme.colorScheme.error
-				progress.completed -> MaterialTheme.colorScheme.primary
-				else -> MaterialTheme.colorScheme.tertiary
-			}
-			if (progress.active) {
-				LinearProgressIndicator(
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(top = 8.dp)
-						.height(3.dp),
-					color = color
-				)
-			} else {
-				LinearProgressIndicator(
-					progress = { 1f },
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(top = 8.dp)
-						.height(3.dp),
-					color = color
-				)
-			}
 		}
 	}
 }
