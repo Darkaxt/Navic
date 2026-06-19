@@ -765,12 +765,16 @@ if (mode === 'font-css-smoke') {
               <style>
                 .publisher-body-text { font-size: 10px; }
                 .publisher-block-text { font-size: 10px; }
+                .publisher-fixed-paragraph { font-size: 10px; }
               </style>
             </head>
             <body>
               <span class="publisher-body-text" data-probe="direct-body">Publisher direct inline body text.</span>
               <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
               <div class="publisher-block-text" data-probe="body-block">Publisher block-wrapped body text.<br/>Second line.</div>
+              <p class="publisher-fixed-paragraph" data-probe="fixed-paragraph">
+                <span>Publisher fixed-size paragraph text.</span>
+              </p>
               <h1 data-probe="heading">Chapter title</h1>
             </body>
           </html>
@@ -787,6 +791,7 @@ if (mode === 'font-css-smoke') {
         const directBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="direct-body"]'))
         const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
         const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
+        const fixedParagraphStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="fixed-paragraph"] span'))
         const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
         const result = {
           directBodyFontSize: directBodyStyle.fontSize,
@@ -795,6 +800,8 @@ if (mode === 'font-css-smoke') {
           bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
           bodyBlockFontSize: bodyBlockStyle.fontSize,
           bodyBlockFontSizeValue: Number.parseFloat(bodyBlockStyle.fontSize || '0'),
+          fixedParagraphFontSize: fixedParagraphStyle.fontSize,
+          fixedParagraphFontSizeValue: Number.parseFloat(fixedParagraphStyle.fontSize || '0'),
           headingFontSize: headingStyle.fontSize,
           headingFontSizeValue: Number.parseFloat(headingStyle.fontSize || '0'),
         }
@@ -814,6 +821,7 @@ if (mode === 'font-css-smoke') {
         publisherDirectBodyDelta: publisherSpanAt140.directBodyFontSizeValue - publisherSpanAt100.directBodyFontSizeValue,
         publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
         publisherBlockBodyDelta: publisherSpanAt140.bodyBlockFontSizeValue - publisherSpanAt100.bodyBlockFontSizeValue,
+        publisherFixedParagraphDelta: publisherSpanAt140.fixedParagraphFontSizeValue - publisherSpanAt100.fixedParagraphFontSizeValue,
         publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
@@ -849,6 +857,12 @@ if (mode === 'font-css-smoke') {
       throw new Error(
         `Expected font-size control to scale publisher block-wrapped body text; ` +
         `observed ${result.publisherSpanAt100?.bodyBlockFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodyBlockFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherFixedParagraphDelta) || result.publisherFixedParagraphDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher fixed-size paragraph text; ` +
+        `observed ${result.publisherSpanAt100?.fixedParagraphFontSize || 'unset'} -> ${result.publisherSpanAt140?.fixedParagraphFontSize || 'unset'}`
       )
     }
     if (!Number.isFinite(result.publisherSpanHeadingDelta) || result.publisherSpanHeadingDelta <= 1) {

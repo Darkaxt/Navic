@@ -3009,3 +3009,40 @@ Result:
 - PASS after fix: targeted controller/coordinator/backbone host suite.
 - PASS: existing bottom-toolbar guard confirming contents/search/settings are distinct and `ReadingMode` is not rendered as a duplicate bottom action.
 - Remaining: source/host evidence only. Physical/emulator visual validation can confirm the bottom bar still shows the intended three actions and opens only one settings surface.
+
+## 2026-06-19 Follow-Up: Font Size Settings Reflow Ordering
+
+Trigger:
+
+- User reported again that the font-size controller affects chapter/title-like text, but normal EPUB body text remains effectively unchanged. The visual effect is that larger headings push the body content down instead of the reading text scaling with the heading.
+
+Root-cause evidence:
+
+- Existing selector fixes already covered direct body spans, span-wrapped paragraphs, and converted `div:has(> br)` body blocks.
+- The release package WebView did not expose a DevTools socket on the emulator, so the live release page could not be measured through `adb-webview-eval.mjs`.
+- Readerdev WebView probing did confirm the synthetic font-size path still scales root/body/probe text from `16px` to `22.4px`, but it had no loaded real EPUB body elements, so that was not enough evidence for the user's physical-page symptom.
+- Source inspection found the remaining ordering fault in `applySettings`: Navic requested `applyReaderViewportLayout('settings')`, which explicitly calls Foliate `renderer.render()`, before installing `readerContentCss(settings)` into the renderer and loaded EPUB documents. That lets headings repaint from later CSS while the body/page geometry can remain based on the old content CSS.
+
+Change under validation:
+
+- `applySettings` now calls `renderer.setStyles(readerContentCss(settings))` and `applyThemeToLoadedContent(settings)` before `applyReaderViewportLayout('settings')`.
+- Added `ReaderRuntimeSettingsBridgeTest.androidReaderAppliesFontCssBeforeSettingsReflow` so this ordering cannot regress.
+- Expanded `font-css-smoke` with a fixed-size publisher paragraph sample; this already passed before the ordering fix, confirming this slice addresses reflow ordering rather than another missing selector.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderAppliesFontCssBeforeSettingsReflow
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+```
+
+Result:
+
+- RED before fix: `ReaderRuntimeSettingsBridgeTest.androidReaderAppliesFontCssBeforeSettingsReflow` failed because `applyReaderViewportLayout('settings')` came before renderer/document CSS injection.
+- PASS after fix: the same focused Android host guard passed.
+- PASS: `node --check` for `navic-reader-appearance.js`.
+- PASS: `node --check` for `run-reader-harness.mjs`.
+- PASS: `font-css-smoke`, including direct body text, span-wrapped body text, converted block text, fixed-size paragraph text, and heading scaling.
+- Remaining: physical release validation is still required on the Tab S9 Ultra page where the body text appeared fixed. If it still reproduces after this ordering fix, the next evidence to collect is a real computed-style sample from the physical release WebView with debugging enabled.

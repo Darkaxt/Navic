@@ -189,9 +189,9 @@ function applySettings(settings) {
   this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
   this.readerDirectionModeValue = readerDirectionMode(settings)
   this.applyReaderDirection(this.readerDirectionModeValue)
-  this.applyReaderViewportLayout('settings')
   this.view?.renderer?.setStyles?.(readerContentCss(settings))
   this.applyThemeToLoadedContent(settings)
+  this.applyReaderViewportLayout('settings')
   this.renderSurfacePaperTextureLayers()
   this.renderTapZoneOverlayLayer()
   if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {

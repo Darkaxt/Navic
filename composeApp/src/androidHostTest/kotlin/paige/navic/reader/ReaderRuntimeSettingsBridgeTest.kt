@@ -371,6 +371,28 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderAppliesFontCssBeforeSettingsReflow() {
+		val bridgeText = readerBridgeText()
+		val applySettings = bridgeText
+			.substringAfter("applySettings(settings) {")
+			.substringBefore("\nfunction applyThemeToLoadedContent")
+
+		assertContains(applySettings, "this.view?.renderer?.setStyles?.(readerContentCss(settings))")
+		assertContains(applySettings, "this.applyThemeToLoadedContent(settings)")
+		assertContains(applySettings, "this.applyReaderViewportLayout('settings')")
+		assertTrue(
+			applySettings.indexOf("this.view?.renderer?.setStyles?.(readerContentCss(settings))") <
+				applySettings.indexOf("this.applyReaderViewportLayout('settings')"),
+			"Font-size settings must update Foliate renderer CSS before the explicit settings reflow; otherwise body text can keep the old page geometry while headings repaint."
+		)
+		assertTrue(
+			applySettings.indexOf("this.applyThemeToLoadedContent(settings)") <
+				applySettings.indexOf("this.applyReaderViewportLayout('settings')"),
+			"Loaded EPUB documents need the new readerContentCss before settings reflow so prose, headings, and page geometry scale together."
+		)
+	}
+
+	@Test
 	fun androidReaderCapsExcessiveChapterOpeningTopMargins() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
