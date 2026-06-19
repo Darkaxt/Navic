@@ -26,7 +26,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -80,7 +79,6 @@ import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
-import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
@@ -129,7 +127,6 @@ import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
 import java.io.File
 import kotlin.time.Clock
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import coil3.PlatformContext as CoilPlatformContext
 
@@ -182,6 +179,7 @@ class AndroidMediaPlayerViewModel(
 		effectiveVolume = ::effectivePlaybackVolume
 	)
 	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
+	private val radioMediaItemFactory = AndroidRadioMediaItemFactory()
 
 	init {
 		connectToService()
@@ -1086,62 +1084,12 @@ class AndroidMediaPlayerViewModel(
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
-			val radioId = "radio_${radio.name.hashCode()}"
-
-			val dummyRadioSong = DomainSong(
-				id = radioId,
-				title = radio.name,
-				artistName = "Live Radio",
-				albumId = "radio_album",
-				albumTitle = "Live Stream",
-				duration = Duration.ZERO,
-				trackNumber = 1,
-				coverArtId = null,
-				artistId = "",
-				parentId = "",
-				comment = null,
-				discNumber = null,
-				isrc = emptyList(),
-				year = null,
-				genre = null,
-				genres = emptyList(),
-				moods = emptyList(),
-				bpm = null,
-				contributors = emptyList(),
-				playCount = 0,
-				userRating = 0,
-				averageRating = null,
-				bitRate = null,
-				bitDepth = null,
-				sampleRate = null,
-				audioChannelCount = null,
-				replayGain = null,
-				fileSize = 0,
-				fileExtension = "",
-				mimeType = "",
-				filePath = radio.streamUrl,
-				starredAt = null,
-				musicBrainzId = null,
-				explicitStatus = DomainExplicitStatus.Unknown
-			)
-
-			val metadata = MediaMetadata.Builder()
-				.setTitle(radio.name)
-				.setArtist("Live Radio")
-				.setIsPlayable(true)
-				.build()
-
-			val mediaItem = MediaItem.Builder()
-				.setUri(radio.streamUrl)
-				.setMediaId("radio_${radio.name.hashCode()}")
-				.setMediaMetadata(metadata)
-				.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
-				.build()
+			val radioItem = radioMediaItemFactory.create(radio)
 
 			controller?.let { player ->
 				player.stop()
 				player.clearMediaItems()
-				player.setMediaItem(mediaItem)
+				player.setMediaItem(radioItem.mediaItem)
 				player.prepare()
 				claimMusicPlayback()
 				player.play()
@@ -1149,9 +1097,9 @@ class AndroidMediaPlayerViewModel(
 
 			_uiState.update { state ->
 				state.copy(
-					queue = listOf(dummyRadioSong),
+					queue = listOf(radioItem.song),
 					currentIndex = 0,
-					currentSong = dummyRadioSong,
+					currentSong = radioItem.song,
 					isLoading = true
 				)
 			}

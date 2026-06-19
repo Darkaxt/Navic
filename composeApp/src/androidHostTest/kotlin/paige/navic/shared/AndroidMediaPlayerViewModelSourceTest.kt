@@ -81,6 +81,25 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(recorderText, "private const val PlaybackOriginCheckpointIntervalMs")
 		assertContains(recorderText, "repository.credit(")
 	}
+
+	@Test
+	fun radioMediaItemConstructionLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val radioFactory = androidSharedSourceFile("AndroidRadioMediaItemFactory.android.kt")
+		val viewModelText = viewModel.readText()
+		val radioFactoryText = radioFactory.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_320,
+			"AndroidMediaPlayerViewModel should not own radio dummy-song and Media3 item construction."
+		)
+		assertContains(viewModelText, "private val radioMediaItemFactory = AndroidRadioMediaItemFactory()")
+		assertContains(viewModelText, "val radioItem = radioMediaItemFactory.create(radio)")
+		assertContains(radioFactoryText, "internal class AndroidRadioMediaItemFactory")
+		assertContains(radioFactoryText, "data class AndroidRadioMediaItem")
+		assertContains(radioFactoryText, "DomainExplicitStatus.Unknown")
+		assertContains(radioFactoryText, "MediaMetadata.Builder()")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =
