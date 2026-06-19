@@ -2912,3 +2912,29 @@ Result:
 - PASS after fix: focused bridge/adapter/controller/common-UI/Anx-parity host suite.
 - PASS: JavaScript syntax check for `navic-reader-content-interactions.js`.
 - Remaining: this is source/host evidence. Dirty emulator and physical release validation still need to confirm a real EPUB footnote reference opens the native popup, the close action emits/clears the route, and cross-section footnotes either render or are explicitly tracked as a follow-up beyond the same-document extractor.
+
+## 2026-06-19 Emulator Recheck: Font Size Controller Body Text Scaling
+
+Trigger:
+
+- User reported that the font size controller changes titles/headings but not ebook body text, which pushes the page down instead of resizing the actual reading text.
+
+Root-cause evidence:
+
+- The branch already contains commit `66395740 Fix direct EPUB body font scaling`.
+- The reproduced failure shape was publisher EPUB markup with body text as direct `body > span` / `body > a` content instead of normal paragraph blocks. Before the fix, those direct body text nodes stayed at `10px -> 10px` while headings changed.
+- Current runtime CSS in `readerTypographyCss(...)` now normalizes direct body-level inline text containers while excluding image/svg/canvas wrappers.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size
+```
+
+Result:
+
+- PASS: `font-css-smoke` confirmed direct body text, span-wrapped paragraph text, block-wrapped text, and headings scale under the same font-size controller path.
+- PASS on attached emulator WebView style path: the injected probe paragraph scaled from `16px` at `fontSizePercent=100` to `22.4px` at `fontSizePercent=140`; root/body/probe deltas were all `+6.4px`.
+- Caveat: the emulator probe found no existing visible EPUB text elements on the current page, so it proves the installed WebView runtime style path is active but does not prove that the user's current physical-device EPUB page has the fixed asset version loaded.
+- Remaining: confirm on a clean release APK/physical device containing `66395740` by changing font size on a direct-body-text page and checking that the main text reflows, not only the chapter title.
