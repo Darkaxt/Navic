@@ -3862,3 +3862,28 @@ Results:
 Remaining:
 - This is host/controller evidence only. It does not close the release-device progress rail endpoint bug by itself.
 - The next runtime gate still needs emulator/device proof that the rail reaches first/last pages and adjacent chapter buttons work from page 1 and endpoints.
+
+## 2026-06-19 Bindery Maintenance Guard: Offline Reader Validation Only
+
+Scope:
+- User reported active server maintenance and warned that Bindery may stop working.
+- Avoided OPDS/login/download/reseed/relaunch validation paths that would turn server instability into false reader regressions.
+- Continued only Bindery-independent host checks around the globally removed sideload/STOP popup and the EPUB font-size pipeline.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+```
+
+Results:
+- PASS: focused host reader suite passed.
+- PASS: readerdev/sideload guard still proves the old sideload/STOP popup is globally removed from the readerdev launch path.
+- PASS: font-size guards still require full `readerContentCss(settings)` reinjection into Foliate renderer and already-loaded EPUB documents before settings reflow.
+- PASS: publisher-style font-size guard still requires prose containers and inline descendants to collapse to reader-root sizing instead of letting absolute publisher spans pin body text.
+- PASS: `adb-webview-eval.mjs` syntax check passed.
+
+Interpretation:
+- This does not close a phone/runtime complaint by itself; it only proves the current source still contains the expected offline safeguards.
+- While Bindery is unstable, do not publish or validate release candidates through server-backed launch/download flows unless the reader is already loaded and the probe does not require network.
