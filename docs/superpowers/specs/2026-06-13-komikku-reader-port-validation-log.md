@@ -2614,3 +2614,38 @@ Result:
 - PASS: direct screenshot `captures\reader-dev\reader-dev-direct-after-cover-boundary-fix-20260619.png` showed the native shell cover, not the suppressed blank WebView cover.
 - PASS: narrow dirty-emulator gesture probe sent native RIGHT then LEFT taps; logs showed `Reader native tap action=RIGHT` and `Reader native tap action=LEFT`, and `captures\reader-dev\reader-dev-cover-boundary-after-prev-20260619.png` showed the native shell cover after previous.
 - Remaining: this is still dirty-emulator evidence. Physical/release validation is required before claiming the fix is present on the phone/tablet builds.
+
+## 2026-06-19 Working Tree Follow-Up: Font Size Control For Converted EPUB Body Blocks
+
+Trigger:
+
+- User reported that the ebook font-size control changes chapter titles/title-like text but not the main ebook body text, effectively pushing content downward while normal text remains too small.
+
+Root-cause evidence:
+
+- Existing dirty-emulator DevTools probe on `darkaxt.navic.readerdev` showed the bridge path itself is valid for normal paragraph content: real loaded EPUB paragraphs scaled from `16px` at 100% to `22.4px` at 140%.
+- The Hobbit-style `served-input.epub` is a PDF-converted XHTML shape with direct body text, `<br/>` separators, and converted block structures rather than clean semantic paragraphs.
+- RED harness case added to `font-css-smoke`: publisher body text wrapped in a styled `<div>` with `<br/>` separators stayed fixed at `10px -> 10px`. This reproduced the selector gap: `p span` was normalized, but line-break body blocks were not.
+
+Change under validation:
+
+- `readerTypographyCss` now treats `div:has(> br)` text blocks as ebook body-flow content for font-size/font-weight/text-indent scaling, while excluding image/svg/canvas wrapper divs so illustration layout is not pulled into body text styling.
+- Nested `span`/`font` elements inside those line-break body blocks are normalized to `1em`, matching the existing paragraph descendant behavior.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
+git diff --check
+```
+
+Result:
+
+- RED before fix: `font-css-smoke` failed with `Expected font-size control to scale publisher block-wrapped body text; observed 10px -> 10px`.
+- PASS after fix: `font-css-smoke`.
+- PASS: JavaScript syntax check for `navic-reader-helpers.js`.
+- PASS: focused `FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract`.
+- PASS: `git diff --check`.
+- Remaining: physical/release validation is still required on the Tab S9 Ultra/Hobbit page after installing a build that includes this working-tree fix.

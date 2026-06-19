@@ -750,10 +750,12 @@ if (mode === 'font-css-smoke') {
             <head>
               <style>
                 .publisher-body-text { font-size: 10px; }
+                .publisher-block-text { font-size: 10px; }
               </style>
             </head>
             <body>
               <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
+              <div class="publisher-block-text" data-probe="body-block">Publisher block-wrapped body text.<br/>Second line.</div>
               <h1 data-probe="heading">Chapter title</h1>
             </body>
           </html>
@@ -768,10 +770,13 @@ if (mode === 'font-css-smoke') {
         doc.head.append(style)
         await new Promise(resolve => frame.contentWindow.requestAnimationFrame(resolve))
         const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
+        const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
         const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
         const result = {
           bodySpanFontSize: bodySpanStyle.fontSize,
           bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
+          bodyBlockFontSize: bodyBlockStyle.fontSize,
+          bodyBlockFontSizeValue: Number.parseFloat(bodyBlockStyle.fontSize || '0'),
           headingFontSize: headingStyle.fontSize,
           headingFontSizeValue: Number.parseFloat(headingStyle.fontSize || '0'),
         }
@@ -789,6 +794,7 @@ if (mode === 'font-css-smoke') {
         publisherSpanAt100,
         publisherSpanAt140,
         publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
+        publisherBlockBodyDelta: publisherSpanAt140.bodyBlockFontSizeValue - publisherSpanAt100.bodyBlockFontSizeValue,
         publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
@@ -812,6 +818,12 @@ if (mode === 'font-css-smoke') {
       throw new Error(
         `Expected font-size control to scale publisher span-wrapped body text; ` +
         `observed ${result.publisherSpanAt100?.bodySpanFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodySpanFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherBlockBodyDelta) || result.publisherBlockBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher block-wrapped body text; ` +
+        `observed ${result.publisherSpanAt100?.bodyBlockFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodyBlockFontSize || 'unset'}`
       )
     }
     if (!Number.isFinite(result.publisherSpanHeadingDelta) || result.publisherSpanHeadingDelta <= 1) {

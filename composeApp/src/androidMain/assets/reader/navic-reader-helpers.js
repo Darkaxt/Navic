@@ -1636,7 +1636,13 @@ export const readerTypographyCss = settings => {
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
-  p, li, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))), font {
+  p,
+  li,
+  blockquote,
+  dd,
+  div:not(:has(*:not(b, a, em, i, strong, u, span))),
+  div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
+  font {
     font-size: 1em !important;
     font-weight: ${fontWeight} !important;
   ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
@@ -1649,6 +1655,8 @@ export const readerTypographyCss = settings => {
   blockquote font,
   dd span,
   dd font,
+  div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)) span,
+  div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)) font,
   [data-navic-paragraph-block="true"] span,
   [data-navic-paragraph-block="true"] font {
     font-size: 1em !important;
