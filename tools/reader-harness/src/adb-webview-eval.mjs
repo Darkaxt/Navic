@@ -503,7 +503,8 @@ async function runChapterProgressEndpointsProbe(page) {
         throw new Error('Expected chapter-progress probe to find at least one chapter href')
       }
       const candidateAttempts = []
-      let candidate = null
+      const successfulCandidates = []
+      let bestCandidate = null
       for (const href of candidateHrefs) {
         let startProbe = null
         try {
@@ -518,22 +519,29 @@ async function runChapterProgressEndpointsProbe(page) {
           chapterPageIndex: startProbe.location.chapterPageIndex,
           chapterPageCount: startProbe.location.chapterPageCount,
         })
-        if (chapterPageCount != null && chapterPageCount >= 2) {
-          candidate = {
+        if (chapterPageCount != null) {
+          successfulCandidates.push({
+            href,
+            chapterPageIndex: startProbe.location.chapterPageIndex,
+            chapterPageCount: startProbe.location.chapterPageCount,
+          })
+        }
+        if (chapterPageCount != null && chapterPageCount >= 2 && (!bestCandidate || chapterPageCount > bestCandidate.chapterPageCount)) {
+          bestCandidate = {
             href,
             startProbe,
+            chapterPageCount,
           }
-          break
         }
       }
-      if (!candidate) {
+      if (!bestCandidate) {
         throw new Error(
           `Expected chapter-progress-candidate with at least 2 pages; attempts=${JSON.stringify(candidateAttempts)}`
         )
       }
 
-      const href = candidate.href
-      const start = candidate.startProbe
+      const href = bestCandidate.href
+      const start = bestCandidate.startProbe
       const end = await endpoint(href, 1)
       const startIndex = numeric(start.location.chapterPageIndex)
       if (startIndex !== 0) {
@@ -555,6 +563,11 @@ async function runChapterProgressEndpointsProbe(page) {
         href,
         initialLocation,
         candidateAttempts,
+        successfulCandidates,
+        bestCandidate: {
+          href: bestCandidate.href,
+          chapterPageCount: bestCandidate.chapterPageCount,
+        },
         endpoints: [start, end],
         observedLocationCount: observedPayloads.filter(payload => payload?.type === 'locationChanged').length,
         expectedLogLabels: [
