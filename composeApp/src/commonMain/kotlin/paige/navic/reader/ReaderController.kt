@@ -983,22 +983,27 @@ private fun ReaderChapterProgressState.updatedFrom(
 	locator: ReaderLocator,
 	tocTitle: String?
 ): ReaderChapterProgressState {
+	val nextHref = locator.href?.trim()?.takeIf { it.isNotEmpty() }
+	val hrefChanged = nextHref != null &&
+		readerTocHrefKey(nextHref) != readerTocHrefKey(href)
 	val nextPageCount = locator.chapterPageCount?.takeIf { it > 0 }
-		?: pageCount
+		?: if (hrefChanged) 1 else pageCount
 	val normalizedPageCount = nextPageCount.coerceAtLeast(1)
 	val nextPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }
-		?: pageIndex
+		?: if (hrefChanged) 0 else pageIndex
 	val normalizedPageIndex = nextPageIndex.coerceIn(0, normalizedPageCount - 1)
 	val normalizedProgress = locator.chapterProgress
 		?.takeIf(Double::isFinite)
 		?.coerceIn(0.0, 1.0)
 		?: if (locator.chapterPageIndex != null && normalizedPageCount > 1) {
 			(normalizedPageIndex.toDouble() / (normalizedPageCount - 1)).coerceIn(0.0, 1.0)
+		} else if (hrefChanged) {
+			0.0
 		} else {
 			progress
 		}
 	return copy(
-		href = locator.href?.trim()?.takeIf { it.isNotEmpty() } ?: href,
+		href = nextHref ?: href,
 		title = tocTitle?.trim()?.takeIf { it.isNotEmpty() } ?: title,
 		pageIndex = normalizedPageIndex,
 		pageCount = normalizedPageCount,

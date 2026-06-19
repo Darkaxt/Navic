@@ -462,6 +462,46 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun chapterHrefChangeWithoutLocalPageMetadataClearsStaleRailPages() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-13.xhtml",
+						chapterProgress = 1.0,
+						chapterPageIndex = 11,
+						chapterPageCount = 12
+					),
+					tocTitle = "Chapter XIII"
+				)
+			).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "chapter-14.xhtml",
+					progress = 0.84,
+					pageIndex = 513,
+					pageCount = 1748
+				),
+				tocTitle = "Chapter XIV: Fire and Water"
+			)
+		)
+
+		assertEquals(
+			ReaderChapterProgressState(
+				href = "chapter-14.xhtml",
+				title = "Chapter XIV: Fire and Water",
+				pageIndex = 0,
+				pageCount = 1,
+				progress = 0.0
+			),
+			step.controller.state.chapterProgress
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationsBuildControllerOwnedProgressSnapshotsAfterPublicationReady() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller

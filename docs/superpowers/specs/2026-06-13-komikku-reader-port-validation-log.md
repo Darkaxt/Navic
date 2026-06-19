@@ -3832,3 +3832,33 @@ Results:
 Interpretation:
 - The shared annotation store and bridge command path preserve the note payload needed for the squiggly note marker and annotation popup.
 - The installed eta76 failure remains a runtime/UI delivery question: whether the Save tap fires on device and whether the installed build dispatches/acknowledges the annotation command. It is not evidence that note metadata is lost in the shared model.
+
+## 2026-06-19 Host Guard: Chapter Rail Drops Stale Page Counts On Section Change
+
+Scope:
+- Continue progress-rail work without Bindery or device relaunch while the server was unstable.
+- Target the user-visible class of bugs where chapter-local rail state reports nonsensical pages after chapter/section transitions.
+
+Root cause:
+- `ReaderChapterProgressState.updatedFrom(locator, tocTitle)` reused the previous chapter's `pageIndex`, `pageCount`, and `progress` whenever a new relocation omitted `chapterPageIndex` / `chapterPageCount`.
+- That means a relocation into a new chapter with only global Foliate page data could inherit stale chapter-local rail data from the previous section.
+
+Fix:
+- When the relocation href changes and no fresh chapter-local page metadata is present, reset the chapter rail to the new href at `pageIndex=0`, `pageCount=1`, `progress=0.0`.
+- Relocations that do carry Anx/Navic chapter-local metadata still feed the rail normally.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.chapterHrefChangeWithoutLocalPageMetadataClearsStaleRailPages
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.chapterHrefChangeWithoutLocalPageMetadataClearsStaleRailPages --tests paige.navic.reader.ReaderControllerTest.engineRelocationFeedsChapterLocalProgressForKomikkuRail --tests paige.navic.reader.ReaderControllerTest.engineRelocationDoesNotFeedKomikkuRailFromGlobalPageModel --tests paige.navic.reader.ReaderControllerTest.loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection --tests paige.navic.reader.ReaderControllerTest.chapterNavigatorArrowsNavigateAdjacentTocEntriesInsteadOfTurningPages
+```
+
+Results:
+- RED: the new stale-rail test failed before the fix.
+- GREEN: the stale-rail test and nearby chapter rail/navigation host tests passed after the fix.
+- NOTE: under the managed sandbox, Kotlin daemon access to `C:\Users\darka\AppData\Local\kotlin\daemon\...` was denied and Gradle fell back to non-daemon compilation. The build and tests still completed successfully.
+
+Remaining:
+- This is host/controller evidence only. It does not close the release-device progress rail endpoint bug by itself.
+- The next runtime gate still needs emulator/device proof that the rail reaches first/last pages and adjacent chapter buttons work from page 1 and endpoints.
