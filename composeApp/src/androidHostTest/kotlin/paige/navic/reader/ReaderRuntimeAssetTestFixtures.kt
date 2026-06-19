@@ -17,7 +17,12 @@ internal fun readerAssetRoot(): File =
 
 internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 	listOf(
+		"navic-reader-bridge-core.js",
+		"navic-reader-settings-core.js",
 		"navic-reader-settings.js",
+		"navic-reader-media.js",
+		"navic-reader-identity.js",
+		"navic-reader-pagination-model.js",
 		"navic-reader-helpers.js",
 		"navic-reader-motion.js",
 		"navic-reader-page-turns.js",

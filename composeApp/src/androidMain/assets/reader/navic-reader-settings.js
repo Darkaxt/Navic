@@ -50,4 +50,4 @@ export {
   readerFontSource,
   readerThemeKey,
   readerThemePalette
-} from './navic-reader-helpers.js'
+} from './navic-reader-settings-core.js'

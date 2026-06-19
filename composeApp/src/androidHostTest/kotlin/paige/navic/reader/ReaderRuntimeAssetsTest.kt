@@ -15,8 +15,13 @@ class ReaderRuntimeAssetsTest {
 		val runtimeManifest = root.resolve("runtime.json")
 		val index = root.resolve("index.html")
 		val bridge = root.resolve("navic-reader.js")
+		val bridgeCore = root.resolve("navic-reader-bridge-core.js")
 		val bridgeHelpers = root.resolve("navic-reader-helpers.js")
+		val bridgeSettingsCore = root.resolve("navic-reader-settings-core.js")
 		val bridgeSettings = root.resolve("navic-reader-settings.js")
+		val bridgeMedia = root.resolve("navic-reader-media.js")
+		val bridgeIdentity = root.resolve("navic-reader-identity.js")
+		val bridgePaginationModel = root.resolve("navic-reader-pagination-model.js")
 		val bridgeMotion = root.resolve("navic-reader-motion.js")
 		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
@@ -32,8 +37,13 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(runtimeManifest.isFile, "reader runtime manifest must be packaged")
 		assertTrue(index.isFile, "reader index.html must be packaged")
 		assertTrue(bridge.isFile, "Navic reader bridge must be packaged")
+		assertTrue(bridgeCore.isFile, "Navic reader bridge core module must be packaged")
 		assertTrue(bridgeHelpers.isFile, "Navic reader helper module must be packaged")
+		assertTrue(bridgeSettingsCore.isFile, "Navic reader settings core module must be packaged")
 		assertTrue(bridgeSettings.isFile, "Navic reader settings module must be packaged")
+		assertTrue(bridgeMedia.isFile, "Navic reader media tap module must be packaged")
+		assertTrue(bridgeIdentity.isFile, "Navic reader identity module must be packaged")
+		assertTrue(bridgePaginationModel.isFile, "Navic reader pagination model module must be packaged")
 		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
 		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
@@ -88,6 +98,30 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(foliatePackage.readText(), "\"name\": \"foliate-js\"")
 		assertContains(foliatePackage.readText(), "\"version\": \"1.0.1\"")
+	}
+
+	@Test
+	fun androidReaderHelpersAreSplitIntoFocusedSupportModules() {
+		val root = readerAssetRoot()
+		val helper = root.resolve("navic-reader-helpers.js")
+		val helperText = helper.readText()
+
+		assertTrue(
+			helper.readLines().size <= 1_200,
+			"navic-reader-helpers.js should stay below 1200 lines; settings and media-tap contracts belong in focused modules."
+		)
+		listOf(
+			"navic-reader-bridge-core.js",
+			"navic-reader-settings-core.js",
+			"navic-reader-media.js",
+			"navic-reader-identity.js",
+			"navic-reader-pagination-model.js"
+		).forEach { fileName ->
+			val module = root.resolve(fileName)
+			assertTrue(module.isFile, "$fileName must exist so helper changes stay focused.")
+			assertContains(helperText, "./$fileName")
+			assertContains(module.readText(), "export const")
+		}
 	}
 
 	@Test
