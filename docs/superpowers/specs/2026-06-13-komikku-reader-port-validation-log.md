@@ -3078,3 +3078,32 @@ Result:
 - RED before fix: `FoliateAnxParityTest.foliatePaginatorObservesAnxVerticalMarginAttributes` failed because `top-margin` was absent from `Paginator.observedAttributes`.
 - PASS after fix: the focused vertical-margin guard and broader Anx style-dimension parity guard passed.
 - Remaining: physical tablet validation still needs a release/emulator check to judge whether the default values themselves need retuning after the attributes actually apply.
+
+## 2026-06-19 Readerdev Emulator Recheck: eta75 After Font Reflow And Margin Observation
+
+Trigger:
+
+- Recheck the dirty readerdev environment after the font-size reflow-ordering fix and Foliate top/bottom margin observation fix.
+- Confirm that the native Komikku shell still handles cover, center tap, edge tap, drag, and texture walk after reinstalling the current `readerdev` build.
+
+Target:
+
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Version: `versionName=v1.0.11-eta75`, `versionCode=408`
+- Install timestamp observed by package manager: `lastUpdateTime=2026-06-19 08:44:06`
+- Reader launch evidence: logcat showed `ready`, `publicationReady`, `paginationProfileStatus(cached)`, and `locationChanged(... reason=pagination-profile-cached ...)`.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -ArtifactRoot captures\reader-komikku-matrix\20260619-084701-current-readerdev -NoLaunch -IncludeCoverChecks
+```
+
+Result:
+
+- PASS: matrix summary reported no failures.
+- PASS steps: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- Artifact root: `captures\reader-komikku-matrix\20260619-084701-current-readerdev`.
+- Limitation: this is dirty-emulator evidence for the current readerdev APK. It does not replace physical Tab S9 Ultra validation of the font-size controller on the reported page, and it does not prove phone/release behavior.
