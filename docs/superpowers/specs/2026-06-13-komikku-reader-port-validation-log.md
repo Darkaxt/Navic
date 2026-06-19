@@ -4040,3 +4040,36 @@ Results:
 Interpretation:
 - Selection-cleared behavior is now owned consistently by the controller: native selection actions and note draft UI close when the engine clears the selection.
 - This is host/controller proof only. Runtime validation of user-driven selection clear and Note Save remains required on emulator/device before release-readiness claims.
+
+## 2026-06-19 Bindery-Safe Runtime Probe: Font Size Scaling
+
+Scope:
+- User warned Bindery may be unavailable due to server maintenance.
+- Did not relaunch, reseed, download, open OPDS flows, or depend on server-backed state.
+- Used the already-foreground `readerdev` activity and the already-loaded WebView only.
+- Targeted the reported font-size concern: the control appeared to resize chapter/title text while leaving body prose unchanged.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+adb devices
+adb shell pidof darkaxt.navic.readerdev
+adb shell dumpsys window | Select-String -Pattern "mCurrentFocus|mFocusedApp"
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size --local-port 9265
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9266
+```
+
+Results:
+- PASS: focused host tests for font-size runtime probes and publisher absolute text-size override passed.
+- PASS: JS syntax check passed for `tools/reader-harness/src/adb-webview-eval.mjs`.
+- PASS: emulator device `emulator-5554` was connected, `darkaxt.navic.readerdev` was foreground, and the reader WebView was already loaded.
+- PASS: `font-size` probe changed root/body/prose paragraph text from `16px` to `22.4px`, with `rootDelta=6.4`, `bodyDelta=6.4`, and `paragraphDelta=6.4`.
+- PASS: the same probe sampled existing real document prose nodes from the loaded book and every sampled text node changed from `16px` to `22.4px`.
+- PASS: `font-size-publisher-styles` probe forced a publisher-style paragraph with `font-size: 12px`; runtime CSS still scaled it from `16px` to `22.4px`, with `publisherParagraphDelta=6.4`.
+
+Interpretation:
+- The currently loaded emulator/runtime path does scale EPUB body prose and publisher-fixed prose when the reader font-size setting changes.
+- This does not close the user's Tab S9 Ultra report. The remaining bug may be device, book, page, mode, or settings specific, and still needs physical-device validation when a reliable release candidate is available.
+- The current generic CSS/bridge path is not proven broken by the Bindery-safe emulator probe.
