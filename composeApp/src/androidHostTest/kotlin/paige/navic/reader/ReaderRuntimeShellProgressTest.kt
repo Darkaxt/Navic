@@ -89,7 +89,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "case 'goToChapterProgress'")
 		assertContains(bridgeText, "async function goToChapterProgress(href, progress)")
 		assertContains(bridgeText, "chapter-progress-seek")
-		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: fraction })")
+		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: targetAnchor })")
 		assertFalse(
 			bridgeText.contains("this.view.goTo({ href: targetHref, fraction })"),
 			"Foliate treats an object with fraction as a whole-book fraction target; chapter rail seeks must resolve href to a section index and use a section-local anchor."
@@ -150,7 +150,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "relocateSequence += 1")
 		assertTrue(
 			chapterProgressSeek.indexOf("beginControlledRelocation('chapter-progress-seek')") <
-				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: fraction })"),
+				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: targetAnchor })"),
 			"Chapter rail seeks must arm their controlled relocation reason before Foliate emits relocate events."
 		)
 		assertContains(
@@ -793,10 +793,14 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "pages = Number(renderer.pages)")
 		assertContains(bridgeText, "reflowable-section-pages:pending")
 		assertContains(bridgeText, "reflowablePaginatedTextPageCount(pages)")
-		assertContains(bridgeText, "Math.round(pages) - 2")
+		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		val visualTextPageCount = bridgeText
+			.substringAfter("function reflowablePaginatedTextPageCount(pages) {")
+			.substringBefore("\nfunction reflowableChapterProgressAnchor")
 		assertFalse(
-			bridgeText.contains("Math.round(pages) - 1"),
-			"Foliate paginated sections include leading/trailing sentinel columns. Navic must count text pages as pages - 2 so chapter rail endpoints can reach the final displayed page."
+			visualTextPageCount.contains("return Math.max(1, Math.round(pages) - 2)"),
+			"Foliate paginated sections expose a trailing blank visual column at the terminal page. Navic must not count that blank column as readable chapter content."
 		)
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
@@ -841,6 +845,38 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(
 			readerScreenText.contains("ReaderPageNumberOverlay("),
 			"Page numbers must be drawn in the reader surface, not as a native Material overlay."
+		)
+	}
+
+	@Test
+	fun androidReaderSkipsTrailingBlankFoliateColumnForChapterEndpoints() {
+		val bridgeText = readerBridgeText()
+		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val chapterProgressSeek = pageTurnsText
+			.substringAfter("async function goToChapterProgress(href, progress) {")
+			.substringBefore("\nfunction nextPage()")
+		val boundaryBody = pageTurnsText
+			.substringAfter("function nativeDragPreviewAtSectionBoundary(renderer, direction) {")
+			.substringBefore("\nfunction safeNativeDragPreviewAtSectionBoundary(renderer, direction) {")
+
+		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "reflowablePaginatedVisualTextPageCount(pages)")
+		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		assertContains(bridgeText, "reflowableChapterProgressAnchor(progress, renderer = this.view?.renderer)")
+		assertContains(bridgeText, "const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)")
+		assertContains(bridgeText, "return (visualTextPageCount - 1) / (rawTextPageCount - 1)")
+		assertContains(chapterProgressSeek, "const targetAnchor = this.reflowableChapterProgressAnchor(fraction)")
+		assertContains(chapterProgressSeek, "anchor: targetAnchor")
+		assertFalse(
+			chapterProgressSeek.contains("anchor: fraction"),
+			"Chapter progress endpoint 1.0 must not ask Foliate to render the terminal blank column."
+		)
+		assertContains(boundaryBody, "const lastVisualPage = this.reflowableLastVisualRendererPage(renderer)")
+		assertContains(boundaryBody, "return page >= lastVisualPage")
+		assertFalse(
+			boundaryBody.contains("page >= pages - 2"),
+			"Native drag/page-turn boundary detection must trigger at the last visual content page, not at Foliate's blank terminal column."
 		)
 	}
 

@@ -249,9 +249,10 @@ async function goToChapterProgress(href, progress) {
       this.view.book?.resolveHref?.(targetHref)
     )
     const index = Number(resolved?.index)
+    const targetAnchor = this.reflowableChapterProgressAnchor(fraction)
     if (Number.isFinite(index) && this.view.renderer?.goTo) {
       this.beginControlledRelocation('chapter-progress-seek')
-      await this.view.renderer.goTo({ index, anchor: fraction })
+      await this.view.renderer.goTo({ index, anchor: targetAnchor })
       this.view.history?.pushState?.({ href: targetHref, chapterFraction: fraction })
     } else {
       this.beginControlledRelocation('chapter-progress-seek')
@@ -306,7 +307,8 @@ function nativeDragPreviewAtSectionBoundary(renderer, direction) {
   if (direction === 'previous') {
     return page <= 1 || (Number.isFinite(start) && start <= 2)
   }
-  return page >= pages - 2 ||
+  const lastVisualPage = this.reflowableLastVisualRendererPage(renderer)
+  return page >= lastVisualPage ||
     (Number.isFinite(end) && Number.isFinite(viewSize) && viewSize - end <= 2)
 }
 

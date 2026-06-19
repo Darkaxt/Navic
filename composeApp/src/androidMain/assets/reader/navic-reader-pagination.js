@@ -164,9 +164,38 @@ function fixedLayoutPagePosition(detail) {
   }
 }
 
-function reflowablePaginatedTextPageCount(pages) {
+function reflowablePaginatedRawTextPageCount(pages) {
   if (!Number.isFinite(pages) || pages <= 1) return 1
   return Math.max(1, Math.round(pages) - 2)
+}
+
+function reflowablePaginatedVisualTextPageCount(pages) {
+  return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)
+}
+
+function reflowablePaginatedTextPageCount(pages) {
+  return this.reflowablePaginatedVisualTextPageCount(pages)
+}
+
+function reflowableChapterProgressAnchor(progress, renderer = this.view?.renderer) {
+  const numericProgress = Number(progress)
+  const clampedProgress = Number.isFinite(numericProgress)
+    ? Math.min(1, Math.max(0, numericProgress))
+    : 0
+  if (this.view?.isFixedLayout === true || renderer?.scrolled) return clampedProgress
+  const pages = Number(renderer?.pages)
+  if (!Number.isFinite(pages) || pages <= 3 || clampedProgress < 1) return clampedProgress
+  const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)
+  const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)
+  if (rawTextPageCount <= 1 || visualTextPageCount >= rawTextPageCount) return clampedProgress
+  return (visualTextPageCount - 1) / (rawTextPageCount - 1)
+}
+
+function reflowableLastVisualRendererPage(renderer = this.view?.renderer) {
+  const pages = Number(renderer?.pages)
+  if (!Number.isFinite(pages) || pages <= 1) return 1
+  const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)
+  return Math.max(1, visualTextPageCount)
 }
 
 function reflowableSectionPagePosition() {
@@ -1011,7 +1040,11 @@ function scheduleReaderPageNumberRefresh(reason = 'deferred') {
 
 export const NavicReaderPaginationMethods = {
   fixedLayoutPagePosition,
+  reflowablePaginatedRawTextPageCount,
+  reflowablePaginatedVisualTextPageCount,
   reflowablePaginatedTextPageCount,
+  reflowableChapterProgressAnchor,
+  reflowableLastVisualRendererPage,
   reflowableSectionPagePosition,
   reflowableLocationPagePosition,
   readerPageListPosition,

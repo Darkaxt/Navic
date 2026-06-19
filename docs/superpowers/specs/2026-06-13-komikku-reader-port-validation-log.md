@@ -4176,3 +4176,15 @@ Follow-up visible-page probe:
 - PASS: live probe at the terminal endpoint reported `rendererPage=45`, `rendererPages=47`, `rendererContainerPosition=50984`, `visibleTextLength=0`, and `visibleElementCount=0`.
 - PASS: after one left-edge previous-page tap, the same probe reported `rendererPage=44`, `rendererPages=47`, and the only prose leaf on the page was `"A world without Shadow."`.
 - Interpretation: Foliate exposes the current section with `pages=47`; Navic's current `pages - 2` section model counts page 45 as the final readable page, but page 45 is a blank terminal column and page 44 contains the final sentence. This confirms a trailing blank/sentinel column defect in chapter endpoint paging. Do not patch this by hiding page numbers or changing annotation/menu state.
+
+Follow-up terminal blank-column fix:
+- Changed reflowable pagination to keep Foliate's raw `pages - 2` math separate from Navic's visual/readable text page count.
+- Navic now subtracts one terminal blank visual column from reflowable chapter page counts.
+- Chapter progress endpoint seeks now normalize `progress=1` through `reflowableChapterProgressAnchor()` instead of passing Foliate `anchor=1` directly.
+- Native boundary detection now treats the last visual text page as the edge, instead of waiting for Foliate's blank terminal column.
+- RED: `ReaderRuntimeShellProgressTest.androidReaderSkipsTrailingBlankFoliateColumnForChapterEndpoints` failed before the runtime exposed raw/visual page-count split and normalized chapter-end anchors.
+- GREEN: `ReaderRuntimeShellProgressTest` passed after the runtime change.
+- GREEN: `node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic` passed.
+- GREEN: `node --check` passed for `navic-reader-pagination.js` and `navic-reader-page-turns.js`.
+- GREEN: `git diff --check` passed.
+- LIMITATION: this was host/harness verified only. The installed emulator APK still contains the prior packaged JS, so live `visible-page-content` proof requires a rebuild/install or release candidate.
