@@ -923,7 +923,7 @@ export const readerTypographyCss = settings => {
   body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   font {
-    font-size: 1em !important;
+    font-size: 1rem !important;
     ${usePublisherStyles ? '' : `
     font-weight: ${fontWeight} !important;
     `}

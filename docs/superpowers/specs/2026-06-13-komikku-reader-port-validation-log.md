@@ -3467,3 +3467,38 @@ Results:
 
 Remaining:
 - This proves the current readerdev runtime and hidden WebView DevTools path can validate font-size scaling reliably. It still does not replace a physical Tab S9 Ultra computed-style sample on the exact Hobbit page if that device still shows body text not scaling.
+
+## 2026-06-19 Font Size Publisher Wrapper Fix
+
+Trigger:
+- User reported again that the Font size controller changed chapter/title-like text but not the main ebook body text, pushing prose downward instead of scaling it.
+
+Root cause:
+- The previous CSS collapsed prose containers to `font-size: 1em !important`.
+- That works when the parent is `body`, but fails when an EPUB publisher pins a wrapper such as `section`, `div`, or another container to a fixed size. In that case paragraphs inherit the wrapper's fixed `10px`/small size while headings can still repaint separately, matching the reported symptom.
+
+Implementation:
+- Added a focused browser-harness regression for a fixed-size publisher wrapper around paragraph body text.
+- Changed prose block/container font sizing in `readerTypographyCss` from parent-relative `1em` to reader-root-relative `1rem`.
+- Kept inline descendants (`span`, `font`) at `1em`, so inline formatting inherits from the corrected paragraph size instead of the publisher wrapper.
+- Tightened the Android host source guard so block containers must reset to `1rem` before inline descendants inherit through `1em`.
+
+Verification:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes
+git diff --check
+```
+
+Results:
+- RED before fix: `font-css-smoke` failed with `Expected font-size control to scale publisher nested-wrapper body text; observed 10px -> 10px`.
+- PASS after fix: `font-css-smoke` passed, covering direct body text, span-wrapped paragraphs, block-wrapped text, nested fixed publisher wrappers, fixed-size paragraphs, and headings.
+- PASS: JS syntax checks passed for the harness and helper assets.
+- PASS: focused Android host check completed successfully without new failures. A forced `--rerun-tasks` attempt stopped making log progress after `compileAndroidMain` and was stopped, so the dynamic browser harness remains the red/green proof for this fix.
+- PASS: `git diff --check` passed.
+
+Remaining:
+- This is source/browser-harness proof, not a physical Tab S9 Ultra release proof. The next release/phone validation should run the DevTools `font-size` probe on the exact visible Hobbit page if the symptom still appears.

@@ -363,6 +363,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(typographyCss, "font-size: var(--reader-content-font-size")
 		assertContains(typographyCss, "font-size: 1rem !important")
 		assertContains(typographyCss, "font-size: 1em !important")
+		assertTrue(
+			typographyCss.indexOf("font-size: 1rem !important") <
+				typographyCss.indexOf("font-size: 1em !important"),
+			"Prose block containers must reset to reader-root size before inline descendants inherit from them; otherwise fixed publisher wrapper sizes can pin body text while headings scale."
+		)
 	}
 
 	@Test
