@@ -3189,3 +3189,46 @@ Remaining:
 
 - The after-cover page is frontmatter/synopsis, so the blank lower half is content-shortness, not by itself a page-box failure.
 - This remains emulator/runtime evidence. A physical Tab S9 Ultra release check is still required for the exact Hobbit page and the user's real device settings.
+
+## 2026-06-19 Readerdev Emulator Follow-Up: Selection Copy And Note Actions
+
+Trigger:
+
+- Continue closing the Priority 0 selection-action validation gap for the Komikku-native selection overlay.
+- Verify that Copy and Note are not only controller/UI symbols: they must act through the native app boundary and the Anx/Foliate annotation bridge on the current dirty readerdev build.
+
+Setup:
+
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed package: `versionName=v1.0.11-eta75`, `versionCode=408`, `lastUpdateTime=2026-06-19 09:02:52`.
+- The smoke runs used the DevTools `selection-payload` probe to create a deterministic selected text range, then used native UI-node taps for the Komikku selection actions.
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction "tapDesc:Copy,1200" -RequireReaderLog "Reader selection copied length=" -ArtifactDir captures\reader-selection\20260619-selection-copy-hidden-quoted
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction "tapDesc:Note,1200|tapText:Annotation,400|text:Smoke note,400|tapText:Save,1400" -RequireReaderBridgeEvent annotationDrawn -RequireReaderEngineCommand applyHighlights -ArtifactDir captures\reader-selection\20260619-selection-note-hidden-quoted
+```
+
+Result:
+
+- PASS: Copy run captured `selectionChanged(footnote=true, ...)` with CFI, context text, and bounding rect from the Anx-style payload.
+- PASS: Copy run found the native `Highlight`, `Copy`, and `Note` actions in the UI hierarchy.
+- PASS: Copy run reached the native app boundary: `Reader selection copied length=31`.
+- PASS: Note run captured `selectionChanged(footnote=true, ...)` with CFI, context text, and bounding rect.
+- PASS: Note run saved through the annotation path: `Dispatching reader engine command: applyHighlights(count=3)`.
+- PASS: Note run received Foliate/Anx bridge confirmation through three `annotationDrawn` events, including the newly saved note CFI.
+
+Artifacts:
+
+- `captures\reader-selection\20260619-selection-copy-hidden-quoted\reader-devtools-probe.json`
+- `captures\reader-selection\20260619-selection-copy-hidden-quoted\logcat-reader.log`
+- `captures\reader-selection\20260619-selection-copy-hidden-quoted\window.xml`
+- `captures\reader-selection\20260619-selection-note-hidden-quoted\reader-devtools-probe.json`
+- `captures\reader-selection\20260619-selection-note-hidden-quoted\logcat-reader.log`
+- `captures\reader-selection\20260619-selection-note-hidden-quoted\window.xml`
+
+Remaining:
+
+- This is dirty-emulator readerdev evidence using a DevTools-created selection. It closes the repeatable Copy/Note action-path smoke gate, but it does not replace physical release validation of user-driven text selection on the phone/tablet.
