@@ -302,6 +302,48 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val located = opened.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "chapter-01.xhtml",
+					cfi = "epubcfi(/6/8!/4/1:0)",
+					progress = 0.24
+				),
+				tocTitle = "Chapter 1"
+			)
+		).coordinator
+		val selected = located.onEngineEvent(
+			ReaderEngineEvent.SelectionChanged(
+				text = "The noted sentence",
+				cfi = "epubcfi(/6/8!/4/1:12)",
+				href = "chapter-01.xhtml"
+			)
+		).coordinator
+		val drafting = selected.startSelectionNote().coordinator
+
+		val step = drafting.saveSelectionNote("Remember this later")
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val annotation = ReaderAnnotation(
+			id = "book-1|epubcfi(/6/8!/4/1:12)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			cfi = "epubcfi(/6/8!/4/1:12)",
+			text = "The noted sentence",
+			href = "chapter-01.xhtml",
+			color = DefaultReaderHighlightColor,
+			note = "Remember this later",
+			sectionTitle = "Chapter 1"
+		)
+
+		assertEquals(ReaderAnnotationState(listOf(annotation)), step.coordinator.controller.state.annotations)
+		assertNull(step.coordinator.controller.state.selectionNoteDraft)
+		assertEquals(ReaderBridgeCommand.ApplyHighlights(listOf(annotation)), viewState.bridgeCommand())
+		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
 	fun currentBookmarkTogglesRouteThroughControllerWithoutEngineBridgeCommands() {
 		val locator = ReaderLocator(
 			href = "chapter-01.xhtml",

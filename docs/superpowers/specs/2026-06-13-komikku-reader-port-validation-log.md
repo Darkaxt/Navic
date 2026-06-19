@@ -3753,3 +3753,50 @@ Artifacts:
 Follow-up:
 - Add or expose reliable note-save evidence before closing Phase 5. The minimum acceptable evidence is a controller log, engine command log, bridge event, or persisted annotation UI route after `Save`.
 - Re-run Highlight sequentially if this section is used as release-candidate evidence; the available Highlight pass came from the invalid parallel run and should remain advisory only.
+
+## 2026-06-19 Bindery-Maintenance Safe Reader Probes
+
+Scope:
+- Continue validation without relying on Bindery while the server was under maintenance.
+- Do not relaunch, reseed, download, or open OPDS flows.
+- Use only the already-open readerdev WebView and host tests.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed version: `v1.0.11-eta76`
+- Running PID: `19346`
+- Foreground activity: `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`
+- Display/app bounds: `1848x2960`, `sw1232dp`, fullscreen portrait.
+
+Host evidence:
+- Added executable coordinator coverage for Note Save routing:
+  - `ReaderCoordinatorTest.selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter`
+  - The focused test passed immediately.
+- Interpretation: common controller/coordinator/engine-adapter code already routes Note Save into `ReaderBridgeCommand.ApplyHighlights`.
+- Remaining Note Save failure layer is therefore Android UI click delivery, WebView command dispatch, or Foliate annotation draw/runtime acknowledgment, not the shared controller route.
+
+Safe ADB/DevTools probes:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --probe page-box
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size-publisher-styles
+```
+
+Results:
+- PASS: `page-box` found the already-loaded reader WebView without relaunching.
+- PASS: renderer occupied the full viewport (`viewRect` and `rendererRect` both `1232x1974` CSS px).
+- PASS: current renderer layout attributes were visible: `max-inline-size=1133px`, `max-block-size=1846px`, `max-column-count=1`, `top-margin=90px`, `bottom-margin=50px`.
+- PASS: existing EPUB paragraph text scaled when font size changed from `100` to `140`: every sampled paragraph moved from `16px` to `22.4px`.
+- PASS: the synthetic publisher-style paragraph also scaled from `16px` to `22.4px` with `publisherStyles=true`.
+- PASS: the font-size probe restored `fontSizePercent=100` afterward.
+
+Interpretation:
+- The “titles resize but body text does not” failure is not reproducing on the currently installed eta76 session with `A Memory of Light`; existing body paragraphs and publisher-style text both scale.
+- The Tab S9 Ultra screenshot complaint should be treated as page-box composition/margin/default-layout work, not as proof that the font-size command is globally ignored.
+- The page-box sample shows large paginated body width because Foliate lays the current chapter into horizontal columns; the useful layout evidence is the current visible column (`firstProse.rect.width=1061`) against `max-inline-size=1133`.
+
+Remaining:
+- Reproduce the Tab S9 Ultra margin complaint on the actual tablet/package before changing defaults.
+- Validate Note Save again only after installing a build that contains `Reader selection note save length=...`; eta76 cannot isolate whether the Save callback fired.
