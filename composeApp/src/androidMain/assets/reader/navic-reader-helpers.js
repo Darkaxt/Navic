@@ -1616,7 +1616,7 @@ export const readerNavigationItemMatches = (left, right) => {
 
 
 export const readerTypographyCss = settings => {
-  if (settings.publisherStyles === true) return ''
+  const usePublisherStyles = settings.publisherStyles === true
   const fontFamily = readerEffectiveFontFamily(settings)
   const fontWeight = readerFontWeightValue(settings)
   const letterSpacing = readerLetterSpacingValue(settings)
@@ -1632,13 +1632,17 @@ export const readerTypographyCss = settings => {
   ` : ''}
   html {
     font-size: var(--reader-content-font-size, ${fontSizePercent}%) !important;
+    ${usePublisherStyles ? '' : `
     letter-spacing: ${letterSpacing}px !important;
+    `}
   }
   body {
     font-size: 1rem !important;
     line-height: ${settings.lineHeight || 1.55} !important;
-    ${fontFamily ? `font-family: ${fontFamily} !important;` : ''}
+    ${usePublisherStyles || !fontFamily ? '' : `font-family: ${fontFamily} !important;`}
+    ${usePublisherStyles ? '' : `
     word-spacing: ${wordSpacing}px !important;
+    `}
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
@@ -1652,8 +1656,10 @@ export const readerTypographyCss = settings => {
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   font {
     font-size: 1em !important;
+    ${usePublisherStyles ? '' : `
     font-weight: ${fontWeight} !important;
-  ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
+    `}
+    ${usePublisherStyles || textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
   }
   p span,
   p font,
@@ -1686,12 +1692,14 @@ export const readerTypographyCss = settings => {
   ul > p {
     text-indent: 0 !important;
   }
+  ${usePublisherStyles ? '' : `
   h1 { font-size: calc(2em * ${headingFontSize}) !important; }
   h2 { font-size: calc(1.5em * ${headingFontSize}) !important; }
   h3 { font-size: calc(1.17em * ${headingFontSize}) !important; }
   h4 { font-size: calc(1em * ${headingFontSize}) !important; }
   h5 { font-size: calc(0.83em * ${headingFontSize}) !important; }
   h6 { font-size: calc(0.67em * ${headingFontSize}) !important; }
+  `}
 `
 }
 

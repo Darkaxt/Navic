@@ -349,6 +349,23 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertFalse(
+			typographyCss.contains("if (settings.publisherStyles === true) return ''"),
+			"Publisher styles must not disable the user Font size control; absolute book paragraph sizes still need to collapse to the reader root size."
+		)
+		assertContains(typographyCss, "const usePublisherStyles = settings.publisherStyles === true")
+		assertContains(typographyCss, "font-size: var(--reader-content-font-size")
+		assertContains(typographyCss, "font-size: 1rem !important")
+		assertContains(typographyCss, "font-size: 1em !important")
+	}
+
+	@Test
 	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText

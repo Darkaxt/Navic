@@ -3232,3 +3232,37 @@ Artifacts:
 Remaining:
 
 - This is dirty-emulator readerdev evidence using a DevTools-created selection. It closes the repeatable Copy/Note action-path smoke gate, but it does not replace physical release validation of user-driven text selection on the phone/tablet.
+
+## 2026-06-19 Host Guard: Font Size Must Override Publisher Absolute Text Sizes
+
+Trigger:
+
+- User reported that the reader Font size controller changed titles/headings but not the actual ebook body text, pushing the content down instead of scaling the prose.
+- The earlier eta75 emulator `font-size` probe proved normal paragraphs scale when publisher styles are off, so the next suspect was the publisher-style branch.
+
+Diagnosis:
+
+- `readerTypographyCss(settings)` returned an empty stylesheet whenever `publisherStyles === true`.
+- That preserved book-authored absolute paragraph sizes while the reader root and headings could still change, matching the reported behavior.
+- The policy was too broad: publisher styles may preserve book family/weight/spacing choices, but they must not disable user font-size and line-height controls.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes
+```
+
+Result:
+
+- RED: the new host guard failed before the fix at `ReaderRuntimeSettingsBridgeTest.kt:358`, proving the test caught the old publisher-style early return.
+- PASS: `readerTypographyCss` now keeps `html` reader font-size, `body` `1rem` sizing, line-height, and prose `font-size: 1em !important` active even when publisher styles are enabled.
+- PASS: publisher styles still gate Navic overrides for family, font weight, letter spacing, word spacing, indent, and heading-size multipliers.
+- PASS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js`.
+- PASS: focused Android host test after the fix.
+
+Remaining:
+
+- This is a source/host guard. The installed eta75 emulator and any physical release APK still contain the old assets until a new build is installed.
+- Physical Tab S9 Ultra validation should repeat the exact reported page with Publisher styles on and off.
