@@ -4188,3 +4188,54 @@ Follow-up terminal blank-column fix:
 - GREEN: `node --check` passed for `navic-reader-pagination.js` and `navic-reader-page-turns.js`.
 - GREEN: `git diff --check` passed.
 - LIMITATION: this was host/harness verified only. The installed emulator APK still contains the prior packaged JS, so live `visible-page-content` proof requires a rebuild/install or release candidate.
+
+## 2026-06-19 Emulator Current-Screen Check: History Capsule Over Live Text
+
+Scope:
+- User reported the current emulator screen looked weird, with no text and only a popup.
+- Did not relaunch the app and did not touch Bindery-backed flows.
+- Captured and probed the already-running `darkaxt.navic.readerdev` reader state.
+
+Validation:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell screencap -p /sdcard/navic-current.png
+adb -s emulator-5554 pull /sdcard/navic-current.png captures\reader-status\20260619-221701\screen.png
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe visible-page-content --local-port 9276
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box --local-port 9277
+adb -s emulator-5554 logcat -d -t 300
+```
+
+Results:
+- PASS: foreground device is `emulator-5554`.
+- PASS: screenshot `captures/reader-status/20260619-221701/screen.png` shows prose text rendering on the page.
+- PASS: `page-box` reports a live reader WebView at `1232x1974`, `rendererRect=1232x1974`, `contentDocument=true`, and `bodyTextLength=242809`.
+- PASS: `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, visible section content, and a visible prose leaf `"A world without Shadow."`.
+- PASS: recent logcat did not show a Navic reader crash or WebView exception around the capture.
+- FAIL/OPEN: the bottom-center arrow/X popup is visible over the content. This is the native history capsule, not a crash dialog.
+
+Interpretation:
+- The current observed state is not a blank WebView. The reader is loaded and text is visible.
+- The confusing popup is caused by the PushState/history capability route: `ReaderController` currently makes `engineNavigation.visible = event.canGoBack || event.canGoForward` whenever Foliate reports history availability.
+- This makes the history capsule appear as a side effect of navigation state, instead of a deliberate user action. That behavior is intrusive and should be redesigned against the Komikku reference before being treated as accepted UI.
+
+Follow-up fix:
+- Changed `ReaderController` so `NavigationStateChanged` still records `canGoBack` and `canGoForward`, but leaves `engineNavigation.visible=false`.
+- This prevents the arrow/X history capsule from appearing just because Foliate history is available.
+- The existing history back/forward command path is still retained at controller level.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeRoutesAnxPushStateToKomikkuHistoryCapsule
+git diff --check
+```
+
+Results:
+- RED: `ReaderControllerTest.pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault` failed before the controller change because PushState made the capsule visible.
+- GREEN: the focused controller test passed after the controller change.
+- GREEN: `ReaderRuntimeCommonChromeTest.commonReaderChromeRoutesAnxPushStateToKomikkuHistoryCapsule` passed.
+- GREEN: `git diff --check` passed.
+- LIMITATION: this is host-verified only. The currently running emulator still has the old installed APK state until rebuilt/reinstalled.

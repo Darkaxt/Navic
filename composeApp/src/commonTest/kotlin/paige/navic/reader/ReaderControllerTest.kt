@@ -224,13 +224,13 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine() {
+	fun pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault() {
 		val controller = ReaderController().onEngineEvent(
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
 		).controller
 
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
 			controller.state.engineNavigation
 		)
 
