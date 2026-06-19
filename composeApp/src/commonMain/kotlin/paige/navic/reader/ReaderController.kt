@@ -100,10 +100,17 @@ data class ReaderAnnotationInteraction(
 data class ReaderAnnotationPopupState(
 	val value: String? = null,
 	val index: Int? = null,
-	val rangeCfi: String? = null
+	val rangeCfi: String? = null,
+	val text: String? = null,
+	val note: String? = null,
+	val color: String? = null
 ) {
 	val visible: Boolean
-		get() = !value.isNullOrBlank() || index != null || !rangeCfi.isNullOrBlank()
+		get() = !value.isNullOrBlank() ||
+			index != null ||
+			!rangeCfi.isNullOrBlank() ||
+			!text.isNullOrBlank() ||
+			!note.isNullOrBlank()
 }
 
 sealed interface ReaderOverlayInteraction {
@@ -853,6 +860,9 @@ private fun ReaderControllerState.onExternalLinkOpened(
 private fun ReaderControllerState.onAnnotationClicked(
 	event: ReaderEngineEvent.AnnotationClicked
 ): ReaderControllerState {
+	val value = event.value?.trim()?.takeIf { it.isNotEmpty() }
+	val rangeCfi = event.rangeCfi?.trim()?.takeIf { it.isNotEmpty() }
+	val savedAnnotation = savedAnnotationForClick(value = value, rangeCfi = rangeCfi)
 	val interaction = ReaderAnnotationInteraction(
 		kind = ReaderAnnotationInteractionKind.Clicked,
 		value = event.value,
@@ -860,14 +870,28 @@ private fun ReaderControllerState.onAnnotationClicked(
 		rangeCfi = event.rangeCfi
 	)
 	val popup = ReaderAnnotationPopupState(
-		value = event.value?.trim()?.takeIf { it.isNotEmpty() },
+		value = value,
 		index = event.index,
-		rangeCfi = event.rangeCfi?.trim()?.takeIf { it.isNotEmpty() }
+		rangeCfi = rangeCfi,
+		text = savedAnnotation?.text?.trim()?.takeIf { it.isNotEmpty() },
+		note = savedAnnotation?.note?.trim()?.takeIf { it.isNotEmpty() },
+		color = savedAnnotation?.color?.trim()?.takeIf { it.isNotEmpty() }
 	).takeIf { it.visible }
 	return copy(
 		lastAnnotationInteraction = interaction,
 		annotationPopup = popup
 	)
+}
+
+private fun ReaderControllerState.savedAnnotationForClick(
+	value: String?,
+	rangeCfi: String?
+): ReaderAnnotation? {
+	val bookId = publication?.bookId
+	return annotations.annotations.firstOrNull { annotation ->
+		(bookId == null || annotation.bookId == bookId) &&
+			(annotation.cfi == value || annotation.cfi == rangeCfi)
+	}
 }
 
 private fun ReaderChapterProgressState.updatedFrom(

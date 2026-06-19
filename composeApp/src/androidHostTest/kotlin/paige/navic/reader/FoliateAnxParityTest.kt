@@ -41,6 +41,10 @@ class FoliateAnxParityTest {
 		readerAssetRoot().resolve("vendor/foliate-js/view.js").readText()
 	}
 
+	private val navicFoliateReaderText: String by lazy {
+		readerAssetRoot().resolve("vendor/foliate-js/reader.js").readText()
+	}
+
 	private val navicContentInteractionsText: String by lazy {
 		readerAssetRoot().resolve("navic-reader-content-interactions.js").readText()
 	}
@@ -276,6 +280,7 @@ class FoliateAnxParityTest {
 		"draw-annotation" to exists(
 			"AnnotationDrawn event",
 			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("navic-reader.js", "Overlayer.highlight"),
 			routeStop("ReaderController.kt", "ReaderAnnotationInteractionKind.Drawn")
 		),
 		"show-annotation" to exists(
@@ -589,6 +594,33 @@ class FoliateAnxParityTest {
 	}
 
 	@Test
+	fun drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent() {
+		val anxAnnotationBody = anxViewText
+			.substringAfter("async addAnnotation(annotation, remove)")
+			.substringBefore("deleteAnnotation(annotation)")
+		val foliateReaderAnnotationBody = navicFoliateReaderText
+			.substringAfter("addEventListener('draw-annotation'")
+			.substringBefore("addEventListener('show-annotation'")
+
+		assertTrue(
+			anxAnnotationBody.contains("draw") &&
+				anxAnnotationBody.contains("draw-annotation"),
+			"Anx/Foliate draw-annotation emits a draw callback, not just an informational event."
+		)
+		assertTrue(
+			foliateReaderAnnotationBody.contains("draw(Overlayer.highlight") &&
+				foliateReaderAnnotationBody.contains("{ color }"),
+			"Foliate's reader paints annotation ranges by calling draw(Overlayer.highlight, { color })."
+		)
+		assertTrue(
+			navicReaderMainText.contains("import { Overlayer } from './vendor/foliate-js/overlayer.js'") &&
+				navicReaderMainText.contains("detail.draw?.(Overlayer.highlight") &&
+				navicReaderMainText.contains("type: 'annotationDrawn'"),
+			"Navic must call Foliate's draw callback with Overlayer.highlight before reporting annotationDrawn."
+		)
+	}
+
+	@Test
 	fun phase3AnxBridgeEventsHaveControllerBehaviorRoutes() {
 		data class ControllerRoute(
 			val engineEvent: String,
@@ -812,6 +844,12 @@ class FoliateAnxParityTest {
 			"readerContentCss must apply Anx text style dimensions with matching CSS semantics."
 		)
 		assertTrue(
+			navicReaderHelpersText.contains("--reader-content-font-size") &&
+				navicReaderHelpersText.contains("font-size: var(--reader-content-font-size") &&
+				navicReaderHelpersText.contains("body {\n    font-size: 1rem !important;"),
+			"Reader font-size controls must scale the actual ebook body text, not only headings."
+		)
+		assertTrue(
 			navicReaderMainText.contains("setAttribute('top-margin'") &&
 				navicReaderMainText.contains("setAttribute('bottom-margin'") &&
 				navicReaderMainText.contains("setAttribute('gap'"),
@@ -863,6 +901,13 @@ class FoliateAnxParityTest {
 				navicPaginatorText.contains("'column-threshold'") &&
 				navicPaginatorText.contains("maxColumnCount === 0"),
 			"readerAdaptiveFoliatePageBox and the bundled paginator must derive columns from Anx maxColumnCount/columnThreshold settings."
+		)
+		val adaptivePageBoxBody = navicReaderHelpersText
+			.substringAfter("export const readerAdaptiveFoliatePageBox")
+			.substringBefore("\n}\n\nexport const readerFontWeightValue")
+		assertTrue(
+			!adaptivePageBoxBody.contains(": columnThreshold"),
+			"Auto column mode must not hard-cap the full page inline size to columnThreshold; threshold decides splitting, not tablet page width."
 		)
 	}
 

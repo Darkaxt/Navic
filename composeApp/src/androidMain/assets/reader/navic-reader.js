@@ -5,6 +5,7 @@
 // :335-397 (annotations)
 
 import './vendor/foliate-js/view.js'
+import { Overlayer } from './vendor/foliate-js/overlayer.js'
 import {
   CenterTapMovementSlop,
   CenterTapSyntheticClickDedupeMs,
@@ -472,10 +473,17 @@ class NavicReaderRuntime {
   }
 
   onAnnotationDrawn(detail = {}) {
+    const annotation = detail.annotation || {}
+    const color = annotation.color || detail.color || '#f4d35e'
+    try {
+      detail.draw?.(Overlayer.highlight, { color })
+    } catch (error) {
+      logError('annotation:draw-failed', error?.message || String(error))
+    }
     const index = Number(detail.index)
     post({
       type: 'annotationDrawn',
-      value: detail.value || detail.annotation?.value || '',
+      value: detail.value || annotation.value || '',
       index: Number.isFinite(index) ? Math.floor(index) : undefined,
       rangeCfi: this.annotationRangeCfi(index, detail.range),
     })

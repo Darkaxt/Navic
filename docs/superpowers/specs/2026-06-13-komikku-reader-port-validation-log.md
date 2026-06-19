@@ -2424,3 +2424,80 @@ Interpretation:
 - The earlier eta75 note remains historically true for that failed command invocation, but it is no longer the latest readerdev/emulator state.
 - eta75 now has dirty readerdev emulator evidence for restored center tap, mini-drag suppression, cover drag, readable drag, edge taps, and texture direction sampling.
 - This still does not close physical-phone release validation, progress rail endpoint validation, resume after app/window interruption, real manual text selection, or real scrolled-edge pull-up.
+
+## 2026-06-19 eta75 Phase 5 Selection Action Follow-Up
+
+Trigger:
+
+- Validate the current eta75 readerdev build against the active Phase 5 selection-action requirement before moving to the next reader-port gap.
+
+Target:
+
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Installed version: `versionName=v1.0.11-eta75`, `versionCode=408`, `lastUpdateTime=2026-06-19 02:47:55`
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -TapFraction '0.90,0.50,900' -ReaderDevtoolsProbe selection-payload -ArtifactDir tmp\eta75-selection-ui-after-cover-dismiss
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Highlight,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent 'annotationDrawn' -ArtifactDir tmp\eta75-selection-highlight-gate
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Copy,1200' -RequireReaderLog 'Reader selection copied length=' -ArtifactDir tmp\eta75-selection-copy-gate
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Note,1200' -ArtifactDir tmp\eta75-selection-note-open
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapText:Annotation,700|text:Eta75_note_gate,1000|tapText:Save,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent 'annotationDrawn' -ArtifactDir tmp\eta75-selection-note-save-gate
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -CaptureReaderDiagnostics -LongPressFraction '0.50,0.50,950,900' -RequireNativeLongTap -RequireReaderBridgeEvent selectionChanged -ArtifactDir tmp\eta75-selection-native-longpress-gate
+```
+
+Result:
+
+- PASS: selection payload probe emitted `selectionChanged` with `footnote=true`, CFI, context text, and position bounds.
+- PASS: Android hierarchy for `tmp\eta75-selection-ui-after-cover-dismiss` contained the native selection action overlay entries `Highlight`, `Copy`, and `Note`.
+- PASS: Highlight action dispatched `applyHighlights(count=1)` and received `annotationDrawn`.
+- PASS: Copy action reached the app boundary with `Reader selection copied length=31`.
+- PASS: Note action opened the native note dialog; the hierarchy contained `Note`, selected text, `Annotation`, `Cancel`, and disabled `Save`.
+- PASS: Note save action typed `Eta75_note_gate`, dispatched `applyHighlights`, and received `annotationDrawn`.
+- PASS: native long press produced `Reader native long tap x=540.0 y=1200.0` and a real `selectionChanged` bridge event for selected text `Perrin` with `footnote=false`, CFI, context text, and bounds.
+
+Interpretation:
+
+- eta75 now has dirty readerdev emulator evidence that the Phase 5 selection action path is functional from native long press and from the scripted footnote fixture through native Highlight/Copy/Note UI actions.
+- This still does not replace physical-phone/manual validation of Android selection handles, and it does not validate real scrolled-edge pull-up.
+
+## 2026-06-19 Working Tree Follow-Up: Font Scaling And Annotation Reopen Guards
+
+Trigger:
+
+- Investigate the reported font-size controller regression where changing font size affected EPUB headings and chapter titles but not normal body text, causing larger titles to push unchanged ebook text down.
+- Close the related annotation UX gap where Highlight/Note actions could dispatch engine commands without a visible Foliate highlight draw or a reopenable native note popup.
+
+Changes under validation:
+
+- Body text scaling is now anchored through `--reader-content-font-size` on `html`, `body { font-size: 1rem !important; }`, and text block rules using `1em`, so the controller scales normal EPUB text and headings from the same base instead of only changing title-like elements.
+- Adaptive tablet page width no longer uses `columnThreshold` as a hard full-page inline cap. The threshold remains a column-splitting decision, not a reason to create an artificially narrow Tab S9 Ultra reading column.
+- Annotation drawing now calls Foliate `Overlayer.highlight` before posting `annotationDrawn`, so Highlight and Note produce a visible mark in the rendered document.
+- Annotation clicks now resolve the saved Navic annotation by CFI and surface selected text, note body, and color in the native annotation popup.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.annotationClicksResolveSavedNoteBodyFromControllerStore" --tests "paige.navic.reader.FoliateAnxParityTest.drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent" --tests "paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract" --tests "paige.navic.reader.FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.*"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+```
+
+Result:
+
+- PASS: focused font-size, annotation draw, annotation reopen, and adaptive composition guards.
+- PASS: broad reader host suite `paige.navic.reader.*`.
+- PASS: full Android host suite `:composeApp:testAndroidHost`.
+- PASS: JavaScript syntax checks for the changed reader runtime and reader harness files.
+- PASS: whitespace check.
+
+Remaining:
+
+- This is not a packaged release candidate yet. Physical device validation is still required for the font-size control on the Tab S9 Ultra and for manual reopen of saved highlights/notes.

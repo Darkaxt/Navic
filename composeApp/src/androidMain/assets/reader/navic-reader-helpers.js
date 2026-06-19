@@ -1551,6 +1551,9 @@ export const readerTextIndentValue = settings =>
 export const readerHeadingFontSizeValue = settings =>
   readerStyleNumber(settings, 'headingFontSize', 1, 0.5, 2)
 
+export const readerFontSizePercentValue = settings =>
+  readerStyleNumber(settings, 'fontSizePercent', 100, 50, 250)
+
 export const readerMaxColumnCountValue = settings => {
   const value = Number(settings?.maxColumnCount)
   return Number.isFinite(value) ? Math.min(2, Math.max(0, Math.floor(value))) : 0
@@ -1571,9 +1574,10 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
   const naturalBlockReserve = Math.max(48, Math.round(blockViewport * 0.065))
   const maxColumnCount = readerMaxColumnCountValue(settings)
   const columnThreshold = readerColumnThresholdValue(settings)
+  const naturalInline = clampNumber(inlineViewport - naturalInlineReserve, 320, 1600)
   const maxInline = maxColumnCount > 0
-    ? clampNumber(inlineViewport - naturalInlineReserve, 320, 1280)
-    : columnThreshold
+    ? clampNumber(naturalInline, 320, 1280)
+    : naturalInline
   const maxBlock = clampNumber(blockViewport - naturalBlockReserve, 720, 2200)
   return {
     maxInlineSize: `${Math.round(maxInline)}px`,
@@ -1620,6 +1624,7 @@ export const readerTypographyCss = settings => {
   const wordSpacing = readerWordSpacingValue(settings)
   const textIndent = readerTextIndentValue(settings)
   const headingFontSize = readerHeadingFontSizeValue(settings)
+  const fontSizePercent = readerFontSizePercentValue(settings)
   return `
   ${readerFlowMode(settings) === ReaderFlowPagedVertical ? `
   html, body {
@@ -1627,9 +1632,11 @@ export const readerTypographyCss = settings => {
   }
   ` : ''}
   html {
+    font-size: var(--reader-content-font-size, ${fontSizePercent}%) !important;
     letter-spacing: ${letterSpacing}px !important;
   }
   body {
+    font-size: 1rem !important;
     line-height: ${settings.lineHeight || 1.55} !important;
     ${fontFamily ? `font-family: ${fontFamily} !important;` : ''}
     word-spacing: ${wordSpacing}px !important;
@@ -1637,6 +1644,7 @@ export const readerTypographyCss = settings => {
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
   p, li, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))), font {
+    font-size: 1em !important;
     font-weight: ${fontWeight} !important;
     ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
   }
@@ -1731,11 +1739,13 @@ export const readerDocumentThemeCss = settings => {
 }
 
 export const readerContentCss = settings => {
+  const fontSizePercent = readerFontSizePercentValue(settings)
   return `
   ${readerFontFaceCss(settings)}
   ${readerDocumentThemeCss(settings)}
   html {
-    font-size: ${settings.fontSizePercent || 100}%;
+    --reader-content-font-size: ${fontSizePercent}%;
+    font-size: var(--reader-content-font-size, ${fontSizePercent}%) !important;
   }
   ${readerTypographyCss(settings)}
   ${readerParagraphSpacingCss(settings)}

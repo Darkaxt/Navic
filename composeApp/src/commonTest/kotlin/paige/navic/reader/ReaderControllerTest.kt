@@ -1161,6 +1161,51 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun annotationClicksResolveSavedNoteBodyFromControllerStore() {
+		val annotated = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The note sentence ",
+					cfi = " epubcfi(/6/8!/4/1:12) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+			.startSelectionNote().controller
+			.saveSelectionNote("  Remember this later  ").controller
+
+		val step = annotated.onEngineEvent(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "epubcfi(/6/8!/4/1:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/1:12,/1:0,/1:8)"
+			)
+		)
+
+		assertEquals(
+			ReaderAnnotationPopupState(
+				value = "epubcfi(/6/8!/4/1:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/1:12,/1:0,/1:8)",
+				text = "The note sentence",
+				note = "Remember this later",
+				color = DefaultReaderHighlightColor
+			),
+			step.controller.state.annotationPopup
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun selectionHighlightsAreControllerOwnedAndForwardedAsEngineCapabilities() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
