@@ -3107,3 +3107,38 @@ Result:
 - PASS steps: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
 - Artifact root: `captures\reader-komikku-matrix\20260619-084701-current-readerdev`.
 - Limitation: this is dirty-emulator evidence for the current readerdev APK. It does not replace physical Tab S9 Ultra validation of the font-size controller on the reported page, and it does not prove phone/release behavior.
+
+## 2026-06-19 Working Tree Follow-Up: Large Tablet Folio Page Box
+
+Trigger:
+
+- User reported that Tab S9 Ultra portrait EPUB margins did not feel like a normal folio: too much unused width and visually unbalanced vertical composition.
+- User also asked whether folio defaults normally have broadly comparable vertical and horizontal margins. The target behavior is optical balance, with bottom/top allowed to differ but not a phone/fold hard cap wasting a large tablet viewport.
+
+Root-cause evidence:
+
+- `readerAdaptiveFoliatePageBox({ width: 1848, height: 2960 }, { marginPercent: 0 })` returned `maxInlineSize=1280px` and `maxBlockSize=2200px`.
+- Those values came from helper hard caps intended to avoid cramped small surfaces, but on a large portrait tablet they reserve roughly `284px` horizontally per side and `380px` vertically per side before Foliate marginals, which is not a natural folio page box.
+- The existing adaptive-page-box harness covered phone/fold/tablet-ish viewports but did not include a Tab S9 Ultra portrait class, so this regression was not guarded.
+
+Change under validation:
+
+- Added a Tab S9 Ultra portrait case to `adaptive-page-box-logic`. It requires large portrait tablet surfaces to avoid the `1280x2200` cap and keep horizontal/vertical reserves optically balanced.
+- Removed the `1280px` inline hard cap and `2200px` block hard cap from `readerAdaptiveFoliatePageBox`, preserving the existing natural viewport reserve calculation.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract
+```
+
+Result:
+
+- RED before fix: `adaptive-page-box-logic` failed with `Expected large tablet portrait EPUB surfaces to avoid phone/fold hard caps... got {"maxInlineSize":"1280px","maxBlockSize":"2200px",...}`.
+- PASS after fix: `adaptive-page-box-logic` passed.
+- PASS after fix: `node --check` for `navic-reader-helpers.js`.
+- PASS after fix: focused `FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract` passed.
+- After fix, the same Tab S9 Ultra portrait helper call returns `maxInlineSize=1600px`, `maxBlockSize=2768px`, `maxColumnCount=1`, which leaves a more folio-like reserve before Foliate header/footer marginals.
+- Remaining: physical tablet validation is still required because this is helper/host evidence, not a rendered Tab S9 Ultra screenshot.

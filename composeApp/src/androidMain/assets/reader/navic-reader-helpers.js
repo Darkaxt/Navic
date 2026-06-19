@@ -1576,10 +1576,8 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
   const maxColumnCount = readerEffectiveMaxColumnCount({ inlineViewport, blockViewport, settings })
   const columnThreshold = readerColumnThresholdValue(settings)
   const naturalInline = clampNumber(inlineViewport - naturalInlineReserve, 320, 1600)
-  const maxInline = maxColumnCount > 0
-    ? clampNumber(naturalInline, 320, 1280)
-    : naturalInline
-  const maxBlock = clampNumber(blockViewport - naturalBlockReserve, 720, 2200)
+  const maxInline = naturalInline
+  const maxBlock = Math.max(720, blockViewport - naturalBlockReserve)
   return {
     maxInlineSize: `${Math.round(maxInline)}px`,
     maxBlockSize: `${Math.round(maxBlock)}px`,

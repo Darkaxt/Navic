@@ -637,6 +637,28 @@ if (mode === 'adaptive-page-box-logic') {
   if (portrait.maxColumnCount !== '1') {
     throw new Error(`Expected portrait single-page composition until same-section spread is explicit, got ${JSON.stringify(portrait)}`)
   }
+  const tabS9UltraPortrait = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1848, height: 2960 },
+    { marginPercent: 0 }
+  )
+  const tabS9Inline = parsePx(tabS9UltraPortrait.maxInlineSize)
+  const tabS9Block = parsePx(tabS9UltraPortrait.maxBlockSize)
+  if (tabS9Inline < 1500 || tabS9Block < 2600) {
+    throw new Error(
+      'Expected large tablet portrait EPUB surfaces to avoid phone/fold hard caps and use folio-like capacity, got ' +
+      JSON.stringify(tabS9UltraPortrait)
+    )
+  }
+  const tabS9HorizontalReserve = (1848 - tabS9Inline) / 2
+  const tabS9VerticalReserve = (2960 - tabS9Block) / 2
+  const reserveRatio = Math.max(tabS9HorizontalReserve, tabS9VerticalReserve) /
+    Math.max(1, Math.min(tabS9HorizontalReserve, tabS9VerticalReserve))
+  if (reserveRatio > 1.75) {
+    throw new Error(
+      'Expected large tablet portrait EPUB reserves to remain optically balanced like a folio page, got ' +
+      JSON.stringify({ tabS9UltraPortrait, tabS9HorizontalReserve, tabS9VerticalReserve, reserveRatio })
+    )
+  }
   const explicitPortraitSpread = helpers.readerAdaptiveFoliatePageBox(
     { width: 1232, height: 1974 },
     { marginPercent: 0, maxColumnCount: 2 }
