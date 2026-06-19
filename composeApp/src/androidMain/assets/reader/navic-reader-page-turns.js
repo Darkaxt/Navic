@@ -737,6 +737,7 @@ function previewPageDrag(command) {
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
+    this.surfacePaperTextureFallbackDirection = null
     this.renderSurfacePaperTextureLayers()
     return
   }
@@ -744,6 +745,21 @@ function previewPageDrag(command) {
     const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
       ? Number(this.nativePageDragPreview?.deltaX) || 0
       : 0
+    const releaseDeltaX = Number(command?.deltaX)
+    const releaseTextureDirection = readerPaperTextureDragDirection({
+      deltaX: Number.isFinite(releaseDeltaX) ? releaseDeltaX : previousDeltaX,
+      deltaY: 0,
+      flowMode: this.readerFlowModeValue,
+      readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
+      threshold: 1,
+    })
+    if (releaseTextureDirection) {
+      this.surfacePaperTextureFallbackDirection = releaseTextureDirection
+      readerTrace('texture:drag-direction', {
+        direction: releaseTextureDirection,
+        source: 'native-preview-release',
+      })
+    }
     if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
     readerTrace('page-drag-preview:release', { deltaX: previousDeltaX })
     this.nativePageDragPreview = null

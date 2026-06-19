@@ -348,6 +348,56 @@ if (mode === 'texture-offset-logic') {
     }),
     { x: -120, y: 0 }
   )
+  assertOffset(
+    'vertical forward movement offsets texture upward',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 320,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'next',
+    }),
+    { x: 0, y: -320 }
+  )
+  assertOffset(
+    'vertical backward movement offsets texture downward',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: -320,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'previous',
+    }),
+    { x: 0, y: 320 }
+  )
+  assertOffset(
+    'vertical forward boundary follows wrapped renderer delta',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 0,
+      baseOffset: 873,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'next',
+      fallbackPageTurnDirection: 'next',
+    }),
+    { x: 0, y: 873 }
+  )
+  assertOffset(
+    'vertical directionless near-wrap with fallback previous follows wrapped renderer delta',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 873,
+      baseOffset: 40,
+      viewportWidth: 560,
+      viewportHeight: 900,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: null,
+      fallbackPageTurnDirection: 'previous',
+    }),
+    { x: 0, y: -833 }
+  )
   const assertDirection = (name, actual, expected) => {
     if (actual !== expected) {
       throw new Error(`${name} expected ${expected} but got ${actual}`)
@@ -2053,6 +2103,7 @@ if (mode === 'epub-texture-page-turns') {
         timestamp: performance.now(),
         viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
         viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        flowMode: document.body.dataset.navicReaderFlowMode || '',
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,
@@ -2081,6 +2132,7 @@ if (mode === 'epub-texture-page-turns') {
           timestamp: performance.now(),
           viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
           viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+          flowMode: document.body.dataset.navicReaderFlowMode || '',
           location,
           href: location?.href || '',
           pageIndex: location?.pageIndex,
@@ -2306,6 +2358,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
         timestamp: performance.now(),
         viewportWidth,
         viewportHeight,
+        flowMode: document.body.dataset.navicReaderFlowMode || '',
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,

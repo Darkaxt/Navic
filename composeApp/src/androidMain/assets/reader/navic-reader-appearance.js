@@ -184,6 +184,7 @@ function applySettings(settings) {
   rootStyle.setProperty('--theme-bg-color', palette.background)
   const flowMode = readerFlowMode(settings)
   this.readerFlowModeValue = flowMode
+  readerRoot.dataset.navicReaderFlowMode = flowMode
   rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
   this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
   this.readerDirectionModeValue = readerDirectionMode(settings)
@@ -362,6 +363,7 @@ function surfacePaperTextureDiagnosticState(reason = 'scroll') {
   const pageIndex = Number(this.currentPagePosition?.pageIndex)
   const pageCount = Number(this.currentPagePosition?.pageCount)
   const detail = this.lastRelocateDetail || {}
+  const { width, height } = readerViewportSize()
   return {
     reason,
     offset: this.surfaceTextureScrollOffset || { x: 0, y: 0 },
@@ -369,6 +371,8 @@ function surfacePaperTextureDiagnosticState(reason = 'scroll') {
     baseOffset: this.surfacePaperTextureBaseOffset,
     delta: position - this.surfacePaperTextureBaseOffset,
     pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || '',
+    viewportWidth: width,
+    viewportHeight: height,
     flowMode: this.readerFlowModeValue,
     pageIndex: Number.isFinite(pageIndex) ? pageIndex : null,
     pageCount: Number.isFinite(pageCount) ? pageCount : null,
