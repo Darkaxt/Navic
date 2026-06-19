@@ -164,6 +164,14 @@ actual fun ReaderEngineWebViewHost(
 			factory = {
 				WebView(context).apply {
 					webView = this
+					isLongClickable = false
+					setOnLongClickListener {
+						Logger.i(
+							ReaderEngineWebViewHostTag,
+							"Reader WebView native long-click suppressed; native frame owns selection actions"
+						)
+						true
+					}
 					webChromeClient = object : WebChromeClient() {
 						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
 							val logMessage =

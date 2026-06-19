@@ -4239,3 +4239,34 @@ Results:
 - GREEN: `ReaderRuntimeCommonChromeTest.commonReaderChromeRoutesAnxPushStateToKomikkuHistoryCapsule` passed.
 - GREEN: `git diff --check` passed.
 - LIMITATION: this is host-verified only. The currently running emulator still has the old installed APK state until rebuilt/reinstalled.
+
+## 2026-06-19 Eta76 Selection Action Validation and WebView Toolbar Clash
+
+Scope:
+- Followed the active spec's Phase 5 validation priority.
+- Did not relaunch, reinstall, or call Bindery because the server may be under maintenance.
+- Used the already-running emulator reader state for package `darkaxt.navic.readerdev`, version `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+
+Validation:
+
+```powershell
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ExpectedVersionName v1.0.11-eta76 -LongPressFraction '0.45,0.46,1200,1800' -CaptureReaderDiagnostics -RequireNativeLongTap -RequireReaderBridgeEvent selectionChanged -ArtifactDir captures\reader-selection\20260619-223237
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ExpectedVersionName v1.0.11-eta76 -Tap '955,190,1200' -CaptureReaderDiagnostics -RequireReaderLog 'Reader selection copied length=' -ArtifactDir captures\reader-selection\20260619-223446-copy
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted
+```
+
+Results:
+- PASS: `captures/reader-selection/20260619-223237/screen.png` shows the native selection action strip with `Highlight`, `Copy`, and `Note`.
+- PASS: logcat captured `Reader native long tap`.
+- PASS: logcat captured `Reader bridge event: selectionChanged(footnote=false, ...)` with selected text `"head"`, CFI, context text, and position.
+- PASS: tapping the native Copy action captured `Reader selection copied length=4`.
+- FAIL/OPEN on eta76: `captures/reader-selection/20260619-223446-copy/screen.png` shows Android WebView's own system selection toolbar (`Copy`, `Share`, `Select all`, `Read aloud`) in addition to Navic's native selection action strip.
+- Interpretation: the controller-owned selection path works, but the Android WebView still owns native long-click selection UI on the installed eta76 build. This violates the Komikku-controller boundary because WebView should render and emit events, not own reader action chrome.
+
+Follow-up source fix:
+- Added a host guard in `ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted`.
+- Changed `ReaderEngineWebViewHost.android.kt` to set `isLongClickable=false` and consume `setOnLongClickListener`, logging that the native frame owns selection actions.
+- RED: the focused host guard failed before the WebView long-click suppression existed.
+- GREEN: the focused host guard passed after the WebView host change.
+- LIMITATION: the fix has not been installed on the emulator yet. Rebuild/reinstall later, then rerun the same selection smoke and confirm the system WebView toolbar no longer appears while the native Highlight/Copy/Note strip still appears.

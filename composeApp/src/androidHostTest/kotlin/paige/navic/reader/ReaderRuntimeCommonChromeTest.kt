@@ -1090,6 +1090,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val selectionActionsText = readerCommonUiFile("ReaderSelectionActions.kt").readText()
 		val selectionNoteDialogText = readerCommonUiFile("ReaderSelectionNoteDialog.kt").readText()
+		val engineHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(readerRootText, "KomikkuReaderSelectionActions(")
 		assertContains(readerRootText, "controllerState.selectionActions")
@@ -1126,6 +1127,9 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "coordinator.startSelectionNote()")
 		assertContains(readerScreenText, "coordinator.saveSelectionNote(note)")
 		assertContains(readerScreenText, "coordinator.dismissSelectionNote()")
+		assertContains(engineHostText, "isLongClickable = false")
+		assertContains(engineHostText, "setOnLongClickListener")
+		assertContains(engineHostText, "native frame owns selection actions")
 	}
 
 	@Test
