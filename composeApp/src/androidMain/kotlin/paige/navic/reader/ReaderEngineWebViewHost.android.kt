@@ -299,7 +299,10 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
 		is ReaderBridgeCommand.ContentLongPressAt -> "contentLongPressAt"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
-		is ReaderBridgeCommand.ApplyHighlights -> "applyHighlights(count=${highlights.size})"
+		is ReaderBridgeCommand.ApplyHighlights -> {
+			val noteCount = highlights.count { it.note?.trim()?.isNotEmpty() == true }
+			"applyHighlights(count=${highlights.size}, notes=$noteCount)"
+		}
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"

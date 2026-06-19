@@ -3948,3 +3948,28 @@ Interpretation:
 - The current loaded readerdev runtime does not reproduce the "titles resize but body text does not" bug.
 - This is emulator/readerdev evidence only. The physical Tab S9 Ultra page remains a separate validation target if the same symptom appears on the installed release package.
 - Because Bindery was unstable, no release/open/download workflow was attempted.
+
+## 2026-06-19 Bindery-Safe Guard: Note Batch Debug Labels
+
+Scope:
+- Improve the next device validation pass for Note Save without relying on Bindery.
+- The prior source route proved notes are persisted and routed, but logcat could not distinguish a note-bearing annotation batch from a plain highlight batch because the WebView host logged only `applyHighlights(count=...)`.
+
+Fix:
+- `ReaderEngineWebViewHost.android.kt` now logs `applyHighlights(count=<n>, notes=<m>)`, where `notes` counts annotations with a non-blank `note`.
+- Added a host guard so this ADB-visible label cannot regress back to count-only evidence.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.androidReaderNoteAnnotationBatchesAreVisibleInBridgeCommandLogs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.androidReaderNoteAnnotationBatchesAreVisibleInBridgeCommandLogs --tests paige.navic.reader.ReaderControllerTest.selectionNotesSaveAsAnnotationsAndClearDraft --tests paige.navic.reader.ReaderCoordinatorTest.selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter --tests paige.navic.reader.ReaderAnnotationStateTest.noteAnnotationJsonRoundTripKeepsReaderNoteForMarkerAndPopup
+```
+
+Results:
+- RED: the new host guard failed before the production change because `ApplyHighlights` labels were `applyHighlights(count=...)` only.
+- GREEN: focused host guard and nearby note/controller/coordinator/model tests passed after the label included `notes=<m>`.
+- NOTE: Kotlin daemon access was denied under the managed sandbox and Gradle fell back to non-daemon compilation; the build completed successfully.
+
+Remaining:
+- This is diagnostic plumbing, not proof that Note Save works on a physical/release APK. The next runtime validation should look for `Reader selection note save length=...` followed by `applyHighlights(count=..., notes=1)` and `annotationDrawn(...)`.

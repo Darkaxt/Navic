@@ -1129,6 +1129,23 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun androidReaderNoteAnnotationBatchesAreVisibleInBridgeCommandLogs() {
+		val engineHostText = readerEngineWebViewHostFile().readText()
+		val applyHighlightsLabel = engineHostText
+			.substringAfter("is ReaderBridgeCommand.ApplyHighlights ->")
+			.substringBefore("is ReaderBridgeCommand.ApplyOverlayFragment ->")
+
+		assertContains(applyHighlightsLabel, "highlights.count")
+		assertContains(applyHighlightsLabel, "it.note?.trim()?.isNotEmpty() == true")
+		assertContains(applyHighlightsLabel, "notes=")
+		assertContains(
+			applyHighlightsLabel,
+			"applyHighlights(count=\${highlights.size}, notes=\$noteCount)",
+			message = "ADB/logcat command labels must distinguish Note Save annotation batches from plain highlight batches."
+		)
+	}
+
+	@Test
 	fun commonReaderAnnotationClickIsKomikkuOverlayAndControllerRouted() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
