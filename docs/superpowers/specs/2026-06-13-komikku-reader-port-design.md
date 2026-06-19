@@ -207,7 +207,7 @@ Phase 5 is host-verified:
 - `SelectionChanged` now carries Anx `onSelectionEnd` payload fields through the bridge, engine adapter, and controller state.
 - Runtime selection posts include a DOM selection bounding rectangle, bounded context text, and footnote detection for footnote/noteref-like elements.
 - Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
-- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Highlight, Copy, Note save, and selection-clear-after-selection paths. Before treating this behavior as release-ready, still validate a clean release APK on the phone and a user-driven normal-text selection path.
+- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Copy, and selection-clear-after-selection paths. The eta76 Note path opened the native dialog and accepted text, but `Save` did not produce observable `applyHighlights`, `annotationDrawn`, or note-save evidence, so Note save remains unverified until a build with `Reader selection note save length=` diagnostics proves where the path breaks. Before treating this behavior as release-ready, still validate Highlight and Note sequentially on emulator/device, then validate a clean release APK on the phone and a user-driven normal-text selection path.
 
 Reader search is host-verified:
 
