@@ -1171,6 +1171,28 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderMarksAreSeededAndPersistedOutsideTheWebView() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerMarksPreferenceText = readerCommonFile("ReaderMarksPreference.kt").readText()
+
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.readerAnnotationState()")
+		assertContains(readerMarksPreferenceText, "decodeReaderAnnotations(readerAnnotationsJson)")
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.readerBookmarkState()")
+		assertContains(readerMarksPreferenceText, "decodeReaderBookmarks(readerBookmarksJson)")
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.persistReaderMarksIfChanged(")
+		assertContains(readerMarksPreferenceText, "previous.annotations != next.annotations")
+		assertContains(readerMarksPreferenceText, "previous.bookmarks != next.bookmarks")
+		assertContains(readerScreenText, "annotations = preferenceManager.readerAnnotationState()")
+		assertContains(readerScreenText, "bookmarks = preferenceManager.readerBookmarkState()")
+		assertContains(readerScreenText, "preferenceManager.persistReaderMarksIfChanged(")
+		assertFalse(
+			readerScreenText.contains("ReaderAnnotationState()") &&
+				!readerScreenText.contains("readerAnnotationState()"),
+			"ReaderScreen must not initialize annotations as transient empty state."
+		)
+	}
+
+	@Test
 	fun commonReaderFootnotesAreKomikkuOverlayAndControllerRouted() {
 		val readerScreenText = readerScreenFile().readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()

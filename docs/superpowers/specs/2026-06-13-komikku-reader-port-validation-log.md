@@ -4363,3 +4363,57 @@ Results:
 - FAIL/OPEN on eta76: WebView's own selection toolbar is still visible. Current source commit `18a708ed` suppresses that toolbar, but this fix is not installed in the emulator.
 - FAIL/OPEN on eta76: the bottom arrow/X history capsule is still visible. Current source commit `3c9945e0` hides that capsule by default, but this fix is not installed in the emulator.
 - Interpretation: the weird screen is stale installed overlay behavior, not a fresh no-text rendering regression. The next clean validation requires rebuilding/reinstalling a new APK after the user/server environment is ready.
+
+## 2026-06-19 Emulator Weird-Screen Recheck 2
+
+Scope:
+- Rechecked the emulator after another report that the screen looked wrong, with no text and only a popup.
+- Kept the current running reader instance alive because Bindery may be unavailable during server maintenance.
+
+Validation:
+
+```powershell
+adb devices
+adb shell dumpsys window
+adb shell dumpsys package darkaxt.navic.readerdev
+adb shell screencap -p /sdcard/navic_current_screen.png
+adb pull /sdcard/navic_current_screen.png captures\emulator-current-screen\screen.png
+node tools\reader-harness\src\adb-webview-eval.mjs --probe visible-page-content
+```
+
+Results:
+- PASS: emulator focus is `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS: installed emulator build remains `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+- PASS: `captures\emulator-current-screen\screen.png` shows the page text is rendered, but the UI is cluttered by three overlapping surfaces: Navic's selection action strip, Android/WebView's native text-selection toolbar, and the old bottom arrow/X history capsule.
+- PASS: DevTools `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, `visibleTextLength=235916`, and visible text beginning `CHAPTER 37 The Last Battle`.
+- FAIL/OPEN on eta76: Android/WebView's native selection toolbar is still visible. Current source commit `18a708ed` suppresses this WebView chrome, but that source is not installed in eta76.
+- FAIL/OPEN on eta76: the bottom arrow/X history capsule is still visible. Current source commit `3c9945e0` hides it by default, but that source is not installed in eta76.
+- Interpretation: this is still stale-installed-build overlay collision, not an empty-renderer failure. The current source should be rebuilt/reinstalled before retesting this specific UI state.
+
+## 2026-06-19 Reader Mark Persistence Slice
+
+Scope:
+- Closed the controller-store gap where highlights, notes, and bookmarks existed only in `ReaderControllerState` for the current reader process.
+- This keeps Anx-style annotation/bookmark capability behind Navic controller/store ownership instead of treating WebView events as the durable source of truth.
+
+Changes:
+- Added `ReaderMarksPreference.kt` to decode/encode `ReaderAnnotationState` and `ReaderBookmarkState` through the existing `PreferenceManager.readerAnnotationsJson` and `PreferenceManager.readerBookmarksJson` fields.
+- `ReaderScreen` now seeds controller annotations/bookmarks from preferences on reader entry.
+- `ReaderScreen` now persists annotations/bookmarks only when a coordinator transition changes the controller store.
+- Added `ReaderMarksPreferenceTest` for preference round-trip and transition persistence.
+- Added a source guard proving `ReaderScreen` does not initialize marks as transient empty stores.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "*ReaderMarksPreferenceTest*"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --rerun-tasks --tests "*ReaderMarksPreferenceTest*" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderMarksAreSeededAndPersistedOutsideTheWebView" --tests "*ReaderAnnotationStateTest*" --tests "*ReaderBookmarkStateTest*"
+git diff --check
+```
+
+Results:
+- PASS: focused `ReaderMarksPreferenceTest` completed with `BUILD SUCCESSFUL in 26s`.
+- PASS: uncached affected reader host run completed with `BUILD SUCCESSFUL in 3m 23s`.
+- PASS: the uncached run executed the new preference tests, source guard, and existing annotation/bookmark state tests.
+- PASS: `git diff --check` reported no whitespace errors.
+- NOTE: Kotlin still printed its existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.

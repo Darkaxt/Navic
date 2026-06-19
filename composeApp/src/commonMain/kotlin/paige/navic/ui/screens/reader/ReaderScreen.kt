@@ -43,6 +43,9 @@ import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.applyReaderCoordinatorStep
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
+import paige.navic.reader.persistReaderMarksIfChanged
+import paige.navic.reader.readerAnnotationState
+import paige.navic.reader.readerBookmarkState
 import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
@@ -116,7 +119,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 			ReaderCoordinator(
 				controller = ReaderController(
 					state = ReaderControllerState(
-						chrome = ReaderChromeState(settings = defaultReaderSettings)
+						chrome = ReaderChromeState(settings = defaultReaderSettings),
+						annotations = preferenceManager.readerAnnotationState(),
+						bookmarks = preferenceManager.readerBookmarkState()
 					)
 				)
 			)
@@ -144,9 +149,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun applyCoordinatorStep(step: ReaderCoordinatorStep) {
+		val previousControllerState = coordinator.controller.state
 		applyReaderCoordinatorStep(
 			step = step,
-			updateCoordinator = { coordinator = it },
+			updateCoordinator = { nextCoordinator ->
+				preferenceManager.persistReaderMarksIfChanged(
+					previous = previousControllerState,
+					next = nextCoordinator.controller.state
+				)
+				coordinator = nextCoordinator
+			},
 			saveProgress = { progress ->
 				val updatedAtMs = Clock.System.now().toEpochMilliseconds()
 				val localProgress = progress.copy(updatedAt = updatedAtMs.toString())
