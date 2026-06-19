@@ -156,7 +156,7 @@ class ReaderRuntimeAssetsTest {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(hostText, "enableDebugging = settings.webContentsDebuggingEnabled == true")
 		assertFalse(
@@ -171,6 +171,23 @@ class ReaderRuntimeAssetsTest {
 			"Settings search should route WebView debugging to Developer Options, not Ebooks."
 		)
 		assertContains(searchSettingsText, "readerWebContentsDebuggingEnabled")
+	}
+
+	@Test
+	fun settingsSearchResultsStaysFocusedOnRenderingSearchResults() {
+		val searchResults = settingsFile("SettingsSearchResults.kt")
+		val lineCount = searchResults.readLines().size
+
+		assertTrue(
+			lineCount <= 300,
+			"SettingsSearchResults.kt should stay as the search renderer; section-specific row registries belong in focused SettingsSearch* files."
+		)
+		assertTrue(settingsFile("SettingsSearchAppearanceRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchPlaybackRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchEbookRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchStorageRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchIntegrationRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchDeveloperRows.kt").isFile)
 	}
 
 	@Test
@@ -450,7 +467,7 @@ class ReaderRuntimeAssetsTest {
 	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(hostText, "view.keepScreenOn = settings.keepScreenOn == true")
 		assertContains(ebooksSettingsText, "readerKeepScreenOn")

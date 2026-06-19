@@ -14,7 +14,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val literata = root.resolve("fonts/navic-literata-regular.ttf")
 		val atkinson = root.resolve("fonts/navic-atkinson-hyperlegible-regular.otf")
 		val openDyslexic = root.resolve("fonts/navic-opendyslexic-regular.otf")
@@ -57,7 +57,7 @@ class ReaderRuntimeCommonChromeTest {
 		val contentOverlayText = readerCommonUiFile("ReaderContentOverlay.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(readerRootText, "KomikkuReaderContentOverlay")
 		assertContains(readerRootText, "Modifier.matchParentSize()")
@@ -76,7 +76,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -119,7 +119,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -146,7 +146,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_FULL_SENSOR")
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_SENSOR_PORTRAIT")
@@ -169,7 +169,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(readerScreenText, "onPreviewKeyEvent")
 		assertContains(readerScreenText, "Key.VolumeUp")
@@ -738,7 +738,7 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")

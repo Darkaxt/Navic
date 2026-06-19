@@ -26,7 +26,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun commonReaderParagraphSpacingControlsUseReadableDefaultFallback() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(settingsDialogText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
 		assertContains(ebooksSettingsText, "settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent")
@@ -282,7 +282,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerFlowMode(settings)")
 		assertContains(bridgeText, "ReaderFlowPagedVertical")
@@ -337,7 +337,7 @@ class ReaderRuntimeNavigationFlowTest {
 		val bridgeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerDirectionMode(settings)")
 		assertContains(bridgeText, "applyReaderDirection")

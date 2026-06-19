@@ -13,7 +13,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesKomikkuStyleTapZonePresets() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerTapZoneMode")
 		assertContains(bridgeText, "KomikkuNavigationRegionMenu")
@@ -209,7 +209,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val runtimeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
@@ -233,7 +233,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
@@ -270,7 +270,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		).firstOrNull { it.isFile }
 		val readerScreenText = readerScreenFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
@@ -296,7 +296,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesExpandedThemePalettes() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "ReaderThemePalettes")
 		assertContains(bridgeText, "sepia: {")
@@ -312,7 +312,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesParagraphSpacingAndPublisherStyleControls() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerParagraphSpacingEm")
 		assertContains(bridgeText, "--reader-paragraph-spacing")

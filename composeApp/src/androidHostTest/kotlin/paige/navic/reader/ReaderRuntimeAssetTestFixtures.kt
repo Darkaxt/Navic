@@ -65,6 +65,19 @@ internal fun settingsFile(fileName: String): File =
 	).firstOrNull { it.isFile }
 		?: error("Could not locate settings file $fileName")
 
+internal fun settingsSearchSourceText(): String {
+	val settingsDir = listOf(
+		File("src/commonMain/kotlin/paige/navic/ui/screens/settings"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings")
+	).firstOrNull { it.isDirectory }
+		?: error("Could not locate common settings source directory")
+	return settingsDir
+		.listFiles { file -> file.isFile && file.name.startsWith("SettingsSearch") && file.extension == "kt" }
+		.orEmpty()
+		.sortedBy { it.name }
+		.joinToString(separator = "\n") { it.readText() }
+}
+
 internal fun readerScreenFile(): File =
 	listOf(
 		File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"),
