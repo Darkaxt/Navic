@@ -9,6 +9,7 @@ import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.LidaClipDownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SyncManager
 
@@ -25,5 +26,6 @@ val managerModule = module {
 	singleOf(::LidaClipDownloadManager)
 	singleOf(::SessionManager)
 	singleOf(::PreferenceManager)
+	singleOf(::SnackBarManager)
 	single(createdAtStart = true) { AppLogManager(get()) }
 }

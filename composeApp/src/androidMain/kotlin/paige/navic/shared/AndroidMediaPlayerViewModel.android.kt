@@ -47,6 +47,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
+import coil3.imageLoader
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -77,6 +78,7 @@ import paige.navic.domain.manager.PlaybackOriginCredit
 import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AudioPlaybackOwner
@@ -129,7 +131,6 @@ import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
@@ -137,6 +138,7 @@ import java.io.File
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import coil3.PlatformContext as CoilPlatformContext
 
 private const val PlaybackOriginCheckpointIntervalMs = 30_000L
 
@@ -149,11 +151,13 @@ class AndroidMediaPlayerViewModel(
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
+	private val platformContext: CoilPlatformContext,
 	private val songRepository: SongRepository,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val snackBarManager: SnackBarManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
@@ -809,7 +813,7 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override fun addToQueueSingle(song: DomainSong) {
+	override fun addToQueueSingle(song: DomainSong, notify: Boolean) {
 		viewModelScope.launch {
 			val player = controller
 			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
@@ -822,29 +826,34 @@ class AndroidMediaPlayerViewModel(
 				)
 			}
 			player?.let(::playPendingIndexIfAvailable)
+			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
 
-	override fun addToQueue(collection: DomainSongCollection) {
+	override fun addToQueue(collection: DomainSongCollection, notify: Boolean) {
+		val songs = if (collection is DomainAlbum) {
+			collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
+		} else {
+			collection.songs
+		}
+		addToQueue(songs, notify)
+	}
+
+	override fun addToQueue(songs: List<DomainSong>, notify: Boolean) {
 		viewModelScope.launch {
-			val (items, newCollection) = withContext(Dispatchers.Default) {
-				val newCollection = if (collection is DomainAlbum) collection.songs.sortedWith(compareBy(
-					{ it.discNumber },
-					{ it.trackNumber }
-				)) else collection.songs
-				newCollection.map { it.toMediaItem() } to newCollection
-			}
+			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 			val player = controller
 			player?.addMediaItems(items)
 			_uiState.update { state ->
-				val newQueue = state.queue + newCollection
+				val newQueue = state.queue + songs
 				state.copy(
 					queue = newQueue,
 					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
+					currentSong = if (state.currentIndex == -1) songs.firstOrNull() else state.currentSong
 				)
 			}
 			player?.let(::playPendingIndexIfAvailable)
+			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
 
@@ -1041,6 +1050,7 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) song else state.currentSong
 				)
 			}
+			snackBarManager.notifyPlayNext()
 		}
 	}
 
@@ -1068,6 +1078,7 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 				)
 			}
+			snackBarManager.notifyPlayNext()
 		}
 	}
 
@@ -1452,14 +1463,32 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun DomainSong.toMediaItem(): MediaItem {
-		val metadata = MediaMetadata.Builder()
+		val metadataBuilder = MediaMetadata.Builder()
 			.setTitle(title)
+			.setSubtitle(artistName)
 			.setArtist(artistName)
 			.setAlbumTitle(albumTitle)
-			.setArtworkUri(
+			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+
+		val artworkData = coverArtId?.let { coverId ->
+			val snapshot = platformContext.imageLoader.diskCache?.openSnapshot(coverId) ?: return@let null
+			try {
+				snapshot.use { it.data.toFile().readBytes() }
+			} catch (error: Exception) {
+				Logger.w("MediaPlayer", "Could not read cached artwork data", error)
+				null
+			}
+		}
+
+		if (artworkData != null) {
+			metadataBuilder.setArtworkData(artworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+		} else {
+			metadataBuilder.setArtworkUri(
 				coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
 			)
-			.build()
+		}
+
+		val metadata = metadataBuilder.build()
 
 		val uri = when {
 			id.startsWith(AurralFlowSongIdPrefix) && !filePath.isNullOrEmpty() -> {

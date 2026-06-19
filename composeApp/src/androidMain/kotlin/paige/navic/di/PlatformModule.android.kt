@@ -65,11 +65,13 @@ actual val platformModule = module {
 			downloadManager = get(),
 			connectivityManager = get(),
 			sessionManager = get(),
+			platformContext = get(),
 			songRepository = get(),
 			musicBrainzArtworkRepository = get(),
 			playbackOriginRepository = get(),
 			audioPlaybackArbitrator = get(),
-			preferenceManager = get()
+			preferenceManager = get(),
+			snackBarManager = get()
 		)
 	}
 

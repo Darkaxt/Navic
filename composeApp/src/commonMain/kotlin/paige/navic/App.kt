@@ -19,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -28,6 +27,7 @@ import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy.C
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,16 +50,20 @@ import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
 import androidx.savedstate.serialization.SavedStateConfiguration
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
+import org.jetbrains.compose.resources.getString
 import org.koin.compose.koinInject
 import paige.navic.di.InstallSingletonImageLoaderFactory
 import paige.navic.domain.manager.BottomBarScrollManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.dialogs.SideloadingDialog
+import paige.navic.ui.components.snackbars.NavicSnackbar
 import paige.navic.ui.components.common.ShakeToSkipEffect
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.components.sheets.shouldRunUpdateCheck
@@ -157,6 +161,7 @@ fun App(initialScreenOverride: Screen? = null) {
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
+	val snackBarManager = koinInject<SnackBarManager>()
 	val backStack = rememberNavBackStack(
 		config, initialScreenOverride ?: if (isLoggedIn) {
 			Screen.Library()
@@ -166,6 +171,13 @@ fun App(initialScreenOverride: Screen? = null) {
 	)
 	val snackbarState = remember { SnackbarHostState() }
 	var forceUpdateCheckRequests by remember { mutableIntStateOf(0) }
+
+	LaunchedEffect(snackBarManager) {
+		snackBarManager.events.collectLatest { event ->
+			snackbarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
+		}
+	}
+
 	val density = LocalDensity.current
 	val layoutDirection = LocalLayoutDirection.current
 	val scrollManager = remember {
@@ -193,10 +205,7 @@ fun App(initialScreenOverride: Screen? = null) {
 					modifier = Modifier.nestedScroll(scrollManager.connection),
 					snackbarHost = {
 						SnackbarHost(hostState = snackbarState) { snackbarData ->
-							Snackbar(
-								snackbarData = snackbarData,
-								shape = MaterialTheme.shapes.large
-							)
+							NavicSnackbar(snackbarData = snackbarData)
 						}
 					}
 				) { contentPadding ->
