@@ -3300,3 +3300,33 @@ Remaining:
 
 - This is dirty readerdev emulator evidence, not a packaged GitHub release claim.
 - Physical Tab S9 Ultra validation should still repeat the exact Hobbit page after a release build containing this fix is installed.
+
+## 2026-06-19 Release Candidate: v1.0.11-eta76
+
+Trigger:
+
+- Publish the reader font-size fix because it is a major visible reader-control bug: publisher-styled body text did not scale with the Font size controller.
+- Include the Android/WebView `font-size-publisher-styles` probe that proved the old runtime failed and the current dirty readerdev runtime passed.
+
+Commands and release flow:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta76
+git tag v1.0.11-eta76
+gh api repos/Darkaxt/Navic/git/refs -f ref=refs/tags/v1.0.11-eta76 -f sha=15c473ce6b13388157e60948f584241e90b0208d
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-eta76 -Repo Darkaxt/Navic -Remote fork -Branch master -RunId 27811392478 -SkipPush -Background
+```
+
+Result:
+
+- PASS: Android release workflow run `27811392478` completed successfully.
+- PASS: `Build Android APK` completed successfully, including release Gradle build, release APK signing verification, and APK artifact upload.
+- PASS: iOS jobs were skipped.
+- PASS: GitHub release was published: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta76`.
+- PASS: Android asset was uploaded: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta76/Navic.apk`.
+- APK digest from GitHub release metadata: `sha256:61684c844ab121aa3e1f4804fed7e62ae44e7e8614c53bd246832560c999bdc7`.
+
+Remaining:
+
+- Physical Tab S9 Ultra validation is still required on the exact Hobbit page and settings that exposed the font-size issue.
+- If the body text still fails to scale on the physical release build, collect a computed-style sample from the release WebView with Publisher styles enabled.
