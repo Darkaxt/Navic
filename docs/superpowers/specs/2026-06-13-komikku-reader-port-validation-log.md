@@ -3973,3 +3973,41 @@ Results:
 
 Remaining:
 - This is diagnostic plumbing, not proof that Note Save works on a physical/release APK. The next runtime validation should look for `Reader selection note save length=...` followed by `applyHighlights(count=..., notes=1)` and `annotationDrawn(...)`.
+
+## 2026-06-19 Bindery-Safe Probe: Current Chapter Rail Endpoints
+
+Scope:
+- User warned Bindery may be unavailable due to server maintenance.
+- Did not relaunch, reseed, download, or open OPDS flows.
+- Used the already-foreground `readerdev` activity and the already-loaded WebView only.
+
+Initial evidence:
+- `relocation-payload` passed on the loaded readerdev WebView.
+- `page-box` passed and confirmed the renderer/view still occupied the full `1232x1974` CSS px viewport.
+- The older broad `chapter-progress-endpoints` probe did not return while scanning candidate spine hrefs. The reader UI stayed alive, so this was treated as a validation-tooling failure, not as proof of a reader endpoint regression.
+
+Fix:
+- Added `chapter-progress-current-endpoints`, a narrower DevTools probe that validates only the currently loaded chapter href from `diagnosticLocationSnapshot`.
+- Added the probe to `adb-reader-smoke.ps1` so the documented smoke workflow can run it without scanning the whole spine.
+- Added a host guard to ensure the current-chapter probe exists and does not call `Array.from(view?.book?.sections || [])`.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeCurrentChapterProgressEndpointsWithoutSpineScan
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe chapter-progress-current-endpoints --local-port 9264
+```
+
+Results:
+- RED: the host guard failed before the probe existed.
+- GREEN: host guard passed after adding the probe and smoke-script wiring.
+- PASS: `chapter-progress-current-endpoints` passed on the already-loaded readerdev WebView.
+- PASS: current chapter href `OEBPS/Text/Chapter-37.xhtml` resolved endpoint 0 to `chapterPageIndex=0`, `chapterPageCount=45`.
+- PASS: the same chapter resolved endpoint 1 to `chapterPageIndex=44`, `chapterPageCount=45`.
+- PASS: global pagination profile remained stable at `paginationProfilePageCount=388`, `paginationProfileObservedChapterCount=64`.
+
+Interpretation:
+- Current-chapter rail endpoints are now validated in a Bindery-safe emulator flow.
+- This does not replace physical/release validation for the original user-reported rail issues, but it gives a reliable probe that can be used when the reader is already loaded and the server is unavailable.
+- The broad `chapter-progress-endpoints` probe should not be used as the first diagnostic while Bindery is unstable or when the current requirement is to validate the loaded chapter only.

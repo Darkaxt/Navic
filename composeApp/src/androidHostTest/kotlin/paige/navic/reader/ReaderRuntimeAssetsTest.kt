@@ -456,6 +456,28 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanProbeCurrentChapterProgressEndpointsWithoutSpineScan() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val currentChapterProgressProbe = helperText
+			.substringAfter("async function runCurrentChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function runPageBoxProbe(page)")
+
+		assertContains(scriptText, "chapter-progress-current-endpoints")
+		assertContains(helperText, "'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe")
+		assertContains(currentChapterProgressProbe, "probe: 'chapter-progress-current-endpoints'")
+		assertContains(currentChapterProgressProbe, "initialLocation.href")
+		assertContains(currentChapterProgressProbe, "endpoint(href, 0)")
+		assertContains(currentChapterProgressProbe, "endpoint(href, 1)")
+		assertContains(currentChapterProgressProbe, "chapterPageIndex")
+		assertContains(currentChapterProgressProbe, "chapterPageCount")
+		assertFalse(
+			currentChapterProgressProbe.contains("Array.from(view?.book?.sections || [])"),
+			"Current-chapter endpoint probing must not scan the whole spine; invalid section targets can leave the DevTools evaluation pending."
+		)
+	}
+
+	@Test
 	fun adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val postProbeGestureBlock = scriptText
