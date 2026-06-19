@@ -4111,3 +4111,45 @@ Interpretation:
 - The current loaded emulator page has an active chapter-opening margin cap, and the renderer/page box is occupying the visible viewport.
 - The remaining Tab S9 Ultra visual complaint is not closed. The blank-space source may be the publisher chapter-opening structure, heading block height, image/heading composition, or a device-specific viewport/settings combination.
 - Future investigation should use this probe on the exact problematic device/page before changing CSS. A generic margin tweak would be guesswork without identifying which element creates the visible gap.
+
+## 2026-06-19 Bindery-Safe Runtime Probe: Annotation Note Round Trip and Blank Endpoint Observation
+
+Scope:
+- User warned Bindery may be unavailable due to server maintenance.
+- Did not relaunch, reseed, download, open OPDS flows, or depend on server-backed state.
+- Used the already-running `readerdev` WebView only.
+- Targeted the user question about Highlight/Note visibility and how notes can later be opened.
+
+Change:
+- Added a DevTools probe named `annotation-roundtrip` to `tools/reader-harness/src/adb-webview-eval.mjs`.
+- The probe dispatches the real `applyHighlights` bridge command with a note-bearing annotation, instruments Foliate `addAnnotation`, and verifies the runtime `draw-annotation` and `show-annotation` bridge path.
+- Added the probe to `scripts/adb-reader-smoke.ps1`.
+- Added a host guard in `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeAnnotationNoteRoundTrip`.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeAnnotationNoteRoundTrip
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --local-port 9235 --probe annotation-roundtrip
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe annotation-roundtrip -ArtifactDir captures\reader-bridge-probes\20260619-annotation-roundtrip
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --local-port 9236 --probe page-box
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --local-port 9237 --probe chapter-progress-current-endpoints
+```
+
+Results:
+- RED: the host guard failed before the `annotation-roundtrip` probe existed.
+- GREEN: the focused host guard passed after adding the probe.
+- PASS: JS syntax check passed for `tools/reader-harness/src/adb-webview-eval.mjs`.
+- PASS: live `annotation-roundtrip` probe on eta76 readerdev captured `addAnnotation` with `note="Navic annotation roundtrip note"` and `value="epubcfi(/6/8!/4/2:12)"`.
+- PASS: the runtime drew a note marker with `data-navic-note-annotation=true`, SVG tag `g`, and two child layers.
+- PASS: the runtime emitted both `annotationDrawn` and `annotationClick` through the bridge.
+- PASS: the smoke wrapper accepted and ran `-ReaderDevtoolsProbe annotation-roundtrip`.
+- NOTE: the probe intentionally opened the native annotation dialog with a synthetic CFI. A screenshot after the probe showed the dialog and it was dismissed manually with ADB.
+- FAIL/OPEN: after the dialog was dismissed, the current emulator page was still a blank texture-only reader page at Chapter 37 page `45/45`.
+- Evidence: `chapter-progress-current-endpoints` reported `href=OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=44`, `chapterPageCount=45`, `chapterProgress=1`, `pageIndex=333`, and `pageCount=388`; the screenshot showed no prose.
+
+Interpretation:
+- Highlight/Note is not just a controller state change: the current runtime path can create a visible note marker and route annotation taps back to the native popup path.
+- The user-facing note UX remains incomplete: there is no persistent notes list or obvious post-save affordance beyond tapping the in-document marker.
+- The blank page is a separate progress/pagination endpoint bug. The current model can land on a terminal chapter page with no visible text. This should be fixed under the existing rail endpoint/pagination-profile work, not as an annotation issue.

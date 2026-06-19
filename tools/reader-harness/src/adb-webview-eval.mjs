@@ -274,6 +274,119 @@ async function runPhase3EventsProbe(page) {
   }})()`)
 }
 
+async function runAnnotationRoundTripProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+
+    const originalAddAnnotation = view.addAnnotation
+    const annotationValue = 'epubcfi(/6/8!/4/2:12)'
+    const noteText = 'Navic annotation roundtrip note'
+    const events = []
+    const diagnostics = {
+      capturedAddAnnotation: null,
+      noteMarkerCreated: false,
+      noteMarkerTagName: null,
+      noteMarkerChildCount: null,
+      clickValue: null,
+      clickIndex: null,
+    }
+
+    try {
+      view.addAnnotation = async (annotation, removeExisting) => {
+        diagnostics.capturedAddAnnotation = {
+          id: annotation?.id || '',
+          value: annotation?.value || '',
+          color: annotation?.color || '',
+          note: annotation?.note || '',
+          removeExisting: removeExisting === true,
+        }
+        view.dispatchEvent(new CustomEvent('draw-annotation', {
+          bubbles: true,
+          detail: {
+            index: 5,
+            value: annotation?.value || '',
+            annotation,
+            range: null,
+            draw(drawer, options) {
+              const node = drawer(
+                [{
+                  left: 2,
+                  top: 4,
+                  right: 42,
+                  bottom: 14,
+                  width: 40,
+                  height: 10,
+                }],
+                options,
+              )
+              diagnostics.noteMarkerCreated =
+                node?.getAttribute?.('data-navic-note-annotation') === 'true' ||
+                node?.querySelector?.('[data-navic-note-annotation]') != null
+              diagnostics.noteMarkerTagName = node?.tagName || null
+              diagnostics.noteMarkerChildCount = node?.childNodes?.length ?? null
+              return node
+            },
+          },
+        }))
+        events.push({ type: 'draw-annotation' })
+
+        view.dispatchEvent(new CustomEvent('show-annotation', {
+          bubbles: true,
+          detail: {
+            index: 5,
+            value: annotation?.value || '',
+            annotation,
+            range: null,
+          },
+        }))
+        diagnostics.clickValue = annotation?.value || ''
+        diagnostics.clickIndex = 5
+        events.push({ type: 'show-annotation' })
+      }
+
+      await window.NavicReaderBridge.dispatch({
+        type: 'applyHighlights',
+        highlights: [{
+          id: 'navic-annotation-roundtrip-probe',
+          cfi: annotationValue,
+          color: '#f4d35e',
+          note: 'Navic annotation roundtrip note',
+        }],
+      })
+    } finally {
+      view.addAnnotation = originalAddAnnotation
+    }
+
+    if (diagnostics.capturedAddAnnotation?.note !== noteText) {
+      throw new Error(`Annotation note was not passed to addAnnotation: ${JSON.stringify(diagnostics.capturedAddAnnotation)}`)
+    }
+    if (diagnostics.capturedAddAnnotation?.value !== annotationValue) {
+      throw new Error(`Annotation CFI was not passed to addAnnotation: ${JSON.stringify(diagnostics.capturedAddAnnotation)}`)
+    }
+    if (!diagnostics.noteMarkerCreated) {
+      throw new Error(`Note marker was not created: ${JSON.stringify(diagnostics)}`)
+    }
+
+    return {
+      probe: 'annotation-roundtrip',
+      events,
+      diagnostics,
+      expectedLogLabels: [
+        'Reader bridge event: annotationDrawn',
+        'Reader bridge event: annotationClick',
+      ],
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runHistoryControlsProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -1133,6 +1246,7 @@ async function main() {
     const probeHandlers = {
       'internal-link-native': runInternalLinkNativeProbe,
       'phase3-events': runPhase3EventsProbe,
+      'annotation-roundtrip': runAnnotationRoundTripProbe,
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,

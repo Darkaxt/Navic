@@ -387,6 +387,25 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanProbeAnnotationNoteRoundTrip() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val annotationProbe = helperText
+			.substringAfter("async function runAnnotationRoundTripProbe(page)")
+			.substringBefore("async function runHistoryControlsProbe(page)")
+
+		assertContains(helperText, "'annotation-roundtrip': runAnnotationRoundTripProbe")
+		assertContains(annotationProbe, "probe: 'annotation-roundtrip'")
+		assertContains(annotationProbe, "type: 'applyHighlights'")
+		assertContains(annotationProbe, "note: 'Navic annotation roundtrip note'")
+		assertContains(annotationProbe, "data-navic-note-annotation")
+		assertContains(annotationProbe, "new CustomEvent('draw-annotation'")
+		assertContains(annotationProbe, "new CustomEvent('show-annotation'")
+		assertContains(annotationProbe, "Reader bridge event: annotationDrawn")
+		assertContains(annotationProbe, "Reader bridge event: annotationClick")
+		assertContains(annotationProbe, "noteMarkerCreated")
+	}
+
+	@Test
 	fun adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val fontSizeProbe = helperText
