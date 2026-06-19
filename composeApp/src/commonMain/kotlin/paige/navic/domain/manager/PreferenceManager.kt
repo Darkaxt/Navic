@@ -311,12 +311,6 @@ class PreferenceManager(
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
 	var showMiniPlayerQueueAction by preference(false)
 
-	/**
-	 * If we have informed the user (on Android) about
-	 * Google locking down sideloading.
-	 */
-	var showedSideloadingWarning by preference(false)
-
 	// theme related settings
 	var theme by preference(Theme.Dynamic)
 	var themeMode by preference(ThemeMode.System)

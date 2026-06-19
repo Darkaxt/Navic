@@ -62,7 +62,6 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.dialogs.SideloadingDialog
 import paige.navic.ui.components.snackbars.NavicSnackbar
 import paige.navic.ui.components.common.ShakeToSkipEffect
 import paige.navic.ui.components.sheets.ChangelogSheet
@@ -255,11 +254,6 @@ fun App(initialScreenOverride: Screen? = null) {
 							)
 						}
 					)
-				}
-				if (!preferenceManager.showedSideloadingWarning
-					&& platformContext.name.lowercase().contains("android")
-				) {
-					SideloadingDialog()
 				}
 				if (shouldRunUpdateCheck(
 						platformName = platformContext.name,

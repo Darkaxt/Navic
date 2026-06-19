@@ -110,10 +110,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
 
-		composeOverlay.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-		composeOverlay.isClickable = false
-		composeOverlay.isFocusable = false
-
 		viewerContainer.setShellCoverView(shellCoverView)
 		readerContainer.addView(
 			viewerContainer,
@@ -126,6 +122,11 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		shellCoverView.isClickable = true
 		shellCoverView.isFocusable = false
 		shellCoverView.visibility = GONE
+		composeOverlay.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+		composeOverlay.isClickable = false
+		composeOverlay.isFocusable = false
+		composeOverlay.elevation = 32f
+		composeOverlay.translationZ = 32f
 
 		addView(
 			readerContainer,
@@ -162,6 +163,12 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 			null
 		}
 		viewerContainer.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+		composeOverlay.bringToFront()
+	}
+
+	fun setComposeOverlay(content: @Composable () -> Unit) {
+		composeOverlay.setContent(content)
+		composeOverlay.bringToFront()
 	}
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
@@ -202,15 +209,11 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		}
 	}
 
-	fun setComposeOverlay(content: @Composable () -> Unit) {
-		composeOverlay.setContent(content)
-	}
-
 	override fun onDetachedFromWindow() {
 		currentViewerComposeView?.disposeComposition()
+		composeOverlay.disposeComposition()
 		currentViewerComposeView = null
 		currentViewerKey = null
-		composeOverlay.disposeComposition()
 		super.onDetachedFromWindow()
 	}
 }

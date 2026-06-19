@@ -72,7 +72,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		}
 		var applied = false
 		var binderySeeded = false
-		preferenceManager.showedSideloadingWarning = true
 		val binderyOpdsUrl = intent.stringExtra(
 			ReaderDevExtraBinderyOpdsUrl,
 			"BINDERY_OPDS_URL",

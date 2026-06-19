@@ -214,10 +214,6 @@
     <string name="info_no_playlists_short">Sem playlists</string>
     <string name="info_lyrics_provider">Letras de %1$s</string>
     <string name="info_image_failed_to_load">Carregamento falhou</string>
-    <string name="sideloading_warning_title">PARE, LEIA!</string>
-    <string name="sideloading_warning_subtitle">A google planeja acabar com sideloading em TODOS os dispositivos com Serviços Google Play instalados.\n</string>
-    <string name="sideloading_warning_description">Embora os detalhes exatos dessa mudança ainda não sejam totalmente conhecidos, isso pode resultar no bloqueio de TODAS as instalações de aplicativos de terceiros, a menos que o autor do aplicativo revele sua identidade ao Google e/ou publicamente.\n\nSe você tem conhecimento suficiente para instalar uma ROM personalizada em seu dispositivo, AGORA É A HORA DE FAZER ISSO.\n\nPor favor leia mais sobre o que você pode fazer e como fazer com que sua voz seja ouvida</string>
-    <string name="sideloading_warning_link_mask">aqui.</string>
     <string name="title_data_storage">Dados e Armazenamento</string>
     <string name="title_update">Atualização disponível</string>
     <string name="title_sort_by">Filtrar por</string>

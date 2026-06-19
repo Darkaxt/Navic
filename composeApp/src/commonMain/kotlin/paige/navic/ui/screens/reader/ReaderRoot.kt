@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +23,9 @@ import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
+
+private const val KomikkuReaderRootTag = "KomikkuReaderRoot"
 
 @Composable
 internal fun KomikkuReaderRoot(
@@ -75,101 +79,125 @@ internal fun KomikkuReaderRoot(
 		onDispose { viewerSlot.dispose() }
 	}
 
-	KomikkuReaderNativeFrameHost(
-		navigator = navigator,
-		navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
-		shellCoverVisible = controllerState.shellCoverVisible,
-		shellCoverUrl = shellCoverUrl,
-		shellCoverTitle = shellCoverTitle,
-		viewerKey = viewer.key,
-		grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
-		invertedColors = controllerState.chrome.settings.invertedColors == true,
-		verticalPageDragPreview = normalizedReaderFlowMode(
-			controllerState.chrome.settings.flowMode,
-			controllerState.chrome.settings.paged
-		) == ReaderFlowPagedVertical,
-		onViewerAction = { action ->
-			onViewerAction(
-				if (controllerState.shellCoverVisible) {
-					readerShellCoverViewerActionFor(action)
-				} else {
-					viewer.viewerActionFor(action)
-				}
-			)
-		},
-		onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
-			onViewerAction(
-				ReaderViewerAction.PreviewPageDrag(
-					deltaX = deltaX.toDouble(),
-					deltaY = deltaY.toDouble(),
-					viewWidth = width.toDouble(),
-					viewHeight = height.toDouble(),
-					phase = phase
-				)
-			)
-		},
-		onContentLongPress = { x, y, width, height ->
-			onViewerAction(
-				ReaderViewerAction.ContentLongPressAt(
-					x = x.toDouble(),
-					y = y.toDouble(),
-					viewWidth = width.toDouble(),
-					viewHeight = height.toDouble()
-				)
-			)
-		},
-		modifier = modifier,
-		viewerContent = {
-			ReaderViewerHost(
-				readerTitle = reader.title,
-				controllerState = controllerState,
-				engineRenderer = viewer.engineRenderer,
-				onEngineHostEvent = onEngineHostEvent,
-				modifier = Modifier.fillMaxSize()
-			)
-		},
-		composeOverlay = {
-			KomikkuComposeOverlay(
-				reader = reader,
-				controllerState = controllerState,
-				onPreviousChapter = onPreviousChapter,
-				onNextChapter = onNextChapter,
-				onGoToChapterPage = onGoToChapterPage,
-				onHistoryBack = onHistoryBack,
-				onHistoryForward = onHistoryForward,
-				onDismissHistory = onDismissHistory,
-				onContents = onContents,
-				onSearch = onSearch,
-				onSearchQuery = onSearchQuery,
-				onNavigateToSearchResult = onNavigateToSearchResult,
-				onDismissSearch = onDismissSearch,
-				onNavigateBack = onNavigateBack,
-				onSettings = onSettings,
-				onShowMenus = onShowMenus,
-				onHideMenus = onHideMenus,
-				settingsScope = settingsScope,
-				hasBookSettings = hasBookSettings,
-				publicationFormat = publicationFormat,
-				onNavigateToTocItem = onNavigateToTocItem,
-				onToggleCurrentBookmark = onToggleCurrentBookmark,
-				onHighlightSelection = onHighlightSelection,
-				onCopySelection = onCopySelection,
-				onStartSelectionNote = onStartSelectionNote,
-				onSaveSelectionNote = onSaveSelectionNote,
-				onDismissSelectionNote = onDismissSelectionNote,
-				onDismissAnnotationPopup = onDismissAnnotationPopup,
-				onDismissFootnotePopup = onDismissFootnotePopup,
-				onOpenExternalLink = onOpenExternalLink,
-				onDismissExternalLinkPrompt = onDismissExternalLinkPrompt,
-				onSettingsChange = onSettingsChange,
-				onSettingsScopeChange = onSettingsScopeChange,
-				onResetBookSettings = onResetBookSettings,
-				onDismissDialog = onDismissDialog,
-				modifier = Modifier.fillMaxSize()
+	Box(modifier = modifier.fillMaxSize()) {
+		val overlayVisible = controllerState.hasVisibleReaderOverlay()
+		SideEffect {
+			Logger.i(
+				KomikkuReaderRootTag,
+				"Reader chrome overlay visible=$overlayVisible menu=${controllerState.menuVisible} " +
+					"shellCover=${controllerState.shellCoverVisible} dialog=${controllerState.dialog}"
 			)
 		}
-	)
+		KomikkuReaderNativeFrameHost(
+			navigator = navigator,
+			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
+			shellCoverVisible = controllerState.shellCoverVisible,
+			shellCoverUrl = shellCoverUrl,
+			shellCoverTitle = shellCoverTitle,
+			viewerKey = viewer.key,
+			grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
+			invertedColors = controllerState.chrome.settings.invertedColors == true,
+			verticalPageDragPreview = normalizedReaderFlowMode(
+				controllerState.chrome.settings.flowMode,
+				controllerState.chrome.settings.paged
+			) == ReaderFlowPagedVertical,
+			onViewerAction = { action ->
+				onViewerAction(
+					if (controllerState.shellCoverVisible) {
+						readerShellCoverViewerActionFor(action)
+					} else {
+						viewer.viewerActionFor(action)
+					}
+				)
+			},
+			onReadableDragPreview = { deltaX, deltaY, width, height, phase ->
+				onViewerAction(
+					ReaderViewerAction.PreviewPageDrag(
+						deltaX = deltaX.toDouble(),
+						deltaY = deltaY.toDouble(),
+						viewWidth = width.toDouble(),
+						viewHeight = height.toDouble(),
+						phase = phase
+					)
+				)
+			},
+			onContentLongPress = { x, y, width, height ->
+				onViewerAction(
+					ReaderViewerAction.ContentLongPressAt(
+						x = x.toDouble(),
+						y = y.toDouble(),
+						viewWidth = width.toDouble(),
+						viewHeight = height.toDouble()
+					)
+				)
+			},
+			modifier = Modifier.matchParentSize(),
+			viewerContent = {
+				ReaderViewerHost(
+					readerTitle = reader.title,
+					controllerState = controllerState,
+					engineRenderer = viewer.engineRenderer,
+					onEngineHostEvent = onEngineHostEvent,
+					modifier = Modifier.fillMaxSize()
+				)
+			},
+			composeOverlay = {
+				if (overlayVisible) {
+					KomikkuComposeOverlay(
+						reader = reader,
+						controllerState = controllerState,
+						onPreviousChapter = onPreviousChapter,
+						onNextChapter = onNextChapter,
+						onGoToChapterPage = onGoToChapterPage,
+						onHistoryBack = onHistoryBack,
+						onHistoryForward = onHistoryForward,
+						onDismissHistory = onDismissHistory,
+						onContents = onContents,
+						onSearch = onSearch,
+						onSearchQuery = onSearchQuery,
+						onNavigateToSearchResult = onNavigateToSearchResult,
+						onDismissSearch = onDismissSearch,
+						onNavigateBack = onNavigateBack,
+						onSettings = onSettings,
+						onShowMenus = onShowMenus,
+						onHideMenus = onHideMenus,
+						settingsScope = settingsScope,
+						hasBookSettings = hasBookSettings,
+						publicationFormat = publicationFormat,
+						onNavigateToTocItem = onNavigateToTocItem,
+						onToggleCurrentBookmark = onToggleCurrentBookmark,
+						onHighlightSelection = onHighlightSelection,
+						onCopySelection = onCopySelection,
+						onStartSelectionNote = onStartSelectionNote,
+						onSaveSelectionNote = onSaveSelectionNote,
+						onDismissSelectionNote = onDismissSelectionNote,
+						onDismissAnnotationPopup = onDismissAnnotationPopup,
+						onDismissFootnotePopup = onDismissFootnotePopup,
+						onOpenExternalLink = onOpenExternalLink,
+						onDismissExternalLinkPrompt = onDismissExternalLinkPrompt,
+						onSettingsChange = onSettingsChange,
+						onSettingsScopeChange = onSettingsScopeChange,
+						onResetBookSettings = onResetBookSettings,
+						onDismissDialog = onDismissDialog,
+						modifier = Modifier.matchParentSize()
+					)
+				}
+			}
+		)
+	}
 }
+
+private fun ReaderControllerState.hasVisibleReaderOverlay(): Boolean =
+	menuVisible ||
+		dialog != null ||
+		selectionActions.visible ||
+		selectionNoteDraft != null ||
+		annotationPopup != null ||
+		footnotePopup != null ||
+		externalLinkPrompt != null ||
+		engineNavigation.visible ||
+		paginationProfile.status == "measuring" ||
+		paginationProfile.status == "failed"
 
 private fun shellCoverTitleFor(
 	reader: Screen.Reader,

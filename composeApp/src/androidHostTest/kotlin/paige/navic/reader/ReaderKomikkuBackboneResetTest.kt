@@ -513,12 +513,23 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(androidText.contains("navigationOverlay.isClickable = false"))
 		assertTrue(androidText.contains("navigationOverlay.isFocusable = false"))
 		assertTrue(
-			androidText.contains("composeOverlay.isClickable = false"),
-			"The full-window Compose overlay must stay passive at the Android view level; visible chrome children own their own clicks."
+			readerRootText.contains("Box(modifier = modifier.fillMaxSize())") &&
+				readerRootText.indexOf("KomikkuReaderNativeFrameHost(") <
+				readerRootText.indexOf("composeOverlay = {"),
+			"The common reader shell must render through the native frame so Android can layer chrome above WebView/cover surfaces."
 		)
 		assertTrue(
-			androidText.contains("composeOverlay.isFocusable = false"),
-			"The full-window Compose overlay must not become the focus owner above the native viewer container."
+			readerRootText.contains("composeOverlay = {") &&
+				readerRootText.contains("if (overlayVisible)") &&
+				readerRootText.contains("KomikkuComposeOverlay(") &&
+				readerRootText.contains("controllerState.hasVisibleReaderOverlay()"),
+			"The native frame must receive the real Komikku chrome overlay and only render it when controller state requires it."
+		)
+		assertTrue(
+			androidText.contains("private val composeOverlay = ComposeView(context)") &&
+				androidText.contains("fun setComposeOverlay(") &&
+				androidText.contains("composeOverlay.bringToFront()"),
+			"The Android frame host must own the visible chrome overlay as the top native child above the WebView and shell cover."
 		)
 		assertTrue(androidText.contains("super.dispatchTouchEvent(event)"))
 		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
@@ -1671,7 +1682,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		val swapBody = androidHostText
 			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
-			.substringBefore("fun setComposeOverlay")
+			.substringBefore("override fun onDetachedFromWindow()")
 
 		assertTrue(
 			swapBody.contains("currentViewerComposeView?.disposeComposition()") &&
@@ -1683,7 +1694,7 @@ class ReaderKomikkuBackboneResetTest {
 			androidHostText.contains("override fun onDetachedFromWindow()") &&
 				androidHostText.contains("currentViewerComposeView?.disposeComposition()") &&
 				androidHostText.contains("composeOverlay.disposeComposition()"),
-			"Android native frame must dispose active viewer and overlay compositions when the root leaves the window."
+			"Android native frame must dispose both the active viewer composition and the native top chrome overlay composition."
 		)
 	}
 

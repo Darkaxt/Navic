@@ -3577,3 +3577,152 @@ Artifacts:
 Conclusion:
 - The readerdev start-progress hook is runtime-proven on emulator for a deterministic progress launch into the EPUB WebView.
 - The P0 resume issue remains open until the same infrastructure is used to validate interrupted drag/app-kill restore behavior.
+
+## 2026-06-19 Native Top Chrome Overlay Runtime Check
+
+Scope:
+- Fix and validate the regression where center tap reached the native reader controller but did not render the Komikku chrome over the EPUB shell cover.
+- Remove the global `STOP, READ!` sideloading dialog mount from the app shell.
+
+Root cause:
+- ADB logs showed the native tap handler and controller state were correct:
+  `Reader native tap action=MENU`, then `menuVisible=false->true`.
+- `ReaderRoot` also recomposed with `Reader chrome overlay visible=true`.
+- The previous common Compose sibling/Popup overlay did not appear in screenshots or UI hierarchy above the Android reader surface.
+- The working fix is to let the Android native frame host own a top `ComposeView` child above the WebView/shell-cover frame and feed it the real `KomikkuComposeOverlay` content.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Launch command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 `
+  -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env `
+  -Package darkaxt.navic.readerdev `
+  -DeviceSerial emulator-5554 `
+  -RequireReaderLaunch `
+  -StartProgress 0.37
+```
+
+Verification:
+- PASS: `ReaderKomikkuBackboneResetTest` passed with the new native-overlay contract.
+- PASS: focused `ReaderRuntimeCommonChromeTest`, `ReaderControllerTest`, and `ReaderCoordinatorTest` passed.
+- PASS: `git diff --check` passed.
+- PASS: readerdev installed and launched with `Reader publication ready`.
+- PASS: center tap on shell cover logged `Reader native tap action=MENU`, `menuVisible=false->true`, and `Reader chrome overlay visible=true`.
+- PASS: UI hierarchy after center tap contained the top chrome nodes: `Back`, `A Memory of Light`, `Cover`, and `Bookmark`.
+- PASS: screenshot after center tap visibly showed the top Komikku chrome over the shell cover.
+- PASS: second center tap logged `menuVisible=true->false` and screenshot showed the cover without chrome, proving the top overlay did not trap the center tap.
+- PASS: no `STOP, READ!` dialog appeared during readerdev launch.
+- PASS: `SideloadingDialog.kt`, `showedSideloadingWarning`, the readerdev bypass assignment, and all `sideloading_warning_*` resource keys were removed.
+
+Artifacts:
+- `tmp\reader-overlay-native-host\center-tap.png`
+- `tmp\reader-overlay-native-host\center-tap-hide.png`
+- `tmp\reader-overlay-native-host\reader-native-overlay.xml`
+
+Remaining:
+- This validates shell-cover center tap show/hide on emulator. Physical phone release-package validation is still required before calling it user-accepted.
+- There are no runtime code paths or resource keys left for the sideloading warning; remaining source hits are negative guard assertions only.
+
+## 2026-06-19 Native Top Chrome Overlay on Normal EPUB Text Page
+
+Scope:
+- Validate that the native top chrome overlay is not only visible over the shell cover, but also above the actual EPUB WebView/text surface.
+- Validate that the native overlay does not trap input after it appears; the next center tap must hide the menu.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Prior launch: same readerdev install from the native top chrome overlay check.
+
+Steps:
+- Started from the shell cover state proven in the previous section.
+- Swiped from cover into the EPUB content.
+- Waited for the page to settle on a normal text page.
+- Center-tapped the text page at `924,1480`.
+- Captured logs, screenshot, and UI hierarchy.
+- Center-tapped the same point again.
+- Captured logs, screenshot, and UI hierarchy.
+
+Results:
+- PASS: cover swipe committed into EPUB content with `Reader shell cover command action=Right`, then `Reader viewer action=TurnPage(direction=Next)`, `shellCover=true->false`.
+- PASS: settled screenshot showed a normal EPUB text page at `148 / 388`.
+- PASS: first center tap on the text page logged `Reader native tap action=MENU`, then `Reader viewer action=Menu menuVisible=false->true shellCover=false->false`.
+- PASS: the WebView emitted `selectionCleared()` before the native tap, but it did not suppress native menu handling.
+- PASS: `ReaderRoot` logged `Reader chrome overlay visible=true menu=true shellCover=false dialog=null`.
+- PASS: screenshot showed Komikku top chrome, right progress rail, and bottom controls above the rendered text page.
+- PASS: UI hierarchy contained `Back`, `A Memory of Light`, `15. Your Neck in a Cord`, `Bookmark`, `Previous chapter`, `Chapter page slider`, and bottom bar nodes.
+- PASS: second center tap logged `Reader native tap action=MENU`, then `Reader viewer action=Menu menuVisible=true->false shellCover=false->false`.
+- PASS: `ReaderRoot` logged `Reader chrome overlay visible=false menu=false shellCover=false dialog=null`.
+- PASS: screenshot after the second tap showed the EPUB text page without chrome, proving the native overlay does not trap the next center tap.
+
+Artifacts:
+- `tmp\reader-overlay-text-page\after-cover-swipe-settled.png`
+- `tmp\reader-overlay-text-page\text-center-tap-show.png`
+- `tmp\reader-overlay-text-page\reader-text-overlay.xml`
+- `tmp\reader-overlay-text-page\text-center-tap-hide.png`
+- `tmp\reader-overlay-text-page\reader-text-overlay-hide.xml`
+
+Remaining:
+- This is emulator readerdev evidence. It still needs a physical/release candidate check before being treated as the user-facing fix.
+- Image-page center tap behavior is tracked in the next section.
+
+## 2026-06-19 Native Top Chrome Overlay on EPUB Image Page
+
+Scope:
+- Validate the reported image-page regression: a short tap on an EPUB image must route through the native tap-zone controller and show/hide menu chrome.
+- It must not advance the page, skip the image page, or let the WebView image handler consume the short tap.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- EPUB: `A Memory of Light`
+- Section: `OEBPS/Text/Chapter-15.xhtml`
+
+Harness support:
+- Added read-only DevTools probe `image-hit-targets` to `tools\reader-harness\src\adb-webview-eval.mjs`.
+- The probe reports loaded image/media element bounds in native root coordinates, so ADB taps can target real image pixels instead of guessed screen positions.
+
+Steps:
+- From the previously validated normal text page, probed image targets:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --local-port 9234 --probe image-hit-targets
+```
+
+- The first probe found one image in the current content document, but off-screen to the left.
+- Navigated backward/forward using native tap zones until the image target became visible.
+- The visible target was:
+  - `tagName=IMG`
+  - `rootX=616`
+  - `rootY=374`
+  - `rootLeft=518`
+  - `rootTop=255`
+  - `width=197`
+  - `height=237`
+- Short-tapped the image center at `616,374`.
+- Captured logs, screenshot, relocation payload, and image-hit probe output.
+- Short-tapped the same image coordinate again to hide the chrome.
+- Captured logs, screenshot, and relocation payload.
+
+Results:
+- PASS: first short tap on the visible image logged `Reader native tap action=MENU x=616.0 y=374.00098`, then `Reader viewer action=Menu menuVisible=false->true shellCover=false->false`.
+- PASS: WebView emitted `selectionCleared()` before the native tap, but no `readerContentTapHandled` or image-claim event appeared; the image handler did not consume the short tap.
+- PASS: `ReaderRoot` logged `Reader chrome overlay visible=true menu=true shellCover=false dialog=null`.
+- PASS: screenshot showed top chrome, bottom controls, and right rail above the image page.
+- PASS: relocation after the first tap remained on `pageIndex=144`, `chapterPageIndex=0`, `chapterPageCount=9`, so the short tap did not advance or skip the image page.
+- PASS: `image-hit-targets` after the first tap still reported the same visible image target at `rootX=616`, `rootY=374`.
+- PASS: second short tap on the same image coordinate logged `Reader native tap action=MENU`, then `Reader viewer action=Menu menuVisible=true->false shellCover=false->false`.
+- PASS: `ReaderRoot` logged `Reader chrome overlay visible=false menu=false shellCover=false dialog=null`.
+- PASS: screenshot after the second tap showed the same image page without chrome.
+- PASS: relocation after the second tap still remained on `pageIndex=144`.
+
+Artifacts:
+- `tmp\reader-overlay-image-page\image-short-tap.png`
+- `tmp\reader-overlay-image-page\image-short-tap-hide.png`
+
+Remaining:
+- This validates image-page short-tap behavior on emulator readerdev. It still needs physical/release package confirmation before closing the user-facing bug.
+- Long-press image behavior and sepia overlay toggling were not validated in this section.

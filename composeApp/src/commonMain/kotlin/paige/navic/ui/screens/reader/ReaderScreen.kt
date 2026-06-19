@@ -298,7 +298,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 		hasBookSettings = hasReaderBookSettings,
 		publicationFormat = reader.publicationFormat,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
-		onViewerAction = { action -> applyCoordinatorStep(coordinator.onViewerAction(action)) },
+		onViewerAction = { action ->
+			val beforeMenuVisible = coordinator.controller.state.menuVisible
+			val step = coordinator.onViewerAction(action)
+			Logger.i(
+				ReaderScreenTag,
+				"Reader viewer action=$action menuVisible=$beforeMenuVisible->${step.coordinator.controller.state.menuVisible} " +
+					"shellCover=${coordinator.controller.state.shellCoverVisible}->${step.coordinator.controller.state.shellCoverVisible}"
+			)
+			applyCoordinatorStep(step)
+		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.navigateToPreviousChapter())
 		},

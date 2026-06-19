@@ -21,6 +21,12 @@ class ReaderDevEnvironmentContractTest {
 		val androidBuild = root.resolve("androidApp/build.gradle.kts").readText()
 		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
 		val app = root.resolve("composeApp/src/commonMain/kotlin/paige/navic/App.kt").readText()
+		val preferenceManager = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"
+		).readText()
+		val sideloadingDialog = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/components/dialogs/SideloadingDialog.kt"
+		)
 		val readerRuntime = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt"
 		).readText()
@@ -61,8 +67,11 @@ class ReaderDevEnvironmentContractTest {
 		)
 		assertTrue(
 			mainActivity.contains("Screen.BinderyBooks") &&
-				mainActivity.contains("preferenceManager.showedSideloadingWarning = true"),
-			"readerDev must fall back to Bindery Books when only Bindery credentials are seeded and must not block validation with the sideloading modal."
+				!mainActivity.contains("showedSideloadingWarning") &&
+				!app.contains("SideloadingDialog") &&
+				!preferenceManager.contains("showedSideloadingWarning") &&
+				!sideloadingDialog.exists(),
+			"readerDev must fall back to Bindery Books when only Bindery credentials are seeded; the sideloading modal is globally removed and cannot block validation."
 		)
 		assertTrue(
 			app.contains("fun App(initialScreenOverride: Screen? = null)") &&

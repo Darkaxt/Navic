@@ -910,6 +910,60 @@ async function runPublisherStyleFontSizeProbe(page) {
   }})()`)
 }
 
+async function runImageHitTargetsProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const contents = view.renderer?.getContents?.()?.filter?.(entry => entry?.doc?.body) || []
+    const targets = []
+    for (const entry of contents) {
+      const doc = entry.doc
+      const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect?.()
+      const media = Array.from(doc.querySelectorAll('img, svg, image, video, audio, picture, object, canvas'))
+      for (const element of media) {
+        const rect = element.getBoundingClientRect?.()
+        if (!rect || rect.width <= 1 || rect.height <= 1) continue
+        const rootLeft = (frameRect?.left || 0) + rect.left
+        const rootTop = (frameRect?.top || 0) + rect.top
+        const rootRight = rootLeft + rect.width
+        const rootBottom = rootTop + rect.height
+        const visible = rootRight > 0 &&
+          rootBottom > 0 &&
+          rootLeft < window.innerWidth &&
+          rootTop < window.innerHeight
+        targets.push({
+          index: Number.isFinite(entry.index) ? entry.index : null,
+          href: entry.section?.href || '',
+          tagName: element.tagName,
+          src: element.currentSrc || element.getAttribute?.('src') || element.getAttribute?.('href') || '',
+          alt: element.getAttribute?.('alt') || '',
+          rootX: Math.round(rootLeft + rect.width / 2),
+          rootY: Math.round(rootTop + rect.height / 2),
+          rootLeft: Math.round(rootLeft),
+          rootTop: Math.round(rootTop),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          visible,
+        })
+      }
+    }
+    return {
+      probe: 'image-hit-targets',
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      contentCount: contents.length,
+      visibleTargets: targets.filter(target => target.visible),
+      targets,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function main() {
   const pidOutput = runAdb(['shell', 'pidof', packageName])
   const pid = pidOutput.split(/\s+/).find(Boolean)
@@ -933,6 +987,7 @@ async function main() {
       'page-box': runPageBoxProbe,
       'font-size': runFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
+      'image-hit-targets': runImageHitTargetsProbe,
     }
     const handler = probeHandlers[probe]
     if (!handler) {
