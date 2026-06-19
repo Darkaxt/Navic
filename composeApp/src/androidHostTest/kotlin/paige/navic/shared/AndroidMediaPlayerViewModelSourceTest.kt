@@ -24,6 +24,25 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(factoryText, "MediaMetadata.Builder()")
 		assertContains(factoryText, "downloadManager.getDownloadedFilePath(id)")
 	}
+
+	@Test
+	fun nowPlayingBroadcastStateLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val broadcaster = androidSharedSourceFile("AndroidNowPlayingBroadcaster.android.kt")
+		val viewModelText = viewModel.readText()
+		val broadcasterText = broadcaster.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_450,
+			"AndroidMediaPlayerViewModel should not own widget broadcast dedupe state or artwork URL assembly."
+		)
+		assertContains(viewModelText, "private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(")
+		assertContains(viewModelText, "nowPlayingBroadcaster.send(")
+		assertContains(broadcasterText, "internal class AndroidNowPlayingBroadcaster")
+		assertContains(broadcasterText, "fun send(")
+		assertContains(broadcasterText, "shouldSendNowPlayingWidgetUpdate(")
+		assertContains(broadcasterText, "activeArtworkUrl(")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =
