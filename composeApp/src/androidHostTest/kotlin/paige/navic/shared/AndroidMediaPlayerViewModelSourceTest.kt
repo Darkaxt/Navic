@@ -100,6 +100,47 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(radioFactoryText, "DomainExplicitStatus.Unknown")
 		assertContains(radioFactoryText, "MediaMetadata.Builder()")
 	}
+
+	@Test
+	fun playbackAssetPrefetchStateLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val prefetcher = androidSharedSourceFile("AndroidPlaybackAssetPrefetcher.android.kt")
+		val viewModelText = viewModel.readText()
+		val prefetcherText = prefetcher.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_260,
+			"AndroidMediaPlayerViewModel should not own playback asset prefetch dedupe state."
+		)
+		assertContains(viewModelText, "private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(")
+		assertContains(viewModelText, "playbackAssetPrefetcher.prefetchCurrentSongArtwork(")
+		assertContains(viewModelText, "playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(")
+		assertContains(prefetcherText, "internal class AndroidPlaybackAssetPrefetcher")
+		assertContains(prefetcherText, "private var lastCurrentArtworkPrefetchSongId: String? = null")
+		assertContains(prefetcherText, "private var lastUpcomingPrefetchSignature: String? = null")
+		assertContains(prefetcherText, "downloadManager.prefetchPlaybackSongs(songs)")
+	}
+
+	@Test
+	fun queueAutoFillJobStateLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val queueAutoFiller = androidSharedSourceFile("AndroidQueueAutoFiller.android.kt")
+		val viewModelText = viewModel.readText()
+		val queueAutoFillerText = queueAutoFiller.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_200,
+			"AndroidMediaPlayerViewModel should not own queue auto-fill job state."
+		)
+		assertContains(viewModelText, "private val queueAutoFiller = AndroidQueueAutoFiller(")
+		assertContains(viewModelText, "queueAutoFiller.maybeAutoFillQueue()")
+		assertContains(viewModelText, "queueAutoFiller.cancel()")
+		assertContains(queueAutoFillerText, "internal class AndroidQueueAutoFiller")
+		assertContains(queueAutoFillerText, "private var autoFillQueueJob: Job? = null")
+		assertContains(queueAutoFillerText, "fun maybeAutoFillQueue()")
+		assertContains(queueAutoFillerText, "fun cancel()")
+		assertContains(queueAutoFillerText, "shouldAutoFillQueue(")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =

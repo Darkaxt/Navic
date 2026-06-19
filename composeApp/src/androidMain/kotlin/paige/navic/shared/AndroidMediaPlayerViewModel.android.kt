@@ -50,7 +50,6 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -92,17 +91,12 @@ import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
-import paige.navic.domain.models.playbackPrefetchIndexes
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.mediaNotificationActions
-import paige.navic.domain.models.queueAutoFillAppendCount
-import paige.navic.domain.models.queueAutoFillCandidateSongs
-import paige.navic.domain.models.QueueAutoFillRemainingTrigger
 import paige.navic.domain.models.replayGainLoudnessBoostMillibels
 import paige.navic.domain.models.replayGainVolumeMultiplier
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
-import paige.navic.domain.models.shouldAutoFillQueue
 import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
@@ -115,7 +109,6 @@ import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
-import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -159,9 +152,6 @@ class AndroidMediaPlayerViewModel(
 
 	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
-	private var autoFillQueueJob: Job? = null
-	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
-	private var lastPlaybackPrefetchSignature: String? = null
 	private var nowPlayingVideoClipAudioActive = false
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
@@ -174,12 +164,41 @@ class AndroidMediaPlayerViewModel(
 		sessionManager = sessionManager,
 		musicBrainzArtworkRepository = musicBrainzArtworkRepository
 	)
+	private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(
+		scope = viewModelScope,
+		downloadManager = downloadManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository,
+		upNextCount = { preferenceManager.nowPlayingUpNextCount },
+		onCurrentSongArtworkPrefetched = { prefetchedSong ->
+			val state = _uiState.value
+			if (state.currentSong?.id == prefetchedSong.id) {
+				nowPlayingBroadcaster.send(
+					currentSong = state.currentSong,
+					isPlaying = !state.isPaused,
+					force = true
+				)
+			}
+		}
+	)
 	private val playbackVolumeFader = AndroidPlaybackVolumeFader(
 		scope = viewModelScope,
 		effectiveVolume = ::effectivePlaybackVolume
 	)
 	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
 	private val radioMediaItemFactory = AndroidRadioMediaItemFactory()
+	private val queueAutoFiller = AndroidQueueAutoFiller(
+		scope = viewModelScope,
+		preferenceManager = preferenceManager,
+		songRepository = songRepository,
+		mediaItemFactory = mediaItemFactory,
+		controller = { controller },
+		state = { _uiState.value },
+		isAvailable = { songId -> isAvailable(songId) },
+		fetchServerSimilarSongs = ::fetchServerSimilarSongs,
+		appendSongs = { songs ->
+			_uiState.update { state -> state.copy(queue = state.queue + songs) }
+		}
+	)
 
 	init {
 		connectToService()
@@ -248,7 +267,7 @@ class AndroidMediaPlayerViewModel(
 								}
 							}
 						}
-						maybeAutoFillQueue()
+						queueAutoFiller.maybeAutoFillQueue()
 					}
 
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -260,9 +279,12 @@ class AndroidMediaPlayerViewModel(
 						)
 						if (isPlaying) {
 							startProgressLoop()
-							maybeAutoFillQueue()
-							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
-							prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = true)
+							queueAutoFiller.maybeAutoFillQueue()
+							playbackAssetPrefetcher.prefetchCurrentSongArtwork(
+								_uiState.value.currentSong,
+								isPlaying = true
+							)
+							playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = true)
 						}
 						nowPlayingBroadcaster.send(
 							currentSong = _uiState.value.currentSong,
@@ -274,7 +296,7 @@ class AndroidMediaPlayerViewModel(
 						_uiState.update { it.copy(isLoading = playbackState == Player.STATE_BUFFERING) }
 						updatePlaybackState()
 						if (playbackState == Player.STATE_READY) {
-							maybeAutoFillQueue()
+							queueAutoFiller.maybeAutoFillQueue()
 						}
 					}
 
@@ -460,8 +482,8 @@ class AndroidMediaPlayerViewModel(
 			)
 		}
 		applyReplayGain()
-		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
-		prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
+		playbackAssetPrefetcher.prefetchCurrentSongArtwork(currentSong, isPlaying = controller.isPlaying)
+		playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
 		updateProgress()
 		nowPlayingBroadcaster.send(
 			currentSong = _uiState.value.currentSong,
@@ -495,61 +517,6 @@ class AndroidMediaPlayerViewModel(
 			index = nextIndex
 		}
 		return indexes
-	}
-
-	private fun prefetchMusicBrainzArtworkForCurrentSong(
-		currentSong: DomainSong?,
-		isPlaying: Boolean
-	) {
-		if (!isPlaying || currentSong == null) return
-		if (lastMusicBrainzArtworkPrefetchSongId == currentSong.id) return
-		lastMusicBrainzArtworkPrefetchSongId = currentSong.id
-
-		viewModelScope.launch(Dispatchers.IO) {
-			val artwork = musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(currentSong)
-				.getOrNull()
-			if (artwork?.imageUrl.isNullOrBlank()) return@launch
-
-			withContext(Dispatchers.Main.immediate) {
-				val state = _uiState.value
-				if (state.currentSong?.id == currentSong.id) {
-					nowPlayingBroadcaster.send(
-						currentSong = state.currentSong,
-						isPlaying = !state.isPaused,
-						force = true
-					)
-				}
-			}
-		}
-	}
-
-	private fun prefetchUpcomingPlaybackAssets(
-		state: PlayerUiState,
-		isPlaying: Boolean
-	) {
-		if (!isPlaying) return
-		val indexes = playbackPrefetchIndexes(
-			upcomingIndexes = state.upcomingIndexes,
-			upNextCount = preferenceManager.nowPlayingUpNextCount
-		)
-		val songs = indexes.mapNotNull { index -> state.queue.getOrNull(index) }
-			.distinctBy { it.id }
-		if (songs.isEmpty()) return
-
-		val signature = songs.joinToString("|") { song -> song.id }
-		if (signature == lastPlaybackPrefetchSignature) return
-		lastPlaybackPrefetchSignature = signature
-
-		downloadManager.prefetchPlaybackSongs(songs)
-		viewModelScope.launch(Dispatchers.IO) {
-			songs.forEach { song ->
-				runCatching {
-					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
-				}.onFailure { error ->
-					Logger.w("MediaPlayer", "Failed to prefetch artwork for upcoming song ${song.id}", error)
-				}
-			}
-		}
 	}
 
 	private fun applyReplayGain() {
@@ -638,92 +605,6 @@ class AndroidMediaPlayerViewModel(
 				val pos = player.currentPosition
 				val progress = (pos.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
 				_uiState.update { it.copy(progress = progress) }
-			}
-		}
-	}
-
-	private fun maybeAutoFillQueue() {
-		val player = controller ?: return
-		val state = _uiState.value
-		if (
-			!shouldAutoFillQueue(
-				autoFillQueue = preferenceManager.autoFillQueue,
-				isPlaying = player.isPlaying,
-				isRadioQueue = state.queue.any { it.id.startsWith("radio_") },
-				queueSize = state.queue.size,
-				currentIndex = state.currentIndex,
-				remainingTrigger = QueueAutoFillRemainingTrigger,
-				targetSize = preferenceManager.autoFillQueueTargetSize
-			)
-		) {
-			return
-		}
-		if (autoFillQueueJob?.isActive == true) return
-
-		autoFillQueueJob = viewModelScope.launch {
-			try {
-				val allSongs = withContext(Dispatchers.IO) {
-					songRepository.getAllSongs()
-				}.shuffled()
-
-				val currentPlayer = controller ?: return@launch
-				val currentState = _uiState.value
-				if (
-					!shouldAutoFillQueue(
-						autoFillQueue = preferenceManager.autoFillQueue,
-						isPlaying = currentPlayer.isPlaying,
-						isRadioQueue = currentState.queue.any { it.id.startsWith("radio_") },
-						queueSize = currentState.queue.size,
-						currentIndex = currentState.currentIndex,
-						remainingTrigger = QueueAutoFillRemainingTrigger,
-						targetSize = preferenceManager.autoFillQueueTargetSize
-					)
-				) {
-					return@launch
-				}
-
-				val appendCount = queueAutoFillAppendCount(
-					queueSize = currentState.queue.size,
-					targetSize = preferenceManager.autoFillQueueTargetSize
-				)
-				val serverSimilarSongs = if (
-					preferenceManager.autoFillQueueSource == AutoFillQueueSource.SimilarToCurrentSong &&
-					currentState.currentSong != null
-				) {
-					withContext(Dispatchers.IO) {
-						fetchServerSimilarSongs(
-							songId = currentState.currentSong.id,
-							limit = appendCount * 2
-						)
-					}
-				} else {
-					emptyList()
-				}
-				val preferredSongIds = serverSimilarSongs.map { it.id }
-				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
-				val recentQueueSongs = currentState.queue
-					.take(currentState.currentIndex + 1)
-					.takeLast(10)
-				val songsToAppend = queueAutoFillCandidateSongs(
-					candidateSongs = (serverSimilarSongs + allSongs).filter { isAvailable(it.id) },
-					queuedIds = queuedIds,
-					limit = appendCount,
-					source = preferenceManager.autoFillQueueSource,
-					currentSong = currentState.currentSong,
-					preferredSongIds = preferredSongIds,
-					recentSongs = recentQueueSongs
-				)
-				if (songsToAppend.isEmpty()) return@launch
-
-				val mediaItems = withContext(Dispatchers.Default) {
-					songsToAppend.map { it.toMediaItem() }
-				}
-				currentPlayer.addMediaItems(mediaItems)
-				_uiState.update { it.copy(queue = it.queue + songsToAppend) }
-			} catch (error: Exception) {
-				Logger.w("MediaPlayer", "Queue auto-fill failed", error)
-			} finally {
-				autoFillQueueJob = null
 			}
 		}
 	}
@@ -897,8 +778,7 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
 			pendingPlayIndex = null
-			autoFillQueueJob?.cancel()
-			autoFillQueueJob = null
+			queueAutoFiller.cancel()
 			_uiState.update {
 				it.copy(
 					queue = emptyList(),
@@ -1043,8 +923,7 @@ class AndroidMediaPlayerViewModel(
 					radioQueue.map { it.toMediaItem() }
 				}
 				pendingPlayIndex = null
-				autoFillQueueJob?.cancel()
-				autoFillQueueJob = null
+				queueAutoFiller.cancel()
 				controller?.let { player ->
 					player.shuffleModeEnabled = false
 					player.setMediaItems(mediaItems, 0, 0L)
@@ -1269,8 +1148,7 @@ class AndroidMediaPlayerViewModel(
 	override fun onCleared() {
 		viewModelScope.launch {
 			playbackVolumeFader.cancel(controller)
-			autoFillQueueJob?.cancel()
-			autoFillQueueJob = null
+			queueAutoFiller.cancel()
 			super.onCleared()
 			controllerFuture?.let { MediaController.releaseFuture(it) }
 		}
