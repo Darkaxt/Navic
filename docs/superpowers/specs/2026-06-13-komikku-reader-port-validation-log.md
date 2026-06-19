@@ -4338,3 +4338,28 @@ Results:
 - PASS: focused host guard passed after strengthening the probe.
 - PASS: helper syntax passed `node --check`.
 - OPEN: this does not yet prove the exact Tab S9/Hobbit state reported by the user. It proves the current emulator page and validation helper catch real-prose scaling regressions.
+
+## 2026-06-19 Emulator Weird-Screen Recheck
+
+Scope:
+- Rechecked the emulator after the user reported that the current screen looked empty except for a popup.
+- Did not reinstall or relaunch because Bindery maintenance may make relaunch/download unreliable, and the current reader instance is useful evidence.
+
+Validation:
+
+```powershell
+adb devices
+adb shell dumpsys package darkaxt.navic.readerdev
+adb shell dumpsys window
+adb exec-out screencap -p
+node tools\reader-harness\src\adb-webview-eval.mjs --probe visible-page-content
+```
+
+Results:
+- PASS: emulator focus is still `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS: installed emulator build remains `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+- PASS: `captures/reader-weird-screen/latest/screen.png` shows rendered text plus three overlapping chrome layers: Navic selection actions, Android/WebView's system selection toolbar, and the old arrow/X history capsule.
+- PASS: `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, `visibleTextLength=235916`, and visible prose text. The renderer is not blank.
+- FAIL/OPEN on eta76: WebView's own selection toolbar is still visible. Current source commit `18a708ed` suppresses that toolbar, but this fix is not installed in the emulator.
+- FAIL/OPEN on eta76: the bottom arrow/X history capsule is still visible. Current source commit `3c9945e0` hides that capsule by default, but this fix is not installed in the emulator.
+- Interpretation: the weird screen is stale installed overlay behavior, not a fresh no-text rendering regression. The next clean validation requires rebuilding/reinstalling a new APK after the user/server environment is ready.
