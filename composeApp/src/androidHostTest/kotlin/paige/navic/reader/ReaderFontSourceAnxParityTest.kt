@@ -50,7 +50,7 @@ class ReaderFontSourceAnxParityTest {
 	}
 
 	private val navicReaderHelpersText: String by lazy {
-		root.resolve("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
+		readerBridgeText()
 	}
 
 	private val parityPlanText: String by lazy {

@@ -1,0 +1,197 @@
+import {
+  readerFlowMode,
+  readerFoliateFlow,
+} from './navic-reader-settings.js'
+import {
+  log,
+  readerAdaptiveFoliatePageBox,
+  readerBottomMarginValue,
+  readerSideMarginValue,
+  readerTopMarginValue,
+  readerTrace,
+  readerViewportSize,
+  setStylesImportant,
+  updateReaderShellCoverLayer,
+} from './navic-reader-helpers.js'
+
+const ReaderPdfFitWidth = 'width'
+const ReaderPdfFitPage = 'page'
+const ReaderPdfFitHeight = 'height'
+const ReaderPdfFitOriginal = 'original'
+const ReaderPdfPageGapMaxPercent = 48
+
+const normalizedReaderPdfFitMode = value =>
+  [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
+    ? value
+    : ReaderPdfFitWidth
+
+const readerPdfZoomAttribute = value => {
+  switch (normalizedReaderPdfFitMode(value)) {
+    case ReaderPdfFitPage:
+      return 'fit-page'
+    case ReaderPdfFitHeight:
+      return 'fit-height'
+    case ReaderPdfFitOriginal:
+      return '1'
+    case ReaderPdfFitWidth:
+    default:
+      return 'fit-width'
+  }
+}
+
+const normalizedReaderPdfPageGapPercent = value => {
+  const gap = Number.parseInt(value, 10)
+  if (!Number.isFinite(gap)) return 0
+  return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))
+}
+
+function applyReaderViewportLayout(label = 'unknown') {
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  setStylesImportant(document.documentElement, {
+    width: '100%',
+    height: heightPx,
+    'min-height': heightPx,
+    margin: '0px',
+    overflow: 'hidden',
+  })
+  setStylesImportant(document.body, {
+    position: 'fixed',
+    inset: '0px',
+    display: 'block',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    margin: '0px',
+    overflow: 'hidden',
+  })
+  setStylesImportant(this.view, {
+    position: 'fixed',
+    inset: '0px',
+    display: 'block',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    overflow: 'hidden',
+  })
+  const renderer = this.view?.renderer
+  const fixedLayout = this.view?.isFixedLayout === true || renderer?.localName === 'foliate-fxl'
+  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)
+  setStylesImportant(renderer, {
+    position: 'absolute',
+    inset: '0px',
+    display: 'block',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    overflow: fixedLayout ? 'auto' : 'hidden',
+  })
+  if (renderer && !fixedLayout) {
+    renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)
+    renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
+    renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
+    renderer.setAttribute('column-threshold', pageBox.columnThreshold)
+    renderer.setAttribute('top-margin', `${readerTopMarginValue(this.readerSettings)}px`)
+    renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(this.readerSettings)}px`)
+    renderer.setAttribute('gap', `${readerSideMarginValue(this.readerSettings)}%`)
+    renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
+  }
+  this.applyPdfImageSettings(this.readerSettings)
+  if (renderer) requestAnimationFrame(() => renderer?.render?.())
+  if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
+    updateReaderShellCoverLayer(
+      this.shellCoverLayer,
+      this.shellCoverBlobUrl,
+      this.readerSettings,
+      this.view?.book?.metadata?.title || ''
+    )
+  }
+  this.renderSurfacePaperTextureLayers()
+  this.renderTapZoneOverlayLayer()
+  this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
+  log('viewport-layout', `label=${label}`, `${width}x${height}`)
+}
+
+
+function applyReaderViewportLayoutToProfilerView(profileView, settings = this.readerSettings) {
+  if (!profileView) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  setStylesImportant(profileView, {
+    position: 'fixed',
+    inset: '0px',
+    display: 'block',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    overflow: 'hidden',
+    visibility: 'hidden',
+    opacity: '0',
+    'pointer-events': 'none',
+    'z-index': '-1',
+  })
+  const renderer = profileView?.renderer
+  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
+  setStylesImportant(renderer, {
+    position: 'absolute',
+    inset: '0px',
+    display: 'block',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    overflow: 'hidden',
+  })
+  if (renderer) {
+    renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)
+    renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
+    renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
+    renderer.setAttribute('column-threshold', pageBox.columnThreshold)
+    renderer.setAttribute('top-margin', `${readerTopMarginValue(settings)}px`)
+    renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(settings)}px`)
+    renderer.setAttribute('gap', `${readerSideMarginValue(settings)}%`)
+    renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
+  }
+  renderer?.setAttribute?.('flow', readerFoliateFlow(readerFlowMode(settings)))
+  renderer?.render?.()
+}
+
+
+function applyPdfImageSettings(settings = this.readerSettings) {
+  const renderer = this.view?.renderer
+  if (!renderer || this.view?.isFixedLayout !== true) return
+  const fitMode = normalizedReaderPdfFitMode(settings?.pdfFitMode)
+  const cropBorders = settings?.pdfCropBorders === true
+  const gapPercent = normalizedReaderPdfPageGapPercent(settings?.pdfPageGapPercent)
+  const viewport = readerViewportSize()
+  const gapPx = Math.round(Math.max(1, viewport.height || 0) * gapPercent / 100)
+  renderer.setAttribute('zoom', readerPdfZoomAttribute(fitMode))
+  renderer.setAttribute('page-gap', String(gapPx))
+  if (cropBorders) renderer.setAttribute('crop-borders', 'true')
+  else renderer.removeAttribute('crop-borders')
+  renderer.setAttribute('data-navic-pdf-fit-mode', fitMode)
+  renderer.setAttribute('data-navic-pdf-crop-borders', cropBorders ? 'true' : 'false')
+  renderer.setAttribute('data-navic-pdf-page-gap-percent', String(gapPercent))
+  renderer.setAttribute('data-navic-pdf-page-gap-px', String(gapPx))
+  renderer.style.setProperty('--reader-pdf-page-gap', `${gapPx}px`)
+  renderer.style.setProperty('--reader-pdf-crop-scale', cropBorders ? '1.045' : '1')
+  readerTrace('pdf-settings:apply', {
+    fitMode,
+    zoom: renderer.getAttribute('zoom'),
+    cropBorders,
+    gapPercent,
+    gapPx,
+  })
+}
+
+export const NavicReaderViewportMethods = {
+  applyReaderViewportLayout,
+  applyReaderViewportLayoutToProfilerView,
+  applyPdfImageSettings,
+}

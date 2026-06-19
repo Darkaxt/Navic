@@ -27,6 +27,9 @@ class ReaderRuntimeAssetsTest {
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
 		val bridgePagination = root.resolve("navic-reader-pagination.js")
 		val bridgeAppearance = root.resolve("navic-reader-appearance.js")
+		val bridgeShellCover = root.resolve("navic-reader-shell-cover.js")
+		val bridgeViewport = root.resolve("navic-reader-viewport.js")
+		val bridgeLocation = root.resolve("navic-reader-location.js")
 		val foliatePackage = root.resolve("vendor/foliate-js/package.json")
 		val foliateView = root.resolve("vendor/foliate-js/view.js")
 		val foliateFixedLayout = root.resolve("vendor/foliate-js/fixed-layout.js")
@@ -49,6 +52,9 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
 		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
 		assertTrue(bridgeAppearance.isFile, "Navic reader appearance module must be packaged")
+		assertTrue(bridgeShellCover.isFile, "Navic reader shell-cover module must be packaged")
+		assertTrue(bridgeViewport.isFile, "Navic reader viewport module must be packaged")
+		assertTrue(bridgeLocation.isFile, "Navic reader location module must be packaged")
 		assertTrue(foliatePackage.isFile, "foliate-js package metadata must be packaged")
 		assertTrue(foliateView.isFile, "foliate-js view runtime must be packaged")
 		assertTrue(foliateFixedLayout.isFile, "foliate fixed-layout runtime must be packaged")
@@ -148,6 +154,28 @@ class ReaderRuntimeAssetsTest {
 			assertContains(module.readText(), "export const")
 		}
 		assertContains(bridgeText, "Object.assign(NavicReaderRuntime.prototype")
+	}
+
+	@Test
+	fun androidReaderEntrypointKeepsRuntimeMethodGroupsSplit() {
+		val root = readerAssetRoot()
+		val bridge = root.resolve("navic-reader.js")
+		val bridgeText = bridge.readText()
+
+		assertTrue(
+			bridge.readLines().size <= 1_200,
+			"navic-reader.js should stay below 1200 lines; shell-cover, viewport, and location behavior belong in focused method modules."
+		)
+		listOf(
+			"navic-reader-shell-cover.js",
+			"navic-reader-viewport.js",
+			"navic-reader-location.js"
+		).forEach { fileName ->
+			val module = root.resolve(fileName)
+			assertTrue(module.isFile, "$fileName must exist so runtime entrypoint changes stay focused.")
+			assertContains(bridgeText, "./$fileName")
+			assertContains(module.readText(), "export const NavicReader")
+		}
 	}
 
 	@Test

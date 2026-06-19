@@ -54,11 +54,11 @@ class FoliateAnxParityTest {
 	}
 
 	private val navicReaderMainText: String by lazy {
-		readerAssetRoot().resolve("navic-reader.js").readText()
+		readerRuntimeImplementationText()
 	}
 
 	private val navicReaderHelpersText: String by lazy {
-		readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		readerBridgeText()
 	}
 
 	private val navicReaderPaginationText: String by lazy {

@@ -29,6 +29,9 @@ internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",
 		"navic-reader-appearance.js",
+		"navic-reader-shell-cover.js",
+		"navic-reader-viewport.js",
+		"navic-reader-location.js",
 		"navic-reader.js"
 	)
 		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
@@ -40,6 +43,9 @@ internal fun readerRuntimeImplementationText(root: File = readerAssetRoot()): St
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",
 		"navic-reader-appearance.js",
+		"navic-reader-shell-cover.js",
+		"navic-reader-viewport.js",
+		"navic-reader-location.js",
 		"navic-reader.js"
 	)
 		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
