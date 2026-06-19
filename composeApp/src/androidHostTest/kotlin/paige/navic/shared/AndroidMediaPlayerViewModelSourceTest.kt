@@ -62,6 +62,25 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(faderText, "private var fadeJob: Job? = null")
 		assertContains(faderText, "restoreVolumeOnCancel")
 	}
+
+	@Test
+	fun playbackOriginCheckpointStateLivesOutsideAndroidMediaPlayerViewModel() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt")
+		val recorder = androidSharedSourceFile("AndroidPlaybackOriginRecorder.android.kt")
+		val viewModelText = viewModel.readText()
+		val recorderText = recorder.readText()
+
+		assertTrue(
+			viewModel.readLines().size < 1_370,
+			"AndroidMediaPlayerViewModel should not own playback-origin tracker/checkpoint state."
+		)
+		assertContains(viewModelText, "private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(")
+		assertContains(viewModelText, "playbackOriginRecorder.onPlaybackState(")
+		assertContains(viewModelText, "playbackOriginRecorder.checkpointIfNeeded(")
+		assertContains(recorderText, "private val tracker = PlaybackOriginTracker()")
+		assertContains(recorderText, "private const val PlaybackOriginCheckpointIntervalMs")
+		assertContains(recorderText, "repository.credit(")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =

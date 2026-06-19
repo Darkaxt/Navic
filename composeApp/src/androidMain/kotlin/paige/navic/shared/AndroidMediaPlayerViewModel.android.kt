@@ -73,8 +73,6 @@ import paige.navic.domain.manager.AndroidScrobbleManager
 import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.manager.PlaybackOriginCredit
-import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
@@ -135,8 +133,6 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import coil3.PlatformContext as CoilPlatformContext
 
-private const val PlaybackOriginCheckpointIntervalMs = 30_000L
-
 class AndroidMediaPlayerViewModel(
 	private val application: Application,
 	stateRepository: PlayerStateRepository,
@@ -170,8 +166,6 @@ class AndroidMediaPlayerViewModel(
 	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
 	private var lastPlaybackPrefetchSignature: String? = null
 	private var nowPlayingVideoClipAudioActive = false
-	private val playbackOriginTracker = PlaybackOriginTracker()
-	private var lastPlaybackOriginCheckpointMillis = 0L
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
@@ -187,6 +181,7 @@ class AndroidMediaPlayerViewModel(
 		scope = viewModelScope,
 		effectiveVolume = ::effectivePlaybackVolume
 	)
+	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
 
 	init {
 		connectToService()
@@ -261,14 +256,11 @@ class AndroidMediaPlayerViewModel(
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
 						_uiState.update { it.copy(isPaused = !isPlaying) }
 						val nowMillis = Clock.System.now().toEpochMilliseconds()
-						recordPlaybackOriginCredit(
-							playbackOriginTracker.onPlaybackState(
-								isPlaying = isPlaying,
-								nowMillis = nowMillis
-							)
+						playbackOriginRecorder.onPlaybackState(
+							isPlaying = isPlaying,
+							nowMillis = nowMillis
 						)
 						if (isPlaying) {
-							lastPlaybackOriginCheckpointMillis = nowMillis
 							startProgressLoop()
 							maybeAutoFillQueue()
 							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
@@ -423,37 +415,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun setPlaybackOrigin(origin: PlaybackOrigin?) {
-		viewModelScope.launch {
-			setPlaybackOriginNow(origin)
-		}
-	}
-
-	private fun setPlaybackOriginNow(origin: PlaybackOrigin?) {
-		val nowMillis = Clock.System.now().toEpochMilliseconds()
-		recordPlaybackOriginCredit(playbackOriginTracker.setOrigin(origin, nowMillis))
-		lastPlaybackOriginCheckpointMillis = nowMillis
-	}
-
-	private fun recordPlaybackOriginCredit(credit: PlaybackOriginCredit?) {
-		if (credit == null) return
-		viewModelScope.launch(Dispatchers.IO) {
-			runCatching {
-				playbackOriginRepository.credit(
-					origin = credit.origin,
-					durationMillis = credit.durationMillis
-				)
-			}.onFailure { error ->
-				Logger.w("MediaPlayer", "Failed to credit playback origin", error)
-			}
-		}
-	}
-
-	private fun checkpointPlaybackOriginIfNeeded(nowMillis: Long) {
-		if (nowMillis - lastPlaybackOriginCheckpointMillis < PlaybackOriginCheckpointIntervalMs) {
-			return
-		}
-		recordPlaybackOriginCredit(playbackOriginTracker.checkpoint(nowMillis))
-		lastPlaybackOriginCheckpointMillis = nowMillis
+		playbackOriginRecorder.setOrigin(origin)
 	}
 
 	private fun refreshCurrentCollection(albumId: String) {
@@ -659,7 +621,7 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			while (controller?.isPlaying == true) {
 				val player = controller ?: break
-				checkpointPlaybackOriginIfNeeded(Clock.System.now().toEpochMilliseconds())
+				playbackOriginRecorder.checkpointIfNeeded(Clock.System.now().toEpochMilliseconds())
 				val duration = player.duration
 				if (duration > 0) {
 					val progress =
@@ -935,7 +897,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun clearQueue() {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
+			playbackOriginRecorder.setOriginNow(null)
 			pendingPlayIndex = null
 			autoFillQueueJob?.cancel()
 			autoFillQueueJob = null
@@ -1060,7 +1022,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
+			playbackOriginRecorder.setOriginNow(null)
 			try {
 				val serverSimilarSongs = withContext(Dispatchers.IO) {
 					fetchServerSimilarSongs(
@@ -1123,7 +1085,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
+			playbackOriginRecorder.setOriginNow(null)
 			val radioId = "radio_${radio.name.hashCode()}"
 
 			val dummyRadioSong = DomainSong(
