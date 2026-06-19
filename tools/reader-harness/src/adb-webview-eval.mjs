@@ -729,14 +729,32 @@ async function runPageBoxProbe(page) {
       const documentElement = doc?.documentElement || null
       const bodyRect = body?.getBoundingClientRect?.()
       const elementRect = documentElement?.getBoundingClientRect?.()
+      const visibleElement = element => {
+        const rect = element?.getBoundingClientRect?.()
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false
+        const style = doc.defaultView.getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      }
+      const firstVisibleElement = Array.from(body?.querySelectorAll?.('*') || [])
+        .slice(0, 160)
+        .find(visibleElement)
+      const firstVisibleRect = firstVisibleElement?.getBoundingClientRect?.()
+      const firstVisibleStyle = firstVisibleElement ? doc.defaultView.getComputedStyle(firstVisibleElement) : null
+      const firstHeadingElement = Array.from(body?.querySelectorAll?.('h1, h2, h3, h4, h5, h6, [role="heading"], *[epub\\:type]') || [])
+        .slice(0, 24)
+        .find(element => {
+          if (/^H[1-6]$/i.test(element.tagName || '')) return visibleElement(element)
+          if (element.getAttribute?.('role') === 'heading') return visibleElement(element)
+          const epubType = String(element.getAttribute?.('epub:type') || '')
+          return epubType.split(/\s+/).includes('title') && visibleElement(element)
+        })
+      const firstHeadingRect = firstHeadingElement?.getBoundingClientRect?.()
+      const firstHeadingStyle = firstHeadingElement ? doc.defaultView.getComputedStyle(firstHeadingElement) : null
       const firstProseElement = Array.from(body?.querySelectorAll?.('p, li, blockquote, dd, div, span, font') || [])
         .find(element => {
           const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
           if (text.length < 24) return false
-          const rect = element.getBoundingClientRect?.()
-          if (!rect || rect.width <= 0 || rect.height <= 0) return false
-          const style = doc.defaultView.getComputedStyle(element)
-          return style.display !== 'none' && style.visibility !== 'hidden'
+          return visibleElement(element)
         })
       const firstProseRect = firstProseElement?.getBoundingClientRect?.()
       const firstProseStyle = firstProseElement ? doc.defaultView.getComputedStyle(firstProseElement) : null
@@ -760,6 +778,31 @@ async function runPageBoxProbe(page) {
           marginInlineEnd: firstProseStyle?.marginInlineEnd || '',
           display: firstProseStyle?.display || '',
         } : null,
+        chapterOpening: {
+          capped: firstHeadingElement?.getAttribute?.('data-navic-chapter-opening-margin-capped') === 'true',
+          firstVisible: firstVisibleElement ? {
+            tagName: firstVisibleElement.tagName,
+            id: firstVisibleElement.id || '',
+            className: String(firstVisibleElement.className || ''),
+            text: String(firstVisibleElement.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 96),
+            rect: firstVisibleRect ? roundRect(firstVisibleRect) : null,
+            marginBlockStart: firstVisibleStyle?.marginBlockStart || '',
+            marginTop: firstVisibleStyle?.marginTop || '',
+            paddingBlockStart: firstVisibleStyle?.paddingBlockStart || '',
+            paddingTop: firstVisibleStyle?.paddingTop || '',
+          } : null,
+          firstHeading: firstHeadingElement ? {
+            tagName: firstHeadingElement.tagName,
+            id: firstHeadingElement.id || '',
+            className: String(firstHeadingElement.className || ''),
+            text: String(firstHeadingElement.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 96),
+            rect: firstHeadingRect ? roundRect(firstHeadingRect) : null,
+            marginBlockStart: firstHeadingStyle?.marginBlockStart || '',
+            marginTop: firstHeadingStyle?.marginTop || '',
+            originalMargin: firstHeadingElement.dataset?.navicChapterOpeningOriginalMargin || '',
+            cap: firstHeadingElement.dataset?.navicChapterOpeningMarginCap || '',
+          } : null,
+        },
       }
     })
     return {

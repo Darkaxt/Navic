@@ -4073,3 +4073,41 @@ Interpretation:
 - The currently loaded emulator/runtime path does scale EPUB body prose and publisher-fixed prose when the reader font-size setting changes.
 - This does not close the user's Tab S9 Ultra report. The remaining bug may be device, book, page, mode, or settings specific, and still needs physical-device validation when a reliable release candidate is available.
 - The current generic CSS/bridge path is not proven broken by the Bindery-safe emulator probe.
+
+## 2026-06-19 Bindery-Safe Runtime Probe: Chapter Opening Layout Diagnostics
+
+Scope:
+- User warned Bindery may be unavailable due to server maintenance.
+- Did not relaunch, reseed, download, open OPDS flows, or depend on server-backed state.
+- Used the already-foreground `readerdev` activity and the already-loaded WebView only.
+- Targeted the tablet/foldable blank-space concern around chapter openings and page margins.
+
+Change:
+- Extended the read-only `page-box` DevTools probe to include per-content-document `chapterOpening` diagnostics.
+- The probe now reports the first visible content element, first prose element, first heading, heading margin values, and whether the existing `data-navic-chapter-opening-margin-capped` normalization ran.
+- The probe does not call `NavicReaderBridge.dispatch`, inject DOM, or mutate publication content.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+adb devices
+adb shell pidof darkaxt.navic.readerdev
+adb shell dumpsys window | Select-String -Pattern "mCurrentFocus|mFocusedApp"
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box --local-port 9267
+```
+
+Results:
+- RED: the host guard failed before the probe exposed `chapterOpening`, `data-navic-chapter-opening-margin-capped`, and heading `marginBlockStart` evidence.
+- GREEN: the focused host guard passed after extending the probe.
+- PASS: JS syntax check passed for `tools/reader-harness/src/adb-webview-eval.mjs`.
+- PASS: emulator device `emulator-5554` was connected, `darkaxt.navic.readerdev` was foreground, and the reader WebView was already loaded.
+- PASS: live `page-box` probe returned viewport `1232x1974`, `rendererRect=1232x1974`, `maxInlineSize=1133px`, `maxBlockSize=1846px`, `topMargin=90px`, and `bottomMargin=50px`.
+- PASS: loaded content reported `chapterOpening.capped=true`; the first heading original margin was `96px`, capped to `83px`.
+- PASS: first prose on the loaded chapter started at `y=516`; this probe shows the current blank area is not a collapsed renderer/page-box failure in this emulator state.
+
+Interpretation:
+- The current loaded emulator page has an active chapter-opening margin cap, and the renderer/page box is occupying the visible viewport.
+- The remaining Tab S9 Ultra visual complaint is not closed. The blank-space source may be the publisher chapter-opening structure, heading block height, image/heading composition, or a device-specific viewport/settings combination.
+- Future investigation should use this probe on the exact problematic device/page before changing CSS. A generic margin tweak would be guesswork without identifying which element creates the visible gap.
