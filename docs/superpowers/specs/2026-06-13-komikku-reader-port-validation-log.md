@@ -3913,3 +3913,38 @@ Results:
 Interpretation:
 - The offline source path for "save note -> visible annotation marker -> tap annotation -> open native note popup" is present and guarded.
 - This still does not prove the Android runtime Save tap or Foliate draw acknowledgment on a physical/release APK. Runtime validation remains required after a build with `Reader selection note save length=...` diagnostics is installed and the book is already loaded without depending on Bindery.
+
+## 2026-06-19 Bindery-Safe Runtime Probe: Loaded Readerdev Font/Page Box
+
+Scope:
+- User warned Bindery may be unavailable due to server maintenance.
+- Did not relaunch, reseed, download, or open OPDS flows.
+- Used the already-foreground `readerdev` activity and the already-loaded WebView only.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Foreground activity: `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`
+- Running PID: `19346`
+
+Validation:
+
+```powershell
+adb devices
+adb shell dumpsys activity activities
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box --local-port 9251
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size --local-port 9252
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9253
+```
+
+Results:
+- PASS: ADB found `emulator-5554` and Navic readerdev was foreground.
+- PASS: `page-box` found the loaded reader WebView without launch/download. Renderer and view rects both occupied `1232x1974` CSS px.
+- PASS: renderer attributes were `max-inline-size=1133px`, `max-block-size=1846px`, `max-column-count=1`, `top-margin=90px`, `bottom-margin=50px`.
+- PASS: real EPUB paragraph samples scaled from `16px` to `22.4px` when Font size changed from `100` to `140`; every sampled paragraph reported `delta=6.4`.
+- PASS: synthetic publisher-styled paragraph also scaled from `16px` to `22.4px` with `publisherStyles=true`.
+
+Interpretation:
+- The current loaded readerdev runtime does not reproduce the "titles resize but body text does not" bug.
+- This is emulator/readerdev evidence only. The physical Tab S9 Ultra page remains a separate validation target if the same symptom appears on the installed release package.
+- Because Bindery was unstable, no release/open/download workflow was attempted.
