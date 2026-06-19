@@ -3800,3 +3800,35 @@ Interpretation:
 Remaining:
 - Reproduce the Tab S9 Ultra margin complaint on the actual tablet/package before changing defaults.
 - Validate Note Save again only after installing a build that contains `Reader selection note save length=...`; eta76 cannot isolate whether the Save callback fired.
+
+## 2026-06-19 Bindery-Safe Guard: Note Annotation Payload Durability
+
+Scope:
+- Continue note/annotation validation without touching Bindery during server maintenance.
+- Clarify the difference between shared-code correctness and installed eta76 runtime uncertainty.
+
+Reference behavior:
+- Anx stores notes as annotation metadata (`note` / reader note data) and reopens them through the annotation click path.
+- Navic intentionally keeps that behavior behind the controller boundary: the engine receives note-bearing annotations, Foliate paints them, and annotation clicks resolve into `ReaderAnnotationPopupState`.
+
+Added guards:
+- `ReaderAnnotationStateTest.noteAnnotationJsonRoundTripKeepsReaderNoteForMarkerAndPopup`
+  - Proves a note-bearing annotation survives Navic persistence JSON with selected text, chapter label, and note body intact.
+- `ReaderBridgeProtocolTest.applyHighlightsCommandDispatchesPersistedAnnotationBatch`
+  - Strengthened to prove `ReaderBridgeCommand.ApplyHighlights` serializes the note payload, not only the CFI/color.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderAnnotationStateTest --tests paige.navic.reader.ReaderBridgeProtocolTest.applyHighlightsCommandDispatchesPersistedAnnotationBatch
+git diff --check
+```
+
+Results:
+- PASS: focused host tests passed.
+- PASS: `git diff --check` passed.
+- NOTE: Kotlin daemon access to `C:\Users\darka\AppData\Local\kotlin\daemon\...` was denied under the managed sandbox, but Gradle fell back to non-daemon compilation and the build completed successfully.
+
+Interpretation:
+- The shared annotation store and bridge command path preserve the note payload needed for the squiggly note marker and annotation popup.
+- The installed eta76 failure remains a runtime/UI delivery question: whether the Save tap fires on device and whether the installed build dispatches/acknowledges the annotation command. It is not evidence that note metadata is lost in the shared model.

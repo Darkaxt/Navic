@@ -287,6 +287,7 @@ class ReaderBridgeProtocolTest {
 					cfi = "epubcfi(/6/8!/4/1:0)",
 					text = "The highlighted sentence",
 					color = "#f4d35e",
+					note = "Remember this scene later",
 					sectionTitle = "Chapter 1"
 				)
 			)
@@ -296,6 +297,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"highlights\"")
 		assertContains(script, "\"cfi\":\"epubcfi(/6/8!/4/1:0)\"")
 		assertContains(script, "\"color\":\"#f4d35e\"")
+		assertContains(script, "\"note\":\"Remember this scene later\"")
 	}
 
 	@Test
