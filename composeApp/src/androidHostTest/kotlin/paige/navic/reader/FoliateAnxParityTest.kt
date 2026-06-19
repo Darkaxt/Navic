@@ -846,8 +846,9 @@ class FoliateAnxParityTest {
 		assertTrue(
 			navicReaderHelpersText.contains("--reader-content-font-size") &&
 				navicReaderHelpersText.contains("font-size: var(--reader-content-font-size") &&
-				navicReaderHelpersText.contains("body {\n    font-size: 1rem !important;"),
-			"Reader font-size controls must scale the actual ebook body text, not only headings."
+				navicReaderHelpersText.contains("body {\n    font-size: 1rem !important;") &&
+				navicReaderHelpersText.contains("p span,\n  p font,"),
+			"Reader font-size controls must scale publisher span-wrapped ebook body text, not only headings."
 		)
 		assertTrue(
 			navicReaderMainText.contains("setAttribute('top-margin'") &&

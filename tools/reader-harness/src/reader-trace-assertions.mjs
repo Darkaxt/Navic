@@ -587,6 +587,20 @@ export const assertRendererCssSmoke = result => {
   if (result.bodyBackground === 'rgb(255, 255, 255)' || result.htmlBackground === 'rgb(255, 255, 255)') {
     throw new Error(`Expected sepia backgrounds instead of white pages; observed html=${result.htmlBackground} body=${result.bodyBackground}`)
   }
+  const paragraphFontDelta = Number(result.paragraphFontSizeDelta)
+  if (!Number.isFinite(paragraphFontDelta) || paragraphFontDelta <= 1) {
+    throw new Error(
+      `Expected font-size control to scale EPUB paragraph text; ` +
+      `observed paragraph ${result.paragraphFontSizeAt100 || 'unset'} -> ${result.paragraphFontSizeAt140 || 'unset'}`
+    )
+  }
+  const bodyFontDelta = Number(result.bodyFontSizeDelta)
+  if (!Number.isFinite(bodyFontDelta) || bodyFontDelta <= 1) {
+    throw new Error(
+      `Expected font-size control to scale EPUB body inheritance, not only headings; ` +
+      `observed body ${result.bodyFontSizeAt100 || 'unset'} -> ${result.bodyFontSizeAt140 || 'unset'}`
+    )
+  }
   const paragraphMargin = numericCss(result.paragraphMarginBottom)
   if (paragraphMargin == null || paragraphMargin <= 0) {
     throw new Error(`Expected positive paragraph spacing; observed ${result.paragraphMarginBottom || 'unset'}`)

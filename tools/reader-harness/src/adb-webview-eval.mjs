@@ -409,6 +409,126 @@ async function runRelocationPayloadProbe(page) {
   }})()`)
 }
 
+async function runFontSizeProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const content = view.renderer?.getContents?.()?.find?.(entry => entry?.doc?.body)
+    const doc = content?.doc
+    if (!doc?.body) {
+      throw new Error('Missing loaded content document')
+    }
+    const win = doc.defaultView
+    const existingTextElements = Array.from(doc.body.querySelectorAll('p, span, font, div, li, blockquote'))
+      .filter(element => !element.closest('[data-navic-font-size-probe="true"]'))
+      .filter(element => {
+        const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+        if (text.length < 24) return false
+        const rect = element.getBoundingClientRect()
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false
+        const style = win.getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      })
+      .slice(0, 12)
+    const describeElement = (element, index) => {
+      const style = win.getComputedStyle(element)
+      const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+      const rect = element.getBoundingClientRect()
+      return {
+        index,
+        tagName: element.tagName,
+        id: element.id || '',
+        className: String(element.className || ''),
+        fontSize: style.fontSize,
+        fontSizeValue: Number.parseFloat(style.fontSize || '0'),
+        lineHeight: style.lineHeight,
+        rect: {
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+        text: text.slice(0, 96),
+      }
+    }
+    const readExistingMetrics = label => ({
+      label,
+      elements: existingTextElements.map(describeElement),
+    })
+    const originalPercentText = win.getComputedStyle(doc.documentElement)
+      .getPropertyValue('--reader-content-font-size')
+      .trim()
+    const originalPercent = Number.parseFloat(originalPercentText || '100')
+    const probe = doc.createElement('section')
+    probe.setAttribute('data-navic-font-size-probe', 'true')
+    probe.innerHTML = '<p data-navic-font-size-probe-paragraph="true">Navic font-size probe paragraph text.</p>'
+    doc.body.prepend(probe)
+    await new Promise(resolve => win.requestAnimationFrame(resolve))
+    const paragraph = doc.querySelector('[data-navic-font-size-probe-paragraph="true"]')
+    const readMetrics = label => {
+      const htmlStyle = win.getComputedStyle(doc.documentElement)
+      const bodyStyle = win.getComputedStyle(doc.body)
+      const paragraphStyle = win.getComputedStyle(paragraph)
+      return {
+        label,
+        rootFontSize: htmlStyle.fontSize,
+        bodyFontSize: bodyStyle.fontSize,
+        paragraphFontSize: paragraphStyle.fontSize,
+        rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
+        bodyFontSizeValue: Number.parseFloat(bodyStyle.fontSize || '0'),
+        paragraphFontSizeValue: Number.parseFloat(paragraphStyle.fontSize || '0'),
+        contentFontSizeVariable: htmlStyle.getPropertyValue('--reader-content-font-size').trim(),
+      }
+    }
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: { fontSizePercent: 100 },
+    })
+    await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+    const at100 = readMetrics('100')
+    const existingAt100 = readExistingMetrics('100')
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: { fontSizePercent: 140 },
+    })
+    await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+    const at140 = readMetrics('140')
+    const existingAt140 = readExistingMetrics('140')
+    const existingDeltas = existingAt100.elements.map((before, index) => {
+      const after = existingAt140.elements[index]
+      return {
+        index,
+        tagName: before.tagName,
+        text: before.text,
+        before: before.fontSize,
+        after: after?.fontSize || '',
+        delta: Number(after?.fontSizeValue) - Number(before.fontSizeValue),
+      }
+    })
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100 },
+    })
+    return {
+      probe: 'font-size',
+      restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+      at100,
+      at140,
+      existingAt100,
+      existingAt140,
+      existingDeltas,
+      paragraphDelta: at140.paragraphFontSizeValue - at100.paragraphFontSizeValue,
+      bodyDelta: at140.bodyFontSizeValue - at100.bodyFontSizeValue,
+      rootDelta: at140.rootFontSizeValue - at100.rootFontSizeValue,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function main() {
   const pidOutput = runAdb(['shell', 'pidof', packageName])
   const pid = pidOutput.split(/\s+/).find(Boolean)
@@ -428,6 +548,7 @@ async function main() {
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
+      'font-size': runFontSizeProbe,
     }
     const handler = probeHandlers[probe]
     if (!handler) {

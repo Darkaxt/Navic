@@ -2501,3 +2501,41 @@ Result:
 Remaining:
 
 - This is not a packaged release candidate yet. Physical device validation is still required for the font-size control on the Tab S9 Ultra and for manual reopen of saved highlights/notes.
+
+## 2026-06-19 Working Tree Follow-Up: Publisher Span-Wrapped Font Scaling
+
+Trigger:
+
+- User reported the font-size controller still behaved incorrectly: EPUB headings/title-like text changed size, but normal ebook text did not, so larger headings only pushed unchanged body text down.
+
+Root cause:
+
+- The earlier fix scaled inherited paragraph text through `--reader-content-font-size`, but publisher CSS could still fix the visible body glyphs on descendant `span` elements inside paragraphs. In that case the paragraph/root changed, while the displayed span stayed at its publisher font size.
+
+Changes under validation:
+
+- `readerContentCss` now normalizes `span` and `font` descendants inside paragraph-like body text containers to `font-size: 1em !important`, so the visible body glyphs inherit the reader font-size scale.
+- `font-css-smoke` now includes a publisher-style span-wrapped paragraph regression: `10px -> 10px` was the failing red case before the fix, and now the same text scales with the controller.
+- The Anx parity guard now requires the span/font descendant rule, not only root/body font-size wiring.
+- `adb-webview-eval.mjs` now has a `font-size` probe for active WebView computed-style inspection.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs font-css-smoke
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size
+```
+
+Result:
+
+- FAIL before fix: `font-css-smoke` reported `Expected font-size control to scale publisher span-wrapped body text; observed 10px -> 10px`.
+- PASS after fix: `font-css-smoke`.
+- PASS: `FoliateAnxParityTest`.
+- PASS: JavaScript syntax checks for the changed helper and harness files.
+- PASS: emulator WebView probe on the updated readerdev showed inherited paragraph text scaling from `16px` at 100% to `22.4px` at 140%.
+- PASS: the same probe sampled existing loaded EPUB paragraphs (`A Memory of Light`) and each sampled paragraph scaled from `16px` to `22.4px`, proving the installed runtime now changes real ebook body text, not only synthetic probes/headings.
+- Remaining: physical/loaded-section validation is still required for the exact Tab S9 Ultra page/book that exposed the original symptom.

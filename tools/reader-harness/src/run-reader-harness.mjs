@@ -238,7 +238,7 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
-    'forward area boundary follows wrapped renderer delta',
+    'forward area boundary keeps texture moving left through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: -750,
       baseOffset: 423,
@@ -247,10 +247,10 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'next',
     }),
-    { x: 698, y: 0 }
+    { x: -698, y: 0 }
   )
   assertOffset(
-    'forward area boundary matches live tablet wrap trace',
+    'forward area boundary matches live tablet wrap trace without inversion',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 0,
       baseOffset: 720,
@@ -260,10 +260,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: 'next',
       fallbackPageTurnDirection: 'next',
     }),
-    { x: 720, y: 0 }
+    { x: -720, y: 0 }
   )
   assertOffset(
-    'previous area boundary follows wrapped renderer delta',
+    'previous area boundary keeps texture moving right through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 1395,
       baseOffset: 697,
@@ -272,7 +272,7 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'previous',
     }),
-    { x: -698, y: 0 }
+    { x: 698, y: 0 }
   )
   assertOffset(
     'directionless area-wrap jump does not invert texture',
@@ -299,7 +299,7 @@ if (mode === 'texture-offset-logic') {
     { x: 0, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap with fallback next follows wrapped renderer delta',
+    'directionless near-wrap with fallback next keeps texture moving left through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 40,
       baseOffset: 560,
@@ -309,10 +309,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'next',
     }),
-    { x: 520, y: 0 }
+    { x: -520, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap with fallback previous follows wrapped renderer delta',
+    'directionless near-wrap with fallback previous keeps texture moving right through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 560,
       baseOffset: 40,
@@ -322,7 +322,7 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'previous',
     }),
-    { x: -520, y: 0 }
+    { x: 520, y: 0 }
   )
   assertOffset(
     'directionless near-wrap without fallback does not invert texture',
@@ -373,7 +373,7 @@ if (mode === 'texture-offset-logic') {
     { x: 0, y: 320 }
   )
   assertOffset(
-    'vertical forward boundary follows wrapped renderer delta',
+    'vertical forward boundary keeps texture moving up through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 0,
       baseOffset: 873,
@@ -383,10 +383,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: 'next',
       fallbackPageTurnDirection: 'next',
     }),
-    { x: 0, y: 873 }
+    { x: 0, y: -873 }
   )
   assertOffset(
-    'vertical directionless near-wrap with fallback previous follows wrapped renderer delta',
+    'vertical directionless near-wrap with fallback previous keeps texture moving down through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 873,
       baseOffset: 40,
@@ -396,7 +396,7 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'previous',
     }),
-    { x: 0, y: -833 }
+    { x: 0, y: 833 }
   )
   const assertDirection = (name, actual, expected) => {
     if (actual !== expected) {
@@ -739,12 +739,57 @@ if (mode === 'font-css-smoke') {
         customFontFamily: 'Bad Font"; color:red;/*',
         customFontUrl: 'https://evil.example/fonts/bad.ttf',
       }
+      const measurePublisherSpanText = async fontSizePercent => {
+        const frame = document.createElement('iframe')
+        document.body.appendChild(frame)
+        const doc = frame.contentDocument
+        doc.open()
+        doc.write(`
+          <!doctype html>
+          <html>
+            <head>
+              <style>
+                .publisher-body-text { font-size: 10px; }
+              </style>
+            </head>
+            <body>
+              <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
+              <h1 data-probe="heading">Chapter title</h1>
+            </body>
+          </html>
+        `)
+        doc.close()
+        const style = doc.createElement('style')
+        style.textContent = helpers.readerContentCss({
+          fontSizePercent,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 0,
+        })
+        doc.head.append(style)
+        await new Promise(resolve => frame.contentWindow.requestAnimationFrame(resolve))
+        const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
+        const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
+        const result = {
+          bodySpanFontSize: bodySpanStyle.fontSize,
+          bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
+          headingFontSize: headingStyle.fontSize,
+          headingFontSizeValue: Number.parseFloat(headingStyle.fontSize || '0'),
+        }
+        frame.remove()
+        return result
+      }
+      const publisherSpanAt100 = await measurePublisherSpanText(100)
+      const publisherSpanAt140 = await measurePublisherSpanText(140)
       return {
         customSource: helpers.readerFontSource(safeSettings),
         customFamily: helpers.readerEffectiveFontFamily(safeSettings),
         safeCss: helpers.readerFontFaceCss(safeSettings),
         unsafeCss: helpers.readerFontFaceCss(unsafeSettings),
         navicCss: helpers.readerFontFaceCss({ fontSource: 'navic' }),
+        publisherSpanAt100,
+        publisherSpanAt140,
+        publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
+        publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
     assertNoConsoleErrors(errors)
@@ -762,6 +807,18 @@ if (mode === 'font-css-smoke') {
     }
     if (!String(result.navicCss || '').includes('Navic Literata')) {
       throw new Error('Expected bundled Navic font CSS to remain available')
+    }
+    if (!Number.isFinite(result.publisherSpanBodyDelta) || result.publisherSpanBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher span-wrapped body text; ` +
+        `observed ${result.publisherSpanAt100?.bodySpanFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodySpanFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherSpanHeadingDelta) || result.publisherSpanHeadingDelta <= 1) {
+      throw new Error(
+        `Expected heading probe to keep scaling with font-size control; ` +
+        `observed ${result.publisherSpanAt100?.headingFontSize || 'unset'} -> ${result.publisherSpanAt140?.headingFontSize || 'unset'}`
+      )
     }
     console.log('reader harness font-css-smoke passed')
   } catch (error) {
@@ -3248,6 +3305,8 @@ if (mode === 'css-smoke') {
       const bodyStyle = win.getComputedStyle(doc.body)
       const paragraph = doc.querySelector('[data-navic-css-smoke-paragraph="true"]')
       const paragraphStyle = win.getComputedStyle(paragraph)
+      const paragraphFontSizeAt100 = Number.parseFloat(paragraphStyle.fontSize || '0')
+      const bodyFontSizeAt100 = Number.parseFloat(bodyStyle.fontSize || '0')
       const textLink = doc.querySelector('[data-navic-css-smoke-link="true"]')
       const textLinkStyle = win.getComputedStyle(textLink)
       const textLinkAfterStyle = win.getComputedStyle(textLink, '::after')
@@ -3255,6 +3314,26 @@ if (mode === 'css-smoke') {
       const mediaLinkAfterStyle = win.getComputedStyle(mediaLink, '::after')
       const image = doc.querySelector('[data-navic-css-smoke-media-image="true"]')
       const imageMixBlendModeBefore = win.getComputedStyle(image).mixBlendMode
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 140,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const htmlStyleAt140 = win.getComputedStyle(doc.documentElement)
+      const bodyStyleAt140 = win.getComputedStyle(doc.body)
+      const paragraphStyleAt140 = win.getComputedStyle(paragraph)
+      const paragraphFontSizeAt140 = Number.parseFloat(paragraphStyleAt140.fontSize || '0')
+      const bodyFontSizeAt140 = Number.parseFloat(bodyStyleAt140.fontSize || '0')
       const postedMessages = () => Array.isArray(win.parent.__navicReaderPostedMessages)
         ? win.parent.__navicReaderPostedMessages
         : []
@@ -3556,6 +3635,18 @@ if (mode === 'css-smoke') {
         theme: doc.documentElement.dataset.navicReaderTheme || '',
         htmlBackground: htmlStyle.backgroundColor,
         bodyBackground: bodyStyle.backgroundColor,
+        rootFontSizeAt100: htmlStyle.fontSize,
+        bodyFontSizeAt100: bodyStyle.fontSize,
+        paragraphFontSizeAt100: paragraphStyle.fontSize,
+        rootFontSizeAt140: htmlStyleAt140.fontSize,
+        bodyFontSizeAt140: bodyStyleAt140.fontSize,
+        paragraphFontSizeAt140: paragraphStyleAt140.fontSize,
+        paragraphFontSizeDelta: Number.isFinite(paragraphFontSizeAt100) && Number.isFinite(paragraphFontSizeAt140)
+          ? paragraphFontSizeAt140 - paragraphFontSizeAt100
+          : null,
+        bodyFontSizeDelta: Number.isFinite(bodyFontSizeAt100) && Number.isFinite(bodyFontSizeAt140)
+          ? bodyFontSizeAt140 - bodyFontSizeAt100
+          : null,
         paragraphSpacingVariable: bodyStyle.getPropertyValue('--reader-paragraph-spacing') ||
           htmlStyle.getPropertyValue('--reader-paragraph-spacing'),
         paragraphMarginBottom: paragraphStyle.marginBlockEnd || paragraphStyle.marginBottom,

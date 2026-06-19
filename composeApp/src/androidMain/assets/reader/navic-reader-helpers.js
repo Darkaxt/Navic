@@ -971,18 +971,11 @@ export const readerSurfacePaperTextureScrollOffset = ({
   const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)
   const hasKnownDirection = Boolean(effectiveDirection)
   const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1
-  const actualDirectionSign = Math.sign(delta)
-  const knownDirectionBoundaryWrap = hasKnownDirection &&
-    directionlessBoundaryLikeDelta &&
-    actualDirectionSign !== 0 &&
-    actualDirectionSign !== expectedDirectionSign
   const wrapsDirectionlessBoundary = !hasKnownDirection && directionlessBoundaryLikeDelta
   const bounded = wrapsDirectionlessBoundary
     ? 0
     : Math.max(-maxOffset, Math.min(maxOffset, delta))
-  const signedOffset = knownDirectionBoundaryWrap
-    ? bounded
-    : hasKnownDirection
+  const signedOffset = hasKnownDirection
     ? expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))
     : bounded
   return flowMode === ReaderFlowPagedVertical
@@ -1646,7 +1639,19 @@ export const readerTypographyCss = settings => {
   p, li, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))), font {
     font-size: 1em !important;
     font-weight: ${fontWeight} !important;
-    ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
+  ${textIndent < 0 ? '' : `text-indent: ${textIndent}em !important;`}
+  }
+  p span,
+  p font,
+  li span,
+  li font,
+  blockquote span,
+  blockquote font,
+  dd span,
+  dd font,
+  [data-navic-paragraph-block="true"] span,
+  [data-navic-paragraph-block="true"] font {
+    font-size: 1em !important;
   }
   p:has(> img:only-child),
   p:has(> span:only-child > img:only-child),
