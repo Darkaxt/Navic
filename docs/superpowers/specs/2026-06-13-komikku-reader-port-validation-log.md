@@ -3531,3 +3531,49 @@ Results:
 
 Remaining:
 - Use this hook in a readerdev/emulator or physical-device run to validate actual resume after disrupted drag/app interruption. Do not mark the P0 resume issue closed until that runtime flow is proven.
+
+## 2026-06-19 ReaderDev Start Progress Runtime Check
+
+Scope:
+- Validate the new readerdev `-StartProgress` launch hook on a running Android emulator.
+- This checks deterministic route-level progress injection and Foliate runtime relocation. It does not close the full disrupted-drag/app-kill resume P0.
+
+Environment:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Launch command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 `
+  -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env `
+  -Package darkaxt.navic.readerdev `
+  -DeviceSerial emulator-5554 `
+  -RequireReaderLaunch `
+  -StartProgress 0.37
+```
+
+Results:
+- PASS: readerdev discovered a Bindery EPUB target, built `androidApp:assembleReaderDev`, installed successfully, and launched `darkaxt.navic.readerdev`.
+- PASS: Android focus confirmed `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS: runtime logs showed `progress-seek:start 0.37`, `loadDoc(index=25, sectionId=OEBPS/Text/Chapter-15.xhtml)`, cached pagination profile `navic-pagination-v1:952170858`, and `progress-seek:done 0.37`.
+- PASS: runtime location emitted `progress=0.3704074801253666`, `pageIndex=147`, `pageCount=388`, `chapterPageIndex=3`, `chapterPageCount=9`, `tocTitle="15. Your Neck in a Cord"`.
+- PASS: DevTools probe confirmed the same location from inside the WebView:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload --local-port 9234
+```
+
+- PASS: the probe returned `href=OEBPS/Text/Chapter-15.xhtml`, `progress=0.3704074801253666`, `pageIndex=147`, `pageCount=388`, and `fraction=0.3704074801253666`.
+- OBSERVED: the captured screen still showed the native cover surface. That is consistent with the current shell policy of showing the cover before the resumed/sought location, so visual screenshot alone is not reliable evidence for the start-progress hook.
+- OBSERVED: a center tap on the native cover did not dismiss it on this emulator. That is a cover interaction issue to track separately from the WebView start-progress hook.
+- HARNESS GAP: `scripts\install-reader-dev.ps1` printed `Waiting for reader publicationReady bridge event before capture...` but did not append `Reader publication ready: ...` even though logcat clearly contained `Reader bridge event: publicationReady`. The wait condition or log-tail capture should be hardened before relying on that script line as the sole readiness signal.
+
+Artifacts:
+- `tmp\readerdev-start-progress\install-start-progress-out.log`
+- `tmp\readerdev-start-progress\install-start-progress-err.log`
+- `tmp\readerdev-start-progress\start-progress-screen.png`
+- `tmp\readerdev-start-progress\after-cover-tap-screen.png`
+
+Conclusion:
+- The readerdev start-progress hook is runtime-proven on emulator for a deterministic progress launch into the EPUB WebView.
+- The P0 resume issue remains open until the same infrastructure is used to validate interrupted drag/app-kill restore behavior.
