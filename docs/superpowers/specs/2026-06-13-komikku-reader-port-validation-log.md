@@ -3887,3 +3887,29 @@ Results:
 Interpretation:
 - This does not close a phone/runtime complaint by itself; it only proves the current source still contains the expected offline safeguards.
 - While Bindery is unstable, do not publish or validate release candidates through server-backed launch/download flows unless the reader is already loaded and the probe does not require network.
+
+## 2026-06-19 Bindery-Safe Guard: Note Marker And Reopen Route
+
+Scope:
+- Continue Note/annotation work without relaunching or downloading books while Bindery was under maintenance.
+- Recheck the user-facing question: after saving a note, there must be a visual marker and a way to reopen it later.
+
+Source route:
+- `ReaderController.saveSelectionNote(...)` stores a note-bearing `ReaderAnnotation`, clears the draft, and emits `ReaderEngineCommand.ApplyAnnotations`.
+- `FoliateEpubEngineAdapter` maps that command to `ReaderBridgeCommand.ApplyHighlights`.
+- `navic-reader.js` forwards note-bearing annotations into Foliate `addAnnotation`, paints them through `drawAnnotation`, sets `data-navic-note-annotation`, and uses a note-specific marker color.
+- `AnnotationClicked` resolves saved note metadata from the controller store and opens `ReaderAnnotationPopupState`, which is rendered by `KomikkuReaderAnnotationDialog`.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.selectionNotesSaveAsAnnotationsAndClearDraft --tests paige.navic.reader.ReaderControllerTest.annotationClicksResolveSavedNoteBodyFromControllerStore --tests paige.navic.reader.ReaderCoordinatorTest.selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter --tests paige.navic.reader.ReaderAnnotationStateTest.noteAnnotationJsonRoundTripKeepsReaderNoteForMarkerAndPopup --tests paige.navic.reader.FoliateAnxParityTest
+```
+
+Results:
+- PASS: focused controller/coordinator/model note tests passed.
+- PASS: `FoliateAnxParityTest` passed, including the note-bearing annotation draw route and the controller-owned annotation popup route.
+
+Interpretation:
+- The offline source path for "save note -> visible annotation marker -> tap annotation -> open native note popup" is present and guarded.
+- This still does not prove the Android runtime Save tap or Foliate draw acknowledgment on a physical/release APK. Runtime validation remains required after a build with `Reader selection note save length=...` diagnostics is installed and the book is already loaded without depending on Bindery.
