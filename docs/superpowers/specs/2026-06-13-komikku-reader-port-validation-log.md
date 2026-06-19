@@ -3408,3 +3408,28 @@ Artifact:
 
 Remaining:
 - This is dirty-emulator readerdev evidence, not physical-phone release proof. The P0 still needs a clean release/phone run on the chapters/pages that previously showed `10 / 12`, `2 / 4`, or page-1 rail-button failures.
+
+## 2026-06-19 Font Size Controller Recheck
+
+Scope:
+- Recheck the user report that the Font size controller changes chapter/title-like text but not normal EPUB body text, effectively pushing prose down instead of scaling it.
+
+Evidence:
+- Current master includes `a157a8f9 Fix reader font size under publisher styles` and eta76 includes that commit.
+- `readerTypographyCss(settings)` no longer disables typography CSS when `publisherStyles === true`; it keeps `html` on `--reader-content-font-size`, forces `body` to `1rem`, and collapses prose containers/descendants back to `1em`.
+- Covered EPUB body shapes include direct `body > span`, direct `body > a`, span-wrapped paragraphs, fixed-size paragraphs, and converted `<div>...<br/>...</div>` text blocks.
+
+Verification:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs font-css-smoke
+```
+
+Results:
+- PASS: `font-css-smoke` confirmed direct body text, span-wrapped paragraph text, block-wrapped text, fixed-size paragraph text, and headings all scale through the same Font size controller path.
+- PASS: existing focused host result for `ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes` reports `tests="1" failures="0" errors="0"`.
+- BLOCKED: live emulator WebView proof of the exact visible EPUB page was not meaningful in this check because the emulator was on the Books grid, not inside reader content (`captures\reader-font-size\eta76-current-font-size-context.png`).
+
+Conclusion:
+- The current source and eta76 assets address the known root cause: publisher styles preserving absolute body prose sizes while headings scale.
+- If the physical Tab S9 Ultra still reproduces the symptom on eta76, collect a real computed-style sample from the exact visible Hobbit prose page. The remaining likely cause would be another page-specific EPUB markup shape not covered by the current body-prose selectors, not the older publisher-style early return.
