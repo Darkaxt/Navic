@@ -700,8 +700,10 @@ async function runFontSizeProbe(page) {
       throw new Error('Missing loaded content document')
     }
     const win = doc.defaultView
+    doc.querySelectorAll('[data-navic-font-size-probe="true"], [data-navic-publisher-font-size-probe="true"]')
+      .forEach(element => element.remove())
     const existingTextElements = Array.from(doc.body.querySelectorAll('p, span, font, div, li, blockquote'))
-      .filter(element => !element.closest('[data-navic-font-size-probe="true"]'))
+      .filter(element => !element.closest('[data-navic-font-size-probe="true"], [data-navic-publisher-font-size-probe="true"]'))
       .filter(element => {
         const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
         if (text.length < 24) return false
@@ -742,8 +744,11 @@ async function runFontSizeProbe(page) {
     probe.setAttribute('data-navic-font-size-probe', 'true')
     probe.innerHTML = '<p data-navic-font-size-probe-paragraph="true">Navic font-size probe paragraph text.</p>'
     doc.body.prepend(probe)
+    const flushStyle = () => {
+      void doc.documentElement.offsetHeight
+    }
     try {
-      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      flushStyle()
       const paragraph = doc.querySelector('[data-navic-font-size-probe-paragraph="true"]')
       const readMetrics = label => {
         const htmlStyle = win.getComputedStyle(doc.documentElement)
@@ -764,14 +769,14 @@ async function runFontSizeProbe(page) {
         type: 'applySettings',
         settings: { fontSizePercent: 100 },
       })
-      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      flushStyle()
       const at100 = readMetrics('100')
       const existingAt100 = readExistingMetrics('100')
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
         settings: { fontSizePercent: 140 },
       })
-      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      flushStyle()
       const at140 = readMetrics('140')
       const existingAt140 = readExistingMetrics('140')
       const existingDeltas = existingAt100.elements.map((before, index) => {
@@ -824,6 +829,8 @@ async function runPublisherStyleFontSizeProbe(page) {
       throw new Error('Missing loaded content document')
     }
     const win = doc.defaultView
+    doc.querySelectorAll('[data-navic-font-size-probe="true"], [data-navic-publisher-font-size-probe="true"]')
+      .forEach(element => element.remove())
     const originalPercentText = win.getComputedStyle(doc.documentElement)
       .getPropertyValue('--reader-content-font-size')
       .trim()
@@ -835,8 +842,11 @@ async function runPublisherStyleFontSizeProbe(page) {
     probe.setAttribute('data-navic-publisher-font-size-probe', 'true')
     probe.innerHTML = '<p data-navic-publisher-font-size-probe-paragraph="true" style="font-size: 12px">Navic publisher style font-size probe paragraph text.</p>'
     doc.body.prepend(probe)
+    const flushStyle = () => {
+      void doc.documentElement.offsetHeight
+    }
     try {
-      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      flushStyle()
       const paragraph = doc.querySelector('[data-navic-publisher-font-size-probe-paragraph="true"]')
       const readMetrics = label => {
         const htmlStyle = win.getComputedStyle(doc.documentElement)
@@ -857,7 +867,7 @@ async function runPublisherStyleFontSizeProbe(page) {
           fontSizePercent: 100,
         },
       })
-      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      flushStyle()
       const at100 = readMetrics('100')
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
@@ -866,7 +876,7 @@ async function runPublisherStyleFontSizeProbe(page) {
           fontSizePercent: 140,
         },
       })
-      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      flushStyle()
       const at140 = readMetrics('140')
       const publisherParagraphDelta = at140.publisherParagraphFontSizeValue - at100.publisherParagraphFontSizeValue
       const rootDelta = at140.rootFontSizeValue - at100.rootFontSizeValue

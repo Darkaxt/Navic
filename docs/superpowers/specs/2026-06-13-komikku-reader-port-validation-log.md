@@ -3433,3 +3433,37 @@ Results:
 Conclusion:
 - The current source and eta76 assets address the known root cause: publisher styles preserving absolute body prose sizes while headings scale.
 - If the physical Tab S9 Ultra still reproduces the symptom on eta76, collect a real computed-style sample from the exact visible Hobbit prose page. The remaining likely cause would be another page-specific EPUB markup shape not covered by the current body-prose selectors, not the older publisher-style early return.
+
+## 2026-06-19 Font Size DevTools Probe Hardening
+
+Trigger:
+- The Android DevTools `font-size-publisher-styles` probe hung when the WebView target was listed with `visible=false`.
+- Root cause: the font probes waited on `requestAnimationFrame`; Android WebView can pause animation frames for a hidden/non-visible target even though CDP evaluation still works.
+
+Implementation:
+- Added a host guard that forbids `requestAnimationFrame` usage inside `runFontSizeProbe` and `runPublisherStyleFontSizeProbe`.
+- Replaced animation-frame waits with synchronous layout/style flushes after `NavicReaderBridge.dispatch(...)` completes.
+- Added stale probe cleanup at the start of both font probes, removing `[data-navic-font-size-probe="true"]` and `[data-navic-publisher-font-size-probe="true"]` before measuring real EPUB content.
+- The real-text sampler now ignores both probe node families, so killed diagnostic runs cannot pollute later evidence.
+
+Verification:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph --rerun-tasks
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\run-reader-harness.mjs font-css-smoke
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size-publisher-styles --local-port 9245
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size --local-port 9246
+```
+
+Results:
+- RED before fix: `adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames` failed because the probes used `requestAnimationFrame`.
+- PASS: focused host XML reported `tests="3" failures="0" errors="0"` for the no-animation-frame guard, publisher probe guard, and cleanup guard.
+- PASS: focused rerun for `adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph` completed successfully.
+- PASS: `node --check` and `font-css-smoke` passed.
+- PASS: live eta76 readerdev `font-size-publisher-styles` probe returned instead of hanging and measured publisher paragraph/root scaling `16px -> 22.4px` with `delta=6.4`.
+- PASS: live eta76 readerdev `font-size` probe measured real EPUB `blockquote`/`p` samples, excluding stale synthetic probe nodes; every sampled real text element scaled `16px -> 22.4px` with `delta=6.4`.
+
+Remaining:
+- This proves the current readerdev runtime and hidden WebView DevTools path can validate font-size scaling reliably. It still does not replace a physical Tab S9 Ultra computed-style sample on the exact Hobbit page if that device still shows body text not scaling.

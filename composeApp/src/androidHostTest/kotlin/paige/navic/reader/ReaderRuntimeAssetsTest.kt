@@ -392,6 +392,7 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(fontSizeProbe, "probe.remove()")
 		assertContains(fontSizeProbe, "finally")
+		assertContains(fontSizeProbe, "data-navic-font-size-probe=\"true\"], [data-navic-publisher-font-size-probe=\"true\"")
 		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
 	}
 
@@ -408,6 +409,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(publisherProbe, "publisherParagraphDelta")
 		assertContains(publisherProbe, "probe.remove()")
 		assertContains(publisherProbe, "publisherStyles: originalPublisherStyles")
+	}
+
+	@Test
+	fun adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function runPublisherStyleFontSizeProbe(page)")
+		val publisherProbe = helperText
+			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertFalse(
+			fontSizeProbe.contains("requestAnimationFrame"),
+			"Font-size probing must not wait on requestAnimationFrame because Android WebView DevTools can expose a non-visible target where animation frames are paused."
+		)
+		assertFalse(
+			publisherProbe.contains("requestAnimationFrame"),
+			"Publisher-style font-size probing must not wait on requestAnimationFrame because Android WebView DevTools can expose a non-visible target where animation frames are paused."
+		)
 	}
 
 	@Test
