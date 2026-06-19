@@ -2649,3 +2649,41 @@ Result:
 - PASS: focused `FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract`.
 - PASS: `git diff --check`.
 - Remaining: physical/release validation is still required on the Tab S9 Ultra/Hobbit page after installing a build that includes this working-tree fix.
+
+## 2026-06-19 Working Tree Follow-Up: Anx Top/Bottom Margin Consumption In Bundled Foliate
+
+Trigger:
+
+- User reported that the Tab S9 Ultra EPUB page composition had too much unused width and too little natural vertical breathing room, then asked whether real folio margins are usually equal.
+
+Root-cause evidence:
+
+- Real folio/page margins are normally asymmetric, and Anx models that explicitly with separate `topMargin` and `bottomMargin` style fields.
+- Navic already serialized those Anx fields through `ReaderSettings` and applied them to Foliate with `renderer.setAttribute('top-margin', ...)` and `renderer.setAttribute('bottom-margin', ...)`.
+- The bundled Foliate paginator ignored both attributes. It observed and consumed only the uniform `margin` attribute, so active page composition collapsed Anx's top/bottom margin model into one default `--_margin`.
+
+Change under validation:
+
+- Added a host parity guard requiring the bundled paginator to consume Anx `topMargin` and `bottomMargin` separately.
+- Updated `vendor/foliate-js/paginator.js` to define `--_top-margin` and `--_bottom-margin`, observe `top-margin` and `bottom-margin`, and use those values for the page grid's top/bottom rows plus header/footer heights.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+.\scripts\install-reader-dev.ps1 -EnvFile "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env" -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+```
+
+Result:
+
+- RED before fix: `FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract` failed because the bundled paginator did not contain `top-margin`, `bottom-margin`, `--_top-margin`, or `--_bottom-margin`.
+- PASS after fix: focused Anx style-dimension parity test.
+- PASS: JavaScript syntax checks for `paginator.js` and `navic-reader-helpers.js`.
+- PASS: `font-css-smoke`.
+- PASS: full Android host suite `:composeApp:testAndroidHost`.
+- PASS: dirty `readerdev` build/install/launch on `emulator-5554`; the script reached foreground confirmation and `publicationReady`, then pulled `captures\reader-dev\reader-dev-20260619-053426.png`.
+- Remaining: this is dirty-emulator/source evidence. Physical/release validation is still required on the Tab S9 Ultra page before claiming the margin composition is solved on the tablet.

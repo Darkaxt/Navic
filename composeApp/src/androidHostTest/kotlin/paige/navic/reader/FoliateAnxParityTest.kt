@@ -856,6 +856,15 @@ class FoliateAnxParityTest {
 				navicReaderMainText.contains("setAttribute('gap'"),
 			"Navic Foliate renderer setup must apply Anx top/bottom/gap attributes."
 		)
+		assertTrue(
+			navicPaginatorText.contains("case 'top-margin':") &&
+				navicPaginatorText.contains("case 'bottom-margin':") &&
+				navicPaginatorText.contains("--_top-margin") &&
+				navicPaginatorText.contains("--_bottom-margin") &&
+				navicPaginatorText.contains("var(--_top-margin)") &&
+				navicPaginatorText.contains("var(--_bottom-margin)"),
+			"Bundled Foliate paginator must consume Anx topMargin/bottomMargin separately; a single uniform margin is not Anx parity."
+		)
 	}
 
 	@Test

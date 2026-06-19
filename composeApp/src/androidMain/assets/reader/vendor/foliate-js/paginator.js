@@ -556,6 +556,8 @@ export class Paginator extends HTMLElement {
         #top {
             --_gap: 7%;
             --_margin: 48px;
+            --_top-margin: var(--_margin);
+            --_bottom-margin: var(--_margin);
             --_max-inline-size: 720px;
             --_max-block-size: 1440px;
             --_max-column-count: 2;
@@ -572,9 +574,9 @@ export class Paginator extends HTMLElement {
                 var(--_half-gap)
                 minmax(var(--_half-gap), 1fr);
             grid-template-rows:
-                minmax(var(--_margin), 1fr)
+                minmax(var(--_top-margin), 1fr)
                 minmax(0, var(--_max-height))
-                minmax(var(--_margin), 1fr);
+                minmax(var(--_bottom-margin), 1fr);
             &.vertical {
                 --_max-column-count-spread: var(--_max-column-count-portrait);
                 --_max-width: var(--_max-block-size);
@@ -614,7 +616,12 @@ export class Paginator extends HTMLElement {
         }
         #header, #footer {
             display: grid;
-            height: var(--_margin);
+        }
+        #header {
+            height: var(--_top-margin);
+        }
+        #footer {
+            height: var(--_bottom-margin);
         }
         :is(#header, #footer) > * {
             display: flex;
@@ -724,7 +731,9 @@ export class Paginator extends HTMLElement {
                 break
             case 'gap':
             case 'margin':
+            case 'top-margin':
             case 'max-block-size':
+            case 'bottom-margin':
             case 'max-column-count':
             case 'column-threshold':
                 this.#top.style.setProperty('--_' + name, value)
@@ -819,7 +828,11 @@ export class Paginator extends HTMLElement {
         const maxInlineSize = parseFloat(style.getPropertyValue('--_column-threshold')) ||
             parseFloat(style.getPropertyValue('--_max-inline-size'))
         const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
-        const margin = parseFloat(style.getPropertyValue('--_margin'))
+        const topMargin = parseFloat(style.getPropertyValue('--_top-margin'))
+        const bottomMargin = parseFloat(style.getPropertyValue('--_bottom-margin'))
+        const margin = Number.isFinite(topMargin)
+            ? topMargin
+            : parseFloat(style.getPropertyValue('--_margin'))
         this.#margin = margin
 
         const g = parseFloat(style.getPropertyValue('--_gap')) / 100
