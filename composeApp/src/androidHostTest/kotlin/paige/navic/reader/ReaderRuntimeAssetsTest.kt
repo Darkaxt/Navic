@@ -274,6 +274,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "selection-payload")
 		assertContains(scriptText, "relocation-payload")
 		assertContains(scriptText, "page-box")
+		assertContains(scriptText, "visible-page-content")
 		assertContains(scriptText, "font-size-publisher-styles")
 		assertContains(scriptText, "chapter-progress-endpoints")
 		assertContains(scriptText, "reader-bridge-events.log")
@@ -360,6 +361,34 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(
 			pageBoxProbe.contains("createElement"),
 			"Page-box probing must not inject diagnostic DOM into the reader."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadVisiblePageContentWithoutMutatingContent() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val visiblePageProbe = helperText
+			.substringAfter("async function runVisiblePageContentProbe(page)")
+			.substringBefore("async function runFontSizeProbe(page)")
+
+		assertContains(helperText, "visible-page-content")
+		assertContains(helperText, "'visible-page-content': runVisiblePageContentProbe")
+		assertContains(visiblePageProbe, "probe: 'visible-page-content'")
+		assertContains(visiblePageProbe, "rendererPage")
+		assertContains(visiblePageProbe, "rendererPages")
+		assertContains(visiblePageProbe, "visibleTextLength")
+		assertContains(visiblePageProbe, "visibleElementCount")
+		assertContains(visiblePageProbe, "viewportIntersectionRatio")
+		assertContains(visiblePageProbe, "rendererContainerPosition")
+		assertContains(visiblePageProbe, "adjustedRect")
+		assertContains(visiblePageProbe, "textSample")
+		assertFalse(
+			visiblePageProbe.contains("NavicReaderBridge.dispatch"),
+			"Visible-page probing must be read-only and must not trigger reader commands."
+		)
+		assertFalse(
+			visiblePageProbe.contains("createElement"),
+			"Visible-page probing must not inject diagnostic DOM into the reader."
 		)
 	}
 

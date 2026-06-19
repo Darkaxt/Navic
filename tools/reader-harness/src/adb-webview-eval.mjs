@@ -951,6 +951,92 @@ async function runPageBoxProbe(page) {
   }})()`)
 }
 
+async function runVisiblePageContentProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const roundRect = rect => ({
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      left: Math.round(rect.left),
+    })
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+    const viewport = {
+      width: Math.round(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+      height: Math.round(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const renderer = view.renderer
+    if (!renderer) {
+      throw new Error('Missing foliate renderer')
+    }
+    const rendererContainerPosition = Number(renderer.containerPosition)
+    const horizontalOffset = Number.isFinite(rendererContainerPosition) ? rendererContainerPosition : 0
+    const visibleContentItems = []
+    for (const [contentIndex, entry] of Array.from(renderer.getContents?.() || []).entries()) {
+      const doc = entry?.doc
+      const win = doc?.defaultView
+      if (!doc?.body || !win) continue
+      for (const element of Array.from(doc.body.querySelectorAll('body *'))) {
+        const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+        if (!text) continue
+        const rect = element.getBoundingClientRect?.()
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue
+        const adjustedRect = {
+          x: rect.x - horizontalOffset,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          right: rect.right - horizontalOffset,
+          bottom: rect.bottom,
+          left: rect.left - horizontalOffset,
+        }
+        const intersectionWidth = clamp(Math.min(adjustedRect.right, viewport.width) - Math.max(adjustedRect.left, 0), 0, viewport.width)
+        const intersectionHeight = clamp(Math.min(adjustedRect.bottom, viewport.height) - Math.max(adjustedRect.top, 0), 0, viewport.height)
+        if (intersectionWidth <= 0 || intersectionHeight <= 0) continue
+        const style = win.getComputedStyle(element)
+        if (style.display === 'none' || style.visibility === 'hidden') continue
+        visibleContentItems.push({
+          contentIndex,
+          tagName: element.tagName,
+          id: element.id || '',
+          className: String(element.className || ''),
+          textLength: text.length,
+          textSample: text.slice(0, 160),
+          rect: roundRect(rect),
+          adjustedRect: roundRect(adjustedRect),
+          viewportIntersectionRatio: Number(((intersectionWidth * intersectionHeight) / Math.max(1, rect.width * rect.height)).toFixed(4)),
+          fontSize: style.fontSize,
+          lineHeight: style.lineHeight,
+        })
+      }
+    }
+    const visibleTextLength = visibleContentItems.reduce((sum, item) => sum + item.textLength, 0)
+    return {
+      probe: 'visible-page-content',
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+      viewport,
+      rendererPage: Number(renderer.page),
+      rendererPages: Number(renderer.pages),
+      rendererStart: Number(renderer.start),
+      rendererEnd: Number(renderer.end),
+      rendererViewSize: Number(renderer.viewSize),
+      rendererContainerPosition,
+      visibleTextLength,
+      visibleElementCount: visibleContentItems.length,
+      visibleItems: visibleContentItems.slice(0, 32),
+    }
+  }})()`)
+}
+
 async function runFontSizeProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -1253,6 +1339,7 @@ async function main() {
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,
+      'visible-page-content': runVisiblePageContentProbe,
       'font-size': runFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
       'image-hit-targets': runImageHitTargetsProbe,

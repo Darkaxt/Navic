@@ -4153,3 +4153,26 @@ Interpretation:
 - Highlight/Note is not just a controller state change: the current runtime path can create a visible note marker and route annotation taps back to the native popup path.
 - The user-facing note UX remains incomplete: there is no persistent notes list or obvious post-save affordance beyond tapping the in-document marker.
 - The blank page is a separate progress/pagination endpoint bug. The current model can land on a terminal chapter page with no visible text. This should be fixed under the existing rail endpoint/pagination-profile work, not as an annotation issue.
+
+Follow-up screen check:
+- User reported the emulator screen looked weird: no text and only a popup.
+- Captured `captures/reader-status/20260619-213823/screen.png` from the foreground `darkaxt.navic.readerdev` activity without relaunching the app or touching Bindery.
+- PASS: no popup was visible in the captured state; the previous synthetic annotation dialog had already been dismissed.
+- FAIL/OPEN: the captured page still showed only one line of prose, `"A world without Shadow."`, on a mostly blank paper-texture page with page number `334 / 388`.
+- Interpretation: this confirms the active issue is the terminal-page pagination/packing endpoint, not a stuck dialog state. The loaded page should be investigated with the pagination profile/rail endpoint work before changing annotation or menu code.
+
+Follow-up DevTools probes:
+- Ran read-only `page-box` and `chapter-progress-current-endpoints` probes against the same foreground `readerdev` WebView.
+- PASS: `page-box` reported a live loaded reader at `1232x1974`; `rendererRect=1232x1974`, `contentDocument=true`, `bodyTextLength=242809`, and the content body is not empty.
+- PASS: `chapter-progress-current-endpoints` reported the current section as `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=44`, `chapterPageCount=45`, `chapterProgress=1`, global `pageIndex=333`, `pageCount=388`, and `pageCountSource=pagination-profile`.
+- FAIL/OPEN: the section endpoint maps to a nearly empty final visual page. The page is technically valid content, but it is not a good reader packing result.
+- Interpretation: treat this as a pagination profile/page packing defect. It should be fixed by making terminal chapter pages pack or merge naturally when they only contain a tiny amount of text, not by changing annotation popups or Bindery loading.
+
+Follow-up visible-page probe:
+- Added read-only DevTools probe `visible-page-content` to measure the current renderer page, Foliate `renderer.page/pages/start/end/viewSize/containerPosition`, and viewport-intersecting content elements in renderer coordinates.
+- Added host guard coverage and smoke-script support for `-ReaderDevtoolsProbe visible-page-content`.
+- RED: host guard failed before the probe existed.
+- GREEN: focused host guard passed after adding the probe, and `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- PASS: live probe at the terminal endpoint reported `rendererPage=45`, `rendererPages=47`, `rendererContainerPosition=50984`, `visibleTextLength=0`, and `visibleElementCount=0`.
+- PASS: after one left-edge previous-page tap, the same probe reported `rendererPage=44`, `rendererPages=47`, and the only prose leaf on the page was `"A world without Shadow."`.
+- Interpretation: Foliate exposes the current section with `pages=47`; Navic's current `pages - 2` section model counts page 45 as the final readable page, but page 45 is a blank terminal column and page 44 contains the final sentence. This confirms a trailing blank/sentinel column defect in chapter endpoint paging. Do not patch this by hiding page numbers or changing annotation/menu state.
