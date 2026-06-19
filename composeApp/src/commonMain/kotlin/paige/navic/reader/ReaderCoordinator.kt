@@ -108,9 +108,6 @@ data class ReaderCoordinator(
 	fun openContentsDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openContentsDialog())
 
-	fun openReadingModeDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openReadingModeDialog())
-
 	fun openSearchDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openSearchDialog())
 

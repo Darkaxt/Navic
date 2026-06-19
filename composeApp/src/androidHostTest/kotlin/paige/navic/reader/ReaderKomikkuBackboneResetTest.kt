@@ -1357,6 +1357,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Settings must render as a Komikku-style overlay dialog above the viewer, not as the old docked options panel."
 		)
 		assertFalse(
+			controllerText.contains("ReadingMode") || readerRootText.contains("ReaderControllerDialog.ReadingMode"),
+			"The Komikku shell must not keep a second controller route that opens the same settings dialog."
+		)
+		assertFalse(
 			readerScreenText.contains("ReaderOptionsPanel(") || readerRootText.contains("ReaderOptionsPanel("),
 			"The active Komikku reader must not reattach the old reader options panel as its settings surface."
 		)

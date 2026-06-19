@@ -2974,3 +2974,38 @@ Result:
 - PASS: focused bridge/adapter/controller/common-UI/Anx-parity host suite.
 - PASS: full `FoliateAnxParityTest`.
 - Remaining: this is source/host evidence. A real EPUB with cross-section footnotes still needs emulator or physical-device validation to confirm the referenced section content appears in `KomikkuReaderFootnoteDialog`.
+
+## 2026-06-19 Working Tree Follow-Up: Single Bottom Settings Route
+
+Trigger:
+
+- The active spec still listed duplicate bottom-toolbar settings entry points as a Komikku-shell Priority 1 issue.
+- The visible bottom toolbar had already moved to distinct contents/search/settings actions, but the controller still exposed `ReaderControllerDialog.ReadingMode` and `ReaderControllerDialog.Settings`, both rendering `KomikkuReaderSettingsDialog`.
+
+Root-cause evidence:
+
+- `ReaderController.kt` had `ReaderControllerDialog.ReadingMode` and `ReaderControllerDialog.Settings`.
+- `ReaderRoot.kt` rendered both dialog values as the same settings dialog, only changing `initialTab`.
+- `ReaderControllerTest` and `ReaderCoordinatorTest` still encoded the duplicate dialog route as expected behavior.
+
+Change under validation:
+
+- Removed `ReaderControllerDialog.ReadingMode`.
+- Removed `openReadingModeDialog()` from `ReaderController` and `ReaderCoordinator`.
+- Removed the duplicate `ReaderControllerDialog.ReadingMode -> KomikkuReaderSettingsDialog(...)` branch from `ReaderRoot`.
+- Strengthened controller/coordinator/backbone tests so a second settings route is treated as a regression.
+- Kept Komikku's bottom button model value `ReadingMode("rm")` as a reference enum value, but it remains non-rendered by `KomikkuReaderBottomBar`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderControllerTest.readerSettingsDialogHasSingleControllerRoute --tests paige.navic.reader.ReaderControllerTest.settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog --tests paige.navic.reader.ReaderCoordinatorTest.bottomBarDialogsRouteThroughControllerWithoutEngineCommands --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.activeKomikkuShellOpensControllerOwnedSettingsDialogInsteadOfEmptySettingsButton
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomToolbarDoesNotExposeDuplicateSettingsDialogs
+```
+
+Result:
+
+- RED before fix: `ReaderControllerTest.readerSettingsDialogHasSingleControllerRoute` failed while `ReaderControllerDialog.ReadingMode` existed, and `ReaderKomikkuBackboneResetTest.activeKomikkuShellOpensControllerOwnedSettingsDialogInsteadOfEmptySettingsButton` failed while `ReaderRoot` still rendered the duplicate settings branch.
+- PASS after fix: targeted controller/coordinator/backbone host suite.
+- PASS: existing bottom-toolbar guard confirming contents/search/settings are distinct and `ReadingMode` is not rendered as a duplicate bottom action.
+- Remaining: source/host evidence only. Physical/emulator visual validation can confirm the bottom bar still shows the intended three actions and opens only one settings surface.

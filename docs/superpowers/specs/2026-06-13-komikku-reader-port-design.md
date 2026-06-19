@@ -247,7 +247,7 @@ Priority 1:
 - Correct remaining texture transition weirdness during page movement and page/section transitions.
 - Confirm cover drag behavior is faithful: cover should not vanish on touch; drag should produce reader-owned feedback and commit on release.
 - Keep progress rail chapter-local and Komikku-like; avoid whole-book rail behavior unless explicitly designed as a separate UI.
-- Remove duplicate bottom-toolbar settings entry points. The bottom toolbar must not open the same settings window from multiple buttons; keep a single settings entry, and map the remaining buttons to distinct Komikku-reader actions such as contents, search, bookmark, or remove them until their route exists.
+- Host-closed on 2026-06-19: duplicate bottom-toolbar settings entry points were removed at the controller route level. The bottom toolbar keeps distinct contents/search/settings actions, and `ReaderControllerDialog` has a single settings route.
 
 Priority 2:
 

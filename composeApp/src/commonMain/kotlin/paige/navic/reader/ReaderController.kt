@@ -44,7 +44,6 @@ data class ReaderSelectionNoteDraft(
 
 enum class ReaderControllerDialog {
 	Contents,
-	ReadingMode,
 	Search,
 	Settings
 }
@@ -784,9 +783,6 @@ data class ReaderController(
 
 	fun openContentsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Contents)
-
-	fun openReadingModeDialog(): ReaderControllerStep =
-		openDialog(ReaderControllerDialog.ReadingMode)
 
 	fun openSearchDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Search)

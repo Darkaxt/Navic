@@ -266,19 +266,6 @@ private fun KomikkuComposeOverlay(
 				onNavigateTo = onNavigateToTocItem,
 				onDismissRequest = onDismissDialog
 			)
-			ReaderControllerDialog.ReadingMode -> KomikkuReaderSettingsDialog(
-				settings = controllerState.chrome.settings,
-				initialTab = 0,
-				settingsScope = settingsScope,
-				hasBookSettings = hasBookSettings,
-				publicationFormat = publicationFormat,
-				onSettingsChange = onSettingsChange,
-				onSettingsScopeChange = onSettingsScopeChange,
-				onResetBookSettings = onResetBookSettings,
-				onShowMenus = onShowMenus,
-				onHideMenus = onHideMenus,
-				onDismissRequest = onDismissDialog
-			)
 			ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(
 				settings = controllerState.chrome.settings,
 				initialTab = 1,

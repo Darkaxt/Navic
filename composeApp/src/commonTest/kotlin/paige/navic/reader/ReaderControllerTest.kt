@@ -805,22 +805,26 @@ class ReaderControllerTest {
 	@Test
 	fun settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog() {
 		val contents = ReaderController().openContentsDialog()
-		val readingMode = contents.controller.openReadingModeDialog()
-		val settings = readingMode.controller.openSettingsDialog()
+		val settings = contents.controller.openSettingsDialog()
 		val dismissed = settings.controller.closeDialog()
 
 		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
 		assertTrue(contents.controller.state.menuVisible)
 		assertEquals(emptyList(), contents.engineCommands)
-		assertEquals(ReaderControllerDialog.ReadingMode, readingMode.controller.state.dialog)
-		assertTrue(readingMode.controller.state.menuVisible)
-		assertEquals(emptyList(), readingMode.engineCommands)
 		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
 		assertTrue(settings.controller.state.menuVisible)
 		assertEquals(emptyList(), settings.engineCommands)
 		assertNull(dismissed.controller.state.dialog)
 		assertTrue(dismissed.controller.state.menuVisible)
 		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
+	fun readerSettingsDialogHasSingleControllerRoute() {
+		assertTrue(
+			ReaderControllerDialog.entries.none { it.name == "ReadingMode" },
+			"Reader settings must have one controller dialog route; duplicate settings modes recreate the old docked-options surface."
+		)
 	}
 
 	@Test
