@@ -23,9 +23,22 @@ import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
+import paige.navic.ui.screens.bindery.versionpolicy.audioFormatQualityRank
+import paige.navic.ui.screens.bindery.versionpolicy.displayToken
+import paige.navic.ui.screens.bindery.versionpolicy.ebookFormatQualityRank
+import paige.navic.ui.screens.bindery.versionpolicy.fileExtension
+import paige.navic.ui.screens.bindery.versionpolicy.fileNameStem
+import paige.navic.ui.screens.bindery.versionpolicy.firstNonBlankValue
+import paige.navic.ui.screens.bindery.versionpolicy.hasTruthyValue
+import paige.navic.ui.screens.bindery.versionpolicy.isEbookMediaType
+import paige.navic.ui.screens.bindery.versionpolicy.isGenericBookMediaFormat
+import paige.navic.ui.screens.bindery.versionpolicy.leadingBracketLabel
+import paige.navic.ui.screens.bindery.versionpolicy.toBitrateLabel
+import paige.navic.ui.screens.bindery.versionpolicy.toReadableBookFormat
+import paige.navic.ui.screens.bindery.versionpolicy.toSampleRateLabel
 import paige.navic.util.core.toFileSize
-import kotlin.math.roundToLong
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 enum class BinderyBookVersionKind {
 	Audiobook,
@@ -1007,34 +1020,6 @@ private fun BinderyReadingOrderItem.displayFormat(): String? =
 		?: type.toReadableBookFormat()
 		?: properties.firstNonBlankValue("format")?.uppercase()
 
-private fun String.isGenericBookMediaFormat(): Boolean =
-	equals("EBOOK", ignoreCase = true) ||
-		equals("BOOK", ignoreCase = true) ||
-		equals("AUDIO", ignoreCase = true) ||
-		equals("AUDIOBOOK", ignoreCase = true)
-
-private fun String?.ebookFormatQualityRank(): Int =
-	when (this?.uppercase()) {
-		"EPUB" -> 50
-		"PDF" -> 40
-		"AZW3" -> 35
-		"MOBI" -> 30
-		"CBZ" -> 25
-		"TXT" -> 10
-		else -> 0
-	}
-
-private fun String?.audioFormatQualityRank(): Int =
-	when (this?.uppercase()) {
-		"FLAC" -> 60
-		"M4B" -> 55
-		"M4A" -> 50
-		"AAC" -> 45
-		"MP3" -> 40
-		"OGG" -> 30
-		else -> 0
-	}
-
 private fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
 	val media = this?.mediaType.orEmpty().lowercase()
 	val format = this?.format.orEmpty()
@@ -1104,102 +1089,3 @@ private fun BinderyFindingMetadata?.findingAudioQualityRank(): Int =
 
 private fun BinderyFindingMetadata?.findingEbookQualityRank(): Int =
 	this?.format.ebookFormatQualityRank()
-
-private fun Long.toBitrateLabel(): String =
-	"${(this / 1000).coerceAtLeast(1)} kbps"
-
-private fun Long.toSampleRateLabel(): String {
-	val khz = this.toDouble() / 1000.0
-	return if (khz % 1.0 == 0.0) {
-		"${khz.toInt()} kHz"
-	} else {
-		"${((khz * 10).roundToLong() / 10.0)} kHz"
-	}
-}
-
-private fun String.fileExtension(): String? {
-	val extension = substringAfterLast('.', missingDelimiterValue = "")
-		.substringBefore('?')
-		.substringBefore('#')
-		.trim()
-	return extension
-		.takeIf { it.length in 2..6 && it.all(Char::isLetterOrDigit) }
-		?.uppercase()
-}
-
-private fun String.fileNameStem(): String? {
-	val fileName = substringBefore('?')
-		.substringBefore('#')
-		.substringAfterLast('/')
-		.substringAfterLast('\\')
-		.trim()
-		.takeIf { it.isNotEmpty() }
-		?: return null
-	val extension = fileName.fileExtension()
-	val stem = if (extension != null && fileName.length > extension.length + 1) {
-		fileName.dropLast(extension.length + 1)
-	} else {
-		fileName
-	}
-	return stem.trim().takeIf { it.isNotEmpty() }
-}
-
-private fun String.leadingBracketLabel(): String? {
-	val trimmed = trim()
-	if (trimmed.startsWith("[")) {
-		val end = trimmed.indexOf(']')
-		if (end > 1) return trimmed.substring(1, end).trim().takeIf { it.isNotEmpty() }
-	}
-	if (trimmed.startsWith("(")) {
-		val end = trimmed.indexOf(')')
-		if (end > 1) return trimmed.substring(1, end).trim().takeIf { it.isNotEmpty() }
-	}
-	return null
-}
-
-private fun String?.isEbookMediaType(): Boolean =
-	this?.let { mediaType ->
-		"epub" in mediaType.lowercase() ||
-			"pdf" in mediaType.lowercase() ||
-			"azw3" in mediaType.lowercase() ||
-			"mobi" in mediaType.lowercase() ||
-			"ebook" in mediaType.lowercase()
-	} == true
-
-private fun String?.toReadableBookFormat(): String? {
-	val normalized = this?.lowercase() ?: return null
-	return when {
-		"epub" in normalized -> "EPUB"
-		"pdf" in normalized -> "PDF"
-		"azw3" in normalized -> "AZW3"
-		"mobi" in normalized -> "MOBI"
-		"audiobook" in normalized -> "Audiobook"
-		"mpeg" in normalized -> "MP3"
-		"mp4" in normalized -> "M4A"
-		"aac" in normalized -> "AAC"
-		"flac" in normalized -> "FLAC"
-		"ogg" in normalized -> "OGG"
-		else -> substringAfter('/').substringBefore(';').uppercase().takeIf { it.isNotBlank() }
-	}
-}
-
-private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
-	keys.firstNotNullOfOrNull { desiredKey ->
-		entries.firstOrNull { (key, value) ->
-			key.equals(desiredKey, ignoreCase = true) && value.isNotBlank()
-		}?.value?.trim()
-	}
-
-private fun Map<String, String>.hasTruthyValue(vararg keys: String): Boolean =
-	keys.any { desiredKey ->
-		entries.any { (key, value) ->
-			key.equals(desiredKey, ignoreCase = true) &&
-				value.trim().lowercase() in setOf("1", "true", "yes", "y")
-		}
-	}
-
-private fun String.displayToken(): String =
-	trim()
-		.replace(Regex("[_-]+"), " ")
-		.replace(Regex("\\s+"), " ")
-		.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
