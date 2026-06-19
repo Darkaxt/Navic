@@ -466,65 +466,69 @@ async function runFontSizeProbe(page) {
     probe.setAttribute('data-navic-font-size-probe', 'true')
     probe.innerHTML = '<p data-navic-font-size-probe-paragraph="true">Navic font-size probe paragraph text.</p>'
     doc.body.prepend(probe)
-    await new Promise(resolve => win.requestAnimationFrame(resolve))
-    const paragraph = doc.querySelector('[data-navic-font-size-probe-paragraph="true"]')
-    const readMetrics = label => {
-      const htmlStyle = win.getComputedStyle(doc.documentElement)
-      const bodyStyle = win.getComputedStyle(doc.body)
-      const paragraphStyle = win.getComputedStyle(paragraph)
-      return {
-        label,
-        rootFontSize: htmlStyle.fontSize,
-        bodyFontSize: bodyStyle.fontSize,
-        paragraphFontSize: paragraphStyle.fontSize,
-        rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
-        bodyFontSizeValue: Number.parseFloat(bodyStyle.fontSize || '0'),
-        paragraphFontSizeValue: Number.parseFloat(paragraphStyle.fontSize || '0'),
-        contentFontSizeVariable: htmlStyle.getPropertyValue('--reader-content-font-size').trim(),
+    try {
+      await new Promise(resolve => win.requestAnimationFrame(resolve))
+      const paragraph = doc.querySelector('[data-navic-font-size-probe-paragraph="true"]')
+      const readMetrics = label => {
+        const htmlStyle = win.getComputedStyle(doc.documentElement)
+        const bodyStyle = win.getComputedStyle(doc.body)
+        const paragraphStyle = win.getComputedStyle(paragraph)
+        return {
+          label,
+          rootFontSize: htmlStyle.fontSize,
+          bodyFontSize: bodyStyle.fontSize,
+          paragraphFontSize: paragraphStyle.fontSize,
+          rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
+          bodyFontSizeValue: Number.parseFloat(bodyStyle.fontSize || '0'),
+          paragraphFontSizeValue: Number.parseFloat(paragraphStyle.fontSize || '0'),
+          contentFontSizeVariable: htmlStyle.getPropertyValue('--reader-content-font-size').trim(),
+        }
       }
-    }
-    await window.NavicReaderBridge.dispatch({
-      type: 'applySettings',
-      settings: { fontSizePercent: 100 },
-    })
-    await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
-    const at100 = readMetrics('100')
-    const existingAt100 = readExistingMetrics('100')
-    await window.NavicReaderBridge.dispatch({
-      type: 'applySettings',
-      settings: { fontSizePercent: 140 },
-    })
-    await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
-    const at140 = readMetrics('140')
-    const existingAt140 = readExistingMetrics('140')
-    const existingDeltas = existingAt100.elements.map((before, index) => {
-      const after = existingAt140.elements[index]
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: { fontSizePercent: 100 },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const at100 = readMetrics('100')
+      const existingAt100 = readExistingMetrics('100')
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: { fontSizePercent: 140 },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const at140 = readMetrics('140')
+      const existingAt140 = readExistingMetrics('140')
+      const existingDeltas = existingAt100.elements.map((before, index) => {
+        const after = existingAt140.elements[index]
+        return {
+          index,
+          tagName: before.tagName,
+          text: before.text,
+          before: before.fontSize,
+          after: after?.fontSize || '',
+          delta: Number(after?.fontSizeValue) - Number(before.fontSizeValue),
+        }
+      })
       return {
-        index,
-        tagName: before.tagName,
-        text: before.text,
-        before: before.fontSize,
-        after: after?.fontSize || '',
-        delta: Number(after?.fontSizeValue) - Number(before.fontSizeValue),
+        probe: 'font-size',
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        at100,
+        at140,
+        existingAt100,
+        existingAt140,
+        existingDeltas,
+        paragraphDelta: at140.paragraphFontSizeValue - at100.paragraphFontSizeValue,
+        bodyDelta: at140.bodyFontSizeValue - at100.bodyFontSizeValue,
+        rootDelta: at140.rootFontSizeValue - at100.rootFontSizeValue,
+        pageTitle: document.title,
+        pageUrl: window.location.href,
       }
-    })
-    await window.NavicReaderBridge.dispatch({
-      type: 'applySettings',
-      settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100 },
-    })
-    return {
-      probe: 'font-size',
-      restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
-      at100,
-      at140,
-      existingAt100,
-      existingAt140,
-      existingDeltas,
-      paragraphDelta: at140.paragraphFontSizeValue - at100.paragraphFontSizeValue,
-      bodyDelta: at140.bodyFontSizeValue - at100.bodyFontSizeValue,
-      rootDelta: at140.rootFontSizeValue - at100.rootFontSizeValue,
-      pageTitle: document.title,
-      pageUrl: window.location.href,
+    } finally {
+      probe.remove()
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100 },
+      })
     }
   }})()`)
 }

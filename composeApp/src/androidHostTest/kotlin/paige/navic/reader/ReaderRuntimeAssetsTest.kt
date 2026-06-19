@@ -265,6 +265,18 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(fontSizeProbe, "probe.remove()")
+		assertContains(fontSizeProbe, "finally")
+		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
+	}
+
+	@Test
 	fun adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val postProbeGestureBlock = scriptText

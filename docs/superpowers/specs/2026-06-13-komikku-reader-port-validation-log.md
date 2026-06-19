@@ -2687,3 +2687,79 @@ Result:
 - PASS: full Android host suite `:composeApp:testAndroidHost`.
 - PASS: dirty `readerdev` build/install/launch on `emulator-5554`; the script reached foreground confirmation and `publicationReady`, then pulled `captures\reader-dev\reader-dev-20260619-053426.png`.
 - Remaining: this is dirty-emulator/source evidence. Physical/release validation is still required on the Tab S9 Ultra page before claiming the margin composition is solved on the tablet.
+
+## 2026-06-19 Working Tree Follow-Up: Font-Size Probe Cleanup
+
+Trigger:
+
+- User asked to re-check the font-size controller because it appeared to resize chapter/title text but not the main ebook body text.
+
+Findings:
+
+- Current source already includes the app-side font-size fixes for publisher span-wrapped paragraphs and converted EPUB `div:has(> br)` text blocks.
+- `font-css-smoke` still passes against those known body-text markup shapes.
+- The dirty emulator was on a native/frontmatter page, so the ADB font-size probe had no real EPUB body-text samples to measure.
+- While probing, the DevTools helper itself inserted a visible `Navic font-size probe paragraph text.` node and did not remove it. That made the diagnostic unsafe to use repeatedly on a live reader page.
+
+Change under validation:
+
+- `adb-webview-eval.mjs` now removes the synthetic font-size probe node in a `finally` block and restores the original `fontSizePercent` through the same cleanup path.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe font-size
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+```
+
+Result:
+
+- PASS: source harness `font-css-smoke`.
+- PASS: dirty-emulator synthetic font-size probe scaled root/body/probe paragraph text from `16px` at 100% to `22.4px` at 140%.
+- RED before tool fix: `ReaderRuntimeAssetsTest.adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph` failed because the helper did not contain a `probe.remove()` cleanup path.
+- PASS after tool fix: the same focused host guard.
+- PASS: JavaScript syntax check for `adb-webview-eval.mjs`.
+- Remaining: a non-mutating ADB font-size check still needs to be run on a real loaded body-text page, not on native cover/frontmatter. If the same symptom reproduces after a build containing `de0ff62e` and `889462cb`, the next suspected missing markup shape is direct body-level styled spans outside paragraph/block containers.
+
+## 2026-06-19 Working Tree Follow-Up: Frontmatter Previous Does Not Steal Native Cover
+
+Trigger:
+
+- The Komikku matrix previously failed at `edge-tap-previous` after walking through early frontmatter: a previous action from a later frontmatter/title page jumped to the native shell cover, so no previous-direction texture samples were captured.
+
+Root-cause evidence:
+
+- `readerShouldReturnToNativeShellCover` treated every locator with global progress `<= 0.02` as a native-cover boundary.
+- Real EPUB frontmatter can span several measured pages before the first readable chapter. In the reproduced path, the first eligible post-cover locator was `pageIndex=10`, but a later title/frontmatter locator was still low-progress at `pageIndex=13`.
+- The controller used the broad low-progress eligibility as the final Previous decision, so later frontmatter pages could also reclaim the native cover.
+
+Change under validation:
+
+- `ReaderControllerState` now records `nativeShellCoverReturnLocatorKey` from the first eligible EPUB-side locator after the native cover is dismissed.
+- Previous returns to the native cover only when the current locator key matches that recorded first eligible locator; later low-progress frontmatter pages now dispatch `ReaderEngineCommand.TurnPage(Previous)` normally.
+- The key resets on `open(...)` and `applySettings(...)`, because reader settings can change pagination coordinates.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderControllerTest.previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost --tests paige.navic.reader.ReaderControllerTest.previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover --tests paige.navic.reader.ReaderControllerTest.previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne --tests paige.navic.reader.ReaderControllerTest.previousFromFirstReadablePageReturnsToNativeCoverInsteadOfSuppressedWebViewCover --tests paige.navic.reader.ReaderControllerTest.applySettingsKeepsControllerAsOwnerAndForwardsNormalizedSettingsToEngine
+.\gradlew.bat --no-daemon --rerun-tasks :composeApp:testAndroidHost
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+git diff --check
+.\scripts\install-reader-dev.ps1 -EnvFile "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env" -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta75 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\frontmatter-cover-boundary-key-20260619-0621
+```
+
+Result:
+
+- RED before fix: `previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover` failed because the controller showed the native cover instead of dispatching `TurnPage(Previous)`.
+- PASS after fix: the same focused regression, the first-frontmatter/native-cover neighbors, and the settings-reset guard.
+- PASS: full Android host suite `:composeApp:testAndroidHost`.
+- PASS: JavaScript syntax check for the modified DevTools helper and `git diff --check`.
+- PARTIAL PASS: dirty readerdev build/install/launch reached foreground confirmation and `publicationReady`; the helper failed only while pulling its automatic screenshot.
+- PASS: Komikku matrix `captures\reader-komikku-matrix\frontmatter-cover-boundary-key-20260619-0621` completed through `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- PASS: `edge-tap-previous/reader-diagnostics-summary.txt` captured `textureDirectionSamples=2` and `wrongTextureDirection=False`, proving the earlier no-sample jump-to-cover failure did not recur in this dirty-emulator run.
+- Remaining: this is still dirty-emulator evidence. Physical/release validation is required before claiming the behavior is fixed on the phone/tablet release build.

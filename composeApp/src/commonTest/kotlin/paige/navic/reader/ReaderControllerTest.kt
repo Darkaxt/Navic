@@ -577,6 +577,60 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val firstFrontmatter = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.0007927082115140601,
+						pageIndex = 10,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = "Synopsis"
+				)
+			).controller
+		val laterFrontmatter = firstFrontmatter
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/TitlePage-01.xhtml",
+						progress = 0.0024865680920030196,
+						pageIndex = 13,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = null
+				)
+			).controller
+
+		val previous = laterFrontmatter.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous))
+
+		assertFalse(previous.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Previous)),
+			previous.engineCommands,
+			"Only the first eligible EPUB-side locator after dismissing the native cover may reclaim the native cover."
+		)
+	}
+
+	@Test
 	fun contentActionClaimsKeepMetadataInControllerState() {
 		val claim = ReaderContentActionClaim(
 			action = ReaderContentAction.Link,

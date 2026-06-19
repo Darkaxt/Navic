@@ -139,6 +139,7 @@ data class ReaderControllerState(
 	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
 	val nativeShellCoverUrl: String? = null,
+	val nativeShellCoverReturnLocatorKey: String? = null,
 	val canReturnToShellCover: Boolean = false,
 	val menuVisible: Boolean = false,
 	val dialog: ReaderControllerDialog? = null,
@@ -231,6 +232,7 @@ data class ReaderController(
 					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
+					nativeShellCoverReturnLocatorKey = null,
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
@@ -264,13 +266,27 @@ data class ReaderController(
 					)
 				}
 				val nextReadingProgress = progress?.let(state.readingProgress::upsert) ?: state.readingProgress
+				val nextNativeShellCoverReturnLocatorKey = state.nativeShellCoverReturnLocatorKey
+					?: if (
+						state.canReturnToShellCover &&
+						readerShouldReturnToNativeShellCover(
+							shellCoverUrl = state.nativeShellCoverUrl,
+							shellCoverVisible = state.shellCoverVisible,
+							locator = event.locator
+						)
+					) {
+						readerNativeShellCoverReturnLocatorKey(event.locator)
+					} else {
+						null
+					}
 				ReaderControllerStep(
 					controller = copy(
 						progressSaveGate = decision.state,
 						state = state.copy(
 							chrome = nextChrome,
 							chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
-							readingProgress = nextReadingProgress
+							readingProgress = nextReadingProgress,
+							nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey
 						)
 					),
 					progressToSave = progress
@@ -707,7 +723,8 @@ data class ReaderController(
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
-					chrome = state.chrome.copy(settings = normalized)
+					chrome = state.chrome.copy(settings = normalized),
+					nativeShellCoverReturnLocatorKey = null
 				)
 			),
 			engineCommands = listOf(
@@ -783,6 +800,7 @@ data class ReaderController(
 		if (
 			direction == ReaderPageTurnDirection.Previous &&
 			state.canReturnToShellCover &&
+			state.nativeShellCoverReturnLocatorKey == readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator) &&
 			readerShouldReturnToNativeShellCover(
 				shellCoverUrl = state.nativeShellCoverUrl,
 				shellCoverVisible = state.shellCoverVisible,
@@ -793,6 +811,7 @@ data class ReaderController(
 				copy(
 					state = state.copy(
 						shellCoverVisible = true,
+						nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
 						menuVisible = false,
 						dialog = null
 					)
@@ -892,6 +911,25 @@ private fun ReaderControllerState.savedAnnotationForClick(
 		(bookId == null || annotation.bookId == bookId) &&
 			(annotation.cfi == value || annotation.cfi == rangeCfi)
 	}
+}
+
+private fun readerNativeShellCoverReturnLocatorKey(locator: ReaderLocator?): String? {
+	locator ?: return null
+	val href = locator.href
+		?.trim()
+		?.replace('\\', '/')
+		.orEmpty()
+	val pageIndex = locator.pageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
+	val pageCount = locator.pageCount?.takeIf { it > 0 }?.toString().orEmpty()
+	val chapterPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
+	val chapterPageCount = locator.chapterPageCount?.takeIf { it > 0 }?.toString().orEmpty()
+	return listOf(
+		href.substringBefore('#').substringBefore('?'),
+		pageIndex,
+		pageCount,
+		chapterPageIndex,
+		chapterPageCount
+	).joinToString("|")
 }
 
 private fun ReaderChapterProgressState.updatedFrom(
