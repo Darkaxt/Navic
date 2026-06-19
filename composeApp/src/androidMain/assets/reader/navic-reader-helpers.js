@@ -1642,6 +1642,8 @@ export const readerTypographyCss = settings => {
   dd,
   div:not(:has(*:not(b, a, em, i, strong, u, span))),
   div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
+  body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   font {
     font-size: 1em !important;
     font-weight: ${fontWeight} !important;
@@ -1657,6 +1659,10 @@ export const readerTypographyCss = settings => {
   dd font,
   div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)) span,
   div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)) font,
+  body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)) span,
+  body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)) font,
+  body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)) span,
+  body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)) font,
   [data-navic-paragraph-block="true"] span,
   [data-navic-paragraph-block="true"] font {
     font-size: 1em !important;

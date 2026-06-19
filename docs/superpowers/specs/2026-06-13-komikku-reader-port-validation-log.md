@@ -2763,3 +2763,42 @@ Result:
 - PASS: Komikku matrix `captures\reader-komikku-matrix\frontmatter-cover-boundary-key-20260619-0621` completed through `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
 - PASS: `edge-tap-previous/reader-diagnostics-summary.txt` captured `textureDirectionSamples=2` and `wrongTextureDirection=False`, proving the earlier no-sample jump-to-cover failure did not recur in this dirty-emulator run.
 - Remaining: this is still dirty-emulator evidence. Physical/release validation is required before claiming the behavior is fixed on the phone/tablet release build.
+
+## 2026-06-19 Working Tree Follow-Up: Direct Inline EPUB Body Font Scaling
+
+Trigger:
+
+- User reported that the reader font-size controller still behaved incorrectly: chapter/title text changed size, but the main ebook body text did not, which only pushed the body content downward.
+
+Root-cause evidence:
+
+- Existing source already covered publisher-styled body text when it was inside `<p><span>...</span></p>` and converted line-break blocks like `<div>...<br/>...</div>`.
+- The missing EPUB shape was direct publisher-styled inline body text, e.g. `<body><span class="publisher-body-text">...</span></body>`.
+- The focused browser harness reproduced the exact controller failure: the direct body text stayed `10px -> 10px` when `fontSizePercent` changed from `100` to `140`.
+
+Change under validation:
+
+- `readerTypographyCss` now normalizes direct body-level inline text containers with image/svg/canvas guards:
+  - `body > span:not(:has(img)):not(:has(svg)):not(:has(canvas))`
+  - `body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas))`
+- The Anx style parity host guard now requires the direct body-level selector, so future CSS refactors cannot silently return to title-only scaling.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
+git diff --check
+```
+
+Result:
+
+- RED before fix: `font-css-smoke` failed with `Expected font-size control to scale publisher direct body text; observed 10px -> 10px`.
+- PASS after fix: `font-css-smoke`.
+- PASS: JavaScript syntax checks for `run-reader-harness.mjs` and `navic-reader-helpers.js`.
+- PASS: focused host parity guard `phase6StyleDimensionsMatchAnxBookStyleContract`.
+- PASS: `git diff --check`.
+- Note: an initial `--rerun-tasks` host-test attempt was killed by the command runner before producing a test result; the rerun without forced task invalidation completed successfully.
+- Remaining: this is source/harness evidence. The fix still needs dirty-emulator or physical release validation on the real Tab S9 Ultra EPUB page where the body text stayed fixed.

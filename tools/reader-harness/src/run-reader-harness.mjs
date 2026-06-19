@@ -754,6 +754,7 @@ if (mode === 'font-css-smoke') {
               </style>
             </head>
             <body>
+              <span class="publisher-body-text" data-probe="direct-body">Publisher direct inline body text.</span>
               <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
               <div class="publisher-block-text" data-probe="body-block">Publisher block-wrapped body text.<br/>Second line.</div>
               <h1 data-probe="heading">Chapter title</h1>
@@ -769,10 +770,13 @@ if (mode === 'font-css-smoke') {
         })
         doc.head.append(style)
         await new Promise(resolve => frame.contentWindow.requestAnimationFrame(resolve))
+        const directBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="direct-body"]'))
         const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
         const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
         const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
         const result = {
+          directBodyFontSize: directBodyStyle.fontSize,
+          directBodyFontSizeValue: Number.parseFloat(directBodyStyle.fontSize || '0'),
           bodySpanFontSize: bodySpanStyle.fontSize,
           bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
           bodyBlockFontSize: bodyBlockStyle.fontSize,
@@ -793,6 +797,7 @@ if (mode === 'font-css-smoke') {
         navicCss: helpers.readerFontFaceCss({ fontSource: 'navic' }),
         publisherSpanAt100,
         publisherSpanAt140,
+        publisherDirectBodyDelta: publisherSpanAt140.directBodyFontSizeValue - publisherSpanAt100.directBodyFontSizeValue,
         publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
         publisherBlockBodyDelta: publisherSpanAt140.bodyBlockFontSizeValue - publisherSpanAt100.bodyBlockFontSizeValue,
         publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
@@ -813,6 +818,12 @@ if (mode === 'font-css-smoke') {
     }
     if (!String(result.navicCss || '').includes('Navic Literata')) {
       throw new Error('Expected bundled Navic font CSS to remain available')
+    }
+    if (!Number.isFinite(result.publisherDirectBodyDelta) || result.publisherDirectBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher direct body text; ` +
+        `observed ${result.publisherSpanAt100?.directBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.directBodyFontSize || 'unset'}`
+      )
     }
     if (!Number.isFinite(result.publisherSpanBodyDelta) || result.publisherSpanBodyDelta <= 1) {
       throw new Error(
