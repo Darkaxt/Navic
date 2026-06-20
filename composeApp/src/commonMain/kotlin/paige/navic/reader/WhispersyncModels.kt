@@ -11,6 +11,8 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -19,6 +21,7 @@ private val WhispersyncJson = Json {
 	isLenient = true
 }
 
+@Serializable
 data class WhispersyncSidecar(
 	val artifactId: String? = null,
 	val ebookBookFileId: String? = null,
@@ -27,6 +30,7 @@ data class WhispersyncSidecar(
 	val timeline: WhispersyncTimeline = WhispersyncTimeline()
 )
 
+@Serializable
 data class WhispersyncTimeline(
 	val segments: List<WhispersyncSegment> = emptyList()
 ) {
@@ -75,6 +79,7 @@ data class WhispersyncTimeline(
 	}
 }
 
+@Serializable
 data class WhispersyncSegment(
 	val id: String? = null,
 	val audioResource: String,
@@ -98,11 +103,15 @@ data class WhispersyncSegment(
 		)
 }
 
+@Serializable
 data class WhispersyncAudioSeekTarget(
 	val audioResource: String,
 	val positionMs: Long,
 	val segment: WhispersyncSegment
 )
+
+fun encodeWhispersyncSidecar(sidecar: WhispersyncSidecar): String =
+	WhispersyncJson.encodeToString(sidecar)
 
 fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
@@ -114,7 +123,8 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		.mapNotNull { (it as? JsonObject)?.stringValue("href") }
 	val defaultAudioResource = audioResources.firstOrNull()
 	val defaultTextHref = ebook?.stringValue("href") ?: ebook?.stringValue("textHref")
-	val segments = root.segmentArray()
+	val segments = (root.segmentArray() ?: root.objectValue("timeline")?.segmentArray())
+		.orEmpty()
 		.mapNotNull { element ->
 			(element as? JsonObject)?.toWhispersyncSegment(
 				defaultAudioResource = defaultAudioResource,
@@ -165,11 +175,10 @@ private fun WhispersyncSegment.overlapScore(
 	)
 }
 
-private fun JsonObject.segmentArray(): List<JsonElement> =
+private fun JsonObject.segmentArray(): List<JsonElement>? =
 	arrayValue("segments")
 		?: arrayValue("alignments")
 		?: arrayValue("clips")
-		?: emptyList()
 
 private fun JsonObject.toWhispersyncSegment(
 	defaultAudioResource: String?,

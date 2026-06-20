@@ -68,6 +68,12 @@ interface BinderyApiClient {
 		bookId: String
 	): BinderyBookSync
 
+	suspend fun fetchWhispersyncSidecarJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): String
+
 	suspend fun fetchResourceBytes(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -242,6 +248,23 @@ internal class KtorBinderyApiClient : BinderyApiClient {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery book sync", response.status))
 		}
 		return response.body<BinderyBookSync>()
+	}
+
+	override suspend fun fetchWhispersyncSidecarJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): String {
+		val safePath = path.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery Whispersync sidecar path is required.")
+		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery Whispersync sidecar", response.status))
+		}
+		return response.bodyAsText()
 	}
 
 	override suspend fun fetchResourceBytes(

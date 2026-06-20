@@ -5611,3 +5611,28 @@ Results:
 - GREEN/AGGREGATE: the first aggregate `:composeApp:testAndroid` run executed 1500 tests and found one new test-contract issue: disabled sync preserves the last command while using the stable dispatch key to prove no new command should be sent. The test was updated to match the existing readaloud coordinator contract.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - OPEN: this is common/domain coordinator proof only. Bindery sidecar fetch, reader/audio runtime wiring, live highlighting, and clean APK/device validation remain future slices.
+
+## 2026-06-20 Whispersync Bindery Sidecar Fetch Cache
+
+Scope:
+- Added the Bindery repository/API/cache entry point for Whispersync sidecar artifacts referenced by `docs\superpowers\specs\2026-06-18-whispersync-design.md`.
+- The repository fetches sidecar JSON through the configured Bindery OPDS base URL and API key headers, decodes it through the tolerant Whispersync parser, and stores a canonical sidecar payload in the existing Bindery metadata cache.
+- No reader shell UI, WebView runtime, audio playback wiring, release APK, or device validation was changed in this slice.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new `whispersyncSidecarUsesConfiguredOpdsUrlApiKeyHeaderAndCache` repository test failed at `compileAndroidHostTest` because `FakeBinderyApiClient.whispersyncSidecarJson`, `BinderyRepository.getWhispersyncSidecar`, fake sidecar call probes, and `BinderyMetadataPayloadType.WhispersyncSidecar` did not exist.
+- FIX: added `BinderyApiClient.fetchWhispersyncSidecarJson`, the Ktor JSON GET implementation, the repository `getWhispersyncSidecar(path)` cache wrapper, the sidecar metadata payload type, and fake-client call recording.
+- GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
+- RED/AGGREGATE: the first aggregate `:composeApp:testAndroid` run executed 1501 tests and found one cache round-trip issue: live sidecar JSON decoded root-level `segments`, but the canonical cached JSON encoded them under `timeline.segments`.
+- FIX: extended `decodeWhispersyncSidecar` to accept canonical cached `timeline.segments` in addition to Bindery-style root-level `segments`, `alignments`, or `clips`.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- OPEN: this is repository/cache proof only. The sidecar is still not selected from concrete OPDS links, connected to the audiobook player, or validated in a clean APK/device flow.

@@ -13,6 +13,7 @@ internal object BinderyMetadataPayloadType {
 	const val AudiobookDetail = "audiobook-detail"
 	const val AudiobookManifest = "audiobook-manifest"
 	const val BookSync = "book-sync"
+	const val WhispersyncSidecar = "whispersync-sidecar"
 	const val BookFindings = "book-findings"
 	const val ProviderCover = "provider-cover"
 }

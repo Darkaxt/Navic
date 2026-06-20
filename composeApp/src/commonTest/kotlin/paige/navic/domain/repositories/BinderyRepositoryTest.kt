@@ -209,6 +209,53 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun whispersyncSidecarUsesConfiguredOpdsUrlApiKeyHeaderAndCache() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			whispersyncSidecarJson = """
+			{
+			  "artifactId": "artifact-3",
+			  "ebookBookFileId": "3913",
+			  "audiobookBookFileId": "694",
+			  "segments": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 1250,
+			      "endMs": 3500,
+			      "textHref": "Text/chapter1.xhtml",
+			      "fragmentId": "seg-1",
+			      "textStart": 10,
+			      "textEnd": 42,
+			      "label": "Opening"
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val metadataCache = RecordingBinderyMetadataCache()
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L }
+		)
+
+		val first = repository.getWhispersyncSidecar("/opds/books/3816/sync/3").getOrThrow()
+		val second = repository.getWhispersyncSidecar("/opds/books/3816/sync/3").getOrThrow()
+
+		assertEquals("artifact-3", first.artifactId)
+		assertEquals(first, second)
+		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.whispersyncSidecarBaseUrls)
+		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.whispersyncSidecarHeaders)
+		assertEquals(listOf("/opds/books/3816/sync/3"), apiClient.whispersyncSidecarPaths)
+		assertTrue(
+			metadataCache.records.values.any { record ->
+				record.payloadType == BinderyMetadataPayloadType.WhispersyncSidecar &&
+					record.path == "/opds/books/3816/sync/3" &&
+					"artifact-3" in record.payloadJson
+			}
+		)
+	}
+
+	@Test
 	fun audiobookVersionsUseConfiguredOpdsUrlAndApiKeyHeaderAndCache() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			audiobookVersions = listOf(
