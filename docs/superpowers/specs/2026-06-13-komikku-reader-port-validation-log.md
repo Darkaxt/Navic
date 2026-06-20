@@ -5400,3 +5400,35 @@ Results:
 - PASS/TEXTURE PREVIOUS: `drag-previous\reader-texture-direction-validation.txt` sampled horizontal texture offsets with expected positive previous-page movement and `wrong=False`.
 - ARTIFACTS: `tmp\readerdev-post-resume-matrix-20260620`.
 - OPEN: this matrix validates scripted emulator gestures. It does not replace physical-device feel testing for the cover touch behavior, page-drag preview quality, or settings dialog design.
+
+## 2026-06-20 Readerdev Real Text Selection Long-Press Validation
+
+Scope:
+- Validated the previously synthetic-only selection flow with a real ADB long-press on visible EPUB text.
+- This targets the Anx/Foliate bridge path where `SelectionChanged` existed, but normal text long-press did not create a DOM selection because native tap zones suppressed WebView long-click ownership.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-resume-interruption-20260620\readerdev-no-start.env -DeviceSerial emulator-5554 -NoDiscoverPublication
+adb shell input tap 1720 1480
+adb logcat -c
+adb shell input swipe 640 760 640 760 900
+adb exec-out screencap -p > tmp\emulator-window-check-20260620\after-patched-real-longpress.png
+adb shell input tap 810 78
+adb exec-out screencap -p > tmp\emulator-window-check-20260620\after-real-highlight.png
+```
+
+Results:
+- RED/BEFORE: a real ADB long-press on normal text dispatched `ContentLongPressAt`, but the screenshot remained unchanged and the logs only showed `Reader WebView native long-click suppressed; native frame owns selection actions`. No `selectionChanged` event was emitted.
+- FIX: native coordinate long-press now classifies plain selectable text and calls `selectReaderTextAtDocumentPoint(...)`, which uses the document caret range at the hit point, expands to a word range, applies the DOM selection, and dispatches `selectionchange`.
+- PASS/HOST: `:composeApp:testAndroid` passed after adding the guard that requires native coordinate long-press to route plain text into text selection.
+- PASS/JS: `node --check` passed for `navic-reader-content-interactions.js` and `navic-reader.js`.
+- PASS/DEVICE: after dirty readerdev install on `emulator-5554`, a real ADB long-press at `640,760` selected the word `toward` and surfaced the native Highlight/Copy/Note toolbar.
+- PASS/BRIDGE: logcat emitted `selectionChanged` with `text="toward"`, CFI `epubcfi(/6/98!/4/2/474,/1:44,/1:50)`, `footnote=false`, context text, and bounds.
+- PASS/HIGHLIGHT: tapping Highlight produced a visible inline highlight over `toward` and logcat emitted `annotationDrawn` for the same CFI.
+- ARTIFACTS: `tmp\emulator-window-check-20260620\after-patched-real-longpress.png`, `after-patched-real-longpress-log.txt`, `after-real-highlight.png`, and `after-real-highlight-log.txt`.
+- OPEN: this is dirty-emulator proof for real long-press selection/highlight. Clean release/physical-device validation is still required, and note persistence/open-later UX remains a separate implementation gap.

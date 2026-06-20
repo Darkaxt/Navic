@@ -651,6 +651,11 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(bridgeText, "this.toggleSepiaImageOverlayFromEvent(entry.doc, event")
 		assertContains(bridgeText, "this.activateReaderLinkFromEvent(entry.doc, event, hit.index")
 		assertContains(
+			bridgeText,
+			"this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)",
+			message = "A native coordinate long-press on plain text must create a DOM selection so the native selection actions can appear."
+		)
+		assertContains(
 			exportedBridge,
 			"dispatch: command => runtime.dispatch(command)",
 			message = "The coordinate long-press command should flow through the existing bridge dispatch entrypoint."

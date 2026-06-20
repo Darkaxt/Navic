@@ -382,6 +382,9 @@ async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = n
     if (hit.kind === 'link') {
       return this.activateReaderLinkFromEvent(entry.doc, event, hit.index, source)
     }
+    if (hit.kind === 'text') {
+      return this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
+    }
     return true
   }
   readerTrace('native-tap-zones:content-long-press-at-miss', {
@@ -539,10 +542,98 @@ function readerContentActionInDocumentAtPoint(doc, rootX, rootY, index = null) {
     return {
       handled: true,
       kind: 'control',
+      target,
+      x,
+      y,
+      index,
+    }
+  }
+  if (target?.textContent?.trim?.()) {
+    return {
+      handled: true,
+      kind: 'text',
+      target,
+      x,
+      y,
       index,
     }
   }
   return null
+}
+
+function readerCaretRangeFromPoint(doc, x, y) {
+  const localX = Number(x)
+  const localY = Number(y)
+  if (!doc || !Number.isFinite(localX) || !Number.isFinite(localY)) return null
+  const rangeFromPoint = doc.caretRangeFromPoint?.(localX, localY)
+  if (rangeFromPoint) return rangeFromPoint
+  const position = doc.caretPositionFromPoint?.(localX, localY)
+  if (position?.offsetNode) {
+    const range = doc.createRange()
+    range.setStart(position.offsetNode, position.offset)
+    range.collapse(true)
+    return range
+  }
+  return null
+}
+
+function readerTextNodeForRange(range) {
+  const doc = range?.startContainer?.ownerDocument
+  const textNodeType = doc?.defaultView?.Node?.TEXT_NODE || 3
+  if (range?.startContainer?.nodeType === textNodeType) return range.startContainer
+  const candidate = range?.startContainer?.childNodes?.[range.startOffset] ||
+    range?.startContainer?.childNodes?.[Math.max(0, range.startOffset - 1)]
+  if (candidate?.nodeType === textNodeType) return candidate
+  const walker = doc?.createTreeWalker?.(candidate || range?.startContainer, textNodeType)
+  return walker?.nextNode?.() || null
+}
+
+function readerWordRangeAroundCaret(doc, caretRange) {
+  const textNode = readerTextNodeForRange(caretRange)
+  const text = textNode?.textContent || ''
+  if (!doc || !textNode || !text.trim()) return null
+  let offset = Number(caretRange?.startContainer === textNode ? caretRange.startOffset : 0)
+  offset = Math.max(0, Math.min(text.length, Number.isFinite(offset) ? offset : 0))
+  if (offset >= text.length && offset > 0) offset -= 1
+  while (offset > 0 && /\s/.test(text[offset]) && !/\s/.test(text[offset - 1])) offset -= 1
+  while (offset < text.length && /\s/.test(text[offset])) offset += 1
+  if (offset >= text.length) return null
+  let start = offset
+  let end = offset
+  while (start > 0 && !/\s/.test(text[start - 1])) start -= 1
+  while (end < text.length && !/\s/.test(text[end])) end += 1
+  if (start === end) return null
+  const range = doc.createRange()
+  range.setStart(textNode, start)
+  range.setEnd(textNode, end)
+  return range
+}
+
+function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'content-long-press-command') {
+  const selection = doc?.getSelection?.()
+  if (!selection) return false
+  const caretRange = this.readerCaretRangeFromPoint(doc, x, y)
+  const range = this.readerWordRangeAroundCaret(doc, caretRange)
+  if (!range) {
+    readerTrace('native-tap-zones:text-long-press-selection-miss', {
+      source,
+      index,
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+    return false
+  }
+  selection.removeAllRanges()
+  selection.addRange(range)
+  doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  readerTrace('native-tap-zones:text-long-press-selection', {
+    source,
+    index,
+    textLength: selection.toString?.().trim?.().length || 0,
+    x: Math.round(Number(x) || 0),
+    y: Math.round(Number(y) || 0),
+  })
+  return true
 }
 
 function normalizeReaderContentRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {
@@ -1101,6 +1192,10 @@ export const NavicReaderContentInteractionMethods = {
   recentReaderContentActionAtRootPoint,
   claimReaderInteractiveContentTouch,
   readerContentActionInDocumentAtPoint,
+  readerCaretRangeFromPoint,
+  readerTextNodeForRange,
+  readerWordRangeAroundCaret,
+  selectReaderTextAtDocumentPoint,
   normalizeReaderContentRootPoint,
   readerContentActionAtRootPoint,
   handleReaderTapZoneTap,
