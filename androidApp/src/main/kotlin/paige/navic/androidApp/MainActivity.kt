@@ -1,12 +1,17 @@
 package paige.navic.androidApp
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -35,6 +40,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		ReaderWebRuntime.setForceWebContentsDebuggingEnabled(BuildConfig.NAVIC_READER_DEV)
 		applyReaderDevIntentSeed(intent)
 		enableEdgeToEdge()
+		requestNotificationPermissionIfNeeded()
 		setContent { App(initialScreenOverride = readerDevInitialScreen) }
 	}
 
@@ -115,8 +121,27 @@ class MainActivity : ComponentActivity(), KoinComponent {
 			Log.i("MainActivity", "Applied readerDev seed extras")
 		}
 	}
+
+	private fun requestNotificationPermissionIfNeeded() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+		if (
+			ContextCompat.checkSelfPermission(
+				this,
+				Manifest.permission.POST_NOTIFICATIONS
+			) == PackageManager.PERMISSION_GRANTED
+		) {
+			return
+		}
+
+		ActivityCompat.requestPermissions(
+			this,
+			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+			NotificationPermissionRequestCode
+		)
+	}
 }
 
+private const val NotificationPermissionRequestCode = 3101
 private const val ReaderDevExtraBinderyOpdsUrl = "navic.dev.bindery.opds_url"
 private const val ReaderDevExtraBinderyApiKey = "navic.dev.bindery.api_key"
 private const val ReaderDevExtraBinderyLanguage = "navic.dev.bindery.language_filter"
