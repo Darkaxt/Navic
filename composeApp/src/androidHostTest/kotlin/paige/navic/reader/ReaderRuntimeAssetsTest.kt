@@ -282,6 +282,19 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
 		assertContains(scriptText, "required bridge event '\$requiredBridgeEvent' was not captured")
+		assertContains(scriptText, "function Get-TextFileRaw")
+		assertContains(scriptText, "function Test-TextMatches")
+		assertContains(scriptText, "Get-TextFileRaw -Path \$bridgeDiagnosticsPath")
+		assertContains(scriptText, "bridgeEvent:\$requiredBridgeEvent=\$(Test-TextMatches")
+		assertContains(scriptText, "-not (Test-TextMatches -Text \$bridgeDiagnosticsText")
+		assertFalse(
+			scriptText.contains("\$bridgeDiagnosticsText -notmatch"),
+			"Bridge event validation must not use raw -notmatch because empty Get-Content -Raw output can skip failure paths."
+		)
+		assertFalse(
+			scriptText.contains("\$bridgeDiagnosticsText -match"),
+			"Bridge event diagnostics must use Test-TextMatches so empty logs are treated as empty strings."
+		)
 		assertContains(scriptText, "expectedLogLabels")
 		assertContains(scriptText, "ConvertFrom-Json")
 		assertContains(scriptText, "Reader DevTools probe '\$ReaderDevtoolsProbe' expected log label")
@@ -312,6 +325,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "phase3-events")
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
+		assertContains(helperText, "runtime-state")
 		assertContains(helperText, "page-box")
 		assertContains(helperText, "chapter-progress-endpoints")
 		assertContains(helperText, "NavicReaderBridge.dispatch")
@@ -328,6 +342,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "Reader bridge event: locationChanged")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadRuntimeStateWithoutMutatingReader() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val runtimeStateProbe = helperText
+			.substringAfter("async function runRuntimeStateProbe(page)")
+			.substringBefore("async function runImageHitTargetsProbe(page)")
+
+		assertContains(runtimeStateProbe, "probe: 'runtime-state'")
+		assertContains(runtimeStateProbe, "document.body.dataset.navicReaderFlowMode")
+		assertContains(runtimeStateProbe, "renderer?.scrolled")
+		assertContains(runtimeStateProbe, "renderer?.start")
+		assertContains(runtimeStateProbe, "renderer?.end")
+		assertContains(runtimeStateProbe, "renderer?.viewSize")
+		assertContains(runtimeStateProbe, "contentCount")
+		assertFalse(
+			runtimeStateProbe.contains("NavicReaderBridge.dispatch"),
+			"Runtime state inspection must stay read-only and must not use diagnostic bridge commands."
+		)
 	}
 
 	@Test

@@ -1277,6 +1277,36 @@ async function runPublisherStyleFontSizeProbe(page) {
   }})()`)
 }
 
+async function runRuntimeStateProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    const renderer = view?.renderer
+    const contents = renderer?.getContents?.()?.filter?.(entry => entry?.doc?.body) || []
+    const rendererElement = renderer?.element || renderer
+    return {
+      probe: 'runtime-state',
+      flowMode: document.body.dataset.navicReaderFlowMode || '',
+      rendererFlow: view?.getAttribute?.('flow') || rendererElement?.getAttribute?.('flow') || '',
+      scrolled: renderer?.scrolled === true,
+      start: Number.isFinite(Number(renderer?.start)) ? Number(renderer.start) : null,
+      end: Number.isFinite(Number(renderer?.end)) ? Number(renderer.end) : null,
+      viewSize: Number.isFinite(Number(renderer?.viewSize)) ? Number(renderer.viewSize) : null,
+      contentCount: contents.length,
+      contentGesturesAttached: contents.filter(entry => entry.doc?.defaultView?.__navicScrolledEdgeTurnGesturesAttached).length,
+      selectionActive: contents.some(entry => {
+        const selection = entry.doc?.getSelection?.()
+        return selection && selection.rangeCount > 0 && !selection.isCollapsed
+      }),
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runImageHitTargetsProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const view = document.querySelector('foliate-view')
@@ -1357,6 +1387,7 @@ async function main() {
       'visible-page-content': runVisiblePageContentProbe,
       'font-size': runFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
+      'runtime-state': runRuntimeStateProbe,
       'image-hit-targets': runImageHitTargetsProbe,
     }
     const handler = probeHandlers[probe]

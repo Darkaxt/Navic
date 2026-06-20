@@ -5474,3 +5474,34 @@ Results:
 - PASS/NOTE VISUAL: `tmp\readerdev-real-selection-actions-20260620\note2-current-after-timeout.png` shows the saved note annotation as a visible inline mark on the selected word `of`.
 - ARTIFACTS: `tmp\readerdev-real-selection-actions-20260620\copy-selection-before-action.png`, `copy-after-action.png`, `copy-log.txt`, `note-dialog-open.png`, `note-dialog-ui.xml`, `note2-dialog-typed.png`, `note2-current-after-timeout.png`, and `note2-current-log.txt`.
 - OPEN: this is dirty-emulator proof. Clean release/physical-device validation is still required, and durable annotation persistence/open-later UX still needs a dedicated release-grade check.
+
+## 2026-06-20 Readerdev Scrolled Edge Pull-Up Harness And Real Gesture Validation
+
+Scope:
+- Validated the real scrolled-mode edge pull-up path that maps an upward swipe at the end of a scrolled EPUB section to the Anx-style `pullUp` bridge event and next-section navigation.
+- Fixed a smoke-script false positive first: empty `Get-Content -Raw` output could cause required bridge-event checks to pass without evidence.
+
+Validation:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -RequireReaderBridgeEvent __definitely_not_emitted__ -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-smoke-negative-fixed-20260620
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderBridgePortsAnxStyleScrolledEdgePageTurns"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-resume-interruption-20260620\readerdev-no-start.env -DeviceSerial emulator-5554 -NoDiscoverPublication -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input tap 1700 1480
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -SwipeFraction @("0.50,0.90,0.50,0.10,450,1600") -RequireReaderBridgeEvent pullUp -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-real-pullup-after-cover-exit-20260620
+```
+
+Results:
+- RED/HARNESS: before the smoke-script fix, requiring `__definitely_not_emitted__` exited successfully and produced an empty `reader-bridge-events.log`; this was invalid evidence.
+- FIX/HARNESS: `scripts\adb-reader-smoke.ps1` now normalizes raw text reads with `Get-TextFileRaw`, routes diagnostics through `Test-TextMatches`, and host tests reject direct `$bridgeDiagnosticsText -match/-notmatch` checks.
+- PASS/HARNESS: after the fix, requiring `__definitely_not_emitted__` fails with `required bridge event '__definitely_not_emitted__' was not captured`.
+- RED/PRODUCT: the new host guard for scrolled-edge gestures failed while `attachScrolledEdgeTurnGestures` used bubble-phase document listeners, which can be starved by native tap-zone touch suppression.
+- FIX/PRODUCT: `touchstart`, `touchmove`, and `touchend` listeners in `attachScrolledEdgeTurnGestures` now listen in capture phase before the native tap-zone suppressor.
+- PASS/HOST: targeted scrolled-edge host test passed after the JS fix; full `:composeApp:testAndroid` passed.
+- PASS/INSTALL: dirty `darkaxt.navic.readerdev` rebuilt and installed on `emulator-5554`; `publicationReady` was captured; installed `versionName=v1.0.11-eta76`, `versionCode=409`, `lastUpdateTime=2026-06-20 14:11:24`.
+- PASS/DEVICE: after exiting the native shell cover into visible EPUB text, a real ADB upward swipe from `0.50,0.90` to `0.50,0.10` emitted `Reader bridge event: pullUp()`, logged `page-turn:edge-swipe next`, and loaded `OEBPS/Text/Chapter-38.xhtml`.
+- ARTIFACTS: `tmp\readerdev-smoke-negative-fixed-20260620`, `tmp\readerdev-real-pullup-after-cover-exit-20260620`, `tmp\readerdev-after-cover-exit-for-pullup-20260620.png`, and `captures\reader-dev\reader-dev-20260620-141136.png`.
+- OPEN: this proves real scrolled-edge pull-up on dirty readerdev after leaving the native cover. Clean release/physical-device validation is still required before treating this as release-grade.

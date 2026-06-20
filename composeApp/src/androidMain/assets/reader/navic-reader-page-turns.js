@@ -1152,7 +1152,7 @@ function attachScrolledEdgeTurnGestures(doc) {
       x: touch.screenX ?? touch.clientX ?? 0,
       y: touch.screenY ?? touch.clientY ?? 0,
     }
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchmove', event => {
     if (!touchState || event.touches?.length > 1) {
       touchState = null
@@ -1162,7 +1162,7 @@ function attachScrolledEdgeTurnGestures(doc) {
     if (!touch) return
     touchState.lastX = touch.screenX ?? touch.clientX ?? touchState.x
     touchState.lastY = touch.screenY ?? touch.clientY ?? touchState.y
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchend', event => {
     const state = touchState
     touchState = null
@@ -1177,7 +1177,7 @@ function attachScrolledEdgeTurnGestures(doc) {
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
     if (Math.abs(deltaY) < ScrollEdgeTurnSwipeThreshold || Math.abs(deltaY) <= Math.abs(deltaX)) return
     this.turnScrolledEdgePage(deltaY)
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchcancel', () => {
     touchState = null
   }, { passive: true })

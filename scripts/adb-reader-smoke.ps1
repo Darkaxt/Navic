@@ -28,7 +28,7 @@ param(
     [string[]] $RequireReaderBridgeEvent = @(),
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
-    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "chapter-progress-endpoints", "chapter-progress-current-endpoints")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "chapter-progress-endpoints", "chapter-progress-current-endpoints")]
     [string] $ReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
@@ -291,6 +291,30 @@ function Get-ReaderNativeShellCoverVisible {
     )
 }
 
+function Get-TextFileRaw {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path
+    )
+
+    $text = Get-Content -LiteralPath $Path -Raw
+    if ($null -eq $text) {
+        return ""
+    }
+    return [string] $text
+}
+
+function Test-TextMatches {
+    param(
+        [AllowNull()]
+        [object] $Text,
+        [Parameter(Mandatory = $true)]
+        [string] $Pattern
+    )
+
+    return ([string] $Text) -match $Pattern
+}
+
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
     throw "adb was not found on PATH"
 }
@@ -417,9 +441,9 @@ Invoke-Adb @("shell", "dumpsys", "package", $Package) -PassThru |
     ForEach-Object { $_.Line.Trim() } |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "package-version.txt")
 
-$packageVersionText = Get-Content -LiteralPath (Join-Path $ArtifactDir "package-version.txt") -Raw
+$packageVersionText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "package-version.txt")
 if (-not [string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
-    if ($packageVersionText -notmatch [regex]::Escape($ExpectedVersionName)) {
+    if (-not (Test-TextMatches -Text $packageVersionText -Pattern ([regex]::Escape($ExpectedVersionName)))) {
         throw "Installed $Package version did not contain expected versionName '$ExpectedVersionName'. Captured version: $packageVersionText"
     }
 }
@@ -736,7 +760,7 @@ Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath 
 Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "window.xml")
 
-$windowXmlText = Get-Content -LiteralPath (Join-Path $ArtifactDir "window.xml") -Raw
+$windowXmlText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "window.xml")
 $nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible -WindowXmlText $windowXmlText
 @(
     "nativeShellCoverVisible=$nativeShellCoverVisible",
@@ -755,11 +779,11 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
     ForEach-Object { $_.Line } |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-reader.log")
 
-$readerLogText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-reader.log") -Raw
+$readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.log")
 
 if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
     $probeJsonPath = Join-Path $ArtifactDir "reader-devtools-probe.json"
-    $probeJsonText = Get-Content -LiteralPath $probeJsonPath -Raw
+    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
     try {
         $probeJson = $probeJsonText | ConvertFrom-Json
     } catch {
@@ -770,20 +794,20 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
         if ([string]::IsNullOrWhiteSpace($expectedLogLabel)) {
             continue
         }
-        if ($readerLogText -notmatch [regex]::Escape($expectedLogLabel)) {
+        if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape($expectedLogLabel)))) {
             throw "Reader DevTools probe '$ReaderDevtoolsProbe' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
         }
     }
 }
 
 foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {
-    if ($readerLogText -notmatch [regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")) {
+    if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")))) {
         throw "Reader smoke validation failed: required engine command '$requiredEngineCommand' was not captured. See $ArtifactDir\logcat-reader.log"
     }
 }
 
 foreach ($requiredReaderLog in $RequireReaderLog) {
-    if ($readerLogText -notmatch [regex]::Escape($requiredReaderLog)) {
+    if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape($requiredReaderLog)))) {
         throw "Reader smoke validation failed: required reader log '$requiredReaderLog' was not captured. See $ArtifactDir\logcat-reader.log"
     }
 }
@@ -813,11 +837,11 @@ if ($CaptureReaderDiagnostics) {
         ForEach-Object { $_.Line } |
         Out-File -Encoding utf8 $bridgeDiagnosticsPath
 
-    $textureDiagnosticsText = Get-Content -LiteralPath $textureDiagnosticsPath -Raw
-    $touchDiagnosticsText = Get-Content -LiteralPath $touchDiagnosticsPath -Raw
-    $bridgeDiagnosticsText = Get-Content -LiteralPath $bridgeDiagnosticsPath -Raw
-    $logcatFullText = Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") -Raw
-    $pdfRuntimeDiagnostics = $logcatFullText -match '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf'
+    $textureDiagnosticsText = Get-TextFileRaw -Path $textureDiagnosticsPath
+    $touchDiagnosticsText = Get-TextFileRaw -Path $touchDiagnosticsPath
+    $bridgeDiagnosticsText = Get-TextFileRaw -Path $bridgeDiagnosticsPath
+    $logcatFullText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-full.log")
+    $pdfRuntimeDiagnostics = Test-TextMatches -Text $logcatFullText -Pattern '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf'
     $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
     $textureDirectionSamples = @()
     $wrongTextureDirection = $false
@@ -838,60 +862,60 @@ if ($CaptureReaderDiagnostics) {
     $summaryLines = @(
         "textureScrollLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false).Count)",
         "textureUpdateLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false).Count)",
-        "readerSurfaceTouchDown=$($touchDiagnosticsText -match 'Reader surface touch down')",
-        "readerSurfaceTapAction=$($touchDiagnosticsText -match 'Reader surface tap action=')",
-        "readerNativeTapAction=$($touchDiagnosticsText -match 'Reader native tap action=')",
-        "readerNativeDragPreview=$($touchDiagnosticsText -match 'Reader native drag preview')",
-        "readerNativeDragCandidate=$($touchDiagnosticsText -match 'Reader native drag candidate')",
-        "readerNativeLongTap=$($touchDiagnosticsText -match 'Reader native long tap')",
-        "readerCenterDispatch=$($touchDiagnosticsText -match 'Reader surface dispatch center tap')",
-        "readerContentTapHandled=$($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
+        "readerSurfaceTouchDown=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface touch down')",
+        "readerSurfaceTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface tap action=')",
+        "readerNativeTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native tap action=')",
+        "readerNativeDragPreview=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native drag preview')",
+        "readerNativeDragCandidate=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native drag candidate')",
+        "readerNativeLongTap=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native long tap')",
+        "readerCenterDispatch=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface dispatch center tap')",
+        "readerContentTapHandled=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'readerContentTapHandled|Reader bridge event: contentTapHandled')",
         "requiredBridgeEvents=$($RequireReaderBridgeEvent -join ',')",
         "requiredReaderLogs=$($RequireReaderLog -join ',')",
-        "imageSepiaOverlay=$($touchDiagnosticsText -match 'image:sepia-overlay')",
-        "linkNavigate=$($touchDiagnosticsText -match 'link:navigate')",
+        "imageSepiaOverlay=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'image:sepia-overlay')",
+        "linkNavigate=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'link:navigate')",
         "pdfRuntimeDiagnostics=$pdfRuntimeDiagnostics",
-        "shellCoverDragCandidate=$($touchDiagnosticsText -match 'Reader shell cover drag candidate')",
-        "shellCoverSwipe=$($touchDiagnosticsText -match 'Reader shell cover swipe')",
-        "shellCoverCommand=$($touchDiagnosticsText -match 'Reader shell cover command')",
-        "textureHasPosition=$($textureDiagnosticsText -match 'pos=')",
-        "textureHasBase=$($textureDiagnosticsText -match 'base=')",
-        "textureHasDelta=$($textureDiagnosticsText -match 'delta=')",
-        "textureHasDirection=$($textureDiagnosticsText -match 'dir=')",
-        "textureHasPage=$($textureDiagnosticsText -match 'page=')",
-        "textureHasHref=$($textureDiagnosticsText -match 'href=')",
+        "shellCoverDragCandidate=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover drag candidate')",
+        "shellCoverSwipe=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover swipe')",
+        "shellCoverCommand=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover command')",
+        "textureHasPosition=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'pos=')",
+        "textureHasBase=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'base=')",
+        "textureHasDelta=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'delta=')",
+        "textureHasDirection=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'dir=')",
+        "textureHasPage=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'page=')",
+        "textureHasHref=$(Test-TextMatches -Text $textureDiagnosticsText -Pattern 'href=')",
         "textureDirectionSamples=$($textureDirectionSamples.Count)",
         "wrongTextureDirection=$wrongTextureDirection"
     )
     foreach ($requiredBridgeEvent in $RequireReaderBridgeEvent) {
-        $summaryLines += "bridgeEvent:$requiredBridgeEvent=$($bridgeDiagnosticsText -match [regex]::Escape("Reader bridge event: $requiredBridgeEvent"))"
+        $summaryLines += "bridgeEvent:$requiredBridgeEvent=$(Test-TextMatches -Text $bridgeDiagnosticsText -Pattern ([regex]::Escape("Reader bridge event: $requiredBridgeEvent")))"
     }
     $summaryLines | Out-File -Encoding utf8 $summaryPath
 
-    if ($RequireShellCoverSwipe -and -not ($touchDiagnosticsText -match 'Reader shell cover swipe')) {
+    if ($RequireShellCoverSwipe -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover swipe')) {
         throw "Reader diagnostics validation failed: no shell-cover swipe was captured. See $ArtifactDir"
     }
-    if ($RequireShellCoverDragDiagnostic -and -not ($touchDiagnosticsText -match 'Reader shell cover drag candidate')) {
+    if ($RequireShellCoverDragDiagnostic -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover drag candidate')) {
         throw "Reader diagnostics validation failed: no shell-cover drag candidate was captured. See $ArtifactDir"
     }
-    if ($RequireShellCoverCommand -and -not ($touchDiagnosticsText -match 'Reader shell cover command')) {
+    if ($RequireShellCoverCommand -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover command')) {
         throw "Reader diagnostics validation failed: no shell-cover command was captured. See $ArtifactDir"
     }
-    if ($RequireNativeSwipeAction -and -not ($touchDiagnosticsText -match 'Reader native drag preview')) {
+    if ($RequireNativeSwipeAction -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native drag preview')) {
         throw "Reader diagnostics validation failed: no native reader drag preview was captured. See $ArtifactDir"
     }
-    if ($RequireNativeLongTap -and -not ($touchDiagnosticsText -match 'Reader native long tap')) {
+    if ($RequireNativeLongTap -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native long tap')) {
         throw "Reader diagnostics validation failed: no native reader long tap was captured. See $ArtifactDir"
     }
-    if ($RequireContentTapHandled -and -not ($touchDiagnosticsText -match 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
+    if ($RequireContentTapHandled -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'readerContentTapHandled|Reader bridge event: contentTapHandled')) {
         throw "Reader diagnostics validation failed: no readerContentTapHandled bridge event was captured. See $ArtifactDir"
     }
     foreach ($requiredBridgeEvent in $RequireReaderBridgeEvent) {
-        if ($bridgeDiagnosticsText -notmatch [regex]::Escape("Reader bridge event: $requiredBridgeEvent")) {
+        if (-not (Test-TextMatches -Text $bridgeDiagnosticsText -Pattern ([regex]::Escape("Reader bridge event: $requiredBridgeEvent")))) {
             throw "Reader diagnostics validation failed: required bridge event '$requiredBridgeEvent' was not captured. See $ArtifactDir"
         }
     }
-    if ($RequireNoReaderCenterDispatch -and ($touchDiagnosticsText -match 'Reader surface dispatch center tap')) {
+    if ($RequireNoReaderCenterDispatch -and (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface dispatch center tap')) {
         throw "Reader diagnostics validation failed: reader center dispatch was captured. See $ArtifactDir"
     }
     if ($RequirePdfDiagnostics -and -not $pdfRuntimeDiagnostics) {
@@ -899,7 +923,7 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequireTextureDiagnostics) {
         foreach ($requiredTextureField in @('pos=', 'base=', 'delta=', 'dir=', 'page=', 'href=')) {
-            if ($textureDiagnosticsText -notmatch [regex]::Escape($requiredTextureField)) {
+            if (-not (Test-TextMatches -Text $textureDiagnosticsText -Pattern ([regex]::Escape($requiredTextureField)))) {
                 throw "Reader diagnostics validation failed: texture diagnostics did not include '$requiredTextureField'. See $ArtifactDir"
             }
         }
@@ -916,10 +940,10 @@ if ($CaptureReaderDiagnostics) {
 
 if ($ValidateReaderTaps) {
     $validationLines = New-Object System.Collections.Generic.List[string]
-    $hasPlainImageRegression = $readerLogText -match "Reader surface tap ignored for content hitType=5"
-    $hasNativeTapAction = $readerLogText -match "Reader surface tap action=|Reader native tap action="
-    $hasExplicitContentHandler = $readerLogText -match "Reader surface tap ignored for explicit content handler"
-    $hasContentTapHandledEvent = $readerLogText -match "Reader bridge event: contentTapHandled"
+    $hasPlainImageRegression = Test-TextMatches -Text $readerLogText -Pattern "Reader surface tap ignored for content hitType=5"
+    $hasNativeTapAction = Test-TextMatches -Text $readerLogText -Pattern "Reader surface tap action=|Reader native tap action="
+    $hasExplicitContentHandler = Test-TextMatches -Text $readerLogText -Pattern "Reader surface tap ignored for explicit content handler"
+    $hasContentTapHandledEvent = Test-TextMatches -Text $readerLogText -Pattern "Reader bridge event: contentTapHandled"
 
     $validationLines.Add("plainImageHitType5Regression=$hasPlainImageRegression")
     $validationLines.Add("nativeTapAction=$hasNativeTapAction")

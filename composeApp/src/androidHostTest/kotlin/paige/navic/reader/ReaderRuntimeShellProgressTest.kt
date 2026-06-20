@@ -189,6 +189,9 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderBridgePortsAnxStyleScrolledEdgePageTurns() {
 		val bridgeText = readerBridgeText()
+		val scrolledEdgeGestureText = bridgeText
+			.substringAfter("function attachScrolledEdgeTurnGestures")
+			.substringBefore("\nfunction effectiveReaderDirection")
 
 		assertContains(bridgeText, "ScrollEdgeTurnSwipeThreshold")
 		assertContains(bridgeText, "attachScrolledEdgeTurnGestures")
@@ -199,6 +202,13 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "renderer.viewSize - renderer.end")
 		assertContains(bridgeText, "renderer.start <= ScrollEdgeTurnSlop")
 		assertContains(bridgeText, "page-turn:edge-swipe")
+		assertEquals(
+			3,
+			Regex("""doc\.addEventListener\('touch(?:start|move|end)'[\s\S]*?\}, \{ capture: true, passive: true \}\)""")
+				.findAll(scrolledEdgeGestureText)
+				.count(),
+			"Scrolled-edge turn gestures must listen in capture phase so native tap-zone touch suppression cannot starve real Android swipes."
+		)
 	}
 
 	@Test
