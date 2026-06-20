@@ -5056,3 +5056,28 @@ Results:
 - PASS/RUNTIME: `texture-previous-walk` diagnostics now include `textureScrollLines=7`, `textureUpdateLines=4`, `textureHasDelta=True`, `textureHasDirection=True`, `textureDirectionSamples=7`, and `wrongTextureDirection=False`.
 - PASS/RUNTIME: emulator logs show the actual boundary fallback firing and posting real bridge locations, for example `page-turn:duplicate-adjacent-fallback next from=4 to=5` followed by `locationChanged(... reason=page-turn:next:adjacent ...)`.
 - CURRENT STATE: the recovered emulator is usable, `darkaxt.navic.readerdev` is installed at `versionName=v1.0.11-eta76`, and the documented runtime matrix is green for this slice.
+
+## 2026-06-20 eta76 Selection Action Runtime Validation
+
+Scope:
+- Followed the implementation-order gate for Phase 5 selection actions.
+- Validated the existing installed `darkaxt.navic.readerdev` eta76 package on `emulator-5554`.
+- Used a DevTools-created WebView selection to reach deterministic native UI state, then used Android UI taps for Highlight, Copy, and Note. This closes dirty-emulator action-path evidence, not clean release/manual selection evidence.
+
+Validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Highlight,1500' -RequireReaderEngineCommand 'applyHighlights(count=1, notes=0)' -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-selection-actions\highlight
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Copy,1500' -RequireReaderLog 'Reader selection copied length=31' -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-selection-actions\copy
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Note,1500' -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-selection-actions\note-open
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe selection-payload -PostProbeAction 'tapText:Note,700|tapText:Annotation,500|text:Probe note,500|tapText:Save,1800' -RequireReaderLog 'Reader selection note save length=10' -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-selection-actions\note-save
+```
+
+Results:
+- PASS/PAYLOAD: all probes captured `selectionChanged(footnote=true, ...)` from the Anx-style selection payload path.
+- PASS/HIGHLIGHT: `tmp\readerdev-selection-actions\highlight\logcat-reader.log` captured `Dispatching reader engine command: applyHighlights(count=1, notes=0)` and `Reader bridge event: annotationDrawn(...)`.
+- PASS/COPY: `tmp\readerdev-selection-actions\copy\logcat-reader.log` captured `Reader selection copied length=31` and the selection overlay dismissed.
+- PASS/NOTE-OPEN: `tmp\readerdev-selection-actions\note-open\window.xml` shows the native `Note` dialog with selected text, `Annotation` input, `Cancel`, and disabled `Save`.
+- PASS/NOTE-SAVE: `tmp\readerdev-selection-actions\note-save\logcat-reader.log` captured `Reader selection note save length=10`, `Dispatching reader engine command: applyHighlights(count=2, notes=1)`, and two `annotationDrawn` bridge events. Count was `2` because the same dirty emulator book state already contained the previous Highlight validation annotation; the relevant note evidence is `notes=1`.
+- TOOLING NOTE: one Highlight assertion attempt used an invalid comma-joined bridge-event parameter and one Copy run exceeded the tool default output window, but both generated complete artifacts. The artifact logs above are the authoritative evidence.
+- OPEN: clean release APK validation and a fully user-driven/manual text-selection path are still required before Phase 5 is release-ready.
