@@ -354,6 +354,9 @@ class ReaderRuntimeSettingsBridgeTest {
 		val typographyCss = bridgeText
 			.substringAfter("const readerTypographyCss = settings =>")
 			.substringBefore("const readerParagraphSpacingCss = settings =>")
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
 
 		assertFalse(
 			typographyCss.contains("if (settings.publisherStyles === true) return ''"),
@@ -372,6 +375,21 @@ class ReaderRuntimeSettingsBridgeTest {
 			typographyCss.indexOf("font-size: 1rem !important") <
 				typographyCss.indexOf("font-size: 1em !important"),
 			"Prose block containers must reset to reader-root size before inline descendants inherit from them; otherwise fixed publisher wrapper sizes can pin body text while headings scale."
+		)
+		assertContains(
+			bridgeText,
+			"normalizeReaderInlineTypography",
+			message = "PDF-converted EPUB prose can use inline font-size declarations with !important; the reader must rewrite inline prose font-size ownership after injecting the reader stylesheet."
+		)
+		assertContains(
+			bridgeText,
+			"style.getPropertyPriority('font-size')",
+			message = "The inline typography normalizer must specifically detect important publisher font-size declarations that stylesheet selectors cannot override."
+		)
+		assertContains(
+			applyDocumentTheme,
+			"normalizeReaderInlineTypography(doc, settings)",
+			message = "Every loaded EPUB document must normalize inline prose typography before pagination/reflow evidence is trusted."
 		)
 	}
 
@@ -469,22 +487,21 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderCapsExcessiveChapterOpeningTopMargins() {
 		val bridgeText = readerBridgeText()
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
 
-		assertContains(helperText, "readerNormalizeChapterOpeningMargins")
-		assertContains(helperText, "data-navic-chapter-opening-margin-capped")
-		assertContains(helperText, "margin-block-start")
-		assertContains(helperText, "margin-top")
+		assertContains(bridgeText, "readerNormalizeChapterOpeningMargins")
+		assertContains(bridgeText, "data-navic-chapter-opening-margin-capped")
+		assertContains(bridgeText, "margin-block-start")
+		assertContains(bridgeText, "margin-top")
 		assertContains(
-			helperText,
+			bridgeText,
 			"0.045",
 			message = "Chapter opening heading top margins should be capped to a tight Komikku-like page-relative value instead of preserving large publisher margins."
 		)
 		assertContains(
-			helperText,
+			bridgeText,
 			"Math.min(96",
 			message = "Chapter opening headings should not be allowed to drift far down large EPUB page boxes."
 		)

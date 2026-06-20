@@ -4863,3 +4863,37 @@ Results:
 - PASS: the source-inspection route guard `ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted` completed sequentially with `BUILD SUCCESSFUL in 19s`.
 - NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException` during the long controller test, then fell back to non-daemon compilation and returned exit code 0.
 - OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.
+
+## 2026-06-20 Inline Publisher Typography Normalization Slice
+
+Scope:
+- Investigated the Tab S9 Ultra report where the Font size setting appeared to scale chapter titles but not the ebook body text.
+- Root cause hypothesis: the existing host probes covered publisher stylesheet rules, but not PDF-converted / fixed-layout-derived EPUB prose that carries inline `font-size` declarations with `!important`. Those inline declarations outrank the reader stylesheet, so headings can repaint while prose remains pinned.
+
+Changes:
+- Added an inline-important publisher body-text probe to the font CSS harness.
+- Added a source guard requiring document-level inline typography normalization and the `applyDocumentTheme` call route.
+- Added `normalizeReaderInlineTypography(doc, settings)` in the reader typography module. It detects prose-like inline font-size ownership, preserves original publisher values in `data-navic-*` attributes, removes legacy `font[size]`, and rewrites only font-size to reader-relative `1rem`/`1em` with `!important`.
+- Wired the normalizer into `applyDocumentTheme` after the full reader stylesheet is injected and before chapter-opening margin normalization.
+- Corrected the stale chapter-opening margin source guard to read the concatenated reader runtime text instead of the `navic-reader-helpers.js` barrel file.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.readerHarnessFontCssSmokeCoversInlineImportantPublisherProse" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperIncludesPublisherStyleFontSizeProbe" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperWaitsForFontSizeReflowBeforeMeasuring" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderUsesAdaptiveFoliatePageBoxForLargeEpubViewports"
+```
+
+Results:
+- BLOCKED: the Playwright font CSS harness did not reach the RED assertion because Chromium failed to launch with `browserType.launch: spawn EPERM`. Per the session rule, no escalation was requested; this remains a local tooling limitation.
+- RED: the focused source guard failed at `ReaderRuntimeSettingsBridgeTest.kt:379` because `normalizeReaderInlineTypography` and its `applyDocumentTheme` route did not exist.
+- PASS: after implementing and wiring the normalizer, the focused source guard completed with `BUILD SUCCESSFUL in 15s`.
+- PASS: `node --check` completed with exit code 0 for both touched reader JS modules.
+- PASS: the full `ReaderRuntimeSettingsBridgeTest` class completed with `BUILD SUCCESSFUL in 25s` after correcting the stale barrel-file source guard.
+- PASS: adjacent source guards for the browser harness inline-important probe, page-box diagnostics, publisher font-size probes, font-size reflow waiting, and adaptive Foliate page boxes completed with `BUILD SUCCESSFUL in 44s`.
+- NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException` in one run, then fell back to non-daemon compilation and returned exit code 0.
+- OPEN: `adb devices -l` still reported no attached device earlier in the session, so the Tab S9 Ultra visual behavior and emulator blank/popup report are not runtime-validated by this slice.

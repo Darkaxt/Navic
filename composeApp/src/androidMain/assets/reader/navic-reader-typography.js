@@ -126,6 +126,90 @@ export const applyReaderParagraphSpacing = (doc, settings) => {
   }
 }
 
+const readerInlineTypographyBlockTags = new Set([
+  'BODY',
+  'P',
+  'LI',
+  'BLOCKQUOTE',
+  'DD',
+  'TD',
+  'TH',
+  'MAIN',
+  'SECTION',
+  'ARTICLE',
+  'CENTER',
+  'DIV',
+  'PRE',
+])
+
+const readerInlineTypographyTextTags = new Set([
+  ...readerInlineTypographyBlockTags,
+  'SPAN',
+  'FONT',
+  'CODE',
+  'SAMP',
+  'KBD',
+  'A',
+])
+
+const readerInlineTypographyCandidateSelector = [
+  '[style*="font-size"]',
+  '[style*="font:"]',
+  '[style*="font "]',
+  'font[size]',
+].join(',')
+
+const readerElementHasInlineFontSize = element => {
+  const style = element?.style
+  if (!style) return false
+  if (String(element.getAttribute?.('size') || '').trim()) return true
+  const value = style.getPropertyValue('font-size')
+  const priority = style.getPropertyPriority('font-size')
+  if (String(value || '').trim() || String(priority || '').trim()) return true
+  const fontPriority = style.getPropertyPriority('font')
+  return Boolean(String(style.cssText || '').match(/(^|;)\s*font\s*:/i) || String(fontPriority || '').trim())
+}
+
+const readerInlineTypographyLooksLikeProse = element => {
+  if (!element?.matches) return false
+  if (element.closest?.('h1,h2,h3,h4,h5,h6')) return false
+  if (element.matches?.(readerMediaSelector) || element.querySelector?.(readerMediaSelector)) return false
+  const tagName = element.tagName || ''
+  if (!readerInlineTypographyTextTags.has(tagName)) return false
+  const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+  return text.length > 0
+}
+
+const readerInlineTypographyFontSize = element =>
+  readerInlineTypographyBlockTags.has(element?.tagName || '') ? '1rem' : '1em'
+
+export const normalizeReaderInlineTypography = (doc, settings = {}) => {
+  if (!doc?.body) return 0
+  const candidates = [
+    doc.body,
+    ...Array.from(doc.querySelectorAll?.(readerInlineTypographyCandidateSelector) || []),
+  ]
+  let normalized = 0
+  for (const element of candidates) {
+    if (!readerElementHasInlineFontSize(element)) continue
+    if (!readerInlineTypographyLooksLikeProse(element)) continue
+    if (element.dataset?.navicOriginalInlineFontSize === undefined) {
+      element.dataset.navicOriginalInlineFontSize = element.style.getPropertyValue('font-size') || ''
+      element.dataset.navicOriginalInlineFontSizePriority = element.style.getPropertyPriority('font-size') || ''
+      element.dataset.navicOriginalInlineFont = element.style.getPropertyValue('font') || ''
+      element.dataset.navicOriginalInlineFontPriority = element.style.getPropertyPriority('font') || ''
+      element.dataset.navicOriginalFontSizeAttribute = element.getAttribute?.('size') || ''
+    }
+    if (element.hasAttribute?.('size')) {
+      element.removeAttribute('size')
+    }
+    element.style.setProperty('font-size', readerInlineTypographyFontSize(element), 'important')
+    element.dataset.navicInlineTypographyNormalized = 'true'
+    normalized += 1
+  }
+  return normalized
+}
+
 const readerChapterOpeningHeadingSelector = 'h1,h2,h3,h4,h5,h6'
 
 const readerElementHasContent = element => {

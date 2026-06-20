@@ -108,6 +108,7 @@ import {
   readerFontFaceCss,
   readerParagraphSpacingEm,
   applyReaderParagraphSpacing,
+  normalizeReaderInlineTypography,
   readerNormalizeChapterOpeningMargins,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
@@ -252,6 +253,7 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
     styleHost.append(themeStyle)
   }
   themeStyle.textContent = readerContentCss(settings)
+  normalizeReaderInlineTypography(doc, settings)
   readerNormalizeChapterOpeningMargins(doc, settings)
   for (const element of [root, body].filter(Boolean)) {
     setStylesImportant(element, {

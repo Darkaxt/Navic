@@ -476,6 +476,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun readerHarnessFontCssSmokeCoversInlineImportantPublisherProse() {
+		val harnessText = repoFile("tools/reader-harness/src/run-reader-harness.mjs").readText()
+		val fontCssSmoke = harnessText
+			.substringAfter("if (mode === 'font-css-smoke') {")
+			.substringBefore("if (mode === 'epub-frontmatter') {")
+
+		assertContains(fontCssSmoke, "inline-important-body")
+		assertContains(fontCssSmoke, "normalizeReaderInlineTypography(doc, { fontSizePercent })")
+		assertContains(fontCssSmoke, "publisherInlineImportantBodyDelta")
+		assertContains(
+			fontCssSmoke,
+			"Expected font-size control to scale publisher inline-important body text",
+			message = "The browser harness must keep reproducing inline-important publisher prose, because CSS selectors alone cannot override that cascade case."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val fontSizeProbe = helperText

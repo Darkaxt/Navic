@@ -812,6 +812,9 @@ if (mode === 'font-css-smoke') {
             </head>
             <body>
               <span class="publisher-body-text" data-probe="direct-body">Publisher direct inline body text.</span>
+              <span data-probe="inline-important-body" style="font-size: 10px !important;">
+                Publisher inline-important body text.
+              </span>
               <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
               <div class="publisher-block-text" data-probe="body-block">Publisher block-wrapped body text.<br/>Second line.</div>
               <section class="publisher-wrapper-text">
@@ -837,8 +840,10 @@ if (mode === 'font-css-smoke') {
           paragraphSpacingPercent: 0,
         })
         doc.head.append(style)
+        helpers.normalizeReaderInlineTypography(doc, { fontSizePercent })
         await new Promise(resolve => frame.contentWindow.requestAnimationFrame(resolve))
         const directBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="direct-body"]'))
+        const inlineImportantBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="inline-important-body"]'))
         const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
         const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
         const nestedWrapperBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="nested-wrapper-body"]'))
@@ -848,6 +853,8 @@ if (mode === 'font-css-smoke') {
         const result = {
           directBodyFontSize: directBodyStyle.fontSize,
           directBodyFontSizeValue: Number.parseFloat(directBodyStyle.fontSize || '0'),
+          inlineImportantBodyFontSize: inlineImportantBodyStyle.fontSize,
+          inlineImportantBodyFontSizeValue: Number.parseFloat(inlineImportantBodyStyle.fontSize || '0'),
           bodySpanFontSize: bodySpanStyle.fontSize,
           bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
           bodyBlockFontSize: bodyBlockStyle.fontSize,
@@ -875,6 +882,8 @@ if (mode === 'font-css-smoke') {
         publisherSpanAt100,
         publisherSpanAt140,
         publisherDirectBodyDelta: publisherSpanAt140.directBodyFontSizeValue - publisherSpanAt100.directBodyFontSizeValue,
+        publisherInlineImportantBodyDelta:
+          publisherSpanAt140.inlineImportantBodyFontSizeValue - publisherSpanAt100.inlineImportantBodyFontSizeValue,
         publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
         publisherBlockBodyDelta: publisherSpanAt140.bodyBlockFontSizeValue - publisherSpanAt100.bodyBlockFontSizeValue,
         publisherNestedWrapperBodyDelta:
@@ -904,6 +913,12 @@ if (mode === 'font-css-smoke') {
       throw new Error(
         `Expected font-size control to scale publisher direct body text; ` +
         `observed ${result.publisherSpanAt100?.directBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.directBodyFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherInlineImportantBodyDelta) || result.publisherInlineImportantBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher inline-important body text; ` +
+        `observed ${result.publisherSpanAt100?.inlineImportantBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.inlineImportantBodyFontSize || 'unset'}`
       )
     }
     if (!Number.isFinite(result.publisherSpanBodyDelta) || result.publisherSpanBodyDelta <= 1) {
