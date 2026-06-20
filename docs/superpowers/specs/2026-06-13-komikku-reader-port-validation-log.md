@@ -5432,3 +5432,45 @@ Results:
 - PASS/HIGHLIGHT: tapping Highlight produced a visible inline highlight over `toward` and logcat emitted `annotationDrawn` for the same CFI.
 - ARTIFACTS: `tmp\emulator-window-check-20260620\after-patched-real-longpress.png`, `after-patched-real-longpress-log.txt`, `after-real-highlight.png`, and `after-real-highlight-log.txt`.
 - OPEN: this is dirty-emulator proof for real long-press selection/highlight. Clean release/physical-device validation is still required, and note persistence/open-later UX remains a separate implementation gap.
+
+## 2026-06-20 Readerdev Real Copy And Note Selection Validation
+
+Scope:
+- Continued the real-input Phase 5 validation after proving real long-press selection and Highlight.
+- Validated Copy and Note Save from real ADB long-press selections, not DevTools-created selections.
+
+Validation:
+
+```powershell
+adb logcat -c
+adb shell input swipe 460 1110 460 1110 900
+adb shell input tap 966 80
+adb exec-out screencap -p > tmp\readerdev-real-selection-actions-20260620\copy-after-action.png
+adb logcat -d -v time > tmp\readerdev-real-selection-actions-20260620\copy-log.txt
+
+adb logcat -c
+adb shell input swipe 360 1465 360 1465 900
+adb shell input tap 1100 80
+adb shell input tap 820 1488
+adb shell input text Real_note
+adb shell input tap 1190 1636
+
+adb logcat -c
+adb shell input swipe 230 1515 230 1515 900
+adb shell input tap 1100 80
+adb shell input tap 820 1488
+adb shell input text Real_note_2
+adb shell input tap 1190 1398
+adb exec-out screencap -p > tmp\readerdev-real-selection-actions-20260620\note2-current-after-timeout.png
+adb logcat -d -v time > tmp\readerdev-real-selection-actions-20260620\note2-current-log.txt
+```
+
+Results:
+- PASS/COPY SELECTION: real ADB long-press at `460,1110` selected the visible word `right`, emitted `selectionChanged` with CFI `epubcfi(/6/98!/4/2/482,/1:180,/1:185)`, context text, and bounds, then surfaced the native action strip.
+- PASS/COPY ACTION: tapping the native Copy action emitted `Reader selection copied length=5`, Android clipboard overlay suppression logs, and `Reader chrome overlay visible=false menu=false shellCover=false dialog=null`, proving the action completed and dismissed the selection strip.
+- PASS/NOTE OPEN: real ADB long-press at `360,1465` selected visible text and tapping Note opened the native note dialog with selected text `"Go!"`, an `Annotation` field, Cancel, and disabled Save.
+- RETRY/NOTE SAVE: the first Save tap used the pre-keyboard coordinate after the soft keyboard shifted the dialog; it dismissed the dialog without `Reader selection note save...` or `applyHighlights(...)` logs. This was an input-coordinate miss, not proof of a product save.
+- PASS/NOTE SAVE: repeating the real long-press Note flow at `230,1515`, typing `Real_note_2`, and tapping the shifted Save coordinate emitted `Reader selection note save length=11`, then `Dispatching reader engine command: applyHighlights(count=4, notes=2)`, and `annotationDrawn` for `epubcfi(/6/98!/4/2/492,/1:8,/1:10)`.
+- PASS/NOTE VISUAL: `tmp\readerdev-real-selection-actions-20260620\note2-current-after-timeout.png` shows the saved note annotation as a visible inline mark on the selected word `of`.
+- ARTIFACTS: `tmp\readerdev-real-selection-actions-20260620\copy-selection-before-action.png`, `copy-after-action.png`, `copy-log.txt`, `note-dialog-open.png`, `note-dialog-ui.xml`, `note2-dialog-typed.png`, `note2-current-after-timeout.png`, and `note2-current-log.txt`.
+- OPEN: this is dirty-emulator proof. Clean release/physical-device validation is still required, and durable annotation persistence/open-later UX still needs a dedicated release-grade check.
