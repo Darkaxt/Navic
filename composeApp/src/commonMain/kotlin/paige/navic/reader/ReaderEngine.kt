@@ -148,6 +148,12 @@ sealed interface ReaderEngineEvent {
 	) : ReaderEngineEvent
 	data object FootnoteClose : ReaderEngineEvent
 	data class PullUp(val source: String? = null) : ReaderEngineEvent
+	data class VisibleTextRange(
+		val textHref: String,
+		val visibleStart: Int,
+		val visibleEnd: Int,
+		val rangeCfi: String? = null
+	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
 	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent

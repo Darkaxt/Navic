@@ -2,7 +2,9 @@ package paige.navic.reader
 
 data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
-	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState()
+	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
+	val visibleTextRange: ReaderWhispersyncVisibleTextRange? = null,
+	val audioSeekTarget: WhispersyncAudioSeekTarget? = null
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline
@@ -16,6 +18,13 @@ data class ReaderWhispersyncSyncState(
 	val activeSegmentKey: String? = null,
 	val engineCommand: ReaderEngineCommand? = null,
 	val engineCommandKey: Long = 0L
+)
+
+data class ReaderWhispersyncVisibleTextRange(
+	val textHref: String,
+	val visibleStart: Int,
+	val visibleEnd: Int,
+	val rangeCfi: String? = null
 )
 
 data class ReaderWhispersyncVisibleRangeStep(

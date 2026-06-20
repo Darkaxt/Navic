@@ -218,7 +218,8 @@ data class ReaderControllerState(
 data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
-	val progressToSave: BinderyReadingProgress? = null
+	val progressToSave: BinderyReadingProgress? = null,
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
 )
 
 data class ReaderController(
@@ -426,6 +427,7 @@ data class ReaderController(
 					)
 				)
 			)
+			is ReaderEngineEvent.VisibleTextRange -> onVisibleTextRange(event)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
 					state = state.copy(
@@ -655,6 +657,49 @@ data class ReaderController(
 				)
 			)
 		)
+
+	private fun onVisibleTextRange(event: ReaderEngineEvent.VisibleTextRange): ReaderControllerStep {
+		val visibleRange = ReaderWhispersyncVisibleTextRange(
+			textHref = event.textHref,
+			visibleStart = event.visibleStart,
+			visibleEnd = event.visibleEnd,
+			rangeCfi = event.rangeCfi
+		)
+		val currentWhispersync = state.whispersync
+		val syncStep = currentWhispersync.sync.onVisibleTextRange(
+			timeline = currentWhispersync.timeline,
+			textHref = event.textHref,
+			visibleStart = event.visibleStart,
+			visibleEnd = event.visibleEnd
+		)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						visibleTextRange = visibleRange,
+						audioSeekTarget = syncStep.audioSeekTarget
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		)
+	}
 
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)

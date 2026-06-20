@@ -164,6 +164,28 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun whispersyncVisibleTextRangeRoutesOverlayThroughCurrentEngineAndSurfacesAudioSeekTarget() {
+		val synced = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+
+		val step = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+
+		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
 	fun openingNewPublicationClearsWhispersyncSidecar() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val synced = opened.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
@@ -691,6 +713,16 @@ class ReaderCoordinatorTest {
 						textStart = 10,
 						textEnd = 42,
 						label = "Opening"
+					),
+					WhispersyncSegment(
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 5_000,
+						endMs = 8_000,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-2",
+						textStart = 80,
+						textEnd = 140,
+						label = "Second"
 					)
 				)
 			)

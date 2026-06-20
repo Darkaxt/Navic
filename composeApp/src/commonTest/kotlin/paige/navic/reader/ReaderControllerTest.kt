@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.repositories.BinderyReadingProgress
@@ -1291,6 +1292,49 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncVisibleTextRangeFeedsControllerSyncAndAudioSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		)
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+
+		val repeated = step.controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "/Text/chapter1.xhtml",
+				visibleStart = 85,
+				visibleEnd = 130
+			)
+		)
+		assertEquals(emptyList(), repeated.engineCommands)
+		assertNull(repeated.whispersyncAudioSeekTarget)
+	}
+
+	@Test
 	fun selectionActionStateIsControllerOwnedAndClearedByEngine() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val textOnly = opened.onEngineEvent(
@@ -1648,5 +1692,39 @@ class ReaderControllerTest {
 			),
 			url = "https://appassets.androidplatform.net/reader-cache/book-1/publication.epub",
 			settings = defaultReaderSettings()
+		)
+
+	private fun testWhispersyncSidecar(): WhispersyncSidecar =
+		WhispersyncSidecar(
+			artifactId = "artifact-3",
+			ebookBookFileId = "3913",
+			audiobookBookFileId = "694",
+			timeline = WhispersyncTimeline(
+				segments = listOf(
+					WhispersyncSegment(
+						id = "a",
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 1_250,
+						endMs = 3_500,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-1",
+						textStart = 10,
+						textEnd = 42,
+						label = "Opening sentence"
+					),
+					WhispersyncSegment(
+						id = "b",
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 5_000,
+						endMs = 8_000,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-2",
+						rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+						textStart = 80,
+						textEnd = 140,
+						label = "Second sentence"
+					)
+				)
+			)
 		)
 }

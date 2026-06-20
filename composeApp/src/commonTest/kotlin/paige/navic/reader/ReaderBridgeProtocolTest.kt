@@ -355,6 +355,27 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeVisibleTextRangeForWhispersync() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "visibleTextRange",
+			  "textHref": "Text/chapter-01.xhtml",
+			  "visibleStart": 80,
+			  "visibleEnd": 140,
+			  "rangeCfi": "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			}
+			""".trimIndent()
+		)
+
+		val range = assertIs<ReaderBridgeEvent.VisibleTextRange>(event)
+		assertEquals("Text/chapter-01.xhtml", range.textHref)
+		assertEquals(80, range.visibleStart)
+		assertEquals(140, range.visibleEnd)
+		assertEquals("epubcfi(/6/2!/4/4,/1:0,/1:24)", range.rangeCfi)
+	}
+
+	@Test
 	fun bridgeEventsDecodeFixedLayoutPagePosition() {
 		val event = decodeReaderBridgeEvent(
 			"""

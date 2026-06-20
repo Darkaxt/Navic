@@ -5680,3 +5680,28 @@ Results:
 - GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - OPEN: this is route-to-controller proof only. A live Bindery sidecar fetch, audiobook-player attachment, visible-range reporting, and release/device validation still need later Whispersync slices.
+
+## 2026-06-20 Whispersync Visible Range Controller Handoff
+
+Scope:
+- Validated GLM's current-progress note against the live worktree. The report correctly describes the foundation-first Whispersync shape, but its claim that `ReaderScreen` does not consume Whispersync launch parameters is stale after the reader launch sidecar attachment slice.
+- Added the next live-sync handoff behind the Komikku controller boundary: a `visibleTextRange` bridge event, engine event, adapter mapping, controller state update, overlay command dispatch, and coordinator-exposed audiobook seek target.
+- This slice intentionally does not add the JavaScript visible-range emitter, start audiobook playback, or perform runtime seek/highlight validation.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED: the first `:composeApp:compileAndroidHostTest` failed because `ReaderBridgeEvent.VisibleTextRange`, `ReaderEngineEvent.VisibleTextRange`, `ReaderWhispersyncVisibleTextRange`, and the coordinator/controller audio-seek handoff did not exist.
+- FIX: added `visibleTextRange` bridge decoding with normalized start/end offsets, mapped it through `FoliateEpubEngineAdapter`, recorded the visible range in `ReaderWhispersyncSessionState`, projected the matching sidecar segment into `ReaderEngineCommand.ApplyMediaOverlay`, and exposed the transient `WhispersyncAudioSeekTarget` through `ReaderControllerStep` and `ReaderCoordinatorStep`.
+- FIX: added Android bridge debug logging for `VisibleTextRange` so the new event is visible in ADB logs instead of becoming another silent bridge type.
+- GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed after the debug-label exhaustiveness branch was added.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- GREEN/HYGIENE: `git diff --check` passed.
+- OPEN: the reader runtime still needs a real JS visible-range emitter and audiobook-player seek consumption before this becomes user-visible Whispersync behavior.

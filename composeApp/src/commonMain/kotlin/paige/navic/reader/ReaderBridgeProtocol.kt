@@ -489,6 +489,12 @@ sealed interface ReaderBridgeEvent {
 	) : ReaderBridgeEvent
 	data object FootnoteClose : ReaderBridgeEvent
 	data class PullUp(val source: String? = null) : ReaderBridgeEvent
+	data class VisibleTextRange(
+		val textHref: String,
+		val visibleStart: Int,
+		val visibleEnd: Int,
+		val rangeCfi: String? = null
+	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -596,6 +602,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"pullUp" -> ReaderBridgeEvent.PullUp(
 				source = json.stringValue("source")
 			)
+			"visibleTextRange" -> json.toVisibleTextRange()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -619,6 +626,18 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			else -> null
 		}
 	}.getOrNull()
+
+private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange? {
+	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
+	val visibleStart = intValue("visibleStart") ?: intValue("start") ?: return null
+	val visibleEnd = intValue("visibleEnd") ?: intValue("end") ?: return null
+	return ReaderBridgeEvent.VisibleTextRange(
+		textHref = textHref,
+		visibleStart = minOf(visibleStart, visibleEnd),
+		visibleEnd = maxOf(visibleStart, visibleEnd),
+		rangeCfi = stringValue("rangeCfi")
+	)
+}
 
 private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
 	val source = stringValue("source")
