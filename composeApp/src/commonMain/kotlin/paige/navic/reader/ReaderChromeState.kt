@@ -1051,6 +1051,7 @@ data class ReaderReadaloudPlaybackUiState(
 	val isAvailable: Boolean = false,
 	val isPlaying: Boolean = false,
 	val trackIndex: Int = 0,
+	val audioResource: String? = null,
 	val positionMs: Long = 0L,
 	val durationMs: Long? = null,
 	val playbackSpeed: Float = 1f,

@@ -40,6 +40,8 @@ Implemented and covered by source/tests:
 - Reader-side audiobook manifest loading for paired Whispersync routes.
 - Visible text range seek targets consumed by `ReaderScreen` through `AudiobookPlaybackManager`.
 - Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs.
+- Audiobook playback state fed back into `ReaderController.onReadaloudPlaybackState(...)` for Whispersync overlay/highlight commands.
+- Playback-position to text overlay matching through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`.
 
 Important correction to older audits:
 
@@ -47,9 +49,8 @@ Important correction to older audits:
 
 Still missing:
 
-- Playback position from the audiobook player is not fed back into `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)` for live text highlighting.
 - No controller-owned sync status or mismatch repair UI exists yet.
-- No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together.
+- No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
 
 ## Non-Negotiable Guardrails
 
@@ -92,8 +93,7 @@ Missing `documentTextLength` must not make the sidecar unusable. The timeline sh
 
 ## Deferred Until Reader Shell Gates Pass
 
-- Live playback-to-text highlight loop.
-- Release-device validation of visible range reporting and automatic audio seek when turning pages.
+- Release-device validation of visible range reporting, automatic audio seek when turning pages, and audiobook-position-driven text overlays.
 - UI for sync status or mismatch repair.
 - Release claim that Whispersync is usable end to end.
 

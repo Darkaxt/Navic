@@ -5763,3 +5763,24 @@ Results:
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - GREEN/HYGIENE: `git diff --check` passed.
 - OPEN: playback position from the audiobook player still needs to feed back into `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)` for live text highlighting; release/physical-device validation is still required before claiming end-to-end Whispersync.
+
+## 2026-06-20 Whispersync Audiobook Playback Highlight Consumer
+
+Scope:
+- Completed the reverse Whispersync runtime direction: audiobook playback positions can now drive EPUB text overlay/highlight commands through the existing reader controller and Foliate engine adapter path.
+- Extended `ReaderReadaloudPlaybackUiState` with an engine-neutral `audioResource` field so playback state can be matched against Bindery sidecar segment audio resources.
+- `ReaderController.onReadaloudPlaybackState(...)` now keeps its existing chrome update behavior and, when a Whispersync sidecar is active, maps the playback resource/position through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`.
+- `ReaderScreen` now observes the shared `AudiobookPlaybackManager.uiState` for the selected Whispersync audiobook, derives the correct audio resource from the loaded playback plan, and feeds normalized playback state back to the controller.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new `whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay` controller test failed at host-test compile because `ReaderReadaloudPlaybackUiState.audioResource` did not exist.
+- FIX: added `audioResource` to `ReaderReadaloudPlaybackUiState`, taught the controller to resolve active Whispersync segments from playback state and emit `ReaderEngineCommand.ApplyMediaOverlay`, and added the `ReaderScreen` bridge from the shared audiobook mini-player state.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- OPEN: this is host-suite proof only. A clean release APK still needs to validate real Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and sync conflict behavior on-device before Whispersync can be called end-to-end usable.

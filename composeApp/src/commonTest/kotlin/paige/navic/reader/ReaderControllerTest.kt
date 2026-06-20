@@ -1335,6 +1335,31 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
 	fun selectionActionStateIsControllerOwnedAndClearedByEngine() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val textOnly = opened.onEngineEvent(

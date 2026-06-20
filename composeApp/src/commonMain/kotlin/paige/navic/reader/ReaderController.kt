@@ -640,14 +640,47 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.ApplyMediaOverlay(fragment))
 		)
 
-	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep =
-		ReaderControllerStep(
+	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val syncState = playbackState.audioResource
+			?.takeIf { it.isNotBlank() }
+			?.let { audioResource ->
+				val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
+					currentWhispersync.sync
+				} else {
+					currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
+				}
+				baseSync.onAudiobookPlaybackPosition(
+					timeline = currentWhispersync.timeline,
+					audioResource = audioResource,
+					positionMs = playbackState.positionMs
+				)
+			}
+			?: currentWhispersync.sync
+		val command = syncState.engineCommand
+			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
 			copy(
 				state = state.copy(
-					chrome = state.chrome.onReadaloudPlaybackState(playbackState)
+					chrome = state.chrome.onReadaloudPlaybackState(playbackState),
+					whispersync = currentWhispersync.copy(sync = syncState),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
 				)
-			)
+			),
+			engineCommands = listOfNotNull(command)
 		)
+	}
 
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
 		ReaderControllerStep(
