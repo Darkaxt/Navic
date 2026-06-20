@@ -5658,3 +5658,25 @@ Results:
 - GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - OPEN: this is controller-state proof only. The repository sidecar still needs to be selected from a concrete reader launch path and connected to the audiobook player before live Whispersync behavior exists.
+
+## 2026-06-20 Whispersync Reader Launch Sidecar Attachment
+
+Scope:
+- Connected the existing `Screen.Reader` Whispersync route contract to the Bindery sidecar repository fetch path described in `docs\superpowers\specs\2026-06-18-whispersync-design.md`.
+- Added a small launch policy that requires the complete selected-audiobook contract before fetching: sidecar path, artifact id, audiobook id, and audiobook book-file id.
+- `ReaderScreen` now fetches the sidecar after the ebook publication opens, logs the selected artifact/audiobook identifiers, and attaches the parsed sidecar to the reader coordinator. This keeps the sidecar behind the Komikku controller boundary and does not add live sync UI, playback seeking, or WebView highlighting yet.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new `ReaderWhispersyncLaunchPolicyTest` failed at `compileAndroidHostTest` because `ReaderWhispersyncLaunchAttachment` and `Screen.Reader.whispersyncLaunchAttachment()` did not exist.
+- FIX: added `ReaderWhispersyncLaunchPolicy.kt` and wired `ReaderScreen` to fetch `binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)` after `coordinator.open(...)`, then call `coordinator.loadWhispersyncSidecar(sidecar)` on success.
+- GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- OPEN: this is route-to-controller proof only. A live Bindery sidecar fetch, audiobook-player attachment, visible-range reporting, and release/device validation still need later Whispersync slices.

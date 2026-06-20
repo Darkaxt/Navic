@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
@@ -253,6 +254,32 @@ fun ReaderScreen(reader: Screen.Reader) {
 					)
 				)
 			)
+			reader.whispersyncLaunchAttachment()?.let { attachment ->
+				coroutineScope.launch {
+					withContext(Dispatchers.IO) {
+						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+					}.fold(
+						onSuccess = { sidecar ->
+							Logger.i(
+								ReaderScreenTag,
+								"Whispersync sidecar loaded artifact=${attachment.artifactId} " +
+									"audiobook=${attachment.audiobookId} " +
+									"bookFile=${attachment.audiobookBookFileId} " +
+									"segments=${sidecar.timeline.segments.size}"
+							)
+							applyCoordinatorStep(coordinator.loadWhispersyncSidecar(sidecar))
+						},
+						onFailure = { error ->
+							Logger.w(
+								ReaderScreenTag,
+								"Whispersync sidecar load failed artifact=${attachment.artifactId} " +
+									"path=${attachment.sidecarPath}",
+								error
+							)
+						}
+					)
+				}
+			}
 		},
 		onError = { message ->
 			applyCoordinatorStep(
