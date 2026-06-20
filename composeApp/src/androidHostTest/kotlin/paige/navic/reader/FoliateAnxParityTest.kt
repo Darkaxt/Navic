@@ -240,12 +240,13 @@ class FoliateAnxParityTest {
 			readerUiRoute("ReaderRoot.kt", "controllerState.annotationPopup")
 		),
 		"onPushState" to exists(
-			"PushState event",
-			controllerTest("pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine"),
+			"PushState event updates history capabilities without auto-surfacing chrome",
+			controllerTest("pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault"),
 			readerUiRoute("ReaderRoot.kt", "KomikkuReaderHistoryCapsule"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryBack()"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryForward()"),
 			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState"),
+			routeStop("ReaderController.kt", "visible = false"),
 			routeStop("ReaderController.kt", "ReaderEngineCommand.NavigateHistory"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryBack"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryForward"),

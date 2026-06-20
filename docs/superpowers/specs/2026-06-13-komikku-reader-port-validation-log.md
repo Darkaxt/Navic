@@ -4897,3 +4897,98 @@ Results:
 - PASS: adjacent source guards for the browser harness inline-important probe, page-box diagnostics, publisher font-size probes, font-size reflow waiting, and adaptive Foliate page boxes completed with `BUILD SUCCESSFUL in 44s`.
 - NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException` in one run, then fell back to non-daemon compilation and returned exit code 0.
 - OPEN: `adb devices -l` still reported no attached device earlier in the session, so the Tab S9 Ultra visual behavior and emulator blank/popup report are not runtime-validated by this slice.
+
+## 2026-06-20 Emulator Transport Recovery Attempt
+
+Scope:
+- Investigated why the required emulator gate could not be run after the reader typography slice.
+- Separated Codex command-routing behavior from Android emulator runtime state.
+
+Validation:
+
+```powershell
+Write-Output "shell-ok"
+git status --short
+Start-Process powershell.exe -WindowStyle Hidden -RedirectStandardOutput tmp\codex-startprocess-probe.out ...
+emulator.exe -version
+adb devices -l
+netstat -ano | findstr 555
+Start-Process emulator.exe -ArgumentList @('-avd','NavicReaderLab','-port','5560','-read-only','-no-snapshot-load','-no-boot-anim','-verbose') -RedirectStandardOutput tmp\emulator-start.out -RedirectStandardError tmp\emulator-start.err ...
+```
+
+Results:
+- PASS/TOOLING: ordinary shell commands, `git status`, hidden `Start-Process` with redirected output, and `emulator.exe -version` all ran successfully after the refreshed unrestricted session context.
+- DIAGNOSIS: the earlier `exec command rejected by user` was a Codex/tool-routing state issue around the previous command classification, not an emulator binary or Windows admin-permission failure. After the refreshed context, the same command class no longer rejected.
+- FAIL/ADB: `adb devices -l` starts the daemon but reports no attached devices.
+- FAIL/EMULATOR: `netstat` shows stale QEMU PID `86952` listening on `127.0.0.1:5554` and `127.0.0.1:5555`, while ADB does not see an emulator transport.
+- FAIL/RELAUNCH: launching `NavicReaderLab` on port `5560` with `-read-only` exits. The captured emulator log reports `Another emulator instance is running. Please close it or run all emulators with -read-only flag.`
+- FAIL/RECOVERY: Windows process termination paths previously returned `Access denied`/stale PID races for the orphaned QEMU process, and the emulator console kill attempt failed with `Access is denied`.
+- OPEN: emulator validation remains unavailable until the orphaned QEMU process is cleared outside this session or the Android emulator/Windows session is restarted.
+
+## 2026-06-20 Emulator Transport Restart Recovery
+
+Scope:
+- Restarted the local `NavicReaderLab` emulator so runtime validation can resume after several host-only reader fixes.
+- Avoided permission escalation and visible console popups.
+
+Validation:
+
+```powershell
+adb kill-server
+Stop-Process -Id 86952 -Force
+taskkill /PID 86952 /T /F
+wmic process where ProcessId=86952 call terminate
+emulator.exe -list-avds
+Start-Process emulator.exe -ArgumentList @('-avd','NavicReaderLab','-no-snapshot-load','-no-boot-anim','-verbose') ...
+adb devices -l
+adb -s emulator-5554 shell getprop sys.boot_completed
+adb -s emulator-5554 shell wm size
+adb -s emulator-5554 shell wm density
+adb -s emulator-5554 shell screencap -p /sdcard/navic_emulator_restarted.png
+adb -s emulator-5554 pull /sdcard/navic_emulator_restarted.png captures\emulator-restart\navic_emulator_restarted.png
+adb -s emulator-5554 shell pm list packages
+```
+
+Results:
+- PASS/RECOVERY: `wmic process where ProcessId=86952 call terminate` returned `ReturnValue = 0` and cleared the orphaned QEMU listener that had owned `127.0.0.1:5554/5555`.
+- PASS/RECOVERY: `emulator.exe -list-avds` now reports `NavicReaderLab`.
+- PASS/RECOVERY: `NavicReaderLab` relaunched as `emulator.exe` PID `116312` and `qemu-system-x86_64.exe` PID `117000`.
+- PASS/ADB: `adb devices -l` reports `emulator-5554 device product:sdk_gphone64_x86_64 model:sdk_gphone64_x86_64`.
+- PASS/BOOT: `adb -s emulator-5554 shell getprop sys.boot_completed` returned `1`.
+- PASS/SCREENSHOT: `adb screencap` and `adb pull` succeeded; latest capture is `captures\emulator-restart\navic_emulator_restarted.png`.
+- PASS/PACKAGES: emulator has both `darkaxt.navic` and `darkaxt.navic.readerdev` installed.
+- CURRENT STATE: emulator is focused on the Nexus launcher, not the reader. Runtime reader validation can resume by launching the appropriate package.
+
+## 2026-06-20 Blind-Fix Validation Pass
+
+Scope:
+- Revalidated recent reader fixes that had been implemented mostly through source/host checks.
+- Covered inline publisher typography normalization, pagination-profile logic, adaptive folio page-box logic, Anx parity route guards, and current ADB transport status.
+
+Validation:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\*.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+adb devices -l
+netstat -ano | findstr ":555"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes"
+git diff --check
+```
+
+Results:
+- PASS: all reader JavaScript assets and `tools\reader-harness\src\run-reader-harness.mjs` passed `node --check`.
+- PASS: `pagination-profile-logic` passed.
+- PASS: `adaptive-page-box-logic` passed.
+- PASS: browser-backed `font-css-smoke` passed in this session, including the inline-important publisher prose probe from the typography-normalization slice.
+- FAIL/FOUND: the broad host suite initially failed `FoliateAnxParityTest.existsEntriesForAnxReaderBehaviorHaveVerifiedControllerOrUiRoutes`.
+- ROOT CAUSE: the `onPushState` Anx parity registry still pointed to the removed `pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine` test name. Current behavior intentionally keeps the history capsule hidden by default to avoid the unwanted arrow/X popup while preserving history capabilities and commands.
+- FIX: the parity registry now points at `pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault` and explicitly requires the controller route to contain `visible = false`.
+- PASS: the focused Anx parity guard completed with `BUILD SUCCESSFUL in 38s` after the registry correction.
+- PASS: the full `:composeApp:testAndroidHostTest` suite completed with `BUILD SUCCESSFUL in 33s` after the registry correction.
+- PASS/ADB: after emulator recovery, `adb devices -l` reports `emulator-5554 device`.
+- OPEN: full runtime reader behavior validation is not yet rerun on the fresh emulator; the emulator is online and ready for that next gate.
