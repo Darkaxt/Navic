@@ -5288,3 +5288,28 @@ Results:
 - PASS/FONT-SIZE: the publisher paragraph font size also changed `16px -> 22.4px`, delta `6.4px`, proving the body text path scales on Android WebView rather than only headings.
 - ARTIFACTS: `tmp\readerdev-layout-probes-20260620\page-box` and `tmp\readerdev-layout-probes-20260620\font-size-publisher-styles`.
 - OPEN: this is emulator/WebView proof, not Tab S9 Ultra physical-device visual proof. It does not resolve subjective margin preference or settings dialog density.
+
+## 2026-06-20 eta76 Visible Emulator Matrix Validation
+
+Scope:
+- Verified that the emulator window was not stale after restart/recovery and could be used for unattended reader validation.
+- Ran the default Komikku reader matrix from the currently visible rendered EPUB page.
+
+Validation:
+
+```powershell
+adb devices -l
+adb -s emulator-5554 shell dumpsys window | Select-String -Pattern 'mCurrentFocus|mFocusedApp|mDreamingLockscreen|mShowingLockscreen'
+adb -s emulator-5554 shell pidof darkaxt.navic.readerdev
+adb -s emulator-5554 shell cat /proc/net/unix | Select-String -Pattern 'webview_devtools_remote'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot .\tmp\readerdev-visible-emulator-matrix-20260620
+```
+
+Results:
+- PASS/DEVICE: `emulator-5554` was attached and focused on `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`; lockscreen was not showing.
+- PASS/WEBVIEW: reader process `10300` exposed `webview_devtools_remote_10300`.
+- PASS/SCREENSHOT: ADB screenshot matched a live rendered EPUB text page with paper texture and page number `344 / 388`.
+- PASS/MATRIX: the default matrix completed with `No matrix failures`.
+- PASS/MATRIX: `baseline-current-reader`, `enter-readable-content`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` all passed.
+- ARTIFACTS: `tmp\emulator-visible-check\navic-visible-check.png` and `tmp\readerdev-visible-emulator-matrix-20260620`.
+- NOTE: the shell tool's default wrapper interrupted its own wait on the matrix command, but the spawned PowerShell validation process continued and wrote complete artifacts. Future long reader checks should be launched as hidden background jobs with file polling.
