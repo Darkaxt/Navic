@@ -4663,3 +4663,30 @@ Results:
 - PASS: adjacent font-size/prose-width focused host guards completed with `BUILD SUCCESSFUL in 23s`.
 - PASS: `node --check` on `navic-reader-helpers.js` returned exit code 0.
 - OPEN: runtime visual confirmation is still blocked until ADB reattaches or the next clean release/device validation run.
+
+## 2026-06-20 History Capsule / Popup Guard Drift
+
+Scope:
+- User reiterated that the emulator screen looked wrong with no text and only a popup.
+- Rechecked ADB and the current source before making any runtime claim.
+- The likely "arrow and X" popup is the native `KomikkuReaderHistoryCapsule`, but current HEAD should not show it automatically from Foliate PushState events.
+
+Validation:
+
+```powershell
+adb devices -l
+rg -n "ReaderHistoryCapsule|engineNavigation|navigateHistory|History" composeApp\src\commonMain composeApp\src\commonTest composeApp\src\androidHostTest
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded" --tests "paige.navic.reader.ReaderControllerTest.pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault"
+```
+
+Results:
+- FAIL/BLOCKED: `adb devices -l` still starts the daemon but returns no attached emulator or phone, so no runtime screenshot or touch validation is valid from this session.
+- PASS: source inspection shows `ReaderController` handles `NavigationStateChanged` by setting `engineNavigation.visible = false`.
+- PASS: the dedicated PushState controller guard passed before edits, proving current production code already keeps the capsule hidden by default.
+- RED: the broader Anx bridge event smoke test failed at `ReaderControllerTest.kt:210` because it still expected `ReaderEngineNavigationState(... visible = true)`, contradicting the dedicated guard and the current product decision.
+- FIX: updated the stale test assertion to expect `visible = false`.
+- PASS: the combined focused host run completed with `BUILD SUCCESSFUL in 1m 49s`.
+- NOTE: the passing Gradle run still printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned exit code 0.
+- OPEN: if the popup is still visible in the emulator, it is not proven against current HEAD. Reattach ADB or install a clean release before treating it as an active runtime regression.

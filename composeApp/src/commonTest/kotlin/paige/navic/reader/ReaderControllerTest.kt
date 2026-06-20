@@ -208,7 +208,7 @@ class ReaderControllerTest {
 			overlayCreated.state.lastOverlayInteraction
 		)
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = false),
 			navigation.state.engineNavigation
 		)
 		assertEquals(
