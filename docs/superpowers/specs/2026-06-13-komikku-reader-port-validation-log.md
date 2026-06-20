@@ -4609,3 +4609,57 @@ Results:
 - PASS: pure `adaptive-page-box-logic` harness still passed, so the page-box sizing model was not regressed.
 - PASS: `git diff --check` reported no whitespace errors.
 - OPEN: runtime visual confirmation on emulator/phone is still blocked until ADB reattaches or a clean release is installed and inspected.
+
+## 2026-06-20 Emulator Popup Follow-Up / Font-Size Root-Cause Pass
+
+Scope:
+- User reported the emulator currently shows no ebook text and only a popup.
+- User also reported the reader font-size control appears to affect chapter titles while body text stays effectively unchanged.
+
+Validation:
+
+```powershell
+adb devices -l
+adb connect 127.0.0.1:5555
+Get-Process | Where-Object { $_.ProcessName -match 'emulator|qemu|adb|java' }
+Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'emulator|qemu|adb' }
+rg -n "STOP, READ|STOP READ|Stop, read|dev popup|readerdev|ReaderDev|READ!|STOP!" composeApp androidApp docs scripts tools
+rg -n "STOP|READ|read|stop" composeApp\src\commonMain\composeResources composeApp\src\androidMain\res androidApp\src\main\res
+```
+
+Results:
+- FAIL/BLOCKED: `adb devices -l` still starts the daemon but returns no attached emulator or phone.
+- FAIL/BLOCKED: direct `adb connect 127.0.0.1:5555` returned connection refused in this session.
+- PASS/BLOCKED-CONTEXT: process listing intermittently shows `emulator.exe` / `qemu-system-x86_64.exe`, but the QEMU PID is not consistently inspectable.
+- FAIL/BLOCKED: `Get-CimInstance Win32_Process` returned `Access denied`, so the emulator command line / AVD identity could not be verified from this shell.
+- FAIL/BLOCKED: recursive temp log discovery hit protected temp folders and did not produce usable emulator log evidence.
+- PASS: source and resource searches did not find a literal app-owned `STOP, READ!` dialog string in the current tree; the known references are validation-log/spec references and readerdev tooling references.
+- Root-cause note for font size: `readerContentCss` injects `--reader-content-font-size` and `readerTypographyCss` resets body/prose to `1rem`, which should scale through the `html` root. If runtime body text does not scale, likely causes are injected-style ordering, an uncovered publisher prose wrapper, or perceived shrinkage from wider adaptive line lengths rather than a missing settings bridge.
+- OPEN: no runtime conclusion about the popup or font-size visual behavior is valid until ADB reattaches or a clean release/device check is run.
+
+## 2026-06-20 Typewriter / Preformatted Prose Font-Size Slice
+
+Scope:
+- User reported that font-size controls affect headings while ebook body text can remain effectively unchanged.
+- The Tab S9 screenshots show typewriter-like EPUB body text, which can be represented by publisher `pre`, `code`, `samp`, or `kbd` wrappers instead of normal paragraph tags.
+
+Changes:
+- Added a host guard for preformatted/typewriter prose coverage in `readerTypographyCss`.
+- Added root-size reset coverage for `pre` and body-level `code` / `samp` / `kbd` wrappers.
+- Added inherited-size coverage for nested `span`, `font`, `code`, `samp`, and `kbd` inside preformatted/prose blocks.
+- Added `pre-wrap` / `overflow-wrap` to keep preformatted body prose inside the adaptive folio page box.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlScalesPreformattedTypewriterProse"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlScalesPreformattedTypewriterProse" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderLetsProseUseAdaptiveFolioWidth"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+```
+
+Results:
+- RED: before the CSS change, `androidReaderFontSizeControlScalesPreformattedTypewriterProse` failed at `ReaderRuntimeSettingsBridgeTest.kt:385`, proving preformatted/typewriter prose was not covered.
+- PASS: after the CSS change, the focused guard completed with `BUILD SUCCESSFUL in 11s`.
+- PASS: adjacent font-size/prose-width focused host guards completed with `BUILD SUCCESSFUL in 23s`.
+- PASS: `node --check` on `navic-reader-helpers.js` returned exit code 0.
+- OPEN: runtime visual confirmation is still blocked until ADB reattaches or the next clean release/device validation run.

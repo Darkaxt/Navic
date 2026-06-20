@@ -924,6 +924,10 @@ export const readerTypographyCss = settings => {
   div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
   body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  pre,
+  body > code:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > samp:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > kbd:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   table:not(:has(img)):not(:has(svg)):not(:has(canvas)) {
     width: auto !important;
     max-width: none !important;
@@ -945,6 +949,10 @@ export const readerTypographyCss = settings => {
   div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
   body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  pre,
+  body > code:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > samp:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > kbd:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   font {
     font-size: 1rem !important;
     ${usePublisherStyles ? '' : `
@@ -978,9 +986,27 @@ export const readerTypographyCss = settings => {
   body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)) font,
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)) span,
   body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)) font,
+  pre span,
+  pre font,
+  pre code,
+  pre samp,
+  pre kbd,
+  p code,
+  p samp,
+  p kbd,
+  li code,
+  li samp,
+  li kbd,
+  blockquote code,
+  blockquote samp,
+  blockquote kbd,
   [data-navic-paragraph-block="true"] span,
   [data-navic-paragraph-block="true"] font {
     font-size: 1em !important;
+  }
+  pre {
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
   }
   p:has(> img:only-child),
   p:has(> span:only-child > img:only-child),

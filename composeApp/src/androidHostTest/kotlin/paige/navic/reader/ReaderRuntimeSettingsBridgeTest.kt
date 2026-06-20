@@ -376,6 +376,30 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderFontSizeControlScalesPreformattedTypewriterProse() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(
+			typographyCss,
+			"pre,",
+			message = "Reader font-size controls must reset preformatted/typewriter ebook prose, not only headings and paragraph tags."
+		)
+		assertContains(
+			typographyCss,
+			"code,",
+			message = "Inline code/typewriter wrappers in EPUB prose must inherit the reader root font size."
+		)
+		assertContains(
+			typographyCss,
+			"pre span,",
+			message = "Nested inline text inside preformatted ebook prose must inherit the reader root font size."
+		)
+	}
+
+	@Test
 	fun androidReaderLetsProseUseAdaptiveFolioWidth() {
 		val bridgeText = readerBridgeText()
 		val typographyCss = bridgeText
