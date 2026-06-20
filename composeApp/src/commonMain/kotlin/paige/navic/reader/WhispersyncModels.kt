@@ -1,0 +1,250 @@
+package paige.navic.reader
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlin.math.abs
+import kotlin.math.roundToLong
+
+private val WhispersyncJson = Json {
+	ignoreUnknownKeys = true
+	isLenient = true
+}
+
+data class WhispersyncSidecar(
+	val artifactId: String? = null,
+	val ebookBookFileId: String? = null,
+	val audiobookBookFileId: String? = null,
+	val documentTextLength: Int? = null,
+	val timeline: WhispersyncTimeline = WhispersyncTimeline()
+)
+
+data class WhispersyncTimeline(
+	val segments: List<WhispersyncSegment> = emptyList()
+) {
+	fun activeSegment(
+		audioResource: String,
+		positionMs: Long
+	): WhispersyncSegment? {
+		val normalizedAudio = normalizedMediaOverlayResource(audioResource)
+		val position = positionMs.coerceAtLeast(0L)
+		return segments.firstOrNull { segment ->
+			normalizedMediaOverlayResource(segment.audioResource) == normalizedAudio &&
+				position >= segment.startMs &&
+				position < segment.endMs
+		}
+	}
+
+	fun seekTargetForVisibleTextRange(
+		textHref: String,
+		visibleStart: Int,
+		visibleEnd: Int
+	): WhispersyncAudioSeekTarget? {
+		val normalizedText = normalizedMediaOverlayResource(textHref)
+		val start = minOf(visibleStart, visibleEnd).coerceAtLeast(0)
+		val end = maxOf(visibleStart, visibleEnd).coerceAtLeast(start)
+		val visibleCenter = (start + end) / 2.0
+		return segments
+			.asSequence()
+			.filter { segment -> normalizedMediaOverlayResource(segment.textHref) == normalizedText }
+			.mapNotNull { segment ->
+				segment.overlapScore(start, end, visibleCenter)
+					?.let { score -> segment to score }
+			}
+			.sortedWith(
+				compareByDescending<Pair<WhispersyncSegment, WhispersyncRangeScore>> { (_, score) -> score.overlap }
+					.thenBy { (_, score) -> score.centerDistance }
+			)
+			.firstOrNull()
+			?.first
+			?.let { segment ->
+				WhispersyncAudioSeekTarget(
+					audioResource = segment.audioResource,
+					positionMs = segment.startMs,
+					segment = segment
+				)
+			}
+	}
+}
+
+data class WhispersyncSegment(
+	val id: String? = null,
+	val audioResource: String,
+	val startMs: Long,
+	val endMs: Long,
+	val textHref: String,
+	val fragmentId: String? = null,
+	val rangeCfi: String? = null,
+	val textStart: Int? = null,
+	val textEnd: Int? = null,
+	val label: String? = null
+) {
+	fun toReaderOverlayFragment(): ReaderOverlayFragment =
+		ReaderOverlayFragment(
+			resourceHref = audioResource,
+			fragmentId = fragmentId,
+			textHref = textHref,
+			clipBeginSeconds = startMs / 1000.0,
+			clipEndSeconds = endMs / 1000.0,
+			label = label
+		)
+}
+
+data class WhispersyncAudioSeekTarget(
+	val audioResource: String,
+	val positionMs: Long,
+	val segment: WhispersyncSegment
+)
+
+fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
+	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
+	val ebook = root.objectValue("ebook")
+	val audiobook = root.objectValue("audiobook")
+	val audioResources = audiobook
+		?.arrayValue("resources")
+		.orEmpty()
+		.mapNotNull { (it as? JsonObject)?.stringValue("href") }
+	val defaultAudioResource = audioResources.firstOrNull()
+	val defaultTextHref = ebook?.stringValue("href") ?: ebook?.stringValue("textHref")
+	val segments = root.segmentArray()
+		.mapNotNull { element ->
+			(element as? JsonObject)?.toWhispersyncSegment(
+				defaultAudioResource = defaultAudioResource,
+				defaultTextHref = defaultTextHref
+			)
+		}
+
+	return WhispersyncSidecar(
+		artifactId = root.stringValue("artifactId") ?: root.stringValue("id"),
+		ebookBookFileId = root.stringValue("ebookBookFileId")
+			?: ebook?.stringValue("bookFileId")
+			?: ebook?.stringValue("id"),
+		audiobookBookFileId = root.stringValue("audiobookBookFileId")
+			?: audiobook?.stringValue("bookFileId")
+			?: audiobook?.stringValue("id"),
+		documentTextLength = root.intValue("documentTextLength")
+			?: ebook?.intValue("documentTextLength"),
+		timeline = WhispersyncTimeline(segments = segments)
+	)
+}
+
+private data class WhispersyncRangeScore(
+	val overlap: Int,
+	val centerDistance: Double
+)
+
+private fun WhispersyncSegment.overlapScore(
+	visibleStart: Int,
+	visibleEnd: Int,
+	visibleCenter: Double
+): WhispersyncRangeScore? {
+	val rangeStart = textStart
+	val rangeEnd = textEnd
+	if (rangeStart == null || rangeEnd == null) {
+		return WhispersyncRangeScore(
+			overlap = 0,
+			centerDistance = Double.MAX_VALUE
+		)
+	}
+	val start = minOf(rangeStart, rangeEnd)
+	val end = maxOf(rangeStart, rangeEnd)
+	val overlap = (minOf(end, visibleEnd) - maxOf(start, visibleStart)).coerceAtLeast(0)
+	if (overlap == 0) return null
+	val center = (start + end) / 2.0
+	return WhispersyncRangeScore(
+		overlap = overlap,
+		centerDistance = abs(center - visibleCenter)
+	)
+}
+
+private fun JsonObject.segmentArray(): List<JsonElement> =
+	arrayValue("segments")
+		?: arrayValue("alignments")
+		?: arrayValue("clips")
+		?: emptyList()
+
+private fun JsonObject.toWhispersyncSegment(
+	defaultAudioResource: String?,
+	defaultTextHref: String?
+): WhispersyncSegment? {
+	val audio = objectValue("audio")
+	val text = objectValue("text") ?: objectValue("ebook")
+	val audioResource = stringValue("audioResource")
+		?: stringValue("audioHref")
+		?: stringValue("audioUrl")
+		?: audio?.stringValue("href")
+		?: audio?.stringValue("resource")
+		?: defaultAudioResource
+		?: return null
+	val textHref = stringValue("textHref")
+		?: stringValue("textResource")
+		?: stringValue("href")
+		?: text?.stringValue("href")
+		?: text?.stringValue("resource")
+		?: defaultTextHref
+		?: return null
+	val startMs = millisecondValue("startMs")
+		?: millisecondValue("audioStartMs")
+		?: secondsValue("startSeconds")
+		?: secondsValue("audioStartSeconds")
+		?: secondsValue("start")
+		?: return null
+	val endMs = millisecondValue("endMs")
+		?: millisecondValue("audioEndMs")
+		?: secondsValue("endSeconds")
+		?: secondsValue("audioEndSeconds")
+		?: secondsValue("end")
+		?: return null
+	if (endMs <= startMs) return null
+	return WhispersyncSegment(
+		id = stringValue("id"),
+		audioResource = audioResource,
+		startMs = startMs,
+		endMs = endMs,
+		textHref = textHref,
+		fragmentId = stringValue("fragmentId"),
+		rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
+		textStart = intValue("textStart") ?: intValue("startChar") ?: text?.intValue("start"),
+		textEnd = intValue("textEnd") ?: intValue("endChar") ?: text?.intValue("end"),
+		label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
+	)
+}
+
+private fun JsonObject.objectValue(key: String): JsonObject? =
+	valueFor(key) as? JsonObject
+
+private fun JsonObject.arrayValue(key: String): List<JsonElement>? =
+	(valueFor(key) as? JsonArray)?.toList()
+
+private fun JsonObject.stringValue(key: String): String? =
+	(valueFor(key) as? JsonPrimitive)
+		?.contentOrNull
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+
+private fun JsonObject.intValue(key: String): Int? =
+	valueFor(key)
+		?.jsonPrimitive
+		?.intOrNull
+
+private fun JsonObject.millisecondValue(key: String): Long? =
+	valueFor(key)
+		?.jsonPrimitive
+		?.longOrNull
+
+private fun JsonObject.secondsValue(key: String): Long? =
+	valueFor(key)
+		?.jsonPrimitive
+		?.doubleOrNull
+		?.let { seconds -> (seconds * 1000.0).roundToLong() }
+
+private fun JsonObject.valueFor(key: String): JsonElement? =
+	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value

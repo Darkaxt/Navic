@@ -5564,3 +5564,26 @@ Results:
 - PASS/MENU REGRESSION: the same Phase 3 probe posted `pullUp(source=scrolled-edge-swipe)` and native chrome stayed `menu=false` before and after, confirming the sourced pull-up guard still prevents edge-drag chapter turns from auto-showing the menu.
 - ARTIFACTS: `tmp\readerdev-scrolled-rail-runtime-20260620`, `tmp\readerdev-scrolled-rail-location-20260620`, `tmp\readerdev-scrolled-edge-pullup-20260620`, and `captures\reader-dev\reader-dev-20260620-155116.png`.
 - OPEN: this is dirty-emulator proof only. It should be included in the next release candidate and repeated on a physical device before closing as release-grade.
+
+## 2026-06-20 Whispersync Sidecar Foundation
+
+Scope:
+- Restored the missing `docs\superpowers\specs\2026-06-18-whispersync-design.md` into the current worktree and linked it to the Komikku reader-port authority document.
+- Added the first self-contained Whispersync foundation slice: commonMain sidecar/timeline models, tolerant JSON parsing, audio-position lookup, visible-text-range seek lookup, and overlay-fragment projection.
+- No reader shell UI, WebView, release APK, or live playback synchronization was changed in this slice.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid --tests "paige.navic.reader.WhispersyncTimelineParserTest"
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- TARGETED TASK NOTE: `:composeApp:testAndroid` does not accept `--tests` in this project; the targeted red command failed at task configuration with `Unknown command-line option '--tests'`.
+- RED: aggregate `:composeApp:testAndroid` failed at `compileAndroidHostTest` because `decodeWhispersyncSidecar` and the related Whispersync model types did not exist. This proved the new tests were exercising missing behavior.
+- FIX: added `WhispersyncModels.kt` with `WhispersyncSidecar`, `WhispersyncTimeline`, `WhispersyncSegment`, `WhispersyncAudioSeekTarget`, and `decodeWhispersyncSidecar`.
+- FIX: parser accepts `segments`, `alignments`, or `clips`; audio ranges in ms or seconds; `audioResource`/`audioHref`/nested `audio.href`; `textHref`/`textResource`/`href`; `rangeCfi`; `fragmentId`; and missing `documentTextLength`.
+- GREEN: rerunning aggregate `:composeApp:testAndroid` first exposed a Kotlin comparator nullability issue in `WhispersyncTimeline.seekTargetForVisibleTextRange`; after fixing the query pipeline, `:composeApp:testAndroid` passed.
+- OPEN: this is domain-layer proof only. Fetching the sidecar from Bindery, wiring the reader/audio coordinator, live text highlighting, and physical-device validation remain future slices.
