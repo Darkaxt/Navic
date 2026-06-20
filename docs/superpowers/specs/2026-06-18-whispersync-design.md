@@ -34,6 +34,7 @@ Implemented and covered by source/tests:
 - Visible text range to audio seek target query model.
 - Bindery repository sidecar fetch through the metadata cache.
 - Reader route attachment extraction from `Screen.Reader`.
+- Row-aware Bindery Whispersync match launch for both ebook rows and audiobook rows, with no raw/inert sidecar action in the visible match sheet.
 - Reader startup sidecar fetch and `ReaderCoordinator.loadWhispersyncSidecar(...)`.
 - Foliate visible text range bridge event from rendered documents.
 - Controller/coordinator propagation of `WhispersyncAudioSeekTarget`.
@@ -48,7 +49,7 @@ Implemented and covered by source/tests:
 
 Important correction to older audits:
 
-- `BinderyWhispersyncMatchesSheet.onOpenSidecar` is still intentionally inert, but it is not the active launch path for paired reading. `BinderyWhispersyncLaunchSheet` builds a `Screen.Reader` with sidecar and audiobook route metadata, and `ReaderScreen` consumes that route to load the sidecar.
+- Raw sidecar buttons are not an acceptable user-facing path. Both the ebook "open with audiobook" sheet and the generic Whispersync matches sheet must build a `Screen.Reader` with sidecar and audiobook route metadata, and `ReaderScreen` consumes that route to load the sidecar. A visible Whispersync match row must either launch a paired reader session or disable the launch button; it must not expose an inert sidecar action.
 
 Still missing:
 

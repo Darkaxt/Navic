@@ -24,7 +24,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -356,9 +355,14 @@ fun BinderyBookScreen(
 	syncSheetRow?.let { row ->
 		BinderyWhispersyncMatchesSheet(
 			row = row,
+			bookId = bookId,
+			bookTitle = titleText,
+			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 			onDismissRequest = { syncSheetRow = null },
-			onOpenSidecar = {
-				// The timing layer is not wired yet; this keeps the pairing UI discoverable without starting partial playback.
+			onOpenReader = { destination ->
+				platformContext.clickSound()
+				syncSheetRow = null
+				backStack.add(destination)
 			}
 		)
 	}
@@ -672,8 +676,11 @@ private fun BinderyBookVersionListItem(
 @Composable
 private fun BinderyWhispersyncMatchesSheet(
 	row: BinderyBookVersionRow,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String,
 	onDismissRequest: () -> Unit,
-	onOpenSidecar: (BinderyWhispersyncMatch) -> Unit
+	onOpenReader: (Screen.Reader) -> Unit
 ) {
 	ModalBottomSheet(onDismissRequest = onDismissRequest) {
 		Column(
@@ -695,6 +702,13 @@ private fun BinderyWhispersyncMatchesSheet(
 				overflow = TextOverflow.Ellipsis
 			)
 			row.syncMatches.forEach { match ->
+				val destination = binderyWhispersyncReaderDestinationForRowMatch(
+					row = row,
+					match = match,
+					bookId = bookId,
+					bookTitle = bookTitle,
+					opdsBaseUrl = opdsBaseUrl
+				)
 				Surface(
 					modifier = Modifier.fillMaxWidth(),
 					shape = RoundedCornerShape(8.dp),
@@ -725,8 +739,13 @@ private fun BinderyWhispersyncMatchesSheet(
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
 						}
-						OutlinedButton(onClick = { onOpenSidecar(match) }) {
-							Text("Sidecar")
+						Button(
+							onClick = {
+								destination?.let(onOpenReader)
+							},
+							enabled = destination != null
+						) {
+							Text("Open")
 						}
 					}
 				}

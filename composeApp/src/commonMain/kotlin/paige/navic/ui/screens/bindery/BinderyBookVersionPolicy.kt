@@ -326,7 +326,10 @@ data class BinderyWhispersyncMatch(
 	val coveragePercent: Int?,
 	val scorePercent: Int?,
 	val oppositeAudiobookId: String? = null,
-	val oppositeAudiobookBookFileId: String? = null
+	val oppositeAudiobookBookFileId: String? = null,
+	val oppositeEbookResourceHref: String? = null,
+	val oppositeEbookBookFileId: String? = null,
+	val oppositeEbookFormat: ReaderPublicationFormat? = null
 )
 
 data class BinderyBookVersionGroups(
@@ -439,6 +442,46 @@ fun binderyWhispersyncReaderDestinationForMatch(
 		whispersyncAudiobookTitle = match.oppositeTitle.takeIf { it.isNotBlank() }
 	)
 }
+
+fun binderyWhispersyncReaderDestinationForRowMatch(
+	row: BinderyBookVersionRow,
+	match: BinderyWhispersyncMatch,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String
+): Screen.Reader? =
+	when {
+		row.kind == BinderyBookVersionKind.Ebook -> binderyWhispersyncReaderDestinationForMatch(
+			ebookRow = row,
+			match = match,
+			bookId = bookId,
+			bookTitle = bookTitle,
+			opdsBaseUrl = opdsBaseUrl
+		)
+		row.kind == BinderyBookVersionKind.Audiobook &&
+			match.oppositeKind == BinderyBookVersionKind.Ebook -> {
+			val resourceHref = match.oppositeEbookResourceHref?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+			val sidecarHref = match.sidecarHref.trim().takeIf { it.isNotEmpty() } ?: return null
+			val audiobookId = row.audiobookId.normalizedBookFileId() ?: return null
+			val audiobookBookFileId = row.audiobookBookFileId.normalizedBookFileId() ?: return null
+
+			Screen.Reader(
+				title = bookTitle,
+				publicationUrl = binderyEndpoint(opdsBaseUrl, resourceHref),
+				bookId = bookId,
+				resourceHref = resourceHref,
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = match.oppositeEbookFormat ?: ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
+				whispersyncArtifactId = match.artifactId,
+				whispersyncAudiobookId = audiobookId,
+				whispersyncAudiobookBookFileId = audiobookBookFileId,
+				whispersyncAudiobookTitle = row.title.takeIf { it.isNotBlank() }
+			)
+		}
+		else -> null
+	}
 
 fun binderyBookVersionRows(
 	manifest: BinderyManifest?,
@@ -608,6 +651,21 @@ private fun BinderySyncPair.toWhispersyncMatch(
 		},
 		oppositeAudiobookBookFileId = if (oppositeKind == BinderyBookVersionKind.Audiobook) {
 			oppositeRow?.audiobookBookFileId
+		} else {
+			null
+		},
+		oppositeEbookResourceHref = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.id
+		} else {
+			null
+		},
+		oppositeEbookBookFileId = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.ebookBookFileId
+		} else {
+			null
+		},
+		oppositeEbookFormat = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.format
 		} else {
 			null
 		}

@@ -197,6 +197,61 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun audiobookWhispersyncLaunchDestinationCarriesSelectedEbookContract() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "ready")
+		val audiobook = rows.first { row -> row.kind == BinderyBookVersionKind.Audiobook }
+		val match = audiobook.syncMatches.single()
+
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-435",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-435",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				whispersyncSidecarUrl = "https://bindery.local/opds/books/3816/sync/3",
+				whispersyncArtifactId = "3",
+				whispersyncAudiobookId = "69",
+				whispersyncAudiobookBookFileId = "694",
+				whispersyncAudiobookTitle = "Andy Serkis"
+			),
+			binderyWhispersyncReaderDestinationForRowMatch(
+				row = audiobook,
+				match = match,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
+	fun genericWhispersyncLaunchDestinationKeepsEbookRowContract() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "ready")
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+		val match = ebook.syncMatches.single()
+
+		assertEquals(
+			binderyWhispersyncReaderDestinationForMatch(
+				ebookRow = ebook,
+				match = match,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			),
+			binderyWhispersyncReaderDestinationForRowMatch(
+				row = ebook,
+				match = match,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
 	fun multipleWhispersyncAudiobookLaunchCandidatesRequireChooser() {
 		val rows = hobbitVersionRowsWithWhispersync(status = "ready", extraReadyAudiobook = true)
 		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }

@@ -5827,3 +5827,30 @@ Results:
 - FIX: added controller repair, coordinator routing, root/badge callback plumbing, and the `ReaderScreen` bridge into `applyCoordinatorStep(coordinator.repairWhispersyncMismatch())`.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed in 3m58s.
 - OPEN: release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and mismatch repair remains required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 Whispersync Match Sheet Reader Launch
+
+Scope:
+- Reviewed GLM's current-progress attachment against the live worktree. The report correctly flagged the old `BinderyWhispersyncMatchesSheet.onOpenSidecar` route as a remaining no-op concern, but its statement that `ReaderScreen` does not consume Whispersync launch parameters is stale on the current branch.
+- Removed the visible raw sidecar placeholder from the generic Whispersync matches sheet.
+- Added a row-aware launch policy so both directions can build the same paired reader contract:
+  - ebook row plus selected audiobook match
+  - audiobook row plus selected ebook match
+- Extended `BinderyWhispersyncMatch` with the matched ebook resource href, book-file id, and format so audiobook rows can launch the corresponding EPUB with the selected audiobook identity and sidecar.
+- Updated `docs\superpowers\specs\2026-06-18-whispersync-design.md` to forbid user-facing inert sidecar actions.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicySourceTest
+.\gradlew.bat --no-daemon --no-build-cache --no-configuration-cache --rerun-tasks --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process -Pkotlin.incremental=false -Dkotlin.incremental=false -Dkotlin.daemon.enabled=false :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicySourceTest
+```
+
+Results:
+- RED/BLOCKED: the first focused run failed before assertions because the Kotlin daemon left generated Android main class output in an inconsistent Windows file-lock state.
+- RED/GUARD: after the first source-guard patch, host-test compile correctly failed on invalid `assertContains(String, String, "message")` usage; Kotlin treats the third positional parameter as `ignoreCase`.
+- FIX/GUARD: switched the source-guard assertions to named `message = ...`.
+- TOOLING/FIX: reran with fresh task execution, a single worker, disabled build/configuration cache, and disabled Kotlin incremental compilation to avoid stale class-output reuse.
+- GREEN/FOCUSED: the focused Bindery policy/source tests passed. The log only contains the pre-existing `ModalBottomSheet` invisible-reference warning and a redundant `Json` test warning.
+- AGGREGATE/BLOCKED: rerunning `:composeApp:testAndroid` reached host tests and failed only in `AndroidMediaPlayerViewModelSourceTest.playbackAssetPrefetchStateLivesOutsideAndroidMediaPlayerViewModel` and `AndroidMediaPlayerViewModelSourceTest.queueAutoFillJobStateLivesOutsideAndroidMediaPlayerViewModel`. Those failures are current-baseline media-player size/source-guard failures (`AndroidMediaPlayerViewModel.android.kt` is 1317 lines) and do not touch the Bindery Whispersync match-sheet launch path.
+- OPEN: release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and mismatch repair remains required before claiming end-to-end Whispersync usability.
