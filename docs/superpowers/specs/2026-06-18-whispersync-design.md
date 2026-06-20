@@ -46,10 +46,12 @@ Implemented and covered by source/tests:
 - Controller-owned Whispersync status state for ready, page-to-audio seek, audiobook playback, paused sync, and mismatch states.
 - Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.
 - One-tap mismatch repair routed through `ReaderCoordinator.repairWhispersyncMismatch()`, reusing the current visible text range to reapply the correct overlay and dispatch the existing audiobook seek target path.
+- Reader progress companion state now persists exact Whispersync audio resource and millisecond position when the controller has a sidecar-derived seek target, so audiobook resume can prefer the precise segment target over a total-duration fraction estimate.
 
 Important correction to older audits:
 
 - Raw sidecar buttons are not an acceptable user-facing path. Both the ebook "open with audiobook" sheet and the generic Whispersync matches sheet must build a `Screen.Reader` with sidecar and audiobook route metadata, and `ReaderScreen` consumes that route to load the sidecar. A visible Whispersync match row must either launch a paired reader session or disable the launch button; it must not expose an inert sidecar action.
+- GLM's older current-progress summary that `onOpenSidecar` is still a no-op is stale on this branch; that route is now guarded by `BinderyBookVersionPolicySourceTest` and must remain a real `Screen.Reader` launch path.
 
 Still missing:
 

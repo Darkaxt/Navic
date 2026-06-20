@@ -14,6 +14,8 @@ import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderySyncPair
 import paige.navic.domain.repositories.BinderyWhispersyncArtifact
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.WhispersyncAudioSeekTarget
+import paige.navic.reader.WhispersyncSegment
 import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.ui.navigation.Screen
 
@@ -179,6 +181,61 @@ class BinderyContinueShelfPolicyTest {
 				reader = reader,
 				progress = progress,
 				updatedAtMs = 500L
+			)
+		)
+	}
+
+	@Test
+	fun readerProgressCreatesWhispersyncCompanionProgressWithExactAudioTarget() {
+		val reader = Screen.Reader(
+			title = "The Hobbit",
+			publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-435",
+			bookId = "3816",
+			resourceHref = "/opds/books/3816/resources/ebook-435",
+			kind = ReaderPublicationKind.Ebook,
+			whispersyncArtifactId = "3",
+			whispersyncAudiobookId = "69",
+			whispersyncAudiobookBookFileId = "694",
+			whispersyncAudiobookTitle = "Andy Serkis"
+		)
+		val progress = BinderyReadingProgress(
+			bookId = "3816",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3816/resources/ebook-435",
+			progressFraction = 0.62
+		)
+		val audioTarget = WhispersyncAudioSeekTarget(
+			audioResource = "Audio/chapter-09.m4b",
+			positionMs = 42_500L,
+			segment = WhispersyncSegment(
+				id = "seg-88",
+				audioResource = "Audio/chapter-09.m4b",
+				startMs = 42_500L,
+				endMs = 45_000L,
+				textHref = "Text/chapter-09.xhtml",
+				textStart = 1200,
+				textEnd = 1280,
+				label = "Chapter IX"
+			)
+		)
+
+		assertEquals(
+			BinderyWhispersyncCompanionProgress(
+				bookId = "3816",
+				ebookResourceHref = "/opds/books/3816/resources/ebook-435",
+				audiobookId = "69",
+				audiobookBookFileId = "694",
+				artifactId = "3",
+				progressFraction = 0.62,
+				audioResource = "Audio/chapter-09.m4b",
+				audioPositionMs = 42_500L,
+				updatedAtMs = 500L
+			),
+			binderyWhispersyncCompanionProgressForReader(
+				reader = reader,
+				progress = progress,
+				updatedAtMs = 500L,
+				audioSeekTarget = audioTarget
 			)
 		)
 	}

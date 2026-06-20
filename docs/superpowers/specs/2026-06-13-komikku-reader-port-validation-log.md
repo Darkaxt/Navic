@@ -5854,3 +5854,23 @@ Results:
 - GREEN/FOCUSED: the focused Bindery policy/source tests passed. The log only contains the pre-existing `ModalBottomSheet` invisible-reference warning and a redundant `Json` test warning.
 - AGGREGATE/BLOCKED: rerunning `:composeApp:testAndroid` reached host tests and failed only in `AndroidMediaPlayerViewModelSourceTest.playbackAssetPrefetchStateLivesOutsideAndroidMediaPlayerViewModel` and `AndroidMediaPlayerViewModelSourceTest.queueAutoFillJobStateLivesOutsideAndroidMediaPlayerViewModel`. Those failures are current-baseline media-player size/source-guard failures (`AndroidMediaPlayerViewModel.android.kt` is 1317 lines) and do not touch the Bindery Whispersync match-sheet launch path.
 - OPEN: release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and mismatch repair remains required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 Whispersync Exact Companion Progress
+
+Scope:
+- Reviewed GLM's current-progress attachment against the live worktree. Its high-level foundation summary is useful, but the `onOpenSidecar` no-op finding is stale after the match-sheet launch fix, and the "progress save/restore with audio position" gap is now addressed for the local companion-progress path by this slice.
+- Extended `BinderyWhispersyncCompanionProgress` with optional exact audio resource and millisecond position fields.
+- `ReaderScreen` now passes the controller's current `WhispersyncAudioSeekTarget` into companion progress creation when saving ebook progress for a paired Whispersync route.
+- Audiobook resume from companion progress now prefers the exact sidecar-derived audio resource and millisecond position before falling back to the older total-duration fraction estimate.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest.readerProgressCreatesWhispersyncCompanionProgressWithExactAudioTarget --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest.companionProgressUsesExactWhispersyncAudioPositionBeforeFractionEstimate --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest
+```
+
+Results:
+- RED: the first focused host-test run failed at `compileAndroidHostTest` because `audioResource`, `audioPositionMs`, and the `audioSeekTarget` parameter did not exist.
+- FIX: added exact companion-progress fields, normalized them during preference JSON updates, passed the current controller Whispersync audio seek target from `ReaderScreen`, and taught audiobook resume to match the exact resource before estimating from `progressFraction`.
+- GREEN/FOCUSED: forced rerun of the focused host tests passed with all 24 tasks executed. The log contains only the pre-existing `ModalBottomSheet` invisible-reference warning and redundant `Json` warning.
+- OPEN: this is host/source proof only. Release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, exact audiobook resume, and mismatch repair remains required before claiming end-to-end Whispersync usability.

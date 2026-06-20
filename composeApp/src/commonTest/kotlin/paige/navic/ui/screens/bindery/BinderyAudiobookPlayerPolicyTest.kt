@@ -179,6 +179,49 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun companionProgressUsesExactWhispersyncAudioPositionBeforeFractionEstimate() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Chapter 1", "file-one"),
+				audioItem("one-b", "Chapter 2", "file-one"),
+				audioItem("one-c", "Chapter 3", "file-one")
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "book-1",
+			ebookResourceHref = "/opds/books/book-1/resources/ebook-1",
+			audiobookId = "69",
+			audiobookBookFileId = "file-one",
+			artifactId = "3",
+			progressFraction = 0.5,
+			audioResource = "one-c",
+			audioPositionMs = 12_345L,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "69"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 2,
+				mediaId = "readaloud:one-c",
+				positionMs = 12_345L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
 	fun progressStoreKeepsIndependentPositionsPerEdition() {
 		val first = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

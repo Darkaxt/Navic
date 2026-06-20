@@ -245,6 +245,12 @@ fun binderyAudiobookProgressFromWhispersyncCompanion(
 		?: return null
 	val audioItems = selectedBinderyAudiobookReadingOrder(manifest, versionRowId)
 	if (audioItems.isEmpty()) return null
+	val exact = binderyAudiobookExactProgressFromWhispersyncCompanion(
+		progress = progress,
+		audioItems = audioItems,
+		versionRowId = versionRowId
+	)
+	if (exact != null) return exact
 	val durations = audioItems.map { item -> item.durationMs()?.takeIf { it > 0L } ?: return null }
 	val totalDuration = durations.sum().takeIf { it > 0L } ?: return null
 	var targetMs = (totalDuration.toDouble() * fraction).roundToLong()
@@ -268,6 +274,46 @@ fun binderyAudiobookProgressFromWhispersyncCompanion(
 	return null
 }
 
+private fun binderyAudiobookExactProgressFromWhispersyncCompanion(
+	progress: BinderyWhispersyncCompanionProgress,
+	audioItems: List<BinderyReadingOrderItem>,
+	versionRowId: String
+): BinderyAudiobookPlaybackProgress? {
+	val audioResource = progress.audioResource
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: return null
+	val positionMs = progress.audioPositionMs
+		?.coerceAtLeast(0L)
+		?: return null
+	val candidates = audioResource.whispersyncAudioResourceCandidates()
+	if (candidates.isEmpty()) return null
+	val index = audioItems.indexOfFirst { item ->
+		val itemCandidates = listOfNotNull(item.href, item.properties.firstNonBlankValue("href", "url", "resource"))
+			.flatMap(String::whispersyncAudioResourceCandidates)
+			.toSet()
+		candidates.any { target ->
+			itemCandidates.any { candidate ->
+				candidate == target ||
+					candidate.endsWith("/$target") ||
+					target.endsWith("/$candidate")
+			}
+		}
+	}.takeIf { it >= 0 } ?: return null
+	val durationMs = audioItems[index].durationMs()?.takeIf { it > 0L }
+	return BinderyAudiobookPlaybackProgress(
+		bookId = progress.bookId,
+		versionRowId = versionRowId,
+		trackIndex = index,
+		mediaId = "readaloud:${audioItems[index].href}",
+		positionMs = durationMs
+			?.let { duration -> positionMs.coerceIn(0L, (duration - 1L).coerceAtLeast(0L)) }
+			?: positionMs,
+		durationMs = durationMs,
+		updatedAtMs = progress.updatedAtMs
+	)
+}
+
 fun shouldAutosaveBinderyAudiobookProgress(
 	previous: BinderyAudiobookPlaybackProgress?,
 	next: BinderyAudiobookPlaybackProgress
@@ -283,6 +329,22 @@ private fun BinderyReadingOrderItem.isAudiobookAudio(): Boolean =
 	type?.startsWith("audio/", ignoreCase = true) == true ||
 		properties.firstNonBlankValue("kind", "mediaType", "format")
 			?.contains("audio", ignoreCase = true) == true
+
+private fun String.whispersyncAudioResourceCandidates(): List<String> {
+	val cleaned = trim()
+		.substringBefore('#')
+		.substringBefore('?')
+		.replace('\\', '/')
+		.trimStart('/')
+		.takeIf { it.isNotBlank() }
+		?: return emptyList()
+	val withoutScheme = cleaned.substringAfter("://", missingDelimiterValue = cleaned)
+	val urlPath = withoutScheme.substringAfter('/', missingDelimiterValue = withoutScheme)
+	return listOf(cleaned, withoutScheme, urlPath)
+		.map { value -> value.trimStart('/').lowercase() }
+		.filter { it.isNotBlank() }
+		.distinct()
+}
 
 private fun String.selectedAudiobookBookFileId(): String? =
 	removePrefix("audiobook:")

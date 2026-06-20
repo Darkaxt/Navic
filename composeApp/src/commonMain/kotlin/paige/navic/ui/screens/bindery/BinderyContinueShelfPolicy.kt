@@ -11,6 +11,7 @@ import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyReadingProgressKind
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.reader.canonicalReaderResourceHref
+import paige.navic.reader.WhispersyncAudioSeekTarget
 import paige.navic.ui.navigation.Screen
 import kotlin.math.roundToInt
 
@@ -30,6 +31,8 @@ data class BinderyWhispersyncCompanionProgress(
 	val audiobookBookFileId: String,
 	val artifactId: String,
 	val progressFraction: Double,
+	val audioResource: String? = null,
+	val audioPositionMs: Long? = null,
 	val updatedAtMs: Long
 )
 
@@ -240,6 +243,8 @@ fun binderyWhispersyncCompanionProgressJsonWithUpdate(
 		audiobookBookFileId = progress.audiobookBookFileId.trim(),
 		artifactId = progress.artifactId.trim(),
 		progressFraction = progress.progressFraction.coerceIn(0.0, 1.0),
+		audioResource = progress.audioResource?.trim()?.takeIf { it.isNotEmpty() },
+		audioPositionMs = progress.audioPositionMs?.coerceAtLeast(0L),
 		updatedAtMs = progress.updatedAtMs.coerceAtLeast(0L)
 	)
 	if (
@@ -270,7 +275,8 @@ fun binderyWhispersyncCompanionProgressJsonWithUpdate(
 fun binderyWhispersyncCompanionProgressForReader(
 	reader: Screen.Reader,
 	progress: BinderyReadingProgress,
-	updatedAtMs: Long
+	updatedAtMs: Long,
+	audioSeekTarget: WhispersyncAudioSeekTarget? = null
 ): BinderyWhispersyncCompanionProgress? {
 	if (progress.kind != BinderyReadingProgressKind.Ebook) return null
 	val progressResourceHref = canonicalReaderResourceHref(progress.resourceHref) ?: return null
@@ -290,6 +296,13 @@ fun binderyWhispersyncCompanionProgressForReader(
 		audiobookBookFileId = audiobookBookFileId,
 		artifactId = artifactId,
 		progressFraction = fraction,
+		audioResource = audioSeekTarget
+			?.audioResource
+			?.trim()
+			?.takeIf { it.isNotEmpty() },
+		audioPositionMs = audioSeekTarget
+			?.positionMs
+			?.coerceAtLeast(0L),
 		updatedAtMs = updatedAtMs.coerceAtLeast(0L)
 	)
 }
