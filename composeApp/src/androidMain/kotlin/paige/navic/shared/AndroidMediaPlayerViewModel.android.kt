@@ -62,6 +62,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.SongDao
@@ -152,6 +154,8 @@ class AndroidMediaPlayerViewModel(
 
 	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
+	private var pendingSourceErrorRecovery: PendingSourceErrorRecovery? = null
+	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
@@ -293,7 +297,13 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onPlaybackStateChanged(playbackState: Int) {
-						_uiState.update { it.copy(isLoading = playbackState == Player.STATE_BUFFERING) }
+						_uiState.update {
+							it.copy(
+								isLoading = playbackState == Player.STATE_BUFFERING ||
+									pendingSourceErrorRecovery != null
+							)
+						}
+						updatePlaybackDownloadProgress()
 						updatePlaybackState()
 						if (playbackState == Player.STATE_READY) {
 							queueAutoFiller.maybeAutoFillQueue()
@@ -308,14 +318,20 @@ class AndroidMediaPlayerViewModel(
 								"code=${error.errorCodeName} message=${error.message}",
 							error
 						)
+						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
+							return
+						}
 						val shouldSkip = shouldSkipMediaAfterPlaybackError(
 							skipMediaOnError = preferenceManager.skipMediaOnError,
 							hasNextMediaItem = hasNextMediaItem()
 						)
 						if (shouldSkip) {
+							clearPendingSourceErrorRecovery()
 							seekToNextMediaItem()
 							prepare()
 							play()
+						} else {
+							beginPendingSourceErrorRecovery(this@apply)
 						}
 					}
 
@@ -351,7 +367,7 @@ class AndroidMediaPlayerViewModel(
 				}
 
 				combine(
-					downloadManager.downloadedSongs,
+					downloadManager.allDownloads,
 					connectivityManager.isCellular,
 					snapshotFlow { preferenceManager.streamingQualityWifi },
 					snapshotFlow { preferenceManager.streamingQualityCellular },
@@ -360,7 +376,14 @@ class AndroidMediaPlayerViewModel(
 					snapshotFlow { preferenceManager.customMaxBitrateCellular }
 				) { it }.collectLatest { args ->
 					@Suppress("UNCHECKED_CAST")
-					val downloadedMap = args[0] as Map<String, String>
+					val downloads = args[0] as List<DownloadEntity>
+					latestDownloadsById = downloads.associateBy { download -> download.songId }
+					updatePlaybackDownloadProgress()
+					val downloadedMap = downloads
+						.filter { download ->
+							download.status == DownloadStatus.DOWNLOADED && download.filePath != null
+						}
+						.associate { download -> download.songId to download.filePath!! }
 					val player = controller ?: return@collectLatest
 					val currentIndex = player.currentMediaItemIndex
 
@@ -368,13 +391,15 @@ class AndroidMediaPlayerViewModel(
 						val item = player.getMediaItemAt(i)
 						val id = item.mediaId
 						val localPath = downloadedMap[id]
+						val isRecoveringCurrentItem = pendingSourceErrorRecovery?.songId == id
 
 						val isCurrentlyLocal = item.localConfiguration?.uri?.scheme == "file"
 						if (
 							!shouldReplaceQueuedMediaItemForDownloadAvailability(
 								isCurrentItem = i == currentIndex,
 								hasDownloadedFile = localPath != null,
-								isCurrentlyLocal = isCurrentlyLocal
+								isCurrentlyLocal = isCurrentlyLocal,
+								isRecoveringFromSourceError = isRecoveringCurrentItem
 							)
 						) {
 							continue
@@ -397,9 +422,18 @@ class AndroidMediaPlayerViewModel(
 
 						if (newItem != null) {
 							if (i == player.currentMediaItemIndex) {
-								val currentPosition = player.currentPosition
+								val recovery = pendingSourceErrorRecovery?.takeIf { it.songId == id }
+								val currentPosition = recovery?.positionMs ?: player.currentPosition
 								player.replaceMediaItem(i, newItem)
 								player.seekTo(i, currentPosition)
+								if (recovery != null) {
+									player.prepare()
+									if (recovery.shouldResume) {
+										claimMusicPlayback()
+										player.play()
+									}
+									clearPendingSourceErrorRecovery()
+								}
 							} else {
 								player.replaceMediaItem(i, newItem)
 							}
@@ -517,6 +551,89 @@ class AndroidMediaPlayerViewModel(
 			index = nextIndex
 		}
 		return indexes
+	}
+
+	private fun beginPendingSourceErrorRecovery(player: MediaController) {
+		val mediaId = player.currentMediaItem?.mediaId ?: return
+		val song = _uiState.value.queue.getOrNull(player.currentMediaItemIndex)
+			?: _uiState.value.currentSong?.takeIf { it.id == mediaId }
+			?: return
+		val songDurationMs = song.duration.inWholeMilliseconds
+		val fallbackPositionMs = if (songDurationMs > 0L) {
+			(_uiState.value.progress * songDurationMs).toLong()
+		} else {
+			0L
+		}
+		val positionMs = player.currentPosition.takeIf { it > 0L } ?: fallbackPositionMs
+		pendingSourceErrorRecovery = PendingSourceErrorRecovery(
+			songId = mediaId,
+			positionMs = positionMs.coerceAtLeast(0L),
+			shouldResume = player.playWhenReady || !_uiState.value.isPaused
+		)
+		updatePlaybackDownloadProgress()
+		downloadManager.prefetchPlaybackSongs(listOf(song))
+	}
+
+	private fun recoverCurrentMediaItemFromDownloadedFile(player: MediaController): Boolean {
+		val recovery = pendingSourceErrorRecovery
+		val mediaId = player.currentMediaItem?.mediaId ?: return false
+		val localPath = downloadManager.getDownloadedFilePath(mediaId) ?: return false
+		val currentItem = player.currentMediaItem ?: return false
+		if (currentItem.localConfiguration?.uri?.scheme == "file") return false
+
+		val effectiveRecovery = recovery?.takeIf { it.songId == mediaId }
+			?: PendingSourceErrorRecovery(
+				songId = mediaId,
+				positionMs = player.currentPosition.coerceAtLeast(0L),
+				shouldResume = player.playWhenReady || !_uiState.value.isPaused
+			)
+		val index = player.currentMediaItemIndex
+		player.replaceMediaItem(
+			index,
+			currentItem.buildUpon()
+				.setUri(File(localPath).toUri())
+				.build()
+		)
+		player.seekTo(index, effectiveRecovery.positionMs)
+		player.prepare()
+		if (effectiveRecovery.shouldResume) {
+			claimMusicPlayback()
+			player.play()
+		}
+		clearPendingSourceErrorRecovery()
+		return true
+	}
+
+	private fun updatePlaybackDownloadProgress() {
+		val recovery = pendingSourceErrorRecovery
+		val songId = recovery?.songId ?: _uiState.value.currentSong?.id
+		val shouldShowProgress = recovery != null || _uiState.value.isLoading
+		val download = songId?.let { latestDownloadsById[it] }
+		val progress = when (download?.status) {
+			DownloadStatus.DOWNLOADING -> download.progress.coerceIn(0f, 1f)
+			DownloadStatus.QUEUED -> 0f
+			null -> if (recovery != null) 0f else null
+			DownloadStatus.DOWNLOADED,
+			DownloadStatus.FAILED,
+			DownloadStatus.NOT_DOWNLOADED -> null
+		}
+			?.takeIf { shouldShowProgress }
+		_uiState.update { state ->
+			state.copy(
+				isLoading = if (recovery != null) progress != null else state.isLoading,
+				playbackDownloadProgress = progress
+			)
+		}
+	}
+
+	private fun clearPendingSourceErrorRecovery() {
+		pendingSourceErrorRecovery = null
+		_uiState.update { state ->
+			state.copy(
+				isLoading = false,
+				playbackDownloadProgress = null
+			)
+		}
 	}
 
 	private fun applyReplayGain() {
@@ -1192,3 +1309,9 @@ class AndroidMediaPlayerViewModel(
 	private fun DomainSong.toMediaItem(): MediaItem =
 		mediaItemFactory.toMediaItem(this)
 }
+
+private data class PendingSourceErrorRecovery(
+	val songId: String,
+	val positionMs: Long,
+	val shouldResume: Boolean
+)

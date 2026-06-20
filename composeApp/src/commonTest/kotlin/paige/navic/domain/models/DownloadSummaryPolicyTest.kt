@@ -157,7 +157,7 @@ class DownloadSummaryPolicyTest {
 			shouldFailHostedDownload(Exception("Stream request failed for song-1: HTTP 503 Service Unavailable"))
 		)
 		assertEquals(
-			true,
+			false,
 			shouldFailHostedDownload(Exception("Unable to resolve host clips.remaxku.eu"))
 		)
 		assertEquals(

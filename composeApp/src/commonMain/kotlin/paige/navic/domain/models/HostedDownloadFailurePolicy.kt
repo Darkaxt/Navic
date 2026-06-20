@@ -2,10 +2,8 @@ package paige.navic.domain.models
 
 fun shouldFailHostedDownload(error: Throwable): Boolean =
 	throwableChain(error).any { throwable ->
-		val className = throwable::class.simpleName.orEmpty().lowercase()
 		val message = throwable.message.orEmpty().lowercase()
 		hasServiceDownHttpStatus(message) ||
-			serviceDownClassTokens.any { token -> token in className } ||
 			serviceDownMessageTokens.any { token -> token in message }
 	}
 
@@ -37,26 +35,7 @@ private val serviceDownHttpStatuses = setOf(
 	524
 )
 
-private val serviceDownClassTokens = listOf(
-	"connectexception",
-	"connecttimeoutexception",
-	"httprequesttimeoutexception",
-	"noroutetohostexception",
-	"sockettimeoutexception",
-	"unknownhostexception",
-	"unresolvedaddressexception"
-)
-
 private val serviceDownMessageTokens = listOf(
-	"connection refused",
-	"connection reset",
-	"failed to connect",
-	"name does not resolve",
-	"network is unreachable",
-	"no route to host",
 	"service unavailable",
-	"server unavailable",
-	"timed out",
-	"timeout",
-	"unable to resolve host"
+	"server unavailable"
 )

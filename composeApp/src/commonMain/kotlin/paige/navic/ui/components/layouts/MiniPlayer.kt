@@ -114,6 +114,7 @@ fun MiniPlayer(
 
 	val playerState by player.uiState.collectAsState()
 	val song = playerState.currentSong
+	val playbackDownloadProgress = playerState.playbackDownloadProgress?.coerceIn(0f, 1f)
 	val scope = rememberCoroutineScope()
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
@@ -300,10 +301,18 @@ fun MiniPlayer(
 							exit = scaleOut(MaterialTheme.motionScheme.defaultSpatialSpec())
 								+ fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec())
 						) {
-							CircularProgressIndicator(
-								Modifier.matchParentSize(),
-								trackColor = MaterialTheme.colorScheme.primaryContainer
-							)
+							if (playbackDownloadProgress != null) {
+								CircularProgressIndicator(
+									progress = { playbackDownloadProgress },
+									modifier = Modifier.matchParentSize(),
+									trackColor = MaterialTheme.colorScheme.primaryContainer
+								)
+							} else {
+								CircularProgressIndicator(
+									Modifier.matchParentSize(),
+									trackColor = MaterialTheme.colorScheme.primaryContainer
+								)
+							}
 						}
 					}
 				},

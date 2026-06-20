@@ -3,6 +3,8 @@ package paige.navic.domain.models
 fun shouldReplaceQueuedMediaItemForDownloadAvailability(
 	isCurrentItem: Boolean,
 	hasDownloadedFile: Boolean,
-	isCurrentlyLocal: Boolean
+	isCurrentlyLocal: Boolean,
+	isRecoveringFromSourceError: Boolean = false
 ): Boolean =
-	!isCurrentItem && hasDownloadedFile != isCurrentlyLocal
+	hasDownloadedFile != isCurrentlyLocal &&
+		(!isCurrentItem || isRecoveringFromSourceError)

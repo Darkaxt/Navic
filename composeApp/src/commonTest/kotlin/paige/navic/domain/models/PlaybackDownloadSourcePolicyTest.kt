@@ -11,7 +11,8 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = true,
 				hasDownloadedFile = true,
-				isCurrentlyLocal = false
+				isCurrentlyLocal = false,
+				isRecoveringFromSourceError = false
 			)
 		)
 
@@ -19,7 +20,29 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = true,
 				hasDownloadedFile = false,
-				isCurrentlyLocal = true
+				isCurrentlyLocal = true,
+				isRecoveringFromSourceError = false
+			)
+		)
+	}
+
+	@Test
+	fun replacesTheCurrentMediaItemWhenRecoveringFromSourceError() {
+		assertTrue(
+			shouldReplaceQueuedMediaItemForDownloadAvailability(
+				isCurrentItem = true,
+				hasDownloadedFile = true,
+				isCurrentlyLocal = false,
+				isRecoveringFromSourceError = true
+			)
+		)
+
+		assertFalse(
+			shouldReplaceQueuedMediaItemForDownloadAvailability(
+				isCurrentItem = true,
+				hasDownloadedFile = true,
+				isCurrentlyLocal = true,
+				isRecoveringFromSourceError = true
 			)
 		)
 	}
@@ -30,7 +53,8 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = false,
 				hasDownloadedFile = true,
-				isCurrentlyLocal = false
+				isCurrentlyLocal = false,
+				isRecoveringFromSourceError = false
 			)
 		)
 
@@ -38,7 +62,8 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = false,
 				hasDownloadedFile = false,
-				isCurrentlyLocal = true
+				isCurrentlyLocal = true,
+				isRecoveringFromSourceError = false
 			)
 		)
 	}
@@ -49,7 +74,8 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = false,
 				hasDownloadedFile = true,
-				isCurrentlyLocal = true
+				isCurrentlyLocal = true,
+				isRecoveringFromSourceError = false
 			)
 		)
 
@@ -57,7 +83,8 @@ class PlaybackDownloadSourcePolicyTest {
 			shouldReplaceQueuedMediaItemForDownloadAvailability(
 				isCurrentItem = false,
 				hasDownloadedFile = false,
-				isCurrentlyLocal = false
+				isCurrentlyLocal = false,
+				isRecoveringFromSourceError = false
 			)
 		)
 	}
