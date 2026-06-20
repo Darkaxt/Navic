@@ -516,12 +516,13 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(verticalRailBody, ".weight(1f)")
 		assertContains(verticalRailBody, "onValueChange = { page ->")
 		assertContains(verticalRailBody, "onPageChange(page)")
+		assertContains(verticalRailBody, "detectTapGestures { offset ->")
+		assertContains(verticalRailBody, "detectDragGestures(")
+		assertContains(verticalRailBody, "readerPageForVerticalChapterProgressOffset(")
 		assertFalse(
 			verticalRailBody.contains("Canvas(") ||
-				verticalRailBody.contains("detectTapGestures") ||
-				verticalRailBody.contains("detectDragGestures") ||
 				verticalRailBody.contains("komikkuChapterRailPageForOffset("),
-			"Komikku's side rail is the shared Slider rotated vertically; a custom Canvas rail is a non-faithful fork."
+			"Komikku's side rail must remain the shared Slider rotated vertically; Navic may add only a transparent endpoint-mapping touch layer above it."
 		)
 	}
 
@@ -570,14 +571,15 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(verticalRailBody, "Constraints(")
 		assertContains(verticalRailBody, "placeable.place(0, -placeable.height)")
 		assertContains(verticalRailBody, ".weight(1f)")
+		assertContains(verticalRailBody, "detectTapGestures { offset ->")
+		assertContains(verticalRailBody, "detectDragGestures(")
+		assertContains(verticalRailBody, "readerPageForVerticalChapterProgressOffset(")
 		assertFalse(
 			verticalRailBody.contains("Canvas(") ||
 				verticalRailBody.contains("drawRoundRect(") ||
 				verticalRailBody.contains("drawCircle(") ||
-				verticalRailBody.contains("detectTapGestures") ||
-				verticalRailBody.contains("detectDragGestures") ||
 				navigatorText.contains("komikkuChapterRailPageForOffset("),
-			"Navic must reuse Komikku's rotated Slider rail instead of a custom Canvas/tap implementation."
+			"Navic must reuse Komikku's rotated Slider rail instead of replacing it with a custom drawn rail; the transparent endpoint-mapping touch layer is allowed."
 		)
 	}
 

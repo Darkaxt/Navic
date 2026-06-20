@@ -5313,3 +5313,35 @@ Results:
 - PASS/MATRIX: `baseline-current-reader`, `enter-readable-content`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` all passed.
 - ARTIFACTS: `tmp\emulator-visible-check\navic-visible-check.png` and `tmp\readerdev-visible-emulator-matrix-20260620`.
 - NOTE: the shell tool's default wrapper interrupted its own wait on the matrix command, but the spawned PowerShell validation process continued and wrote complete artifacts. Future long reader checks should be launched as hidden background jobs with file polling.
+
+## 2026-06-20 eta76 Chapter Rail Endpoint Mapping Validation
+
+Scope:
+- Fixed the Komikku-style vertical chapter rail endpoint bug where the physical top endpoint could land on chapter page `2/44` instead of `1/44`.
+- Preserved the rotated Material `Slider` visual as the Komikku-style rail, and added a transparent native Compose endpoint-mapping touch layer over the rail so physical Y coordinates map deterministically to chapter pages.
+- Validated against the visible emulator using dirty `darkaxt.navic.readerdev` after installing the local patch.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidMain
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch
+adb -s emulator-5554 shell input tap 960 1440
+adb -s emulator-5554 shell input tap 1700 1440
+adb -s emulator-5554 shell input tap 960 1440
+adb -s emulator-5554 shell input tap 1800 2588
+adb -s emulator-5554 shell input tap 1800 330
+```
+
+Results:
+- RED/BEFORE: on `A Memory of Light`, Chapter `37. The Last Battle`, native rail gesture from physical bottom to top landed on page `2/44`. DevTools captured `page=2/47` in `tmp\readerdev-native-rail-20260620\after-rail-top-visible-page-content.json`.
+- ROOT CAUSE: the rotated Material `Slider` was visually correct, but Android hit mapping near the physical rail endpoints was not deterministic enough for the chapter page model.
+- FIX: `KomikkuVerticalChapterProgressRail` now keeps the rotated Slider visual and overlays transparent tap/drag handling that maps `offset.y / railHeight` through `readerPageForVerticalChapterProgressOffset(...)`.
+- PASS/HOST: `:composeApp:compileAndroidMain` passed after the rail patch.
+- PASS/HOST: `:composeApp:testAndroid` passed after updating the source guard to allow the transparent endpoint-mapping layer while still rejecting custom Canvas rail replacements.
+- PASS/COVER PATH: readerdev relaunched to the native cover first. Center tap hid chrome (`menuVisible=true->false`), then a right-region tap dispatched `TurnPage(direction=Next)` and changed `shellCover=true->false`.
+- PASS/BOTTOM ENDPOINT: physical tap at the bottom rail area dispatched `goToChapterProgress(OEBPS/Text/Chapter-37.xhtml, 0.9767441860465116)` and bridge state reported `chapterPageIndex=43`, `chapterPageCount=44`, so the UI landed on page `44/44`.
+- PASS/TOP ENDPOINT: physical tap at the top rail area dispatched `goToChapterProgress(OEBPS/Text/Chapter-37.xhtml, 0.0)` and bridge state reported `chapterPageIndex=0`, `chapterPageCount=44`, so the UI landed on page `1/44`.
+- ARTIFACTS: `tmp\readerdev-native-rail-20260620\before.png`, `tmp\readerdev-native-rail-20260620\rail-after-bottom-tap.png`, `tmp\readerdev-native-rail-20260620\rail-after-top-tap.png`, and related UI XML/log captures in the same directory.
+- OPEN: this is dirty-emulator proof for the chapter rail endpoint mapping. Clean release/physical-device validation is still required before treating this as release-grade.
