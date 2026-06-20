@@ -4495,3 +4495,30 @@ Results:
 - PASS: `git diff --check` reported no whitespace errors.
 - NOTE: Kotlin still printed its existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.
 - OPEN: emulator/device validation was not rerun for this slice because the ADB emulator transport stopped responding after the stale eta76 overlay diagnosis.
+
+## 2026-06-20 Emulator ADB Transport Blocker
+
+Scope:
+- Tried to continue emulator validation after the saved-marks contents slice.
+- Checked whether the previously stale eta76 emulator state could be recaptured and reprobed.
+
+Validation:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell screencap -p /sdcard/navic_current_after_marks.png
+adb kill-server
+adb start-server
+adb devices
+adb -s emulator-5554 shell echo ok
+adb reconnect offline
+adb devices
+adb -s emulator-5554 shell echo ok
+```
+
+Results:
+- PASS: initial `adb devices` listed `emulator-5554 device`.
+- FAIL/BLOCKED: `adb -s emulator-5554 shell screencap -p /sdcard/navic_current_after_marks.png` did not return.
+- FAIL/BLOCKED: after restarting the ADB server, `emulator-5554` moved to `offline`.
+- FAIL/BLOCKED: `adb reconnect offline` did not restore shell access; follow-up shell command reported the device offline/not found.
+- Interpretation: emulator validation is blocked by the emulator/ADB transport. Do not treat the current emulator screen as app evidence until the emulator reconnects as an online device with working shell access.
