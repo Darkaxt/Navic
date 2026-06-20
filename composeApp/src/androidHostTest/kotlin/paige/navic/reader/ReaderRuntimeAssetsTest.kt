@@ -121,7 +121,8 @@ class ReaderRuntimeAssetsTest {
 			"navic-reader-settings-core.js",
 			"navic-reader-media.js",
 			"navic-reader-identity.js",
-			"navic-reader-pagination-model.js"
+			"navic-reader-pagination-model.js",
+			"navic-reader-typography.js"
 		).forEach { fileName ->
 			val module = root.resolve(fileName)
 			assertTrue(module.isFile, "$fileName must exist so helper changes stay focused.")

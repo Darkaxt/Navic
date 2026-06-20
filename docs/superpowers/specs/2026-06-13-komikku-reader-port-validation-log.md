@@ -4690,3 +4690,39 @@ Results:
 - PASS: the combined focused host run completed with `BUILD SUCCESSFUL in 1m 49s`.
 - NOTE: the passing Gradle run still printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned exit code 0.
 - OPEN: if the popup is still visible in the emulator, it is not proven against current HEAD. Reattach ADB or install a clean release before treating it as an active runtime regression.
+
+## 2026-06-20 Pagination Profile Stale-Href / Spine Authority Slice
+
+Scope:
+- Investigated the report that chapter rail navigation could remain in the previous section after jumping through chapter navigation, e.g. "Chapter 14" being treated like page 2 of an earlier area and back navigation returning to cover/foreword incorrectly.
+- The native rail math was already clamping chapter-local endpoints correctly; the stronger runtime suspect was relocation payload disagreement where `href` still points at the previous section while `spineIndex` points at the current section.
+
+Changes:
+- Added a browser-harness regression case where `href` still matches `OEBPS/Text/Hobbit_chap-13.html` but `spineIndex = 16` identifies Chapter XIV.
+- Updated `readerPaginationPositionForLocator` so a current finite `spineIndex` outranks `href`, and `href` is only a fallback when spine lookup is unavailable.
+- Split typography-specific reader helpers into `navic-reader-typography.js` so the focused support-module guard stays meaningful after the recent EPUB layout work.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination-model.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderUsesStableLocationTotalsForReflowablePageNumbers" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderSkipsTrailingBlankFoliateColumnForChapterEndpoints"
+adb devices -l
+git diff --check
+```
+
+Results:
+- RED: before the spine-first change, the new harness guard failed with `expected current spine index to outrank a stale but matching previous href`, proving the model could resolve the previous chapter when the stale `href` still matched.
+- PASS: after the fix, `pagination-profile-logic` passed.
+- PASS: `adaptive-page-box-logic` still passed after moving typography helpers into their own module.
+- PASS: JavaScript syntax checks passed for `navic-reader-helpers.js`, `navic-reader-typography.js`, `navic-reader-pagination-model.js`, and `run-reader-harness.mjs`.
+- PASS: `navic-reader-helpers.js` is now 743 lines, below the 1200-line focused-module guard.
+- PASS: focused Android host tests completed with `BUILD SUCCESSFUL in 32s`.
+- NOTE: the host Gradle run still printed the known Kotlin daemon temp-file `AccessDeniedException`, fell back to non-daemon compilation, and returned exit code 0.
+- FAIL/BLOCKED: `adb devices -l` still starts the daemon but returns no attached emulator or phone, so this slice has not been runtime-validated on the current emulator screen.
+- PASS: `git diff --check` reported no whitespace errors.

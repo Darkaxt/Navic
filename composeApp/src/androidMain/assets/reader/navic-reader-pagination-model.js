@@ -115,8 +115,8 @@ export const readerPaginationChapterForSpineIndex = (profile, spineIndex) => {
 
 export const readerPaginationPositionForLocator = (profile, locator = {}) => {
   const chapter =
-    readerPaginationChapterForHref(profile, locator?.href) ||
-    readerPaginationChapterForSpineIndex(profile, locator?.spineIndex)
+    readerPaginationChapterForSpineIndex(profile, locator?.spineIndex) ||
+    readerPaginationChapterForHref(profile, locator?.href)
   if (!chapter) return null
   const chapterPageCount = Math.max(1, Math.floor(Number(chapter.pageCount) || 1))
   const rawChapterIndex = Number(locator?.chapterPageIndex)

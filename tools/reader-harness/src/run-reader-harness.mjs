@@ -593,6 +593,24 @@ if (mode === 'pagination-profile-logic') {
   if (chapter14BySpine?.pageIndex !== 16 || chapter14BySpine?.pageCount !== 44) {
     throw new Error(`expected Chapter XIV page 1 to resolve by spine index when href is stale, got ${JSON.stringify(chapter14BySpine)}`)
   }
+  const chapter14WithStaleMatchingHref = helpers.readerPaginationPositionForLocator(profile, {
+    href: 'OEBPS/Text/Hobbit_chap-13.html',
+    spineIndex: 16,
+    pageIndex: 1,
+    pageCount: 1748,
+    chapterPageIndex: 13,
+    chapterPageCount: 14,
+  })
+  if (
+    chapter14WithStaleMatchingHref?.pageIndex !== 29 ||
+    chapter14WithStaleMatchingHref?.chapterPageIndex !== 13 ||
+    chapter14WithStaleMatchingHref?.chapterPageCount !== 14
+  ) {
+    throw new Error(
+      'expected current spine index to outrank a stale but matching previous href for chapter rail endpoints, got ' +
+        JSON.stringify(chapter14WithStaleMatchingHref)
+    )
+  }
 
   console.log('reader harness pagination-profile-logic passed')
   process.exit(0)
