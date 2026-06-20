@@ -325,6 +325,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "phase3-events")
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
+		assertContains(helperText, "visible-range")
 		assertContains(helperText, "runtime-state")
 		assertContains(helperText, "page-box")
 		assertContains(helperText, "chapter-progress-endpoints")
@@ -340,8 +341,33 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "Reader bridge event: pullUp")
 		assertContains(helperText, "selectionchange")
 		assertContains(helperText, "Reader bridge event: locationChanged")
+		assertContains(helperText, "Reader bridge event: visibleTextRange")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent() {
+		val root = readerAssetRoot()
+		val locationText = root.resolve("navic-reader-location.js").readText()
+		val bridgeText = readerBridgeText(root)
+
+		assertContains(locationText, "postCurrentVisibleTextRange")
+		assertContains(locationText, "visibleTextRange")
+		assertContains(locationText, "renderer.getContents?.()")
+		assertContains(locationText, "createTreeWalker")
+		assertContains(locationText, "NodeFilter.SHOW_TEXT")
+		assertContains(locationText, "getBoundingClientRect")
+		assertContains(locationText, "visibleStart")
+		assertContains(locationText, "visibleEnd")
+		assertContains(locationText, "lastPostedVisibleTextRangeKey")
+		assertContains(locationText, "postCurrentVisibleTextRange(detail, options)")
+		assertContains(locationText, "visibleTextRangeResult")
+		assertContains(
+			bridgeText,
+			"this.postCurrentVisibleTextRange(detail, options)",
+			message = "Visible text range must be emitted from committed relocation snapshots, not from controller-owned UI state."
+		)
 	}
 
 	@Test

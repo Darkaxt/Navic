@@ -5705,3 +5705,35 @@ Results:
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - GREEN/HYGIENE: `git diff --check` passed.
 - OPEN: the reader runtime still needs a real JS visible-range emitter and audiobook-player seek consumption before this becomes user-visible Whispersync behavior.
+
+## 2026-06-20 Whispersync Runtime Visible Text Range Emission
+
+Scope:
+- Added the real Foliate/WebView-side visible-text-range emitter required by `docs\superpowers\specs\2026-06-18-whispersync-design.md`.
+- The runtime now extracts visible text offsets from rendered Foliate content documents after committed relocation snapshots, posts `visibleTextRange`, and deduplicates normal relocation repeats.
+- Added a DevTools/ADB `visible-range` probe so this bridge path can be validated in a running Android WebView instead of only by source inspection.
+- This slice intentionally does not add audiobook playback, audio seeking, word highlighting, or release-APK validation.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\scripts\install-reader-dev.ps1 -EnvFile 'C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env' -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --package darkaxt.navic.readerdev --probe visible-range
+adb -s emulator-5554 logcat -d -t 1000 | Select-String -Pattern "visibleTextRange|visible-text-range"
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED/RUNTIME: `androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent` first failed because the WebView runtime had no `postCurrentVisibleTextRange` path.
+- FIX/RUNTIME: added a rendered-document extractor in `navic-reader-location.js` using `renderer.getContents?.()`, `createTreeWalker`, text-node ranges, `getBoundingClientRect`, caret sampling, and a `lastPostedVisibleTextRangeKey` duplicate guard.
+- GREEN/RUNTIME: the focused `ReaderRuntimeAssetsTest` passed, JS syntax checks passed, and `:composeApp:testAndroid` passed.
+- RED/DEVICE: the first emulator `visible-range` probe on the dirty readerdev APK showed the diagnostic snapshot returned `locationChanged` but did not emit a duplicate `visibleTextRange`; logcat proved the initial load had emitted `visibleTextRange`, so the diagnostic path was being suppressed by the new dedupe guard.
+- FIX/DEVICE: threaded `forceDuplicatePost` into `postCurrentVisibleTextRange(detail, options)`, returned `visibleTextRangeResult` from `postLocationChanged`, and taught the DevTools probe to accept that runtime return because Android's Java bridge method is not reliably monkeypatchable from DevTools.
+- GREEN/DEVICE: after reinstalling `darkaxt.navic.readerdev` on `emulator-5554`, `visible-range` returned `OEBPS/Text/Chapter-43.xhtml` with visible offsets `8-8160` and the current range CFI. Logcat confirmed `Reader bridge raw: {"type":"visibleTextRange"...}` and `Reader bridge event: visibleTextRange(OEBPS/Text/Chapter-43.xhtml, 8-8160)`.
+- GREEN/AGGREGATE: the final `:composeApp:testAndroid` gate passed.
+- OPEN: audiobook player consumption of `WhispersyncAudioSeekTarget`, audio-position-to-text highlighting, and release/physical-device validation remain pending.

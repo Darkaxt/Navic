@@ -22,6 +22,127 @@ const diagnosticNumber = value => {
   return Number.isFinite(number) ? number : null
 }
 
+const readerRectIntersects = (rect, bounds) =>
+  rect &&
+  bounds &&
+  rect.width > 0 &&
+  rect.height > 0 &&
+  rect.right >= bounds.left &&
+  rect.left <= bounds.right &&
+  rect.bottom >= bounds.top &&
+  rect.top <= bounds.bottom
+
+const readerVisibleBoundsForDocument = doc => {
+  const win = doc?.defaultView
+  const frame = win?.frameElement
+  const frameRect = frame?.getBoundingClientRect?.()
+  if (!win || !frameRect) {
+    return {
+      left: 0,
+      top: 0,
+      right: win?.innerWidth || doc?.documentElement?.clientWidth || 0,
+      bottom: win?.innerHeight || doc?.documentElement?.clientHeight || 0,
+    }
+  }
+  return {
+    left: Math.max(0, -frameRect.left),
+    top: Math.max(0, -frameRect.top),
+    right: Math.min(frameRect.width, (window.innerWidth || frameRect.width) - frameRect.left),
+    bottom: Math.min(frameRect.height, (window.innerHeight || frameRect.height) - frameRect.top),
+  }
+}
+
+const readerTextNodeEntries = doc => {
+  const entries = []
+  const root = doc?.body
+  if (!root || !doc.createTreeWalker) return entries
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let offset = 0
+  let node = walker.nextNode()
+  while (node) {
+    const text = node.nodeValue || ''
+    const start = offset
+    const end = start + text.length
+    entries.push({ node, start, end, text })
+    offset = end
+    node = walker.nextNode()
+  }
+  return entries
+}
+
+const readerTextNodeEntryForNode = (entries, node) => {
+  if (!node) return null
+  let current = node.nodeType === Node.TEXT_NODE ? node : null
+  if (!current && node.nodeType === Node.ELEMENT_NODE) {
+    current = entries.find(entry => node.contains?.(entry.node))?.node || null
+  }
+  return entries.find(entry => entry.node === current) || null
+}
+
+const readerCaretRangeAtPoint = (doc, x, y) => {
+  if (typeof doc?.caretRangeFromPoint === 'function') return doc.caretRangeFromPoint(x, y)
+  const position = doc?.caretPositionFromPoint?.(x, y)
+  if (!position) return null
+  const range = doc.createRange()
+  range.setStart(position.offsetNode, position.offset)
+  range.collapse(true)
+  return range
+}
+
+const readerVisibleCaretOffsets = (doc, entries, bounds) => {
+  const offsets = []
+  const width = bounds.right - bounds.left
+  const height = bounds.bottom - bounds.top
+  if (width <= 0 || height <= 0) return offsets
+  const xPoints = [0.12, 0.5, 0.88].map(value => bounds.left + width * value)
+  const ySteps = Math.max(4, Math.min(12, Math.ceil(height / 96)))
+  for (let index = 0; index <= ySteps; index += 1) {
+    const y = bounds.top + (height * index) / ySteps
+    for (const x of xPoints) {
+      const range = readerCaretRangeAtPoint(doc, x, y)
+      const entry = readerTextNodeEntryForNode(entries, range?.startContainer)
+      if (!entry) continue
+      const localOffset = Math.max(0, Math.min(entry.text.length, Number(range.startOffset) || 0))
+      offsets.push(entry.start + localOffset)
+    }
+  }
+  return offsets
+}
+
+const readerVisibleTextNodeOffsets = (doc, entries, bounds) => {
+  const offsets = []
+  for (const entry of entries) {
+    if (!entry.text.trim()) continue
+    const range = doc.createRange()
+    try {
+      range.selectNodeContents(entry.node)
+      const visible = Array.from(range.getClientRects?.() || [])
+        .some(rect => readerRectIntersects(rect, bounds))
+      if (visible) {
+        offsets.push(entry.start, entry.end)
+      }
+    } finally {
+      range.detach?.()
+    }
+  }
+  return offsets
+}
+
+const readerVisibleTextRangeForDocument = doc => {
+  const entries = readerTextNodeEntries(doc)
+  if (!entries.length) return null
+  const bounds = readerVisibleBoundsForDocument(doc)
+  if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return null
+  const caretOffsets = readerVisibleCaretOffsets(doc, entries, bounds)
+  const nodeOffsets = readerVisibleTextNodeOffsets(doc, entries, bounds)
+  const offsets = caretOffsets.length >= 2 ? caretOffsets : nodeOffsets
+  if (!offsets.length) return null
+  const visibleStart = Math.max(0, Math.floor(Math.min(...offsets)))
+  const visibleEnd = Math.max(visibleStart, Math.ceil(Math.max(...offsets)))
+  if (visibleEnd <= visibleStart) return null
+  return { visibleStart, visibleEnd }
+}
+
 function currentFixedLayoutLocationDetail() {
   if (this.view?.isFixedLayout !== true) return null
   const index = this.fixedLayoutCurrentPageIndex()
@@ -125,12 +246,73 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   )
   readerTrace('location:post', { reason, message })
   post(message)
+  const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, options)
   log('location-changed:posted', reason)
   if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
   if (tocItem.href || tocItem.label || tocItem.title) {
     post({ type: 'tocItemChanged', href: tocItem.href, title: tocItem.label || tocItem.title })
   }
-  return { posted: true, reason, href: message.href || null, pageIndex: message.pageIndex ?? null, message }
+  return {
+    posted: true,
+    reason,
+    href: message.href || null,
+    pageIndex: message.pageIndex ?? null,
+    message,
+    visibleTextRangeResult,
+  }
+}
+
+function postCurrentVisibleTextRange(detail = {}, options = {}) {
+  const targetHref = this.sectionHrefForDetail(detail) || detail?.href || detail?.tocItem?.href || ''
+  const renderer = this.view?.renderer || {}
+  const contents = renderer.getContents?.() || []
+  const candidates = []
+  for (const content of contents) {
+    const index = Number(content?.index)
+    const section = Number.isFinite(index) ? this.view?.book?.sections?.[Math.floor(index)] : null
+    const textHref = section?.href || content?.href || targetHref
+    if (!content?.doc || !textHref) continue
+    if (targetHref && textHref && !readerHrefMatches(textHref, targetHref)) continue
+    const range = readerVisibleTextRangeForDocument(content.doc)
+    if (!range) continue
+    candidates.push({
+      textHref,
+      visibleStart: range.visibleStart,
+      visibleEnd: range.visibleEnd,
+      rangeCfi: detail?.cfi || null,
+    })
+  }
+  const visibleRange = candidates
+    .sort((left, right) => (right.visibleEnd - right.visibleStart) - (left.visibleEnd - left.visibleStart))[0]
+  if (!visibleRange) {
+    log('visible-text-range:missing', targetHref || 'none')
+    readerTrace('visible-text-range:missing', { href: targetHref || null })
+    return { posted: false, skipped: 'missing-visible-range' }
+  }
+  const key = [
+    visibleRange.textHref,
+    visibleRange.visibleStart,
+    visibleRange.visibleEnd,
+    visibleRange.rangeCfi || '',
+  ].join('|')
+  if (key === this.lastPostedVisibleTextRangeKey && !options.forceDuplicatePost) {
+    return { posted: false, skipped: 'duplicate', visibleRange }
+  }
+  this.lastPostedVisibleTextRangeKey = key
+  post({
+    type: 'visibleTextRange',
+    textHref: visibleRange.textHref,
+    visibleStart: visibleRange.visibleStart,
+    visibleEnd: visibleRange.visibleEnd,
+    rangeCfi: visibleRange.rangeCfi,
+  })
+  log(
+    'visible-text-range:posted',
+    visibleRange.textHref,
+    `${visibleRange.visibleStart}-${visibleRange.visibleEnd}`
+  )
+  readerTrace('visible-text-range:posted', visibleRange)
+  return { posted: true, visibleRange }
 }
 
 
@@ -238,4 +420,5 @@ export const NavicReaderLocationMethods = {
   onRelocate,
   cancelPendingCommittedRelocation,
   scheduleCommittedRelocation,
+  postCurrentVisibleTextRange,
 }

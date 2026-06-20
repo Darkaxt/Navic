@@ -522,6 +522,80 @@ async function runRelocationPayloadProbe(page) {
   }})()`)
 }
 
+async function runVisibleRangeProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+
+    const observed = []
+    const observedPayloads = []
+    window.NavicAndroidBridge.postMessage = message => {
+      observed.push(message)
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const dispatchResult = readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason: 'adb-visible-range-probe',
+      })
+      let locationSnapshotResult = null
+      try {
+        locationSnapshotResult = await Promise.resolve(dispatchResult)
+      } catch (error) {
+        originalPostMessage(JSON.stringify({
+          type: 'error',
+          code: 'visible_range_probe_dispatch_failed',
+          message: error?.message || String(error),
+        }))
+        throw error
+      }
+
+      const returnedVisibleRange = locationSnapshotResult?.visibleTextRangeResult?.visibleRange
+      const visibleRange = observedPayloads.find(payload => payload.type === 'visibleTextRange') || returnedVisibleRange
+      if (!visibleRange) {
+        throw new Error(
+          `diagnosticLocationSnapshot did not emit visibleTextRange; result=${
+            JSON.stringify(locationSnapshotResult)
+          }; observedMessageCount=${observed.length}`
+        )
+      }
+
+      return {
+        probe: 'visible-range',
+        reason: 'adb-visible-range-probe',
+        locationSnapshotResult,
+        observedVisibleRange: observedPayloads.find(payload => payload.type === 'visibleTextRange') || null,
+        visibleRange,
+        observedMessageCount: observed.length,
+        expectedLogLabels: [
+          'Reader bridge event: visibleTextRange',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+    }
+  }})()`)
+}
+
 async function runChapterProgressEndpointsProbe(page) {
   return evaluateOnPage(page, `window.__navicChapterProgressProbePromise = (${async () => {
     const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
@@ -1381,6 +1455,7 @@ async function main() {
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
+      'visible-range': runVisibleRangeProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,

@@ -224,6 +224,7 @@ class NavicReaderRuntime {
   observedChapterPageCounts = new Map()
   committedRelocateDetail = null
   lastPostedLocationKey = null
+  lastPostedVisibleTextRangeKey = null
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
   controlledRelocateReason = null
@@ -534,6 +535,7 @@ class NavicReaderRuntime {
     this.observedChapterPageCounts = new Map()
     this.committedRelocateDetail = null
     this.lastPostedLocationKey = null
+    this.lastPostedVisibleTextRangeKey = null
     this.pendingRelocateDetail = null
     this.pendingRelocateReason = 'relocate-committed'
     this.relocatePostScheduled = false
