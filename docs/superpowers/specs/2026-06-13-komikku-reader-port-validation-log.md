@@ -5378,3 +5378,25 @@ Results:
 - PASS/INTERRUPTED DRAG: a long ADB swipe was started and the app was force-stopped while the gesture was active. Relaunching again with no start override restored the same stable persisted locator: `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`.
 - ARTIFACTS: `tmp\readerdev-resume-interruption-20260620\before-relocation.json`, `after-real-swipe-relocation.json`, `prefs-before.xml`, `after-relaunch-relocation.json`, `after-cover-exit-relocation.json`, `after-disrupted-drag-relaunch-relocation.json`, and related screenshots/logs in the same directory.
 - OPEN: this is dirty-emulator proof for readerdev `v1.0.11-eta76`. Clean release/physical-device validation is still required before closing the P0 at release grade.
+
+## 2026-06-20 eta76 Post-Resume Komikku Matrix Validation
+
+Scope:
+- Re-ran the Komikku reader matrix after the resume/interrupted-drag validation to make sure the reader still passed the broad gesture/chrome/texture checks on the same visible emulator.
+- This specifically guards against the recent center-tap and texture-direction regressions returning after relaunch/resume flows.
+
+Validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot tmp\readerdev-post-resume-matrix-20260620
+```
+
+Results:
+- PASS/DEVICE: matrix ran against `darkaxt.navic.readerdev` `versionName=v1.0.11-eta76`, `versionCode=409`, `lastUpdateTime=2026-06-20 11:49:01`.
+- PASS/MATRIX: `reader-matrix-failures.txt` reported `No matrix failures.`
+- PASS/STEPS: `baseline-current-reader`, `enter-readable-content`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` all completed.
+- PASS/CENTER TAP: `center-tap-toggle\reader-tap-validation.txt` reported `nativeTapAction=True`, `explicitContentHandler=False`, and `contentTapHandledEvent=False`, meaning the center tap went through the native overlay path rather than the EPUB content tap path.
+- PASS/TEXTURE NEXT: `drag-next\reader-texture-direction-validation.txt` sampled horizontal texture offsets with expected negative next-page movement and `wrong=False`.
+- PASS/TEXTURE PREVIOUS: `drag-previous\reader-texture-direction-validation.txt` sampled horizontal texture offsets with expected positive previous-page movement and `wrong=False`.
+- ARTIFACTS: `tmp\readerdev-post-resume-matrix-20260620`.
+- OPEN: this matrix validates scripted emulator gestures. It does not replace physical-device feel testing for the cover touch behavior, page-drag preview quality, or settings dialog design.
