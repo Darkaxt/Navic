@@ -1351,6 +1351,27 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncLoadFailureSurfacesControllerOwnedAttentionStatus() {
+		val step = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.reportWhispersyncLoadFailure(
+				label = "Whispersync audio unavailable",
+				detail = "audiobook=69"
+			)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.LoadFailed,
+				label = "Whispersync audio unavailable",
+				detail = "audiobook=69"
+			),
+			step.controller.state.whispersync.status
+		)
+		assertEquals(true, step.controller.state.whispersync.status.requiresAttention)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun visibleTextRangeUpdatesWhispersyncStatusWithSeekTarget() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
@@ -1470,6 +1491,30 @@ class ReaderControllerTest {
 		val step = mismatched.repairWhispersyncMismatch()
 
 		assertEquals(mismatched, step.controller)
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchNoopsForLoadFailureStatus() {
+		val visible = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140
+				)
+			).controller
+		val failed = visible.reportWhispersyncLoadFailure(
+			label = "Whispersync audio unavailable",
+			detail = "audiobook=69"
+		).controller
+
+		val step = failed.repairWhispersyncMismatch()
+
+		assertEquals(failed, step.controller)
 		assertEquals(emptyList(), step.engineCommands)
 		assertNull(step.whispersyncAudioSeekTarget)
 	}

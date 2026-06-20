@@ -59,8 +59,10 @@ internal fun KomikkuWhispersyncStatusBadge(
 						overflow = TextOverflow.Ellipsis
 					)
 				}
-				TextButton(onClick = onRepairMismatch) {
-					Text(text = "Resync")
+				if (status.repairable) {
+					TextButton(onClick = onRepairMismatch) {
+						Text(text = "Resync")
+					}
 				}
 			}
 		}

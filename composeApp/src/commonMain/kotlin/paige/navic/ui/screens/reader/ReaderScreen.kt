@@ -325,6 +325,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 							applyCoordinatorStep(coordinator.loadWhispersyncSidecar(sidecar))
 						},
 						onFailure = { error ->
+							applyCoordinatorStep(
+								coordinator.reportWhispersyncLoadFailure(
+									label = "Whispersync unavailable",
+									detail = "artifact=${attachment.artifactId}"
+								)
+							)
 							Logger.w(
 								ReaderScreenTag,
 								"Whispersync sidecar load failed artifact=${attachment.artifactId} " +
@@ -372,6 +378,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 						},
 						onFailure = { error ->
 							whispersyncPlaybackPlan = null
+							applyCoordinatorStep(
+								coordinator.reportWhispersyncLoadFailure(
+									label = "Whispersync audio unavailable",
+									detail = "audiobook=${attachment.audiobookId}"
+								)
+							)
 							Logger.w(
 								ReaderScreenTag,
 								"Whispersync audiobook plan load failed audiobook=${attachment.audiobookId}",

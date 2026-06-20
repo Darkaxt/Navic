@@ -29,6 +29,18 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 		)
 	}
 
+	@Test
+	fun readerScreenSurfacesWhispersyncLoadFailuresThroughControllerStatus() {
+		val readerScreen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
+			.readText()
+
+		assertContains(
+			readerScreen,
+			"coordinator.reportWhispersyncLoadFailure(",
+			message = "Whispersync sidecar or paired-audiobook load failures must surface through controller-owned native status, not only logs."
+		)
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),

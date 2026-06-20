@@ -5918,3 +5918,27 @@ Results:
 - GREEN/REGRESSION: the full `BinderyAudiobookPlayerPolicyTest` class plus `ReaderWhispersyncCompanionProgressSourceTest` passed in 11s.
 - `git diff --check` passed.
 - OPEN: this remains host/source proof. Release/device validation of a real paired Bindery sidecar/audiobook session is still required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 Whispersync Load Failure Status
+
+Scope:
+- Closed a silent paired-reader failure path: Whispersync sidecar and paired-audiobook manifest failures were only logged from `ReaderScreen`.
+- Added controller-owned `LoadFailed` status for Whispersync. It is attention-worthy, so the native Komikku status surface can show it, but it is not repairable through the mismatch-resync path.
+- Added `ReaderController.reportWhispersyncLoadFailure(...)` / `ReaderCoordinator.reportWhispersyncLoadFailure(...)` and wired the sidecar and audiobook manifest failure branches in `ReaderScreen`.
+- Updated `KomikkuWhispersyncStatusBadge` so the `Resync` action is only shown for repairable mismatch states, not load failures.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.whispersyncLoadFailureSurfacesControllerOwnedAttentionStatus --tests paige.navic.reader.ReaderControllerTest.repairWhispersyncMismatchNoopsForLoadFailureStatus --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest.readerScreenSurfacesWhispersyncLoadFailuresThroughControllerStatus
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest
+```
+
+Results:
+- RED: the focused test failed at `compileAndroidHostTest` because `reportWhispersyncLoadFailure(...)` and `ReaderWhispersyncStatusKind.LoadFailed` did not exist.
+- FIX: added the status kind, controller/coordinator method, non-repairable attention semantics, native badge gating, and `ReaderScreen` failure routing.
+- GREEN/FOCUSED: the new controller/source tests passed.
+- GREEN/REGRESSION: full `ReaderControllerTest` plus `ReaderWhispersyncCompanionProgressSourceTest` passed in 4m03s.
+- `git diff --check` passed.
+- WARNING: the regression log still contains the pre-existing `ModalBottomSheet.kt` invisible-reference warning; no new warning from this slice remains after removing the unnecessary `ReaderScreen` safe call.
+- OPEN: this is host/source proof only. Release/device validation of the paired Bindery sidecar/audiobook flow remains required before claiming end-to-end Whispersync usability.

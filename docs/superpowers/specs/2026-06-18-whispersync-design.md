@@ -49,6 +49,7 @@ Implemented and covered by source/tests:
 - Reader progress companion state now persists exact Whispersync audio resource and millisecond position when the controller has a sidecar-derived seek target, so audiobook resume can prefer the precise segment target over a total-duration fraction estimate.
 - Audiobook resume now compares direct audiobook progress against Whispersync companion progress by `updatedAtMs`; a newer ebook-derived sidecar target can resume the audiobook instead of being hidden behind stale direct audiobook progress.
 - Paired reader sessions now use the same newest direct-or-companion resume policy when preparing their Whispersync audiobook playback plan, so opening the ebook side cannot silently fall back to stale direct audiobook progress.
+- Whispersync sidecar and paired-audiobook manifest failures now surface through controller-owned native status instead of only logs; load failures are attention states but not repairable mismatch states.
 
 Important correction to older audits:
 

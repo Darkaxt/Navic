@@ -697,9 +697,24 @@ data class ReaderController(
 			)
 		)
 
+	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					whispersync = state.whispersync.copy(
+						status = ReaderWhispersyncStatus(
+							kind = ReaderWhispersyncStatusKind.LoadFailed,
+							label = label.trim().takeIf { it.isNotEmpty() } ?: "Whispersync unavailable",
+							detail = detail?.trim()?.takeIf { it.isNotEmpty() }
+						)
+					)
+				)
+			)
+		)
+
 	fun repairWhispersyncMismatch(): ReaderControllerStep {
 		val currentWhispersync = state.whispersync
-		if (!currentWhispersync.status.requiresAttention) {
+		if (!currentWhispersync.status.repairable) {
 			return ReaderControllerStep(this)
 		}
 		val visibleRange = currentWhispersync.visibleTextRange

@@ -34,7 +34,8 @@ enum class ReaderWhispersyncStatusKind {
 	SyncDisabled,
 	SeekingAudio,
 	Playing,
-	Mismatch
+	Mismatch,
+	LoadFailed
 }
 
 data class ReaderWhispersyncStatus(
@@ -48,6 +49,10 @@ data class ReaderWhispersyncStatus(
 		get() = kind != ReaderWhispersyncStatusKind.Unavailable
 
 	val requiresAttention: Boolean
+		get() = kind == ReaderWhispersyncStatusKind.Mismatch ||
+			kind == ReaderWhispersyncStatusKind.LoadFailed
+
+	val repairable: Boolean
 		get() = kind == ReaderWhispersyncStatusKind.Mismatch
 }
 
