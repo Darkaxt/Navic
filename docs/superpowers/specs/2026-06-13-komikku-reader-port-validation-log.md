@@ -5175,3 +5175,70 @@ Results:
 - PASS/RUNTIME: first `locationChanged` after the fix reported href `OEBPS/Text/Chapter-37.xhtml`, CFI `epubcfi(/6/98!/4/2,/1406,/1480/1:227)`, progress `0.8186814367781696`, `chapterPageIndex=23`, `chapterPageCount=44`, and page model `page=313/388`.
 - PASS/VISUAL: the shell cover still appears first by design. After hiding chrome and tapping the right page zone, logs showed `shellCover=true->false`, and the screenshot rendered the saved Chapter 37 text page with visible page label `314 / 388`.
 - OPEN: clean release/physical-device validation is still required. The shell-cover-first behavior remains intentional for now, but should be retested with the user's expected cover interaction flow.
+
+## 2026-06-20 eta76 Visible Emulator Restart Validation
+
+Scope:
+- Verified that the recovered visible Android emulator window is usable for reader validation before continuing implementation.
+- Used the installed dirty `darkaxt.navic.readerdev` eta76 package without rebuilding or publishing a release.
+- Ran the documented Komikku reader matrix against the current foreground reader page with `-NoLaunch -ContinueOnFailure`.
+
+Validation:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell dumpsys window | Select-String -Pattern 'mCurrentFocus|mFocusedApp'
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev | Select-String -Pattern 'versionName|versionCode'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot .\tmp\readerdev-visible-window-matrix-20260620
+```
+
+Results:
+- PASS/DEVICE: `adb devices` listed `emulator-5554 device`.
+- PASS/FOCUS: Android focus was `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS/VERSION: installed reader-dev package was `versionName=v1.0.11-eta76`, `versionCode=409`.
+- PASS/BASELINE: baseline capture rendered readable EPUB text, not a blank/loading screen, with visible page label `314 / 388`.
+- PASS/MATRIX: `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` passed.
+- PASS/CENTER TAP: logcat showed `Reader native tap action=MENU`, `Reader viewer action=Menu menuVisible=false->true`, then another center tap returned `menuVisible=true->false`.
+- PASS/DRAG: `drag-next` and `drag-previous` diagnostics reported `readerNativeDragPreview=True` and `readerNativeDragCandidate=True`.
+- PASS/TEXTURE DIRECTION: both drag and tap texture probes reported `wrongTextureDirection=False`.
+- EXPECTED/STARTING STATE: `enter-readable-content` failed because the reader was already in readable content rather than on the native shell cover, so no shell-cover swipe could be captured.
+- ARTIFACTS: `tmp\readerdev-visible-window-matrix-20260620`.
+- OPEN: this is dirty-emulator evidence, not clean release or physical-device proof. Shell-cover entry/drag still needs a run that starts on the cover.
+
+## 2026-06-20 eta76 Boundary Drag Preview Underlay Validation
+
+Scope:
+- Fixed the EPUB section-boundary drag-preview gap where the current page could drag over an unloaded adjacent section and expose a black/blank void.
+- Kept native Komikku-style gesture ownership intact: the native drag preview remains authoritative, and the Foliate renderer is not scrolled until the adjacent preview surface is ready.
+- Used a real cached EPUB pulled from readerdev, independent of Bindery availability.
+
+Changes:
+- Added pending drag-preview replay after adjacent iframe readiness.
+- Hid not-ready boundary previews with `opacity=0`, `width=1px`, and `left=-1px` instead of exposing an unloaded surface.
+- Added `page-drag-preview:underlay-waiting` tracing before adjacent section readiness.
+- Hardened the content-layout logger against incomplete Foliate documents.
+- Strengthened the `epub-native-drag-preview-underlay` harness so it rejects exposed blank underlays.
+
+Validation:
+
+```powershell
+adb -s emulator-5554 exec-out run-as darkaxt.navic.readerdev cat cache/reader/reader-publications/reader-d3048625266b3f885c38ab36/publication.epub > .\tmp\reader-fixtures\publication.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture .\tmp\reader-fixtures\publication.epub
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroid --rerun-tasks
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot .\tmp\readerdev-boundary-preview-matrix-20260620
+```
+
+Results:
+- PASS/HARNESS: the first strengthened harness run failed red with the pre-fix behavior because the boundary preview exposed `ready=false`, `opacity=1`.
+- PASS/HARNESS: after the runtime fix, the real EPUB harness passed with trace order `page-drag-preview:underlay-waiting` -> `page-drag-preview:underlay-loaded` -> `page-drag-preview:underlay` with `ready=true`.
+- PASS/HARNESS: final adjacent iframe metrics were nonblank: `iframeTextLength=101`, `iframeBodyHeight=425.453125`.
+- PASS/SYNTAX: `node --check` passed for the changed runtime and harness files.
+- PASS/HOST: `:composeApp:testAndroid --rerun-tasks` exceeded the shell capture window, but the Gradle wrapper PID was waited and JUnit XML summary reported `1490` tests, `0` failures, `0` errors, `0` skipped.
+- PASS/INSTALL: dirty readerdev rebuilt, installed on `emulator-5554`, launched `darkaxt.navic.readerdev`, and logged `publicationReady`.
+- PASS/EMULATOR: the Komikku reader matrix completed successfully; center tap toggled menu, native long press worked, edge taps worked, drag next/previous reported `readerNativeDragPreview=True`, and texture probes reported `wrongTextureDirection=False`.
+- ARTIFACTS: `tmp\readerdev-boundary-preview-matrix-20260620`.
+- OPEN: this proves the dirty emulator boundary-preview behavior only. It does not claim clean physical release validation, and it does not implement full page-curl visuals.

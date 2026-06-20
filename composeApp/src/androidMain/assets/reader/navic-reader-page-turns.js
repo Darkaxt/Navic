@@ -603,6 +603,16 @@ function loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKe
       })
       if (targetKey && token === this.pageDragPreviewLoadToken && frame === this.pageDragPreviewFrame) {
         this.pageDragPreviewReadyKey = targetKey
+        const pending = this.pendingPageDragPreviewCommand
+        if (pending?.targetKey === targetKey && pending?.command) {
+          requestAnimationFrame(() => {
+            if (this.pendingPageDragPreviewCommand?.targetKey !== targetKey) return
+            if (this.pageDragPreviewReadyKey !== targetKey) return
+            const command = this.pendingPageDragPreviewCommand.command
+            this.pendingPageDragPreviewCommand = null
+            this.previewPageDrag(command)
+          })
+        }
       }
     })
     .catch(error => {
@@ -708,6 +718,33 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     return
   }
   const { layer, frame, targetIndex, targetKey, side, width, height, palette } = preview
+  const ready = this.pageDragPreviewReadyKey === targetKey
+  layer.dataset.navicPageDragPreviewReady = String(ready)
+  if (!ready) {
+    setStylesImportant(layer, {
+      position: 'fixed',
+      top: '0px',
+      left: '-1px',
+      width: '1px',
+      height: `${height}px`,
+      'min-height': `${height}px`,
+      overflow: 'hidden',
+      opacity: '0',
+      'z-index': '2147483642',
+      'pointer-events': 'none',
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+      'box-sizing': 'border-box',
+    })
+    readerTrace('page-drag-preview:underlay-waiting', {
+      direction,
+      side,
+      targetIndex,
+      currentIndex: this.currentLoadedSectionIndex(),
+    })
+    return false
+  }
   const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
   const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
   const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
@@ -717,7 +754,6 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   const frameTop = vertical && direction === 'next' ? `-${height - exposedHeight}px` : '0px'
   layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
   layer.dataset.navicPageDragPreviewExposedHeight = String(exposedHeight)
-  layer.dataset.navicPageDragPreviewReady = String(this.pageDragPreviewReadyKey === targetKey)
   setStylesImportant(layer, {
     position: 'fixed',
     top: `${top}px`,
@@ -754,9 +790,10 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     targetIndex,
     exposedWidth,
     exposedHeight,
-    ready: this.pageDragPreviewReadyKey === targetKey,
+    ready,
     currentIndex: this.currentLoadedSectionIndex(),
   })
+  return true
 }
 
 function previewPageDrag(command) {
@@ -783,6 +820,7 @@ function previewPageDrag(command) {
       deltaY: previousDelta.y,
     })
     this.nativePageDragPreview = null
+    this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
     this.surfacePaperTextureFallbackDirection = null
@@ -820,6 +858,7 @@ function previewPageDrag(command) {
       deltaY: previousDelta.y,
     })
     this.nativePageDragPreview = null
+    this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
     this.renderSurfacePaperTextureLayers()
@@ -858,6 +897,39 @@ function previewPageDrag(command) {
     lastDeltaY,
     flowMode: this.readerFlowModeValue,
   })
+  const boundaryDirection = textureDirection && this.safeNativeDragPreviewAtSectionBoundary(renderer, textureDirection)
+    ? textureDirection
+    : ''
+  if (boundaryDirection) {
+    const preview = this.ensurePageDragPreviewTarget({
+      direction: boundaryDirection,
+      viewWidth: command?.viewWidth,
+      viewHeight: command?.viewHeight,
+      hidden: true,
+    })
+    const previewReady = preview && this.pageDragPreviewReadyKey === preview.targetKey
+    if (!previewReady) {
+      this.pendingPageDragPreviewCommand = preview
+        ? {
+          targetKey: preview.targetKey,
+          command: {
+            type: 'previewPageDrag',
+            phase: 'update',
+            deltaX: currentDeltaX,
+            deltaY: currentDeltaY,
+            viewWidth: command?.viewWidth,
+            viewHeight: command?.viewHeight,
+          },
+        }
+        : null
+      readerTrace('page-drag-preview:underlay-waiting', {
+        direction: boundaryDirection,
+        targetIndex: preview?.targetIndex ?? null,
+        currentIndex: this.currentLoadedSectionIndex(),
+      })
+      return
+    }
+  }
   if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
     renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
   }

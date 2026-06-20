@@ -1894,10 +1894,39 @@ if (mode === 'epub-native-drag-preview-underlay') {
         page >= pages - 2
     }, boundaryTarget)
 
-    const previewState = await page.evaluate(async () => {
-      const width = window.visualViewport?.width || window.innerWidth || 500
+    const readPreviewState = async before => page.evaluate(beforeState => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const style = layer ? getComputedStyle(layer) : null
+      const iframeDoc = iframe?.contentDocument || null
+      const iframeBodyRect = iframeDoc?.body?.getBoundingClientRect?.()
+      const iframeHtmlRect = iframeDoc?.documentElement?.getBoundingClientRect?.()
+      const iframeText = iframeDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      return {
+        before: beforeState,
+        layerPresent: Boolean(layer),
+        iframePresent: Boolean(iframe),
+        ready: layer?.dataset.navicPageDragPreviewReady === 'true',
+        targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
+        direction: layer?.dataset.navicPageDragPreviewDirection || '',
+        side: layer?.dataset.navicPageDragPreviewSide || '',
+        width: style?.width || '',
+        left: style?.left || '',
+        right: style?.right || '',
+        opacity: style?.opacity || '',
+        background: style?.backgroundColor || '',
+        iframeTextLength: iframeText.length,
+        iframeBodyHeight: Number(iframeBodyRect?.height) || 0,
+        iframeHtmlHeight: Number(iframeHtmlRect?.height) || 0,
+        trace: (window.__navicReaderTrace || [])
+          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
+          .slice(-5),
+      }
+    }, before)
+
+    const before = await page.evaluate(() => {
       const renderer = document.querySelector('foliate-view')?.renderer
-      const before = {
+      return {
         index: Number(renderer?.getContents?.()?.[0]?.index),
         page: Number(renderer?.page),
         pages: Number(renderer?.pages),
@@ -1905,6 +1934,9 @@ if (mode === 'epub-native-drag-preview-underlay') {
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
       }
+    })
+    await page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
       await window.NavicReaderBridge.dispatch({
         type: 'previewPageDrag',
         deltaX: -Math.round(width * 0.36),
@@ -1912,25 +1944,8 @@ if (mode === 'epub-native-drag-preview-underlay') {
         phase: 'update',
       })
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
-      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
-      const style = layer ? getComputedStyle(layer) : null
-      return {
-        before,
-        layerPresent: Boolean(layer),
-        iframePresent: Boolean(iframe),
-        targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
-        direction: layer?.dataset.navicPageDragPreviewDirection || '',
-        side: layer?.dataset.navicPageDragPreviewSide || '',
-        width: style?.width || '',
-        left: style?.left || '',
-        right: style?.right || '',
-        background: style?.backgroundColor || '',
-        trace: (window.__navicReaderTrace || [])
-          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
-          .slice(-5),
-      }
     })
+    let previewState = await readPreviewState(before)
 
     if (!previewState.layerPresent || !previewState.iframePresent) {
       throw new Error(
@@ -1949,6 +1964,32 @@ if (mode === 'epub-native-drag-preview-underlay') {
       throw new Error(
         `Expected drag preview target to point at a following section; ` +
         `target=${previewState.targetIndex} boundary=${boundaryTarget}`
+      )
+    }
+    if (!previewState.ready) {
+      if (previewState.opacity !== '0' || previewState.width !== '1px' || previewState.left !== '-1px') {
+        throw new Error(
+          `Expected not-ready boundary preview to stay hidden until the adjacent page is rendered; ` +
+          `state=${JSON.stringify(previewState)}`
+        )
+      }
+      await page.waitForFunction(() => {
+        const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+        const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+        const style = layer ? getComputedStyle(layer) : null
+        const textLength = iframe?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        return layer?.dataset.navicPageDragPreviewReady === 'true' &&
+          style?.opacity !== '0' &&
+          style?.width !== '1px' &&
+          textLength > 0
+      })
+      previewState = await readPreviewState(before)
+    }
+    if (!previewState.ready || previewState.iframeTextLength <= 0 || previewState.iframeBodyHeight <= 0) {
+      throw new Error(
+        `Expected boundary drag preview to expose a rendered adjacent page, not a blank loading underlay; ` +
+        `ready=${previewState.ready} textLength=${previewState.iframeTextLength} ` +
+        `bodyHeight=${previewState.iframeBodyHeight} state=${JSON.stringify(previewState)}`
       )
     }
 

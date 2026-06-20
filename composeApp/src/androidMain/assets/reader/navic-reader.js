@@ -210,6 +210,7 @@ class NavicReaderRuntime {
   pageDragPreviewTargetKey = ''
   pageDragPreviewReadyKey = ''
   pageDragPreviewLoadToken = 0
+  pendingPageDragPreviewCommand = null
   shellCoverBlobUrl = null
   shellCoverVisible = false
   externalShellCover = false
@@ -799,7 +800,7 @@ class NavicReaderRuntime {
     }
     for (const content of contents) {
       const doc = content.doc
-      if (!doc) {
+      if (!doc || !doc.defaultView || !doc.body || !doc.documentElement) {
         log('content-layout', `label=${label}`, `index=${content.index}`, 'doc=missing')
         continue
       }
