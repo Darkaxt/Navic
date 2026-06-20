@@ -5265,3 +5265,26 @@ Results:
 - PASS/DIAGNOSTICS: `drag-next` and `drag-previous` reported `readerNativeDragPreview=True`, `readerNativeDragCandidate=True`, and `wrongTextureDirection=False`.
 - ARTIFACTS: `tmp\readerdev-post-boundary-followup-matrix-after-script-fix-20260620`.
 - OPEN: this is a validation-tooling fix only. It does not replace an explicit cover-start run with `-IncludeCoverChecks`.
+
+## 2026-06-20 eta76 Android WebView Layout And Font Probe Validation
+
+Scope:
+- Runtime-validated the recent page-box and inline publisher typography fixes on the visible emulator through the actual reader WebView DevTools target.
+- This targets the Tab S9/tablet-layout and font-size reports at the engine surface rather than relying only on source guards.
+
+Validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe page-box -CaptureReaderDiagnostics -ArtifactDir .\tmp\readerdev-layout-probes-20260620\page-box
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe font-size-publisher-styles -CaptureReaderDiagnostics -ArtifactDir .\tmp\readerdev-layout-probes-20260620\font-size-publisher-styles
+```
+
+Results:
+- PASS/PAGE-BOX: the probe attached to `webview_devtools_remote_10300` for `darkaxt.navic.readerdev` `v1.0.11-eta76`, `versionCode=409`.
+- PASS/PAGE-BOX: viewport, `foliate-view`, and renderer rects were all `1232 x 1974`, proving the reader engine surface filled the WebView instead of leaving a smaller host box.
+- PASS/PAGE-BOX: Foliate renderer attributes reported `maxInlineSize=1133px`, `maxBlockSize=1846px`, `maxColumnCount=1`, `columnThreshold=720px`, `topMargin=90px`, and `bottomMargin=50px`.
+- PASS/PAGE-BOX: first prose text measured `fontSize=16px`, `lineHeight=24.8px`, and visible prose width `1061px` inside the current chapter content.
+- PASS/FONT-SIZE: the publisher-style probe changed reader font size from `100%` to `140%` and measured root font size `16px -> 22.4px`.
+- PASS/FONT-SIZE: the publisher paragraph font size also changed `16px -> 22.4px`, delta `6.4px`, proving the body text path scales on Android WebView rather than only headings.
+- ARTIFACTS: `tmp\readerdev-layout-probes-20260620\page-box` and `tmp\readerdev-layout-probes-20260620\font-size-publisher-styles`.
+- OPEN: this is emulator/WebView proof, not Tab S9 Ultra physical-device visual proof. It does not resolve subjective margin preference or settings dialog density.
