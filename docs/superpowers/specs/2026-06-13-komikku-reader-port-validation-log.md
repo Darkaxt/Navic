@@ -5242,3 +5242,26 @@ Results:
 - PASS/EMULATOR: the Komikku reader matrix completed successfully; center tap toggled menu, native long press worked, edge taps worked, drag next/previous reported `readerNativeDragPreview=True`, and texture probes reported `wrongTextureDirection=False`.
 - ARTIFACTS: `tmp\readerdev-boundary-preview-matrix-20260620`.
 - OPEN: this proves the dirty emulator boundary-preview behavior only. It does not claim clean physical release validation, and it does not implement full page-curl visuals.
+
+## 2026-06-20 eta76 Matrix Already-Readable Start Validation
+
+Scope:
+- Removed a false-red validation path from the Komikku reader matrix when the reader is already in readable EPUB content.
+- Explicit cover validation remains strict under `-IncludeCoverChecks`; the default `enter-readable-content` step is now a best-effort swipe so it does not fail a valid already-readable state.
+
+Validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot .\tmp\readerdev-post-boundary-followup-matrix-20260620
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ContinueOnFailure -ArtifactRoot .\tmp\readerdev-post-boundary-followup-matrix-after-script-fix-20260620
+```
+
+Results:
+- RED/BEFORE: the first run failed only `enter-readable-content` with `no shell-cover swipe was captured`, while logs showed `shellCover=false` and the other content steps passed.
+- ROOT CAUSE: the default matrix path required shell-cover swipe/command diagnostics even when `-IncludeCoverChecks` was not requested.
+- FIX: removed the strict shell-cover assertions from the default `enter-readable-content` step. Cover-specific assertions still run in the explicit `-IncludeCoverChecks` branch.
+- PASS/AFTER: the same already-readable emulator state completed the full default matrix with `No matrix failures`.
+- PASS/AFTER: `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` all passed on `darkaxt.navic.readerdev` `v1.0.11-eta76`, `versionCode=409`, `lastUpdateTime=2026-06-20 10:21:29`.
+- PASS/DIAGNOSTICS: `drag-next` and `drag-previous` reported `readerNativeDragPreview=True`, `readerNativeDragCandidate=True`, and `wrongTextureDirection=False`.
+- ARTIFACTS: `tmp\readerdev-post-boundary-followup-matrix-after-script-fix-20260620`.
+- OPEN: this is a validation-tooling fix only. It does not replace an explicit cover-start run with `-IncludeCoverChecks`.
