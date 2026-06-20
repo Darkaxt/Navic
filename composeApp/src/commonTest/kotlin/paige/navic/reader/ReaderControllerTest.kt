@@ -1352,6 +1352,8 @@ class ReaderControllerTest {
 			),
 			step.controller.state.selectionNoteDraft
 		)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertEquals(emptyList(), step.engineCommands)
 	}
 

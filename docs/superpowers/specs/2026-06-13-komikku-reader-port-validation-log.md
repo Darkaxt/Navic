@@ -4791,3 +4791,28 @@ Results:
 - PASS: `git diff --check` reported no whitespace errors.
 - NOTE: the long controller test run printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned exit code 0.
 - OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.
+
+## 2026-06-20 Selection Note Overlay Ownership Slice
+
+Scope:
+- Continued the selection-action lifecycle audit after the cleanup slice.
+- Root cause hypothesis: starting a Note from the native selection action strip copied the selection into a draft, but left the live controller selection intact. Because `selectionActions` is derived from `selection`, this allowed the selection action strip and the note dialog to be visible at the same time.
+
+Changes:
+- `ReaderController.startSelectionNote` now clears the live `selection` after creating `ReaderSelectionNoteDraft`.
+- `ReaderControllerTest.selectionNotesStartNativeDraftWithoutEngineCommands` now asserts that starting a note leaves `ReaderSelectionActionState()` and a null live selection, while still emitting no engine/WebView command.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.selectionNotesStartNativeDraftWithoutEngineCommands"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.selectionHighlightsAreControllerOwnedAndForwardedAsEngineCapabilities" --tests "paige.navic.reader.ReaderControllerTest.selectionNotesStartNativeDraftWithoutEngineCommands" --tests "paige.navic.reader.ReaderControllerTest.selectionNotesSaveAsAnnotationsAndClearDraft"
+```
+
+Results:
+- NOTE: the first two attempts to add the RED assertion landed in unrelated tests with generic `assertEquals(emptyList(), step.engineCommands)` endings. Those passing runs were discarded as invalid evidence.
+- RED: after anchoring the assertion to `selectionNotesStartNativeDraftWithoutEngineCommands`, the focused test failed at `ReaderControllerTest.kt:1355` because `selection` remained non-null after `startSelectionNote`.
+- PASS: after clearing `selection` in `startSelectionNote`, the focused test completed with `BUILD SUCCESSFUL in 5m 18s`.
+- PASS: adjacent controller tests for Highlight, Note Start, and Note Save completed with `BUILD SUCCESSFUL in 24s`.
+- NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned the reported exit codes.
+- OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.

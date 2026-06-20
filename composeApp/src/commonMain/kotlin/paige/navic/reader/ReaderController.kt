@@ -674,6 +674,7 @@ data class ReaderController(
 		return ReaderControllerStep(
 			copy(
 				state = state.copy(
+					selection = null,
 					selectionNoteDraft = ReaderSelectionNoteDraft(
 						bookId = publication.bookId,
 						bookTitle = publication.title,
