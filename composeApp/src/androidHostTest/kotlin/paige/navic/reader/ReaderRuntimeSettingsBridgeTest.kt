@@ -363,6 +363,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(typographyCss, "font-size: var(--reader-content-font-size")
 		assertContains(typographyCss, "font-size: 1rem !important")
 		assertContains(typographyCss, "font-size: 1em !important")
+		assertContains(
+			typographyCss,
+			"td,",
+			message = "Font-size control must reset table-cell prose; older EPUBs commonly put body text in table-like wrappers."
+		)
 		assertTrue(
 			typographyCss.indexOf("font-size: 1rem !important") <
 				typographyCss.indexOf("font-size: 1em !important"),

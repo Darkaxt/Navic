@@ -4522,3 +4522,34 @@ Results:
 - FAIL/BLOCKED: after restarting the ADB server, `emulator-5554` moved to `offline`.
 - FAIL/BLOCKED: `adb reconnect offline` did not restore shell access; follow-up shell command reported the device offline/not found.
 - Interpretation: emulator validation is blocked by the emulator/ADB transport. Do not treat the current emulator screen as app evidence until the emulator reconnects as an online device with working shell access.
+
+## 2026-06-20 EPUB Font-Size Table Wrapper Slice
+
+Scope:
+- Investigated the Tab S9 report that the font-size control affected chapter titles but not body prose.
+- The likely EPUB shape is table-cell or old centered/table-like prose wrappers with fixed publisher `font-size`.
+- Extended the renderer guard so table-cell prose must be reset to the reader root font size.
+
+Changes:
+- Added a `font-css-smoke` harness probe for table-cell body text.
+- Added a JVM source guard requiring `readerTypographyCss` to include `td` in the root-size reset path.
+- Added `td`, `th`, `main`, `section`, `article`, and `center` to the block prose reset selector.
+- Added descendant resets for spans/fonts under those wrapper elements.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs font-css-smoke
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+git diff --check
+```
+
+Results:
+- BLOCKED: browser-backed `font-css-smoke` could not launch Chromium in this session: Playwright reported `browserType.launch: spawn EPERM`. No permission escalation was requested.
+- RED: before the CSS fix, the focused JVM guard failed at `ReaderRuntimeSettingsBridgeTest.kt:366`, proving `td` was missing from the typography reset.
+- PASS: after the CSS fix, the same focused JVM guard completed with `BUILD SUCCESSFUL in 12s`.
+- PASS: `node --check` on `navic-reader-helpers.js` reported no syntax errors.
+- PASS: pure `adaptive-page-box-logic` harness passed, so the Tab S9 page-box math was not regressed by this font-size slice.
+- PASS: `git diff --check` reported no whitespace errors.

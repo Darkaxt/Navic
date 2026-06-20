@@ -789,6 +789,7 @@ if (mode === 'font-css-smoke') {
                 .publisher-block-text { font-size: 10px; }
                 .publisher-fixed-paragraph { font-size: 10px; }
                 .publisher-wrapper-text { font-size: 10px; }
+                .publisher-table-text td { font-size: 9px; }
               </style>
             </head>
             <body>
@@ -801,6 +802,11 @@ if (mode === 'font-css-smoke') {
               <p class="publisher-fixed-paragraph" data-probe="fixed-paragraph">
                 <span>Publisher fixed-size paragraph text.</span>
               </p>
+              <table class="publisher-table-text">
+                <tr>
+                  <td data-probe="table-body">Publisher table-cell body text.</td>
+                </tr>
+              </table>
               <h1 data-probe="heading">Chapter title</h1>
             </body>
           </html>
@@ -819,6 +825,7 @@ if (mode === 'font-css-smoke') {
         const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
         const nestedWrapperBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="nested-wrapper-body"]'))
         const fixedParagraphStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="fixed-paragraph"] span'))
+        const tableBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="table-body"]'))
         const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
         const result = {
           directBodyFontSize: directBodyStyle.fontSize,
@@ -831,6 +838,8 @@ if (mode === 'font-css-smoke') {
           nestedWrapperBodyFontSizeValue: Number.parseFloat(nestedWrapperBodyStyle.fontSize || '0'),
           fixedParagraphFontSize: fixedParagraphStyle.fontSize,
           fixedParagraphFontSizeValue: Number.parseFloat(fixedParagraphStyle.fontSize || '0'),
+          tableBodyFontSize: tableBodyStyle.fontSize,
+          tableBodyFontSizeValue: Number.parseFloat(tableBodyStyle.fontSize || '0'),
           headingFontSize: headingStyle.fontSize,
           headingFontSizeValue: Number.parseFloat(headingStyle.fontSize || '0'),
         }
@@ -853,6 +862,7 @@ if (mode === 'font-css-smoke') {
         publisherNestedWrapperBodyDelta:
           publisherSpanAt140.nestedWrapperBodyFontSizeValue - publisherSpanAt100.nestedWrapperBodyFontSizeValue,
         publisherFixedParagraphDelta: publisherSpanAt140.fixedParagraphFontSizeValue - publisherSpanAt100.fixedParagraphFontSizeValue,
+        publisherTableBodyDelta: publisherSpanAt140.tableBodyFontSizeValue - publisherSpanAt100.tableBodyFontSizeValue,
         publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
@@ -900,6 +910,12 @@ if (mode === 'font-css-smoke') {
       throw new Error(
         `Expected font-size control to scale publisher fixed-size paragraph text; ` +
         `observed ${result.publisherSpanAt100?.fixedParagraphFontSize || 'unset'} -> ${result.publisherSpanAt140?.fixedParagraphFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherTableBodyDelta) || result.publisherTableBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher table-cell body text; ` +
+        `observed ${result.publisherSpanAt100?.tableBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.tableBodyFontSize || 'unset'}`
       )
     }
     if (!Number.isFinite(result.publisherSpanHeadingDelta) || result.publisherSpanHeadingDelta <= 1) {
