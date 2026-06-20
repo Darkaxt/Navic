@@ -90,6 +90,9 @@ data class ReaderCoordinator(
 	fun saveSelectionNote(note: String): ReaderCoordinatorStep =
 		applyControllerStep(controller.saveSelectionNote(note))
 
+	fun dismissSelectionActions(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissSelectionActions())
+
 	fun dismissSelectionNote(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissSelectionNote())
 

@@ -711,6 +711,9 @@ data class ReaderController(
 		)
 	}
 
+	fun dismissSelectionActions(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(selection = null)))
+
 	fun dismissSelectionNote(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(selectionNoteDraft = null)))
 

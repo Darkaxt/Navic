@@ -391,6 +391,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onCopySelection = { text ->
 			clipboard.setText(AnnotatedString(text))
 			Logger.i(ReaderScreenTag, "Reader selection copied length=${text.length}")
+			applyCoordinatorStep(coordinator.dismissSelectionActions())
 		},
 		onStartSelectionNote = {
 			applyCoordinatorStep(coordinator.startSelectionNote())

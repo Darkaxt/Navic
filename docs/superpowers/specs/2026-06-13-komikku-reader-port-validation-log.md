@@ -4816,3 +4816,50 @@ Results:
 - PASS: adjacent controller tests for Highlight, Note Start, and Note Save completed with `BUILD SUCCESSFUL in 24s`.
 - NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned the reported exit codes.
 - OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.
+
+## 2026-06-20 ReaderDev Popup / Notes Reopen Source Recheck
+
+Scope:
+- Rechecked the user-requested global removal of the `STOP, READ!`/sideloading interruption.
+- Rechecked whether saved notes have a source-level route for later discovery and reopening.
+
+Validation:
+
+```powershell
+rg -n "STOP, READ|STOP READ|Stop, read|READ!|STOP!|sideload|ReaderDev|readerdev|dev popup|debug popup" composeApp androidApp docs scripts tools
+rg -n "sideload|STOP|readerdev" composeApp\src\androidHostTest composeApp\src\commonTest
+adb devices -l
+```
+
+Results:
+- PASS/SOURCE: current app source search did not find an app-owned `STOP, READ!` dialog path; remaining hits are readerdev tooling, specs/logs, and the guard test.
+- PASS/SOURCE: `ReaderDevEnvironmentContractTest` still asserts that the sideloading modal is globally removed and cannot block readerdev validation.
+- PASS/SOURCE: saved notes are listed through `KomikkuReaderContentsDialog` under `ReaderContentsTab.Notes`, and `KomikkuReaderAnnotationDialog` renders note text when annotation taps resolve a saved note.
+- FAIL/BLOCKED: `adb devices -l` still started ADB but returned no attached devices, so no runtime screenshot/logcat validation was possible.
+
+## 2026-06-20 Selection Copy Dismissal Slice
+
+Scope:
+- Continued the selection-action lifecycle audit after Highlight and Note ownership cleanup.
+- Root cause hypothesis: Copy wrote the selected text to the clipboard, but did not clear controller-owned `selection`, so the native action strip could remain visible after the one-shot action completed.
+
+Changes:
+- Added `ReaderController.dismissSelectionActions()` to clear live selection without emitting engine/WebView commands.
+- Added `ReaderCoordinator.dismissSelectionActions()` as the only UI route into that controller action.
+- `ReaderScreen` now calls `coordinator.dismissSelectionActions()` after the copy callback writes to `LocalClipboardManager`.
+- Source guard now requires the copy path to route through the coordinator instead of leaving the selection overlay alive.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.selectionActionsDismissAfterCopyWithoutEngineCommands"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted"
+```
+
+Results:
+- RED: before adding the controller/coordinator method, the new focused controller test failed to compile with `Unresolved reference 'dismissSelectionActions'`, proving the dismissal route did not exist.
+- INVALID/DISCARDED: a parallel Gradle verification attempt failed with Kotlin build-output deletion collisions under `composeApp\build`; this was a process error from running host tests concurrently, not valid product evidence.
+- PASS: after adding the controller/coordinator route and UI callback, `ReaderControllerTest.selectionActionsDismissAfterCopyWithoutEngineCommands` completed with `BUILD SUCCESSFUL in 5m 29s`.
+- PASS: the source-inspection route guard `ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted` completed sequentially with `BUILD SUCCESSFUL in 19s`.
+- NOTE: Gradle still printed the known Kotlin daemon temp-file `AccessDeniedException` during the long controller test, then fell back to non-daemon compilation and returned exit code 0.
+- OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.

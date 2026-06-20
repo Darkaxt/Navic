@@ -1358,6 +1358,24 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun selectionActionsDismissAfterCopyWithoutEngineCommands() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The copied sentence ",
+					cfi = " epubcfi(/6/8!/4/1:16) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+
+		val step = controller.dismissSelectionActions()
+
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun selectionNotesSaveAsAnnotationsAndClearDraft() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
