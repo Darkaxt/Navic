@@ -5533,3 +5533,34 @@ Results:
 - PASS/DEVICE: every chrome line around the sourced pull-up stayed `Reader chrome overlay visible=false menu=false shellCover=false dialog=null`; the final screenshot shows Chapter 43 with no top or bottom menu.
 - PASS/DEVICE: the standard smoke gate `-RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)'` passed and stored artifacts in `tmp\readerdev-scrolled-edge-source-20260620`.
 - OPEN: this is dirty-emulator proof for the regression. It should be included in the next release candidate, then repeated on a physical device before closing as release-grade.
+
+## 2026-06-20 Scrolled EPUB Chapter Rail Pseudo-Pages
+
+Scope:
+- Follow-up to the user report that vertical/scrolled EPUB mode did not expose a Komikku-style middle progress rail even though Komikku webtoon/scrolled readers do.
+- Kept the rail chapter-local: the middle slider must represent the current chapter/section, not the whole-book pagination profile.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderPublishesScrolledSectionPseudoPagesForKomikkuChapterRail"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+.\scripts\install-reader-dev.ps1 -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -NoLaunch
+.\scripts\install-reader-dev.ps1 -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -NoBuild -NoInstall -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -NoLaunch -ReaderDevtoolsProbe runtime-state -CaptureReaderDiagnostics -ArtifactDir 'tmp\readerdev-scrolled-rail-runtime-20260620'
+.\scripts\adb-reader-smoke.ps1 -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -NoLaunch -ReaderDevtoolsProbe relocation-payload -CaptureReaderDiagnostics -ArtifactDir 'tmp\readerdev-scrolled-rail-location-20260620'
+.\scripts\adb-reader-smoke.ps1 -Package 'darkaxt.navic.readerdev' -DeviceSerial 'emulator-5554' -NoLaunch -ReaderDevtoolsProbe phase3-events -CaptureReaderDiagnostics -ArtifactDir 'tmp\readerdev-scrolled-edge-pullup-20260620'
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroid
+```
+
+Results:
+- RED/BEFORE: the new `androidReaderPublishesScrolledSectionPseudoPagesForKomikkuChapterRail` guard failed because `reflowableScrolledSectionPagePosition()` did not exist and `reflowableSectionPagePosition()` returned `null` for `renderer.scrolled`.
+- ROOT CAUSE: scrolled EPUB chapters had no chapter-local page model. `chapterPagePosition()` intentionally does not borrow whole-book pagination profile math, so Compose correctly had no middle rail value to display.
+- FIX: `navic-reader-pagination.js` now derives scrolled-section pseudo-pages from `renderer.start`, `renderer.end`, `renderer.viewSize`, and the renderer/viewport size. It returns `pageIndex`, `pageCount`, and `pageCountSource: 'scrolled-section'` for scrolled reflowable sections.
+- PASS/HOST: the new guard passed, `node --check` passed, and the full `:composeApp:testAndroid` aggregate passed after updating the stale source-inspection assertion that still required scrolled sections to return `null`.
+- PASS/EMULATOR: dirty `darkaxt.navic.readerdev` was rebuilt/installed; installed package remained `versionName=v1.0.11-eta76`, `versionCode=409`, with `lastUpdateTime=2026-06-20 15:50:21`.
+- PASS/RUNTIME: `runtime-state` on `emulator-5554` showed a scrolled renderer with `start=104.6666`, `end=2078.6666`, `viewSize=7848.52099609375`, and viewport height `1974`, which maps to 4 chapter pseudo-pages.
+- PASS/BRIDGE: `relocation-payload` posted `chapterPageIndex=0`, `chapterPageCount=4`; a later Phase 3 probe after next-page movement posted `chapterPageIndex=1`, `chapterPageCount=4`.
+- PASS/MENU REGRESSION: the same Phase 3 probe posted `pullUp(source=scrolled-edge-swipe)` and native chrome stayed `menu=false` before and after, confirming the sourced pull-up guard still prevents edge-drag chapter turns from auto-showing the menu.
+- ARTIFACTS: `tmp\readerdev-scrolled-rail-runtime-20260620`, `tmp\readerdev-scrolled-rail-location-20260620`, `tmp\readerdev-scrolled-edge-pullup-20260620`, and `captures\reader-dev\reader-dev-20260620-155116.png`.
+- OPEN: this is dirty-emulator proof only. It should be included in the next release candidate and repeated on a physical device before closing as release-grade.

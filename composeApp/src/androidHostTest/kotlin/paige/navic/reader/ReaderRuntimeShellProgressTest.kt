@@ -825,7 +825,8 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "writeCachedPaginationProfile(freshProfile)")
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
-		assertContains(bridgeText, "if (!renderer || renderer.scrolled) return null")
+		assertContains(bridgeText, "if (!renderer) return null")
+		assertContains(bridgeText, "if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()")
 		assertContains(bridgeText, "let page")
 		assertContains(bridgeText, "let pages")
 		assertContains(bridgeText, "page = Number(renderer.page)")
@@ -942,7 +943,7 @@ class ReaderRuntimeShellProgressTest {
 		val bridgeText = readerBridgeText()
 		val chapterPagePositionBody = bridgeText
 			.substringAfter("chapterPagePosition(detail, fallback = null) {")
-			.substringBefore("\n  detailSectionKey(detail) {")
+			.substringBefore("\nfunction detailSectionKey")
 
 		assertContains(chapterPagePositionBody, "const resolved = this.view?.isFixedLayout === true")
 		assertContains(chapterPagePositionBody, "? pagePosition || fallback")
@@ -950,6 +951,42 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(
 			chapterPagePositionBody.contains("const resolved = pagePosition || fallback"),
 			"Komikku's chapter rail is chapter-scoped; reflowable EPUB rail state must not fall back to whole-book pagePosition when section page math is missing."
+		)
+	}
+
+	@Test
+	fun androidReaderPublishesScrolledSectionPseudoPagesForKomikkuChapterRail() {
+		val bridgeText = readerBridgeText()
+		val scrolledSectionBody = bridgeText
+			.substringAfter("function reflowableScrolledSectionPagePosition() {")
+			.substringBefore("\nfunction reflowableSectionPagePosition")
+		val reflowableSectionBody = bridgeText
+			.substringAfter("function reflowableSectionPagePosition() {")
+			.substringBefore("\nfunction reflowableLocationPagePosition")
+		val chapterPagePositionBody = bridgeText
+			.substringAfter("chapterPagePosition(detail, fallback = null) {")
+			.substringBefore("\nfunction detailSectionKey")
+
+		assertContains(bridgeText, "reflowableScrolledSectionPagePosition()")
+		assertContains(scrolledSectionBody, "renderer.scrolled")
+		assertContains(scrolledSectionBody, "scrolledRendererViewportSize(renderer)")
+		assertContains(scrolledSectionBody, "Math.ceil(viewSize / viewportSize)")
+		assertContains(scrolledSectionBody, "viewSize - end <= ScrollEdgeTurnSlop")
+		assertContains(scrolledSectionBody, "pageCountSource: 'scrolled-section'")
+		assertContains(
+			reflowableSectionBody,
+			"if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()",
+			message = "Scrolled EPUB chapters still need chapter-local pseudo-pages so the Komikku vertical rail has a middle progress slider."
+		)
+		assertContains(
+			chapterPagePositionBody,
+			": this.reflowableSectionPagePosition()",
+			message = "The native rail must continue to use chapter-local section math, now including scrolled section pseudo-pages."
+		)
+		assertFalse(
+			chapterPagePositionBody.contains("reflowableWholeBookPagePosition") ||
+				chapterPagePositionBody.contains("readerPagePosition(detail)"),
+			"Komikku chapter rails must never borrow whole-book page math just to make the slider appear."
 		)
 	}
 

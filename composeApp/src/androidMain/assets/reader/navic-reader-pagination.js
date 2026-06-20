@@ -198,10 +198,54 @@ function reflowableLastVisualRendererPage(renderer = this.view?.renderer) {
   return Math.max(1, visualTextPageCount)
 }
 
+function scrolledRendererViewportSize(renderer = this.view?.renderer) {
+  const rendererSize = Number(renderer?.size)
+  if (Number.isFinite(rendererSize) && rendererSize > 0) return rendererSize
+  const start = Number(renderer?.start)
+  const end = Number(renderer?.end)
+  const visibleSize = Number.isFinite(start) && Number.isFinite(end) ? Math.abs(end - start) : 0
+  if (Number.isFinite(visibleSize) && visibleSize > 0) return visibleSize
+  const viewport = readerViewportSize()
+  const sideProp = String(renderer?.sideProp || '')
+  const fallback = sideProp === 'width' ? Number(viewport.width) : Number(viewport.height)
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null
+}
+
+function reflowableScrolledSectionPagePosition() {
+  if (this.view?.isFixedLayout === true) return null
+  const renderer = this.view?.renderer
+  if (!renderer || !renderer.scrolled) return null
+  const start = Number(renderer.start)
+  const end = Number(renderer.end)
+  const viewSize = Number(renderer.viewSize)
+  const viewportSize = this.scrolledRendererViewportSize(renderer)
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    !Number.isFinite(viewSize) ||
+    !Number.isFinite(viewportSize) ||
+    viewSize <= 0 ||
+    viewportSize <= 0
+  ) {
+    return null
+  }
+  const pageCount = Math.max(1, Math.ceil(viewSize / viewportSize))
+  const atSectionEnd = viewSize - end <= ScrollEdgeTurnSlop
+  const rawPageIndex = atSectionEnd
+    ? pageCount - 1
+    : Math.floor(Math.max(0, start) / viewportSize)
+  return {
+    pageIndex: Math.min(pageCount - 1, Math.max(0, rawPageIndex)),
+    pageCount,
+    pageCountSource: 'scrolled-section',
+  }
+}
+
 function reflowableSectionPagePosition() {
   if (this.view?.isFixedLayout === true) return null
   const renderer = this.view?.renderer
-  if (!renderer || renderer.scrolled) return null
+  if (!renderer) return null
+  if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()
   let page
   let pages
   try {
@@ -1062,6 +1106,8 @@ export const NavicReaderPaginationMethods = {
   reflowablePaginatedTextPageCount,
   reflowableChapterProgressAnchor,
   reflowableLastVisualRendererPage,
+  scrolledRendererViewportSize,
+  reflowableScrolledSectionPagePosition,
   reflowableSectionPagePosition,
   reflowableLocationPagePosition,
   readerPageListPosition,
