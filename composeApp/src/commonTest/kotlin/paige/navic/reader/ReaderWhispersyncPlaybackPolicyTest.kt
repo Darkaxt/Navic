@@ -1,0 +1,115 @@
+package paige.navic.reader
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+
+class ReaderWhispersyncPlaybackPolicyTest {
+	@Test
+	fun visibleRangeSeekTargetBuildsTrackSeekCommandForMatchingAudiobookPlan() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "Audio/chapter02.m4b",
+				positionMs = 42_000L,
+				segment = WhispersyncSegment(
+					audioResource = "Audio/chapter02.m4b",
+					startMs = 42_000L,
+					endMs = 45_000L,
+					textHref = "Text/chapter2.xhtml",
+					textStart = 10,
+					textEnd = 80,
+					label = "Chapter two"
+				)
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(1, seekCommand.trackIndex)
+		assertEquals(42_000L, seekCommand.positionMs)
+	}
+
+	@Test
+	fun absolutePlaybackUrlsCanMatchRelativeWhispersyncAudioResources() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "/opds/books/3816/files/Audio/chapter01.m4b?download=1",
+				positionMs = 7_500L,
+				segment = WhispersyncSegment(
+					audioResource = "/opds/books/3816/files/Audio/chapter01.m4b?download=1",
+					startMs = 7_500L,
+					endMs = 9_000L,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 1,
+					textEnd = 30,
+					label = "Chapter one"
+				)
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(0, seekCommand.trackIndex)
+		assertEquals(7_500L, seekCommand.positionMs)
+	}
+
+	@Test
+	fun unmatchedAudioResourceDoesNotSeekTheAudiobookPlayer() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "Audio/missing.m4b",
+				positionMs = 12_000L,
+				segment = WhispersyncSegment(
+					audioResource = "Audio/missing.m4b",
+					startMs = 12_000L,
+					endMs = 14_000L,
+					textHref = "Text/chapter3.xhtml",
+					textStart = 1,
+					textEnd = 40
+				)
+			)
+		)
+
+		assertNull(command)
+	}
+
+	private fun whispersyncPlaybackPlan(): ReadaloudPlaybackPlan =
+		ReadaloudPlaybackPlan(
+			sessionId = "book-3816",
+			title = "Whispersync Audiobook",
+			kind = ReaderPublicationKind.Readaloud,
+			mediaItems = listOf(
+				ReadaloudMediaItemDescriptor(
+					mediaId = "readaloud:chapter01",
+					uri = "https://bindery.local/opds/books/3816/files/Audio/chapter01.m4b",
+					title = "Chapter 1",
+					subtitle = null,
+					artist = "Narrator",
+					albumTitle = "Whispersync Audiobook",
+					albumArtist = "Author",
+					trackNumber = 1,
+					discNumber = null,
+					requestHeaders = emptyMap(),
+					resourceKey = "Audio/chapter01.m4b"
+				),
+				ReadaloudMediaItemDescriptor(
+					mediaId = "readaloud:chapter02",
+					uri = "https://bindery.local/opds/books/3816/files/Audio/chapter02.m4b",
+					title = "Chapter 2",
+					subtitle = null,
+					artist = "Narrator",
+					albumTitle = "Whispersync Audiobook",
+					albumArtist = "Author",
+					trackNumber = 2,
+					discNumber = null,
+					requestHeaders = emptyMap(),
+					resourceKey = "Audio/chapter02.m4b"
+				)
+			),
+			startTrackIndex = 0,
+			startPositionMs = 0L,
+			playbackSpeed = 1f
+		)
+}

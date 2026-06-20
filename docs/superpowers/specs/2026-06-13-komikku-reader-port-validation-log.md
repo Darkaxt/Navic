@@ -5737,3 +5737,29 @@ Results:
 - GREEN/DEVICE: after reinstalling `darkaxt.navic.readerdev` on `emulator-5554`, `visible-range` returned `OEBPS/Text/Chapter-43.xhtml` with visible offsets `8-8160` and the current range CFI. Logcat confirmed `Reader bridge raw: {"type":"visibleTextRange"...}` and `Reader bridge event: visibleTextRange(OEBPS/Text/Chapter-43.xhtml, 8-8160)`.
 - GREEN/AGGREGATE: the final `:composeApp:testAndroid` gate passed.
 - OPEN: audiobook player consumption of `WhispersyncAudioSeekTarget`, audio-position-to-text highlighting, and release/physical-device validation remain pending.
+
+## 2026-06-20 Whispersync Audiobook Seek Consumer
+
+Scope:
+- Validated GLM's current-progress attachment against the live worktree. Its foundation summary is broadly correct, but its claim that automatic audio seek is still absent is now stale after this slice.
+- Added a controller-owned policy that maps `WhispersyncAudioSeekTarget.audioResource` to a `ReadaloudPlaybackPlan` track and produces `ReaderReadaloudPlaybackCommand.SeekToTrack`.
+- `ReaderScreen` now loads the paired audiobook manifest for Whispersync reader routes, prepares the readaloud playback plan with Bindery headers/resume data, and dispatches the seek command through `AudiobookPlaybackManager` when page-visible text resolves to an audio seek target.
+- This keeps the feature behind the Komikku controller shell and the existing audiobook playback boundary. It does not yet implement live audiobook-position-to-text highlighting.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/POLICY: the new `ReaderWhispersyncPlaybackPolicyTest` failed in the aggregate Android host suite because `readerWhispersyncPlaybackCommandForSeekTarget(...)` did not exist.
+- FIX/POLICY: added `ReaderWhispersyncPlaybackPolicy.kt` with relative/absolute audio resource matching, query/fragment stripping, path suffix matching, and `SeekToTrack` command creation.
+- GREEN/POLICY: rerunning `:composeApp:testAndroid` passed after the policy implementation.
+- RED/BOUNDARY: the new `readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` source guard failed because `ReaderScreen` did not load a Whispersync audiobook playback plan or consume `step.whispersyncAudioSeekTarget`.
+- FIX/BOUNDARY: wired `ReaderScreen` to load the selected audiobook manifest, build the readaloud playback plan, load it into `AudiobookPlaybackManager` without autoplay, and dispatch resolved seek commands on coordinator steps.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- GREEN/HYGIENE: `git diff --check` passed.
+- OPEN: playback position from the audiobook player still needs to feed back into `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)` for live text highlighting; release/physical-device validation is still required before claiming end-to-end Whispersync.

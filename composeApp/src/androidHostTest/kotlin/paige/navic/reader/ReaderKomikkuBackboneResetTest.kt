@@ -1728,6 +1728,34 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary() {
+		val readerScreenText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+
+		assertTrue(
+			readerScreenText.contains("koinInject<AudiobookPlaybackManager>()"),
+			"ReaderScreen must obtain the shared audiobook manager at the app boundary for Whispersync playback."
+		)
+		assertTrue(
+			readerScreenText.contains("binderyAudiobookPlaybackPlan("),
+			"ReaderScreen must load the selected Bindery audiobook into a playback plan for the paired ebook session."
+		)
+		assertTrue(
+			readerScreenText.contains("readerWhispersyncPlaybackCommandForSeekTarget("),
+			"ReaderScreen must resolve controller-owned Whispersync seek targets through the playback policy."
+		)
+		assertTrue(
+			readerScreenText.contains("step.whispersyncAudioSeekTarget"),
+			"ReaderScreen must consume ReaderCoordinatorStep.whispersyncAudioSeekTarget instead of dropping it."
+		)
+		assertTrue(
+			readerScreenText.contains("audiobookPlaybackManager.dispatch(command)"),
+			"ReaderScreen must dispatch resolved Whispersync audio commands through the shared audiobook manager."
+		)
+	}
+
+	@Test
 	fun readerPublicationRuntimeLoadsSavedBinderyProgressBeforeOpeningEngine() {
 		val platformHostsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"

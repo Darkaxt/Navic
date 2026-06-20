@@ -25,6 +25,32 @@ Open an ebook with a selected compatible audiobook, fetch or receive the Bindery
 - Reader progress can already create companion progress for selected audiobook metadata.
 - Storyteller/readaloud media-overlay models already provide reusable audio/text timeline ideas, but Bindery ASR sidecars are a separate artifact class and must keep their own model.
 
+## Implementation Status As Of 2026-06-20
+
+Implemented and covered by source/tests:
+
+- Bindery sidecar parsing and tolerant timeline models.
+- Audio position to text overlay query model.
+- Visible text range to audio seek target query model.
+- Bindery repository sidecar fetch through the metadata cache.
+- Reader route attachment extraction from `Screen.Reader`.
+- Reader startup sidecar fetch and `ReaderCoordinator.loadWhispersyncSidecar(...)`.
+- Foliate visible text range bridge event from rendered documents.
+- Controller/coordinator propagation of `WhispersyncAudioSeekTarget`.
+- Reader-side audiobook manifest loading for paired Whispersync routes.
+- Visible text range seek targets consumed by `ReaderScreen` through `AudiobookPlaybackManager`.
+- Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs.
+
+Important correction to older audits:
+
+- `BinderyWhispersyncMatchesSheet.onOpenSidecar` is still intentionally inert, but it is not the active launch path for paired reading. `BinderyWhispersyncLaunchSheet` builds a `Screen.Reader` with sidecar and audiobook route metadata, and `ReaderScreen` consumes that route to load the sidecar.
+
+Still missing:
+
+- Playback position from the audiobook player is not fed back into `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)` for live text highlighting.
+- No controller-owned sync status or mismatch repair UI exists yet.
+- No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together.
+
 ## Non-Negotiable Guardrails
 
 1. Do not implement Whispersync by adding more UI-only badges or type-only bridge events.
@@ -67,8 +93,7 @@ Missing `documentTextLength` must not make the sidecar unusable. The timeline sh
 ## Deferred Until Reader Shell Gates Pass
 
 - Live playback-to-text highlight loop.
-- Visible range polling through WebView/DevTools.
-- Automatic audio seek when turning pages.
+- Release-device validation of visible range reporting and automatic audio seek when turning pages.
 - UI for sync status or mismatch repair.
 - Release claim that Whispersync is usable end to end.
 
