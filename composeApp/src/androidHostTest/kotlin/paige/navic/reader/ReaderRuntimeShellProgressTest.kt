@@ -202,6 +202,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "renderer.viewSize - renderer.end")
 		assertContains(bridgeText, "renderer.start <= ScrollEdgeTurnSlop")
 		assertContains(bridgeText, "page-turn:edge-swipe")
+		assertContains(bridgeText, "post({ type: 'pullUp', source: 'scrolled-edge-swipe' })")
 		assertEquals(
 			3,
 			Regex("""doc\.addEventListener\('touch(?:start|move|end)'[\s\S]*?\}, \{ capture: true, passive: true \}\)""")

@@ -168,7 +168,7 @@ class ReaderControllerTest {
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false)
 		).controller
 		val footnoteClosed = navigation.onEngineEvent(ReaderEngineEvent.FootnoteClose).controller
-		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp)
+		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp())
 
 		assertEquals(
 			ReaderLinkInteraction.Internal(
@@ -221,6 +221,23 @@ class ReaderControllerTest {
 		)
 		assertTrue(pullUp.controller.state.menuVisible)
 		assertEquals(emptyList(), pullUp.engineCommands)
+	}
+
+	@Test
+	fun scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu() {
+		val controller = ReaderController().onViewerAction(ReaderViewerAction.Menu).controller
+			.onViewerAction(ReaderViewerAction.Menu).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe)
+		)
+
+		assertEquals(
+			ReaderOverlayInteraction.PullUp,
+			step.controller.state.lastOverlayInteraction
+		)
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
 	}
 
 	@Test

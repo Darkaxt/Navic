@@ -164,7 +164,7 @@ sealed class FoliateWebViewEngineAdapter(
 				hidden = event.hidden
 			)
 			ReaderBridgeEvent.FootnoteClose -> ReaderEngineEvent.FootnoteClose
-			ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp
+			is ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp(source = event.source)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(

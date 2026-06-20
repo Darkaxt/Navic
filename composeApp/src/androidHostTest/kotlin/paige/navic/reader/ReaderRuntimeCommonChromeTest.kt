@@ -458,12 +458,8 @@ class ReaderRuntimeCommonChromeTest {
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
-		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3")
+		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 1")
 		assertContains(navigatorText, "if (readerShouldShowChapterProgressSlider(totalPages))")
-		assertFalse(
-			navigatorText.contains("if (totalPages > 1)"),
-			"The shell cover and very short sections should not render a full progress slider; Navic intentionally hides the slider until the chapter has at least three pages."
-		)
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
 		assertContains(navigatorText, "import navic.composeapp.generated.resources.Res")
 		assertContains(navigatorText, "import org.jetbrains.compose.resources.stringResource")

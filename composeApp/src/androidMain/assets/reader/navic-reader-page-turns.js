@@ -1202,7 +1202,7 @@ function turnScrolledEdgePage(deltaY) {
   }
   if (deltaY < -ScrollEdgeTurnSwipeThreshold && atEnd) {
     log('page-turn:edge-swipe', 'next', `remaining=${renderer.viewSize - renderer.end}`)
-    post({ type: 'pullUp' })
+    post({ type: 'pullUp', source: 'scrolled-edge-swipe' })
     void this.nextPage()
     return true
   }

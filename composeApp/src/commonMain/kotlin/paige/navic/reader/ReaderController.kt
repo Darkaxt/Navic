@@ -412,11 +412,15 @@ data class ReaderController(
 					)
 				)
 			)
-			ReaderEngineEvent.PullUp -> ReaderControllerStep(
+			is ReaderEngineEvent.PullUp -> ReaderControllerStep(
 				copy(
 					state = state.copy(
 						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
-						menuVisible = true
+						menuVisible = if (event.source == ReaderPullUpSourceScrolledEdgeSwipe) {
+							state.menuVisible
+						} else {
+							true
+						}
 					)
 				)
 			)

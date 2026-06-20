@@ -5505,3 +5505,31 @@ Results:
 - PASS/DEVICE: after exiting the native shell cover into visible EPUB text, a real ADB upward swipe from `0.50,0.90` to `0.50,0.10` emitted `Reader bridge event: pullUp()`, logged `page-turn:edge-swipe next`, and loaded `OEBPS/Text/Chapter-38.xhtml`.
 - ARTIFACTS: `tmp\readerdev-smoke-negative-fixed-20260620`, `tmp\readerdev-real-pullup-after-cover-exit-20260620`, `tmp\readerdev-after-cover-exit-for-pullup-20260620.png`, and `captures\reader-dev\reader-dev-20260620-141136.png`.
 - OPEN: this proves real scrolled-edge pull-up on dirty readerdev after leaving the native cover. Clean release/physical-device validation is still required before treating this as release-grade.
+
+## 2026-06-20 Scrolled Edge Pull-Up Source Guard
+
+Scope:
+- Reproduced the user-reported regression class where a vertical drag to the next EPUB chapter auto-showed the Komikku menu.
+- The old validation above proved a real `pullUp()` event crossed the bridge, but that event had no source, so the controller treated section-boundary drags the same as Anx's app-bar pull-up gesture.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateEpubEngineAdapterTest" --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeAnxParityCallbacks"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+git diff --check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-resume-interruption-20260620\readerdev-no-start.env -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input tap 1660 1480
+& .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -SwipeFraction @('0.50,0.90,0.50,0.10,450,700','0.50,0.90,0.50,0.10,450,700','0.50,0.90,0.50,0.10,450,1400') -RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)' -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-scrolled-edge-source-20260620
+```
+
+Results:
+- RED/BEFORE: the focused controller guard failed because `ReaderEngineEvent.PullUp` had no source and the controller unconditionally changed `menuVisible` to `true`.
+- ROOT CAUSE: `navic-reader-page-turns.js` emitted the same `pullUp` bridge event for scrolled-edge next-section swipes that Anx uses to reveal the app bars. `ReaderController` could not tell an edge-turn from a menu pull-up.
+- FIX: the scrolled-edge path now emits `{"type":"pullUp","source":"scrolled-edge-swipe"}`; bridge decoding and `FoliateEpubEngineAdapter` preserve the source; `ReaderController` records the `PullUp` interaction but preserves the existing menu state for `scrolled-edge-swipe`.
+- PASS/HOST: focused controller, bridge protocol, and EPUB adapter tests passed. `node --check` passed for `navic-reader-page-turns.js`; `git diff --check` passed.
+- PASS/DEVICE: dirty readerdev on `emulator-5554` launched a real cached EPUB into scrolled mode, exited the native cover, crossed from `OEBPS/Text/Chapter-42.xhtml` to `OEBPS/Text/Chapter-43.xhtml`, and captured `Reader bridge event: pullUp(source=scrolled-edge-swipe)`.
+- PASS/DEVICE: every chrome line around the sourced pull-up stayed `Reader chrome overlay visible=false menu=false shellCover=false dialog=null`; the final screenshot shows Chapter 43 with no top or bottom menu.
+- PASS/DEVICE: the standard smoke gate `-RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)'` passed and stored artifacts in `tmp\readerdev-scrolled-edge-source-20260620`.
+- OPEN: this is dirty-emulator proof for the regression. It should be included in the next release candidate, then repeated on a physical device before closing as release-grade.

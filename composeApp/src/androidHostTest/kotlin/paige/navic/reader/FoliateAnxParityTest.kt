@@ -687,7 +687,7 @@ class FoliateAnxParityTest {
 			ControllerRoute(
 				engineEvent = "PullUp",
 				controllerStateSymbol = "lastOverlayInteraction",
-				noOpBranch = "ReaderEngineEvent.PullUp -> ReaderControllerStep(this)"
+				noOpBranch = "is ReaderEngineEvent.PullUp -> ReaderControllerStep(this)"
 			)
 		)
 

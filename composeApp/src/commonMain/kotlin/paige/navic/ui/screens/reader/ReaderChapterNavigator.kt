@@ -181,7 +181,7 @@ internal fun KomikkuChapterNavigator(
 	}
 }
 
-internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3
+internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 1
 
 internal fun readerPageForVerticalChapterProgressOffset(
 	offsetY: Float,

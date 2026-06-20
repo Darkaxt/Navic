@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+const val ReaderPullUpSourceScrolledEdgeSwipe = "scrolled-edge-swipe"
+
 data class ReaderPublicationIdentity(
 	val bookId: String,
 	val title: String = "",
@@ -145,7 +147,7 @@ sealed interface ReaderEngineEvent {
 		val hidden: Boolean = false
 	) : ReaderEngineEvent
 	data object FootnoteClose : ReaderEngineEvent
-	data object PullUp : ReaderEngineEvent
+	data class PullUp(val source: String? = null) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
 	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent

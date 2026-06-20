@@ -488,7 +488,7 @@ sealed interface ReaderBridgeEvent {
 		val hidden: Boolean = false
 	) : ReaderBridgeEvent
 	data object FootnoteClose : ReaderBridgeEvent
-	data object PullUp : ReaderBridgeEvent
+	data class PullUp(val source: String? = null) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -593,7 +593,9 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				hidden = json.booleanValue("hidden") ?: false
 			)
 			"footnoteClose" -> ReaderBridgeEvent.FootnoteClose
-			"pullUp" -> ReaderBridgeEvent.PullUp
+			"pullUp" -> ReaderBridgeEvent.PullUp(
+				source = json.stringValue("source")
+			)
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(

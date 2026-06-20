@@ -660,9 +660,14 @@ class ReaderBridgeProtocolTest {
 		assertIs<ReaderBridgeEvent.FootnoteClose>(
 			decodeReaderBridgeEvent("""{"type":"footnoteClose"}""")
 		)
-		assertIs<ReaderBridgeEvent.PullUp>(
+		val defaultPullUp = assertIs<ReaderBridgeEvent.PullUp>(
 			decodeReaderBridgeEvent("""{"type":"pullUp"}""")
 		)
+		assertNull(defaultPullUp.source)
+		val scrolledEdgePullUp = assertIs<ReaderBridgeEvent.PullUp>(
+			decodeReaderBridgeEvent("""{"type":"pullUp","source":"$ReaderPullUpSourceScrolledEdgeSwipe"}""")
+		)
+		assertEquals(ReaderPullUpSourceScrolledEdgeSwipe, scrolledEdgePullUp.source)
 	}
 
 	@Test

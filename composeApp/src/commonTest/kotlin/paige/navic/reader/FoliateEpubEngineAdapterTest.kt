@@ -388,8 +388,8 @@ class FoliateEpubEngineAdapterTest {
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.FootnoteClose)
 		)
 		assertEquals(
-			ReaderEngineEvent.PullUp,
-			adapter.onBridgeHostEvent(ReaderBridgeEvent.PullUp)
+			ReaderEngineEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe),
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe))
 		)
 		assertEquals(
 			ReaderEngineEvent.Error(message = "Failed", code = "open"),

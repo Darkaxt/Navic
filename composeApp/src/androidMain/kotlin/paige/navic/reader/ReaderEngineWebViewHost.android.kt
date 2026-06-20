@@ -345,7 +345,7 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 		is ReaderBridgeEvent.PushState -> "pushState(back=$canGoBack, forward=$canGoForward)"
 		is ReaderBridgeEvent.FootnoteOpen -> "footnoteOpen(${href?.engineUrlLabel().orEmpty()}, type=${noteType.orEmpty()})"
 		ReaderBridgeEvent.FootnoteClose -> "footnoteClose()"
-		ReaderBridgeEvent.PullUp -> "pullUp()"
+		is ReaderBridgeEvent.PullUp -> "pullUp(source=${source.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.SearchResults -> "searchResults(count=${results.size})"
