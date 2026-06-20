@@ -5587,3 +5587,27 @@ Results:
 - FIX: parser accepts `segments`, `alignments`, or `clips`; audio ranges in ms or seconds; `audioResource`/`audioHref`/nested `audio.href`; `textHref`/`textResource`/`href`; `rangeCfi`; `fragmentId`; and missing `documentTextLength`.
 - GREEN: rerunning aggregate `:composeApp:testAndroid` first exposed a Kotlin comparator nullability issue in `WhispersyncTimeline.seekTargetForVisibleTextRange`; after fixing the query pipeline, `:composeApp:testAndroid` passed.
 - OPEN: this is domain-layer proof only. Fetching the sidecar from Bindery, wiring the reader/audio coordinator, live text highlighting, and physical-device validation remain future slices.
+
+## 2026-06-20 Whispersync Sync Coordinator Foundation
+
+Scope:
+- Added the first Whispersync coordinator layer behind the Komikku/Anx reader boundary.
+- The new state maps audiobook playback positions to `ReaderEngineCommand.ApplyMediaOverlay`, clears overlays outside active segments, maps visible text ranges to audio seek targets, suppresses repeated seek/overlay loops, and clears active overlays when sync is disabled.
+- No reader shell UI, WebView runtime, Bindery network fetch, release APK, or live playback wiring was changed in this slice.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new `ReaderWhispersyncSyncCoordinatorTest` failed at `compileAndroidHostTest` because `ReaderWhispersyncSyncState` and the sync coordinator methods did not exist.
+- FIX: added `ReaderWhispersyncSyncCoordinator.kt` with `ReaderWhispersyncSyncState`, `ReaderWhispersyncVisibleRangeStep`, playback-position sync, visible-text-range seek targeting, sync toggle behavior, and stable engine-command dispatch keys.
+- GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
+- GREEN/AGGREGATE: the first aggregate `:composeApp:testAndroid` run executed 1500 tests and found one new test-contract issue: disabled sync preserves the last command while using the stable dispatch key to prove no new command should be sent. The test was updated to match the existing readaloud coordinator contract.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- OPEN: this is common/domain coordinator proof only. Bindery sidecar fetch, reader/audio runtime wiring, live highlighting, and clean APK/device validation remain future slices.

@@ -1,0 +1,129 @@
+package paige.navic.reader
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+
+class ReaderWhispersyncSyncCoordinatorTest {
+	@Test
+	fun playbackPositionPublishesReaderOverlayCommandsWithStableDispatchKeys() {
+		val timeline = whispersyncTimeline()
+		val initial = ReaderWhispersyncSyncState()
+
+		val first = initial.onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_500
+		)
+		val firstCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(first.engineCommand)
+		assertEquals("seg-1", firstCommand.fragment.fragmentId)
+		assertEquals("Opening sentence", firstCommand.fragment.label)
+		assertEquals(1L, first.engineCommandKey)
+
+		val duplicate = first.onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "/Audio/chapter01.m4b",
+			positionMs = 2_000
+		)
+		assertEquals(first.engineCommand, duplicate.engineCommand)
+		assertEquals(first.engineCommandKey, duplicate.engineCommandKey)
+
+		val outsideSegment = duplicate.onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 9_500
+		)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideSegment.engineCommand)
+		assertEquals(2L, outsideSegment.engineCommandKey)
+		assertNull(outsideSegment.activeSegmentKey)
+	}
+
+	@Test
+	fun visibleTextRangePublishesSeekTargetAndSuppressesRepeatedSeekLoop() {
+		val timeline = whispersyncTimeline()
+		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_500
+		)
+
+		val seek = active.onVisibleTextRange(
+			timeline = timeline,
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 70,
+			visibleEnd = 125
+		)
+
+		assertEquals("Audio/chapter01.m4b", seek.audioSeekTarget?.audioResource)
+		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
+		val seekCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.state.engineCommand)
+		assertEquals("seg-2", seekCommand.fragment.fragmentId)
+		assertEquals("Second sentence", seekCommand.fragment.label)
+		assertEquals(2L, seek.state.engineCommandKey)
+
+		val repeated = seek.state.onVisibleTextRange(
+			timeline = timeline,
+			textHref = "/Text/chapter1.xhtml",
+			visibleStart = 75,
+			visibleEnd = 115
+		)
+		assertNull(repeated.audioSeekTarget)
+		assertEquals(seek.state.engineCommandKey, repeated.state.engineCommandKey)
+	}
+
+	@Test
+	fun syncTogglePublishesClearOverlayCommandWhenActiveSegmentIsVisible() {
+		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
+			timeline = whispersyncTimeline(),
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_500
+		)
+
+		val disabled = active.setSyncEnabled(false)
+
+		assertEquals(false, disabled.syncEnabled)
+		assertNull(disabled.activeSegmentKey)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, disabled.engineCommand)
+		assertEquals(2L, disabled.engineCommandKey)
+
+		val suppressed = disabled.onAudiobookPlaybackPosition(
+			timeline = whispersyncTimeline(),
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 5_500
+		)
+		assertEquals(disabled.engineCommand, suppressed.engineCommand)
+		assertEquals(disabled.engineCommandKey, suppressed.engineCommandKey)
+		assertEquals(false, suppressed.syncEnabled)
+	}
+
+	private fun whispersyncTimeline(): WhispersyncTimeline =
+		WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "a",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_250,
+					endMs = 3_500,
+					textHref = "Text/chapter1.xhtml",
+					fragmentId = "seg-1",
+					rangeCfi = "epubcfi(/6/2!/4/2,/1:0,/1:32)",
+					textStart = 10,
+					textEnd = 42,
+					label = "Opening sentence"
+				),
+				WhispersyncSegment(
+					id = "b",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 5_000,
+					endMs = 8_000,
+					textHref = "Text/chapter1.xhtml",
+					fragmentId = "seg-2",
+					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+					textStart = 80,
+					textEnd = 140,
+					label = "Second sentence"
+				)
+			)
+		)
+}
