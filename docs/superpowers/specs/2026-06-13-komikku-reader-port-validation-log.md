@@ -5345,3 +5345,36 @@ Results:
 - PASS/TOP ENDPOINT: physical tap at the top rail area dispatched `goToChapterProgress(OEBPS/Text/Chapter-37.xhtml, 0.0)` and bridge state reported `chapterPageIndex=0`, `chapterPageCount=44`, so the UI landed on page `1/44`.
 - ARTIFACTS: `tmp\readerdev-native-rail-20260620\before.png`, `tmp\readerdev-native-rail-20260620\rail-after-bottom-tap.png`, `tmp\readerdev-native-rail-20260620\rail-after-top-tap.png`, and related UI XML/log captures in the same directory.
 - OPEN: this is dirty-emulator proof for the chapter rail endpoint mapping. Clean release/physical-device validation is still required before treating this as release-grade.
+
+## 2026-06-20 eta76 Resume Persistence After Interrupted Drag Validation
+
+Scope:
+- Validated the Priority 0 resume-persistence path on the visible Android emulator after a real page swipe and after an app interruption during a long drag.
+- Targeted the `ReaderProgressSync`/readerdev persisted locator path that Whispersync will depend on.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+adb -s emulator-5554 shell input swipe 1650 1480 300 1480 450
+adb -s emulator-5554 exec-out run-as darkaxt.navic.readerdev cat /data/user/0/darkaxt.navic.readerdev/shared_prefs/darkaxt.navic.readerdev_preferences.xml
+adb -s emulator-5554 shell am force-stop darkaxt.navic.readerdev
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-resume-interruption-20260620\readerdev-no-start.env -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+adb -s emulator-5554 shell input tap 1700 1480
+adb -s emulator-5554 shell input swipe 1650 1480 300 1480 5000
+adb -s emulator-5554 shell am force-stop darkaxt.navic.readerdev
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-resume-interruption-20260620\readerdev-no-start.env -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe relocation-payload
+```
+
+Results:
+- PASS/SETUP: emulator `emulator-5554` was focused on `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS/BASELINE: before moving, the WebView relocation snapshot was `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=0`, `chapterPageCount=44`, `fraction=0.7527669076226654`.
+- PASS/REAL SWIPE: a real ADB swipe moved the reader to `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`.
+- PASS/PERSISTED PREF: `readerReadingProgressJson` stored book `3709`, resource `/opds/books/3709/resources/ebook-08aea0220318ac157c5f`, `textHref=OEBPS/Text/Chapter-37.xhtml`, and `progressFraction=0.7584986058101005`.
+- PASS/NO-OVERRIDE RELAUNCH: after `am force-stop` and relaunching readerdev with the same publication but no `NAVIC_READER_DEV_START_*` override, `publicationReady` fired and the WebView relocation snapshot restored exactly to `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`.
+- PASS/COVER SHELL: relaunch surfaced the native cover without bottom chrome. A right-region tap exited the cover and the WebView remained at the same restored locator instead of returning to the book start.
+- PASS/INTERRUPTED DRAG: a long ADB swipe was started and the app was force-stopped while the gesture was active. Relaunching again with no start override restored the same stable persisted locator: `OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`.
+- ARTIFACTS: `tmp\readerdev-resume-interruption-20260620\before-relocation.json`, `after-real-swipe-relocation.json`, `prefs-before.xml`, `after-relaunch-relocation.json`, `after-cover-exit-relocation.json`, `after-disrupted-drag-relaunch-relocation.json`, and related screenshots/logs in the same directory.
+- OPEN: this is dirty-emulator proof for readerdev `v1.0.11-eta76`. Clean release/physical-device validation is still required before closing the P0 at release grade.
