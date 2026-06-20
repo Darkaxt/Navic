@@ -5895,3 +5895,26 @@ Results:
 - GREEN/FOCUSED: the new precedence test passed.
 - GREEN/REGRESSION: the full `BinderyAudiobookPlayerPolicyTest` class plus `ReaderWhispersyncCompanionProgressSourceTest` passed. The run executed two tasks and reused existing compilation outputs.
 - OPEN: this is host/source proof only. Release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, exact audiobook resume, and mismatch repair remains required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 Whispersync Reader Launch Resume Policy
+
+Scope:
+- Closed the reader-side half of the exact companion-progress path: paired Whispersync reader sessions were still preparing their audiobook playback plan from direct audiobook progress only.
+- Added a pure `binderyAudiobookResumeProgressForWhispersyncReader(...)` policy that reads direct audiobook progress and Whispersync companion progress, converts the newest matching companion entry through the selected audiobook manifest, and selects the newer resume source by `updatedAtMs`.
+- Wired `ReaderScreen` paired Whispersync audiobook-plan creation through the shared policy so opening the ebook side cannot hide newer sidecar-derived audiobook progress behind stale direct audiobook progress.
+- Added a source guard requiring the Whispersync reader launch path to keep using the companion-aware policy.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest.whispersyncReaderResumeProgressUsesNewestDirectOrCompanionStoreEntry --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest.readerScreenLoadsWhispersyncAudiobookPlanWithCompanionAwareResumeProgress
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest
+```
+
+Results:
+- RED: the focused test failed at `compileAndroidHostTest` because `binderyAudiobookResumeProgressForWhispersyncReader(...)` did not exist.
+- FIX: added the companion-aware reader resume helper and replaced `ReaderScreen`'s direct-only `binderyAudiobookSavedProgress(...)` lookup in the Whispersync audiobook playback-plan path.
+- GREEN/FOCUSED: the new policy/source tests passed.
+- GREEN/REGRESSION: the full `BinderyAudiobookPlayerPolicyTest` class plus `ReaderWhispersyncCompanionProgressSourceTest` passed in 11s.
+- `git diff --check` passed.
+- OPEN: this remains host/source proof. Release/device validation of a real paired Bindery sidecar/audiobook session is still required before claiming end-to-end Whispersync usability.

@@ -56,7 +56,7 @@ import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
 import paige.navic.ui.screens.bindery.binderyAudiobookPlaybackPlan
-import paige.navic.ui.screens.bindery.binderyAudiobookSavedProgress
+import paige.navic.ui.screens.bindery.binderyAudiobookResumeProgressForWhispersyncReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
 import paige.navic.ui.navigation.Screen
@@ -338,10 +338,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 					}.fold(
 						onSuccess = { manifest ->
 							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
-							val resumeProgress = binderyAudiobookSavedProgress(
-								json = preferenceManager.binderyAudiobookProgressJson,
+							val resumeProgress = binderyAudiobookResumeProgressForWhispersyncReader(
+								audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
+								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
 								bookId = reader.bookId,
-								versionRowId = attachment.audiobookId
+								versionRowId = attachment.audiobookId,
+								manifest = manifest
 							)
 							val playbackPlan = binderyAudiobookPlaybackPlan(
 								manifest = manifest,

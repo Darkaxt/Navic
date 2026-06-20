@@ -285,6 +285,34 @@ fun binderyAudiobookBestResumeProgress(
 		else -> direct
 	}
 
+fun binderyAudiobookResumeProgressForWhispersyncReader(
+	audiobookProgressJson: String,
+	companionProgressJson: String,
+	bookId: String,
+	versionRowId: String,
+	manifest: BinderyManifest
+): BinderyAudiobookPlaybackProgress? {
+	val direct = binderyAudiobookSavedProgress(
+		json = audiobookProgressJson,
+		bookId = bookId,
+		versionRowId = versionRowId
+	)
+	val companion = binderyWhispersyncCompanionProgressEntries(companionProgressJson)
+		.filter { progress -> progress.bookId == bookId && progress.audiobookId == versionRowId }
+		.maxByOrNull(BinderyWhispersyncCompanionProgress::updatedAtMs)
+		?.let { progress ->
+			binderyAudiobookProgressFromWhispersyncCompanion(
+				progress = progress,
+				manifest = manifest,
+				versionRowId = versionRowId
+			)
+		}
+	return binderyAudiobookBestResumeProgress(
+		direct = direct,
+		companion = companion
+	)
+}
+
 private fun binderyAudiobookExactProgressFromWhispersyncCompanion(
 	progress: BinderyWhispersyncCompanionProgress,
 	audioItems: List<BinderyReadingOrderItem>,
