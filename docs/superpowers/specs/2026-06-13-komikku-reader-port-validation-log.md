@@ -5784,3 +5784,26 @@ Results:
 - FIX: added `audioResource` to `ReaderReadaloudPlaybackUiState`, taught the controller to resolve active Whispersync segments from playback state and emit `ReaderEngineCommand.ApplyMediaOverlay`, and added the `ReaderScreen` bridge from the shared audiobook mini-player state.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - OPEN: this is host-suite proof only. A clean release APK still needs to validate real Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and sync conflict behavior on-device before Whispersync can be called end-to-end usable.
+
+## 2026-06-20 Whispersync Controller Status and Mismatch Badge
+
+Scope:
+- Reviewed GLM's current-progress attachment against the live worktree. The foundation summary is useful, but several "not done" items are stale after the visible-range, audiobook seek, and playback-highlight commits.
+- Added controller-owned Whispersync status state for sidecar-ready, page-visible-range seek, audiobook playback, disabled sync, and mismatch conditions.
+- Added a minimal native Komikku overlay badge only for mismatch status. Ready/playing states remain in controller state and do not add permanent reader chrome.
+- This slice does not implement one-tap mismatch repair and does not claim release/device validation of end-to-end Whispersync.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new controller tests failed at `compileAndroidHostTest` because `ReaderWhispersyncStatus`, `ReaderWhispersyncStatusKind`, and `ReaderWhispersyncSessionState.status` did not exist.
+- FIX: added `ReaderWhispersyncStatus`, status-producing playback and visible-range coordinator steps, ready status on sidecar load, controller propagation, and a mismatch-only `KomikkuWhispersyncStatusBadge`.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- GREEN/FINAL: rerunning `:composeApp:testAndroid` after documentation/formatting updates passed.
+- GREEN/HYGIENE: `git diff --check` passed.
+- OPEN: a clean release APK/device pass is still required before claiming usable end-to-end Whispersync.

@@ -1335,6 +1335,78 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun loadedWhispersyncSidecarExposesControllerOwnedReadyStatus() {
+		val step = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar())
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Ready,
+				label = "Whispersync ready",
+				detail = "2 synced segments"
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
+	fun visibleTextRangeUpdatesWhispersyncStatusWithSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				detail = "Second sentence",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_000L
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
+	fun audiobookPlaybackOutsideTimelineSurfacesWhispersyncMismatchStatus() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Mismatch,
+				label = "Whispersync mismatch",
+				detail = "Audio/chapter99.m4b",
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
 	fun whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller

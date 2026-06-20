@@ -4,7 +4,8 @@ data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
 	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
 	val visibleTextRange: ReaderWhispersyncVisibleTextRange? = null,
-	val audioSeekTarget: WhispersyncAudioSeekTarget? = null
+	val audioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val status: ReaderWhispersyncStatus = ReaderWhispersyncStatus()
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline
@@ -27,9 +28,38 @@ data class ReaderWhispersyncVisibleTextRange(
 	val rangeCfi: String? = null
 )
 
+enum class ReaderWhispersyncStatusKind {
+	Unavailable,
+	Ready,
+	SyncDisabled,
+	SeekingAudio,
+	Playing,
+	Mismatch
+}
+
+data class ReaderWhispersyncStatus(
+	val kind: ReaderWhispersyncStatusKind = ReaderWhispersyncStatusKind.Unavailable,
+	val label: String? = null,
+	val detail: String? = null,
+	val audioResource: String? = null,
+	val positionMs: Long? = null
+) {
+	val visible: Boolean
+		get() = kind != ReaderWhispersyncStatusKind.Unavailable
+
+	val requiresAttention: Boolean
+		get() = kind == ReaderWhispersyncStatusKind.Mismatch
+}
+
 data class ReaderWhispersyncVisibleRangeStep(
 	val state: ReaderWhispersyncSyncState,
-	val audioSeekTarget: WhispersyncAudioSeekTarget? = null
+	val audioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val status: ReaderWhispersyncStatus? = null
+)
+
+data class ReaderWhispersyncPlaybackPositionStep(
+	val state: ReaderWhispersyncSyncState,
+	val status: ReaderWhispersyncStatus? = null
 )
 
 fun ReaderWhispersyncSyncState.setSyncEnabled(enabled: Boolean): ReaderWhispersyncSyncState {
@@ -49,17 +79,58 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPosition(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
 	positionMs: Long
-): ReaderWhispersyncSyncState {
-	if (!syncEnabled || timeline == null) return this
+): ReaderWhispersyncSyncState =
+	onAudiobookPlaybackPositionStep(
+		timeline = timeline,
+		audioResource = audioResource,
+		positionMs = positionMs
+	).state
+
+fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
+	timeline: WhispersyncTimeline?,
+	audioResource: String,
+	positionMs: Long
+): ReaderWhispersyncPlaybackPositionStep {
+	if (!syncEnabled) {
+		return ReaderWhispersyncPlaybackPositionStep(
+			state = this,
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SyncDisabled,
+				label = "Whispersync paused"
+			)
+		)
+	}
+	if (timeline == null) {
+		return ReaderWhispersyncPlaybackPositionStep(state = this)
+	}
 	val segment = timeline.activeSegment(audioResource = audioResource, positionMs = positionMs)
-		?: return clearOverlayIfNeeded()
+		?: return ReaderWhispersyncPlaybackPositionStep(
+			state = clearOverlayIfNeeded(),
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Mismatch,
+				label = "Whispersync mismatch",
+				detail = audioResource,
+				audioResource = audioResource,
+				positionMs = positionMs
+			)
+		)
 	val key = segment.readerOverlaySyncKey()
-	return if (key == activeSegmentKey) {
+	val nextState = if (key == activeSegmentKey) {
 		this
 	} else {
 		copy(activeSegmentKey = key)
 			.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(segment.toReaderOverlayFragment()))
 	}
+	return ReaderWhispersyncPlaybackPositionStep(
+		state = nextState,
+		status = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.Playing,
+			label = "Whispersync playing",
+			detail = segment.label,
+			audioResource = segment.audioResource,
+			positionMs = positionMs
+		)
+	)
 }
 
 fun ReaderWhispersyncSyncState.onVisibleTextRange(
@@ -84,8 +155,28 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 		.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment()))
 	return ReaderWhispersyncVisibleRangeStep(
 		state = nextState,
-		audioSeekTarget = target
+		audioSeekTarget = target,
+		status = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.SeekingAudio,
+			label = "Syncing audiobook",
+			detail = target.segment.label,
+			audioResource = target.audioResource,
+			positionMs = target.positionMs
+		)
 	)
+}
+
+fun readerWhispersyncReadyStatus(timeline: WhispersyncTimeline?): ReaderWhispersyncStatus {
+	val count = timeline?.segments?.size ?: 0
+	return if (count > 0) {
+		ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.Ready,
+			label = "Whispersync ready",
+			detail = "$count synced ${if (count == 1) "segment" else "segments"}"
+		)
+	} else {
+		ReaderWhispersyncStatus()
+	}
 }
 
 private fun ReaderWhispersyncSyncState.clearOverlayIfNeeded(): ReaderWhispersyncSyncState =

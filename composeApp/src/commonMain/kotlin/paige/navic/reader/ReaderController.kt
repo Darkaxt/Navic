@@ -642,7 +642,7 @@ data class ReaderController(
 
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
 		val currentWhispersync = state.whispersync
-		val syncState = playbackState.audioResource
+		val playbackStep = playbackState.audioResource
 			?.takeIf { it.isNotBlank() }
 			?.let { audioResource ->
 				val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
@@ -650,13 +650,13 @@ data class ReaderController(
 				} else {
 					currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
 				}
-				baseSync.onAudiobookPlaybackPosition(
+				baseSync.onAudiobookPlaybackPositionStep(
 					timeline = currentWhispersync.timeline,
 					audioResource = audioResource,
 					positionMs = playbackState.positionMs
 				)
 			}
-			?: currentWhispersync.sync
+		val syncState = playbackStep?.state ?: currentWhispersync.sync
 		val command = syncState.engineCommand
 			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
@@ -665,7 +665,10 @@ data class ReaderController(
 			copy(
 				state = state.copy(
 					chrome = state.chrome.onReadaloudPlaybackState(playbackState),
-					whispersync = currentWhispersync.copy(sync = syncState),
+					whispersync = currentWhispersync.copy(
+						sync = syncState,
+						status = playbackStep?.status ?: currentWhispersync.status
+					),
 					activeMediaOverlay = when {
 						overlayFragment != null -> overlayFragment
 						shouldClearOverlay -> null
@@ -686,7 +689,10 @@ data class ReaderController(
 		ReaderControllerStep(
 			copy(
 				state = state.copy(
-					whispersync = ReaderWhispersyncSessionState(sidecar = sidecar)
+					whispersync = ReaderWhispersyncSessionState(
+						sidecar = sidecar,
+						status = readerWhispersyncReadyStatus(sidecar.timeline)
+					)
 				)
 			)
 		)
@@ -715,7 +721,8 @@ data class ReaderController(
 					whispersync = currentWhispersync.copy(
 						sync = syncStep.state,
 						visibleTextRange = visibleRange,
-						audioSeekTarget = syncStep.audioSeekTarget
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
 					),
 					activeMediaOverlay = when {
 						overlayFragment != null -> overlayFragment

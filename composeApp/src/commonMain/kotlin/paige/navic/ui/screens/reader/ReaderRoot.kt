@@ -203,6 +203,7 @@ private fun ReaderControllerState.hasVisibleReaderOverlay(): Boolean =
 		footnotePopup != null ||
 		externalLinkPrompt != null ||
 		engineNavigation.visible ||
+		whispersync.status.requiresAttention ||
 		paginationProfile.status == "measuring" ||
 		paginationProfile.status == "failed"
 
@@ -315,6 +316,12 @@ private fun KomikkuComposeOverlay(
 				modifier = Modifier
 					.align(Alignment.BottomCenter)
 					.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
+			)
+			KomikkuWhispersyncStatusBadge(
+				status = controllerState.whispersync.status,
+				modifier = Modifier
+					.align(Alignment.BottomCenter)
+					.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)
 			)
 		}
 		when (controllerState.dialog) {

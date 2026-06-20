@@ -42,6 +42,8 @@ Implemented and covered by source/tests:
 - Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs.
 - Audiobook playback state fed back into `ReaderController.onReadaloudPlaybackState(...)` for Whispersync overlay/highlight commands.
 - Playback-position to text overlay matching through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`.
+- Controller-owned Whispersync status state for ready, page-to-audio seek, audiobook playback, paused sync, and mismatch states.
+- Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.
 
 Important correction to older audits:
 
@@ -49,7 +51,7 @@ Important correction to older audits:
 
 Still missing:
 
-- No controller-owned sync status or mismatch repair UI exists yet.
+- No one-tap mismatch repair action exists yet; the current implementation surfaces mismatch state but does not resolve it automatically.
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
 
 ## Non-Negotiable Guardrails
