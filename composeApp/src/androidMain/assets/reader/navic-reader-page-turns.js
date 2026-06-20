@@ -296,6 +296,36 @@ function adjacentReadableSectionIndex(direction) {
   return null
 }
 
+function handleDuplicatePageTurnRelocation(_detail, reason) {
+  const reasonText = String(reason || '')
+  if (!reasonText.startsWith('page-turn:')) return false
+  if (this.pageTurnDuplicateFallbackInProgress) return false
+  const direction = reasonText.includes(':previous') ? 'previous' : 'next'
+  const targetIndex = this.adjacentReadableSectionIndex(direction)
+  const currentIndex = this.currentLoadedSectionIndex()
+  if (targetIndex == null || targetIndex === currentIndex) return false
+  const fallbackReason = `page-turn:${direction}:adjacent`
+  log('page-turn:duplicate-adjacent-fallback', direction, `from=${currentIndex ?? 'n/a'}`, `to=${targetIndex}`)
+  readerTrace('page-turn:duplicate-adjacent-fallback', {
+    direction,
+    currentIndex,
+    targetIndex,
+    reason: reasonText,
+  })
+  this.pageTurnDuplicateFallbackInProgress = true
+  this.beginControlledRelocation(fallbackReason)
+  const navigationPromise = this.view?.renderer?.goTo
+    ? this.view.renderer.goTo({ index: targetIndex })
+    : this.view?.goTo?.(targetIndex)
+  Promise.resolve(navigationPromise)
+    .catch(error => reportError(error, 'navigation_failed'))
+    .finally(() => {
+      this.pageTurnDuplicateFallbackInProgress = false
+    })
+  this.scheduleControlledRelocationFallback(fallbackReason)
+  return true
+}
+
 function nativeDragPreviewAtSectionBoundary(renderer, direction) {
   if (!renderer || renderer.scrolled) return false
   const page = Number(renderer.page)
@@ -1170,6 +1200,7 @@ export const NavicReaderPageTurnMethods = {
   previousPage,
   currentLoadedSectionIndex,
   adjacentReadableSectionIndex,
+  handleDuplicatePageTurnRelocation,
   nativeDragPreviewAtSectionBoundary,
   readerRendererReadyForPageDrag,
   safeNativeDragPreviewAtSectionBoundary,

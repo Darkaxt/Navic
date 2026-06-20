@@ -889,10 +889,27 @@ function detailSectionKey(detail) {
 function committedPageTurnPosition(pagePosition, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+  const chapterPageCount = Number(pagePosition.chapterPageCount)
+  const chapterPageIndex = Number(pagePosition.chapterPageIndex)
+  if (
+    pagePosition.pageCountSource === 'pagination-profile' &&
+    Number.isFinite(chapterPageCount) &&
+    chapterPageCount <= 1 &&
+    (!Number.isFinite(chapterPageIndex) || chapterPageIndex <= 0)
+  ) {
+    return pagePosition
+  }
   const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
   const candidatePageIndex = Number(pagePosition.pageIndex)
   const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
   if (!Number.isFinite(currentPageIndex) || !Number.isFinite(candidatePageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) {
+    return pagePosition
+  }
+  if (
+    pagePosition.pageCountSource === 'pagination-profile' &&
+    this.currentPagePosition?.pageCountSource === 'pagination-profile' &&
+    candidatePageIndex === currentPageIndex
+  ) {
     return pagePosition
   }
   const direction = String(reason).includes(':previous') ? 'previous' : 'next'

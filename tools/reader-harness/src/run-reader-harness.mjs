@@ -477,8 +477,25 @@ if (mode === 'pagination-profile-logic') {
     location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
   }
   const helpers = await import(`${pathToFileURL(readerHelpers).href}?pagination-profile-logic=${Date.now()}`)
+  const paginationModule = await import(
+    `${pathToFileURL(path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-pagination.js')).href}?` +
+    `pagination-profile-logic=${Date.now()}`
+  )
+  const pageTurnModule = await import(
+    `${pathToFileURL(path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js')).href}?` +
+    `pagination-profile-logic=${Date.now()}`
+  )
   if (typeof helpers.readerPaginationFingerprint !== 'function') {
     throw new Error('readerPaginationFingerprint helper is not exported')
+  }
+  const committedPageTurnPosition = paginationModule.NavicReaderPaginationMethods?.committedPageTurnPosition
+  if (typeof committedPageTurnPosition !== 'function') {
+    throw new Error('committedPageTurnPosition helper is not exported')
+  }
+  const handleDuplicatePageTurnRelocation =
+    pageTurnModule.NavicReaderPageTurnMethods?.handleDuplicatePageTurnRelocation
+  if (typeof handleDuplicatePageTurnRelocation !== 'function') {
+    throw new Error('handleDuplicatePageTurnRelocation helper is not exported')
   }
   if (typeof helpers.readerBuildPaginationProfile !== 'function') {
     throw new Error('readerBuildPaginationProfile helper is not exported')
@@ -609,6 +626,103 @@ if (mode === 'pagination-profile-logic') {
     throw new Error(
       'expected current spine index to outrank a stale but matching previous href for chapter rail endpoints, got ' +
         JSON.stringify(chapter14WithStaleMatchingHref)
+    )
+  }
+  const onePageSectionAfterTap = committedPageTurnPosition.call(
+    {
+      currentPagePosition: {
+        pageIndex: 4,
+        pageCount: 388,
+        pageCountSource: 'pagination-profile',
+        chapterPageIndex: 0,
+        chapterPageCount: 1,
+      },
+    },
+    {
+      pageIndex: 3,
+      pageCount: 388,
+      pageCountSource: 'pagination-profile',
+      chapterPageIndex: 0,
+      chapterPageCount: 1,
+    },
+    'page-turn:next'
+  )
+  if (onePageSectionAfterTap?.pageIndex !== 3) {
+    throw new Error(
+      'expected page-turn override to leave a one-page section candidate unchanged; got ' +
+        JSON.stringify(onePageSectionAfterTap)
+    )
+  }
+  const unchangedProfileCandidateAfterTap = committedPageTurnPosition.call(
+    {
+      currentPagePosition: {
+        pageIndex: 2,
+        pageCount: 388,
+        pageCountSource: 'pagination-profile',
+        chapterPageIndex: 0,
+        chapterPageCount: 1,
+      },
+    },
+    {
+      pageIndex: 2,
+      pageCount: 388,
+      pageCountSource: 'pagination-profile',
+    },
+    'page-turn:next'
+  )
+  if (unchangedProfileCandidateAfterTap?.pageIndex !== 2) {
+    throw new Error(
+      'expected page-turn override to leave an unchanged pagination-profile candidate unchanged; got ' +
+        JSON.stringify(unchangedProfileCandidateAfterTap)
+    )
+  }
+  let duplicateFallbackTarget = null
+  let duplicateFallbackReason = null
+  let duplicateFallbackScheduledReason = null
+  const duplicateFallbackHandled = handleDuplicatePageTurnRelocation.call(
+    {
+      view: {
+        book: {
+          sections: [
+            { href: 'cover.xhtml' },
+            { href: 'title-1.xhtml' },
+            { href: 'title-2.xhtml' },
+            { href: 'title-3.xhtml' },
+            { href: 'stalled-title.xhtml' },
+            { href: 'chapter-1.xhtml' },
+          ],
+        },
+        renderer: {
+          getContents: () => [{ index: 4 }],
+          goTo: target => {
+            duplicateFallbackTarget = target
+            return Promise.resolve()
+          },
+        },
+      },
+      sectionTargetsCover: (_section, index) => index === 0,
+      currentLoadedSectionIndex: pageTurnModule.NavicReaderPageTurnMethods.currentLoadedSectionIndex,
+      adjacentReadableSectionIndex: pageTurnModule.NavicReaderPageTurnMethods.adjacentReadableSectionIndex,
+      beginControlledRelocation: reason => {
+        duplicateFallbackReason = reason
+      },
+      scheduleControlledRelocationFallback: reason => {
+        duplicateFallbackScheduledReason = reason
+      },
+    },
+    { index: 4 },
+    'page-turn:next'
+  )
+  if (!duplicateFallbackHandled || duplicateFallbackTarget?.index !== 5) {
+    throw new Error(
+      'expected duplicate page-turn relocation to fall back to adjacent readable section 5; got ' +
+        JSON.stringify({ duplicateFallbackHandled, duplicateFallbackTarget })
+    )
+  }
+  if (duplicateFallbackReason !== 'page-turn:next:adjacent' || duplicateFallbackScheduledReason !== 'page-turn:next:adjacent') {
+    throw new Error(
+      'expected duplicate page-turn relocation to use adjacent controlled relocation reason; got ' +
+        JSON.stringify({ duplicateFallbackReason, duplicateFallbackScheduledReason })
     )
   }
 

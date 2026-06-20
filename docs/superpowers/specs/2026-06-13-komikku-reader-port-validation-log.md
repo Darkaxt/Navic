@@ -4992,3 +4992,67 @@ Results:
 - PASS: the full `:composeApp:testAndroidHostTest` suite completed with `BUILD SUCCESSFUL in 33s` after the registry correction.
 - PASS/ADB: after emulator recovery, `adb devices -l` reports `emulator-5554 device`.
 - OPEN: full runtime reader behavior validation is not yet rerun on the fresh emulator; the emulator is online and ready for that next gate.
+
+## 2026-06-20 eta76 Readerdev Runtime Matrix
+
+Scope:
+- Rebuilt and installed the current `readerDev` variant on the recovered `NavicReaderLab` emulator.
+- Validated that the emulator path can launch a real Bindery EPUB without the old empty/popup-only state.
+- Ran the Komikku reader matrix against the installed readerdev package.
+
+Validation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot tmp\readerdev-runtime-validation-current\matrix-artifacts
+node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest
+```
+
+Results:
+- PASS/INSTALL: `:androidApp:assembleReaderDev` completed with `BUILD SUCCESSFUL in 5m 24s`; install returned `Success`.
+- PASS/LAUNCH: `darkaxt.navic.readerdev` focused `paige.navic.androidApp.MainActivity` and emitted `publicationReady`.
+- PASS/CAPTURE: screenshot pulled to `captures\reader-dev\reader-dev-20260620-071239.png`; it shows the loaded EPUB cover for `A Memory of Light`.
+- PASS/MATRIX: baseline reader, native cover, cover center tap, cover drag next, center tap toggle, native long press, edge tap next, drag next, edge tap previous, drag previous, and texture previous walk ran.
+- FAIL/MATRIX: `texture-next-walk` failed because `reader-texture-diagnostics.log` contained `surface-texture-update` entries but no moved `surface-texture-scroll` samples with `delta=`/`dir=`.
+- ROOT CAUSE: `texture-next-walk` advanced page labels from `3/388` through `14/388` while `href=OEBPS/Text/TitlePage-01.xhtml`, `rangeCfi=epubcfi(/6/10!/4/2/2,,/2)`, and `chapterPageCount=1` stayed unchanged. `committedPageTurnPosition` was synthesizing `currentPageIndex + 1` for a one-page pagination-profile section even though Foliate had not moved the renderer.
+- FIX: `committedPageTurnPosition` now trusts pagination-profile candidates for one-page sections instead of synthesizing additional global pages.
+- PASS/TDD: `pagination-profile-logic` first failed with `expected page-turn override to leave a one-page section candidate unchanged; got {"pageIndex":5,...}` and passed after the fix.
+- PASS: `node --check` passed for `navic-reader-pagination.js` and `run-reader-harness.mjs`.
+- PASS: focused `ReaderRuntimeNavigationFlowTest` completed with `BUILD SUCCESSFUL in 31s`.
+- OPEN: rebuild/reinstall readerdev and rerun the Komikku matrix to confirm the runtime `texture-next-walk` failure is fixed on the emulator.
+
+## 2026-06-20 eta76 Adjacent Section Runtime Fix
+
+Scope:
+- Continued the eta76 emulator validation after the one-page pagination-profile fix.
+- Targeted the remaining `texture-next-walk` failure without adding another blind texture workaround.
+- Verified the fix against the recovered visible `NavicReaderLab` emulator.
+
+Validation:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot tmp\readerdev-runtime-validation-after-adjacent-fallback\matrix-artifacts
+```
+
+Results:
+- FAIL/TDD: the new harness check initially failed with `handleDuplicatePageTurnRelocation helper is not exported`.
+- ROOT CAUSE: after the one-page page-label fix, real emulator logs showed native right taps dispatching `nextPage`, but Foliate emitted a duplicate `page-turn:next` relocation for the same frontmatter section. The previous code suppressed the duplicate and never crossed into the next readable section.
+- FIX: added `handleDuplicatePageTurnRelocation` in `navic-reader-page-turns.js` and called it from the duplicate-location branch in `navic-reader-location.js`. For `page-turn:*` duplicates only, it moves to `adjacentReadableSectionIndex(direction)` with a `page-turn:<direction>:adjacent` controlled-relocation reason.
+- PASS/TDD: `pagination-profile-logic` now passes and logs `page-turn:duplicate-adjacent-fallback next from=4 to=5` in the synthetic regression.
+- PASS: `node --check` passed for `navic-reader-page-turns.js`, `navic-reader-location.js`, and `run-reader-harness.mjs`.
+- PASS: focused `ReaderRuntimeNavigationFlowTest` completed with `BUILD SUCCESSFUL in 13s`.
+- PASS/INSTALL: readerdev reinstalled on `emulator-5554`; `publicationReady` was observed and screenshot pulled to `captures\reader-dev\reader-dev-20260620-074555.png`.
+- PASS/MATRIX: `scripts\adb-reader-komikku-matrix.ps1` completed with exit code `0` for baseline reader, native cover, cover center tap, cover drag next, center tap toggle, native long press, edge taps, drag next/previous, and texture next/previous walks.
+- PASS/RUNTIME: `texture-next-walk` diagnostics now include `textureScrollLines=7`, `textureUpdateLines=12`, `textureHasDelta=True`, `textureHasDirection=True`, `textureDirectionSamples=7`, and `wrongTextureDirection=False`.
+- PASS/RUNTIME: `texture-previous-walk` diagnostics now include `textureScrollLines=7`, `textureUpdateLines=4`, `textureHasDelta=True`, `textureHasDirection=True`, `textureDirectionSamples=7`, and `wrongTextureDirection=False`.
+- PASS/RUNTIME: emulator logs show the actual boundary fallback firing and posting real bridge locations, for example `page-turn:duplicate-adjacent-fallback next from=4 to=5` followed by `locationChanged(... reason=page-turn:next:adjacent ...)`.
+- CURRENT STATE: the recovered emulator is usable, `darkaxt.navic.readerdev` is installed at `versionName=v1.0.11-eta76`, and the documented runtime matrix is green for this slice.

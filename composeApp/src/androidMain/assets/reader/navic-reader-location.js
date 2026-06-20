@@ -94,6 +94,10 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   if (locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost) {
     log('location-changed:duplicate-skipped', reason)
     readerTrace('location:duplicate-skipped', { reason, message })
+    const duplicateHandled = this.handleDuplicatePageTurnRelocation?.(detail, reason)
+    if (duplicateHandled) {
+      return { posted: false, skipped: 'duplicate-adjacent-fallback', reason }
+    }
     return { posted: false, skipped: 'duplicate', reason }
   }
   this.updateSurfacePaperTexture(detail, pagePosition)
