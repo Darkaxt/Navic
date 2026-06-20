@@ -167,6 +167,7 @@ data class ReaderControllerState(
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
 	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
+	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,
@@ -256,6 +257,7 @@ data class ReaderController(
 					selection = null,
 					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
+					whispersync = ReaderWhispersyncSessionState(),
 					lastContentActionClaim = null
 				)
 			),
@@ -641,6 +643,15 @@ data class ReaderController(
 			copy(
 				state = state.copy(
 					chrome = state.chrome.onReadaloudPlaybackState(playbackState)
+				)
+			)
+		)
+
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					whispersync = ReaderWhispersyncSessionState(sidecar = sidecar)
 				)
 			)
 		)

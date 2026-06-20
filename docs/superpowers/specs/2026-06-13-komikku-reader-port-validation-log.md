@@ -5636,3 +5636,25 @@ Results:
 - FIX: extended `decodeWhispersyncSidecar` to accept canonical cached `timeline.segments` in addition to Bindery-style root-level `segments`, `alignments`, or `clips`.
 - GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
 - OPEN: this is repository/cache proof only. The sidecar is still not selected from concrete OPDS links, connected to the audiobook player, or validated in a clean APK/device flow.
+
+## 2026-06-20 Whispersync Controller Timeline Attachment
+
+Scope:
+- Attached parsed Whispersync sidecars to the reader controller/coordinator state so later sync work can consume the timeline through the Komikku controller path.
+- Opening a new publication now clears stale Whispersync state together with the existing reader-session state.
+- This slice intentionally does not issue WebView commands, start playback sync, add live highlights, or add UI.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the new `whispersyncSidecarLoadsIntoControllerWithoutTouchingEngine` and `openingNewPublicationClearsWhispersyncSidecar` tests failed at `compileAndroidHostTest` because `ReaderCoordinator.loadWhispersyncSidecar`, controller Whispersync state, and `ReaderWhispersyncSessionState` did not exist.
+- FIX: added `ReaderWhispersyncSessionState`, stored it in `ReaderControllerState`, reset it on publication open, and exposed controller/coordinator `loadWhispersyncSidecar(sidecar)` without engine commands.
+- GREEN/COMPILE: rerunning `:composeApp:compileAndroidHostTest` passed.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed.
+- OPEN: this is controller-state proof only. The repository sidecar still needs to be selected from a concrete reader launch path and connected to the audiobook player before live Whispersync behavior exists.

@@ -81,6 +81,9 @@ data class ReaderCoordinator(
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderCoordinatorStep =
 		applyControllerStep(controller.onReadaloudPlaybackState(playbackState))
 
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderCoordinatorStep =
+		applyControllerStep(controller.loadWhispersyncSidecar(sidecar))
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 

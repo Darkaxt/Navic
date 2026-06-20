@@ -151,6 +151,40 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun whispersyncSidecarLoadsIntoControllerWithoutTouchingEngine() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val sidecar = testWhispersyncSidecar()
+
+		val step = opened.loadWhispersyncSidecar(sidecar)
+
+		assertEquals(sidecar, step.coordinator.controller.state.whispersync.sidecar)
+		assertEquals(sidecar.timeline, step.coordinator.controller.state.whispersync.timeline)
+		assertTrue(step.coordinator.controller.state.whispersync.available)
+		assertEquals(opened.viewState, step.coordinator.viewState)
+	}
+
+	@Test
+	fun openingNewPublicationClearsWhispersyncSidecar() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val synced = opened.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+
+		val reopened = synced.open(
+			hobbitOpenRequest().copy(
+				publication = ReaderPublicationIdentity(
+					bookId = "book-2",
+					title = "Second Book",
+					resourceHref = "second.epub",
+					kind = ReaderPublicationKind.Ebook,
+					format = ReaderPublicationFormat.Epub
+				),
+				url = "https://appassets.androidplatform.net/reader-cache/book-2/second.epub"
+			)
+		)
+
+		assertEquals(ReaderWhispersyncSessionState(), reopened.coordinator.controller.state.whispersync)
+	}
+
+	@Test
 	fun annotationPopupDismissalIsControllerOwnedAndDoesNotTouchTheEngine() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val annotated = opened.onEngineEvent(
@@ -640,4 +674,25 @@ class ReaderCoordinatorTest {
 
 	private fun ReaderCoordinator.onFoliateHostEvent(event: ReaderBridgeEvent): ReaderCoordinatorStep =
 		onEngineHostEvent(ReaderEngineHostEvent.FoliateBridge(event))
+
+	private fun testWhispersyncSidecar(): WhispersyncSidecar =
+		WhispersyncSidecar(
+			artifactId = "artifact-3",
+			ebookBookFileId = "3913",
+			audiobookBookFileId = "694",
+			timeline = WhispersyncTimeline(
+				segments = listOf(
+					WhispersyncSegment(
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 1_250,
+						endMs = 3_500,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-1",
+						textStart = 10,
+						textEnd = 42,
+						label = "Opening"
+					)
+				)
+			)
+		)
 }

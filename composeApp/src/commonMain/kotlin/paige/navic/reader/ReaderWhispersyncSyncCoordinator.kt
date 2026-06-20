@@ -1,5 +1,16 @@
 package paige.navic.reader
 
+data class ReaderWhispersyncSessionState(
+	val sidecar: WhispersyncSidecar? = null,
+	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState()
+) {
+	val timeline: WhispersyncTimeline?
+		get() = sidecar?.timeline
+
+	val available: Boolean
+		get() = timeline?.segments?.isNotEmpty() == true
+}
+
 data class ReaderWhispersyncSyncState(
 	val syncEnabled: Boolean = true,
 	val activeSegmentKey: String? = null,
