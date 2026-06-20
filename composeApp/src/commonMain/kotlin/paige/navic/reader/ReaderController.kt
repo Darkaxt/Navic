@@ -533,6 +533,12 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
 		)
 
+	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderControllerStep =
+		navigateToSavedMark(bookmark.toLocator())
+
+	fun navigateToAnnotation(annotation: ReaderAnnotation): ReaderControllerStep =
+		navigateToSavedMark(annotation.toLocator())
+
 	fun navigateToChapterPage(pageIndex: Int): ReaderControllerStep {
 		val chapter = state.chapterProgress
 		val href = chapter.href?.takeIf { it.isNotBlank() }
@@ -603,6 +609,17 @@ data class ReaderController(
 			?: return ReaderControllerStep(this)
 		return navigateTo(ReaderLocator(href = targetHref))
 	}
+
+	private fun navigateToSavedMark(locator: ReaderLocator): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					dialog = null,
+					menuVisible = true
+				)
+			),
+			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
+		)
 
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
 		ReaderControllerStep(

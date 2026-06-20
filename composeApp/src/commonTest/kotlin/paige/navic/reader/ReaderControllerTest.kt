@@ -945,6 +945,68 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun savedBookmarkNavigationIsControllerOwned() {
+		val bookmark = ReaderBookmark(
+			id = "book-1|epubcfi(/6/8!/4/1:0)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			href = " chapter-01.xhtml ",
+			cfi = " epubcfi(/6/8!/4/1:0) ",
+			progress = 0.24,
+			sectionTitle = "Chapter 1"
+		)
+
+		val step = ReaderController()
+			.openContentsDialog().controller
+			.navigateToBookmark(bookmark)
+
+		assertNull(step.controller.state.dialog)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					)
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
+	fun savedAnnotationNavigationIsControllerOwned() {
+		val annotation = ReaderAnnotation(
+			id = "book-1|epubcfi(/6/8!/4/1:12)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			href = " chapter-01.xhtml ",
+			cfi = " epubcfi(/6/8!/4/1:12) ",
+			text = "The note sentence",
+			note = "Remember this later",
+			sectionTitle = "Chapter 1"
+		)
+
+		val step = ReaderController()
+			.openContentsDialog().controller
+			.navigateToAnnotation(annotation)
+
+		assertNull(step.controller.state.dialog)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:12)"
+					)
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
 	fun navigateToIsControllerOwnedAndForwardedAsEngineCapability() {
 		val locator = ReaderLocator(progress = 0.42)
 

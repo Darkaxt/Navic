@@ -99,6 +99,37 @@ class ReaderViewerTest {
 	}
 
 	@Test
+	fun readerContentsDialogSurfacesSavedMarksThroughControllerRoutes() {
+		val contentsSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderContentsDialog.kt").readText()
+		val rootSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+
+		assertTrue(
+			contentsSource.contains("ReaderContentsTab.Bookmarks"),
+			"Reader contents must expose saved bookmarks, not only table-of-contents entries."
+		)
+		assertTrue(
+			contentsSource.contains("ReaderContentsTab.Notes"),
+			"Reader contents must expose saved highlights and notes so annotations are discoverable later."
+		)
+		assertTrue(
+			contentsSource.contains("onNavigateToBookmark(bookmark)") &&
+				contentsSource.contains("onNavigateToAnnotation(annotation)"),
+			"Saved mark rows must route through explicit controller callbacks."
+		)
+		assertTrue(
+			rootSource.contains("controllerState.bookmarks.bookmarksForBook(bookId)") &&
+				rootSource.contains("controllerState.annotations.annotationsForBook(bookId)"),
+			"ReaderRoot must filter saved marks to the current book before showing them in the contents sheet."
+		)
+		assertTrue(
+			screenSource.contains("coordinator.navigateToBookmark(bookmark)") &&
+				screenSource.contains("coordinator.navigateToAnnotation(annotation)"),
+			"Saved mark navigation must be controller-owned, not a WebView-only side effect."
+		)
+	}
+
+	@Test
 	fun komikkuReaderChromeDoesNotKeepDeadIconButtons() {
 		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
 

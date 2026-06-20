@@ -10,6 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import paige.navic.reader.ReaderAnnotation
+import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineHostEvent
@@ -54,6 +56,8 @@ internal fun KomikkuReaderRoot(
 	onShowMenus: () -> Unit,
 	onHideMenus: () -> Unit,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
+	onNavigateToBookmark: (ReaderBookmark) -> Unit,
+	onNavigateToAnnotation: (ReaderAnnotation) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onHighlightSelection: () -> Unit,
 	onCopySelection: (String) -> Unit,
@@ -178,6 +182,8 @@ internal fun KomikkuReaderRoot(
 						onSettingsChange = onSettingsChange,
 						onSettingsScopeChange = onSettingsScopeChange,
 						onResetBookSettings = onResetBookSettings,
+						onNavigateToBookmark = onNavigateToBookmark,
+						onNavigateToAnnotation = onNavigateToAnnotation,
 						onDismissDialog = onDismissDialog,
 						modifier = Modifier.matchParentSize()
 					)
@@ -231,6 +237,8 @@ private fun KomikkuComposeOverlay(
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
+	onNavigateToBookmark: (ReaderBookmark) -> Unit,
+	onNavigateToAnnotation: (ReaderAnnotation) -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
 	onHighlightSelection: () -> Unit,
 	onCopySelection: (String) -> Unit,
@@ -247,6 +255,18 @@ private fun KomikkuComposeOverlay(
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val bookId = controllerState.publication?.bookId
+	val bookmarks = if (bookId == null) {
+		emptyList()
+	} else {
+		controllerState.bookmarks.bookmarksForBook(bookId)
+	}
+	val annotations = if (bookId == null) {
+		emptyList()
+	} else {
+		controllerState.annotations.annotationsForBook(bookId)
+	}
+
 	Box(modifier = modifier) {
 		KomikkuReaderContentOverlay(
 			brightness = -(controllerState.chrome.settings.dimOverlayPercent ?: 0),
@@ -299,7 +319,11 @@ private fun KomikkuComposeOverlay(
 		when (controllerState.dialog) {
 			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(
 				toc = controllerState.toc,
+				bookmarks = bookmarks,
+				annotations = annotations,
 				onNavigateTo = onNavigateToTocItem,
+				onNavigateToBookmark = onNavigateToBookmark,
+				onNavigateToAnnotation = onNavigateToAnnotation,
 				onDismissRequest = onDismissDialog
 			)
 			ReaderControllerDialog.Settings -> KomikkuReaderSettingsDialog(

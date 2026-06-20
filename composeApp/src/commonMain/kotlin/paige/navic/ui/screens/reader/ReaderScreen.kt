@@ -376,6 +376,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 				applyCoordinatorStep(navigateStep.coordinator.closeDialog())
 			}
 		},
+		onNavigateToBookmark = { bookmark ->
+			applyCoordinatorStep(coordinator.navigateToBookmark(bookmark))
+		},
+		onNavigateToAnnotation = { annotation ->
+			applyCoordinatorStep(coordinator.navigateToAnnotation(annotation))
+		},
 		onToggleCurrentBookmark = {
 			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
 		},

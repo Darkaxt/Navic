@@ -4437,3 +4437,61 @@ Results:
 - PASS: post-rebase focused reader host run completed with `BUILD SUCCESSFUL in 7m 34s`.
 - PASS: the focused run covered the reader mark persistence test, the source guard for seeding/persisting marks outside WebView, and the Komikku backbone reset guards touched by `ReaderRoot.kt`.
 - NOTE: Kotlin again printed the existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.
+
+## 2026-06-19 Emulator Weird-Screen Recheck 3
+
+Scope:
+- Rechecked the current emulator report that the reader looked blank with only a popup.
+- Avoided Bindery navigation because server maintenance may interrupt remote book loading.
+
+Validation:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+adb -s emulator-5554 shell dumpsys window
+adb -s emulator-5554 shell screencap -p /sdcard/navic_current.png
+adb -s emulator-5554 pull /sdcard/navic_current.png captures\emulator-current-screen\screen.png
+node tools\reader-harness\src\adb-webview-eval.mjs --probe visible-page-content
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic_ui.xml
+adb -s emulator-5554 pull /sdcard/navic_ui.xml captures\emulator-current-screen\ui.xml
+```
+
+Results:
+- PASS: emulator focus is `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- PASS: installed emulator build is still `v1.0.11-eta76`, `lastUpdateTime=2026-06-19 17:51:16`.
+- PASS: `captures\emulator-current-screen\screen.png` shows rendered prose text behind the overlays.
+- PASS: DevTools `visible-page-content` reports `rendererPage=44`, `rendererPages=47`, `visibleTextLength=235916`, and visible text beginning `CHAPTER 37 The Last Battle`.
+- PASS: UI hierarchy contains the text nodes and confirms the active overlay labels `Highlight`, `Copy`, `Note`, plus Android/WebView's native `Copy`, `Share`, `Select all`, and `Read aloud`.
+- FAIL/OPEN on eta76: the installed build still has overlapping native selection chrome and the old arrow/X history capsule. Current source commits `771c6f23` and `c50b665e` address these two pieces, but they are not installed in this emulator build.
+- Interpretation: this is a stale installed-build overlay collision, not a blank EPUB renderer. Retest after rebuilding/reinstalling a newer APK before treating this as an active source regression.
+
+## 2026-06-20 Saved Marks Contents Slice
+
+Scope:
+- Closed the reader-discoverability gap for saved highlights, notes, and bookmarks.
+- The contents sheet no longer exposes only the table of contents; it now has `Contents`, `Bookmarks`, and `Notes` tabs.
+- Saved marks are filtered to the current book in `ReaderRoot` and navigate through `ReaderCoordinator` / `ReaderController`, not through WebView-owned marker side effects.
+
+Changes:
+- Added `ReaderBookmark.toLocator()` trimming and `ReaderAnnotation.toLocator()` conversion for saved-mark navigation.
+- Added `ReaderController.navigateToBookmark` and `ReaderController.navigateToAnnotation`, both producing `ReaderEngineCommand.NavigateTo`.
+- Added `ReaderCoordinator` wrappers for bookmark and annotation navigation.
+- Expanded `KomikkuReaderContentsDialog` with tabs and saved-mark rows.
+- Wired `ReaderScreen` to route saved-mark rows through coordinator-owned navigation.
+- Added a source guard so the contents dialog cannot regress back to TOC-only saved marks.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.savedBookmarkNavigationIsControllerOwned" --tests "paige.navic.reader.ReaderControllerTest.savedAnnotationNavigationIsControllerOwned"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.savedBookmarkNavigationIsControllerOwned" --tests "paige.navic.reader.ReaderControllerTest.savedAnnotationNavigationIsControllerOwned" --tests "paige.navic.reader.ReaderViewerTest.readerContentsDialogSurfacesSavedMarksThroughControllerRoutes"
+git diff --check
+```
+
+Results:
+- PASS: focused controller tests completed with `BUILD SUCCESSFUL in 6m 37s`.
+- PASS: focused controller plus reader-shell source guard completed with `BUILD SUCCESSFUL in 1m 46s`.
+- PASS: `git diff --check` reported no whitespace errors.
+- NOTE: Kotlin still printed its existing daemon temp-file `AccessDeniedException` after successful execution and fell back to non-daemon compilation. The Gradle exit code was 0.
+- OPEN: emulator/device validation was not rerun for this slice because the ADB emulator transport stopped responding after the stale eta76 overlay diagnosis.

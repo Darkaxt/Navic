@@ -41,6 +41,12 @@ data class ReaderCoordinator(
 	fun navigateToSearchResult(result: ReaderSearchResult): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateToSearchResult(result))
 
+	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToBookmark(bookmark))
+
+	fun navigateToAnnotation(annotation: ReaderAnnotation): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToAnnotation(annotation))
+
 	fun navigateTo(locator: ReaderLocator): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateTo(locator))
 
