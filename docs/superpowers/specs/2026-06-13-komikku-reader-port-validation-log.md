@@ -5111,3 +5111,32 @@ Results:
 - PASS/RUNTIME: after the patch, `tmp\readerdev-progress-rail\ui-slider-start-after-fix\logcat-reader.log` contains `Reader native tap ignored under chrome action=RIGHT x=1800.0 y=306.0 width=1848 height=2960` and contains no `nextPage` dispatch for that tap.
 - PASS/RUNTIME: center tap still logs `Reader native tap action=MENU`, `Reader viewer action=Menu menuVisible=true->false shellCover=false->false`, and `Reader chrome overlay visible=false menu=false`.
 - OPEN: this patch prevents wrong native page turns behind visible chrome. It does not yet prove every rail control has ideal direct-manipulation behavior; dedicated rail seek/drag UX validation remains separate.
+
+## 2026-06-20 eta76 Visible Emulator Rail Coordinate Validation
+
+Scope:
+- Used the recovered visible `NavicReaderLab` emulator after the user confirmed the emulator window was visible again.
+- Validated the installed dirty `darkaxt.navic.readerdev` eta76 package without rebuilding.
+- Focused on whether the side chapter rail and chapter buttons consume real coordinate taps, because the previous `tapDescFraction:Chapter page slider,0.5,0.0` action had hit the top of the semantics region and was not proof of real rail behavior.
+
+Validation:
+
+```powershell
+adb -s emulator-5554 shell screencap -p /sdcard/navic-current.png
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell input tap 1800 1480
+adb -s emulator-5554 shell input tap 1800 350
+adb -s emulator-5554 shell input tap 1800 2600
+adb -s emulator-5554 shell input tap 1800 215
+adb -s emulator-5554 shell input tap 1800 2760
+```
+
+Results:
+- PASS/STATE: emulator was focused on `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`, installed version was `v1.0.11-eta76`, and the captured reader page showed `A Memory of Light`, Chapter 37, page `333 / 388`.
+- PASS/CENTER TAP: tapping the page center logged `Reader native tap action=MENU x=924.0 y=1480.0 width=1848 height=2960` and `Reader viewer action=Menu menuVisible=false->true shellCover=false->false`.
+- PASS/RAIL MIDPOINT: tapping the visible rail track at `x=1800 y=1480` dispatched `goToChapterProgress(OEBPS/Text/Chapter-37.xhtml, 0.5116279069767442)` and relocated to `chapterPageIndex=23`, `chapterPageCount=44`, `reason=chapter-progress-seek`.
+- PASS/RAIL START: tapping the visible rail track near the top at `x=1800 y=350` dispatched `goToChapterProgress(..., 0.023255813953488372)` on Chapter 37 and relocated near the start of that chapter. On Chapter 36, the same top coordinate dispatched `goToChapterProgress(..., 0.0)` and relocated to `chapterPageIndex=0`, `chapterPageCount=5`.
+- PASS/RAIL END: tapping the visible rail track near the bottom at `x=1800 y=2600` dispatched `goToChapterProgress(..., 1.0)`. Chapter 37 returned `chapterPageIndex=43`, `chapterPageCount=44`; Chapter 36 returned `chapterPageIndex=4`, `chapterPageCount=5`. The displayed rail maps these zero-based runtime indices to the visible final page.
+- PASS/CHAPTER BUTTONS: tapping the top vertical chapter button at `x=1800 y=215` dispatched `goToHref(OEBPS/Text/Chapter-36.xhtml)` and relocated to Chapter 36. Tapping the bottom vertical chapter button at `x=1800 y=2760` dispatched `goToHref(OEBPS/Text/Chapter-37.xhtml)` and relocated back to Chapter 37.
+- ROOT CAUSE CLARIFICATION: the earlier bad `tapDescFraction:Chapter page slider,0.5,0.0` check was not a valid proof that the rail itself failed; it targeted the top of the merged semantics box, where the native host correctly suppresses page-zone passthrough while chrome is visible. Real coordinate taps on the visible rail track and buttons are consumed by Compose and reach the reader engine.
+- OPEN: this does not close clean release validation on the user's physical phone, nor does it validate rail drag feel. It does close the dirty-emulator evidence for direct coordinate taps on rail middle/start/end and vertical chapter arrows.
