@@ -657,7 +657,7 @@ data class ReaderController(
 			return ReaderControllerStep(this)
 		}
 		return ReaderControllerStep(
-			controller = copy(state = state.copy(annotations = nextAnnotations)),
+			controller = copy(state = state.copy(annotations = nextAnnotations, selection = null)),
 			engineCommands = listOf(
 				ReaderEngineCommand.ApplyAnnotations(
 					nextAnnotations.annotationsForBook(publication.bookId)
@@ -695,7 +695,13 @@ data class ReaderController(
 			return ReaderControllerStep(this)
 		}
 		return ReaderControllerStep(
-			controller = copy(state = state.copy(annotations = nextAnnotations, selectionNoteDraft = null)),
+			controller = copy(
+				state = state.copy(
+					annotations = nextAnnotations,
+					selection = null,
+					selectionNoteDraft = null
+				)
+			),
 			engineCommands = listOf(
 				ReaderEngineCommand.ApplyAnnotations(
 					nextAnnotations.annotationsForBook(publication.bookId)

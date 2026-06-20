@@ -4726,3 +4726,68 @@ Results:
 - NOTE: the host Gradle run still printed the known Kotlin daemon temp-file `AccessDeniedException`, fell back to non-daemon compilation, and returned exit code 0.
 - FAIL/BLOCKED: `adb devices -l` still starts the daemon but returns no attached emulator or phone, so this slice has not been runtime-validated on the current emulator screen.
 - PASS: `git diff --check` reported no whitespace errors.
+
+## 2026-06-20 Emulator Popup / ADB Transport Recheck
+
+Scope:
+- User reported the current emulator screen looks wrong: no ebook text, only a popup.
+- User also reiterated that no approval/escalation requests are acceptable in this session.
+
+Validation:
+
+```powershell
+adb devices -l
+Get-Process | Where-Object { $_.ProcessName -match 'emulator|qemu|adb|studio|java' } | Select-Object ProcessName,Id,Path
+netstat -ano | findstr ":555"
+adb start-server
+adb connect 127.0.0.1:5555
+Test-NetConnection 127.0.0.1 -Port 5554
+Test-NetConnection 127.0.0.1 -Port 5555
+rg -n "KomikkuReader.*(Dialog|Popup|Capsule|Actions)|Reader.*Dialog|HistoryCapsule|SelectionActions|ExternalLinkDialog|AnnotationDialog|FootnoteDialog|SearchDialog|Note|Highlight" composeApp\src\commonMain\kotlin\paige\navic\ui\screens\reader composeApp\src\commonMain\kotlin\paige\navic\reader composeApp\src\commonTest composeApp\src\androidHostTest
+rg -n "PaginationProfile|StatusBadge|paginationProfile|measuring|failed" composeApp\src\commonMain\kotlin\paige\navic\ui\screens\reader composeApp\src\commonMain\kotlin\paige\navic\reader composeApp\src\commonTest composeApp\src\androidHostTest
+```
+
+Results:
+- FAIL/BLOCKED: `adb devices -l` repeatedly started the ADB daemon but returned no attached emulator or phone.
+- FAIL/BLOCKED: starting `adb nodaemon server` as a hidden background process did not produce a stable server for `adb devices`; subsequent ADB calls still restarted and exited the daemon.
+- FAIL/BLOCKED: `adb connect 127.0.0.1:5555` returned connection refused.
+- PASS/PARTIAL: Windows process listing shows `emulator.exe` and `qemu-system-x86_64.exe` running for the local emulator.
+- PASS/PARTIAL: `netstat -ano | findstr ":555"` initially showed `127.0.0.1:5554` and `127.0.0.1:5555` listening for the QEMU PID.
+- PASS/PARTIAL: `Test-NetConnection 127.0.0.1 -Port 5554` succeeded, so the emulator console endpoint is reachable.
+- FAIL/BLOCKED: `Test-NetConnection 127.0.0.1 -Port 5555` failed in the later check, so the ADB transport endpoint is not currently usable from this shell.
+- FAIL/BLOCKED: process command-line and TCP listener inspection through privileged APIs returned `Access denied`; no escalation was requested.
+- FAIL/BLOCKED: a complex emulator-console auth probe hit a local `CreateProcessAsUserW failed: 5` runner error; no escalation was requested.
+- SOURCE DIAGNOSIS: current HEAD can show overlays without menu input from `selectionActions`, `annotationPopup`, `footnotePopup`, `externalLinkPrompt`, `engineNavigation`, or `paginationProfile.status`.
+- SOURCE DIAGNOSIS: `ReaderController` now forces `engineNavigation.visible = false` on `NavigationStateChanged`, so the arrow/X history capsule should not appear automatically from PushState in current source.
+- SOURCE DIAGNOSIS: `KomikkuPaginationProfileStatusBadge` is visible while `paginationProfile.status` is `measuring` or `failed`; if the WebView content is blank while profile measurement is active/failed, the user-facing symptom can look like "blank paper plus one popup".
+- OPEN: no runtime screenshot, logcat, or touch validation was possible in this session because ADB transport did not attach.
+
+## 2026-06-20 Selection Action Cleanup Slice
+
+Scope:
+- User reported that long-press selection actions show a native Highlight/Copy/Note popup, but Highlight did not appear to do anything.
+- Source investigation found that successful Highlight and Note Save applied annotations but left `ReaderControllerState.selection` alive, so the native selection action strip could remain visible over the result.
+
+Changes:
+- `ReaderController.addSelectionHighlight` now clears controller-owned selection after a new annotation is successfully added.
+- `ReaderController.saveSelectionNote` now clears controller-owned selection and the note draft after a note annotation is successfully added.
+- Controller tests now assert that Highlight and Note Save return `ReaderSelectionActionState()` after success.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.selectionHighlightsAreControllerOwnedAndForwardedAsEngineCapabilities" --tests "paige.navic.reader.ReaderControllerTest.selectionNotesSaveAsAnnotationsAndClearDraft"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderCoordinatorTest.selectionHighlightsRouteThroughControllerAndCurrentEngineAdapter" --tests "paige.navic.reader.ReaderCoordinatorTest.selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter"
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted"
+git diff --check
+```
+
+Results:
+- RED: before the controller change, both focused controller tests failed because `selection` remained non-null after Highlight/Note Save.
+- NOTE: the first fresh controller verification attempt was cut off by the shell tool's default command cap before Gradle finished; the command was rerun to completion instead of treating the partial output as evidence.
+- PASS: after the controller change, the focused controller tests completed with `BUILD SUCCESSFUL in 10s` on the fresh rerun.
+- PASS: adjacent coordinator route tests completed with `BUILD SUCCESSFUL in 10s`, proving `ApplyAnnotations` still reaches the active engine adapter.
+- PASS: the source-inspection route guard `ReaderRuntimeCommonChromeTest.commonReaderSelectionActionsAreKomikkuOverlayAndControllerRouted` completed with `BUILD SUCCESSFUL in 25s`.
+- PASS: `git diff --check` reported no whitespace errors.
+- NOTE: the long controller test run printed the known Kotlin daemon temp-file `AccessDeniedException`, then fell back to non-daemon compilation and returned exit code 0.
+- OPEN: device/emulator visual validation is still blocked until ADB transport reattaches; this slice is host-verified only.

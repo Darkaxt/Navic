@@ -1391,6 +1391,8 @@ class ReaderControllerTest {
 		)
 
 		assertEquals(ReaderAnnotationState(listOf(annotation)), step.controller.state.annotations)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertNull(step.controller.state.selectionNoteDraft)
 		assertEquals(
 			listOf(ReaderEngineCommand.ApplyAnnotations(listOf(annotation))),
@@ -1478,6 +1480,8 @@ class ReaderControllerTest {
 		val duplicate = step.controller.addSelectionHighlight(color = "#ffcc66")
 
 		assertEquals(ReaderAnnotationState(listOf(annotation)), step.controller.state.annotations)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertEquals(
 			listOf(ReaderEngineCommand.ApplyAnnotations(listOf(annotation))),
 			step.engineCommands
