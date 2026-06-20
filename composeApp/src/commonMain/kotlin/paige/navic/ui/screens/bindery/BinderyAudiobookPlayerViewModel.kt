@@ -101,7 +101,7 @@ class BinderyAudiobookPlayerViewModel(
 			bookId = bookId,
 			versionRowId = versionRowId
 		)
-		val companion = if (direct == null && manifest != null) {
+		val companion = if (manifest != null) {
 			binderyWhispersyncCompanionProgressEntries(
 				preferenceManager.binderyWhispersyncCompanionProgressJson
 			)
@@ -117,8 +117,11 @@ class BinderyAudiobookPlayerViewModel(
 		} else {
 			null
 		}
-		return (direct ?: companion).also { progress ->
-			lastSavedProgress = direct
+		return binderyAudiobookBestResumeProgress(
+			direct = direct,
+			companion = companion
+		).also { progress ->
+			lastSavedProgress = progress
 		}
 	}
 

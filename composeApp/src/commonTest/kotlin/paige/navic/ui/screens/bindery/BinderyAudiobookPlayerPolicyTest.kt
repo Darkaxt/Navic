@@ -222,6 +222,43 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun resumeProgressUsesNewestDirectOrWhispersyncCompanionProgress() {
+		val direct = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "69",
+			trackIndex = 0,
+			mediaId = "readaloud:one-a",
+			positionMs = 1_000L,
+			durationMs = 60_000L,
+			updatedAtMs = 100L
+		)
+		val companion = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "69",
+			trackIndex = 2,
+			mediaId = "readaloud:one-c",
+			positionMs = 12_345L,
+			durationMs = 60_000L,
+			updatedAtMs = 700L
+		)
+
+		assertEquals(
+			companion,
+			binderyAudiobookBestResumeProgress(
+				direct = direct,
+				companion = companion
+			)
+		)
+		assertEquals(
+			direct.copy(updatedAtMs = 900L),
+			binderyAudiobookBestResumeProgress(
+				direct = direct.copy(updatedAtMs = 900L),
+				companion = companion
+			)
+		)
+	}
+
+	@Test
 	fun progressStoreKeepsIndependentPositionsPerEdition() {
 		val first = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

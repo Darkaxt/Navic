@@ -274,6 +274,17 @@ fun binderyAudiobookProgressFromWhispersyncCompanion(
 	return null
 }
 
+fun binderyAudiobookBestResumeProgress(
+	direct: BinderyAudiobookPlaybackProgress?,
+	companion: BinderyAudiobookPlaybackProgress?
+): BinderyAudiobookPlaybackProgress? =
+	when {
+		direct == null -> companion
+		companion == null -> direct
+		companion.updatedAtMs > direct.updatedAtMs -> companion
+		else -> direct
+	}
+
 private fun binderyAudiobookExactProgressFromWhispersyncCompanion(
 	progress: BinderyWhispersyncCompanionProgress,
 	audioItems: List<BinderyReadingOrderItem>,

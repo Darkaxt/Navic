@@ -47,6 +47,7 @@ Implemented and covered by source/tests:
 - Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.
 - One-tap mismatch repair routed through `ReaderCoordinator.repairWhispersyncMismatch()`, reusing the current visible text range to reapply the correct overlay and dispatch the existing audiobook seek target path.
 - Reader progress companion state now persists exact Whispersync audio resource and millisecond position when the controller has a sidecar-derived seek target, so audiobook resume can prefer the precise segment target over a total-duration fraction estimate.
+- Audiobook resume now compares direct audiobook progress against Whispersync companion progress by `updatedAtMs`; a newer ebook-derived sidecar target can resume the audiobook instead of being hidden behind stale direct audiobook progress.
 
 Important correction to older audits:
 

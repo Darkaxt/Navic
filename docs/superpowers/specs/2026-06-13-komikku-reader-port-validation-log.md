@@ -5874,3 +5874,24 @@ Results:
 - FIX: added exact companion-progress fields, normalized them during preference JSON updates, passed the current controller Whispersync audio seek target from `ReaderScreen`, and taught audiobook resume to match the exact resource before estimating from `progressFraction`.
 - GREEN/FOCUSED: forced rerun of the focused host tests passed with all 24 tasks executed. The log contains only the pre-existing `ModalBottomSheet` invisible-reference warning and redundant `Json` warning.
 - OPEN: this is host/source proof only. Release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, exact audiobook resume, and mismatch repair remains required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 Whispersync Audiobook Resume Precedence
+
+Scope:
+- Fixed the next cross-media progress gap after exact companion-progress persistence: direct audiobook progress no longer always hides a newer Whispersync companion target.
+- Added a pure resume policy so the audiobook player chooses the newer of direct audiobook progress and Whispersync companion-derived progress by `updatedAtMs`.
+- Wired `BinderyAudiobookPlayerViewModel.rememberedProgress(...)` through that policy and tracks the selected resume source for autosave delta checks.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest.resumeProgressUsesNewestDirectOrWhispersyncCompanionProgress
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest
+```
+
+Results:
+- RED: the focused test failed at `compileAndroidHostTest` because `binderyAudiobookBestResumeProgress(...)` did not exist.
+- FIX: added `binderyAudiobookBestResumeProgress(...)` and changed the audiobook player ViewModel from direct-first resume selection to newest-progress resume selection.
+- GREEN/FOCUSED: the new precedence test passed.
+- GREEN/REGRESSION: the full `BinderyAudiobookPlayerPolicyTest` class plus `ReaderWhispersyncCompanionProgressSourceTest` passed. The run executed two tasks and reused existing compilation outputs.
+- OPEN: this is host/source proof only. Release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, exact audiobook resume, and mismatch repair remains required before claiming end-to-end Whispersync usability.
