@@ -238,7 +238,7 @@ Priority 0:
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
   The 2026-06-18 host guard only made the rail targetable by native UI semantics (`Chapter page slider`) and ADB `tapDescFraction`; it did not close endpoint behavior.
-- Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.
+- Dirty-emulator validated on 2026-06-20: persistence/resume after a real swipe and after force-stopping during a long drag restored the same readable locator (`OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`) with no start override. Clean release/physical-device confirmation is still required before release-candidate closure.
 - Validate cover chrome layering on the installed APK/phone release. Dirty-emulator eta71 visual evidence shows the native cover on a black cover surface without the bottom menu overlay, but this still needs physical/release confirmation before closure.
 
 Priority 1:
@@ -261,7 +261,7 @@ Priority 2:
 1. Validate Phase 5 selection actions on a clean release APK and with a real user-driven text selection path before release-candidate claims.
 2. Validate remaining user-driven Phase 3 bridge flows: normal-text selection and scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
-4. Fix resume persistence after disrupted drag/app interruption.
+4. Resume persistence after disrupted drag/app interruption is dirty-emulator validated; keep clean release/physical confirmation open.
 5. Fix drag preview black void and texture movement as one interaction slice.
 6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
 7. Continue Komikku UI parity: rail proportions, bottom menu placement, non-duplicated bottom actions, settings overlay, tap-zone visibility.
