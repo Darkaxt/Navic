@@ -697,6 +697,50 @@ data class ReaderController(
 			)
 		)
 
+	fun repairWhispersyncMismatch(): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		if (!currentWhispersync.status.requiresAttention) {
+			return ReaderControllerStep(this)
+		}
+		val visibleRange = currentWhispersync.visibleTextRange
+			?: return ReaderControllerStep(this)
+		val syncStep = currentWhispersync.sync
+			.copy(activeSegmentKey = null)
+			.onVisibleTextRange(
+				timeline = currentWhispersync.timeline,
+				textHref = visibleRange.textHref,
+				visibleStart = visibleRange.visibleStart,
+				visibleEnd = visibleRange.visibleEnd
+			)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		)
+	}
+
 	private fun onVisibleTextRange(event: ReaderEngineEvent.VisibleTextRange): ReaderControllerStep {
 		val visibleRange = ReaderWhispersyncVisibleTextRange(
 			textHref = event.textHref,

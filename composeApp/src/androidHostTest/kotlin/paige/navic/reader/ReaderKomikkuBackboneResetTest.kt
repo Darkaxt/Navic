@@ -1732,6 +1732,12 @@ class ReaderKomikkuBackboneResetTest {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+		val statusBadgeText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt"
+		).readText()
 
 		assertTrue(
 			readerScreenText.contains("koinInject<AudiobookPlaybackManager>()"),
@@ -1752,6 +1758,18 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			readerScreenText.contains("audiobookPlaybackManager.dispatch(command)"),
 			"ReaderScreen must dispatch resolved Whispersync audio commands through the shared audiobook manager."
+		)
+		assertTrue(
+			statusBadgeText.contains("onRepairMismatch: () -> Unit"),
+			"The mismatch badge must expose a controller-owned repair action instead of being a passive UI-only warning."
+		)
+		assertTrue(
+			readerRootText.contains("onRepairWhispersyncMismatch: () -> Unit"),
+			"ReaderRoot must route Whispersync mismatch repair through the Komikku overlay boundary."
+		)
+		assertTrue(
+			readerScreenText.contains("coordinator.repairWhispersyncMismatch()"),
+			"ReaderScreen must route mismatch repair back through ReaderCoordinator, not directly to the audio player."
 		)
 	}
 

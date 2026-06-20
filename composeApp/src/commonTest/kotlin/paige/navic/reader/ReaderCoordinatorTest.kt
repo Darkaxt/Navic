@@ -186,6 +186,38 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun repairWhispersyncMismatchRoutesSeekTargetThroughCurrentEngine() {
+		val synced = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+		val visible = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		).coordinator
+		val mismatched = visible.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).coordinator
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+	}
+
+	@Test
 	fun openingNewPublicationClearsWhispersyncSidecar() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val synced = opened.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator

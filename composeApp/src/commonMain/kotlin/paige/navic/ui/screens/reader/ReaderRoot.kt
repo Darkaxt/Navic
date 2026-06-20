@@ -71,6 +71,7 @@ internal fun KomikkuReaderRoot(
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
+	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -183,6 +184,7 @@ internal fun KomikkuReaderRoot(
 						onSettingsChange = onSettingsChange,
 						onSettingsScopeChange = onSettingsScopeChange,
 						onResetBookSettings = onResetBookSettings,
+						onRepairWhispersyncMismatch = onRepairWhispersyncMismatch,
 						onNavigateToBookmark = onNavigateToBookmark,
 						onNavigateToAnnotation = onNavigateToAnnotation,
 						onDismissDialog = onDismissDialog,
@@ -254,6 +256,7 @@ private fun KomikkuComposeOverlay(
 	onSettingsChange: (ReaderSettings) -> Unit,
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
+	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -319,6 +322,7 @@ private fun KomikkuComposeOverlay(
 			)
 			KomikkuWhispersyncStatusBadge(
 				status = controllerState.whispersync.status,
+				onRepairMismatch = onRepairWhispersyncMismatch,
 				modifier = Modifier
 					.align(Alignment.BottomCenter)
 					.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)

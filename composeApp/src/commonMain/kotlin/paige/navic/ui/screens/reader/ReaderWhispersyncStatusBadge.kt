@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -24,6 +25,7 @@ private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
 @Composable
 internal fun KomikkuWhispersyncStatusBadge(
 	status: ReaderWhispersyncStatus,
+	onRepairMismatch: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	AnimatedVisibility(
@@ -56,6 +58,9 @@ internal fun KomikkuWhispersyncStatusBadge(
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis
 					)
+				}
+				TextButton(onClick = onRepairMismatch) {
+					Text(text = "Resync")
 				}
 			}
 		}

@@ -558,6 +558,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onResetBookSettings = {
 			resetReaderBookSettings()
 		},
+		onRepairWhispersyncMismatch = {
+			applyCoordinatorStep(coordinator.repairWhispersyncMismatch())
+		},
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.closeDialog())
 		},

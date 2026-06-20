@@ -1407,6 +1407,74 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun repairWhispersyncMismatchReusesVisibleTextRangeSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val synced = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		).controller
+		val mismatched = synced.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				detail = "Second sentence",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_000L
+			),
+			step.controller.state.whispersync.status
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchNoopsWithoutVisibleTextRangeSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val mismatched = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		assertEquals(mismatched, step.controller)
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
 	fun whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller

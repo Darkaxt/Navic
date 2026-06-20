@@ -5807,3 +5807,23 @@ Results:
 - GREEN/FINAL: rerunning `:composeApp:testAndroid` after documentation/formatting updates passed.
 - GREEN/HYGIENE: `git diff --check` passed.
 - OPEN: a clean release APK/device pass is still required before claiming usable end-to-end Whispersync.
+
+## 2026-06-20 Whispersync Mismatch Repair Action
+
+Scope:
+- Validated GLM's current-progress attachment against the live worktree. Its foundation summary is stale on the current branch: visible range emission, audiobook seek consumption, playback-position highlighting, and mismatch status UI already exist.
+- Added the missing one-tap repair path for Whispersync mismatch states.
+- The repair action is controller-owned: `KomikkuWhispersyncStatusBadge` calls back through `ReaderRoot` and `ReaderScreen` into `ReaderCoordinator.repairWhispersyncMismatch()`, which recomputes the current visible text range against the sidecar timeline, reapplies the matching media overlay, and returns the existing `WhispersyncAudioSeekTarget` for `ReaderScreen` to dispatch through `AudiobookPlaybackManager`.
+- The repair path intentionally no-ops without a current visible text range instead of guessing from page number or chapter label.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED: the aggregate `:composeApp:testAndroid` failed at `compileAndroidHostTest` because `ReaderController.repairWhispersyncMismatch()` and `ReaderCoordinator.repairWhispersyncMismatch()` did not exist after adding the controller/coordinator/host-guard tests.
+- FIX: added controller repair, coordinator routing, root/badge callback plumbing, and the `ReaderScreen` bridge into `applyCoordinatorStep(coordinator.repairWhispersyncMismatch())`.
+- GREEN/AGGREGATE: rerunning `:composeApp:testAndroid` passed in 3m58s.
+- OPEN: release/device validation of real paired Bindery sidecar playback, page-to-audio seek, audio-to-text overlay updates, and mismatch repair remains required before claiming end-to-end Whispersync usability.

@@ -85,6 +85,9 @@ data class ReaderCoordinator(
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderCoordinatorStep =
 		applyControllerStep(controller.loadWhispersyncSidecar(sidecar))
 
+	fun repairWhispersyncMismatch(): ReaderCoordinatorStep =
+		applyControllerStep(controller.repairWhispersyncMismatch())
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 
