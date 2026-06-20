@@ -235,12 +235,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 	ReaderPublicationRuntimeHost(
 		reader = reader,
 		onPublicationReady = { publicationUrl, shellCoverUrl, savedProgress ->
+			val localStartLocator = ReaderReadingProgressState(
+				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+			).startLocatorFor(
+				bookId = reader.bookId,
+				resourceHref = reader.resourceHref,
+				kind = reader.kind
+			)
 			applyCoordinatorStep(
 				coordinator.open(
 					reader.toReaderEngineOpenRequest(
 						publicationUrl = publicationUrl,
 						shellCoverUrl = shellCoverUrl,
 						savedProgress = savedProgress,
+						localStartLocator = localStartLocator,
 						settings = settings
 					)
 				)

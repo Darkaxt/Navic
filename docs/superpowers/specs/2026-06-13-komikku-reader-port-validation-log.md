@@ -5140,3 +5140,38 @@ Results:
 - PASS/CHAPTER BUTTONS: tapping the top vertical chapter button at `x=1800 y=215` dispatched `goToHref(OEBPS/Text/Chapter-36.xhtml)` and relocated to Chapter 36. Tapping the bottom vertical chapter button at `x=1800 y=2760` dispatched `goToHref(OEBPS/Text/Chapter-37.xhtml)` and relocated back to Chapter 37.
 - ROOT CAUSE CLARIFICATION: the earlier bad `tapDescFraction:Chapter page slider,0.5,0.0` check was not a valid proof that the rail itself failed; it targeted the top of the merged semantics box, where the native host correctly suppresses page-zone passthrough while chrome is visible. Real coordinate taps on the visible rail track and buttons are consumed by Compose and reach the reader engine.
 - OPEN: this does not close clean release validation on the user's physical phone, nor does it validate rail drag feel. It does close the dirty-emulator evidence for direct coordinate taps on rail middle/start/end and vertical chapter arrows.
+
+## 2026-06-20 eta76 Dirty Emulator Resume Persistence Fallback Validation
+
+Scope:
+- Investigated the remaining Priority 0 resume-persistence gap on the visible `NavicReaderLab` emulator.
+- Used installed `darkaxt.navic.readerdev` eta76 to reproduce the failure, then installed a dirty readerdev build with the local-progress fallback patch.
+- This validates cached EPUB resume after forced relaunch on emulator. It is not clean release APK validation on the user's physical phone.
+
+Baseline:
+- Local prefs contained `readerReadingProgressJson` for book `3709`, resource `/opds/books/3709/resources/ebook-08aea0220318ac157c5f`, href `OEBPS/Text/Chapter-37.xhtml`, CFI `epubcfi(/6/98!/4/2,/1406,/1480/1:227)`, progress `0.8186814367781696`.
+- The cached EPUB existed under `reader-publications/reader-d3048625266b3f885c38ab36/publication.epub`.
+
+Validation:
+
+```powershell
+adb -s emulator-5554 exec-out run-as darkaxt.navic.readerdev cat /data/user/0/darkaxt.navic.readerdev/shared_prefs/darkaxt.navic.readerdev_preferences.xml > tmp\readerdev-resume-validation\readerdev_preferences.xml
+adb -s emulator-5554 shell am start -S -n darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity [...Bindery OPDS/API extras from bindery-debug.env omitted...] --es navic.dev.reader.publication_url "[BINDERY_OPDS_BASE_URL]/opds/books/3709/resources/ebook-08aea0220318ac157c5f" --es navic.dev.reader.book_id 3709 --es navic.dev.reader.resource_href /opds/books/3709/resources/ebook-08aea0220318ac157c5f --es navic.dev.reader.kind ebook --es navic.dev.reader.format epub
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -NoDiscoverPublication -NoLaunch
+adb -s emulator-5554 shell am start -S -n darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity [...Bindery OPDS/API extras from bindery-debug.env omitted...] --es navic.dev.reader.publication_url "[BINDERY_OPDS_BASE_URL]/opds/books/3709/resources/ebook-08aea0220318ac157c5f" --es navic.dev.reader.book_id 3709 --es navic.dev.reader.resource_href /opds/books/3709/resources/ebook-08aea0220318ac157c5f --es navic.dev.reader.kind ebook --es navic.dev.reader.format epub
+adb -s emulator-5554 shell input tap 1200 1400
+adb -s emulator-5554 shell input tap 1700 1400
+```
+
+Results:
+- FAIL/BEFORE: relaunching the cached EPUB without an explicit start locator prepared the publication with `cache=hit`, but the first `locationChanged` was `OEBPS/Text/sinopsis.xhtml`, `pageIndex=0`, `progress=0.0012596938509564985`. The visual capture showed the shell cover/start path.
+- ROOT CAUSE: `ReaderScreen` persisted `readerReadingProgressJson`, and `ReaderReadingProgressState.startLocatorFor(...)` existed, but `ReaderScreen` only passed remote `savedProgress` from `ReaderPublicationRuntimeHost` into `toReaderEngineOpenRequest(...)`. If Bindery progress was unavailable, cached EPUB relaunch had no local fallback and opened at the start.
+- FIX: `Screen.Reader.toReaderEngineOpenRequest(...)` now accepts `localStartLocator`; `ReaderScreen` decodes `preferenceManager.readerReadingProgressJson`, resolves `ReaderReadingProgressState.startLocatorFor(bookId, resourceHref, kind)`, and passes it into the open request. The factory ranks route locator, remote saved progress, and local fallback through `bestReaderStartLocator(...)`.
+- PASS/TDD: the new `ReaderOpenRequestFactoryTest.openRequestUsesLocalProgressWhenBinderySavedProgressIsUnavailable` guard failed before production changes because `localStartLocator` was missing, then passed after the patch.
+- PASS/HOST: `:composeApp:testAndroid` completed and the `testAndroidHostTest` XML summary reported `1490` tests, `0` failures, `0` errors.
+- PASS/INSTALL: dirty readerdev rebuilt and installed successfully on `emulator-5554`.
+- PASS/RUNTIME: after reinstall and forced relaunch, publication preparation again reported `cache=hit`, then the first runtime document load was `loadDoc index=48 sectionId=OEBPS/Text/Chapter-37.xhtml`.
+- PASS/RUNTIME: first `locationChanged` after the fix reported href `OEBPS/Text/Chapter-37.xhtml`, CFI `epubcfi(/6/98!/4/2,/1406,/1480/1:227)`, progress `0.8186814367781696`, `chapterPageIndex=23`, `chapterPageCount=44`, and page model `page=313/388`.
+- PASS/VISUAL: the shell cover still appears first by design. After hiding chrome and tapping the right page zone, logs showed `shellCover=true->false`, and the screenshot rendered the saved Chapter 37 text page with visible page label `314 / 388`.
+- OPEN: clean release/physical-device validation is still required. The shell-cover-first behavior remains intentional for now, but should be retested with the user's expected cover interaction flow.

@@ -1748,6 +1748,12 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must feed saved Bindery progress into the open request factory."
 		)
 		assertTrue(
+			readerScreenText.contains("decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)") &&
+				readerScreenText.contains("startLocatorFor(") &&
+				readerScreenText.contains("localStartLocator ="),
+			"ReaderScreen must feed local readerReadingProgressJson into the open request factory so cached EPUBs resume when Bindery progress lookup is unavailable."
+		)
+		assertTrue(
 			androidRuntimeHostText.contains("getReadingProgress("),
 			"Android publication runtime must ask Bindery for saved reading progress while resolving the publication."
 		)

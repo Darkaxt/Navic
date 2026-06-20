@@ -41,6 +41,25 @@ class ReaderOpenRequestFactoryTest {
 	}
 
 	@Test
+	fun openRequestUsesLocalProgressWhenBinderySavedProgressIsUnavailable() {
+		val localStartLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-37.xhtml",
+			cfi = "epubcfi(/6/98!/4/2,/1406,/1480/1:227)",
+			progress = 0.8186814367781696
+		)
+
+		val request = hobbitReader().toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/3693/cover.jpg",
+			settings = defaultReaderSettings(),
+			savedProgress = null,
+			localStartLocator = localStartLocator
+		)
+
+		assertEquals(localStartLocator, request.startLocator)
+	}
+
+	@Test
 	fun openRequestKeepsExplicitRouteStartLocatorOverOlderSavedProgress() {
 		val savedProgress = BinderyReadingProgress(
 			bookId = "3693",
