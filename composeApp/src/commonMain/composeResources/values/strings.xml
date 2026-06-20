@@ -72,6 +72,8 @@
 	<string name="title_direction">Direction</string>
 	<string name="title_bulk_download">Download All Albums</string>
 	<string name="title_library_download">Download Entire Library</string>
+	<string name="title_music_downloads">Music downloads</string>
+	<string name="title_lida_clip_downloads">Music video downloads</string>
 	<string name="title_confirm">Confirm</string>
 	<string name="title_update">Update available</string>
 	<string name="title_changelog">Release notes</string>
@@ -1070,6 +1072,8 @@
 	<string name="info_download_status_downloading">Downloading</string>
 	<string name="info_download_status_queued">Queued</string>
 	<string name="info_download_status_failed">Failed</string>
+	<string name="info_download_notification_active">%1$d active</string>
+	<string name="info_download_notification_active_failed">%1$d active, %2$d failed</string>
 	<string name="info_click_to_retry">Click to retry</string>
 	<string name="info_downloaded">Downloaded</string>
 	<string name="info_syncing">Syncing...</string>

@@ -4,6 +4,7 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
 import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.LidaClipDownloadManager
@@ -22,6 +23,11 @@ val managerModule = module {
 		}
 	}
 	singleOf(::DownloadManager)
+	single(createdAtStart = true) {
+		DownloadQueueNotificationCoordinator(get(), get(), get()).apply {
+			start()
+		}
+	}
 	singleOf(::LidaClipCacheManager)
 	singleOf(::LidaClipDownloadManager)
 	singleOf(::SessionManager)
