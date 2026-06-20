@@ -95,6 +95,7 @@ internal fun KomikkuReaderRoot(
 		KomikkuReaderNativeFrameHost(
 			navigator = navigator,
 			navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true,
+			chromeOverlayVisible = controllerState.menuVisible,
 			shellCoverVisible = controllerState.shellCoverVisible,
 			shellCoverUrl = shellCoverUrl,
 			shellCoverTitle = shellCoverTitle,

@@ -381,6 +381,34 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun visibleReaderChromeBlocksNativeEdgeTapZonesButKeepsCenterMenuToggle() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val platformHostText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val singleTapBody = nativeFrameHostText
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}\n\n\t\t\t")
+
+		assertContains(platformHostText, "chromeOverlayVisible: Boolean")
+		assertContains(nativeFrameHostText, "chromeOverlayVisible: Boolean")
+		assertContains(nativeFrameHostText, "setChromeOverlayVisible(chromeOverlayVisible)")
+		assertContains(nativeFrameHostText, "var chromeOverlayVisible: Boolean = false")
+		assertContains(readerRootText, "chromeOverlayVisible = controllerState.menuVisible")
+		assertContains(singleTapBody, "if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)")
+		assertContains(singleTapBody, "Reader native tap ignored under chrome action=")
+		assertTrue(
+			singleTapBody.indexOf("val action = if (shellCoverView?.visibility == VISIBLE)") <
+				singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)"),
+			"Chrome suppression must inspect the Komikku tap-zone result first so center MENU taps can still hide the menu."
+		)
+		assertTrue(
+			singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)") <
+				singleTapBody.indexOf("dispatchSingleTapAction(action)"),
+			"Native edge page actions must not fire behind visible chapter rail, app bars, or bottom controls."
+		)
+	}
+
+	@Test
 	fun androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()

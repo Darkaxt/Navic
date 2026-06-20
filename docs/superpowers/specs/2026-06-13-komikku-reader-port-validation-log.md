@@ -5081,3 +5081,33 @@ Results:
 - PASS/NOTE-SAVE: `tmp\readerdev-selection-actions\note-save\logcat-reader.log` captured `Reader selection note save length=10`, `Dispatching reader engine command: applyHighlights(count=2, notes=1)`, and two `annotationDrawn` bridge events. Count was `2` because the same dirty emulator book state already contained the previous Highlight validation annotation; the relevant note evidence is `notes=1`.
 - TOOLING NOTE: one Highlight assertion attempt used an invalid comma-joined bridge-event parameter and one Copy run exceeded the tool default output window, but both generated complete artifacts. The artifact logs above are the authoritative evidence.
 - OPEN: clean release APK validation and a fully user-driven/manual text-selection path are still required before Phase 5 is release-ready.
+
+## 2026-06-20 eta76 Chrome Tap-Zone Suppression Validation
+
+Scope:
+- Investigated the visible-chrome regression where tapping the right-side chapter rail/top controls could leak through the overlay and dispatch a native `RIGHT` page tap.
+- Added a host guard before the production patch, then validated the patched Android native frame on the visible `NavicReaderLab` emulator.
+- This is a dirty `readerDev` emulator validation of the native host behavior, not a release APK validation.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.visibleReaderChromeBlocksNativeEdgeTapZonesButKeepsCenterMenuToggle
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe chapter-progress-endpoints -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-progress-rail\after-fix-restore-chapter37
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -PostProbeAction "tapDescFraction:Chapter page slider,0.5,0.0,1500" -CaptureReaderDiagnostics -ArtifactDir tmp\readerdev-progress-rail\ui-slider-start-after-fix
+```
+
+Results:
+- FAIL/TDD: the new focused guard initially failed at `ReaderRuntimeShellProgressTest.kt:392`, proving the code had no `chromeOverlayVisible` native-host route and no suppression before `dispatchSingleTapAction(action)`.
+- ROOT CAUSE: `KomikkuReaderNativeViewerContainer` receives taps after child dispatch, but it did not know whether the Compose chrome was visible. With the menu/rail open, a tap on the rail area still computed `KomikkuNavigationRegion.RIGHT` and dispatched `nextPage` behind the overlay.
+- FIX: `KomikkuReaderNativeFrameHost` now receives `chromeOverlayVisible = controllerState.menuVisible`. Android stores that on the native viewer container and suppresses non-`MENU` native tap-zone actions while chrome is visible, logging `Reader native tap ignored under chrome action=...`. Center `MENU` taps still dispatch so the user can close the menu.
+- PASS/TDD: the focused guard passed after the patch.
+- PASS/HOST: `ReaderRuntimeShellProgressTest`, `ReaderRuntimeCommonChromeTest`, and `ReaderKomikkuBackboneResetTest` completed with `BUILD SUCCESSFUL in 26s`.
+- PASS/INSTALL: readerdev rebuilt and installed on `emulator-5554`; install returned `Success`, foreground was confirmed, and `publicationReady` was observed.
+- PASS/ENGINE: the `chapter-progress-endpoints` probe reached `OEBPS/Text/Chapter-37.xhtml` with `chapterPageCount=44` and endpoints `chapterPageIndex=0` and `chapterPageIndex=43`.
+- FAIL/BEFORE-FIX BEHAVIOR: the same visible rail tap had previously logged `Reader native tap action=RIGHT x=1800.0 y=306.0` followed by `Dispatching reader engine command: nextPage` and a jump into `OEBPS/Text/Chapter-38.xhtml`.
+- PASS/RUNTIME: after the patch, `tmp\readerdev-progress-rail\ui-slider-start-after-fix\logcat-reader.log` contains `Reader native tap ignored under chrome action=RIGHT x=1800.0 y=306.0 width=1848 height=2960` and contains no `nextPage` dispatch for that tap.
+- PASS/RUNTIME: center tap still logs `Reader native tap action=MENU`, `Reader viewer action=Menu menuVisible=true->false shellCover=false->false`, and `Reader chrome overlay visible=false menu=false`.
+- OPEN: this patch prevents wrong native page turns behind visible chrome. It does not yet prove every rail control has ideal direct-manipulation behavior; dedicated rail seek/drag UX validation remains separate.

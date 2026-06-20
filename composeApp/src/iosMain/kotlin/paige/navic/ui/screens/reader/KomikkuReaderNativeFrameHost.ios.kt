@@ -9,6 +9,7 @@ import paige.navic.reader.ReaderPageDragPreviewPhase
 actual fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
+	chromeOverlayVisible: Boolean,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,

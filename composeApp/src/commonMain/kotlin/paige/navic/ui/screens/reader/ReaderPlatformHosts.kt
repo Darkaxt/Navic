@@ -18,6 +18,7 @@ import paige.navic.ui.navigation.Screen
 expect fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
+	chromeOverlayVisible: Boolean,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,

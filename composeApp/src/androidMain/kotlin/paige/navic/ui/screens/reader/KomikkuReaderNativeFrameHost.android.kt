@@ -45,6 +45,7 @@ private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHos
 actual fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
 	navigationOverlayVisible: Boolean,
+	chromeOverlayVisible: Boolean,
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
@@ -71,6 +72,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			KomikkuReaderNativeFrameRoot(context).apply {
 				setViewerContent(viewerKey) { currentViewerContent() }
 				setComposeOverlay { currentComposeOverlay() }
+				setChromeOverlayVisible(chromeOverlayVisible)
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
@@ -84,6 +86,7 @@ actual fun KomikkuReaderNativeFrameHost(
 		update = { root ->
 			root.setNavigation(navigator)
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
+			root.setChromeOverlayVisible(chromeOverlayVisible)
 			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
@@ -149,6 +152,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setNavigationOverlayVisible(visible: Boolean) {
 		navigationOverlay.visibility = if (visible) VISIBLE else GONE
+	}
+
+	fun setChromeOverlayVisible(visible: Boolean) {
+		viewerContainer.chromeOverlayVisible = visible
 	}
 
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String) {
@@ -305,6 +312,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	var navigator: KomikkuReaderNavigator = KomikkuReaderNavigator(KomikkuDisabledNavigation())
 	var onAction: (KomikkuNavigationRegion) -> Unit = {}
 	var verticalPageDragPreview: Boolean = false
+	var chromeOverlayVisible: Boolean = false
 	var onReadableDragPreview: (
 		deltaX: Float,
 		deltaY: Float,
@@ -364,6 +372,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					shellCoverNavigator.getAction(point)
 				} else {
 					navigator.getAction(point)
+				}
+				if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU) {
+					Logger.i(
+						KomikkuReaderNativeFrameHostTag,
+						"Reader native tap ignored under chrome action=$action x=${event.x} y=${event.y} width=$width height=$height"
+					)
+					return true
 				}
 				Logger.i(
 					KomikkuReaderNativeFrameHostTag,
