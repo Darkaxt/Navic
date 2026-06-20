@@ -376,6 +376,29 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderLetsProseUseAdaptiveFolioWidth() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(
+			typographyCss,
+			"max-width: none !important",
+			message = "Publisher max-width rules on body/prose wrappers must not shrink tablet folio pages into a phone-width column."
+		)
+		assertContains(
+			typographyCss,
+			"width: auto !important",
+			message = "Publisher fixed-width rules on body/prose wrappers must yield to the adaptive Foliate page box."
+		)
+		assertTrue(
+			typographyCss.indexOf("body {") < typographyCss.indexOf("max-width: none !important"),
+			"The reader must normalize body/prose width after establishing reader-root typography."
+		)
+	}
+
+	@Test
 	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText

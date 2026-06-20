@@ -907,12 +907,29 @@ export const readerTypographyCss = settings => {
   body {
     font-size: 1rem !important;
     line-height: ${settings.lineHeight || 1.55} !important;
+    width: auto !important;
+    max-width: none !important;
     ${usePublisherStyles || !fontFamily ? '' : `font-family: ${fontFamily} !important;`}
     ${usePublisherStyles ? '' : `
     word-spacing: ${wordSpacing}px !important;
     `}
     margin-inline: ${settings.marginPercent || 0}% !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
+  }
+  main,
+  section,
+  article,
+  center,
+  div:not(:has(*:not(b, a, em, i, strong, u, span))),
+  div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
+  body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  table:not(:has(img)):not(:has(svg)):not(:has(canvas)) {
+    width: auto !important;
+    max-width: none !important;
+  }
+  table:not(:has(img)):not(:has(svg)):not(:has(canvas)) {
+    width: 100% !important;
   }
   p,
   li,

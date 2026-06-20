@@ -4553,3 +4553,59 @@ Results:
 - PASS: `node --check` on `navic-reader-helpers.js` reported no syntax errors.
 - PASS: pure `adaptive-page-box-logic` harness passed, so the Tab S9 page-box math was not regressed by this font-size slice.
 - PASS: `git diff --check` reported no whitespace errors.
+
+## 2026-06-20 Emulator Popup / Blank Screen Report
+
+Scope:
+- User reported the current emulator screen looked wrong: no text, only a popup.
+- Attempted to collect ADB evidence before diagnosing the reader state.
+
+Validation:
+
+```powershell
+adb devices -l
+adb start-server
+adb kill-server
+adb connect 127.0.0.1:5555
+adb connect localhost:5555
+adb nodaemon server
+```
+
+Results:
+- FAIL/BLOCKED: repeated `adb devices -l` calls started the daemon but returned no attached emulator or phone.
+- FAIL/BLOCKED: `adb kill-server` reported no reachable daemon at `127.0.0.1:5037`.
+- FAIL/BLOCKED: explicit reconnect attempts to `127.0.0.1:5555` / `localhost:5555` did not attach the running emulator.
+- FAIL/BLOCKED: one reconnect attempt reported `could not read ok from ADB Server`.
+- FAIL/BLOCKED: desktop screenshot fallback failed with Windows `CopyFromScreen` reporting `The handle is invalid`.
+- PASS: Windows process inspection showed `emulator.exe` and `qemu-system-x86_64.exe` still running.
+- Interpretation: the current emulator screen is not usable validation evidence from this session. ADB is detached/broken and the window could not be captured visually. Restart or reattach the emulator before treating the popup/blank screen as a Navic regression.
+
+## 2026-06-20 EPUB Adaptive Prose Width Slice
+
+Scope:
+- Investigated the Tab S9 report that EPUB pages can render as a narrow text column with too much unused horizontal space.
+- The existing adaptive page-box math already produced a wide tablet folio surface, so the stronger source-level suspect was publisher CSS pinning body/prose wrappers to fixed `width` or `max-width`.
+
+Changes:
+- Added a host guard requiring the EPUB runtime stylesheet to override publisher `width` / `max-width` on body and prose wrappers.
+- Updated `readerTypographyCss` so body and prose containers yield to the adaptive Foliate page box.
+- Added a prose-table rule so image-free table wrappers used by older EPUBs can fill the available folio width.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderLetsProseUseAdaptiveFolioWidth"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+.\gradlew.bat --no-daemon "-Dkotlin.compiler.execution.strategy=in-process" :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderLetsProseUseAdaptiveFolioWidth"
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+git diff --check
+```
+
+Results:
+- RED: before the CSS change, `androidReaderLetsProseUseAdaptiveFolioWidth` failed at `ReaderRuntimeSettingsBridgeTest.kt:385`, proving prose width normalization was missing.
+- PASS: after the CSS change, the focused prose-width guard completed with `BUILD SUCCESSFUL in 12s`.
+- PASS: `node --check` on `navic-reader-helpers.js` reported no syntax errors.
+- PASS: the adjacent font-size/prose-width focused host tests completed with `BUILD SUCCESSFUL in 26s`.
+- PASS: pure `adaptive-page-box-logic` harness still passed, so the page-box sizing model was not regressed.
+- PASS: `git diff --check` reported no whitespace errors.
+- OPEN: runtime visual confirmation on emulator/phone is still blocked until ADB reattaches or a clean release is installed and inspected.
