@@ -363,7 +363,8 @@ class ReaderBridgeProtocolTest {
 			  "textHref": "Text/chapter-01.xhtml",
 			  "visibleStart": 80,
 			  "visibleEnd": 140,
-			  "rangeCfi": "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			  "rangeCfi": "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+			  "source": "media-overlay-follow"
 			}
 			""".trimIndent()
 		)
@@ -373,6 +374,7 @@ class ReaderBridgeProtocolTest {
 		assertEquals(80, range.visibleStart)
 		assertEquals(140, range.visibleEnd)
 		assertEquals("epubcfi(/6/2!/4/4,/1:0,/1:24)", range.rangeCfi)
+		assertEquals("media-overlay-follow", range.source)
 	}
 
 	@Test

@@ -69,6 +69,8 @@ Implemented and covered by source/tests:
 - A no-build/no-install paired readerdev route reopen with preserved data used that companion progress to load the audiobook plan at `startTrack=0 startPositionMs=263360`, then re-applied the same visible-range overlay for `OEBPS/xhtml/Authorforeword.xhtml`.
 - Controller-owned top-left Whispersync playback control policy now derives hidden/loading/play/pause/crossed states from the reader Whispersync status and paired audiobook playback state, and routes taps through the audiobook playback manager rather than the WebView.
 - Readerdev emulator validation for production book `3809` proves the top-left control starts the paired readaloud session at the sidecar target `263360ms` and pauses it on the next tap; the control also follows the Komikku chrome touch-shield pattern so visible disabled/loading states do not leak taps into page navigation.
+- Audio-position-driven reader navigation now marks WebView relocations as `media-overlay-follow`; visible text range bridge events preserve that source, and the controller stores the resulting visible range without dispatching a fresh audiobook seek. This prevents audio-follow page movement from immediately bouncing the audiobook back to a different visible-range cue while keeping normal user page-turn seeking intact.
+- Readerdev emulator validation for production book `3809` proves playback-driven overlay commands now enter WebView with `controlled-relocate:begin media-overlay-follow`; the observed run did not emit a new visible-range bridge event because Foliate classified the target location as a duplicate, so the native suppression branch remains host-test-proven rather than full-device-observed.
 
 Important correction to older audits:
 
@@ -79,6 +81,7 @@ Still missing:
 
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
 - Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, but release-device validation still needs to prove the same behavior on the installed release APK.
+- Source-aware audio-follow visible range suppression is covered by host tests and readerdev console evidence, but still needs a device scenario that produces a non-duplicate `visibleTextRange(source=media-overlay-follow)` bridge event.
 
 ## Non-Negotiable Guardrails
 

@@ -6163,3 +6163,36 @@ Results:
 - GREEN/PAUSE: tapping the same control again moved readaloud playback to `PAUSED(2)` at the current audiobook position `284962ms`.
 - CORRECTION: an earlier tap at `52,52` was too close to the control edge after the emulator's 1.5 px/dp scaling. The control bounds are approximately `42..114` pixels in each axis with menus hidden, so the density-correct center is `78,78`.
 - OPEN: this validates readerdev/emulator behavior, not a public release APK on the user's phone.
+
+## 2026-06-21 Whispersync Audio-Follow Source Guard
+
+Scope:
+- Prevented playback-position-driven reader navigation from feeding back into a fresh reader-to-audio seek.
+- Added a source field to `visibleTextRange` bridge events and preserved it through `ReaderBridgeEvent`, `ReaderEngineEvent`, and `ReaderWhispersyncVisibleTextRange`.
+- Marked WebView relocations caused by `applyOverlayFragment()` as `media-overlay-follow`.
+- Controller behavior now stores `media-overlay-follow` visible ranges but does not emit a new `WhispersyncAudioSeekTarget`, preserving audio-owned overlay state.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeVisibleTextRangeForWhispersync --tests paige.navic.reader.ReaderControllerTest.audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport
+.\gradlew.bat --no-daemon --no-parallel --rerun-tasks :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeVisibleTextRangeForWhispersync --tests paige.navic.reader.ReaderControllerTest.audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-3809-eta77.env -RequireReaderLaunch
+adb -s emulator-5554 shell input swipe 850 1200 200 1200 500
+adb -s emulator-5554 shell input tap 78 78
+```
+
+Artifacts:
+- Install log: `tmp\codex-gradle\readerdev-media-overlay-source-install.log`.
+
+Results:
+- RED: focused tests first failed because `ReaderBridgeEvent.VisibleTextRange`, `ReaderEngineEvent.VisibleTextRange`, and `ReaderWhispersyncVisibleTextRange` did not carry `source`.
+- GREEN/HOST: focused bridge/controller gate passed with `--rerun-tasks` in 4m17s.
+- GREEN/JS: `node --check` passed for `navic-reader.js` and `navic-reader-location.js`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/INSTALL: readerdev `v1.0.11-eta77` / `versionCode=410` installed at `2026-06-21 06:17:28`, launched, and emitted `publicationReady`.
+- EMULATOR: after leaving the native cover and starting playback, logcat showed `Dispatching reader engine command: applyOverlayFragment`, `controlled-relocate:begin media-overlay-follow`, `viewport-layout label=media-overlay-follow`, and `overlayFragmentActive` for production book `3809`.
+- LIMIT: the observed emulator run did not emit a new `visibleTextRange(source=media-overlay-follow)` bridge event because the target location was a duplicate. The native suppression branch is therefore host-test-proven and the WebView source marker is emulator-proven, but a non-duplicate audio-follow visible-range event remains open for full device observation.

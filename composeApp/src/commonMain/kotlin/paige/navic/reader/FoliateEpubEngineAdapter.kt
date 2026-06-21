@@ -169,7 +169,8 @@ sealed class FoliateWebViewEngineAdapter(
 				textHref = event.textHref,
 				visibleStart = event.visibleStart,
 				visibleEnd = event.visibleEnd,
-				rangeCfi = event.rangeCfi
+				rangeCfi = event.rangeCfi,
+				source = event.source
 			)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)

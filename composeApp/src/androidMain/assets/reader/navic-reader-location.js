@@ -246,7 +246,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   )
   readerTrace('location:post', { reason, message })
   post(message)
-  const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, options)
+  const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })
   log('location-changed:posted', reason)
   if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
   if (tocItem.href || tocItem.label || tocItem.title) {
@@ -280,6 +280,7 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
       visibleStart: range.visibleStart,
       visibleEnd: range.visibleEnd,
       rangeCfi: detail?.cfi || null,
+      source: options.source || null,
     })
   }
   const visibleRange = candidates
@@ -294,6 +295,7 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
     visibleRange.visibleStart,
     visibleRange.visibleEnd,
     visibleRange.rangeCfi || '',
+    visibleRange.source || '',
   ].join('|')
   if (key === this.lastPostedVisibleTextRangeKey && !options.forceDuplicatePost) {
     return { posted: false, skipped: 'duplicate', visibleRange }
@@ -305,6 +307,7 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
     visibleStart: visibleRange.visibleStart,
     visibleEnd: visibleRange.visibleEnd,
     rangeCfi: visibleRange.rangeCfi,
+    source: visibleRange.source,
   })
   log(
     'visible-text-range:posted',

@@ -585,24 +585,24 @@ class NavicReaderRuntime {
     }
   }
 
-  async goTo(locator) {
+  async goTo(locator, reason = 'go-to') {
     if (!this.view || !locator) return
     try {
       const navigationTarget = await this.resolveReaderNavigationTarget(locator)
       if (!navigationTarget) return
       if (navigationTarget.rendererTarget && this.view.renderer?.goTo) {
         log('go-to:resolved', navigationTarget.target, `index=${navigationTarget.rendererTarget.index}`)
-        this.beginControlledRelocation('go-to')
+        this.beginControlledRelocation(reason)
         await this.view.renderer.goTo(navigationTarget.rendererTarget)
         this.view.history?.pushState?.(navigationTarget.target)
       } else {
         log('go-to:fallback', navigationTarget.target)
-        this.beginControlledRelocation('go-to')
+        this.beginControlledRelocation(reason)
         await this.view.goTo(navigationTarget.target)
       }
-      this.scheduleControlledRelocationFallback('go-to')
-      this.applyReaderViewportLayout('go-to')
-      requestAnimationFrame(() => this.logContentLayout('go-to'))
+      this.scheduleControlledRelocationFallback(reason)
+      this.applyReaderViewportLayout(reason)
+      requestAnimationFrame(() => this.logContentLayout(reason))
     } catch (error) {
       reportError(error, 'navigation_failed')
     }
@@ -629,7 +629,7 @@ class NavicReaderRuntime {
       ? `${fragment.textHref}#${fragment.fragmentId}`
       : fragment.textHref
     if (targetHref) {
-      await this.goTo(targetHref)
+      await this.goTo(targetHref, 'media-overlay-follow')
     }
     this.clearOverlay()
     if (fragment.fragmentId) {

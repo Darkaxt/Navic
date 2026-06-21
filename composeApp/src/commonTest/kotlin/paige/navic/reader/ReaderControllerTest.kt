@@ -1612,6 +1612,48 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport() {
+		val playing = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+		val audioOverlay = playing.state.activeMediaOverlay
+
+		val step = playing.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 10,
+				visibleEnd = 42,
+				source = "media-overlay-follow"
+			)
+		)
+
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(audioOverlay, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 10,
+				visibleEnd = 42,
+				source = "media-overlay-follow"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.controller.state.whispersync.status.kind)
+	}
+
+	@Test
 	fun selectionActionStateIsControllerOwnedAndClearedByEngine() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val textOnly = opened.onEngineEvent(

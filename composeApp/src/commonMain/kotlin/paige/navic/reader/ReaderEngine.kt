@@ -152,7 +152,8 @@ sealed interface ReaderEngineEvent {
 		val textHref: String,
 		val visibleStart: Int,
 		val visibleEnd: Int,
-		val rangeCfi: String? = null
+		val rangeCfi: String? = null,
+		val source: String? = null
 	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent

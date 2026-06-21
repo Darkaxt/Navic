@@ -493,7 +493,8 @@ sealed interface ReaderBridgeEvent {
 		val textHref: String,
 		val visibleStart: Int,
 		val visibleEnd: Int,
-		val rangeCfi: String? = null
+		val rangeCfi: String? = null,
+		val source: String? = null
 	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
@@ -635,7 +636,8 @@ private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange?
 		textHref = textHref,
 		visibleStart = minOf(visibleStart, visibleEnd),
 		visibleEnd = maxOf(visibleStart, visibleEnd),
-		rangeCfi = stringValue("rangeCfi")
+		rangeCfi = stringValue("rangeCfi"),
+		source = stringValue("source") ?: stringValue("reason")
 	)
 }
 

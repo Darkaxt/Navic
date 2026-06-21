@@ -25,7 +25,8 @@ data class ReaderWhispersyncVisibleTextRange(
 	val textHref: String,
 	val visibleStart: Int,
 	val visibleEnd: Int,
-	val rangeCfi: String? = null
+	val rangeCfi: String? = null,
+	val source: String? = null
 )
 
 enum class ReaderWhispersyncStatusKind {

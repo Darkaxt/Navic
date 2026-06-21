@@ -798,9 +798,21 @@ data class ReaderController(
 			textHref = event.textHref,
 			visibleStart = event.visibleStart,
 			visibleEnd = event.visibleEnd,
-			rangeCfi = event.rangeCfi
+			rangeCfi = event.rangeCfi,
+			source = event.source
 		)
 		val currentWhispersync = state.whispersync
+		if (event.isWhispersyncAudioFollowRange()) {
+			return ReaderControllerStep(
+				controller = copy(
+					state = state.copy(
+						whispersync = currentWhispersync.copy(
+							visibleTextRange = visibleRange
+						)
+					)
+				)
+			)
+		}
 		val syncStep = currentWhispersync.sync.onVisibleTextRange(
 			timeline = currentWhispersync.timeline,
 			textHref = event.textHref,
@@ -1288,6 +1300,9 @@ private fun readerTocHrefKey(href: String?): String? {
 		.trimStart('.', '/')
 		.takeIf { it.isNotEmpty() }
 }
+
+private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
+	source.equals("media-overlay-follow", ignoreCase = true)
 
 private fun String?.normalizedReaderSelectionValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
