@@ -1812,8 +1812,12 @@ class ReaderKomikkuBackboneResetTest {
 			playbackControlBody.contains("Surface(") ||
 				playbackControlBody.contains("RoundedCornerShape(") ||
 				playbackControlBody.contains("CircularProgressIndicator(") ||
+				playbackControlBody.contains("IconButton(") ||
+				playbackControlBody.contains(".background(") ||
+				playbackControlBody.contains(".border(") ||
+				playbackControlBody.contains(".clip(") ||
 				playbackControlBody.contains("color = MaterialTheme.colorScheme.surface"),
-			"The page-level Whispersync headset must not render a circular button, pill, progress ring, or Material background."
+			"The page-level Whispersync headset must not render a circular button, pill, progress ring, outline, clipped container, or Material background."
 		)
 		assertTrue(
 			statusBadgeText.contains("onRepairMismatch: () -> Unit"),
