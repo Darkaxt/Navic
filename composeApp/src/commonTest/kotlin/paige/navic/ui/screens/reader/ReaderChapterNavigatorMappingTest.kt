@@ -10,7 +10,7 @@ class ReaderChapterNavigatorMappingTest {
 	fun chapterProgressSliderOnlyShowsForSectionsWithEnoughPages() {
 		assertFalse(readerShouldShowChapterProgressSlider(totalPages = 0))
 		assertFalse(readerShouldShowChapterProgressSlider(totalPages = 1))
-		assertTrue(readerShouldShowChapterProgressSlider(totalPages = 2))
+		assertFalse(readerShouldShowChapterProgressSlider(totalPages = 2))
 		assertTrue(readerShouldShowChapterProgressSlider(totalPages = 3))
 		assertTrue(readerShouldShowChapterProgressSlider(totalPages = 12))
 	}

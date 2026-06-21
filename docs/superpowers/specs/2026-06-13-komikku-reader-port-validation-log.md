@@ -6392,3 +6392,23 @@ Results:
 - GREEN/STALE-GUARDS: the five previously stale host guards passed after updating them to the current runtime signatures and direct media-helper state ownership checks.
 - GREEN/FULL-HOST: `:composeApp:testAndroidHostTest` passed with `BUILD SUCCESSFUL in 29s`.
 - Remaining: this proves the loading fallback and standard matrix on readerdev/emulator. Manual release/physical validation is still needed for perceived drag feel on the user's devices.
+
+## 2026-06-21 Tiny-Section Chapter Rail Suppression
+
+Scope:
+- Tighten Komikku chapter navigator behavior so the chapter-local progress rail is hidden for tiny sections with fewer than three pages.
+- This keeps cover/one-page sections and two-page sections from showing a mostly decorative rail while preserving previous/next chapter buttons.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest.chapterProgressSliderOnlyShowsForSectionsWithEnoughPages
+.\gradlew.bat --no-daemon --no-parallel --rerun-tasks :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest.chapterProgressSliderOnlyShowsForSectionsWithEnoughPages
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorUsesKomikkuTabletPaddingContract --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorHonorsRtlDirectionLikeKomikku --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorArrowsUseTocChapterNavigationCallbacks --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.komikkuChapterNavigatorUsesChapterLocalControllerProgressInsteadOfBookProgress
+```
+
+Results:
+- RED/HOST: the focused common mapping test first failed because `readerShouldShowChapterProgressSlider(totalPages = 2)` still returned true.
+- GREEN/HOST: the forced focused run passed after changing the threshold to `totalPages > 2`.
+- GREEN/CHROME-GUARDS: the related Komikku chapter navigator mapping/source guards passed.
+- Remaining: this is a host-level UI policy guard. Emulator/device validation is still needed for the exact visual result in short chapters.
