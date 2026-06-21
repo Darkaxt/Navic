@@ -100,6 +100,24 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun vinylOverlayUsesArtworkRotationWhileSpinning() {
+		assertEquals(
+			137f,
+			nowPlayingVinylOverlayRotationDegrees(
+				isRotatingArtwork = true,
+				artworkRotationDegrees = 137f
+			)
+		)
+		assertEquals(
+			0f,
+			nowPlayingVinylOverlayRotationDegrees(
+				isRotatingArtwork = false,
+				artworkRotationDegrees = 137f
+			)
+		)
+	}
+
+	@Test
 	fun turnTableWidgetUsesStaticVinylArtworkOnlyWithCoverArt() {
 		assertTrue(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = true))
 		assertFalse(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = false))

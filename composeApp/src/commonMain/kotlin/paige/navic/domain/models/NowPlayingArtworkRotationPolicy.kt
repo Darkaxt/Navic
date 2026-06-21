@@ -37,6 +37,11 @@ fun shouldShowNowPlayingVinylOverlay(
 	hasCoverArt: Boolean
 ): Boolean = isRotatingArtwork && hasCoverArt
 
+fun nowPlayingVinylOverlayRotationDegrees(
+	isRotatingArtwork: Boolean,
+	artworkRotationDegrees: Float
+): Float = if (isRotatingArtwork) artworkRotationDegrees else 0f
+
 fun shouldUseTurnTableWidgetVinylArtwork(hasCoverArt: Boolean): Boolean = hasCoverArt
 
 fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =

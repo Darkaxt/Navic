@@ -40,6 +40,7 @@ import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingFallbackLabelStyle
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
+import paige.navic.domain.models.nowPlayingVinylOverlayRotationDegrees
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -105,38 +106,46 @@ fun NowPlayingArtwork(
 		.aspectRatio(1f)
 		.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
 		.padding(padding)
+	val discRotationDegrees = nowPlayingVinylOverlayRotationDegrees(
+		isRotatingArtwork = isRotatingArtwork,
+		artworkRotationDegrees = rotationDegrees
+	)
+	val discModifier = artworkModifier.then(
+		if (discRotationDegrees == 0f) Modifier else Modifier.rotate(discRotationDegrees)
+	)
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = modifier.then(
 			if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)
 		)
 	) {
-		CoverArt(
-			coverArtId = song.coverArtId,
-			imageUrl = musicBrainzFallbackArtworkUrl,
-			imageCacheKey = musicBrainzFallbackArtworkCacheKey,
-			contentDescription = song.title,
-			fallbackKind = "Track",
-			fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
-			onServerCoverLoadFailed = {
-				musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
-				musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
-			},
-			normalization = CoverArtNormalization.TrimWhitespace,
-			modifier = artworkModifier
-				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
-			shadowElevation = 8.dp,
-			shape = artworkShape.shape
-		)
-		if (
-			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = isRotatingArtwork,
-				hasCoverArt = hasArtwork
+		Box(modifier = discModifier) {
+			CoverArt(
+				coverArtId = song.coverArtId,
+				imageUrl = musicBrainzFallbackArtworkUrl,
+				imageCacheKey = musicBrainzFallbackArtworkCacheKey,
+				contentDescription = song.title,
+				fallbackKind = "Track",
+				fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
+				onServerCoverLoadFailed = {
+					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
+					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
+				},
+				normalization = CoverArtNormalization.TrimWhitespace,
+				modifier = Modifier.fillMaxSize(),
+				shadowElevation = 8.dp,
+				shape = artworkShape.shape
 			)
-		) {
-			VinylRecordOverlay(
-				modifier = artworkModifier
-			)
+			if (
+				shouldShowNowPlayingVinylOverlay(
+					isRotatingArtwork = isRotatingArtwork,
+					hasCoverArt = hasArtwork
+				)
+			) {
+				VinylRecordOverlay(
+					modifier = Modifier.fillMaxSize()
+				)
+			}
 		}
 		if (!hasArtwork) {
 			Icon(
