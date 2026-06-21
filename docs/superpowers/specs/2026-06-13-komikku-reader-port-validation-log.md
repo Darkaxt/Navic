@@ -6826,3 +6826,63 @@ Results:
   - `All my life, I'd wished to be an Oculator... with enhanced skills...`
 - BLOCKED/VISUAL: screenshot validation of the fixed text page is still blocked because the native cover overlay remained visible after direct WebView navigation and did not dismiss after two right-edge taps. The WebView document was correctly navigated and normalized behind it, but `screen-after-chapter-progress.png` still shows the native cover.
 - FOLLOW-UP: treat the stuck native cover overlay as a separate cover-shell/controller issue. Do not weaken the line-fragment normalizer to work around the cover overlay.
+
+## 2026-06-21 Controller-Owned Cover Dismissal Red/Green
+
+Scope:
+- Fix the cover-shell/controller issue found during Bastille line-fragment validation: the native cover overlay could remain mounted above real EPUB content after an explicit engine navigation moved the WebView underneath it.
+- Preserve the intended startup behavior where passive/default relocation does not immediately dismiss the native cover.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover" --tests "paige.navic.reader.ReaderControllerTest.startupReadableRelocationDoesNotDismissControllerOwnedShellCover"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundary*"
+git diff --check
+```
+
+Artifacts:
+- `build\codex-logs\reader-controller-shell-cover-red.out.log`
+- `build\codex-logs\reader-controller-shell-cover-green.out.log`
+- `build\codex-logs\reader-controller-shell-cover-broad.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover` failed before implementation at `ReaderControllerTest.kt:117`; `shellCoverVisible` stayed `true` after an explicit `chapter-progress-seek` relocation to readable content.
+- GREEN/FIXED: the same scenario now clears `shellCoverVisible` and `menuVisible`, while `startupReadableRelocationDoesNotDismissControllerOwnedShellCover` keeps the shell cover mounted for passive `relocate-committed` startup relocation.
+- GREEN/BROAD: full `ReaderControllerTest` plus `ReaderChromeStateTest.nativeShellCoverBoundary*` passed, preserving previous-from-first-readable-page native-cover return behavior.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: this is host/controller validation. The next dirty readerDev/emulator validation should verify that TOC/progress/Whispersync chapter navigation no longer leaves the native cover visually mounted over the WebView.
+
+## 2026-06-21 Controller-Owned Cover Dismissal Dirty Emulator Validation
+
+Scope:
+- Validate the controller-owned cover dismissal fix on the emulator after installing a dirty readerDev APK.
+- Confirm explicit chapter-progress navigation reaches visible EPUB content instead of leaving the native cover mounted above the WebView.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554
+.\scripts\install-reader-dev.ps1 -NoBuild -NoInstall -DeviceSerial emulator-5554 -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --probe runtime-state
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --probe chapter-progress-endpoints
+adb -s emulator-5554 shell screencap -p /sdcard/navic-cover-dismiss-probe-after.png
+adb -s emulator-5554 pull /sdcard/navic-cover-dismiss-probe-after.png captures\reader-cover-dismiss-dirty\probe-after.png
+```
+
+Artifacts:
+- `build\codex-logs\readerdev-install-cover-dismiss.out.log`
+- `build\codex-logs\readerdev-install-cover-dismiss.err.log`
+- `build\codex-logs\chapter-progress-endpoints-cover-dismiss.out.log`
+- `build\codex-logs\chapter-progress-endpoints-cover-dismiss.err.log`
+- `captures\reader-cover-dismiss-dirty\before.png`
+- `captures\reader-cover-dismiss-dirty\after.png`
+- `captures\reader-cover-dismiss-dirty\probe-after.png`
+
+Results:
+- GREEN/DIRTY-INSTALL: `scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554` built and installed readerDev successfully.
+- GREEN/DEVTOOLS: `runtime-state` connected to `darkaxt.navic.readerdev` WebView `https://appassets.androidplatform.net/assets/reader/index.html`; the runtime reported `flowMode=paged`, `rendererFlow=paginated`, viewport `1232x1974`, and one content document.
+- GREEN/CHAPTER-ENDPOINTS: `chapter-progress-endpoints` selected `OEBPS/Text/Chapter-37.xhtml` with `chapterPageCount=82`; the endpoint probe reached page `461 / 623` at chapter progress `0` and page `542 / 623` at chapter progress `1`.
+- GREEN/VISUAL: `captures\reader-cover-dismiss-dirty\probe-after.png` shows readable EPUB content at `543 / 623`, not the native cover. This confirms the explicit navigation path no longer leaves the native cover visually mounted over the WebView in the dirty emulator build.
+- NOTE: the foreground launch command hit the shell tool's foreground ceiling while waiting for `publicationReady`; the app had already launched and was then validated through DevTools and screenshots. Future long readerDev launches should use the hidden captured-process pattern used for Gradle and DevTools probes.

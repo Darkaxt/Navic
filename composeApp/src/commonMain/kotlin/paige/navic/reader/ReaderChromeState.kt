@@ -449,7 +449,7 @@ private fun readerLocatorCanRepresentNativeShellCoverBoundary(locator: ReaderLoc
 	return readerHrefLooksLikeNativeShellCoverBoundary(href)
 }
 
-private fun readerHrefLooksLikeNativeShellCoverBoundary(href: String): Boolean {
+fun readerHrefLooksLikeNativeShellCoverBoundary(href: String): Boolean {
 	val leaf = href
 		.substringBefore('#')
 		.substringBefore('?')
