@@ -6649,3 +6649,42 @@ Results:
 - ENV: the first green rerun hit a stale Kotlin compile-cache deletion lock left by the killed Gradle wrapper process; `.\gradlew.bat --stop` cleared the stale daemon before rerunning the same focused checks.
 - GREEN/HOST: the focused Komikku bottom-bar guard and Whispersync headset-route guard passed after the production update.
 - Remaining: this is host/source proof. Readerdev/emulator validation still needs to confirm short tap toggles playback and long press opens the player dialog on the real page-level headset surface.
+
+## 2026-06-21 Readerdev Page-Level Whispersync Headset Runtime Probe
+
+Scope:
+- Validate the current readerdev build after the page-level Whispersync control was moved out of the bottom chrome.
+- Confirm the affordance is only a low-opacity headset glyph in the top-left page area, with no circular button, ring, capsule, or progress container.
+- Confirm short tap toggles the readaloud session, long press opens the controller-owned Whispersync player dialog, and the Komikku bottom bar keeps only its normal reader actions.
+
+Commands:
+
+```powershell
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+adb -s emulator-5554 shell screencap -p /sdcard/navic-headset-live.png
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-headset-live.xml
+adb -s emulator-5554 shell input tap 78 78
+adb -s emulator-5554 shell dumpsys media_session
+adb -s emulator-5554 shell input swipe 78 78 78 78 900
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-headset-longpress.xml
+adb -s emulator-5554 shell input keyevent BACK
+adb -s emulator-5554 shell input tap 900 1200
+adb -s emulator-5554 shell screencap -p /sdcard/navic-bottom-chrome-visible.png
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-bottom-chrome-visible.xml
+```
+
+Artifacts:
+- `tmp\navic-headset-live.png`
+- `tmp\navic-headset-live.xml`
+- `tmp\navic-after-headset-short.xml`
+- `tmp\navic-after-headset-longpress.xml`
+- `tmp\navic-bottom-chrome-visible.png`
+- `tmp\navic-bottom-chrome-visible.xml`
+
+Results:
+- GREEN/BUILD-EVIDENCE: emulator `emulator-5554` was running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/GLYPH: `tmp\navic-headset-live.png` shows only a small low-opacity headset glyph at the top-left of the page. The playback-control source still rejects `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, and Material background usage inside `KomikkuWhispersyncPlaybackControl`.
+- GREEN/SHORT-TAP: tapping the top-left headset at roughly `(78, 78)` changed the accessibility description from `Play Whispersync audiobook` to `Pause Whispersync audiobook`; Android MediaSession `androidx.media3.session.id.navic-readaloud` moved to `PLAYING(3)` for `Bastille vs. the Evil Librarians`.
+- GREEN/LONG-PRESS: long-pressing the same top-left glyph opened the controller-owned Whispersync player dialog. The hierarchy contained `Audio sync`, `Pause audiobook`, the audiobook metadata, and `Close`; the MediaSession remained `PLAYING(3)`.
+- GREEN/BOTTOM-CHROME: after closing the player and showing reader chrome, `tmp\navic-bottom-chrome-visible.xml` exposed bottom actions `Chapters`, `Search`, and `Settings`. There was no bottom-bar `Whispersync player` or `Audio sync` shortcut; the only audiobook-related node remained the top-left headset glyph.
+- Remaining: this is readerdev/emulator proof. A signed release-device pass is still required before claiming the physical phone release has the same no-circle headset treatment and playback behavior.
