@@ -6886,3 +6886,32 @@ Results:
 - GREEN/CHAPTER-ENDPOINTS: `chapter-progress-endpoints` selected `OEBPS/Text/Chapter-37.xhtml` with `chapterPageCount=82`; the endpoint probe reached page `461 / 623` at chapter progress `0` and page `542 / 623` at chapter progress `1`.
 - GREEN/VISUAL: `captures\reader-cover-dismiss-dirty\probe-after.png` shows readable EPUB content at `543 / 623`, not the native cover. This confirms the explicit navigation path no longer leaves the native cover visually mounted over the WebView in the dirty emulator build.
 - NOTE: the foreground launch command hit the shell tool's foreground ceiling while waiting for `publicationReady`; the app had already launched and was then validated through DevTools and screenshots. Future long readerDev launches should use the hidden captured-process pattern used for Gradle and DevTools probes.
+
+## 2026-06-21 Komikku Effective Nav-Bar Guard
+
+Scope:
+- Match Komikku's rule that vertical seekbars belong to vertical viewer modes only. Normal paged EPUB must use the bottom navigator even if the stored nav-bar preference is vertical.
+- Replace the failed foreground/`Start-Process` launch pattern with a hidden captured-process pattern for long Gradle validation.
+
+Commands:
+
+```powershell
+# RED and GREEN were both run through a hidden ProcessStartInfo wrapper with CreateNoWindow=true,
+# stdout/stderr redirected to build\codex-logs, and PID files beside the logs.
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest.komikkuVerticalRailIsEffectiveOnlyForVerticalViewerModes"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest"
+git diff --check
+```
+
+Artifacts:
+- `build\codex-logs\komikku-effective-nav-red.out.log`
+- `build\codex-logs\komikku-effective-nav-green.out.log`
+- `build\codex-logs\reader-viewer-tests.out.log`
+- `build\codex-logs\reader-viewer-tests-rerun.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderViewerTest.komikkuVerticalRailIsEffectiveOnlyForVerticalViewerModes` failed before production code because `readerEffectiveNavBarTypeFor` did not exist.
+- GREEN/FIXED: `readerEffectiveNavBarTypeFor` now resolves the effective chrome from the active viewer mode: paged readers force `bottom`, while scrolled/webtoon and vertical-paged readers can use the stored vertical-left/right preference.
+- GREEN/CHROME: `KomikkuReaderAppBars` now consumes the effective nav-bar type instead of the raw stored setting, preventing the full-height vertical rail from appearing in normal paged EPUB.
+- GREEN/BROAD: `ReaderViewerTest` passed after updating a stale Whispersync source-inspection guard to the current root-owned headset overlay route (`KomikkuWhispersyncPlaybackControl` -> `onOpenPlayer = onWhispersyncPlayer` -> `KomikkuWhispersyncPlayerDialog`).
+- PROCESS: the working hidden wrapper pattern is `cmd.exe /d /c call "<repo>\gradlew.bat" ... > "<out.log>" 2> "<err.log>"`, launched with `ProcessStartInfo.UseShellExecute=false` and `CreateNoWindow=true`. Do not use foreground shells or `Start-Process` directly on `.bat` files for long reader validation.

@@ -12,6 +12,7 @@ import paige.navic.ui.screens.reader.ReaderViewerMode
 import paige.navic.ui.screens.reader.VerticalPagedPublicationReaderViewer
 import paige.navic.ui.screens.reader.WebtoonPublicationReaderViewer
 import paige.navic.ui.screens.reader.readerShellCoverViewerActionFor
+import paige.navic.ui.screens.reader.readerEffectiveNavBarTypeFor
 import paige.navic.ui.screens.reader.readerViewerKeyFor
 import paige.navic.ui.screens.reader.readerViewerFor
 
@@ -53,6 +54,51 @@ class ReaderViewerTest {
 		assertTrue(readerViewerFor(verticalPaged) is VerticalPagedPublicationReaderViewer)
 		assertTrue(readerViewerFor(scrolled) is WebtoonPublicationReaderViewer)
 		assertTrue(readerViewerFor(scrolledGaps) is WebtoonPublicationReaderViewer)
+	}
+
+	@Test
+	fun komikkuVerticalRailIsEffectiveOnlyForVerticalViewerModes() {
+		assertEquals(
+			ReaderNavBarTypeBottom,
+			readerEffectiveNavBarTypeFor(
+				defaultReaderSettings().copy(
+					flowMode = ReaderFlowPaged,
+					paged = true,
+					navBarType = ReaderNavBarTypeVerticalRight
+				)
+			),
+			"Komikku keeps paged readers on the bottom navigator; vertical seekbars belong to vertical viewers."
+		)
+		assertEquals(
+			ReaderNavBarTypeVerticalRight,
+			readerEffectiveNavBarTypeFor(
+				defaultReaderSettings().copy(
+					flowMode = ReaderFlowScrolled,
+					paged = false,
+					navBarType = ReaderNavBarTypeVerticalRight
+				)
+			)
+		)
+		assertEquals(
+			ReaderNavBarTypeVerticalLeft,
+			readerEffectiveNavBarTypeFor(
+				defaultReaderSettings().copy(
+					flowMode = ReaderFlowPagedVertical,
+					paged = true,
+					navBarType = ReaderNavBarTypeVerticalLeft
+				)
+			)
+		)
+		assertEquals(
+			ReaderNavBarTypeBottom,
+			readerEffectiveNavBarTypeFor(
+				defaultReaderSettings().copy(
+					flowMode = ReaderFlowScrolled,
+					paged = false,
+					navBarType = ReaderNavBarTypeBottom
+				)
+			)
+		)
 	}
 
 	@Test
@@ -100,15 +146,16 @@ class ReaderViewerTest {
 
 	@Test
 	fun whispersyncPlayerSurfaceIsKomikkuOwnedReaderChrome() {
-		val appBarsSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt").readText()
 		val rootSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
 		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+		val whispersyncChromeSource =
+			File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt").readText()
 
 		assertTrue(
-			appBarsSource.contains("onWhispersyncPlayer") &&
-				appBarsSource.contains("showWhispersyncPlayer") &&
-				appBarsSource.contains("Icons.Outlined.Audiobooks"),
-			"The reader bottom chrome must expose a Komikku-owned audiobook action when Whispersync is available."
+			rootSource.contains("KomikkuWhispersyncPlaybackControl") &&
+				rootSource.contains("onOpenPlayer = onWhispersyncPlayer") &&
+				whispersyncChromeSource.contains("Icons.Outlined.Headset"),
+			"The reader chrome must expose a Komikku-owned headset overlay when Whispersync is available."
 		)
 		assertTrue(
 			rootSource.contains("ReaderControllerDialog.WhispersyncPlayer") &&

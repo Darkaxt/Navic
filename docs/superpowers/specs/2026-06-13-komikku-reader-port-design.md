@@ -59,6 +59,7 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 - Do not let Foliate/WebView own normal reader tap zones. Short taps belong to the native Komikku-style surface; long press can reach content actions.
 - Do not regress links, image interaction, search, EPUB text rendering, PDF rendering, or readaloud hooks while replacing the shell.
 - Do not invent Navic-specific reader behavior where Anx already defines a bridge callback, payload field, style dimension, or engine action.
+- Do not launch long Gradle, readerDev, emulator, or DevTools validation work through a foreground shell or `Start-Process` directly on `.bat` files. Use a no-console launch path with `ProcessStartInfo.UseShellExecute=false`, `CreateNoWindow=true`, file logs, and a PID file; smoke-test the wrapper before using it for a long command.
 
 ## Current Architecture
 

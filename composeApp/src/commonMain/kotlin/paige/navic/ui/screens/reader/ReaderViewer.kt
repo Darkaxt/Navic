@@ -6,12 +6,14 @@ import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.ReaderDirectionDefault
+import paige.navic.reader.ReaderNavBarTypeBottom
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderViewportScrollDirection
 import paige.navic.reader.normalizedReaderFlowMode
+import paige.navic.reader.normalizedReaderNavBarType
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
 
 enum class ReaderViewerKind {
@@ -180,6 +182,16 @@ fun readerViewerModeFor(settings: ReaderSettings): ReaderViewerMode =
 		ReaderFlowScrolledGaps -> ReaderViewerMode.Scrolled
 		else -> ReaderViewerMode.Paged
 	}
+
+fun readerEffectiveNavBarTypeFor(settings: ReaderSettings): String {
+	val requested = normalizedReaderNavBarType(settings.navBarType)
+	return when (readerViewerModeFor(settings)) {
+		ReaderViewerMode.PagedVertical,
+		ReaderViewerMode.Scrolled -> requested
+		ReaderViewerMode.Empty,
+		ReaderViewerMode.Paged -> ReaderNavBarTypeBottom
+	}
+}
 
 fun readerViewerActionFor(
 	region: KomikkuNavigationRegion,
