@@ -368,6 +368,27 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncPageScopedControlProbe(page)")
+			.substringBefore("async function runChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "whispersync-page-scoped-control")
+		assertContains(helperText, "'whispersync-page-scoped-control': runWhispersyncPageScopedControlProbe")
+		assertContains(probe, "probe: 'whispersync-page-scoped-control'")
+		assertContains(probe, "OEBPS/xhtml/Authorforeword.xhtml")
+		assertContains(probe, "OEBPS/xhtml/mini_toc.xhtml")
+		assertContains(probe, "page-scoped-control-cue-covered")
+		assertContains(probe, "page-scoped-control-unsupported")
+		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "expectedLogLabels")
+		assertContains(probe, "Whispersync audiobook seek")
+		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+	}
+
+	@Test
 	fun androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent() {
 		val root = readerAssetRoot()
 		val locationText = root.resolve("navic-reader-location.js").readText()

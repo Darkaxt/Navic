@@ -73,6 +73,7 @@ Implemented and covered by source/tests:
 - Audio-position-driven reader navigation now marks WebView relocations as `media-overlay-follow`; visible text range bridge events preserve that source, and the controller stores the resulting visible range without dispatching a fresh audiobook seek. This prevents audio-follow page movement from immediately bouncing the audiobook back to a different visible-range cue while keeping normal user page-turn seeking intact.
 - Readerdev emulator validation for production book `3809` proves playback-driven overlay commands now enter WebView with `controlled-relocate:begin media-overlay-follow`.
 - The dedicated `whispersync-audio-follow` DevTools smoke probe now forces a non-duplicate audio-follow relocation and captures `visibleTextRange(... source=media-overlay-follow)` in Android logcat without a follow-on reader-to-audio seek, closing the previous host-only validation gap for feedback-loop suppression.
+- The dedicated `whispersync-page-scoped-control` DevTools smoke probe now repeats the production book `3809` cue/unsupported-page sequence: `Authorforeword.xhtml` emits `visibleTextRange(... source=page-scoped-control-cue-covered)`, resolves to `positionMs=263360`, activates the overlay, then `mini_toc.xhtml` emits `visibleTextRange(... source=page-scoped-control-unsupported)` and dispatches `clearOverlay`.
 
 Important correction to older audits:
 

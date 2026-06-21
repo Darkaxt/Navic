@@ -6293,3 +6293,36 @@ Results:
 - GREEN/OVERLAY: logcat showed `applyOverlayFragment` and `overlayFragmentActive` for `OEBPS/xhtml/Authorforeword.xhtml` at `clipBeginSeconds=263.36`.
 - GREEN/DEMOTION: jumping from the cue-covered page back to `OEBPS/xhtml/mini_toc.xhtml` produced `visibleTextRange(OEBPS/xhtml/mini_toc.xhtml, 1-486, source=page-scoped-control-unsupported)`, removed the native Whispersync control from the UI dump, and dispatched `clearOverlay`.
 - Remaining: this is emulator/readerdev evidence. A clean release APK on a physical device still needs to confirm the same page-scoped control behavior.
+
+## 2026-06-21 Whispersync Page-Scoped Control Smoke Probe
+
+Scope:
+- Promoted the manual cue/unsupported Whispersync page-scoped control DevTools validation into the standard `adb-reader-smoke.ps1` probe path.
+- Added `whispersync-page-scoped-control` to `tools\reader-harness\src\adb-webview-eval.mjs` and to the smoke script probe whitelist.
+- Added a host asset guard so the probe name, cue href, unsupported href, expected log labels, and clear-overlay assertion cannot silently disappear.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-page-scoped-control -ArtifactDir tmp\readerdev-whispersync-page-scoped-control-probe
+```
+
+Artifacts:
+- `tmp\readerdev-whispersync-page-scoped-control-probe\reader-devtools-probe.json`
+- `tmp\readerdev-whispersync-page-scoped-control-probe\logcat-reader.log`
+- `tmp\readerdev-whispersync-page-scoped-control-probe\reader-bridge-events.log`
+- `tmp\readerdev-whispersync-page-scoped-control-probe\reader-diagnostics-summary.txt`
+
+Results:
+- RED: the focused host guard first failed because `whispersync-page-scoped-control` was absent from the smoke script and DevTools helper.
+- GREEN/HOST: the focused host guard passed after adding the probe.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- GREEN/EMULATOR: the smoke probe passed against readerdev `v1.0.11-eta77` / `versionCode=410` on emulator PID `31692`.
+- GREEN/CUE: probe JSON captured `OEBPS/xhtml/Authorforeword.xhtml` with `visibleStart=3`, `visibleEnd=4923`, and `source=page-scoped-control-cue-covered`.
+- GREEN/AUDIO: Android logcat captured `Whispersync audiobook seek ... positionMs=263360`.
+- GREEN/OVERLAY: Android logcat captured `overlayFragmentActive`.
+- GREEN/UNSUPPORTED: probe JSON captured `OEBPS/xhtml/mini_toc.xhtml` with `visibleStart=1`, `visibleEnd=486`, and `source=page-scoped-control-unsupported`.
+- GREEN/CLEAR: Android logcat captured `Dispatching reader engine command: clearOverlay`.
+- Remaining: this probe automates the emulator/readerdev evidence. It still does not replace clean release APK validation on a physical device.
