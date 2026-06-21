@@ -6545,3 +6545,50 @@ Results:
 - GREEN/FULL-SUITE: full `:composeApp:testAndroidHostTest` passed after the guard correction.
 - GREEN/WHITESPACE: `git diff --check` exited `0`.
 - Remaining: this is host/source proof only. Readerdev or release-device validation still needs to prove the player opens from a real Whispersync-capable page, commands reach `AudiobookPlaybackManager`, and the UI matches the Komikku overlay feel on phone/tablet surfaces.
+
+## 2026-06-21 Readerdev Whispersync Player Chrome Runtime Probe
+
+Scope:
+- Promote the Komikku Whispersync player chrome from host/source proof to live Android readerdev proof.
+- Validate the production Bindery book 3809 sidecar/audio pairing path in the emulator.
+- Prove the native bottom-bar player action appears only after the EPUB reader page is active, opens the controller-owned player dialog, and sends play/pause commands to the readaloud MediaSession.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-whispersync-3809.env -DeviceSerial emulator-5554 -RequireReaderLaunch
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell input swipe 1600 1480 400 1480 500
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-window.xml
+adb -s emulator-5554 pull /sdcard/navic-window.xml tmp\navic-window.xml
+adb -s emulator-5554 shell input tap 1105 2858
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-window-dialog.xml
+adb -s emulator-5554 pull /sdcard/navic-window-dialog.xml tmp\navic-window-dialog.xml
+adb -s emulator-5554 shell input tap 924 1460
+adb -s emulator-5554 logcat -d -v time
+adb -s emulator-5554 shell input tap 924 1460
+adb -s emulator-5554 logcat -d -v time
+```
+
+Artifacts:
+- `tmp\whispersync-before-menu.png`
+- `tmp\whispersync-after-cover-tap.png`
+- `tmp\whispersync-after-cover-swipe.png`
+- `tmp\whispersync-page-menu.png`
+- `tmp\navic-window.xml`
+- `tmp\whispersync-player-dialog.png`
+- `tmp\navic-window-dialog.xml`
+- `tmp\whispersync-after-play.png`
+- `tmp\navic-window-after-play.xml`
+
+Results:
+- GREEN/INSTALL: readerdev `v1.0.11-eta78` / `versionCode=411` installed on `emulator-5554` and launched directly into the Whispersync-capable book 3809.
+- GREEN/SIDECAR: logcat before the focused UI probe showed `Bindery metadata fetched type=whispersync-sidecar path=/opds/books/3809/sync/3`, `Whispersync sidecar loaded artifact=3 audiobook=34 bookFile=633 segments=4188`, and `Whispersync audiobook plan loaded audiobook=34 items=1`.
+- GREEN/COVER: the reader initially rendered the native cover. A center tap on the cover routed through `KomikkuReaderNativeFrameHost` as `Reader native tap action=MENU` and changed `menuVisible=false->true` while preserving `shellCover=true`; it did not discard the cover.
+- GREEN/EPUB-PAGE: a horizontal swipe from the native cover entered the EPUB reader at `3 / 79`.
+- GREEN/BOTTOM-ACTION: after opening page chrome, `tmp\navic-window.xml` contained the bottom-bar action with `content-desc="Whispersync player"` at bounds roughly `[1069,2822][1141,2894]`.
+- GREEN/DIALOG: tapping that action opened `KomikkuWhispersyncPlayerDialog`; `tmp\navic-window-dialog.xml` contained the audiobook metadata, seekbar, `Play audiobook`, `Seek back 10 seconds`, `Seek forward 10 seconds`, `Speed`, speed chips, and `Audio sync`.
+- GREEN/PLAY: tapping `Play audiobook` changed Android MediaSession `darkaxt.navic.readerdev/androidx.media3.session.id.navic-readaloud/34` to `PLAYING(3)` at position `263360`, and the dialog changed to `Pause audiobook`.
+- GREEN/PAUSE: tapping the same control again changed the same MediaSession to `PAUSED(2)` at position `300794`.
+- Remaining: this is readerdev/emulator proof. A release-device pass is still needed before publishing a user-facing release claim, and the visual design of the dialog still needs Komikku-style polish after the feature path is stable.
