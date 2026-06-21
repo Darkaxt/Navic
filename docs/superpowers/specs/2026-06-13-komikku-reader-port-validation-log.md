@@ -6412,3 +6412,47 @@ Results:
 - GREEN/HOST: the forced focused run passed after changing the threshold to `totalPages > 2`.
 - GREEN/CHROME-GUARDS: the related Komikku chapter navigator mapping/source guards passed.
 - Remaining: this is a host-level UI policy guard. Emulator/device validation is still needed for the exact visual result in short chapters.
+
+## 2026-06-21 Readerdev Chapter Rail Endpoint Validation
+
+Scope:
+- Validate the chapter-local progress rail on the installed readerdev APK after the tiny-section rail policy and boundary-preview fixes.
+- Confirm both WebView endpoint math and native Komikku rail button routing on a real emulator surface.
+
+Environment:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed version: `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 08:06:50`.
+- Reader process: `32609`.
+- Surface: Android reported `1848x2960` override resolution. Coordinates below use that full surface, not the scaled desktop preview.
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-eta78 -ReaderDevtoolsProbe chapter-progress-endpoints -CaptureReaderDiagnostics -NoLaunch -ArtifactDir tmp\readerdev-progress-endpoints-20260621-a
+.\scripts\adb-reader-smoke.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-eta78 -ReaderDevtoolsProbe chapter-progress-current-endpoints -CaptureReaderDiagnostics -NoLaunch -ArtifactDir tmp\readerdev-progress-current-endpoints-20260621-a
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell input tap 1824 2760
+adb -s emulator-5554 shell input tap 1796 210
+```
+
+Artifacts:
+- `tmp\readerdev-progress-endpoints-20260621-a`
+- `tmp\readerdev-progress-current-endpoints-20260621-a`
+- `tmp\readerdev-progress-ui-direct-20260621-a\before-bottom-arrow.png`
+- `tmp\readerdev-progress-ui-direct-20260621-a\after-bottom-arrow-realcoords.png`
+- `tmp\readerdev-progress-ui-direct-20260621-a\bottom-arrow-realcoords-logcat.log`
+- `tmp\readerdev-progress-ui-direct-20260621-a\before-top-arrow-realcoords.png`
+- `tmp\readerdev-progress-ui-direct-20260621-a\after-top-arrow-realcoords.png`
+- `tmp\readerdev-progress-ui-direct-20260621-a\top-arrow-realcoords-logcat.log`
+
+Results:
+- GREEN/DEVTOOLS-ENDPOINTS: `chapter-progress-endpoints` selected `OEBPS/Text/Chapter-37.xhtml` as the best candidate and verified endpoint mapping for a 44-page chapter.
+- GREEN/DEVTOOLS-CURRENT: `chapter-progress-current-endpoints` verified the current Chapter 37 rail from `chapterPageIndex=0` through `chapterPageIndex=43` with `chapterPageCount=44`.
+- GREEN/PAGINATION-PROFILE: both probes used deterministic pagination profile data: `pageCountSource=pagination-profile`, `paginationFingerprint=navic-pagination-v1:952170858`, `pageCount=332`, and `paginationProfileObservedChapterCount=64`.
+- GREEN/WEBVIEW-COVER-SUPPRESSION: the probe's cover attempt reported `location-changed:cover-skipped`, which is the expected suppressed-webview-cover behavior.
+- GREEN/NATIVE-NEXT-CHAPTER: the lower rail button tap at `x=1824 y=2760` dispatched `goToHref(OEBPS/Text/Chapter-38.xhtml)` and landed on Chapter 38 with `chapterPageCount=1`, `pageIndex=291`, `pageCount=332`.
+- GREEN/NATIVE-PREVIOUS-CHAPTER: the upper rail button tap at `x=1796 y=210` dispatched `goToHref(OEBPS/Text/Chapter-37.xhtml)` and landed on Chapter 37 with `chapterPageIndex=0`, `chapterPageCount=44`, `pageIndex=247`, `pageCount=332`.
+- GREEN/TINY-SECTION-VISUAL: Chapter 38 is a one-page section and rendered only previous/next chapter buttons, with no decorative progress rail.
+- NOTE/COORDINATES: an earlier tap near `x=1215 y=1830` toggled the reader menu because it was inside the page area on the actual `1848x2960` surface. That was a coordinate error in the validation pass, not a rail failure.
+- Remaining: this validates the readerdev emulator path. Physical release validation is still needed for the user's phone/tablet feel and for any release-only regressions.
