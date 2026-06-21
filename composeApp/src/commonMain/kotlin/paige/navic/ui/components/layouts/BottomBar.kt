@@ -85,6 +85,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.bottomBarProfileForScreen
 import paige.navic.ui.navigation.bottomBarProfileForTabClick
 import paige.navic.ui.navigation.navbarTabIdsForProfile
+import paige.navic.ui.navigation.selectNavicRootTab
 import paige.navic.ui.navigation.shouldUseSelectedTabIconFallbackMotion
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 
@@ -258,10 +259,7 @@ fun BottomBar(
 							platformContext.clickSound()
 							preferenceManager.bottomBarProfile =
 								bottomBarProfileForTabClick(item.id, activeProfile)
-							backStack.apply {
-								clear()
-								add(item.destination)
-							}
+							backStack.selectNavicRootTab(item.destination)
 						},
 						icon = {
 							if (selected) {
@@ -302,10 +300,7 @@ fun BottomBar(
 							platformContext.clickSound()
 							preferenceManager.bottomBarProfile =
 								bottomBarProfileForTabClick(item.id, activeProfile)
-							backStack.apply {
-								clear()
-								add(item.destination)
-							}
+							backStack.selectNavicRootTab(item.destination)
 						},
 						icon = {
 							if (selected) {

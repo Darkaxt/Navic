@@ -68,11 +68,11 @@ class ReaderChromeStateTest {
 		val taller = serif.adjustLineHeight(0.1)
 		val wider = taller.adjustMargin(8)
 
-		assertEquals(112, larger.settings.fontSizePercent)
+		assertEquals(DefaultReaderFontSizePercent + 12, larger.settings.fontSizePercent)
 		assertEquals(ReaderSepiaTheme, sepia.settings.theme)
 		assertFalse(scrolled.settings.paged ?: true)
 		assertEquals("Georgia, serif", serif.settings.fontFamily)
-		assertEquals(1.65, taller.settings.lineHeight)
+		assertEquals(1.9, taller.settings.lineHeight)
 		assertEquals(8, wider.settings.marginPercent)
 	}
 

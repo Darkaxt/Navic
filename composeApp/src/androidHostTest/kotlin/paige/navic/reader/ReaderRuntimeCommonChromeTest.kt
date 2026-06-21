@@ -750,8 +750,8 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(settingsDialogText, "ReaderSupportedNavBarTypes")
 		assertContains(settingsDialogText, "readerNavBarTypeShortLabel")
-		assertContains(appBarsText, "normalizedReaderNavBarType")
-		assertContains(appBarsBody, "val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)")
+		assertContains(appBarsText, "readerEffectiveNavBarTypeFor")
+		assertContains(appBarsBody, "val navBarType = readerEffectiveNavBarTypeFor(controllerState.chrome.settings)")
 		assertFalse(
 			appBarsBody.contains("val navBarType = KomikkuNavBarType.VerticalRight"),
 			"Komikku nav bar placement must be a reader setting, not a hardcoded right rail."

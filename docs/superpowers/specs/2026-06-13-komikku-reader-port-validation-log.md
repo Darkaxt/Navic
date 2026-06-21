@@ -6915,3 +6915,47 @@ Results:
 - GREEN/CHROME: `KomikkuReaderAppBars` now consumes the effective nav-bar type instead of the raw stored setting, preventing the full-height vertical rail from appearing in normal paged EPUB.
 - GREEN/BROAD: `ReaderViewerTest` passed after updating a stale Whispersync source-inspection guard to the current root-owned headset overlay route (`KomikkuWhispersyncPlaybackControl` -> `onOpenPlayer = onWhispersyncPlayer` -> `KomikkuWhispersyncPlayerDialog`).
 - PROCESS: the working hidden wrapper pattern is `cmd.exe /d /c call "<repo>\gradlew.bat" ... > "<out.log>" 2> "<err.log>"`, launched with `ProcessStartInfo.UseShellExecute=false` and `CreateNoWindow=true`. Do not use foreground shells or `Start-Process` directly on `.bat` files for long reader validation.
+
+## 2026-06-21 App Back Navigation Policy
+
+Scope:
+- Validate GLM's back-navigation report against source and fix the basic app experience before continuing reader/Whispersync integrations.
+- Unify Android system back, visible top-left back affordances, reader back, and bottom-tab switching around a single policy.
+
+Diagnosis:
+- CONFIRMED: `App.kt` system back removed the last stack entry whenever the stack was non-empty, so a detail screen opened as root could drain the app to Android home.
+- CONFIRMED: `BottomBar.kt` tab clicks cleared the whole stack and added only the selected root destination, so returning from a tab switch discarded the previous book/collection/detail context.
+- CONFIRMED: `NestedTopBar.kt` used a stricter local rule (`backStack.size > 1`) than system back and also hid several settings arrows on medium+ width.
+- CONFIRMED: `ReaderScreen.kt` used the same local `backStack.size > 1` rule, so a reader launched as root could not fall back to its owning Bindery book.
+- CONFIRMED: `AndroidManifest.xml` did not opt into Android's predictive back callback.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.navigation.NavBackPolicyTest"
+git diff --check
+.\gradlew.bat --no-daemon :androidApp:assembleDebug
+```
+
+Artifacts:
+- `tmp\codex-logs\navback-policy-red2.out.log`
+- `tmp\codex-logs\navback-policy-green.out.log`
+- `tmp\codex-logs\navback-policy-green2.out.log`
+- `tmp\codex-logs\navback-full-host.out.log`
+- `tmp\codex-logs\navback-assemble-debug.out.log`
+
+Results:
+- RED/HOST-GUARD: `NavBackPolicyTest` failed before implementation because `NavBackAction`, `navBackActionFor`, and `navBackStackAfterTabSelection` did not exist.
+- GREEN/POLICY: the first focused rerun passed after adding `NavBackPolicy.kt` and wiring `App.kt`, `NestedTopBar.kt`, `RootTopBar.kt`, `BottomBar.kt`, and `ReaderScreen.kt` through the shared policy.
+- FIXED: root-level detail screens now fall back to useful roots instead of exiting: reader -> owning `BinderyBook`, `BinderyBook` -> `BinderyBooks`, collection -> `BinderyCollections`, author -> `BinderyAuthors`, settings details -> `Settings.Root`.
+- FIXED: bottom-tab selection appends the destination when it changes instead of clearing history, preserving the previous window for back navigation.
+- FIXED: visible root/detail back affordances now use the same policy as system back, and nested bars can still show a back affordance when the policy has a fallback even if a medium-width screen requested `hideBack`.
+- FIXED: Android manifest opts into `android:enableOnBackInvokedCallback="true"`.
+- GREEN/RERUN: the second focused rerun passed after adding the root-back-affordance assertion (`BUILD SUCCESSFUL in 3m 10s`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/APK-COMPILE: `:androidApp:assembleDebug` passed (`BUILD SUCCESSFUL in 2m 38s`), including the manifest change.
+- RED/FULL-HOST-RESIDUAL: full `:composeApp:testAndroidHostTest` failed with three reader-only assertions outside this change's files: `ReaderChromeStateTest.typographyControlsUpdateReaderSettings`, `ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded`, and `ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingFlowModesToFoliateRuntime`.
+- GREEN/RESIDUAL-TARGETED: `:composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderChromeStateTest.typographyControlsUpdateReaderSettings" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingFlowModesToFoliateRuntime"` passed after updating stale guards to the current adaptive-reader defaults, effective nav-bar helper, and extracted `EbookReaderSettingOptions.kt` flow-option source.
+- GREEN/FULL-HOST-RERUN: full `:composeApp:testAndroidHostTest` passed (`BUILD SUCCESSFUL in 26s`).
+- GREEN/WHITESPACE-RERUN: `git diff --check` passed after the residual test-maintenance patch.
+- ARTIFACTS: `tmp\codex-logs\reader-host-targeted-after-navback.out.log`, `tmp\codex-logs\reader-host-full-after-navback.out.log`.

@@ -2,6 +2,9 @@ package paige.navic.ui.components.layouts
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -21,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.dropUnlessResumed
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_navigate_back
 import navic.composeapp.generated.resources.action_log_out
 import navic.composeapp.generated.resources.action_sleep_timer
 import navic.composeapp.generated.resources.action_sleep_timer_enabled
@@ -31,25 +35,28 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.models.settings.NavbarConfig
 import paige.navic.domain.models.settings.NavbarTab
-import paige.navic.ui.navigation.Screen
-import paige.navic.ui.navigation.searchScopeForScreen
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Settings
 import paige.navic.icons.outlined.AccountCircle
+import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Bedtime
 import paige.navic.icons.outlined.Logout
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Share
-import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.DropdownItem
 import paige.navic.ui.components.sheets.SleepTimerSheet
+import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.performNavicBack
+import paige.navic.ui.navigation.searchScopeForScreen
+import paige.navic.ui.navigation.shouldShowRootBackForScreen
 import paige.navic.ui.screens.login.viewmodels.LoginViewModel
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
 import paige.navic.ui.theme.positive
-import paige.navic.ui.core.UiState
 import paige.navic.util.core.label
 
 @OptIn(
@@ -63,6 +70,8 @@ fun RootTopBar(
 	actions: @Composable RowScope.() -> Unit = {},
 ) {
 	val backStack = LocalNavStack.current
+	val currentScreen = backStack.lastOrNull() as? Screen
+	val showBack = shouldShowRootBackForScreen(currentScreen)
 	val navViewModel = koinViewModel<NavtabsViewModel>()
 	val viewModel = koinViewModel<LoginViewModel>()
 
@@ -90,6 +99,21 @@ fun RootTopBar(
 				},
 				config = config,
 			)
+		},
+		navigationIcon = {
+			if (showBack) {
+				TopBarButton(
+					modifier = Modifier.padding(horizontal = 12.dp),
+					onClick = dropUnlessResumed {
+						backStack.performNavicBack()
+					}
+				) {
+					Icon(
+						Icons.Outlined.ArrowBack,
+						stringResource(Res.string.action_navigate_back)
+					)
+				}
+			}
 		},
 		scrollBehavior = scrollBehavior,
 		colors = TopAppBarDefaults.topAppBarColors(

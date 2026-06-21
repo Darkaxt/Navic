@@ -70,6 +70,7 @@ import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
+import paige.navic.ui.navigation.performNavicBack
 import paige.navic.ui.screens.activity.ActivityScreen
 import paige.navic.ui.screens.album.AlbumListScreen
 import paige.navic.ui.screens.artist.ArtistDetailScreen
@@ -225,8 +226,8 @@ fun App(initialScreenOverride: Screen? = null) {
 							rememberListDetailSceneStrategy()
 						),
 						onBack = {
-							if (!scrollManager.tryHandleBackToTop() && backStack.isNotEmpty()) {
-								backStack.removeLastOrNull()
+							if (!scrollManager.tryHandleBackToTop()) {
+								backStack.performNavicBack()
 							}
 						},
 						entryProvider = entryProvider(backStack),

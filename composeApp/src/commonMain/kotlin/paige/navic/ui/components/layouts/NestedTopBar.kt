@@ -28,6 +28,8 @@ import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
+import paige.navic.ui.navigation.canNavigateBack
+import paige.navic.ui.navigation.performNavicBack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +40,7 @@ fun NestedTopBar(
 	hideBack: Boolean = false
 ) {
 	val backStack = LocalNavStack.current
+	val showBack = !hideBack || canNavigateBack(backStack)
 	TopAppBar(
 		title = title,
 		colors = colors,
@@ -51,13 +54,11 @@ fun NestedTopBar(
 			}
 		},
 		navigationIcon = {
-			if (!hideBack) {
+			if (showBack) {
 				TopBarButton(
 					modifier = Modifier.padding(horizontal = 12.dp),
 					onClick = dropUnlessResumed {
-						if (backStack.size > 1) {
-							backStack.removeLastOrNull()
-						}
+						backStack.performNavicBack()
 					}
 				) {
 					Icon(
