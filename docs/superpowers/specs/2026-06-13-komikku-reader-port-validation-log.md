@@ -6345,4 +6345,10 @@ Results:
 - GREEN/VERSION: `Android versionName matches v1.0.11-eta78`.
 - GREEN/WHITESPACE: `git diff --check` exited `0`.
 - GREEN/HOST: focused reader/Whispersync regression set passed with `BUILD SUCCESSFUL in 18s`, 24 actionable tasks, 2 executed.
-- Remaining: tag/push and GitHub release publication still need to complete before eta78 can be installed on a physical device. Physical release validation still needs to confirm the paired Bindery sidecar/audiobook path with the installed APK.
+- GREEN/RELEASE: tag `v1.0.11-eta78` was pushed and GitHub Actions run `27893761015` completed successfully.
+- GREEN/ANDROID: `Build Android APK`, `Verify release APK signing`, `Upload APK artifact`, and `Create GitHub Release` all completed successfully.
+- GREEN/SCOPE: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped.
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta78`
+- APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta78/Navic.apk`
+- APK SHA-256: `998897CE5C2FF1BDE1C50AAB011B065DEFEB9FF1375853963FB4CC1B8FC63AFF`.
+- Remaining: physical release validation still needs to confirm the paired Bindery sidecar/audiobook path with the installed APK.
