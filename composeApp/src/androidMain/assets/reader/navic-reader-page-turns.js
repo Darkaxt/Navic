@@ -719,17 +719,27 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   }
   const { layer, frame, targetIndex, targetKey, side, width, height, palette } = preview
   const ready = this.pageDragPreviewReadyKey === targetKey
+  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
+  const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
+  const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
+  const left = vertical || side !== 'right' ? 0 : width - exposedWidth
+  const top = vertical && direction === 'next' ? height - exposedHeight : 0
   layer.dataset.navicPageDragPreviewReady = String(ready)
   if (!ready) {
+    const fallbackWidth = exposedWidth
+    const fallbackHeight = exposedHeight
+    layer.dataset.navicPageDragPreviewFallback = 'paper'
+    layer.dataset.navicPageDragPreviewExposedWidth = String(fallbackWidth)
+    layer.dataset.navicPageDragPreviewExposedHeight = String(fallbackHeight)
     setStylesImportant(layer, {
       position: 'fixed',
-      top: '0px',
-      left: '-1px',
-      width: '1px',
-      height: `${height}px`,
-      'min-height': `${height}px`,
+      top: `${top}px`,
+      left: `${left}px`,
+      width: `${fallbackWidth}px`,
+      height: `${fallbackHeight}px`,
+      'min-height': `${fallbackHeight}px`,
       overflow: 'hidden',
-      opacity: '0',
+      opacity: '1',
       'z-index': '2147483642',
       'pointer-events': 'none',
       background: palette.background,
@@ -737,21 +747,23 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
       color: palette.foreground,
       'box-sizing': 'border-box',
     })
+    setStylesImportant(frame, {
+      opacity: '0',
+      'pointer-events': 'none',
+    })
     readerTrace('page-drag-preview:underlay-waiting', {
       direction,
       side,
       targetIndex,
+      exposedWidth: fallbackWidth,
+      exposedHeight: fallbackHeight,
       currentIndex: this.currentLoadedSectionIndex(),
     })
     return false
   }
-  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
-  const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
-  const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
-  const left = vertical || side !== 'right' ? 0 : width - exposedWidth
-  const top = vertical && direction === 'next' ? height - exposedHeight : 0
   const frameLeft = vertical || side !== 'right' ? '0px' : `-${width - exposedWidth}px`
   const frameTop = vertical && direction === 'next' ? `-${height - exposedHeight}px` : '0px'
+  layer.dataset.navicPageDragPreviewFallback = 'false'
   layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
   layer.dataset.navicPageDragPreviewExposedHeight = String(exposedHeight)
   setStylesImportant(layer, {
@@ -783,6 +795,7 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     'background-color': palette.background,
     color: palette.foreground,
     'pointer-events': 'none',
+    opacity: '1',
   })
   readerTrace('page-drag-preview:underlay', {
     direction,

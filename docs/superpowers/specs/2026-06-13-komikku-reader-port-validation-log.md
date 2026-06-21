@@ -6990,3 +6990,37 @@ Results:
 - GREEN/FOCUSED: `ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu`, `anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded`, `scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu`, and `FoliateAnxParityTest.everyAnxHandlerIsDocumentedInKnownGaps` passed.
 - GREEN/BROAD: full `ReaderControllerTest` and `FoliateAnxParityTest` passed together (`BUILD SUCCESSFUL in 16s`).
 - NOTE: no ADB device was connected for a live vertical-drag smoke; this closes the controller-level cause but still needs emulator/device confirmation in the next readerdev matrix.
+
+## 2026-06-22 Boundary Drag Paper Fallback
+
+Scope:
+- Address the drag-preview black void at EPUB section/chapter boundaries without changing the tap-zone or release-navigation paths.
+- Keep the current page moving during the gesture, but ensure the exposed adjacent area is paper-colored while the next section iframe is still loading.
+
+Diagnosis:
+- CONFIRMED: `updatePageDragPreviewLayer` kept the active renderer moving during boundary drag, but hid the adjacent preview layer when `pageDragPreviewReadyKey` did not match the target section.
+- ROOT CAUSE: the not-ready branch collapsed the preview surface to a transparent offscreen 1px layer (`left='-1px'`, `width='1px'`, `opacity='0'`), exposing the native/root background until the adjacent iframe finished loading.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads"
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+git diff --check
+```
+
+Artifacts:
+- `tmp\codex-logs\drag-preview-fallback-red2.out.log`
+- `tmp\codex-logs\drag-preview-fallback-green2.out.log`
+- `tmp\codex-logs\drag-preview-fallback-broad.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads` failed before implementation because the runtime did not mark or display any paper fallback in the not-ready boundary preview branch.
+- FIXED: the not-ready branch now sizes the preview layer to the actually exposed drag area, keeps it visible with the reader paper palette, and records `navicPageDragPreviewFallback='paper'` plus exposed dimensions for diagnostics.
+- FIXED: the ready branch explicitly clears fallback state and restores iframe opacity, so the real adjacent preview replaces the paper fallback as soon as it is available.
+- GREEN/FOCUSED: `ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads` passed (`BUILD SUCCESSFUL in 14s`).
+- GREEN/BROAD: `ReaderRuntimePaperSurfaceTest` plus the existing Komikku readable-drag guard passed (`BUILD SUCCESSFUL in 23s`).
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: no ADB device was connected for a live chapter-boundary drag; this closes the renderer fallback cause, but the next readerdev matrix still needs a real gesture pass.

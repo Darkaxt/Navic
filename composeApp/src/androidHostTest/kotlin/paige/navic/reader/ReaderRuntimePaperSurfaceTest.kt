@@ -504,6 +504,53 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads() {
+		val bridgeText = readerBridgeText()
+		val previewLayer = bridgeText
+			.substringAfter("function updatePageDragPreviewLayer(")
+			.substringBefore("\nfunction previewPageDrag")
+		val loadingBranch = previewLayer
+			.substringAfter("if (!ready) {")
+			.substringBefore("\n    readerTrace('page-drag-preview:underlay-waiting'")
+		val layerStyle = loadingBranch
+			.substringAfter("setStylesImportant(layer, {")
+			.substringBefore("\n    })")
+
+		assertContains(
+			loadingBranch,
+			"layer.dataset.navicPageDragPreviewFallback = 'paper'",
+			message = "A section-boundary drag must expose a paper fallback instead of an offscreen hidden layer while the adjacent iframe loads."
+		)
+		assertContains(
+			layerStyle,
+			"width: `${'$'}{fallbackWidth}px`",
+			message = "The fallback underlay must cover the dragged exposure width instead of a 1px hidden strip."
+		)
+		assertContains(
+			layerStyle,
+			"height: `${'$'}{fallbackHeight}px`",
+			message = "The fallback underlay must cover the dragged exposure height instead of hiding the page preview."
+		)
+		assertContains(
+			layerStyle,
+			"opacity: '1'",
+			message = "Boundary preview fallback must remain visible; opacity 0 exposes the native black background."
+		)
+		assertFalse(
+			layerStyle.contains("left: '-1px'"),
+			"Boundary preview fallback must not be moved offscreen while the current page keeps moving."
+		)
+		assertFalse(
+			layerStyle.contains("width: '1px'"),
+			"Boundary preview fallback must not collapse to a hidden 1px strip."
+		)
+		assertFalse(
+			layerStyle.contains("opacity: '0'"),
+			"Boundary preview fallback must not be transparent."
+		)
+	}
+
+	@Test
 	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText
