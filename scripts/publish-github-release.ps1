@@ -19,9 +19,6 @@ param(
     [ValidateRange(10, 300)]
     [int] $PollSeconds = 30,
 
-    [ValidateRange(5, 240)]
-    [int] $TimeoutMinutes = 90,
-
     [switch] $SkipPush,
 
     [switch] $Background,
@@ -134,8 +131,6 @@ if ($Background) {
         "`"$Workflow`"",
         "-PollSeconds",
         "$PollSeconds",
-        "-TimeoutMinutes",
-        "$TimeoutMinutes",
         "-LogFile",
         "`"$LogFile`""
     )
@@ -186,8 +181,7 @@ if (-not $SkipPush) {
 }
 
 if ($RunId -le 0) {
-    $lookupDeadline = (Get-Date).AddMinutes(10)
-    do {
+    while ($RunId -le 0) {
         $run = Get-WorkflowRunForTag
         if ($null -ne $run) {
             $RunId = [long] $run.databaseId
@@ -196,15 +190,14 @@ if ($RunId -le 0) {
         }
         Write-ReleaseLog "No workflow run found for $Tag yet; polling again in $PollSeconds seconds."
         Start-Sleep -Seconds $PollSeconds
-    } while ((Get-Date) -lt $lookupDeadline)
+    }
 }
 
 if ($RunId -le 0) {
     throw "Could not find a GitHub Actions run for tag $Tag."
 }
 
-$deadline = (Get-Date).AddMinutes($TimeoutMinutes)
-do {
+while ($true) {
     $run = Get-WorkflowRun -Id $RunId
     $jobSummary = (@($run.jobs) |
         ForEach-Object { "{0}:{1}/{2}" -f $_.name, $_.status, $_.conclusion }) -join "; "
@@ -223,14 +216,9 @@ do {
     }
 
     Start-Sleep -Seconds $PollSeconds
-} while ((Get-Date) -lt $deadline)
-
-if ((Get-Date) -ge $deadline) {
-    throw "Timed out waiting for workflow run $RunId after $TimeoutMinutes minutes."
 }
 
-$releaseDeadline = (Get-Date).AddMinutes(10)
-do {
+while ($true) {
     $release = Get-ReleaseForTag
     if ($null -ne $release) {
         $assets = (@($release.assets) | ForEach-Object { $_.name }) -join ", "
@@ -240,6 +228,4 @@ do {
     }
     Write-ReleaseLog "Workflow succeeded, but release $Tag is not visible yet; polling again."
     Start-Sleep -Seconds $PollSeconds
-} while ((Get-Date) -lt $releaseDeadline)
-
-throw "Workflow succeeded, but GitHub release $Tag was not visible after 10 minutes."
+}

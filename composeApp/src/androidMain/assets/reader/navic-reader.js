@@ -5,6 +5,8 @@
 // :335-397 (annotations)
 
 import './vendor/foliate-js/view.js'
+import './navic-reader-motion.js'
+import { Overlayer } from './vendor/foliate-js/overlayer.js'
 import {
   CenterTapMovementSlop,
   CenterTapSyntheticClickDedupeMs,
@@ -158,53 +160,25 @@ import { NavicReaderPageTurnMethods } from './navic-reader-page-turns.js'
 import { NavicReaderContentInteractionMethods } from './navic-reader-content-interactions.js'
 import { NavicReaderPaginationMethods } from './navic-reader-pagination.js'
 import { NavicReaderAppearanceMethods } from './navic-reader-appearance.js'
+import { NavicReaderShellCoverMethods } from './navic-reader-shell-cover.js'
+import { NavicReaderViewportMethods } from './navic-reader-viewport.js'
+import { NavicReaderLocationMethods } from './navic-reader-location.js'
 
-const ReaderRelocationCommitDelayMs = 180
-const ViewportScrollStepRatio = 0.75
-const ReaderPdfFitWidth = 'width'
-const ReaderPdfFitPage = 'page'
-const ReaderPdfFitHeight = 'height'
-const ReaderPdfFitOriginal = 'original'
-const ReaderPdfPageGapMaxPercent = 48
-const ReaderPaginationProfileStatusMeasuring = 'measuring'
-const ReaderPaginationProfileStatusReady = 'ready'
-const ReaderPaginationProfileStatusCached = 'cached'
-const ReaderPaginationProfileStatusFailed = 'failed'
+const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 
-const readerRelocationReasonIsExplicit = reason => {
-  const normalized = String(reason || '').trim()
-  return normalized !== '' && normalized !== 'relocate-committed'
-}
-
-const diagnosticNumber = value => {
-  if (value == null || value === '') return null
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
-}
-
-const normalizedReaderPdfFitMode = value =>
-  [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
-    ? value
-    : ReaderPdfFitWidth
-
-const readerPdfZoomAttribute = value => {
-  switch (normalizedReaderPdfFitMode(value)) {
-    case ReaderPdfFitPage:
-      return 'fit-page'
-    case ReaderPdfFitHeight:
-      return 'fit-height'
-    case ReaderPdfFitOriginal:
-      return '1'
-    case ReaderPdfFitWidth:
-    default:
-      return 'fit-width'
-  }
-}
-
-const normalizedReaderPdfPageGapPercent = value => {
-  const gap = Number.parseInt(value, 10)
-  if (!Number.isFinite(gap)) return 0
-  return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))
+const readerDrawNoteAnnotation = (rects, options = {}) => {
+  const group = document.createElementNS(ReaderSvgNamespace, 'g')
+  group.setAttribute('data-navic-note-annotation', 'true')
+  group.append(
+    Overlayer.highlight(rects, options),
+    Overlayer.squiggly(rects, {
+      color: options.noteColor || options.color || '#b86e00',
+      width: 1.6,
+      padding: 2,
+      writingMode: options.writingMode,
+    })
+  )
+  return group
 }
 
 class NavicReaderRuntime {
@@ -236,6 +210,7 @@ class NavicReaderRuntime {
   pageDragPreviewTargetKey = ''
   pageDragPreviewReadyKey = ''
   pageDragPreviewLoadToken = 0
+  pendingPageDragPreviewCommand = null
   shellCoverBlobUrl = null
   shellCoverVisible = false
   externalShellCover = false
@@ -249,6 +224,7 @@ class NavicReaderRuntime {
   observedChapterPageCounts = new Map()
   committedRelocateDetail = null
   lastPostedLocationKey = null
+  lastPostedVisibleTextRangeKey = null
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
   controlledRelocateReason = null
@@ -472,10 +448,22 @@ class NavicReaderRuntime {
   }
 
   onAnnotationDrawn(detail = {}) {
+    const annotation = detail.annotation || {}
+    const color = annotation.color || detail.color || '#f4d35e'
+    const hasNote = String(annotation.note || '').trim().length > 0
+    try {
+      detail.draw?.(hasNote ? readerDrawNoteAnnotation : Overlayer.highlight, {
+        color,
+        noteColor: color,
+        writingMode: this.view?.renderer?.writingMode,
+      })
+    } catch (error) {
+      logError('annotation:draw-failed', error?.message || String(error))
+    }
     const index = Number(detail.index)
     post({
       type: 'annotationDrawn',
-      value: detail.value || detail.annotation?.value || '',
+      value: detail.value || annotation.value || '',
       index: Number.isFinite(index) ? Math.floor(index) : undefined,
       rangeCfi: this.annotationRangeCfi(index, detail.range),
     })
@@ -547,6 +535,7 @@ class NavicReaderRuntime {
     this.observedChapterPageCounts = new Map()
     this.committedRelocateDetail = null
     this.lastPostedLocationKey = null
+    this.lastPostedVisibleTextRangeKey = null
     this.pendingRelocateDetail = null
     this.pendingRelocateReason = 'relocate-committed'
     this.relocatePostScheduled = false
@@ -568,357 +557,6 @@ class NavicReaderRuntime {
     this.surfacePaperTextureTurnDirection = null
     this.surfacePaperTextureFallbackDirection = null
     this.lastRelocateDetail = null
-  }
-
-  clearShellCover({ revoke = true } = {}) {
-    if (this.shellCoverHideTimer) {
-      clearTimeout(this.shellCoverHideTimer)
-      this.shellCoverHideTimer = null
-    }
-    this.shellCoverVisible = false
-    this.shellCoverLayer?.remove?.()
-    this.shellCoverLayer = null
-    delete readerRoot.dataset.navicShellCoverVisible
-    if (revoke && this.shellCoverBlobUrl) {
-      URL.revokeObjectURL(this.shellCoverBlobUrl)
-      this.shellCoverBlobUrl = null
-    }
-  }
-
-  async loadShellCover() {
-    if (this.shellCoverBlobUrl) {
-      URL.revokeObjectURL(this.shellCoverBlobUrl)
-      this.shellCoverBlobUrl = null
-    }
-    try {
-      const book = this.view?.book
-      const blob = await book.getCover?.()
-      if (!blob) {
-        log('shell-cover:missing')
-        return null
-      }
-      this.shellCoverBlobUrl = URL.createObjectURL(blob)
-      log('shell-cover:loaded', blob.type || 'blob', blob.size || 0)
-      return this.shellCoverBlobUrl
-    } catch (error) {
-      logError('shell-cover:load-failed', error?.message || error)
-      return null
-    }
-  }
-
-  firstReadableContentTarget() {
-    const sections = Array.from(this.view?.book?.sections || [])
-    if (!sections.length) return null
-    const firstNonCover = sections.findIndex((section, index) =>
-      readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
-    )
-    if (firstNonCover >= 0) return firstNonCover
-    const firstReadable = sections.findIndex(readerSectionIsReadable)
-    return firstReadable >= 0 ? firstReadable : 0
-  }
-
-  coverSectionEntries() {
-    return Array.from(this.view?.book?.sections || [])
-      .map((section, index) => ({ section, index }))
-      .filter(({ section, index }) => this.sectionTargetsCover(section, index))
-  }
-
-  hasNonCoverReadableContent() {
-    return Array.from(this.view?.book?.sections || []).some((section, index) =>
-      readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
-    )
-  }
-
-  sectionTargetsCover(section, index) {
-    return readerSectionLooksLikeCover(section, index) || this.suppressedCoverSectionIndexes.has(index)
-  }
-
-  startLocatorTargetsShellCover(startLocator) {
-    if (!readerStartLocatorHasPosition(startLocator)) return false
-    const coverSections = this.coverSectionEntries()
-    if (!coverSections.length || !this.hasNonCoverReadableContent()) return false
-    const href = startLocator?.href
-    if (href && coverSections.some(({ section }) => readerHrefMatchesSection(href, section))) {
-      log('shell-cover:start-locator-cover', `href=${href}`)
-      return true
-    }
-    const cfi = String(startLocator?.cfi || '')
-    if (/cover/i.test(cfi)) {
-      log('shell-cover:start-locator-cover', 'cfi-token')
-      return true
-    }
-    const progress = Number(startLocator?.progress)
-    const firstCoverIndex = Math.min(...coverSections.map(({ index }) => index))
-    const firstReadableIndex = Number(this.firstReadableContentTarget())
-    if (
-      Number.isFinite(progress) &&
-      progress >= 0 &&
-      progress <= ReaderShellCoverProgressThreshold &&
-      firstCoverIndex === 0 &&
-      Number.isFinite(firstReadableIndex) &&
-      firstReadableIndex > firstCoverIndex
-    ) {
-      log('shell-cover:start-locator-cover', `progress=${progress}`)
-      return true
-    }
-    return false
-  }
-
-  detailTargetsCover(detail) {
-    const coverSections = this.coverSectionEntries()
-    if (!coverSections.length) return false
-    const index = Number(detail?.section?.current ?? detail?.index)
-    if (Number.isFinite(index)) {
-      const section = this.view?.book?.sections?.[Math.floor(index)]
-      return this.sectionTargetsCover(section, Math.floor(index))
-    }
-    const href = detail?.href || detail?.tocItem?.href || detail?.section?.href
-    return Boolean(href && coverSections.some(({ section }) => readerHrefMatchesSection(href, section)))
-  }
-
-  sectionHrefForDetail(detail) {
-    const index = Number(detail?.section?.current ?? detail?.index)
-    if (!Number.isFinite(index)) return ''
-    const section = this.view?.book?.sections?.[Math.floor(index)]
-    return section?.href || section?.id || section?.url || section?.name || ''
-  }
-
-  async goToFirstReadableContent() {
-    const target = this.firstReadableContentTarget()
-    if (target == null) {
-      await this.view?.init?.({ showTextStart: true })
-      return
-    }
-    log('shell-cover:first-readable', target)
-    await this.view?.goTo?.(target)
-  }
-
-  showShellCover({ animate = true } = {}) {
-    if (!this.shellCoverBlobUrl) return false
-    if (this.shellCoverHideTimer) {
-      clearTimeout(this.shellCoverHideTimer)
-      this.shellCoverHideTimer = null
-    }
-    this.shellCoverVisible = true
-    readerRoot.dataset.navicShellCoverVisible = 'true'
-    this.pageNumberLayer?.remove?.()
-    this.pageNumberLayer = null
-    this.shellCoverLayer = this.shellCoverLayer && readerRoot.contains(this.shellCoverLayer)
-      ? this.shellCoverLayer
-      : ensureReaderShellCoverLayer()
-    updateReaderShellCoverLayer(
-      this.shellCoverLayer,
-      this.shellCoverBlobUrl,
-      this.readerSettings,
-      this.view?.book?.metadata?.title || ''
-    )
-    this.attachSurfaceTapGesture(this.shellCoverLayer)
-    this.shellCoverLayer.dataset.navicShellCoverState = animate ? 'entering' : 'visible'
-    if (animate) {
-      setStylesImportant(this.shellCoverLayer, {
-        opacity: '0',
-        transform: 'translateX(4%) scale(0.985)',
-      })
-      requestAnimationFrame(() => {
-        if (!this.shellCoverVisible || !this.shellCoverLayer) return
-        this.shellCoverLayer.dataset.navicShellCoverState = 'visible'
-        setStylesImportant(this.shellCoverLayer, {
-          opacity: '1',
-          transform: 'translateX(0) scale(1)',
-          'pointer-events': 'auto',
-        })
-      })
-    }
-    log('shell-cover:show', animate ? 'animated' : 'static')
-    return true
-  }
-
-  hideShellCover({ animate = true } = {}) {
-    if (!this.shellCoverVisible && !this.shellCoverLayer) return false
-    this.shellCoverVisible = false
-    delete readerRoot.dataset.navicShellCoverVisible
-    const layer = this.shellCoverLayer
-    const finish = () => {
-      if (this.shellCoverVisible || this.shellCoverLayer !== layer) return
-      layer?.remove?.()
-      this.shellCoverLayer = null
-      this.updateReaderPageNumberLayer()
-    }
-    if (layer && animate) {
-      layer.dataset.navicShellCoverState = 'exiting'
-      setStylesImportant(layer, {
-        opacity: '0',
-        transform: 'translateX(-8%) scale(1.018)',
-        'pointer-events': 'none',
-      })
-      this.shellCoverHideTimer = setTimeout(() => {
-        this.shellCoverHideTimer = null
-        finish()
-      }, ReaderShellCoverTransitionMs + 40)
-    } else {
-      finish()
-    }
-    log('shell-cover:hide', animate ? 'animated' : 'static')
-    return true
-  }
-
-  canReturnToShellCover() {
-    if (!this.shellCoverBlobUrl || this.shellCoverVisible) return false
-    const pageIndex = Number(this.currentPagePosition?.pageIndex)
-    if (Number.isFinite(pageIndex)) return pageIndex <= 0
-    const sectionIndex = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
-    const firstContent = Number(this.firstReadableContentTarget())
-    if (
-      Number.isFinite(sectionIndex) &&
-      Number.isFinite(firstContent) &&
-      Math.floor(sectionIndex) <= firstContent
-    ) {
-      return true
-    }
-    return false
-  }
-
-  applyReaderViewportLayout(label = 'unknown') {
-    const { width, height } = readerViewportSize()
-    const widthPx = `${width}px`
-    const heightPx = `${height}px`
-    setStylesImportant(document.documentElement, {
-      width: '100%',
-      height: heightPx,
-      'min-height': heightPx,
-      margin: '0px',
-      overflow: 'hidden',
-    })
-    setStylesImportant(document.body, {
-      position: 'fixed',
-      inset: '0px',
-      display: 'block',
-      width: widthPx,
-      'min-width': widthPx,
-      height: heightPx,
-      'min-height': heightPx,
-      margin: '0px',
-      overflow: 'hidden',
-    })
-    setStylesImportant(this.view, {
-      position: 'fixed',
-      inset: '0px',
-      display: 'block',
-      width: widthPx,
-      'min-width': widthPx,
-      height: heightPx,
-      'min-height': heightPx,
-      overflow: 'hidden',
-    })
-    const renderer = this.view?.renderer
-    const fixedLayout = this.view?.isFixedLayout === true || renderer?.localName === 'foliate-fxl'
-    const pageBox = readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)
-    setStylesImportant(renderer, {
-      position: 'absolute',
-      inset: '0px',
-      display: 'block',
-      width: widthPx,
-      'min-width': widthPx,
-      height: heightPx,
-      'min-height': heightPx,
-      overflow: fixedLayout ? 'auto' : 'hidden',
-    })
-    if (renderer && !fixedLayout) {
-      renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)
-      renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
-      renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
-      renderer.setAttribute('column-threshold', pageBox.columnThreshold)
-      renderer.setAttribute('top-margin', `${readerTopMarginValue(this.readerSettings)}px`)
-      renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(this.readerSettings)}px`)
-      renderer.setAttribute('gap', `${readerSideMarginValue(this.readerSettings)}%`)
-      renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
-    }
-    this.applyPdfImageSettings(this.readerSettings)
-    if (renderer) requestAnimationFrame(() => renderer?.render?.())
-    if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
-      updateReaderShellCoverLayer(
-        this.shellCoverLayer,
-        this.shellCoverBlobUrl,
-        this.readerSettings,
-        this.view?.book?.metadata?.title || ''
-      )
-    }
-    this.renderSurfacePaperTextureLayers()
-    this.renderTapZoneOverlayLayer()
-    this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
-    log('viewport-layout', `label=${label}`, `${width}x${height}`)
-  }
-
-  applyReaderViewportLayoutToProfilerView(profileView, settings = this.readerSettings) {
-    if (!profileView) return
-    const { width, height } = readerViewportSize()
-    const widthPx = `${width}px`
-    const heightPx = `${height}px`
-    setStylesImportant(profileView, {
-      position: 'fixed',
-      inset: '0px',
-      display: 'block',
-      width: widthPx,
-      'min-width': widthPx,
-      height: heightPx,
-      'min-height': heightPx,
-      overflow: 'hidden',
-      visibility: 'hidden',
-      opacity: '0',
-      'pointer-events': 'none',
-      'z-index': '-1',
-    })
-    const renderer = profileView?.renderer
-    const pageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
-    setStylesImportant(renderer, {
-      position: 'absolute',
-      inset: '0px',
-      display: 'block',
-      width: widthPx,
-      'min-width': widthPx,
-      height: heightPx,
-      'min-height': heightPx,
-      overflow: 'hidden',
-    })
-    if (renderer) {
-      renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)
-      renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
-      renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
-      renderer.setAttribute('column-threshold', pageBox.columnThreshold)
-      renderer.setAttribute('top-margin', `${readerTopMarginValue(settings)}px`)
-      renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(settings)}px`)
-      renderer.setAttribute('gap', `${readerSideMarginValue(settings)}%`)
-      renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
-    }
-    renderer?.setAttribute?.('flow', readerFoliateFlow(readerFlowMode(settings)))
-    renderer?.render?.()
-  }
-
-  applyPdfImageSettings(settings = this.readerSettings) {
-    const renderer = this.view?.renderer
-    if (!renderer || this.view?.isFixedLayout !== true) return
-    const fitMode = normalizedReaderPdfFitMode(settings?.pdfFitMode)
-    const cropBorders = settings?.pdfCropBorders === true
-    const gapPercent = normalizedReaderPdfPageGapPercent(settings?.pdfPageGapPercent)
-    const viewport = readerViewportSize()
-    const gapPx = Math.round(Math.max(1, viewport.height || 0) * gapPercent / 100)
-    renderer.setAttribute('zoom', readerPdfZoomAttribute(fitMode))
-    renderer.setAttribute('page-gap', String(gapPx))
-    if (cropBorders) renderer.setAttribute('crop-borders', 'true')
-    else renderer.removeAttribute('crop-borders')
-    renderer.setAttribute('data-navic-pdf-fit-mode', fitMode)
-    renderer.setAttribute('data-navic-pdf-crop-borders', cropBorders ? 'true' : 'false')
-    renderer.setAttribute('data-navic-pdf-page-gap-percent', String(gapPercent))
-    renderer.setAttribute('data-navic-pdf-page-gap-px', String(gapPx))
-    renderer.style.setProperty('--reader-pdf-page-gap', `${gapPx}px`)
-    renderer.style.setProperty('--reader-pdf-crop-scale', cropBorders ? '1.045' : '1')
-    readerTrace('pdf-settings:apply', {
-      fitMode,
-      zoom: renderer.getAttribute('zoom'),
-      cropBorders,
-      gapPercent,
-      gapPx,
-    })
   }
 
   async resolveReaderNavigationTarget(locator) {
@@ -947,78 +585,28 @@ class NavicReaderRuntime {
     }
   }
 
-  async goTo(locator) {
+  async goTo(locator, reason = 'go-to') {
     if (!this.view || !locator) return
     try {
       const navigationTarget = await this.resolveReaderNavigationTarget(locator)
       if (!navigationTarget) return
       if (navigationTarget.rendererTarget && this.view.renderer?.goTo) {
         log('go-to:resolved', navigationTarget.target, `index=${navigationTarget.rendererTarget.index}`)
-        this.beginControlledRelocation('go-to')
+        this.beginControlledRelocation(reason)
         await this.view.renderer.goTo(navigationTarget.rendererTarget)
         this.view.history?.pushState?.(navigationTarget.target)
       } else {
         log('go-to:fallback', navigationTarget.target)
-        this.beginControlledRelocation('go-to')
+        this.beginControlledRelocation(reason)
         await this.view.goTo(navigationTarget.target)
       }
-      this.scheduleControlledRelocationFallback('go-to')
-      this.applyReaderViewportLayout('go-to')
-      requestAnimationFrame(() => this.logContentLayout('go-to'))
+      this.scheduleControlledRelocationFallback(reason)
+      this.applyReaderViewportLayout(reason)
+      requestAnimationFrame(() => this.logContentLayout(reason))
     } catch (error) {
       reportError(error, 'navigation_failed')
     }
   }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   async applyHighlight({ id, cfi, color = null, note = null }) {
     if (!this.view || !id || !cfi) return
@@ -1041,7 +629,7 @@ class NavicReaderRuntime {
       ? `${fragment.textHref}#${fragment.fragmentId}`
       : fragment.textHref
     if (targetHref) {
-      await this.goTo(targetHref)
+      await this.goTo(targetHref, 'media-overlay-follow')
     }
     this.clearOverlay()
     if (fragment.fragmentId) {
@@ -1063,64 +651,6 @@ class NavicReaderRuntime {
     }
     if (removedAny) post({ type: 'footnoteClose' })
   }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   async search(query) {
     if (!this.view || !query) return
@@ -1147,267 +677,6 @@ class NavicReaderRuntime {
   postToc() {
     const items = flattenTocItems(this.view?.book?.toc || [])
     post({ type: 'toc', items })
-  }
-
-  currentFixedLayoutLocationDetail() {
-    if (this.view?.isFixedLayout !== true) return null
-    const index = this.fixedLayoutCurrentPageIndex()
-    const pageCount = Number(this.view?.book?.sections?.length)
-    if (!Number.isFinite(index) || !Number.isFinite(pageCount) || pageCount <= 0) return null
-    const section = this.view?.book?.sections?.[index]
-    return {
-      index,
-      href: section?.href || section?.id,
-      fraction: pageCount <= 1 ? 0 : index / (pageCount - 1),
-    }
-  }
-
-  postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
-    const detail = this.lastRelocateDetail || this.currentFixedLayoutLocationDetail()
-    if (!detail) {
-      log('location-snapshot:missing', reason)
-      return { posted: false, skipped: 'missing-location', reason }
-    }
-    log('location-snapshot', reason)
-    return this.postLocationChanged(detail, reason, options)
-  }
-
-  postLocationChanged(detail, reason = 'relocate', options = {}) {
-    this.removePageDragPreviewLayer()
-    if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
-      this.updateReaderPageNumberLayer(null)
-      log('location-changed:cover-skipped', reason)
-      readerTrace('location:cover-skipped', { reason, detail })
-      return { posted: false, skipped: 'cover', reason }
-    }
-    const sectionHref = this.sectionHrefForDetail(detail)
-    const rawTocItem = detail.tocItem || {}
-    const tocItem = sectionHref && rawTocItem.href && !readerHrefMatches(sectionHref, rawTocItem.href)
-      ? {}
-      : rawTocItem
-    const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
-    const chapterPosition = this.chapterPagePosition(detail, pagePosition)
-    const pageModelDiagnostics = {
-      pageCountSource: pagePosition?.pageCountSource || null,
-      paginationFingerprint: this.paginationFingerprint || null,
-      paginationProfilePageCount: diagnosticNumber(this.paginationProfile?.pageCount),
-      paginationProfileObservedChapterCount: diagnosticNumber(this.paginationProfile?.observedChapterCount),
-      paginationProfileEstimatedChapterCount: diagnosticNumber(this.paginationProfile?.estimatedChapterCount),
-      rawLocationCurrent: diagnosticNumber(detail.location?.current),
-      rawLocationTotal: diagnosticNumber(detail.location?.total),
-    }
-    const message = {
-      type: 'locationChanged',
-      href: detail.href || sectionHref || tocItem.href,
-      cfi: detail.cfi,
-      progress: optionalNumber(detail.fraction ?? detail.progress ?? detail.totalProgress),
-      pageIndex: pagePosition?.pageIndex,
-      pageCount: pagePosition?.pageCount,
-      chapterProgress: chapterPosition?.progress,
-      chapterPageIndex: chapterPosition?.pageIndex,
-      chapterPageCount: chapterPosition?.pageCount,
-      tocTitle: tocItem.label || tocItem.title,
-      rangeCfi: detail.cfi || null,
-      reason: reason || null,
-      fraction: optionalNumber(detail.fraction),
-      size: optionalNumber(detail.size),
-      tocItemLabel: tocItem.label || tocItem.title || null,
-      pageItemLabel: detail.pageItem?.label || detail.pageItem?.text || null,
-      ...pageModelDiagnostics,
-    }
-    const locationKey = readerLocationPostKey(message)
-    if (locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost) {
-      log('location-changed:duplicate-skipped', reason)
-      readerTrace('location:duplicate-skipped', { reason, message })
-      return { posted: false, skipped: 'duplicate', reason }
-    }
-    this.updateSurfacePaperTexture(detail, pagePosition)
-    this.committedRelocateDetail = detail
-    this.lastPostedLocationKey = locationKey
-    readerTrace('location:page-model', {
-      reason,
-      href: message.href,
-      pageIndex: message.pageIndex,
-      pageCount: message.pageCount,
-      chapterPageIndex: message.chapterPageIndex,
-      chapterPageCount: message.chapterPageCount,
-      ...pageModelDiagnostics,
-    })
-    log('location-page-model',
-      `reason=${reason}`,
-      `source=${pageModelDiagnostics.pageCountSource || 'none'}`,
-      `page=${message.pageIndex ?? 'n/a'}/${message.pageCount ?? 'n/a'}`,
-      `chapter=${message.chapterPageIndex ?? 'n/a'}/${message.chapterPageCount ?? 'n/a'}`,
-      `profile=${pageModelDiagnostics.paginationProfilePageCount ?? 'n/a'}`,
-      `observed=${pageModelDiagnostics.paginationProfileObservedChapterCount ?? 'n/a'}`,
-      `raw=${pageModelDiagnostics.rawLocationCurrent ?? 'n/a'}/${pageModelDiagnostics.rawLocationTotal ?? 'n/a'}`,
-      `fingerprint=${pageModelDiagnostics.paginationFingerprint || 'none'}`,
-      `href=${message.href || 'none'}`
-    )
-    readerTrace('location:post', { reason, message })
-    post(message)
-    log('location-changed:posted', reason)
-    if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })
-    if (tocItem.href || tocItem.label || tocItem.title) {
-      post({ type: 'tocItemChanged', href: tocItem.href, title: tocItem.label || tocItem.title })
-    }
-    return { posted: true, reason, href: message.href || null, pageIndex: message.pageIndex ?? null, message }
-  }
-
-  beginControlledRelocation(reason) {
-    this.controlledRelocateReason = reason || null
-    if (!String(reason || '').startsWith('page-turn:')) {
-      this.surfacePaperTextureFallbackDirection = null
-    }
-    this.controlledRelocateStartSequence = this.relocateSequence
-    log('controlled-relocate:begin', this.controlledRelocateReason || 'none', `seq=${this.controlledRelocateStartSequence}`)
-  }
-
-  consumeControlledRelocationReason(fallback = 'relocate-committed') {
-    const reason = this.controlledRelocateReason || fallback
-    log(
-      'controlled-relocate:consume',
-      reason,
-      `fallback=${fallback}`,
-      `stored=${this.controlledRelocateReason || 'none'}`,
-      `seq=${this.relocateSequence}`,
-      `start=${this.controlledRelocateStartSequence}`
-    )
-    this.controlledRelocateReason = null
-    return reason
-  }
-
-  scheduleControlledRelocationFallback(reason) {
-    const startSequence = this.controlledRelocateStartSequence
-    log('controlled-relocate:fallback-scheduled', reason, `start=${startSequence}`)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (this.controlledRelocateReason !== reason) {
-          log('controlled-relocate:fallback-skipped', reason, `stored=${this.controlledRelocateReason || 'none'}`)
-          return
-        }
-        if (this.relocateSequence > startSequence) {
-          log('controlled-relocate:fallback-skipped', reason, `seq=${this.relocateSequence}`, `start=${startSequence}`)
-          return
-        }
-        log('controlled-relocate:fallback-commit', reason, `seq=${this.relocateSequence}`, `start=${startSequence}`)
-        this.scheduleCommittedRelocation(this.lastRelocateDetail, this.consumeControlledRelocationReason(reason))
-      })
-    })
-  }
-
-  onRelocate(detail) {
-    readerTrace('relocate:raw', detail)
-    this.lastRelocateDetail = detail
-    this.relocateSequence += 1
-    if (this.pageTurnInProgress || this.pageTurnPromise) return
-    this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))
-  }
-
-  cancelPendingCommittedRelocation() {
-    this.pendingRelocateDetail = null
-    this.pendingRelocateReason = 'relocate-committed'
-    this.controlledRelocateReason = null
-    this.controlledRelocateStartSequence = this.relocateSequence
-    this.relocatePostScheduled = false
-    if (this.relocatePostTimer != null) {
-      clearTimeout(this.relocatePostTimer)
-      this.relocatePostTimer = null
-    }
-  }
-
-  scheduleCommittedRelocation(detail, reason = 'relocate-committed') {
-    if (!detail) return
-    const previousReason = this.pendingRelocateReason
-    const preserveExplicitReason = this.relocatePostScheduled &&
-      readerRelocationReasonIsExplicit(previousReason) &&
-      !readerRelocationReasonIsExplicit(reason)
-    this.pendingRelocateDetail = detail
-    this.pendingRelocateReason = preserveExplicitReason ? previousReason : reason
-    if (this.relocatePostScheduled) return
-    this.relocatePostScheduled = true
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        this.relocatePostTimer = setTimeout(() => {
-          this.relocatePostTimer = null
-          this.relocatePostScheduled = false
-          const pendingDetail = this.pendingRelocateDetail
-          const pendingReason = this.pendingRelocateReason
-          this.pendingRelocateDetail = null
-          this.pendingRelocateReason = 'relocate-committed'
-          if (!pendingDetail) return
-          this.applyThemeToLoadedContent(this.readerSettings)
-          this.postLocationChanged(pendingDetail, pendingReason)
-        }, ReaderRelocationCommitDelayMs)
-      })
-    })
-  }
-
-  suppressLoadedCoverDocument(doc, index) {
-    const normalizedIndex = Number(index)
-    if (!Number.isFinite(normalizedIndex)) return false
-    const sectionIndex = Math.floor(normalizedIndex)
-    const section = this.view?.book?.sections?.[sectionIndex]
-    if (!readerContentDocumentLooksLikeCover(doc, section, sectionIndex)) return false
-    this.suppressedCoverSectionIndexes.add(sectionIndex)
-    doc.documentElement.dataset.navicSuppressedCover = 'true'
-    doc.body?.setAttribute?.('data-navic-suppressed-cover', 'true')
-    setStylesImportant(doc.documentElement, {
-      background: 'transparent',
-      color: 'transparent',
-    })
-    if (doc.body) {
-      setStylesImportant(doc.body, {
-        display: 'none',
-        visibility: 'hidden',
-        background: 'transparent',
-        color: 'transparent',
-      })
-    }
-    readerTrace('cover:document-suppressed', {
-      index: sectionIndex,
-      href: section?.href || section?.id || '',
-    })
-    log('cover-document:suppressed', `index=${sectionIndex}`, section?.href || section?.id || '')
-    if (this.hasNonCoverReadableContent()) {
-      requestAnimationFrame(() => {
-        if (!this.view || this.shellCoverVisible) return
-        const current = Number(this.lastRelocateDetail?.section?.current ?? this.lastRelocateDetail?.index)
-        if (!Number.isFinite(current) || Math.floor(current) === sectionIndex) {
-          this.goToFirstReadableContent().catch(error => reportError(error, 'navigation_failed'))
-        }
-      })
-    }
-    return true
-  }
-
-  suppressLoadedEmbeddedCoverPage(doc, index) {
-    const normalizedIndex = Number(index)
-    if (!Number.isFinite(normalizedIndex)) return false
-    const sectionIndex = Math.floor(normalizedIndex)
-    const suppressed = suppressReaderEmbeddedCoverPage(doc, sectionIndex)
-    if (!suppressed) return false
-    const firstSuppression = !this.embeddedCoverSuppressedSectionIndexes.has(sectionIndex)
-    this.embeddedCoverSuppressedSectionIndexes.add(sectionIndex)
-    const section = this.view?.book?.sections?.[sectionIndex]
-    readerTrace('cover:embedded-page-suppressed', {
-      index: sectionIndex,
-      href: section?.href || section?.id || '',
-      rerender: firstSuppression,
-    })
-    log('cover-embedded-page:suppressed', `index=${sectionIndex}`, section?.href || section?.id || '')
-    if (firstSuppression && !this.embeddedCoverRerenderScheduled) {
-      this.embeddedCoverRerenderScheduled = true
-      requestAnimationFrame(() => {
-        this.embeddedCoverRerenderScheduled = false
-        if (!this.view) return
-        this.view.renderer?.render?.()
-        this.applyReaderViewportLayout('embedded-cover-suppressed')
-        this.scheduleReaderPageNumberRefresh('embedded-cover-suppressed')
-        this.scheduleCommittedRelocation(this.lastRelocateDetail, 'embedded-cover-suppressed')
-      })
-    }
-    return true
   }
 
   attachContentDocumentBehaviors(doc, index) {
@@ -1533,7 +802,7 @@ class NavicReaderRuntime {
     }
     for (const content of contents) {
       const doc = content.doc
-      if (!doc) {
+      if (!doc || !doc.defaultView || !doc.body || !doc.documentElement) {
         log('content-layout', `label=${label}`, `index=${content.index}`, 'doc=missing')
         continue
       }
@@ -1607,6 +876,9 @@ class NavicReaderRuntime {
 }
 
 Object.assign(NavicReaderRuntime.prototype,
+  NavicReaderShellCoverMethods,
+  NavicReaderViewportMethods,
+  NavicReaderLocationMethods,
   NavicReaderPageTurnMethods,
   NavicReaderContentInteractionMethods,
   NavicReaderPaginationMethods,

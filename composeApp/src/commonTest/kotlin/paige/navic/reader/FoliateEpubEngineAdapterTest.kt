@@ -175,7 +175,9 @@ class FoliateEpubEngineAdapterTest {
 		val preview = opened.onCommand(
 			ReaderEngineCommand.PreviewPageDrag(
 				deltaX = -184.0,
+				deltaY = -96.0,
 				viewWidth = 1440.0,
+				viewHeight = 2200.0,
 				phase = ReaderPageDragPreviewPhase.Update
 			)
 		)
@@ -185,7 +187,9 @@ class FoliateEpubEngineAdapterTest {
 		assertEquals(
 			ReaderBridgeCommand.PreviewPageDrag(
 				deltaX = -184.0,
+				deltaY = -96.0,
 				viewWidth = 1440.0,
+				viewHeight = 2200.0,
 				phase = ReaderPageDragPreviewPhase.Update
 			),
 			assertIs<ReaderEngineViewState.WebViewPublication>(preview.viewState).bridgeCommand()
@@ -364,12 +368,28 @@ class FoliateEpubEngineAdapterTest {
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.PushState(canGoBack = true, canGoForward = false))
 		)
 		assertEquals(
+			ReaderEngineEvent.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.FootnoteOpen(
+					href = "Text/chapter-01.xhtml#fn1",
+					text = "This is the footnote body.",
+					noteType = "footnote",
+					hidden = true
+				)
+			)
+		)
+		assertEquals(
 			ReaderEngineEvent.FootnoteClose,
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.FootnoteClose)
 		)
 		assertEquals(
-			ReaderEngineEvent.PullUp,
-			adapter.onBridgeHostEvent(ReaderBridgeEvent.PullUp)
+			ReaderEngineEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe),
+			adapter.onBridgeHostEvent(ReaderBridgeEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe))
 		)
 		assertEquals(
 			ReaderEngineEvent.Error(message = "Failed", code = "open"),

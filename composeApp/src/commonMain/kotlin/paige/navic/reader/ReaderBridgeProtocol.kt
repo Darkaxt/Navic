@@ -269,7 +269,9 @@ sealed interface ReaderBridgeCommand {
 
 	data class PreviewPageDrag(
 		val deltaX: Double,
+		val deltaY: Double = 0.0,
 		val viewWidth: Double? = null,
+		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
 	) : ReaderBridgeCommand {
 		override val type: String = "previewPageDrag"
@@ -278,7 +280,9 @@ sealed interface ReaderBridgeCommand {
 			buildJsonObject {
 				put("type", type)
 				put("deltaX", deltaX.takeIf(Double::isFinite) ?: 0.0)
+				put("deltaY", deltaY.takeIf(Double::isFinite) ?: 0.0)
 				viewWidth?.takeIf(Double::isFinite)?.let { put("viewWidth", it) }
+				viewHeight?.takeIf(Double::isFinite)?.let { put("viewHeight", it) }
 				put(
 					"phase",
 					when (phase) {
@@ -477,8 +481,21 @@ sealed interface ReaderBridgeEvent {
 		val canGoBack: Boolean = false,
 		val canGoForward: Boolean = false
 	) : ReaderBridgeEvent
+	data class FootnoteOpen(
+		val href: String? = null,
+		val text: String? = null,
+		val noteType: String? = null,
+		val hidden: Boolean = false
+	) : ReaderBridgeEvent
 	data object FootnoteClose : ReaderBridgeEvent
-	data object PullUp : ReaderBridgeEvent
+	data class PullUp(val source: String? = null) : ReaderBridgeEvent
+	data class VisibleTextRange(
+		val textHref: String,
+		val visibleStart: Int,
+		val visibleEnd: Int,
+		val rangeCfi: String? = null,
+		val source: String? = null
+	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -576,8 +593,17 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				canGoBack = json.booleanValue("canGoBack") ?: false,
 				canGoForward = json.booleanValue("canGoForward") ?: false
 			)
+			"footnoteOpen" -> ReaderBridgeEvent.FootnoteOpen(
+				href = json.stringValue("href"),
+				text = json.stringValue("text"),
+				noteType = json.stringValue("noteType"),
+				hidden = json.booleanValue("hidden") ?: false
+			)
 			"footnoteClose" -> ReaderBridgeEvent.FootnoteClose
-			"pullUp" -> ReaderBridgeEvent.PullUp
+			"pullUp" -> ReaderBridgeEvent.PullUp(
+				source = json.stringValue("source")
+			)
+			"visibleTextRange" -> json.toVisibleTextRange()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -601,6 +627,19 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			else -> null
 		}
 	}.getOrNull()
+
+private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange? {
+	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
+	val visibleStart = intValue("visibleStart") ?: intValue("start") ?: return null
+	val visibleEnd = intValue("visibleEnd") ?: intValue("end") ?: return null
+	return ReaderBridgeEvent.VisibleTextRange(
+		textHref = textHref,
+		visibleStart = minOf(visibleStart, visibleEnd),
+		visibleEnd = maxOf(visibleStart, visibleEnd),
+		rangeCfi = stringValue("rangeCfi"),
+		source = stringValue("source") ?: stringValue("reason")
+	)
+}
 
 private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
 	val source = stringValue("source")

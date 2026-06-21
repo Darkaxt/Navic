@@ -314,8 +314,16 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "baseOffset: this.surfacePaperTextureBaseOffset")
 		assertContains(bridgeText, "delta: position - this.surfacePaperTextureBaseOffset")
 		assertContains(bridgeText, "pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || ''")
+		assertContains(bridgeText, "viewportWidth: width")
+		assertContains(bridgeText, "viewportHeight: height")
+		assertContains(bridgeText, "flowMode: this.readerFlowModeValue")
 		assertContains(bridgeText, "textureKey: readerRoot.dataset.navicSurfacePaperTextureKey || ''")
 		assertContains(bridgeText, "readerTrace('texture:scroll', diagnostic)")
+		assertContains(
+			bridgeText,
+			"const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)",
+			message = "Texture movement needs the recent logical page-turn direction when renderer coordinates wrap at section boundaries."
+		)
 		assertContains(
 			bridgeText,
 			"const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1",
@@ -327,19 +335,23 @@ class ReaderRuntimePaperSurfaceTest {
 			"? expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
 			message = "Known next/previous turns must still dominate normal in-flight renderer movement."
 		)
-		assertContains(
-			bridgeText,
-			"const knownDirectionBoundaryWrap = hasKnownDirection &&",
-			message = "Full-page boundary wraps need a separate branch because the renderer delta can flip sign after a section boundary."
-		)
-		assertContains(
-			bridgeText,
-			"knownDirectionBoundaryWrap\n    ? bounded",
-			message = "When a known-direction turn lands on a wrapped boundary, the texture must follow the wrapped renderer delta instead of forcing the logical sign."
+		assertFalse(
+			bridgeText.contains("knownDirectionBoundaryWrap"),
+			"Known next/previous turns must keep the texture moving in the logical page-turn direction; Foliate coordinate wraps must not invert it."
 		)
 		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
 		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
+		assertContains(
+			surfaceLayerUpdater,
+			"const texturePosition = readerPaperTextureBackgroundPosition(scrollOffset)",
+			message = "The border/shadow overlay must use the same scroll offset as the paper texture in horizontal and vertical paging."
+		)
+		assertContains(
+			surfaceLayerUpdater,
+			"'background-position': [texturePosition, texturePosition].join(', ')",
+			message = "Both shadow overlay layers must move with the page texture instead of staying fixed during vertical page motion."
+		)
 	}
 
 	@Test
@@ -438,6 +450,57 @@ class ReaderRuntimePaperSurfaceTest {
 			"readerTrace('texture:drag-direction'",
 			message = "Texture direction seeded by native drag preview must be visible in harness and ADB trace diagnostics."
 		)
+		assertContains(
+			previewPageDrag,
+			"const deltaY = Number(command?.deltaY)",
+			message = "Native readable drag preview must preserve vertical deltas for paged-vertical books."
+		)
+		assertContains(
+			previewPageDrag,
+			"readerPageDragPreviewMotion({",
+			message = "Preview movement must use the shared reader motion contract instead of hard-coded horizontal math."
+		)
+		assertContains(
+			previewPageDrag,
+			"renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)",
+			message = "The page itself must move on the same axis as the texture during native drag previews."
+		)
+	}
+
+	@Test
+	fun androidReaderKeepsCurrentPageMovingWhileBoundaryPreviewLoads() {
+		val bridgeText = readerBridgeText()
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		val boundaryPreviewBlock = previewPageDrag
+			.substringAfter("if (boundaryDirection) {")
+			.substringBefore("\n  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0)")
+
+		assertContains(
+			previewPageDrag,
+			"let waitingForBoundaryPreview = false",
+			message = "Section-boundary drags need an explicit pending-preview state instead of returning before movement."
+		)
+		assertContains(
+			boundaryPreviewBlock,
+			"waitingForBoundaryPreview = true",
+			message = "Pending adjacent-page previews must be visible in source and runtime traces."
+		)
+		assertFalse(
+			boundaryPreviewBlock.contains("return"),
+			"Boundary drags must keep moving the current page while the adjacent iframe preview is still loading."
+		)
+		assertContains(
+			previewPageDrag,
+			"source: waitingForBoundaryPreview ? 'boundary-preview-loading' : 'native-preview'",
+			message = "Diagnostics must distinguish a real adjacent-page preview from the fallback surface shown while it loads."
+		)
+		assertTrue(
+			previewPageDrag.indexOf("waitingForBoundaryPreview = true") <
+				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"The boundary-preview loading branch must reach current-page movement instead of stopping before it."
+		)
 	}
 
 	@Test
@@ -457,8 +520,18 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(
 			releaseBranch,
-			"renderer.scrollBy(previousDeltaX, 0)",
+			"renderer.scrollBy(previousDelta.x, previousDelta.y)",
 			message = "Release must restore Foliate's synthetic drag scroll before dispatching the real page turn."
+		)
+		assertContains(
+			releaseBranch,
+			"const releaseTextureDirection = readerPaperTextureDragDirection({",
+			message = "Release must derive a texture fallback from the final native delta instead of relying only on earlier move events."
+		)
+		assertContains(
+			releaseBranch,
+			"this.surfacePaperTextureFallbackDirection = releaseTextureDirection",
+			message = "Release must preserve the direction as a fallback for the real page turn after clearing preview-only direction state."
 		)
 		assertContains(
 			releaseBranch,
@@ -628,18 +701,62 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			assertions,
-			"payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1",
-			message = "Trace assertions must reject positive next offsets even when renderer coordinates wrap."
+			"const textureOffset = flowMode === 'paged-vertical' ? yOffset : xOffset",
+			message = "Trace assertions must check the vertical offset axis when the reader is in vertical paged mode."
 		)
 		assertContains(
 			assertions,
-			"movedSamples.find(({ textureDelta }) => textureDelta > 1)",
-			message = "Real page-turn samples must reject forward texture inversion without exempting renderer wraps."
+			"payload.pageTurnDirection === 'next' && Number.isFinite(textureOffset) && textureOffset > 1 && !directedBoundaryWrap",
+			message = "Trace assertions must reject positive next offsets unless the renderer crossed a known boundary wrap."
+		)
+		assertContains(
+			assertions,
+			"movedSamples.find(({ textureDelta, rendererBoundaryWrap }) =>",
+			message = "Real page-turn samples must reject forward texture inversion while excluding valid renderer wraps."
+		)
+		assertContains(
+			assertions,
+			"parseBackgroundPositionOffsets(sample?.textureBackgroundPosition)",
+			message = "Sample trace assertions must parse both background-position axes so vertical paging is not invisible to the harness."
+		)
+		assertContains(
+			assertions,
+			"String(sample?.flowMode || '') === 'paged-vertical' ? offsets?.y : offsets?.x",
+			message = "Sample trace assertions must compare vertical texture motion against the y axis."
 		)
 		assertContains(
 			frontmatterMode,
 			"assertTextureTracePayloadsTrackTurnDirection(result.trace)",
 			message = "The Author's Note boundary harness must fail if texture:scroll payloads invert after the boundary."
+		)
+	}
+
+	@Test
+	fun readerHarnessAllowsDirectedTextureWrapsAtRendererBoundaries() {
+		val assertionFile = listOf(
+			java.io.File("tools/reader-harness/src/reader-trace-assertions.mjs"),
+			java.io.File("../tools/reader-harness/src/reader-trace-assertions.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader trace assertions")
+		val assertionsText = assertionFile.readText()
+		val textureAssertion = assertionsText
+			.substringAfter("const expectedDirectionSign = probe.direction === 'forward' ? 1 : probe.direction === 'backward' ? -1 : 0")
+			.substringBefore("\n    const stationary =")
+
+		assertContains(
+			textureAssertion,
+			"!rendererBoundaryWrap",
+			message = "Forward/backward texture probes must not flag valid full-page renderer wraps as inverted texture motion."
+		)
+		assertContains(
+			textureAssertion,
+			"textureDelta > 1 && !rendererBoundaryWrap",
+			message = "Forward probe failures must explicitly exclude the boundary-wrap case detected from renderer deltas."
+		)
+		assertContains(
+			textureAssertion,
+			"textureDelta < -1 && !rendererBoundaryWrap",
+			message = "Backward probe failures must explicitly exclude the boundary-wrap case detected from renderer deltas."
 		)
 	}
 

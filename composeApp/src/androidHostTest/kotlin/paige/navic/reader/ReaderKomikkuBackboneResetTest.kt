@@ -513,12 +513,23 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(androidText.contains("navigationOverlay.isClickable = false"))
 		assertTrue(androidText.contains("navigationOverlay.isFocusable = false"))
 		assertTrue(
-			androidText.contains("composeOverlay.isClickable = false"),
-			"The full-window Compose overlay must stay passive at the Android view level; visible chrome children own their own clicks."
+			readerRootText.contains("Box(modifier = modifier.fillMaxSize())") &&
+				readerRootText.indexOf("KomikkuReaderNativeFrameHost(") <
+				readerRootText.indexOf("composeOverlay = {"),
+			"The common reader shell must render through the native frame so Android can layer chrome above WebView/cover surfaces."
 		)
 		assertTrue(
-			androidText.contains("composeOverlay.isFocusable = false"),
-			"The full-window Compose overlay must not become the focus owner above the native viewer container."
+			readerRootText.contains("composeOverlay = {") &&
+				readerRootText.contains("if (overlayVisible)") &&
+				readerRootText.contains("KomikkuComposeOverlay(") &&
+				readerRootText.contains("controllerState.hasVisibleReaderOverlay()"),
+			"The native frame must receive the real Komikku chrome overlay and only render it when controller state requires it."
+		)
+		assertTrue(
+			androidText.contains("private val composeOverlay = ComposeView(context)") &&
+				androidText.contains("fun setComposeOverlay(") &&
+				androidText.contains("composeOverlay.bringToFront()"),
+			"The Android frame host must own the visible chrome overlay as the top native child above the WebView and shell cover."
 		)
 		assertTrue(androidText.contains("super.dispatchTouchEvent(event)"))
 		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
@@ -650,9 +661,9 @@ class ReaderKomikkuBackboneResetTest {
 			"Horizontal drags should be intercepted by the native viewer container so readable content can follow the finger."
 		)
 		assertTrue(
-			handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
+				handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				handleTouch.contains("if (shellCoverVisible)") &&
-				handleTouch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)") &&
+				handleTouch.contains("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)") &&
 				handleTouch.contains("ReaderPageDragPreviewPhase.Release") &&
 				handleTouch.contains("ReaderPageDragPreviewPhase.Cancel") &&
 				handleTouch.contains("dispatchHorizontalSwipeViewerAction("),
@@ -662,7 +673,7 @@ class ReaderKomikkuBackboneResetTest {
 			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
 				swipeAction.contains("if (shellCoverVisible)") &&
 				swipeAction.contains("readerShellCoverSwipeAction(") &&
-				swipeAction.contains("readerNativeReaderSwipeAction("),
+				swipeAction.contains("readableSwipeAction("),
 			"Cover and readable drags need separate native swipe contracts under the same top-level frame."
 		)
 		assertFalse(
@@ -721,7 +732,7 @@ class ReaderKomikkuBackboneResetTest {
 				runtimeText.contains("case 'previewPageDrag':") &&
 				runtimeText.contains("previewPageDrag(command)") &&
 				runtimeText.contains("readerRendererReadyForPageDrag(renderer)") &&
-				runtimeText.contains("renderer.scrollBy(-incrementalDeltaX, 0)") &&
+				runtimeText.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") &&
 				runtimeText.contains("preloadPageDragPreviewTargets(") &&
 				runtimeText.indexOf("preloadPageDragPreviewTargets(") < runtimeText.indexOf("updatePageDragPreviewLayer({") &&
 				runtimeText.contains("safeNativeDragPreviewAtSectionBoundary(renderer, direction)") &&
@@ -1357,6 +1368,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Settings must render as a Komikku-style overlay dialog above the viewer, not as the old docked options panel."
 		)
 		assertFalse(
+			controllerText.contains("ReadingMode") || readerRootText.contains("ReaderControllerDialog.ReadingMode"),
+			"The Komikku shell must not keep a second controller route that opens the same settings dialog."
+		)
+		assertFalse(
 			readerScreenText.contains("ReaderOptionsPanel(") || readerRootText.contains("ReaderOptionsPanel("),
 			"The active Komikku reader must not reattach the old reader options panel as its settings surface."
 		)
@@ -1667,7 +1682,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		val swapBody = androidHostText
 			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
-			.substringBefore("fun setComposeOverlay")
+			.substringBefore("override fun onDetachedFromWindow()")
 
 		assertTrue(
 			swapBody.contains("currentViewerComposeView?.disposeComposition()") &&
@@ -1679,7 +1694,7 @@ class ReaderKomikkuBackboneResetTest {
 			androidHostText.contains("override fun onDetachedFromWindow()") &&
 				androidHostText.contains("currentViewerComposeView?.disposeComposition()") &&
 				androidHostText.contains("composeOverlay.disposeComposition()"),
-			"Android native frame must dispose active viewer and overlay compositions when the root leaves the window."
+			"Android native frame must dispose both the active viewer composition and the native top chrome overlay composition."
 		)
 	}
 
@@ -1713,6 +1728,78 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary() {
+		val readerScreenText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
+		).readText()
+		val readerRootText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt"
+		).readText()
+		val statusBadgeText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt"
+		).readText()
+
+		assertTrue(
+			readerScreenText.contains("koinInject<AudiobookPlaybackManager>()"),
+			"ReaderScreen must obtain the shared audiobook manager at the app boundary for Whispersync playback."
+		)
+		assertTrue(
+			readerScreenText.contains("binderyAudiobookPlaybackPlan("),
+			"ReaderScreen must load the selected Bindery audiobook into a playback plan for the paired ebook session."
+		)
+		assertTrue(
+			readerScreenText.contains("readerWhispersyncPlaybackCommandForSeekTarget("),
+			"ReaderScreen must resolve controller-owned Whispersync seek targets through the playback policy."
+		)
+		assertTrue(
+			readerScreenText.contains("step.whispersyncAudioSeekTarget"),
+			"ReaderScreen must consume ReaderCoordinatorStep.whispersyncAudioSeekTarget instead of dropping it."
+		)
+		assertTrue(
+			readerScreenText.contains("audiobookPlaybackManager.dispatch(command)"),
+			"ReaderScreen must dispatch resolved Whispersync audio commands through the shared audiobook manager."
+		)
+		assertTrue(
+			readerScreenText.contains("val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(") &&
+				readerScreenText.contains("readaloudPlaybackState = whispersyncReadaloudPlaybackState"),
+			"ReaderScreen must pass the active audiobook session into the native reader shell for the page-level Whispersync control."
+		)
+		assertTrue(
+			readerScreenText.contains("onWhispersyncPlaybackCommand = { command ->"),
+			"ReaderScreen must expose the native Whispersync control as an audiobook manager command, not as WebView-owned UI."
+		)
+		assertTrue(
+			readerRootText.contains("readerWhispersyncPlaybackControlState("),
+			"ReaderRoot must derive the Whispersync playback control state at the Komikku shell boundary."
+		)
+		assertTrue(
+			readerRootText.contains("KomikkuWhispersyncPlaybackControl("),
+			"ReaderRoot must render the native top-left Whispersync playback affordance."
+		)
+		assertTrue(
+			statusBadgeText.contains("ReaderWhispersyncPlaybackControlState"),
+			"The Whispersync UI file must contain a dedicated playback control instead of overloading the mismatch badge."
+		)
+		assertTrue(
+			statusBadgeText.contains("KomikkuWhispersyncPlaybackControl") &&
+				statusBadgeText.contains("modifier = modifier.pointerInput(Unit)"),
+			"The visible Whispersync playback control must shield its own touch area so disabled/loading states cannot leak taps to page navigation."
+		)
+		assertTrue(
+			statusBadgeText.contains("onRepairMismatch: () -> Unit"),
+			"The mismatch badge must expose a controller-owned repair action instead of being a passive UI-only warning."
+		)
+		assertTrue(
+			readerRootText.contains("onRepairWhispersyncMismatch: () -> Unit"),
+			"ReaderRoot must route Whispersync mismatch repair through the Komikku overlay boundary."
+		)
+		assertTrue(
+			readerScreenText.contains("coordinator.repairWhispersyncMismatch()"),
+			"ReaderScreen must route mismatch repair back through ReaderCoordinator, not directly to the audio player."
+		)
+	}
+
+	@Test
 	fun readerPublicationRuntimeLoadsSavedBinderyProgressBeforeOpeningEngine() {
 		val platformHostsText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderPlatformHosts.kt"
@@ -1731,6 +1818,12 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			readerScreenText.contains("savedProgress = savedProgress"),
 			"ReaderScreen must feed saved Bindery progress into the open request factory."
+		)
+		assertTrue(
+			readerScreenText.contains("decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)") &&
+				readerScreenText.contains("startLocatorFor(") &&
+				readerScreenText.contains("localStartLocator ="),
+			"ReaderScreen must feed local readerReadingProgressJson into the open request factory so cached EPUBs resume when Bindery progress lookup is unavailable."
 		)
 		assertTrue(
 			androidRuntimeHostText.contains("getReadingProgress("),
@@ -1820,7 +1913,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
-				moveBranch.indexOf("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
+				moveBranch.indexOf("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
 			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer preview keeps the drag stream."
 		)
 	}
@@ -1845,7 +1938,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		assertTrue(
 			moveBranch.contains("updateShellCoverDragOffset(dx)") &&
-				moveBranch.contains("updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)"),
+				moveBranch.contains("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
 			"Move events should provide visual drag feedback for both cover and readable pages without committing navigation."
 		)
 		assertFalse(

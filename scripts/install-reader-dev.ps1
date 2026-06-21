@@ -10,7 +10,8 @@ param(
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
-    [int] $MaxDiscoveryBooks = 150
+    [int] $MaxDiscoveryBooks = 150,
+    [string] $StartProgress
 )
 
 $ErrorActionPreference = "Stop"
@@ -498,6 +499,17 @@ function Add-ShellStringExtra {
     }
 }
 
+function Grant-ReaderDevNotificationPermission {
+    param([Parameter(Mandatory = $true)][string] $Package)
+
+    try {
+        Invoke-Adb -Arguments @("shell", "pm", "grant", $Package, "android.permission.POST_NOTIFICATIONS")
+        Write-Host "Granted readerDev notification permission for $Package."
+    } catch {
+        Write-Host "Could not grant readerDev notification permission for ${Package}: $($_.Exception.Message)"
+    }
+}
+
 $envValues = Read-EnvFile -Path $EnvFile
 $opdsBaseUrl = Get-EnvValue -Values $envValues -Keys @("BINDERY_OPDS_BASE_URL", "BINDERY_OPDS_URL")
 $apiKey = Get-EnvValue -Values $envValues -Keys @("BINDERY_API_KEY")
@@ -514,6 +526,16 @@ $kind = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_KIND")
 $format = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_FORMAT")
 $startHref = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_HREF")
 $startCfi = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_CFI")
+$startProgress = if (![string]::IsNullOrWhiteSpace($StartProgress)) {
+    $StartProgress
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_PROGRESS")
+}
+$whispersyncSidecarUrl = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL")
+$whispersyncArtifactId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_ARTIFACT_ID")
+$whispersyncAudiobookId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID")
+$whispersyncAudiobookBookFileId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID")
+$whispersyncAudiobookTitle = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE")
 
 if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
     $discoveredPublication = Resolve-ReaderDevPublicationFromBindery `
@@ -555,6 +577,7 @@ if (!(Test-Path $apkPath)) {
 
 if (!$NoInstall) {
     Invoke-Adb -Arguments @("install", "-r", $apkPath)
+    Grant-ReaderDevNotificationPermission -Package $Package
 }
 
 if ($ReaderAssetServerPort -gt 0) {
@@ -582,6 +605,12 @@ if (!$NoLaunch) {
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.format" -Value $format
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_href" -Value $startHref
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_cfi" -Value $startCfi
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_progress" -Value $startProgress
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_sidecar_url" -Value $whispersyncSidecarUrl
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_artifact_id" -Value $whispersyncArtifactId
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_audiobook_id" -Value $whispersyncAudiobookId
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_audiobook_book_file_id" -Value $whispersyncAudiobookBookFileId
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_audiobook_title" -Value $whispersyncAudiobookTitle
 
     Write-Host "Launching $Package. Secrets are passed through adb extras and not printed."
     Invoke-Adb -Arguments $launchArgs.ToArray()

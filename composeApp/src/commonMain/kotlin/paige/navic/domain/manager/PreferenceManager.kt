@@ -199,6 +199,7 @@ class PreferenceManager(
 	var binderyLanguageFilter by preference("eng")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	var binderyAudiobookProgressJson by preference("")
+	var binderyWhispersyncCompanionProgressJson by preference("")
 	private var aurralEnabledPreference by preference("aurralEnabled", false)
 	var aurralEnabled: Boolean
 		get() = aurralEnabledPreference
@@ -309,12 +310,6 @@ class PreferenceManager(
 	var miniPlayerStyle by preference(MiniPlayerStyle.Detached)
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
 	var showMiniPlayerQueueAction by preference(false)
-
-	/**
-	 * If we have informed the user (on Android) about
-	 * Google locking down sideloading.
-	 */
-	var showedSideloadingWarning by preference(false)
 
 	// theme related settings
 	var theme by preference(Theme.Dynamic)

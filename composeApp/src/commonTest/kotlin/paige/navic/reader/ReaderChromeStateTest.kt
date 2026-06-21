@@ -363,6 +363,26 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun nativeShellCoverBoundaryAllowsFrontmatterWhenGlobalPageIndexIsAlreadyPastOne() {
+		assertTrue(
+			readerShouldReturnToNativeShellCover(
+				shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/cover.png",
+				shellCoverVisible = false,
+				locator = ReaderLocator(
+					href = "OEBPS/Text/sinopsis.xhtml",
+					progress = 0.0007927082115140601,
+					pageIndex = 10,
+					pageCount = 1534,
+					chapterProgress = 0.0,
+					chapterPageIndex = 0,
+					chapterPageCount = 2
+				)
+			),
+			"Frontmatter can have several global pages before the first readable chapter; previous must still return to native cover."
+		)
+	}
+
+	@Test
 	fun nativeShellCoverBoundaryDoesNotTrustLocalPageZeroWhenHrefIsLaterChapter() {
 		assertFalse(
 			readerShouldReturnToNativeShellCover(
@@ -564,6 +584,49 @@ class ReaderChromeStateTest {
 			ReaderTapZoneAction.Right,
 			readerShellCoverSwipeAction(deltaX = -24f, deltaY = 30f, thresholdPx = 10f),
 			"Shell-cover drags can stay permissive because there is no readable scroll stream under the cover."
+		)
+	}
+
+	@Test
+	fun nativeReaderSwipeActionUsesVerticalDominanceForPagedVerticalPreview() {
+		assertEquals(
+			null,
+			readerNativeReaderSwipeAction(
+				deltaX = 2f,
+				deltaY = -9f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			)
+		)
+		assertEquals(
+			ReaderTapZoneAction.Right,
+			readerNativeReaderSwipeAction(
+				deltaX = 8f,
+				deltaY = -24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Dragging up in paged-vertical mode should preview and commit the next page."
+		)
+		assertEquals(
+			ReaderTapZoneAction.Left,
+			readerNativeReaderSwipeAction(
+				deltaX = 8f,
+				deltaY = 24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Dragging down in paged-vertical mode should preview and commit the previous page."
+		)
+		assertEquals(
+			null,
+			readerNativeReaderSwipeAction(
+				deltaX = 30f,
+				deltaY = -24f,
+				thresholdPx = 10f,
+				verticalPageDragPreview = true
+			),
+			"Paged-vertical reader drags must not convert mostly horizontal drift into page turns."
 		)
 	}
 }

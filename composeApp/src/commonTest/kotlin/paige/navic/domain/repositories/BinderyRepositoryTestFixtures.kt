@@ -19,6 +19,7 @@ internal class FakeBinderyApiClient(
 	private val audiobookVersion: BinderyAudiobookVersion = BinderyAudiobookVersion(id = 1),
 	private val audiobookManifest: BinderyManifest = BinderyManifest(id = "urn:bindery:audiobook:1", title = "Audiobook"),
 	private val bookSync: BinderyBookSync = BinderyBookSync(),
+	private val whispersyncSidecarJson: String = "{}",
 	private val resourceBytes: ByteArray = ByteArray(0),
 	private val progress: BinderyReadingProgress = BinderyReadingProgress(
 		bookId = "book",
@@ -60,6 +61,9 @@ internal class FakeBinderyApiClient(
 	val bookSyncBaseUrls = mutableListOf<String>()
 	val bookSyncHeaders = mutableListOf<Map<String, String>>()
 	val bookSyncIds = mutableListOf<String>()
+	val whispersyncSidecarBaseUrls = mutableListOf<String>()
+	val whispersyncSidecarHeaders = mutableListOf<Map<String, String>>()
+	val whispersyncSidecarPaths = mutableListOf<String>()
 	val resourceBaseUrls = mutableListOf<String>()
 	val resourceHeaders = mutableListOf<Map<String, String>>()
 	val resourcePaths = mutableListOf<String>()
@@ -164,6 +168,17 @@ internal class FakeBinderyApiClient(
 		bookSyncHeaders += requestHeaders
 		bookSyncIds += bookId
 		return bookSync
+	}
+
+	override suspend fun fetchWhispersyncSidecarJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): String {
+		whispersyncSidecarBaseUrls += baseUrl
+		whispersyncSidecarHeaders += requestHeaders
+		whispersyncSidecarPaths += path
+		return whispersyncSidecarJson
 	}
 
 	override suspend fun fetchResourceBytes(

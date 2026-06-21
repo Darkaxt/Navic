@@ -23,9 +23,9 @@
     <string name="title_source">Code source</string>
     <string name="title_chat">Discuter</string>
     <string name="title_shares">Partages</string>
-    <string name="subtitle_appearance">Modifier le thème et les couleurs de l'application</string>
-    <string name="subtitle_now_playing">Personnaliser le lecteur principal</string>
-    <string name="subtitle_bottom_app_bar">Personnaliser le lecteur et la barre de navigation inférieurs</string>
+    <string name="subtitle_appearance">Thèmes, couleurs, mise en page</string>
+    <string name="subtitle_now_playing">Personnalisez l'affichage de la lecture en cours et des paroles</string>
+    <string name="subtitle_bottom_app_bar">Personnalisez la barre de navigation et le lecteur</string>
     <string name="subtitle_about">Version, licences</string>
     <string name="subtitle_playlist">Liste de lecture</string>
     <string name="subtitle_enable_scrobbling">Scrobbler les morceaux écoutés vers votre serveur Navidrome</string>
@@ -164,7 +164,7 @@
     <string name="title_mini_player">Mini-lecteur</string>
     <string name="title_miscellaneous">Divers</string>
     <string name="title_layout">Mise en forme</string>
-    <string name="subtitle_playback">Comportement audio, scrobbling, paroles</string>
+    <string name="subtitle_playback">Comportement de l'audio et du scrobbling</string>
     <string name="subtitle_developer">Débogage, tests</string>
     <string name="subtitle_gapless_playback">Expérimental. Nécessite un redémarrage de l'application. Cela peut ne pas fonctionner sur certains appareils si l'audio offload est activé</string>
     <string name="subtitle_audio_offload">Expérimental. Nécessite un redémarrage de l'application. Cela peut ne pas fonctionner sur certains appareils si la lecture continue est activée</string>
@@ -225,10 +225,6 @@
     <string name="info_no_playlists_short">Aucune liste de lecture</string>
     <string name="info_lyrics_provider">Paroles fournies par %1$s</string>
     <string name="info_image_failed_to_load">Échec du chargement</string>
-    <string name="sideloading_warning_title">STOP, LISEZ !</string>
-    <string name="sideloading_warning_subtitle">Google prévoit de désactiver l'installation d'applications tierces sur TOUS les appareils sur lesquels les services Google Play sont installés!\n</string>
-    <string name="sideloading_warning_description">Même si les détails précis de ce changement ne sont pas encore tout à fait connus, cela pourrait entraîner le blocage de TOUTES les applications tierces, à moins que le signataire de l'application ne divulgue son identité à Google et/ou publiquement.\n\nSi vous maîtrisez suffisamment le sujet pour installer une ROM tierce sur votre appareil, C'EST LE MOMENT DE LE FAIRE.\n\nDécouvrez ce que vous pouvez faire et comment faire entendre votre voix</string>
-    <string name="sideloading_warning_link_mask">ici.</string>
     <string name="title_data_storage">Données &amp; Stockage</string>
     <string name="title_sync_control">Contrôle de Synchronisation</string>
     <string name="title_cache_management">Cache &amp; Gestion du Stockage</string>
@@ -367,9 +363,10 @@
     <string name="option_quality_high">Haute</string>
     <string name="info_progress">Progression</string>
     <string name="info_in_use">(actuellement utilisé)</string>
-    <string name="info_bitrate_default_zero">Laisser ce champ vide mets cette option à 0. Cela laisse le serveur choisir.</string>
+    <string name="info_bitrate_default_zero">Laisser ce champ vide met l'option à 0. Cela laisse le serveur choisir.</string>
     <string name="option_navigation_bar_label_visibility">Visibilité du label</string>
     <string name="option_navigation_bar_label_visibility_only_selected">Seulement sélectionné</string>
     <string name="info_no_starred">Vous n'avez rien ajouté en favori</string>
     <string name="info_no_search_results">Aucun résultat</string>
+    <string name="title_logs">Journal</string>
 </resources>

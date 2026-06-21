@@ -278,8 +278,18 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			chromeStateText,
-			"(locator?.pageIndex ?: -1) <= 1",
-			message = "The shell-cover boundary must remain controller-owned and tolerate Foliate's first-readable sentinel offset."
+			"readerLocatorIsNativeShellCoverPageBoundary(locator)",
+			message = "The shell-cover boundary must remain controller-owned before Foliate can enter the suppressed EPUB cover."
+		)
+		assertContains(
+			chromeStateText,
+			"(locator?.pageIndex ?: Int.MAX_VALUE) <= 1",
+			message = "The shell-cover boundary must tolerate Foliate's first-readable sentinel offset."
+		)
+		assertContains(
+			chromeStateText,
+			"(locator?.progress ?: 1.0) <= 0.02",
+			message = "Frontmatter can have several measured pages before the first readable chapter, so near-start progress must also return to native cover."
 		)
 	}
 
@@ -640,6 +650,11 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(bridgeText, "readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)")
 		assertContains(bridgeText, "this.toggleSepiaImageOverlayFromEvent(entry.doc, event")
 		assertContains(bridgeText, "this.activateReaderLinkFromEvent(entry.doc, event, hit.index")
+		assertContains(
+			bridgeText,
+			"this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)",
+			message = "A native coordinate long-press on plain text must create a DOM selection so the native selection actions can appear."
+		)
 		assertContains(
 			exportedBridge,
 			"dispatch: command => runtime.dispatch(command)",

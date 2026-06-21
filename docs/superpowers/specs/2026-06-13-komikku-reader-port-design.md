@@ -130,7 +130,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 3 adds bridge/engine events and ADB-visible labels for `ExternalLink`, `SelectionCleared`, `AnnotationClick`, `AnnotationDrawn`, `OverlayCreated`, `LoadDoc`, `PushState`, `FootnoteClose`, and `PullUp`.
 - Phase 3 runtime hooks are in `navic-reader.js` for Foliate `external-link`, `draw-annotation`, `show-annotation`, `create-overlay`, `load`, and history `index-change`; selection clear posts `selectionCleared`; scrolled-edge overscroll posts `pullUp`; overlay clearing posts `footnoteClose`.
 - The nine Phase 3 bridge events must not be treated as type-only parity. `ReaderController` currently routes them into controller state (`lastLinkInteraction`, `externalLinkPrompt`, `lastAnnotationInteraction`, `annotationPopup`, `lastOverlayInteraction`, `loadedDocument`, and `engineNavigation`), and `FoliateAnxParityTest.phase3AnxBridgeEventsHaveControllerBehaviorRoutes` guards against restoring the old no-op branches.
-- Phase 5 dirty emulator evidence now proves the selection payload can reach Android with `footnote=true`, CFI, context text, and bounds, and that the native Komikku-style `Highlight`, `Copy`, and `Note` action overlay appears after shell-cover dismissal. Highlight has a repeatable smoke gate through `applyHighlights` + `annotationDrawn`; Copy has a repeatable node-tap smoke gate that reaches the native clipboard boundary (`Reader selection copied length=31`); Note has a repeatable node-tap smoke gate that opens the native note dialog, saves a note-bearing annotation, dispatches `applyHighlights`, and receives `annotationDrawn`.
+- Phase 5 dirty emulator evidence proves the selection payload can reach Android with `footnote=true`, CFI, context text, and bounds, and that the native Komikku-style `Highlight`, `Copy`, and `Note` action overlay appears after shell-cover dismissal. Highlight has a repeatable smoke gate through `applyHighlights` + `annotationDrawn`; Copy has a repeatable node-tap smoke gate that reaches the native clipboard boundary (`Reader selection copied length=31`). Note is dirty-emulator verified through a DevTools-created selection plus native UI taps: `Reader selection note save length=10`, `applyHighlights(... notes=1)`, and `annotationDrawn` were captured on eta76. The 2026-06-20 dirty emulator run now also proves real ADB long-press normal-text selection plus native Highlight, Copy, and Note Save actions without DevTools-created selection. Clean release/physical-device validation remains open.
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
 - `PushState` is not passive history metadata: Anx routes it to a visible history capsule when `canGoBack || canGoForward`. Navic now stores `ReaderEngineNavigationState.visible`, renders `KomikkuReaderHistoryCapsule`, and routes capsule back/forward through `ReaderEngineCommand.NavigateHistory` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward` and Foliate `view.history.back()` / `forward()`.
 - `PullUp` is not a passive diagnostic event: Anx routes it to `showOrHideAppBarAndBottomBar(true)`, so Navic must route it to controller-owned `menuVisible = true` while keeping the renderer command list empty.
@@ -149,7 +149,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 7 PDF and font-source parity guards are host-verified. `FoliatePdfAnxParityTest` guards the Anx/Foliate `makePDF(file)` contract, and `ReaderFontSourceAnxParityTest` guards local import, remote manifest, WebView-safe font URLs, deletion, and remote download progress/pause/resume/cancel routes.
 - Phase 8 adds the remaining Anx `BookStyle` adaptive composition dimensions: `maxColumnCount` and `columnThreshold`.
 - Phase 8 carries those fields through defaults, preference persistence, book overrides, bridge serialization, pagination profile metadata, Foliate paginator attributes, runtime layout, global Ebook settings, and the Komikku settings dialog.
-- Phase 8 follows Anx semantics: `maxColumnCount=0` means automatic column selection with up to two columns based on viewport size and `columnThreshold`, not "single column" and not "disabled".
+- Phase 8 preserves Anx settings semantics, but the Komikku shell resolves `maxColumnCount=0` before mounting Foliate: portrait phone/fold/tablet viewports remain a single folio page, while landscape/wide spread viewports can use two columns based on `columnThreshold`.
 - The focused Phase 4 host test passed on 2026-06-18 for bridge decode, engine mapping, and Anx source parity.
 - The reader host suite passed on 2026-06-18 after Phase 4.
 - The focused Phase 5 host test passed on 2026-06-18 for bridge decode, engine mapping, controller state, and Anx source parity.
@@ -207,7 +207,7 @@ Phase 5 is host-verified:
 - `SelectionChanged` now carries Anx `onSelectionEnd` payload fields through the bridge, engine adapter, and controller state.
 - Runtime selection posts include a DOM selection bounding rectangle, bounded context text, and footnote detection for footnote/noteref-like elements.
 - Native selection actions are host-verified: selected text surfaces Highlight, Copy, and Note from a dedicated Komikku overlay component; Note opens a native draft dialog and saves a note-bearing annotation through `ApplyAnnotations`.
-- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Highlight, Copy, Note save, and selection-clear-after-selection paths. Before treating this behavior as release-ready, still validate a clean release APK on the phone and a user-driven normal-text selection path.
+- Dirty Android/emulator validation now proves the footnote-positive selection payload, the native selection toolbar, Copy, Highlight, Note save, and selection-clear-after-selection paths. The eta76 DevTools-created Note save path produced `Reader selection note save length=10`, `applyHighlights(count=2, notes=1)` in a state that already contained one prior highlight, and `annotationDrawn` bridge events. The 2026-06-20 real-input run selected visible EPUB words with ADB long-press, copied one selection (`Reader selection copied length=5`), highlighted one selection with visible inline annotation, and saved a note from a real selection (`Reader selection note save length=11`, `applyHighlights(count=4, notes=2)`, and `annotationDrawn`). Before treating this behavior as release-ready, still validate a clean release APK on the phone.
 
 Reader search is host-verified:
 
@@ -227,18 +227,18 @@ Phase 8 is host- and emulator-verified:
 
 - The remaining Anx `BookStyle` adaptive composition fields now exist: `maxColumnCount` and `columnThreshold`.
 - Anx defaults are preserved: `maxColumnCount=0`, `columnThreshold=720`.
-- `maxColumnCount=0` uses Anx automatic semantics, allowing up to two columns when the viewport exceeds the configured threshold.
+- `maxColumnCount=0` is stored as Anx automatic mode, then resolved by the Komikku shell: portrait uses one column, and landscape/wide spread uses two columns when the viewport exceeds the configured threshold.
 - The current dirty emulator matrix passed after rebuilding and installing the Phase 8 source, but visual/manual validation of the settings controls remains required before treating it as release-ready.
 
 ## Active Bugs And Open Risks
 
 Priority 0:
 
-- Validate the host-verified selection action UI on emulator/device: text selection must surface Highlight/Copy/Note without opening reader chrome, Copy must reach the clipboard, Highlight/Note must render as annotations, and footnote selections must keep the Anx payload fields.
+- Validate the selection action UI on a clean release APK/physical device: dirty-emulator automation proves DevTools-created selections and real ADB long-press normal-text selections surface Highlight/Copy/Note without opening reader chrome, Copy reaches the clipboard, Highlight/Note render as annotations, and footnote selections keep the Anx payload fields.
 - The stale drag-preview stuck-state blocker is superseded by the 2026-06-18 `08:33:30` dirty emulator matrix: `drag-previous` passed, diagnostics showed `readerNativeDragPreview=True`, `wrongTextureDirection=False`, and the captured page was not stuck in split preview. Keep the manual black-void/drag-feel polish below as active work, but do not keep treating the old stuck-preview note as a release blocker without fresh reproduction.
 - Validate the progress rail fixes on a clean release candidate or the exact device/package where the user saw `10 / 12`, `2 / 4`, and page-1 rail-button failures.
   The 2026-06-18 host guard only made the rail targetable by native UI semantics (`Chapter page slider`) and ADB `tapDescFraction`; it did not close endpoint behavior.
-- Validate persistence/resume after disrupted drag or app/window interruption on emulator/device. Host guards now prevent later cover/title/nav placeholder relocations from overwriting a readable saved location, but the actual reopen flow still needs runtime validation before release-candidate claims.
+- Dirty-emulator validated on 2026-06-20: persistence/resume after a real swipe and after force-stopping during a long drag restored the same readable locator (`OEBPS/Text/Chapter-37.xhtml`, `chapterPageIndex=2`, `chapterPageCount=44`, `fraction=0.7584986058101005`) with no start override. Clean release/physical-device confirmation is still required before release-candidate closure.
 - Validate cover chrome layering on the installed APK/phone release. Dirty-emulator eta71 visual evidence shows the native cover on a black cover surface without the bottom menu overlay, but this still needs physical/release confirmation before closure.
 
 Priority 1:
@@ -247,7 +247,7 @@ Priority 1:
 - Correct remaining texture transition weirdness during page movement and page/section transitions.
 - Confirm cover drag behavior is faithful: cover should not vanish on touch; drag should produce reader-owned feedback and commit on release.
 - Keep progress rail chapter-local and Komikku-like; avoid whole-book rail behavior unless explicitly designed as a separate UI.
-- Remove duplicate bottom-toolbar settings entry points. The bottom toolbar must not open the same settings window from multiple buttons; keep a single settings entry, and map the remaining buttons to distinct Komikku-reader actions such as contents, search, bookmark, or remove them until their route exists.
+- Host-closed on 2026-06-19: duplicate bottom-toolbar settings entry points were removed at the controller route level. The bottom toolbar keeps distinct contents/search/settings actions, and `ReaderControllerDialog` has a single settings route.
 
 Priority 2:
 
@@ -258,10 +258,10 @@ Priority 2:
 
 ## Implementation Order
 
-1. Validate Phase 5 selection actions on emulator/device with logcat and visible UI evidence before any release-candidate discussion.
-2. Validate remaining user-driven Phase 3 bridge flows: normal-text selection and scrolled-edge pull-up gestures must be observed without diagnostic commands.
+1. Validate Phase 5 selection actions on a clean release APK/physical device before release-candidate claims; dirty-emulator real normal-text selection is now proven.
+2. Validate remaining user-driven Phase 3 bridge flows: scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
-4. Fix resume persistence after disrupted drag/app interruption.
+4. Resume persistence after disrupted drag/app interruption is dirty-emulator validated; keep clean release/physical confirmation open.
 5. Fix drag preview black void and texture movement as one interaction slice.
 6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
 7. Continue Komikku UI parity: rail proportions, bottom menu placement, non-duplicated bottom actions, settings overlay, tap-zone visibility.

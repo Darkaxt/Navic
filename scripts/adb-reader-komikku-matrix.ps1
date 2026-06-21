@@ -222,9 +222,7 @@ function Invoke-ReaderCoverMatrixSteps {
     } else {
         Invoke-ReaderMatrixStep `
             -Name "enter-readable-content" `
-            -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
-            -RequireShellCoverSwipe `
-            -RequireShellCoverCommand
+            -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000")
     }
 }
 

@@ -151,6 +151,94 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun whispersyncSidecarLoadsIntoControllerWithoutTouchingEngine() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val sidecar = testWhispersyncSidecar()
+
+		val step = opened.loadWhispersyncSidecar(sidecar)
+
+		assertEquals(sidecar, step.coordinator.controller.state.whispersync.sidecar)
+		assertEquals(sidecar.timeline, step.coordinator.controller.state.whispersync.timeline)
+		assertTrue(step.coordinator.controller.state.whispersync.available)
+		assertEquals(opened.viewState, step.coordinator.viewState)
+	}
+
+	@Test
+	fun whispersyncVisibleTextRangeRoutesOverlayThroughCurrentEngineAndSurfacesAudioSeekTarget() {
+		val synced = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+
+		val step = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+
+		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchRoutesSeekTargetThroughCurrentEngine() {
+		val synced = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+		val visible = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		).coordinator
+		val mismatched = visible.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).coordinator
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+	}
+
+	@Test
+	fun openingNewPublicationClearsWhispersyncSidecar() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val synced = opened.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+
+		val reopened = synced.open(
+			hobbitOpenRequest().copy(
+				publication = ReaderPublicationIdentity(
+					bookId = "book-2",
+					title = "Second Book",
+					resourceHref = "second.epub",
+					kind = ReaderPublicationKind.Ebook,
+					format = ReaderPublicationFormat.Epub
+				),
+				url = "https://appassets.androidplatform.net/reader-cache/book-2/second.epub"
+			)
+		)
+
+		assertEquals(ReaderWhispersyncSessionState(), reopened.coordinator.controller.state.whispersync)
+	}
+
+	@Test
 	fun annotationPopupDismissalIsControllerOwnedAndDoesNotTouchTheEngine() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val annotated = opened.onEngineEvent(
@@ -297,6 +385,48 @@ class ReaderCoordinatorTest {
 		)
 
 		assertEquals(ReaderAnnotationState(listOf(annotation)), step.coordinator.controller.state.annotations)
+		assertEquals(ReaderBridgeCommand.ApplyHighlights(listOf(annotation)), viewState.bridgeCommand())
+		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
+	fun selectionNotesSaveRouteThroughControllerAndCurrentEngineAdapter() {
+		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
+		val located = opened.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "chapter-01.xhtml",
+					cfi = "epubcfi(/6/8!/4/1:0)",
+					progress = 0.24
+				),
+				tocTitle = "Chapter 1"
+			)
+		).coordinator
+		val selected = located.onEngineEvent(
+			ReaderEngineEvent.SelectionChanged(
+				text = "The noted sentence",
+				cfi = "epubcfi(/6/8!/4/1:12)",
+				href = "chapter-01.xhtml"
+			)
+		).coordinator
+		val drafting = selected.startSelectionNote().coordinator
+
+		val step = drafting.saveSelectionNote("Remember this later")
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val annotation = ReaderAnnotation(
+			id = "book-1|epubcfi(/6/8!/4/1:12)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			cfi = "epubcfi(/6/8!/4/1:12)",
+			text = "The noted sentence",
+			href = "chapter-01.xhtml",
+			color = DefaultReaderHighlightColor,
+			note = "Remember this later",
+			sectionTitle = "Chapter 1"
+		)
+
+		assertEquals(ReaderAnnotationState(listOf(annotation)), step.coordinator.controller.state.annotations)
+		assertNull(step.coordinator.controller.state.selectionNoteDraft)
 		assertEquals(ReaderBridgeCommand.ApplyHighlights(listOf(annotation)), viewState.bridgeCommand())
 		assertEquals(1L, viewState.commandKey)
 	}
@@ -486,7 +616,7 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
-	fun bridgeContentClaimsSuppressNextNativeActionWithoutBridgeOwningMenu() {
+	fun bridgeContentClaimsDoNotSuppressNativeMenuActions() {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val locator = ReaderLocator(
 			href = "chapter-02.xhtml",
@@ -512,7 +642,7 @@ class ReaderCoordinatorTest {
 		assertEquals("Chapter 2", relocated.controller.state.chrome.currentSectionTitle)
 		assertEquals(false, ignoredCenterTap.controller.state.menuVisible)
 		assertEquals(ReaderContentAction.Link, contentClaimed.controller.state.lastContentActionClaim?.action)
-		assertEquals(false, toggledMenu.controller.state.menuVisible)
+		assertEquals(true, toggledMenu.controller.state.menuVisible)
 		assertNull(toggledMenu.controller.state.lastContentActionClaim)
 		assertEquals(
 			ReaderBridgeCommand.NextPage,
@@ -551,15 +681,12 @@ class ReaderCoordinatorTest {
 		val coordinator = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 
 		val contents = coordinator.openContentsDialog().coordinator
-		val readingMode = contents.openReadingModeDialog().coordinator
-		val settings = readingMode.openSettingsDialog().coordinator
+		val settings = contents.openSettingsDialog().coordinator
 
 		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
-		assertEquals(ReaderControllerDialog.ReadingMode, readingMode.controller.state.dialog)
 		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
 		assertEquals(coordinator.viewState, contents.viewState)
-		assertEquals(contents.viewState, readingMode.viewState)
-		assertEquals(readingMode.viewState, settings.viewState)
+		assertEquals(contents.viewState, settings.viewState)
 	}
 
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =
@@ -601,4 +728,35 @@ class ReaderCoordinatorTest {
 
 	private fun ReaderCoordinator.onFoliateHostEvent(event: ReaderBridgeEvent): ReaderCoordinatorStep =
 		onEngineHostEvent(ReaderEngineHostEvent.FoliateBridge(event))
+
+	private fun testWhispersyncSidecar(): WhispersyncSidecar =
+		WhispersyncSidecar(
+			artifactId = "artifact-3",
+			ebookBookFileId = "3913",
+			audiobookBookFileId = "694",
+			timeline = WhispersyncTimeline(
+				segments = listOf(
+					WhispersyncSegment(
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 1_250,
+						endMs = 3_500,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-1",
+						textStart = 10,
+						textEnd = 42,
+						label = "Opening"
+					),
+					WhispersyncSegment(
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 5_000,
+						endMs = 8_000,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-2",
+						textStart = 80,
+						textEnd = 140,
+						label = "Second"
+					)
+				)
+			)
+		)
 }

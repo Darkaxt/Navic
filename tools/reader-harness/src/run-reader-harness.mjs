@@ -238,7 +238,7 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
-    'forward area boundary follows wrapped renderer delta',
+    'forward area boundary keeps texture moving left through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: -750,
       baseOffset: 423,
@@ -247,10 +247,10 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'next',
     }),
-    { x: 698, y: 0 }
+    { x: -698, y: 0 }
   )
   assertOffset(
-    'forward area boundary matches live tablet wrap trace',
+    'forward area boundary matches live tablet wrap trace without inversion',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 0,
       baseOffset: 720,
@@ -260,10 +260,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: 'next',
       fallbackPageTurnDirection: 'next',
     }),
-    { x: 720, y: 0 }
+    { x: -720, y: 0 }
   )
   assertOffset(
-    'previous area boundary follows wrapped renderer delta',
+    'previous area boundary keeps texture moving right through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 1395,
       baseOffset: 697,
@@ -272,7 +272,7 @@ if (mode === 'texture-offset-logic') {
       flowMode: 'paged',
       pageTurnDirection: 'previous',
     }),
-    { x: -698, y: 0 }
+    { x: 698, y: 0 }
   )
   assertOffset(
     'directionless area-wrap jump does not invert texture',
@@ -299,7 +299,7 @@ if (mode === 'texture-offset-logic') {
     { x: 0, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap with fallback next follows wrapped renderer delta',
+    'directionless near-wrap with fallback next keeps texture moving left through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 40,
       baseOffset: 560,
@@ -309,10 +309,10 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'next',
     }),
-    { x: 520, y: 0 }
+    { x: -520, y: 0 }
   )
   assertOffset(
-    'directionless near-wrap with fallback previous follows wrapped renderer delta',
+    'directionless near-wrap with fallback previous keeps texture moving right through renderer wrap',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: 560,
       baseOffset: 40,
@@ -322,7 +322,7 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
       fallbackPageTurnDirection: 'previous',
     }),
-    { x: -520, y: 0 }
+    { x: 520, y: 0 }
   )
   assertOffset(
     'directionless near-wrap without fallback does not invert texture',
@@ -347,6 +347,56 @@ if (mode === 'texture-offset-logic') {
       pageTurnDirection: null,
     }),
     { x: -120, y: 0 }
+  )
+  assertOffset(
+    'vertical forward movement offsets texture upward',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 320,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'next',
+    }),
+    { x: 0, y: -320 }
+  )
+  assertOffset(
+    'vertical backward movement offsets texture downward',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: -320,
+      baseOffset: 0,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'previous',
+    }),
+    { x: 0, y: 320 }
+  )
+  assertOffset(
+    'vertical forward boundary keeps texture moving up through renderer wrap',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 0,
+      baseOffset: 873,
+      viewportWidth: 560,
+      viewportHeight: 873,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: 'next',
+      fallbackPageTurnDirection: 'next',
+    }),
+    { x: 0, y: -873 }
+  )
+  assertOffset(
+    'vertical directionless near-wrap with fallback previous keeps texture moving down through renderer wrap',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 873,
+      baseOffset: 40,
+      viewportWidth: 560,
+      viewportHeight: 900,
+      flowMode: 'paged-vertical',
+      pageTurnDirection: null,
+      fallbackPageTurnDirection: 'previous',
+    }),
+    { x: 0, y: 833 }
   )
   const assertDirection = (name, actual, expected) => {
     if (actual !== expected) {
@@ -427,8 +477,25 @@ if (mode === 'pagination-profile-logic') {
     location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
   }
   const helpers = await import(`${pathToFileURL(readerHelpers).href}?pagination-profile-logic=${Date.now()}`)
+  const paginationModule = await import(
+    `${pathToFileURL(path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-pagination.js')).href}?` +
+    `pagination-profile-logic=${Date.now()}`
+  )
+  const pageTurnModule = await import(
+    `${pathToFileURL(path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js')).href}?` +
+    `pagination-profile-logic=${Date.now()}`
+  )
   if (typeof helpers.readerPaginationFingerprint !== 'function') {
     throw new Error('readerPaginationFingerprint helper is not exported')
+  }
+  const committedPageTurnPosition = paginationModule.NavicReaderPaginationMethods?.committedPageTurnPosition
+  if (typeof committedPageTurnPosition !== 'function') {
+    throw new Error('committedPageTurnPosition helper is not exported')
+  }
+  const handleDuplicatePageTurnRelocation =
+    pageTurnModule.NavicReaderPageTurnMethods?.handleDuplicatePageTurnRelocation
+  if (typeof handleDuplicatePageTurnRelocation !== 'function') {
+    throw new Error('handleDuplicatePageTurnRelocation helper is not exported')
   }
   if (typeof helpers.readerBuildPaginationProfile !== 'function') {
     throw new Error('readerBuildPaginationProfile helper is not exported')
@@ -543,6 +610,121 @@ if (mode === 'pagination-profile-logic') {
   if (chapter14BySpine?.pageIndex !== 16 || chapter14BySpine?.pageCount !== 44) {
     throw new Error(`expected Chapter XIV page 1 to resolve by spine index when href is stale, got ${JSON.stringify(chapter14BySpine)}`)
   }
+  const chapter14WithStaleMatchingHref = helpers.readerPaginationPositionForLocator(profile, {
+    href: 'OEBPS/Text/Hobbit_chap-13.html',
+    spineIndex: 16,
+    pageIndex: 1,
+    pageCount: 1748,
+    chapterPageIndex: 13,
+    chapterPageCount: 14,
+  })
+  if (
+    chapter14WithStaleMatchingHref?.pageIndex !== 29 ||
+    chapter14WithStaleMatchingHref?.chapterPageIndex !== 13 ||
+    chapter14WithStaleMatchingHref?.chapterPageCount !== 14
+  ) {
+    throw new Error(
+      'expected current spine index to outrank a stale but matching previous href for chapter rail endpoints, got ' +
+        JSON.stringify(chapter14WithStaleMatchingHref)
+    )
+  }
+  const onePageSectionAfterTap = committedPageTurnPosition.call(
+    {
+      currentPagePosition: {
+        pageIndex: 4,
+        pageCount: 388,
+        pageCountSource: 'pagination-profile',
+        chapterPageIndex: 0,
+        chapterPageCount: 1,
+      },
+    },
+    {
+      pageIndex: 3,
+      pageCount: 388,
+      pageCountSource: 'pagination-profile',
+      chapterPageIndex: 0,
+      chapterPageCount: 1,
+    },
+    'page-turn:next'
+  )
+  if (onePageSectionAfterTap?.pageIndex !== 3) {
+    throw new Error(
+      'expected page-turn override to leave a one-page section candidate unchanged; got ' +
+        JSON.stringify(onePageSectionAfterTap)
+    )
+  }
+  const unchangedProfileCandidateAfterTap = committedPageTurnPosition.call(
+    {
+      currentPagePosition: {
+        pageIndex: 2,
+        pageCount: 388,
+        pageCountSource: 'pagination-profile',
+        chapterPageIndex: 0,
+        chapterPageCount: 1,
+      },
+    },
+    {
+      pageIndex: 2,
+      pageCount: 388,
+      pageCountSource: 'pagination-profile',
+    },
+    'page-turn:next'
+  )
+  if (unchangedProfileCandidateAfterTap?.pageIndex !== 2) {
+    throw new Error(
+      'expected page-turn override to leave an unchanged pagination-profile candidate unchanged; got ' +
+        JSON.stringify(unchangedProfileCandidateAfterTap)
+    )
+  }
+  let duplicateFallbackTarget = null
+  let duplicateFallbackReason = null
+  let duplicateFallbackScheduledReason = null
+  const duplicateFallbackHandled = handleDuplicatePageTurnRelocation.call(
+    {
+      view: {
+        book: {
+          sections: [
+            { href: 'cover.xhtml' },
+            { href: 'title-1.xhtml' },
+            { href: 'title-2.xhtml' },
+            { href: 'title-3.xhtml' },
+            { href: 'stalled-title.xhtml' },
+            { href: 'chapter-1.xhtml' },
+          ],
+        },
+        renderer: {
+          getContents: () => [{ index: 4 }],
+          goTo: target => {
+            duplicateFallbackTarget = target
+            return Promise.resolve()
+          },
+        },
+      },
+      sectionTargetsCover: (_section, index) => index === 0,
+      currentLoadedSectionIndex: pageTurnModule.NavicReaderPageTurnMethods.currentLoadedSectionIndex,
+      adjacentReadableSectionIndex: pageTurnModule.NavicReaderPageTurnMethods.adjacentReadableSectionIndex,
+      beginControlledRelocation: reason => {
+        duplicateFallbackReason = reason
+      },
+      scheduleControlledRelocationFallback: reason => {
+        duplicateFallbackScheduledReason = reason
+      },
+    },
+    { index: 4 },
+    'page-turn:next'
+  )
+  if (!duplicateFallbackHandled || duplicateFallbackTarget?.index !== 5) {
+    throw new Error(
+      'expected duplicate page-turn relocation to fall back to adjacent readable section 5; got ' +
+        JSON.stringify({ duplicateFallbackHandled, duplicateFallbackTarget })
+    )
+  }
+  if (duplicateFallbackReason !== 'page-turn:next:adjacent' || duplicateFallbackScheduledReason !== 'page-turn:next:adjacent') {
+    throw new Error(
+      'expected duplicate page-turn relocation to use adjacent controlled relocation reason; got ' +
+        JSON.stringify({ duplicateFallbackReason, duplicateFallbackScheduledReason })
+    )
+  }
 
   console.log('reader harness pagination-profile-logic passed')
   process.exit(0)
@@ -586,6 +768,42 @@ if (mode === 'adaptive-page-box-logic') {
   }
   if (portrait.maxColumnCount !== '1') {
     throw new Error(`Expected portrait single-page composition until same-section spread is explicit, got ${JSON.stringify(portrait)}`)
+  }
+  const tabS9UltraPortrait = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1848, height: 2960 },
+    { marginPercent: 0 }
+  )
+  const tabS9Inline = parsePx(tabS9UltraPortrait.maxInlineSize)
+  const tabS9Block = parsePx(tabS9UltraPortrait.maxBlockSize)
+  if (tabS9Inline < 1500 || tabS9Block < 2600) {
+    throw new Error(
+      'Expected large tablet portrait EPUB surfaces to avoid phone/fold hard caps and use folio-like capacity, got ' +
+      JSON.stringify(tabS9UltraPortrait)
+    )
+  }
+  const tabS9HorizontalReserve = (1848 - tabS9Inline) / 2
+  const tabS9VerticalReserve = (2960 - tabS9Block) / 2
+  const reserveRatio = Math.max(tabS9HorizontalReserve, tabS9VerticalReserve) /
+    Math.max(1, Math.min(tabS9HorizontalReserve, tabS9VerticalReserve))
+  if (reserveRatio > 1.75) {
+    throw new Error(
+      'Expected large tablet portrait EPUB reserves to remain optically balanced like a folio page, got ' +
+      JSON.stringify({ tabS9UltraPortrait, tabS9HorizontalReserve, tabS9VerticalReserve, reserveRatio })
+    )
+  }
+  const explicitPortraitSpread = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1232, height: 1974 },
+    { marginPercent: 0, maxColumnCount: 2 }
+  )
+  if (explicitPortraitSpread.maxColumnCount !== '2') {
+    throw new Error(`Expected explicit portrait spread setting to survive adaptive shell resolution, got ${JSON.stringify(explicitPortraitSpread)}`)
+  }
+  const explicitLandscapeSingle = helpers.readerAdaptiveFoliatePageBox(
+    { width: 1974, height: 1232 },
+    { marginPercent: 0, maxColumnCount: 1 }
+  )
+  if (explicitLandscapeSingle.maxColumnCount !== '1') {
+    throw new Error(`Expected explicit landscape single-column setting to survive adaptive shell resolution, got ${JSON.stringify(explicitLandscapeSingle)}`)
   }
 
   const userMargin = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 20 })
@@ -689,12 +907,104 @@ if (mode === 'font-css-smoke') {
         customFontFamily: 'Bad Font"; color:red;/*',
         customFontUrl: 'https://evil.example/fonts/bad.ttf',
       }
+      const measurePublisherSpanText = async fontSizePercent => {
+        const frame = document.createElement('iframe')
+        document.body.appendChild(frame)
+        const doc = frame.contentDocument
+        doc.open()
+        doc.write(`
+          <!doctype html>
+          <html>
+            <head>
+              <style>
+                .publisher-body-text { font-size: 10px; }
+                .publisher-block-text { font-size: 10px; }
+                .publisher-fixed-paragraph { font-size: 10px; }
+                .publisher-wrapper-text { font-size: 10px; }
+                .publisher-table-text td { font-size: 9px; }
+              </style>
+            </head>
+            <body>
+              <span class="publisher-body-text" data-probe="direct-body">Publisher direct inline body text.</span>
+              <span data-probe="inline-important-body" style="font-size: 10px !important;">
+                Publisher inline-important body text.
+              </span>
+              <p><span class="publisher-body-text" data-probe="body">Publisher span-wrapped body text.</span></p>
+              <div class="publisher-block-text" data-probe="body-block">Publisher block-wrapped body text.<br/>Second line.</div>
+              <section class="publisher-wrapper-text">
+                <p><span data-probe="nested-wrapper-body">Publisher nested wrapper body text.</span></p>
+              </section>
+              <p class="publisher-fixed-paragraph" data-probe="fixed-paragraph">
+                <span>Publisher fixed-size paragraph text.</span>
+              </p>
+              <table class="publisher-table-text">
+                <tr>
+                  <td data-probe="table-body">Publisher table-cell body text.</td>
+                </tr>
+              </table>
+              <h1 data-probe="heading">Chapter title</h1>
+            </body>
+          </html>
+        `)
+        doc.close()
+        const style = doc.createElement('style')
+        style.textContent = helpers.readerContentCss({
+          fontSizePercent,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 0,
+        })
+        doc.head.append(style)
+        helpers.normalizeReaderInlineTypography(doc, { fontSizePercent })
+        await new Promise(resolve => frame.contentWindow.requestAnimationFrame(resolve))
+        const directBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="direct-body"]'))
+        const inlineImportantBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="inline-important-body"]'))
+        const bodySpanStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body"]'))
+        const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
+        const nestedWrapperBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="nested-wrapper-body"]'))
+        const fixedParagraphStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="fixed-paragraph"] span'))
+        const tableBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="table-body"]'))
+        const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
+        const result = {
+          directBodyFontSize: directBodyStyle.fontSize,
+          directBodyFontSizeValue: Number.parseFloat(directBodyStyle.fontSize || '0'),
+          inlineImportantBodyFontSize: inlineImportantBodyStyle.fontSize,
+          inlineImportantBodyFontSizeValue: Number.parseFloat(inlineImportantBodyStyle.fontSize || '0'),
+          bodySpanFontSize: bodySpanStyle.fontSize,
+          bodySpanFontSizeValue: Number.parseFloat(bodySpanStyle.fontSize || '0'),
+          bodyBlockFontSize: bodyBlockStyle.fontSize,
+          bodyBlockFontSizeValue: Number.parseFloat(bodyBlockStyle.fontSize || '0'),
+          nestedWrapperBodyFontSize: nestedWrapperBodyStyle.fontSize,
+          nestedWrapperBodyFontSizeValue: Number.parseFloat(nestedWrapperBodyStyle.fontSize || '0'),
+          fixedParagraphFontSize: fixedParagraphStyle.fontSize,
+          fixedParagraphFontSizeValue: Number.parseFloat(fixedParagraphStyle.fontSize || '0'),
+          tableBodyFontSize: tableBodyStyle.fontSize,
+          tableBodyFontSizeValue: Number.parseFloat(tableBodyStyle.fontSize || '0'),
+          headingFontSize: headingStyle.fontSize,
+          headingFontSizeValue: Number.parseFloat(headingStyle.fontSize || '0'),
+        }
+        frame.remove()
+        return result
+      }
+      const publisherSpanAt100 = await measurePublisherSpanText(100)
+      const publisherSpanAt140 = await measurePublisherSpanText(140)
       return {
         customSource: helpers.readerFontSource(safeSettings),
         customFamily: helpers.readerEffectiveFontFamily(safeSettings),
         safeCss: helpers.readerFontFaceCss(safeSettings),
         unsafeCss: helpers.readerFontFaceCss(unsafeSettings),
         navicCss: helpers.readerFontFaceCss({ fontSource: 'navic' }),
+        publisherSpanAt100,
+        publisherSpanAt140,
+        publisherDirectBodyDelta: publisherSpanAt140.directBodyFontSizeValue - publisherSpanAt100.directBodyFontSizeValue,
+        publisherInlineImportantBodyDelta:
+          publisherSpanAt140.inlineImportantBodyFontSizeValue - publisherSpanAt100.inlineImportantBodyFontSizeValue,
+        publisherSpanBodyDelta: publisherSpanAt140.bodySpanFontSizeValue - publisherSpanAt100.bodySpanFontSizeValue,
+        publisherBlockBodyDelta: publisherSpanAt140.bodyBlockFontSizeValue - publisherSpanAt100.bodyBlockFontSizeValue,
+        publisherNestedWrapperBodyDelta:
+          publisherSpanAt140.nestedWrapperBodyFontSizeValue - publisherSpanAt100.nestedWrapperBodyFontSizeValue,
+        publisherFixedParagraphDelta: publisherSpanAt140.fixedParagraphFontSizeValue - publisherSpanAt100.fixedParagraphFontSizeValue,
+        publisherTableBodyDelta: publisherSpanAt140.tableBodyFontSizeValue - publisherSpanAt100.tableBodyFontSizeValue,
+        publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
     assertNoConsoleErrors(errors)
@@ -712,6 +1022,54 @@ if (mode === 'font-css-smoke') {
     }
     if (!String(result.navicCss || '').includes('Navic Literata')) {
       throw new Error('Expected bundled Navic font CSS to remain available')
+    }
+    if (!Number.isFinite(result.publisherDirectBodyDelta) || result.publisherDirectBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher direct body text; ` +
+        `observed ${result.publisherSpanAt100?.directBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.directBodyFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherInlineImportantBodyDelta) || result.publisherInlineImportantBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher inline-important body text; ` +
+        `observed ${result.publisherSpanAt100?.inlineImportantBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.inlineImportantBodyFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherSpanBodyDelta) || result.publisherSpanBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher span-wrapped body text; ` +
+        `observed ${result.publisherSpanAt100?.bodySpanFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodySpanFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherBlockBodyDelta) || result.publisherBlockBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher block-wrapped body text; ` +
+        `observed ${result.publisherSpanAt100?.bodyBlockFontSize || 'unset'} -> ${result.publisherSpanAt140?.bodyBlockFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherNestedWrapperBodyDelta) || result.publisherNestedWrapperBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher nested-wrapper body text; ` +
+        `observed ${result.publisherSpanAt100?.nestedWrapperBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.nestedWrapperBodyFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherFixedParagraphDelta) || result.publisherFixedParagraphDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher fixed-size paragraph text; ` +
+        `observed ${result.publisherSpanAt100?.fixedParagraphFontSize || 'unset'} -> ${result.publisherSpanAt140?.fixedParagraphFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherTableBodyDelta) || result.publisherTableBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher table-cell body text; ` +
+        `observed ${result.publisherSpanAt100?.tableBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.tableBodyFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherSpanHeadingDelta) || result.publisherSpanHeadingDelta <= 1) {
+      throw new Error(
+        `Expected heading probe to keep scaling with font-size control; ` +
+        `observed ${result.publisherSpanAt100?.headingFontSize || 'unset'} -> ${result.publisherSpanAt140?.headingFontSize || 'unset'}`
+      )
     }
     console.log('reader harness font-css-smoke passed')
   } catch (error) {
@@ -1536,10 +1894,39 @@ if (mode === 'epub-native-drag-preview-underlay') {
         page >= pages - 2
     }, boundaryTarget)
 
-    const previewState = await page.evaluate(async () => {
-      const width = window.visualViewport?.width || window.innerWidth || 500
+    const readPreviewState = async before => page.evaluate(beforeState => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const style = layer ? getComputedStyle(layer) : null
+      const iframeDoc = iframe?.contentDocument || null
+      const iframeBodyRect = iframeDoc?.body?.getBoundingClientRect?.()
+      const iframeHtmlRect = iframeDoc?.documentElement?.getBoundingClientRect?.()
+      const iframeText = iframeDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      return {
+        before: beforeState,
+        layerPresent: Boolean(layer),
+        iframePresent: Boolean(iframe),
+        ready: layer?.dataset.navicPageDragPreviewReady === 'true',
+        targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
+        direction: layer?.dataset.navicPageDragPreviewDirection || '',
+        side: layer?.dataset.navicPageDragPreviewSide || '',
+        width: style?.width || '',
+        left: style?.left || '',
+        right: style?.right || '',
+        opacity: style?.opacity || '',
+        background: style?.backgroundColor || '',
+        iframeTextLength: iframeText.length,
+        iframeBodyHeight: Number(iframeBodyRect?.height) || 0,
+        iframeHtmlHeight: Number(iframeHtmlRect?.height) || 0,
+        trace: (window.__navicReaderTrace || [])
+          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
+          .slice(-5),
+      }
+    }, before)
+
+    const before = await page.evaluate(() => {
       const renderer = document.querySelector('foliate-view')?.renderer
-      const before = {
+      return {
         index: Number(renderer?.getContents?.()?.[0]?.index),
         page: Number(renderer?.page),
         pages: Number(renderer?.pages),
@@ -1547,6 +1934,9 @@ if (mode === 'epub-native-drag-preview-underlay') {
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
       }
+    })
+    await page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
       await window.NavicReaderBridge.dispatch({
         type: 'previewPageDrag',
         deltaX: -Math.round(width * 0.36),
@@ -1554,25 +1944,8 @@ if (mode === 'epub-native-drag-preview-underlay') {
         phase: 'update',
       })
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
-      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
-      const style = layer ? getComputedStyle(layer) : null
-      return {
-        before,
-        layerPresent: Boolean(layer),
-        iframePresent: Boolean(iframe),
-        targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
-        direction: layer?.dataset.navicPageDragPreviewDirection || '',
-        side: layer?.dataset.navicPageDragPreviewSide || '',
-        width: style?.width || '',
-        left: style?.left || '',
-        right: style?.right || '',
-        background: style?.backgroundColor || '',
-        trace: (window.__navicReaderTrace || [])
-          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
-          .slice(-5),
-      }
     })
+    let previewState = await readPreviewState(before)
 
     if (!previewState.layerPresent || !previewState.iframePresent) {
       throw new Error(
@@ -1591,6 +1964,32 @@ if (mode === 'epub-native-drag-preview-underlay') {
       throw new Error(
         `Expected drag preview target to point at a following section; ` +
         `target=${previewState.targetIndex} boundary=${boundaryTarget}`
+      )
+    }
+    if (!previewState.ready) {
+      if (previewState.opacity !== '0' || previewState.width !== '1px' || previewState.left !== '-1px') {
+        throw new Error(
+          `Expected not-ready boundary preview to stay hidden until the adjacent page is rendered; ` +
+          `state=${JSON.stringify(previewState)}`
+        )
+      }
+      await page.waitForFunction(() => {
+        const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+        const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+        const style = layer ? getComputedStyle(layer) : null
+        const textLength = iframe?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        return layer?.dataset.navicPageDragPreviewReady === 'true' &&
+          style?.opacity !== '0' &&
+          style?.width !== '1px' &&
+          textLength > 0
+      })
+      previewState = await readPreviewState(before)
+    }
+    if (!previewState.ready || previewState.iframeTextLength <= 0 || previewState.iframeBodyHeight <= 0) {
+      throw new Error(
+        `Expected boundary drag preview to expose a rendered adjacent page, not a blank loading underlay; ` +
+        `ready=${previewState.ready} textLength=${previewState.iframeTextLength} ` +
+        `bodyHeight=${previewState.iframeBodyHeight} state=${JSON.stringify(previewState)}`
       )
     }
 
@@ -2053,6 +2452,7 @@ if (mode === 'epub-texture-page-turns') {
         timestamp: performance.now(),
         viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
         viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        flowMode: document.body.dataset.navicReaderFlowMode || '',
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,
@@ -2081,6 +2481,7 @@ if (mode === 'epub-texture-page-turns') {
           timestamp: performance.now(),
           viewportWidth: Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
           viewportHeight: Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+          flowMode: document.body.dataset.navicReaderFlowMode || '',
           location,
           href: location?.href || '',
           pageIndex: location?.pageIndex,
@@ -2306,6 +2707,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
         timestamp: performance.now(),
         viewportWidth,
         viewportHeight,
+        flowMode: document.body.dataset.navicReaderFlowMode || '',
         location,
         href: location?.href || '',
         pageIndex: location?.pageIndex,
@@ -3195,6 +3597,8 @@ if (mode === 'css-smoke') {
       const bodyStyle = win.getComputedStyle(doc.body)
       const paragraph = doc.querySelector('[data-navic-css-smoke-paragraph="true"]')
       const paragraphStyle = win.getComputedStyle(paragraph)
+      const paragraphFontSizeAt100 = Number.parseFloat(paragraphStyle.fontSize || '0')
+      const bodyFontSizeAt100 = Number.parseFloat(bodyStyle.fontSize || '0')
       const textLink = doc.querySelector('[data-navic-css-smoke-link="true"]')
       const textLinkStyle = win.getComputedStyle(textLink)
       const textLinkAfterStyle = win.getComputedStyle(textLink, '::after')
@@ -3202,6 +3606,26 @@ if (mode === 'css-smoke') {
       const mediaLinkAfterStyle = win.getComputedStyle(mediaLink, '::after')
       const image = doc.querySelector('[data-navic-css-smoke-media-image="true"]')
       const imageMixBlendModeBefore = win.getComputedStyle(image).mixBlendMode
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 140,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+      await new Promise(resolve => win.requestAnimationFrame(() => win.requestAnimationFrame(resolve)))
+      const htmlStyleAt140 = win.getComputedStyle(doc.documentElement)
+      const bodyStyleAt140 = win.getComputedStyle(doc.body)
+      const paragraphStyleAt140 = win.getComputedStyle(paragraph)
+      const paragraphFontSizeAt140 = Number.parseFloat(paragraphStyleAt140.fontSize || '0')
+      const bodyFontSizeAt140 = Number.parseFloat(bodyStyleAt140.fontSize || '0')
       const postedMessages = () => Array.isArray(win.parent.__navicReaderPostedMessages)
         ? win.parent.__navicReaderPostedMessages
         : []
@@ -3503,6 +3927,18 @@ if (mode === 'css-smoke') {
         theme: doc.documentElement.dataset.navicReaderTheme || '',
         htmlBackground: htmlStyle.backgroundColor,
         bodyBackground: bodyStyle.backgroundColor,
+        rootFontSizeAt100: htmlStyle.fontSize,
+        bodyFontSizeAt100: bodyStyle.fontSize,
+        paragraphFontSizeAt100: paragraphStyle.fontSize,
+        rootFontSizeAt140: htmlStyleAt140.fontSize,
+        bodyFontSizeAt140: bodyStyleAt140.fontSize,
+        paragraphFontSizeAt140: paragraphStyleAt140.fontSize,
+        paragraphFontSizeDelta: Number.isFinite(paragraphFontSizeAt100) && Number.isFinite(paragraphFontSizeAt140)
+          ? paragraphFontSizeAt140 - paragraphFontSizeAt100
+          : null,
+        bodyFontSizeDelta: Number.isFinite(bodyFontSizeAt100) && Number.isFinite(bodyFontSizeAt140)
+          ? bodyFontSizeAt140 - bodyFontSizeAt100
+          : null,
         paragraphSpacingVariable: bodyStyle.getPropertyValue('--reader-paragraph-spacing') ||
           htmlStyle.getPropertyValue('--reader-paragraph-spacing'),
         paragraphMarginBottom: paragraphStyle.marginBlockEnd || paragraphStyle.marginBottom,

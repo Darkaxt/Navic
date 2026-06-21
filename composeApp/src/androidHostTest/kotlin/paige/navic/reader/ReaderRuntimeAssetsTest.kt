@@ -15,12 +15,21 @@ class ReaderRuntimeAssetsTest {
 		val runtimeManifest = root.resolve("runtime.json")
 		val index = root.resolve("index.html")
 		val bridge = root.resolve("navic-reader.js")
+		val bridgeCore = root.resolve("navic-reader-bridge-core.js")
 		val bridgeHelpers = root.resolve("navic-reader-helpers.js")
+		val bridgeSettingsCore = root.resolve("navic-reader-settings-core.js")
 		val bridgeSettings = root.resolve("navic-reader-settings.js")
+		val bridgeMedia = root.resolve("navic-reader-media.js")
+		val bridgeIdentity = root.resolve("navic-reader-identity.js")
+		val bridgePaginationModel = root.resolve("navic-reader-pagination-model.js")
+		val bridgeMotion = root.resolve("navic-reader-motion.js")
 		val bridgePageTurns = root.resolve("navic-reader-page-turns.js")
 		val bridgeContentInteractions = root.resolve("navic-reader-content-interactions.js")
 		val bridgePagination = root.resolve("navic-reader-pagination.js")
 		val bridgeAppearance = root.resolve("navic-reader-appearance.js")
+		val bridgeShellCover = root.resolve("navic-reader-shell-cover.js")
+		val bridgeViewport = root.resolve("navic-reader-viewport.js")
+		val bridgeLocation = root.resolve("navic-reader-location.js")
 		val foliatePackage = root.resolve("vendor/foliate-js/package.json")
 		val foliateView = root.resolve("vendor/foliate-js/view.js")
 		val foliateFixedLayout = root.resolve("vendor/foliate-js/fixed-layout.js")
@@ -31,12 +40,21 @@ class ReaderRuntimeAssetsTest {
 		assertTrue(runtimeManifest.isFile, "reader runtime manifest must be packaged")
 		assertTrue(index.isFile, "reader index.html must be packaged")
 		assertTrue(bridge.isFile, "Navic reader bridge must be packaged")
+		assertTrue(bridgeCore.isFile, "Navic reader bridge core module must be packaged")
 		assertTrue(bridgeHelpers.isFile, "Navic reader helper module must be packaged")
+		assertTrue(bridgeSettingsCore.isFile, "Navic reader settings core module must be packaged")
 		assertTrue(bridgeSettings.isFile, "Navic reader settings module must be packaged")
+		assertTrue(bridgeMedia.isFile, "Navic reader media tap module must be packaged")
+		assertTrue(bridgeIdentity.isFile, "Navic reader identity module must be packaged")
+		assertTrue(bridgePaginationModel.isFile, "Navic reader pagination model module must be packaged")
+		assertTrue(bridgeMotion.isFile, "Navic reader motion module must be packaged")
 		assertTrue(bridgePageTurns.isFile, "Navic reader page-turn module must be packaged")
 		assertTrue(bridgeContentInteractions.isFile, "Navic reader content-interaction module must be packaged")
 		assertTrue(bridgePagination.isFile, "Navic reader pagination module must be packaged")
 		assertTrue(bridgeAppearance.isFile, "Navic reader appearance module must be packaged")
+		assertTrue(bridgeShellCover.isFile, "Navic reader shell-cover module must be packaged")
+		assertTrue(bridgeViewport.isFile, "Navic reader viewport module must be packaged")
+		assertTrue(bridgeLocation.isFile, "Navic reader location module must be packaged")
 		assertTrue(foliatePackage.isFile, "foliate-js package metadata must be packaged")
 		assertTrue(foliateView.isFile, "foliate-js view runtime must be packaged")
 		assertTrue(foliateFixedLayout.isFile, "foliate fixed-layout runtime must be packaged")
@@ -89,6 +107,31 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderHelpersAreSplitIntoFocusedSupportModules() {
+		val root = readerAssetRoot()
+		val helper = root.resolve("navic-reader-helpers.js")
+		val helperText = helper.readText()
+
+		assertTrue(
+			helper.readLines().size <= 1_200,
+			"navic-reader-helpers.js should stay below 1200 lines; settings and media-tap contracts belong in focused modules."
+		)
+		listOf(
+			"navic-reader-bridge-core.js",
+			"navic-reader-settings-core.js",
+			"navic-reader-media.js",
+			"navic-reader-identity.js",
+			"navic-reader-pagination-model.js",
+			"navic-reader-typography.js"
+		).forEach { fileName ->
+			val module = root.resolve(fileName)
+			assertTrue(module.isFile, "$fileName must exist so helper changes stay focused.")
+			assertContains(helperText, "./$fileName")
+			assertContains(module.readText(), "export const")
+		}
+	}
+
+	@Test
 	fun androidReaderRuntimeIsSplitIntoFocusedBridgeModules() {
 		val root = readerAssetRoot()
 		val bridge = root.resolve("navic-reader.js")
@@ -100,6 +143,7 @@ class ReaderRuntimeAssetsTest {
 			"navic-reader.js should stay below 2400 lines; risky listener/pagination work belongs in focused bridge modules."
 		)
 		listOf(
+			"navic-reader-motion.js",
 			"navic-reader-page-turns.js",
 			"navic-reader-content-interactions.js",
 			"navic-reader-pagination.js",
@@ -111,6 +155,28 @@ class ReaderRuntimeAssetsTest {
 			assertContains(module.readText(), "export const")
 		}
 		assertContains(bridgeText, "Object.assign(NavicReaderRuntime.prototype")
+	}
+
+	@Test
+	fun androidReaderEntrypointKeepsRuntimeMethodGroupsSplit() {
+		val root = readerAssetRoot()
+		val bridge = root.resolve("navic-reader.js")
+		val bridgeText = bridge.readText()
+
+		assertTrue(
+			bridge.readLines().size <= 1_200,
+			"navic-reader.js should stay below 1200 lines; shell-cover, viewport, and location behavior belong in focused method modules."
+		)
+		listOf(
+			"navic-reader-shell-cover.js",
+			"navic-reader-viewport.js",
+			"navic-reader-location.js"
+		).forEach { fileName ->
+			val module = root.resolve(fileName)
+			assertTrue(module.isFile, "$fileName must exist so runtime entrypoint changes stay focused.")
+			assertContains(bridgeText, "./$fileName")
+			assertContains(module.readText(), "export const NavicReader")
+		}
 	}
 
 	@Test
@@ -156,7 +222,7 @@ class ReaderRuntimeAssetsTest {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(hostText, "enableDebugging = settings.webContentsDebuggingEnabled == true")
 		assertFalse(
@@ -171,6 +237,23 @@ class ReaderRuntimeAssetsTest {
 			"Settings search should route WebView debugging to Developer Options, not Ebooks."
 		)
 		assertContains(searchSettingsText, "readerWebContentsDebuggingEnabled")
+	}
+
+	@Test
+	fun settingsSearchResultsStaysFocusedOnRenderingSearchResults() {
+		val searchResults = settingsFile("SettingsSearchResults.kt")
+		val lineCount = searchResults.readLines().size
+
+		assertTrue(
+			lineCount <= 300,
+			"SettingsSearchResults.kt should stay as the search renderer; section-specific row registries belong in focused SettingsSearch* files."
+		)
+		assertTrue(settingsFile("SettingsSearchAppearanceRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchPlaybackRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchEbookRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchStorageRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchIntegrationRows.kt").isFile)
+		assertTrue(settingsFile("SettingsSearchDeveloperRows.kt").isFile)
 	}
 
 	@Test
@@ -191,10 +274,28 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "phase3-events")
 		assertContains(scriptText, "selection-payload")
 		assertContains(scriptText, "relocation-payload")
+		assertContains(scriptText, "page-box")
+		assertContains(scriptText, "visible-page-content")
+		assertContains(scriptText, "font-size-publisher-styles")
+		assertContains(scriptText, "chapter-progress-endpoints")
+		assertContains(scriptText, "whispersync-audio-follow")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
 		assertContains(scriptText, "required bridge event '\$requiredBridgeEvent' was not captured")
+		assertContains(scriptText, "function Get-TextFileRaw")
+		assertContains(scriptText, "function Test-TextMatches")
+		assertContains(scriptText, "Get-TextFileRaw -Path \$bridgeDiagnosticsPath")
+		assertContains(scriptText, "bridgeEvent:\$requiredBridgeEvent=\$(Test-TextMatches")
+		assertContains(scriptText, "-not (Test-TextMatches -Text \$bridgeDiagnosticsText")
+		assertFalse(
+			scriptText.contains("\$bridgeDiagnosticsText -notmatch"),
+			"Bridge event validation must not use raw -notmatch because empty Get-Content -Raw output can skip failure paths."
+		)
+		assertFalse(
+			scriptText.contains("\$bridgeDiagnosticsText -match"),
+			"Bridge event diagnostics must use Test-TextMatches so empty logs are treated as empty strings."
+		)
 		assertContains(scriptText, "expectedLogLabels")
 		assertContains(scriptText, "ConvertFrom-Json")
 		assertContains(scriptText, "Reader DevTools probe '\$ReaderDevtoolsProbe' expected log label")
@@ -225,6 +326,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "phase3-events")
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
+		assertContains(helperText, "visible-range")
+		assertContains(helperText, "whispersync-audio-follow")
+		assertContains(helperText, "runtime-state")
+		assertContains(helperText, "page-box")
+		assertContains(helperText, "chapter-progress-endpoints")
 		assertContains(helperText, "NavicReaderBridge.dispatch")
 		assertContains(helperText, "type: 'diagnosticLocationSnapshot'")
 		assertContains(helperText, "new CustomEvent('link'")
@@ -237,8 +343,156 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "Reader bridge event: pullUp")
 		assertContains(helperText, "selectionchange")
 		assertContains(helperText, "Reader bridge event: locationChanged")
+		assertContains(helperText, "Reader bridge event: visibleTextRange")
+		assertContains(helperText, "source=media-overlay-follow")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncAudioFollowVisibleRangeSource() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncAudioFollowProbe(page)")
+			.substringBefore("async function runChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "whispersync-audio-follow")
+		assertContains(helperText, "'whispersync-audio-follow': runWhispersyncAudioFollowProbe")
+		assertContains(probe, "probe: 'whispersync-audio-follow'")
+		assertContains(probe, "type: 'applyOverlayFragment'")
+		assertContains(probe, "reason: 'media-overlay-follow'")
+		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "visibleRange.source !== 'media-overlay-follow'")
+		assertContains(probe, "source=media-overlay-follow")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncPageScopedControlProbe(page)")
+			.substringBefore("async function runChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "whispersync-page-scoped-control")
+		assertContains(helperText, "'whispersync-page-scoped-control': runWhispersyncPageScopedControlProbe")
+		assertContains(probe, "probe: 'whispersync-page-scoped-control'")
+		assertContains(probe, "OEBPS/xhtml/Authorforeword.xhtml")
+		assertContains(probe, "OEBPS/xhtml/mini_toc.xhtml")
+		assertContains(probe, "page-scoped-control-cue-covered")
+		assertContains(probe, "page-scoped-control-unsupported")
+		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "expectedLogLabels")
+		assertContains(probe, "Whispersync audiobook seek")
+		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+	}
+
+	@Test
+	fun androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent() {
+		val root = readerAssetRoot()
+		val locationText = root.resolve("navic-reader-location.js").readText()
+		val bridgeText = readerBridgeText(root)
+
+		assertContains(locationText, "postCurrentVisibleTextRange")
+		assertContains(locationText, "visibleTextRange")
+		assertContains(locationText, "renderer.getContents?.()")
+		assertContains(locationText, "createTreeWalker")
+		assertContains(locationText, "NodeFilter.SHOW_TEXT")
+		assertContains(locationText, "getBoundingClientRect")
+		assertContains(locationText, "visibleStart")
+		assertContains(locationText, "visibleEnd")
+		assertContains(locationText, "lastPostedVisibleTextRangeKey")
+		assertContains(locationText, "function postCurrentVisibleTextRange(detail = {}, options = {})")
+		assertContains(locationText, "visibleTextRangeResult")
+		assertContains(
+			bridgeText,
+			"this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })",
+			message = "Visible text range must be emitted from committed relocation snapshots, not from controller-owned UI state."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadRuntimeStateWithoutMutatingReader() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val runtimeStateProbe = helperText
+			.substringAfter("async function runRuntimeStateProbe(page)")
+			.substringBefore("async function runImageHitTargetsProbe(page)")
+
+		assertContains(runtimeStateProbe, "probe: 'runtime-state'")
+		assertContains(runtimeStateProbe, "document.body.dataset.navicReaderFlowMode")
+		assertContains(runtimeStateProbe, "renderer?.scrolled")
+		assertContains(runtimeStateProbe, "renderer?.start")
+		assertContains(runtimeStateProbe, "renderer?.end")
+		assertContains(runtimeStateProbe, "renderer?.viewSize")
+		assertContains(runtimeStateProbe, "contentCount")
+		assertFalse(
+			runtimeStateProbe.contains("NavicReaderBridge.dispatch"),
+			"Runtime state inspection must stay read-only and must not use diagnostic bridge commands."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val pageBoxProbe = helperText
+			.substringAfter("async function runPageBoxProbe(page)")
+			.substringBefore("async function runFontSizeProbe(page)")
+
+		assertContains(pageBoxProbe, "probe: 'page-box'")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-inline-size')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-block-size')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('max-column-count')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('top-margin')")
+		assertContains(pageBoxProbe, "renderer.getAttribute('bottom-margin')")
+		assertContains(pageBoxProbe, "closedShadowRoot")
+		assertContains(pageBoxProbe, "rendererRect")
+		assertContains(pageBoxProbe, "contentRects")
+		assertContains(pageBoxProbe, "documentToViewportWidthRatio")
+		assertContains(pageBoxProbe, "bodyToDocumentWidthRatio")
+		assertContains(pageBoxProbe, "firstProse")
+		assertContains(pageBoxProbe, "chapterOpening")
+		assertContains(pageBoxProbe, "data-navic-chapter-opening-margin-capped")
+		assertContains(pageBoxProbe, "marginBlockStart")
+		assertContains(pageBoxProbe, "fontSize")
+		assertContains(pageBoxProbe, "maxWidth")
+		assertContains(pageBoxProbe, "contentDocument")
+		assertFalse(
+			pageBoxProbe.contains("NavicReaderBridge.dispatch"),
+			"Page-box probing must be read-only and must not trigger reader commands."
+		)
+		assertFalse(
+			pageBoxProbe.contains("createElement"),
+			"Page-box probing must not inject diagnostic DOM into the reader."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanReadVisiblePageContentWithoutMutatingContent() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val visiblePageProbe = helperText
+			.substringAfter("async function runVisiblePageContentProbe(page)")
+			.substringBefore("async function runFontSizeProbe(page)")
+
+		assertContains(helperText, "visible-page-content")
+		assertContains(helperText, "'visible-page-content': runVisiblePageContentProbe")
+		assertContains(visiblePageProbe, "probe: 'visible-page-content'")
+		assertContains(visiblePageProbe, "rendererPage")
+		assertContains(visiblePageProbe, "rendererPages")
+		assertContains(visiblePageProbe, "visibleTextLength")
+		assertContains(visiblePageProbe, "visibleElementCount")
+		assertContains(visiblePageProbe, "viewportIntersectionRatio")
+		assertContains(visiblePageProbe, "rendererContainerPosition")
+		assertContains(visiblePageProbe, "adjustedRect")
+		assertContains(visiblePageProbe, "textSample")
+		assertFalse(
+			visiblePageProbe.contains("NavicReaderBridge.dispatch"),
+			"Visible-page probing must be read-only and must not trigger reader commands."
+		)
+		assertFalse(
+			visiblePageProbe.contains("createElement"),
+			"Visible-page probing must not inject diagnostic DOM into the reader."
+		)
 	}
 
 	@Test
@@ -262,6 +516,148 @@ class ReaderRuntimeAssetsTest {
 
 		assertContains(helperText, "paragraph.setAttribute('role', 'doc-footnote')")
 		assertContains(helperText, "Reader bridge event: selectionChanged(footnote=true")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeAnnotationNoteRoundTrip() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val annotationProbe = helperText
+			.substringAfter("async function runAnnotationRoundTripProbe(page)")
+			.substringBefore("async function runHistoryControlsProbe(page)")
+
+		assertContains(helperText, "'annotation-roundtrip': runAnnotationRoundTripProbe")
+		assertContains(annotationProbe, "probe: 'annotation-roundtrip'")
+		assertContains(annotationProbe, "type: 'applyHighlights'")
+		assertContains(annotationProbe, "note: 'Navic annotation roundtrip note'")
+		assertContains(annotationProbe, "data-navic-note-annotation")
+		assertContains(annotationProbe, "new CustomEvent('draw-annotation'")
+		assertContains(annotationProbe, "new CustomEvent('show-annotation'")
+		assertContains(annotationProbe, "Reader bridge event: annotationDrawn")
+		assertContains(annotationProbe, "Reader bridge event: annotationClick")
+		assertContains(annotationProbe, "noteMarkerCreated")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperFontSizeProbeCleansSyntheticParagraph() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(fontSizeProbe, "probe.remove()")
+		assertContains(fontSizeProbe, "finally")
+		assertContains(fontSizeProbe, "data-navic-font-size-probe=\"true\"], [data-navic-publisher-font-size-probe=\"true\"")
+		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperFontSizeProbeFailsWhenExistingProseDoesNotScale() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function runPublisherStyleFontSizeProbe(page)")
+
+		assertContains(fontSizeProbe, "existingProseDelta")
+		assertContains(fontSizeProbe, "Existing prose text did not scale with reader Font size")
+		assertContains(fontSizeProbe, "existingDeltas.filter")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val publisherProbe = helperText
+			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(helperText, "'font-size-publisher-styles': runPublisherStyleFontSizeProbe")
+		assertContains(publisherProbe, "publisherStyles: true")
+		assertContains(publisherProbe, "font-size: 12px")
+		assertContains(publisherProbe, "publisherParagraphDelta")
+		assertContains(publisherProbe, "probe.remove()")
+		assertContains(publisherProbe, "publisherStyles: originalPublisherStyles")
+	}
+
+	@Test
+	fun readerHarnessFontCssSmokeCoversInlineImportantPublisherProse() {
+		val harnessText = repoFile("tools/reader-harness/src/run-reader-harness.mjs").readText()
+		val fontCssSmoke = harnessText
+			.substringAfter("if (mode === 'font-css-smoke') {")
+			.substringBefore("if (mode === 'epub-frontmatter') {")
+
+		assertContains(fontCssSmoke, "inline-important-body")
+		assertContains(fontCssSmoke, "normalizeReaderInlineTypography(doc, { fontSizePercent })")
+		assertContains(fontCssSmoke, "publisherInlineImportantBodyDelta")
+		assertContains(
+			fontCssSmoke,
+			"Expected font-size control to scale publisher inline-important body text",
+			message = "The browser harness must keep reproducing inline-important publisher prose, because CSS selectors alone cannot override that cascade case."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalFontSizeProbesDoNotDependOnAnimationFrames() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val fontSizeProbe = helperText
+			.substringAfter("async function runFontSizeProbe(page)")
+			.substringBefore("async function runPublisherStyleFontSizeProbe(page)")
+		val publisherProbe = helperText
+			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
+			.substringBefore("async function main()")
+
+		assertFalse(
+			fontSizeProbe.contains("requestAnimationFrame"),
+			"Font-size probing must not wait on requestAnimationFrame because Android WebView DevTools can expose a non-visible target where animation frames are paused."
+		)
+		assertFalse(
+			publisherProbe.contains("requestAnimationFrame"),
+			"Publisher-style font-size probing must not wait on requestAnimationFrame because Android WebView DevTools can expose a non-visible target where animation frames are paused."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeChapterProgressEndpoints() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val chapterProgressProbe = helperText
+			.substringAfter("async function runChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function main()")
+
+		assertContains(helperText, "'chapter-progress-endpoints': runChapterProgressEndpointsProbe")
+		assertContains(chapterProgressProbe, "__navicChapterProgressProbePromise")
+		assertContains(chapterProgressProbe, "type: 'goToChapterProgress'")
+		assertContains(chapterProgressProbe, "Array.from(view?.book?.sections || [])")
+		assertContains(chapterProgressProbe, "chapter-progress-candidate")
+		assertContains(chapterProgressProbe, "candidateAttempts.push({ href, error")
+		assertContains(chapterProgressProbe, "successfulCandidates.push")
+		assertContains(chapterProgressProbe, "bestCandidate")
+		assertContains(chapterProgressProbe, "chapterPageCount > bestCandidate.chapterPageCount")
+		assertContains(chapterProgressProbe, "endpoint(href, 0)")
+		assertContains(chapterProgressProbe, "endpoint(href, 1)")
+		assertContains(chapterProgressProbe, "chapterPageIndex")
+		assertContains(chapterProgressProbe, "chapterPageCount")
+		assertContains(chapterProgressProbe, "Expected chapter-progress endpoint 0")
+		assertContains(chapterProgressProbe, "Expected chapter-progress endpoint 1")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeCurrentChapterProgressEndpointsWithoutSpineScan() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val currentChapterProgressProbe = helperText
+			.substringAfter("async function runCurrentChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function runPageBoxProbe(page)")
+
+		assertContains(scriptText, "chapter-progress-current-endpoints")
+		assertContains(helperText, "'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe")
+		assertContains(currentChapterProgressProbe, "probe: 'chapter-progress-current-endpoints'")
+		assertContains(currentChapterProgressProbe, "initialLocation.href")
+		assertContains(currentChapterProgressProbe, "endpoint(href, 0)")
+		assertContains(currentChapterProgressProbe, "endpoint(href, 1)")
+		assertContains(currentChapterProgressProbe, "chapterPageIndex")
+		assertContains(currentChapterProgressProbe, "chapterPageCount")
+		assertFalse(
+			currentChapterProgressProbe.contains("Array.from(view?.book?.sections || [])"),
+			"Current-chapter endpoint probing must not scan the whole spine; invalid section targets can leave the DevTools evaluation pending."
+		)
 	}
 
 	@Test
@@ -393,7 +789,7 @@ class ReaderRuntimeAssetsTest {
 	fun androidReaderKeepScreenOnIsControlledByEbookSetting() {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(hostText, "view.keepScreenOn = settings.keepScreenOn == true")
 		assertContains(ebooksSettingsText, "readerKeepScreenOn")

@@ -89,7 +89,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "case 'goToChapterProgress'")
 		assertContains(bridgeText, "async function goToChapterProgress(href, progress)")
 		assertContains(bridgeText, "chapter-progress-seek")
-		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: fraction })")
+		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: targetAnchor })")
 		assertFalse(
 			bridgeText.contains("this.view.goTo({ href: targetHref, fraction })"),
 			"Foliate treats an object with fraction as a whole-book fraction target; chapter rail seeks must resolve href to a section index and use a section-local anchor."
@@ -150,7 +150,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "relocateSequence += 1")
 		assertTrue(
 			chapterProgressSeek.indexOf("beginControlledRelocation('chapter-progress-seek')") <
-				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: fraction })"),
+				chapterProgressSeek.indexOf("this.view.renderer.goTo({ index, anchor: targetAnchor })"),
 			"Chapter rail seeks must arm their controlled relocation reason before Foliate emits relocate events."
 		)
 		assertContains(
@@ -189,6 +189,9 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderBridgePortsAnxStyleScrolledEdgePageTurns() {
 		val bridgeText = readerBridgeText()
+		val scrolledEdgeGestureText = bridgeText
+			.substringAfter("function attachScrolledEdgeTurnGestures")
+			.substringBefore("\nfunction effectiveReaderDirection")
 
 		assertContains(bridgeText, "ScrollEdgeTurnSwipeThreshold")
 		assertContains(bridgeText, "attachScrolledEdgeTurnGestures")
@@ -199,6 +202,14 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "renderer.viewSize - renderer.end")
 		assertContains(bridgeText, "renderer.start <= ScrollEdgeTurnSlop")
 		assertContains(bridgeText, "page-turn:edge-swipe")
+		assertContains(bridgeText, "post({ type: 'pullUp', source: 'scrolled-edge-swipe' })")
+		assertEquals(
+			3,
+			Regex("""doc\.addEventListener\('touch(?:start|move|end)'[\s\S]*?\}, \{ capture: true, passive: true \}\)""")
+				.findAll(scrolledEdgeGestureText)
+				.count(),
+			"Scrolled-edge turn gestures must listen in capture phase so native tap-zone touch suppression cannot starve real Android swipes."
+		)
 	}
 
 	@Test
@@ -381,6 +392,34 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun visibleReaderChromeBlocksNativeEdgeTapZonesButKeepsCenterMenuToggle() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val platformHostText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val singleTapBody = nativeFrameHostText
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}\n\n\t\t\t")
+
+		assertContains(platformHostText, "chromeOverlayVisible: Boolean")
+		assertContains(nativeFrameHostText, "chromeOverlayVisible: Boolean")
+		assertContains(nativeFrameHostText, "setChromeOverlayVisible(chromeOverlayVisible)")
+		assertContains(nativeFrameHostText, "var chromeOverlayVisible: Boolean = false")
+		assertContains(readerRootText, "chromeOverlayVisible = controllerState.menuVisible")
+		assertContains(singleTapBody, "if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)")
+		assertContains(singleTapBody, "Reader native tap ignored under chrome action=")
+		assertTrue(
+			singleTapBody.indexOf("val action = if (shellCoverView?.visibility == VISIBLE)") <
+				singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)"),
+			"Chrome suppression must inspect the Komikku tap-zone result first so center MENU taps can still hide the menu."
+		)
+		assertTrue(
+			singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)") <
+				singleTapBody.indexOf("dispatchSingleTapAction(action)"),
+			"Native edge page actions must not fire behind visible chapter rail, app bars, or bottom controls."
+		)
+	}
+
+	@Test
 	fun androidWebViewIsWrappedBySingleNativeReaderSurfaceGestureManager() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
@@ -460,20 +499,20 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "val shellCoverVisible = shellCoverView?.visibility == VISIBLE")
 		assertContains(handleTouch, "if (shellCoverVisible)")
-		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, ReaderPageDragPreviewPhase.Update)")
+		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Release")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Cancel")
 		assertContains(nativeFrameHostText, "Reader native drag preview")
 		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
-		assertContains(shellCoverSwipe, "readerNativeReaderSwipeAction(")
+		assertContains(shellCoverSwipe, "readableSwipeAction(")
 		assertContains(shellCoverSwipe, "touchSlopPx")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
 		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
 		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(")
-		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, width, phase)")
+		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, deltaY, width, height, phase)")
 		assertFalse(
 			nativeFrameHostText.contains("viewerContentContainer.translationX = deltaX"),
 			"Readable drag preview must not slide the whole WebView over the native background."
@@ -505,6 +544,63 @@ class ReaderRuntimeShellProgressTest {
 			shellCoverSwipe,
 			"readerShellCoverSwipeAction(",
 			message = "Android cover-drag handling must use the behavior-tested shell-cover swipe decision."
+		)
+	}
+
+	@Test
+	fun nativeReadableDragPreviewUsesPagingSlopWithoutRestoringCandidateTapGuard() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val singleTap = nativeFrameHostText
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t\t\t}")
+		val nativeHorizontalSwipe = nativeFrameHostText
+			.substringAfter("private fun nativeHorizontalSwipeMovedBeyondSlop(x: Float, y: Float): Boolean =")
+			.substringBefore("\n\n\tprivate fun clearNativeTapState")
+		val dispatchHorizontalSwipe = nativeFrameHostText
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
+			.substringBefore("\n\tprivate fun updateShellCoverDragOffset")
+		val logDragCandidate = nativeFrameHostText
+			.substringAfter("private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {")
+			.substringBefore("\n\tprivate fun logReaderReadableDragPreview")
+
+		assertContains(
+			nativeFrameHostText,
+			"private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()",
+			message = "Readable page drags should not start from tiny tap drift; use Android's paging slop for the WebView/Foliate surface."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"readerShellCoverSwipeAction(",
+			message = "Shell-cover swipes still use the cover-specific physical side-zone drag behavior."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"thresholdPx = touchSlopPx",
+			message = "Native cover drags should remain responsive at normal tap slop."
+		)
+		assertContains(
+			nativeHorizontalSwipe,
+			"thresholdPx = readablePageDragSlopPx",
+			message = "Readable-page drag preview must not use normal tap slop, because that reclassifies small center-tap drift as a page drag."
+		)
+		assertContains(
+			dispatchHorizontalSwipe,
+			"readerSwipeThresholdPx(shellCoverVisible)",
+			message = "Swipe release must use the same cover/readable threshold as drag preview."
+		)
+		assertContains(
+			logDragCandidate,
+			"readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)",
+			message = "ADB drag diagnostics should follow the actual cover/readable drag threshold instead of logging mini-drifts as page drags."
+		)
+		assertContains(
+			singleTap,
+			"if (nativeTapCancelledByDrag) return false",
+			message = "A real drag preview must not also become a center-menu tap."
+		)
+		assertFalse(
+			singleTap.contains("if (!nativeTapCandidate) return false"),
+			"Do not reintroduce the eta73 fix: it kills confirmed center taps because GestureDetector may confirm after ACTION_UP lifecycle flags changed."
 		)
 	}
 
@@ -596,9 +692,16 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(singleTap, "dispatchSingleTapAction(action)")
 		assertContains(
 			singleTap,
-			"if (!nativeTapCandidate) return false",
+			"if (nativeTapCancelledByDrag) return false",
 			message = "A movement-cancelled drag preview must not also be accepted as a center tap that opens reader chrome."
 		)
+		assertFalse(
+			singleTap.contains("if (!nativeTapCandidate) return false"),
+			"Confirmed taps must not depend on nativeTapCandidate; GestureDetector confirms taps after ACTION_UP can clear that lifecycle flag."
+		)
+		assertContains(viewerContainerBody, "private var nativeTapCancelledByDrag: Boolean = false")
+		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = false")
+		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = true")
 		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
 		assertFalse(
 			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
@@ -609,7 +712,7 @@ class ReaderRuntimeShellProgressTest {
 			"Short center-menu taps must be native-owned; WebView content hit testing belongs to deliberate long press."
 		)
 		assertTrue(
-			singleTap.indexOf("if (!nativeTapCandidate) return false") <
+			singleTap.indexOf("if (nativeTapCancelledByDrag) return false") <
 				singleTap.indexOf("navigator.getAction("),
 			"Native tap classification must reject cancelled drag candidates before calculating a menu/edge action."
 		)
@@ -722,17 +825,22 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "writeCachedPaginationProfile(freshProfile)")
 		assertContains(bridgeText, "reflowableWholeBookPagePosition(detail)")
 		assertContains(bridgeText, "const renderer = this.view?.renderer")
-		assertContains(bridgeText, "if (!renderer || renderer.scrolled) return null")
+		assertContains(bridgeText, "if (!renderer) return null")
+		assertContains(bridgeText, "if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()")
 		assertContains(bridgeText, "let page")
 		assertContains(bridgeText, "let pages")
 		assertContains(bridgeText, "page = Number(renderer.page)")
 		assertContains(bridgeText, "pages = Number(renderer.pages)")
 		assertContains(bridgeText, "reflowable-section-pages:pending")
 		assertContains(bridgeText, "reflowablePaginatedTextPageCount(pages)")
-		assertContains(bridgeText, "Math.round(pages) - 2")
+		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		val visualTextPageCount = bridgeText
+			.substringAfter("function reflowablePaginatedTextPageCount(pages) {")
+			.substringBefore("\nfunction reflowableChapterProgressAnchor")
 		assertFalse(
-			bridgeText.contains("Math.round(pages) - 1"),
-			"Foliate paginated sections include leading/trailing sentinel columns. Navic must count text pages as pages - 2 so chapter rail endpoints can reach the final displayed page."
+			visualTextPageCount.contains("return Math.max(1, Math.round(pages) - 2)"),
+			"Foliate paginated sections expose a trailing blank visual column at the terminal page. Navic must not count that blank column as readable chapter content."
 		)
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
@@ -781,6 +889,38 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderSkipsTrailingBlankFoliateColumnForChapterEndpoints() {
+		val bridgeText = readerBridgeText()
+		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val chapterProgressSeek = pageTurnsText
+			.substringAfter("async function goToChapterProgress(href, progress) {")
+			.substringBefore("\nfunction nextPage()")
+		val boundaryBody = pageTurnsText
+			.substringAfter("function nativeDragPreviewAtSectionBoundary(renderer, direction) {")
+			.substringBefore("\nfunction safeNativeDragPreviewAtSectionBoundary(renderer, direction) {")
+
+		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "reflowablePaginatedVisualTextPageCount(pages)")
+		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		assertContains(bridgeText, "reflowableChapterProgressAnchor(progress, renderer = this.view?.renderer)")
+		assertContains(bridgeText, "const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)")
+		assertContains(bridgeText, "const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)")
+		assertContains(bridgeText, "return (visualTextPageCount - 1) / (rawTextPageCount - 1)")
+		assertContains(chapterProgressSeek, "const targetAnchor = this.reflowableChapterProgressAnchor(fraction)")
+		assertContains(chapterProgressSeek, "anchor: targetAnchor")
+		assertFalse(
+			chapterProgressSeek.contains("anchor: fraction"),
+			"Chapter progress endpoint 1.0 must not ask Foliate to render the terminal blank column."
+		)
+		assertContains(boundaryBody, "const lastVisualPage = this.reflowableLastVisualRendererPage(renderer)")
+		assertContains(boundaryBody, "return page >= lastVisualPage")
+		assertFalse(
+			boundaryBody.contains("page >= pages - 2"),
+			"Native drag/page-turn boundary detection must trigger at the last visual content page, not at Foliate's blank terminal column."
+		)
+	}
+
+	@Test
 	fun androidReaderPostsPageModelDiagnosticsWithLocationChanges() {
 		val bridgeText = readerBridgeText()
 		val postLocationBody = bridgeText
@@ -803,7 +943,7 @@ class ReaderRuntimeShellProgressTest {
 		val bridgeText = readerBridgeText()
 		val chapterPagePositionBody = bridgeText
 			.substringAfter("chapterPagePosition(detail, fallback = null) {")
-			.substringBefore("\n  detailSectionKey(detail) {")
+			.substringBefore("\nfunction detailSectionKey")
 
 		assertContains(chapterPagePositionBody, "const resolved = this.view?.isFixedLayout === true")
 		assertContains(chapterPagePositionBody, "? pagePosition || fallback")
@@ -811,6 +951,42 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(
 			chapterPagePositionBody.contains("const resolved = pagePosition || fallback"),
 			"Komikku's chapter rail is chapter-scoped; reflowable EPUB rail state must not fall back to whole-book pagePosition when section page math is missing."
+		)
+	}
+
+	@Test
+	fun androidReaderPublishesScrolledSectionPseudoPagesForKomikkuChapterRail() {
+		val bridgeText = readerBridgeText()
+		val scrolledSectionBody = bridgeText
+			.substringAfter("function reflowableScrolledSectionPagePosition() {")
+			.substringBefore("\nfunction reflowableSectionPagePosition")
+		val reflowableSectionBody = bridgeText
+			.substringAfter("function reflowableSectionPagePosition() {")
+			.substringBefore("\nfunction reflowableLocationPagePosition")
+		val chapterPagePositionBody = bridgeText
+			.substringAfter("chapterPagePosition(detail, fallback = null) {")
+			.substringBefore("\nfunction detailSectionKey")
+
+		assertContains(bridgeText, "reflowableScrolledSectionPagePosition()")
+		assertContains(scrolledSectionBody, "renderer.scrolled")
+		assertContains(scrolledSectionBody, "scrolledRendererViewportSize(renderer)")
+		assertContains(scrolledSectionBody, "Math.ceil(viewSize / viewportSize)")
+		assertContains(scrolledSectionBody, "viewSize - end <= ScrollEdgeTurnSlop")
+		assertContains(scrolledSectionBody, "pageCountSource: 'scrolled-section'")
+		assertContains(
+			reflowableSectionBody,
+			"if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()",
+			message = "Scrolled EPUB chapters still need chapter-local pseudo-pages so the Komikku vertical rail has a middle progress slider."
+		)
+		assertContains(
+			chapterPagePositionBody,
+			": this.reflowableSectionPagePosition()",
+			message = "The native rail must continue to use chapter-local section math, now including scrolled section pseudo-pages."
+		)
+		assertFalse(
+			chapterPagePositionBody.contains("reflowableWholeBookPagePosition") ||
+				chapterPagePositionBody.contains("readerPagePosition(detail)"),
+			"Komikku chapter rails must never borrow whole-book page math just to make the slider appear."
 		)
 	}
 
@@ -887,7 +1063,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))")
 		assertContains(
 			bridgeText,
-			"this.scheduleControlledRelocationFallback('go-to')",
+			"async goTo(locator, reason = 'go-to')",
+			message = "Link and explicit href navigation must carry an explicit controlled-relocation reason, not blend into passive page-turn aftershocks."
+		)
+		assertContains(
+			bridgeText,
+			"this.scheduleControlledRelocationFallback(reason)",
 			message = "Link and explicit href navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
 		)
 		assertContains(bridgeText, "this.recentPageTurnDirection = null")

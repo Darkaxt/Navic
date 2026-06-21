@@ -14,7 +14,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val literata = root.resolve("fonts/navic-literata-regular.ttf")
 		val atkinson = root.resolve("fonts/navic-atkinson-hyperlegible-regular.otf")
 		val openDyslexic = root.resolve("fonts/navic-opendyslexic-regular.otf")
@@ -57,7 +57,7 @@ class ReaderRuntimeCommonChromeTest {
 		val contentOverlayText = readerCommonUiFile("ReaderContentOverlay.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(readerRootText, "KomikkuReaderContentOverlay")
 		assertContains(readerRootText, "Modifier.matchParentSize()")
@@ -76,7 +76,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -119,7 +119,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerNavigationText = readerCommonUiFile("ReaderNavigation.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -146,7 +146,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_FULL_SENSOR")
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_SENSOR_PORTRAIT")
@@ -169,7 +169,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(readerScreenText, "onPreviewKeyEvent")
 		assertContains(readerScreenText, "Key.VolumeUp")
@@ -360,8 +360,11 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(navigatorText, "internal fun KomikkuChapterNavigator(")
 		assertContains(navigatorText, "private fun KomikkuChapterNavigatorVertical(")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
-		assertContains(navigatorText, "private fun KomikkuVerticalChapterProgressRail(")
-		assertContains(navigatorText, "internal fun komikkuChapterRailPageForOffset(")
+		assertContains(navigatorText, "private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		assertFalse(
+			navigatorText.contains("komikkuChapterRailPageForOffset("),
+			"Komikku's vertical rail uses the shared rotated Slider; Navic must not keep a custom y-offset mapper."
+		)
 		assertFalse(
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"The dedicated navigator file must not preserve a Navic-only vertical rail height constant; Komikku derives rail height from the app-bar layout slots."
@@ -430,9 +433,9 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderTopBar(")
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
-		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
-			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
+			.substringBefore("\n@Composable\nprivate fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\n}\n\nprivate fun readerShouldShowChapterProgressSlider(")
 		val bottomChromeBody = appBarsText.substringAfter("private fun KomikkuReaderBottomBar(")
 
 		assertContains(navigatorText, "KomikkuChapterNavigatorVertical(")
@@ -455,12 +458,8 @@ class ReaderRuntimeCommonChromeTest {
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
-		assertContains(navigatorText, "private fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages >= 3")
+		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 1")
 		assertContains(navigatorText, "if (readerShouldShowChapterProgressSlider(totalPages))")
-		assertFalse(
-			navigatorText.contains("if (totalPages > 1)"),
-			"The shell cover and very short sections should not render a full progress slider; Navic intentionally hides the slider until the chapter has at least three pages."
-		)
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
 		assertContains(navigatorText, "import navic.composeapp.generated.resources.Res")
 		assertContains(navigatorText, "import org.jetbrains.compose.resources.stringResource")
@@ -503,20 +502,33 @@ class ReaderRuntimeCommonChromeTest {
 				bottomChromeBody.contains("LinearProgressIndicator("),
 			"Komikku-equivalent progress belongs in the side rail overlay, not inside the bottom chrome surface."
 		)
-		assertContains(verticalRailBody, "detectTapGestures")
-		assertContains(verticalRailBody, "detectDragGestures")
-		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
-		assertContains(verticalRailBody, "heightPx = size.height.toFloat()")
-		assertContains(navigatorText, "return (1 + (fraction * (pageCount - 1)).roundToInt()).coerceIn(1, pageCount)")
+		assertContains(verticalRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(verticalRailBody, "graphicsLayer {")
+		assertContains(verticalRailBody, "rotationZ = 90f")
+		assertContains(verticalRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(verticalRailBody, ".layout { measurable, constraints ->")
+		assertContains(verticalRailBody, "Constraints(")
+		assertContains(verticalRailBody, "placeable.place(0, -placeable.height)")
+		assertContains(verticalRailBody, ".weight(1f)")
+		assertContains(verticalRailBody, "onValueChange = { page ->")
+		assertContains(verticalRailBody, "onPageChange(page)")
+		assertContains(verticalRailBody, "detectTapGestures { offset ->")
+		assertContains(verticalRailBody, "detectDragGestures(")
+		assertContains(verticalRailBody, "readerPageForVerticalChapterProgressOffset(")
+		assertFalse(
+			verticalRailBody.contains("Canvas(") ||
+				verticalRailBody.contains("komikkuChapterRailPageForOffset("),
+			"Komikku's side rail must remain the shared Slider rotated vertically; Navic may add only a transparent endpoint-mapping touch layer above it."
+		)
 	}
 
 	@Test
 	fun commonReaderVerticalProgressRailUsesKomikkuLayoutWithDeterministicEndpointMapping() {
 		val navigatorText = readerCommonUiFile("ReaderChapterNavigator.kt").readText()
 		val sideRailBody = navigatorText.substringAfter("private fun KomikkuChapterNavigatorVertical(")
-			.substringBefore("\n@Composable\nprivate fun KomikkuVerticalChapterProgressRail(")
-		val verticalRailBody = navigatorText.substringAfter("private fun KomikkuVerticalChapterProgressRail(")
-			.substringBefore("\ninternal fun komikkuChapterRailPageForOffset(")
+			.substringBefore("\n@Composable\nprivate fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+		val verticalRailBody = navigatorText.substringAfter("private fun ColumnScope.KomikkuVerticalChapterProgressRail(")
+			.substringBefore("\n}\n\nprivate fun readerShouldShowChapterProgressSlider(")
 		val komikkuNavigatorText = listOf(
 			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt"),
 			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt")
@@ -547,18 +559,23 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(sideRailBody, "KomikkuVerticalChapterProgressRail(")
 		assertContains(sideRailBody, "contentDescription = \"Chapter page slider\"")
 		assertContains(sideRailBody, ".weight(1f)")
-		assertContains(verticalRailBody, "Canvas(modifier = Modifier.fillMaxSize())")
-		assertContains(verticalRailBody, "drawRoundRect(")
-		assertContains(verticalRailBody, "drawCircle(")
-		assertContains(verticalRailBody, "detectTapGestures")
-		assertContains(verticalRailBody, "detectDragGestures")
-		assertContains(verticalRailBody, "komikkuChapterRailPageForOffset(")
-		assertContains(navigatorText, "val fraction = (offsetY / heightPx).coerceIn(0f, 1f)")
+		assertContains(verticalRailBody, "KomikkuChapterProgressSlider(")
+		assertContains(verticalRailBody, "graphicsLayer {")
+		assertContains(verticalRailBody, "rotationZ = 90f")
+		assertContains(verticalRailBody, "transformOrigin = TransformOrigin(0f, 0f)")
+		assertContains(verticalRailBody, ".layout { measurable, constraints ->")
+		assertContains(verticalRailBody, "Constraints(")
+		assertContains(verticalRailBody, "placeable.place(0, -placeable.height)")
+		assertContains(verticalRailBody, ".weight(1f)")
+		assertContains(verticalRailBody, "detectTapGestures { offset ->")
+		assertContains(verticalRailBody, "detectDragGestures(")
+		assertContains(verticalRailBody, "readerPageForVerticalChapterProgressOffset(")
 		assertFalse(
-			verticalRailBody.contains("graphicsLayer {") ||
-				verticalRailBody.contains("transformOrigin = TransformOrigin(0f, 0f)") ||
-				verticalRailBody.contains(".layout { measurable, constraints ->"),
-			"Navic keeps Komikku's surrounding vertical navigator but uses explicit y-offset mapping for reliable chapter endpoint selection instead of opaque rotated-slider hit testing."
+			verticalRailBody.contains("Canvas(") ||
+				verticalRailBody.contains("drawRoundRect(") ||
+				verticalRailBody.contains("drawCircle(") ||
+				navigatorText.contains("komikkuChapterRailPageForOffset("),
+			"Navic must reuse Komikku's rotated Slider rail instead of replacing it with a custom drawn rail; the transparent endpoint-mapping touch layer is allowed."
 		)
 	}
 
@@ -719,7 +736,7 @@ class ReaderRuntimeCommonChromeTest {
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferencesText = listOf(
 			File("src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"),
 			File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt")
@@ -1071,6 +1088,7 @@ class ReaderRuntimeCommonChromeTest {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val selectionActionsText = readerCommonUiFile("ReaderSelectionActions.kt").readText()
 		val selectionNoteDialogText = readerCommonUiFile("ReaderSelectionNoteDialog.kt").readText()
+		val engineHostText = readerEngineWebViewHostFile().readText()
 
 		assertContains(readerRootText, "KomikkuReaderSelectionActions(")
 		assertContains(readerRootText, "controllerState.selectionActions")
@@ -1102,10 +1120,32 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "LocalClipboardManager.current")
 		assertContains(readerScreenText, "AnnotatedString(text)")
 		assertContains(readerScreenText, "Logger.i(ReaderScreenTag, \"Reader selection copied length=")
+		assertContains(readerScreenText, "coordinator.dismissSelectionActions()")
+		assertContains(readerScreenText, "Logger.i(ReaderScreenTag, \"Reader selection note save length=")
 		assertContains(readerScreenText, "coordinator.addSelectionHighlight()")
 		assertContains(readerScreenText, "coordinator.startSelectionNote()")
 		assertContains(readerScreenText, "coordinator.saveSelectionNote(note)")
 		assertContains(readerScreenText, "coordinator.dismissSelectionNote()")
+		assertContains(engineHostText, "isLongClickable = false")
+		assertContains(engineHostText, "setOnLongClickListener")
+		assertContains(engineHostText, "native frame owns selection actions")
+	}
+
+	@Test
+	fun androidReaderNoteAnnotationBatchesAreVisibleInBridgeCommandLogs() {
+		val engineHostText = readerEngineWebViewHostFile().readText()
+		val applyHighlightsLabel = engineHostText
+			.substringAfter("is ReaderBridgeCommand.ApplyHighlights ->")
+			.substringBefore("is ReaderBridgeCommand.ApplyOverlayFragment ->")
+
+		assertContains(applyHighlightsLabel, "highlights.count")
+		assertContains(applyHighlightsLabel, "it.note?.trim()?.isNotEmpty() == true")
+		assertContains(applyHighlightsLabel, "notes=")
+		assertContains(
+			applyHighlightsLabel,
+			"applyHighlights(count=\${highlights.size}, notes=\$noteCount)",
+			message = "ADB/logcat command labels must distinguish Note Save annotation batches from plain highlight batches."
+		)
 	}
 
 	@Test
@@ -1127,6 +1167,49 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(annotationDialogText, "BasicAlertDialog(")
 		assertContains(annotationDialogText, "onDismissAnnotationPopup")
 		assertContains(readerScreenText, "coordinator.dismissAnnotationPopup()")
+	}
+
+	@Test
+	fun commonReaderMarksAreSeededAndPersistedOutsideTheWebView() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerMarksPreferenceText = readerCommonFile("ReaderMarksPreference.kt").readText()
+
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.readerAnnotationState()")
+		assertContains(readerMarksPreferenceText, "decodeReaderAnnotations(readerAnnotationsJson)")
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.readerBookmarkState()")
+		assertContains(readerMarksPreferenceText, "decodeReaderBookmarks(readerBookmarksJson)")
+		assertContains(readerMarksPreferenceText, "fun PreferenceManager.persistReaderMarksIfChanged(")
+		assertContains(readerMarksPreferenceText, "previous.annotations != next.annotations")
+		assertContains(readerMarksPreferenceText, "previous.bookmarks != next.bookmarks")
+		assertContains(readerScreenText, "annotations = preferenceManager.readerAnnotationState()")
+		assertContains(readerScreenText, "bookmarks = preferenceManager.readerBookmarkState()")
+		assertContains(readerScreenText, "preferenceManager.persistReaderMarksIfChanged(")
+		assertFalse(
+			readerScreenText.contains("ReaderAnnotationState()") &&
+				!readerScreenText.contains("readerAnnotationState()"),
+			"ReaderScreen must not initialize annotations as transient empty state."
+		)
+	}
+
+	@Test
+	fun commonReaderFootnotesAreKomikkuOverlayAndControllerRouted() {
+		val readerScreenText = readerScreenFile().readText()
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val footnoteDialogText = readerCommonUiFile("ReaderFootnoteDialog.kt").readText()
+
+		assertContains(readerRootText, "KomikkuReaderFootnoteDialog(")
+		assertContains(readerRootText, "controllerState.footnotePopup")
+		assertContains(readerRootText, "onDismissFootnotePopup = onDismissFootnotePopup")
+		assertFalse(
+			readerScreenText.contains("private fun KomikkuReaderFootnoteDialog(") ||
+				readerScreenText.contains("ReaderFootnotePopupState("),
+			"Footnote UI must be a Komikku overlay component routed through controller state, not local ReaderScreen state."
+		)
+		assertContains(footnoteDialogText, "internal fun KomikkuReaderFootnoteDialog(")
+		assertContains(footnoteDialogText, "ReaderFootnotePopupState")
+		assertContains(footnoteDialogText, "BasicAlertDialog(")
+		assertContains(footnoteDialogText, "onDismissFootnotePopup")
+		assertContains(readerScreenText, "coordinator.dismissFootnotePopup()")
 	}
 
 	@Test

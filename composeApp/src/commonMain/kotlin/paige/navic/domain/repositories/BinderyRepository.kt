@@ -30,6 +30,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
+import paige.navic.reader.WhispersyncSidecar
+import paige.navic.reader.decodeWhispersyncSidecar
+import paige.navic.reader.encodeWhispersyncSidecar
 import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
@@ -251,14 +254,25 @@ class BinderyRepository(
 			path = bookId,
 			fetch = { baseUrl, headers -> apiClient.fetchBookSync(baseUrl, headers, bookId) },
 			encode = { sync -> BinderyJson.encodeToString(sync) },
-			decode = { json -> BinderyJson.decodeFromString<BinderyBookSync>(json) }
+			decode = { json -> decodeBinderyBookSyncJson(json) }
 		)
 
 	suspend fun getCachedBookSync(bookId: String): Result<BinderyBookSync?> =
 		getConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.BookSync,
 			path = bookId,
-			decode = { json -> BinderyJson.decodeFromString<BinderyBookSync>(json) }
+			decode = { json -> decodeBinderyBookSyncJson(json) }
+		)
+
+	suspend fun getWhispersyncSidecar(path: String): Result<WhispersyncSidecar> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+			path = path,
+			fetch = { baseUrl, headers ->
+				decodeWhispersyncSidecar(apiClient.fetchWhispersyncSidecarJson(baseUrl, headers, path))
+			},
+			encode = ::encodeWhispersyncSidecar,
+			decode = ::decodeWhispersyncSidecar
 		)
 
 	suspend fun getResourceBytes(path: String): Result<ByteArray> {

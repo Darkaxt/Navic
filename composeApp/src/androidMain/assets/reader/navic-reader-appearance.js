@@ -108,6 +108,7 @@ import {
   readerFontFaceCss,
   readerParagraphSpacingEm,
   applyReaderParagraphSpacing,
+  normalizeReaderInlineTypography,
   readerNormalizeChapterOpeningMargins,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
@@ -184,13 +185,14 @@ function applySettings(settings) {
   rootStyle.setProperty('--theme-bg-color', palette.background)
   const flowMode = readerFlowMode(settings)
   this.readerFlowModeValue = flowMode
+  readerRoot.dataset.navicReaderFlowMode = flowMode
   rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
   this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
   this.readerDirectionModeValue = readerDirectionMode(settings)
   this.applyReaderDirection(this.readerDirectionModeValue)
-  this.applyReaderViewportLayout('settings')
   this.view?.renderer?.setStyles?.(readerContentCss(settings))
   this.applyThemeToLoadedContent(settings)
+  this.applyReaderViewportLayout('settings')
   this.renderSurfacePaperTextureLayers()
   this.renderTapZoneOverlayLayer()
   if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
@@ -251,6 +253,7 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
     styleHost.append(themeStyle)
   }
   themeStyle.textContent = readerContentCss(settings)
+  normalizeReaderInlineTypography(doc, settings)
   readerNormalizeChapterOpeningMargins(doc, settings)
   for (const element of [root, body].filter(Boolean)) {
     setStylesImportant(element, {
@@ -362,6 +365,7 @@ function surfacePaperTextureDiagnosticState(reason = 'scroll') {
   const pageIndex = Number(this.currentPagePosition?.pageIndex)
   const pageCount = Number(this.currentPagePosition?.pageCount)
   const detail = this.lastRelocateDetail || {}
+  const { width, height } = readerViewportSize()
   return {
     reason,
     offset: this.surfaceTextureScrollOffset || { x: 0, y: 0 },
@@ -369,6 +373,8 @@ function surfacePaperTextureDiagnosticState(reason = 'scroll') {
     baseOffset: this.surfacePaperTextureBaseOffset,
     delta: position - this.surfacePaperTextureBaseOffset,
     pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || '',
+    viewportWidth: width,
+    viewportHeight: height,
     flowMode: this.readerFlowModeValue,
     pageIndex: Number.isFinite(pageIndex) ? pageIndex : null,
     pageCount: Number.isFinite(pageCount) ? pageCount : null,
@@ -457,6 +463,7 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
   if (this.nativePageDragPreview) {
     readerTrace('page-drag-preview:reset-on-texture-update', {
       deltaX: Number(this.nativePageDragPreview?.deltaX) || 0,
+      deltaY: Number(this.nativePageDragPreview?.deltaY) || 0,
     })
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer?.()

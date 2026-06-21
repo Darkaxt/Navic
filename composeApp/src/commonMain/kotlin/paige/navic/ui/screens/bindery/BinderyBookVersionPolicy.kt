@@ -23,9 +23,22 @@ import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
+import paige.navic.ui.screens.bindery.versionpolicy.audioFormatQualityRank
+import paige.navic.ui.screens.bindery.versionpolicy.displayToken
+import paige.navic.ui.screens.bindery.versionpolicy.ebookFormatQualityRank
+import paige.navic.ui.screens.bindery.versionpolicy.fileExtension
+import paige.navic.ui.screens.bindery.versionpolicy.fileNameStem
+import paige.navic.ui.screens.bindery.versionpolicy.firstNonBlankValue
+import paige.navic.ui.screens.bindery.versionpolicy.hasTruthyValue
+import paige.navic.ui.screens.bindery.versionpolicy.isEbookMediaType
+import paige.navic.ui.screens.bindery.versionpolicy.isGenericBookMediaFormat
+import paige.navic.ui.screens.bindery.versionpolicy.leadingBracketLabel
+import paige.navic.ui.screens.bindery.versionpolicy.toBitrateLabel
+import paige.navic.ui.screens.bindery.versionpolicy.toReadableBookFormat
+import paige.navic.ui.screens.bindery.versionpolicy.toSampleRateLabel
 import paige.navic.util.core.toFileSize
-import kotlin.math.roundToLong
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 enum class BinderyBookVersionKind {
 	Audiobook,
@@ -37,6 +50,12 @@ enum class BinderyBookVersionRoutingAction {
 	OpenAudiobook,
 	OpenReadaloud,
 	OpenEbook
+}
+
+enum class BinderyWhispersyncAudiobookLaunchAction {
+	None,
+	OpenDirectly,
+	ChooseAudiobook
 }
 
 enum class BinderyBookFindingKind {
@@ -305,7 +324,12 @@ data class BinderyWhispersyncMatch(
 	val artifactId: String,
 	val sidecarHref: String,
 	val coveragePercent: Int?,
-	val scorePercent: Int?
+	val scorePercent: Int?,
+	val oppositeAudiobookId: String? = null,
+	val oppositeAudiobookBookFileId: String? = null,
+	val oppositeEbookResourceHref: String? = null,
+	val oppositeEbookBookFileId: String? = null,
+	val oppositeEbookFormat: ReaderPublicationFormat? = null
 )
 
 data class BinderyBookVersionGroups(
@@ -368,6 +392,95 @@ fun binderyReaderDestinationForVersionRow(
 			mediaOverlayEnabled = false
 		)
 		BinderyBookVersionRoutingAction.OpenAudiobook -> null
+	}
+
+fun BinderyBookVersionRow.whispersyncAudiobookLaunchMatches(): List<BinderyWhispersyncMatch> =
+	if (kind != BinderyBookVersionKind.Ebook) {
+		emptyList()
+	} else {
+		syncMatches.filter { match ->
+			match.oppositeKind == BinderyBookVersionKind.Audiobook &&
+				match.oppositeAudiobookId.normalizedBookFileId() != null &&
+				match.oppositeAudiobookBookFileId.normalizedBookFileId() != null
+		}
+	}
+
+fun BinderyBookVersionRow.whispersyncAudiobookLaunchAction(): BinderyWhispersyncAudiobookLaunchAction =
+	when (whispersyncAudiobookLaunchMatches().size) {
+		0 -> BinderyWhispersyncAudiobookLaunchAction.None
+		1 -> BinderyWhispersyncAudiobookLaunchAction.OpenDirectly
+		else -> BinderyWhispersyncAudiobookLaunchAction.ChooseAudiobook
+	}
+
+fun binderyWhispersyncReaderDestinationForMatch(
+	ebookRow: BinderyBookVersionRow,
+	match: BinderyWhispersyncMatch,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String
+): Screen.Reader? {
+	if (ebookRow.kind != BinderyBookVersionKind.Ebook) return null
+	if (match.oppositeKind != BinderyBookVersionKind.Audiobook) return null
+
+	val resourceHref = ebookRow.id.trim().takeIf { it.isNotEmpty() } ?: return null
+	val sidecarHref = match.sidecarHref.trim().takeIf { it.isNotEmpty() } ?: return null
+	val audiobookId = match.oppositeAudiobookId.normalizedBookFileId() ?: return null
+	val audiobookBookFileId = match.oppositeAudiobookBookFileId.normalizedBookFileId() ?: return null
+
+	return Screen.Reader(
+		title = bookTitle,
+		publicationUrl = binderyEndpoint(opdsBaseUrl, resourceHref),
+		bookId = bookId,
+		resourceHref = resourceHref,
+		kind = ReaderPublicationKind.Ebook,
+		publicationFormat = ebookRow.format,
+		mediaOverlayEnabled = false,
+		whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
+		whispersyncArtifactId = match.artifactId,
+		whispersyncAudiobookId = audiobookId,
+		whispersyncAudiobookBookFileId = audiobookBookFileId,
+		whispersyncAudiobookTitle = match.oppositeTitle.takeIf { it.isNotBlank() }
+	)
+}
+
+fun binderyWhispersyncReaderDestinationForRowMatch(
+	row: BinderyBookVersionRow,
+	match: BinderyWhispersyncMatch,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String
+): Screen.Reader? =
+	when {
+		row.kind == BinderyBookVersionKind.Ebook -> binderyWhispersyncReaderDestinationForMatch(
+			ebookRow = row,
+			match = match,
+			bookId = bookId,
+			bookTitle = bookTitle,
+			opdsBaseUrl = opdsBaseUrl
+		)
+		row.kind == BinderyBookVersionKind.Audiobook &&
+			match.oppositeKind == BinderyBookVersionKind.Ebook -> {
+			val resourceHref = match.oppositeEbookResourceHref?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+			val sidecarHref = match.sidecarHref.trim().takeIf { it.isNotEmpty() } ?: return null
+			val audiobookId = row.audiobookId.normalizedBookFileId() ?: return null
+			val audiobookBookFileId = row.audiobookBookFileId.normalizedBookFileId() ?: return null
+
+			Screen.Reader(
+				title = bookTitle,
+				publicationUrl = binderyEndpoint(opdsBaseUrl, resourceHref),
+				bookId = bookId,
+				resourceHref = resourceHref,
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = match.oppositeEbookFormat ?: ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
+				whispersyncArtifactId = match.artifactId,
+				whispersyncAudiobookId = audiobookId,
+				whispersyncAudiobookBookFileId = audiobookBookFileId,
+				whispersyncAudiobookTitle = row.title.takeIf { it.isNotBlank() }
+			)
+		}
+		else -> null
 	}
 
 fun binderyBookVersionRows(
@@ -530,7 +643,32 @@ private fun BinderySyncPair.toWhispersyncMatch(
 		sidecarHref = artifact.artifactHref?.trim()?.takeIf { it.isNotEmpty() }
 			?: "/opds/books/${bookId ?: ""}/sync/$artifactId",
 		coveragePercent = artifact.coverage.toPercent(),
-		scorePercent = artifact.score.toPercent()
+		scorePercent = artifact.score.toPercent(),
+		oppositeAudiobookId = if (oppositeKind == BinderyBookVersionKind.Audiobook) {
+			oppositeRow?.audiobookId
+		} else {
+			null
+		},
+		oppositeAudiobookBookFileId = if (oppositeKind == BinderyBookVersionKind.Audiobook) {
+			oppositeRow?.audiobookBookFileId
+		} else {
+			null
+		},
+		oppositeEbookResourceHref = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.id
+		} else {
+			null
+		},
+		oppositeEbookBookFileId = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.ebookBookFileId
+		} else {
+			null
+		},
+		oppositeEbookFormat = if (oppositeKind == BinderyBookVersionKind.Ebook) {
+			oppositeRow?.format
+		} else {
+			null
+		}
 	)
 }
 
@@ -940,34 +1078,6 @@ private fun BinderyReadingOrderItem.displayFormat(): String? =
 		?: type.toReadableBookFormat()
 		?: properties.firstNonBlankValue("format")?.uppercase()
 
-private fun String.isGenericBookMediaFormat(): Boolean =
-	equals("EBOOK", ignoreCase = true) ||
-		equals("BOOK", ignoreCase = true) ||
-		equals("AUDIO", ignoreCase = true) ||
-		equals("AUDIOBOOK", ignoreCase = true)
-
-private fun String?.ebookFormatQualityRank(): Int =
-	when (this?.uppercase()) {
-		"EPUB" -> 50
-		"PDF" -> 40
-		"AZW3" -> 35
-		"MOBI" -> 30
-		"CBZ" -> 25
-		"TXT" -> 10
-		else -> 0
-	}
-
-private fun String?.audioFormatQualityRank(): Int =
-	when (this?.uppercase()) {
-		"FLAC" -> 60
-		"M4B" -> 55
-		"M4A" -> 50
-		"AAC" -> 45
-		"MP3" -> 40
-		"OGG" -> 30
-		else -> 0
-	}
-
 private fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
 	val media = this?.mediaType.orEmpty().lowercase()
 	val format = this?.format.orEmpty()
@@ -1037,102 +1147,3 @@ private fun BinderyFindingMetadata?.findingAudioQualityRank(): Int =
 
 private fun BinderyFindingMetadata?.findingEbookQualityRank(): Int =
 	this?.format.ebookFormatQualityRank()
-
-private fun Long.toBitrateLabel(): String =
-	"${(this / 1000).coerceAtLeast(1)} kbps"
-
-private fun Long.toSampleRateLabel(): String {
-	val khz = this.toDouble() / 1000.0
-	return if (khz % 1.0 == 0.0) {
-		"${khz.toInt()} kHz"
-	} else {
-		"${((khz * 10).roundToLong() / 10.0)} kHz"
-	}
-}
-
-private fun String.fileExtension(): String? {
-	val extension = substringAfterLast('.', missingDelimiterValue = "")
-		.substringBefore('?')
-		.substringBefore('#')
-		.trim()
-	return extension
-		.takeIf { it.length in 2..6 && it.all(Char::isLetterOrDigit) }
-		?.uppercase()
-}
-
-private fun String.fileNameStem(): String? {
-	val fileName = substringBefore('?')
-		.substringBefore('#')
-		.substringAfterLast('/')
-		.substringAfterLast('\\')
-		.trim()
-		.takeIf { it.isNotEmpty() }
-		?: return null
-	val extension = fileName.fileExtension()
-	val stem = if (extension != null && fileName.length > extension.length + 1) {
-		fileName.dropLast(extension.length + 1)
-	} else {
-		fileName
-	}
-	return stem.trim().takeIf { it.isNotEmpty() }
-}
-
-private fun String.leadingBracketLabel(): String? {
-	val trimmed = trim()
-	if (trimmed.startsWith("[")) {
-		val end = trimmed.indexOf(']')
-		if (end > 1) return trimmed.substring(1, end).trim().takeIf { it.isNotEmpty() }
-	}
-	if (trimmed.startsWith("(")) {
-		val end = trimmed.indexOf(')')
-		if (end > 1) return trimmed.substring(1, end).trim().takeIf { it.isNotEmpty() }
-	}
-	return null
-}
-
-private fun String?.isEbookMediaType(): Boolean =
-	this?.let { mediaType ->
-		"epub" in mediaType.lowercase() ||
-			"pdf" in mediaType.lowercase() ||
-			"azw3" in mediaType.lowercase() ||
-			"mobi" in mediaType.lowercase() ||
-			"ebook" in mediaType.lowercase()
-	} == true
-
-private fun String?.toReadableBookFormat(): String? {
-	val normalized = this?.lowercase() ?: return null
-	return when {
-		"epub" in normalized -> "EPUB"
-		"pdf" in normalized -> "PDF"
-		"azw3" in normalized -> "AZW3"
-		"mobi" in normalized -> "MOBI"
-		"audiobook" in normalized -> "Audiobook"
-		"mpeg" in normalized -> "MP3"
-		"mp4" in normalized -> "M4A"
-		"aac" in normalized -> "AAC"
-		"flac" in normalized -> "FLAC"
-		"ogg" in normalized -> "OGG"
-		else -> substringAfter('/').substringBefore(';').uppercase().takeIf { it.isNotBlank() }
-	}
-}
-
-private fun Map<String, String>.firstNonBlankValue(vararg keys: String): String? =
-	keys.firstNotNullOfOrNull { desiredKey ->
-		entries.firstOrNull { (key, value) ->
-			key.equals(desiredKey, ignoreCase = true) && value.isNotBlank()
-		}?.value?.trim()
-	}
-
-private fun Map<String, String>.hasTruthyValue(vararg keys: String): Boolean =
-	keys.any { desiredKey ->
-		entries.any { (key, value) ->
-			key.equals(desiredKey, ignoreCase = true) &&
-				value.trim().lowercase() in setOf("1", "true", "yes", "y")
-		}
-	}
-
-private fun String.displayToken(): String =
-	trim()
-		.replace(Regex("[_-]+"), " ")
-		.replace(Regex("\\s+"), " ")
-		.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }

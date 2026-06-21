@@ -94,17 +94,31 @@ export const assertSurfaceTextureTracksForwardContentMovement = result => {
   }
 }
 
-const parseBackgroundPositionOffset = value => {
+const parseBackgroundPositionOffsets = value => {
   const text = String(value || '')
-  const match = text.match(/calc\(50%\s*([+-])\s*(-?\d+(?:\.\d+)?)px\)/i)
-  if (!match) return null
-  const sign = match[1] === '-' ? -1 : 1
-  return sign * Number.parseFloat(match[2])
+  const matches = Array.from(text.matchAll(/calc\(50%\s*([+-])\s*(-?\d+(?:\.\d+)?)px\)/gi))
+  if (matches.length === 0) return null
+  const parseMatch = match => {
+    const sign = match[1] === '-' ? -1 : 1
+    return sign * Number.parseFloat(match[2])
+  }
+  const x = parseMatch(matches[0])
+  const y = parseMatch(matches[1] || matches[0])
+  return { x, y }
 }
 
-const textureOffsetForSample = sample =>
-  parseBackgroundPositionOffset(sample?.textureBackgroundPosition) ??
-  parseBackgroundPositionOffset(sample?.computedTextureBackgroundPosition)
+const textureOffsetForSample = sample => {
+  const offsets =
+    parseBackgroundPositionOffsets(sample?.textureBackgroundPosition) ??
+    parseBackgroundPositionOffsets(sample?.computedTextureBackgroundPosition)
+  return String(sample?.flowMode || '') === 'paged-vertical' ? offsets?.y : offsets?.x
+}
+
+const parseBackgroundPositionOffset = value => {
+  const offsets = parseBackgroundPositionOffsets(value)
+  if (!offsets) return null
+  return offsets.x
+}
 
 export const assertTextureTracksRealPageTurnSamples = result => {
   if (!result || !Array.isArray(result.probes) || result.probes.length === 0) {
@@ -160,7 +174,9 @@ export const assertTextureTracksRealPageTurnSamples = result => {
       throw new Error(`Expected probe ${probe.name || 'unknown'} to observe renderer movement with texture CSS samples`)
     }
     if (probe.direction === 'forward') {
-      const forwardInversion = movedSamples.find(({ textureDelta }) => textureDelta > 1)
+      const forwardInversion = movedSamples.find(({ textureDelta, rendererBoundaryWrap }) =>
+        textureDelta > 1 && !rendererBoundaryWrap
+      )
       if (forwardInversion) {
         throw new Error(
           `Expected forward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
@@ -169,7 +185,9 @@ export const assertTextureTracksRealPageTurnSamples = result => {
       }
     }
     if (probe.direction === 'backward') {
-      const backwardInversion = movedSamples.find(({ textureDelta }) => textureDelta < -1)
+      const backwardInversion = movedSamples.find(({ textureDelta, rendererBoundaryWrap }) =>
+        textureDelta < -1 && !rendererBoundaryWrap
+      )
       if (backwardInversion) {
         throw new Error(
           `Expected backward texture movement not to invert in probe ${probe.name || 'unknown'}; ` +
@@ -214,24 +232,40 @@ export const assertTextureTracePayloadsTrackTurnDirection = trace => {
     throw new Error('Expected directed texture:scroll payloads')
   }
   for (const payload of directedScrollEvents) {
+    const flowMode = String(payload.flowMode || '')
     const xOffset = Number(payload.offset?.x)
     const yOffset = Number(payload.offset?.y)
+    const textureOffset = flowMode === 'paged-vertical' ? yOffset : xOffset
+    const textureAxis = flowMode === 'paged-vertical' ? 'y' : 'x'
     const position = Number(payload.position)
     const baseOffset = Number(payload.baseOffset)
     const delta = Number.isFinite(position) && Number.isFinite(baseOffset)
       ? position - baseOffset
       : Number(payload.delta)
-    if (payload.pageTurnDirection === 'next' && Number.isFinite(xOffset) && xOffset > 1) {
+    const viewportSpan = Math.max(
+      1,
+      flowMode === 'paged-vertical' ? Number(payload.viewportHeight) : Number(payload.viewportWidth),
+      Number(payload.viewportWidth),
+      Number(payload.viewportHeight)
+    )
+    const expectedDirectionSign = payload.pageTurnDirection === 'next' ? 1 : -1
+    const deltaSign = Math.sign(delta)
+    const directedBoundaryWrap = Number.isFinite(delta) &&
+      Math.abs(delta) >= viewportSpan * 0.75 &&
+      Math.abs(delta) <= viewportSpan * 2 &&
+      deltaSign !== 0 &&
+      deltaSign !== expectedDirectionSign
+    if (payload.pageTurnDirection === 'next' && Number.isFinite(textureOffset) && textureOffset > 1 && !directedBoundaryWrap) {
       throw new Error(
         `Expected next texture trace to move left/counter-forward; ` +
-        `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
+        `observed ${textureAxis}=${textureOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
         `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
       )
     }
-    if (payload.pageTurnDirection === 'previous' && Number.isFinite(xOffset) && xOffset < -1) {
+    if (payload.pageTurnDirection === 'previous' && Number.isFinite(textureOffset) && textureOffset < -1 && !directedBoundaryWrap) {
       throw new Error(
         `Expected previous texture trace to move right/counter-back; ` +
-        `observed x=${xOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
+        `observed ${textureAxis}=${textureOffset} delta=${Number.isFinite(delta) ? delta : 'unknown'} ` +
         `page=${payload.pageIndex ?? ''}/${payload.pageCount ?? ''} href=${payload.href || ''}`
       )
     }
@@ -552,6 +586,20 @@ export const assertRendererCssSmoke = result => {
   }
   if (result.bodyBackground === 'rgb(255, 255, 255)' || result.htmlBackground === 'rgb(255, 255, 255)') {
     throw new Error(`Expected sepia backgrounds instead of white pages; observed html=${result.htmlBackground} body=${result.bodyBackground}`)
+  }
+  const paragraphFontDelta = Number(result.paragraphFontSizeDelta)
+  if (!Number.isFinite(paragraphFontDelta) || paragraphFontDelta <= 1) {
+    throw new Error(
+      `Expected font-size control to scale EPUB paragraph text; ` +
+      `observed paragraph ${result.paragraphFontSizeAt100 || 'unset'} -> ${result.paragraphFontSizeAt140 || 'unset'}`
+    )
+  }
+  const bodyFontDelta = Number(result.bodyFontSizeDelta)
+  if (!Number.isFinite(bodyFontDelta) || bodyFontDelta <= 1) {
+    throw new Error(
+      `Expected font-size control to scale EPUB body inheritance, not only headings; ` +
+      `observed body ${result.bodyFontSizeAt100 || 'unset'} -> ${result.bodyFontSizeAt140 || 'unset'}`
+    )
   }
   const paragraphMargin = numericCss(result.paragraphMarginBottom)
   if (paragraphMargin == null || paragraphMargin <= 0) {

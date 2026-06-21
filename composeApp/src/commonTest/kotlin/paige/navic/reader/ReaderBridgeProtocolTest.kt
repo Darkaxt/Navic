@@ -168,29 +168,39 @@ class ReaderBridgeProtocolTest {
 	fun pageDragPreviewCommandDispatchesRendererPreviewIntent() {
 		val updateScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = -184.0,
+			deltaY = -96.0,
 			viewWidth = 1440.0,
+			viewHeight = 2200.0,
 			phase = ReaderPageDragPreviewPhase.Update
 		).toJavaScript()
 		val releaseScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = -512.0,
+			deltaY = -256.0,
 			viewWidth = 1440.0,
+			viewHeight = 2200.0,
 			phase = ReaderPageDragPreviewPhase.Release
 		).toJavaScript()
 		val cancelScript = ReaderBridgeCommand.PreviewPageDrag(
 			deltaX = Double.NaN,
+			deltaY = Double.NaN,
 			viewWidth = Double.POSITIVE_INFINITY,
+			viewHeight = Double.NEGATIVE_INFINITY,
 			phase = ReaderPageDragPreviewPhase.Cancel
 		).toJavaScript()
 
 		assertContains(updateScript, "window.NavicReaderBridge.dispatch")
 		assertContains(updateScript, "\"type\":\"previewPageDrag\"")
 		assertContains(updateScript, "\"deltaX\":-184.0")
+		assertContains(updateScript, "\"deltaY\":-96.0")
 		assertContains(updateScript, "\"viewWidth\":1440.0")
+		assertContains(updateScript, "\"viewHeight\":2200.0")
 		assertContains(updateScript, "\"phase\":\"update\"")
 		assertContains(releaseScript, "\"phase\":\"release\"")
 		assertContains(cancelScript, "\"deltaX\":0.0")
+		assertContains(cancelScript, "\"deltaY\":0.0")
 		assertContains(cancelScript, "\"phase\":\"cancel\"")
 		assertFalse(cancelScript.contains("\"viewWidth\""))
+		assertFalse(cancelScript.contains("\"viewHeight\""))
 	}
 
 	@Test
@@ -277,6 +287,7 @@ class ReaderBridgeProtocolTest {
 					cfi = "epubcfi(/6/8!/4/1:0)",
 					text = "The highlighted sentence",
 					color = "#f4d35e",
+					note = "Remember this scene later",
 					sectionTitle = "Chapter 1"
 				)
 			)
@@ -286,6 +297,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"highlights\"")
 		assertContains(script, "\"cfi\":\"epubcfi(/6/8!/4/1:0)\"")
 		assertContains(script, "\"color\":\"#f4d35e\"")
+		assertContains(script, "\"note\":\"Remember this scene later\"")
 	}
 
 	@Test
@@ -340,6 +352,29 @@ class ReaderBridgeProtocolTest {
 		assertEquals(12.4, active.fragment.clipBeginSeconds)
 		assertEquals(16.9, active.fragment.clipEndSeconds)
 		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
+	}
+
+	@Test
+	fun bridgeEventsDecodeVisibleTextRangeForWhispersync() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "visibleTextRange",
+			  "textHref": "Text/chapter-01.xhtml",
+			  "visibleStart": 80,
+			  "visibleEnd": 140,
+			  "rangeCfi": "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+			  "source": "media-overlay-follow"
+			}
+			""".trimIndent()
+		)
+
+		val range = assertIs<ReaderBridgeEvent.VisibleTextRange>(event)
+		assertEquals("Text/chapter-01.xhtml", range.textHref)
+		assertEquals(80, range.visibleStart)
+		assertEquals(140, range.visibleEnd)
+		assertEquals("epubcfi(/6/2!/4/4,/1:0,/1:24)", range.rangeCfi)
+		assertEquals("media-overlay-follow", range.source)
 	}
 
 	@Test
@@ -628,12 +663,34 @@ class ReaderBridgeProtocolTest {
 		assertEquals("chapter-01", loadDoc.sectionId)
 		assertEquals(true, pushState.canGoBack)
 		assertEquals(false, pushState.canGoForward)
+		val footnoteOpen = assertIs<ReaderBridgeEvent.FootnoteOpen>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "footnoteOpen",
+				  "href": "Text/chapter-01.xhtml#fn1",
+				  "text": "This is the footnote body.",
+				  "noteType": "footnote",
+				  "hidden": true
+				}
+				""".trimIndent()
+			)
+		)
+		assertEquals("Text/chapter-01.xhtml#fn1", footnoteOpen.href)
+		assertEquals("This is the footnote body.", footnoteOpen.text)
+		assertEquals("footnote", footnoteOpen.noteType)
+		assertEquals(true, footnoteOpen.hidden)
 		assertIs<ReaderBridgeEvent.FootnoteClose>(
 			decodeReaderBridgeEvent("""{"type":"footnoteClose"}""")
 		)
-		assertIs<ReaderBridgeEvent.PullUp>(
+		val defaultPullUp = assertIs<ReaderBridgeEvent.PullUp>(
 			decodeReaderBridgeEvent("""{"type":"pullUp"}""")
 		)
+		assertNull(defaultPullUp.source)
+		val scrolledEdgePullUp = assertIs<ReaderBridgeEvent.PullUp>(
+			decodeReaderBridgeEvent("""{"type":"pullUp","source":"$ReaderPullUpSourceScrolledEdgeSwipe"}""")
+		)
+		assertEquals(ReaderPullUpSourceScrolledEdgeSwipe, scrolledEdgePullUp.source)
 	}
 
 	@Test

@@ -34,13 +34,18 @@ class PlayerRestorePolicyTest {
 	@Test
 	fun resumeOnStartupRestoresQueueInPlayingState() {
 		val restored = restoredPlayerStateForPreferences(
-			restoredState = PlayerUiState(isPaused = true, isLoading = true),
+			restoredState = PlayerUiState(
+				isPaused = true,
+				isLoading = true,
+				playbackDownloadProgress = .4f
+			),
 			persistentQueue = true,
 			resumePlaybackOnStartup = true
 		)
 
 		assertFalse(restored!!.isPaused)
 		assertFalse(restored.isLoading)
+		assertNull(restored.playbackDownloadProgress)
 	}
 
 	@Test

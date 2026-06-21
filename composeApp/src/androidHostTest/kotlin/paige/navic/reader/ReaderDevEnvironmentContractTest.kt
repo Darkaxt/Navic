@@ -21,6 +21,12 @@ class ReaderDevEnvironmentContractTest {
 		val androidBuild = root.resolve("androidApp/build.gradle.kts").readText()
 		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
 		val app = root.resolve("composeApp/src/commonMain/kotlin/paige/navic/App.kt").readText()
+		val preferenceManager = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"
+		).readText()
+		val sideloadingDialog = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/components/dialogs/SideloadingDialog.kt"
+		)
 		val readerRuntime = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt"
 		).readText()
@@ -54,9 +60,26 @@ class ReaderDevEnvironmentContractTest {
 			"readerDev must support direct reader launch from env-driven intent extras."
 		)
 		assertTrue(
+			mainActivity.contains("navic.dev.reader.start_progress") &&
+				mainActivity.contains("NAVIC_READER_DEV_START_PROGRESS") &&
+				mainActivity.contains("startProgress ="),
+			"readerDev must support direct progress-fraction launch so resume/persistence validation can bypass manual navigation."
+		)
+		assertTrue(
+			mainActivity.contains("navic.dev.reader.whispersync_sidecar_url") &&
+				mainActivity.contains("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL") &&
+				mainActivity.contains("whispersyncSidecarUrl =") &&
+				mainActivity.contains("whispersyncAudiobookId =") &&
+				mainActivity.contains("whispersyncAudiobookBookFileId ="),
+			"readerDev must support direct paired Whispersync reader launch so emulator validation can bypass manual Bindery sheet navigation."
+		)
+		assertTrue(
 			mainActivity.contains("Screen.BinderyBooks") &&
-				mainActivity.contains("preferenceManager.showedSideloadingWarning = true"),
-			"readerDev must fall back to Bindery Books when only Bindery credentials are seeded and must not block validation with the sideloading modal."
+				!mainActivity.contains("showedSideloadingWarning") &&
+				!app.contains("SideloadingDialog") &&
+				!preferenceManager.contains("showedSideloadingWarning") &&
+				!sideloadingDialog.exists(),
+			"readerDev must fall back to Bindery Books when only Bindery credentials are seeded; the sideloading modal is globally removed and cannot block validation."
 		)
 		assertTrue(
 			app.contains("fun App(initialScreenOverride: Screen? = null)") &&
@@ -117,6 +140,12 @@ class ReaderDevEnvironmentContractTest {
 			"The readerDev loop must suppress Android's fullscreen education overlay so screenshots and gestures hit the reader surface."
 		)
 		assertTrue(
+			installScriptText.contains("POST_NOTIFICATIONS") &&
+				installScriptText.contains("grant") &&
+				installScriptText.contains("notification permission"),
+			"The readerDev install script must grant Android notification permission after install so the permission controller cannot block foreground reader validation."
+		)
+		assertTrue(
 			installScriptText.contains("\$previousErrorActionPreference = \$ErrorActionPreference") &&
 				installScriptText.contains("\$ErrorActionPreference = \"Continue\"") &&
 				installScriptText.contains("\$output = & adb @adbArgs 2>&1"),
@@ -145,6 +174,18 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("BINDERY_TEST_RESOURCE_ID"),
 			"The install script must have a required-reader mode for validation; if no EPUB/PDF target is resolved it must fail instead of silently launching the catalog and producing false reader screenshots."
 		)
+		assertTrue(
+			installScriptText.contains("NAVIC_READER_DEV_START_PROGRESS") &&
+				installScriptText.contains("navic.dev.reader.start_progress"),
+			"The install script must pass explicit progress-fraction reader starts for resume/persistence validation."
+		)
+		assertTrue(
+			installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL") &&
+				installScriptText.contains("navic.dev.reader.whispersync_sidecar_url") &&
+				installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID") &&
+				installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID"),
+			"The install script must pass paired Whispersync route metadata so emulator validation can open a real sidecar/audiobook reader session directly."
+		)
 		val viewportScriptText = viewportScript.readText()
 		assertTrue(
 			viewportScriptText.contains("zfold7-inner") &&
@@ -156,6 +197,29 @@ class ReaderDevEnvironmentContractTest {
 			viewportScriptText.contains("LockRotation = \$false") &&
 				!Regex("""Rotation\s*=\s*"1"""").containsMatchIn(viewportScriptText),
 			"Viewport profiles must simulate tablet/foldable dimensions through wm size/density, not by forcing Android rotation over an already-landscape override."
+		)
+	}
+
+	@Test
+	fun releaseWatcherUsesConditionPollingWithoutTimeoutCancellation() {
+		val releaseScript = root.resolve("scripts/publish-github-release.ps1").readText()
+
+		assertTrue(
+			releaseScript.contains("[int] \$PollSeconds") &&
+				releaseScript.contains("Start-Sleep -Seconds \$PollSeconds"),
+			"The release watcher may keep a polling heartbeat while waiting for GitHub Actions and release assets."
+		)
+		assertTrue(
+			!releaseScript.contains("TimeoutMinutes") &&
+				!releaseScript.contains("AddMinutes(") &&
+				!releaseScript.contains("Timed out waiting") &&
+				!releaseScript.contains("was not visible after"),
+			"The release watcher must not use timeout/deadline cancellation as the release control path."
+		)
+		assertTrue(
+			releaseScript.contains("while (\$RunId -le 0)") &&
+				releaseScript.contains("while (\$true)"),
+			"The release watcher must continue until GitHub reports a workflow run, workflow completion, or release publication."
 		)
 	}
 

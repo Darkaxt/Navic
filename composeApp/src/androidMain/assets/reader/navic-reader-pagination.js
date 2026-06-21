@@ -164,15 +164,88 @@ function fixedLayoutPagePosition(detail) {
   }
 }
 
-function reflowablePaginatedTextPageCount(pages) {
+function reflowablePaginatedRawTextPageCount(pages) {
   if (!Number.isFinite(pages) || pages <= 1) return 1
   return Math.max(1, Math.round(pages) - 2)
+}
+
+function reflowablePaginatedVisualTextPageCount(pages) {
+  return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)
+}
+
+function reflowablePaginatedTextPageCount(pages) {
+  return this.reflowablePaginatedVisualTextPageCount(pages)
+}
+
+function reflowableChapterProgressAnchor(progress, renderer = this.view?.renderer) {
+  const numericProgress = Number(progress)
+  const clampedProgress = Number.isFinite(numericProgress)
+    ? Math.min(1, Math.max(0, numericProgress))
+    : 0
+  if (this.view?.isFixedLayout === true || renderer?.scrolled) return clampedProgress
+  const pages = Number(renderer?.pages)
+  if (!Number.isFinite(pages) || pages <= 3 || clampedProgress < 1) return clampedProgress
+  const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)
+  const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)
+  if (rawTextPageCount <= 1 || visualTextPageCount >= rawTextPageCount) return clampedProgress
+  return (visualTextPageCount - 1) / (rawTextPageCount - 1)
+}
+
+function reflowableLastVisualRendererPage(renderer = this.view?.renderer) {
+  const pages = Number(renderer?.pages)
+  if (!Number.isFinite(pages) || pages <= 1) return 1
+  const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)
+  return Math.max(1, visualTextPageCount)
+}
+
+function scrolledRendererViewportSize(renderer = this.view?.renderer) {
+  const rendererSize = Number(renderer?.size)
+  if (Number.isFinite(rendererSize) && rendererSize > 0) return rendererSize
+  const start = Number(renderer?.start)
+  const end = Number(renderer?.end)
+  const visibleSize = Number.isFinite(start) && Number.isFinite(end) ? Math.abs(end - start) : 0
+  if (Number.isFinite(visibleSize) && visibleSize > 0) return visibleSize
+  const viewport = readerViewportSize()
+  const sideProp = String(renderer?.sideProp || '')
+  const fallback = sideProp === 'width' ? Number(viewport.width) : Number(viewport.height)
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null
+}
+
+function reflowableScrolledSectionPagePosition() {
+  if (this.view?.isFixedLayout === true) return null
+  const renderer = this.view?.renderer
+  if (!renderer || !renderer.scrolled) return null
+  const start = Number(renderer.start)
+  const end = Number(renderer.end)
+  const viewSize = Number(renderer.viewSize)
+  const viewportSize = this.scrolledRendererViewportSize(renderer)
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    !Number.isFinite(viewSize) ||
+    !Number.isFinite(viewportSize) ||
+    viewSize <= 0 ||
+    viewportSize <= 0
+  ) {
+    return null
+  }
+  const pageCount = Math.max(1, Math.ceil(viewSize / viewportSize))
+  const atSectionEnd = viewSize - end <= ScrollEdgeTurnSlop
+  const rawPageIndex = atSectionEnd
+    ? pageCount - 1
+    : Math.floor(Math.max(0, start) / viewportSize)
+  return {
+    pageIndex: Math.min(pageCount - 1, Math.max(0, rawPageIndex)),
+    pageCount,
+    pageCountSource: 'scrolled-section',
+  }
 }
 
 function reflowableSectionPagePosition() {
   if (this.view?.isFixedLayout === true) return null
   const renderer = this.view?.renderer
-  if (!renderer || renderer.scrolled) return null
+  if (!renderer) return null
+  if (renderer.scrolled) return this.reflowableScrolledSectionPagePosition()
   let page
   let pages
   try {
@@ -860,10 +933,27 @@ function detailSectionKey(detail) {
 function committedPageTurnPosition(pagePosition, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+  const chapterPageCount = Number(pagePosition.chapterPageCount)
+  const chapterPageIndex = Number(pagePosition.chapterPageIndex)
+  if (
+    pagePosition.pageCountSource === 'pagination-profile' &&
+    Number.isFinite(chapterPageCount) &&
+    chapterPageCount <= 1 &&
+    (!Number.isFinite(chapterPageIndex) || chapterPageIndex <= 0)
+  ) {
+    return pagePosition
+  }
   const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
   const candidatePageIndex = Number(pagePosition.pageIndex)
   const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
   if (!Number.isFinite(currentPageIndex) || !Number.isFinite(candidatePageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) {
+    return pagePosition
+  }
+  if (
+    pagePosition.pageCountSource === 'pagination-profile' &&
+    this.currentPagePosition?.pageCountSource === 'pagination-profile' &&
+    candidatePageIndex === currentPageIndex
+  ) {
     return pagePosition
   }
   const direction = String(reason).includes(':previous') ? 'previous' : 'next'
@@ -1011,7 +1101,13 @@ function scheduleReaderPageNumberRefresh(reason = 'deferred') {
 
 export const NavicReaderPaginationMethods = {
   fixedLayoutPagePosition,
+  reflowablePaginatedRawTextPageCount,
+  reflowablePaginatedVisualTextPageCount,
   reflowablePaginatedTextPageCount,
+  reflowableChapterProgressAnchor,
+  reflowableLastVisualRendererPage,
+  scrolledRendererViewportSize,
+  reflowableScrolledSectionPagePosition,
   reflowableSectionPagePosition,
   reflowableLocationPagePosition,
   readerPageListPosition,

@@ -97,6 +97,7 @@ import {
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
+  readerPageDragPreviewMotion,
   readerPaperTextureDragDirection,
   readerSurfacePaperTextureScrollOffset,
   readerSurfacePaperTextureOpacity,
@@ -248,9 +249,10 @@ async function goToChapterProgress(href, progress) {
       this.view.book?.resolveHref?.(targetHref)
     )
     const index = Number(resolved?.index)
+    const targetAnchor = this.reflowableChapterProgressAnchor(fraction)
     if (Number.isFinite(index) && this.view.renderer?.goTo) {
       this.beginControlledRelocation('chapter-progress-seek')
-      await this.view.renderer.goTo({ index, anchor: fraction })
+      await this.view.renderer.goTo({ index, anchor: targetAnchor })
       this.view.history?.pushState?.({ href: targetHref, chapterFraction: fraction })
     } else {
       this.beginControlledRelocation('chapter-progress-seek')
@@ -294,6 +296,36 @@ function adjacentReadableSectionIndex(direction) {
   return null
 }
 
+function handleDuplicatePageTurnRelocation(_detail, reason) {
+  const reasonText = String(reason || '')
+  if (!reasonText.startsWith('page-turn:')) return false
+  if (this.pageTurnDuplicateFallbackInProgress) return false
+  const direction = reasonText.includes(':previous') ? 'previous' : 'next'
+  const targetIndex = this.adjacentReadableSectionIndex(direction)
+  const currentIndex = this.currentLoadedSectionIndex()
+  if (targetIndex == null || targetIndex === currentIndex) return false
+  const fallbackReason = `page-turn:${direction}:adjacent`
+  log('page-turn:duplicate-adjacent-fallback', direction, `from=${currentIndex ?? 'n/a'}`, `to=${targetIndex}`)
+  readerTrace('page-turn:duplicate-adjacent-fallback', {
+    direction,
+    currentIndex,
+    targetIndex,
+    reason: reasonText,
+  })
+  this.pageTurnDuplicateFallbackInProgress = true
+  this.beginControlledRelocation(fallbackReason)
+  const navigationPromise = this.view?.renderer?.goTo
+    ? this.view.renderer.goTo({ index: targetIndex })
+    : this.view?.goTo?.(targetIndex)
+  Promise.resolve(navigationPromise)
+    .catch(error => reportError(error, 'navigation_failed'))
+    .finally(() => {
+      this.pageTurnDuplicateFallbackInProgress = false
+    })
+  this.scheduleControlledRelocationFallback(fallbackReason)
+  return true
+}
+
 function nativeDragPreviewAtSectionBoundary(renderer, direction) {
   if (!renderer || renderer.scrolled) return false
   const page = Number(renderer.page)
@@ -305,7 +337,8 @@ function nativeDragPreviewAtSectionBoundary(renderer, direction) {
   if (direction === 'previous') {
     return page <= 1 || (Number.isFinite(start) && start <= 2)
   }
-  return page >= pages - 2 ||
+  const lastVisualPage = this.reflowableLastVisualRendererPage(renderer)
+  return page >= lastVisualPage ||
     (Number.isFinite(end) && Number.isFinite(viewSize) && viewSize - end <= 2)
 }
 
@@ -495,11 +528,11 @@ function removePageDragPreviewLayer() {
   this.pageDragPreviewReadyKey = ''
 }
 
-function pageDragPreviewDimensions(viewWidth = null) {
+function pageDragPreviewDimensions(viewWidth = null, viewHeight = null) {
   const viewport = readerViewportSize()
   return {
     width: Math.max(1, Math.round(Number(viewWidth) || viewport.width || window.innerWidth || 1)),
-    height: Math.max(1, Math.round(viewport.height || window.innerHeight || 1)),
+    height: Math.max(1, Math.round(Number(viewHeight) || viewport.height || window.innerHeight || 1)),
   }
 }
 
@@ -570,6 +603,16 @@ function loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKe
       })
       if (targetKey && token === this.pageDragPreviewLoadToken && frame === this.pageDragPreviewFrame) {
         this.pageDragPreviewReadyKey = targetKey
+        const pending = this.pendingPageDragPreviewCommand
+        if (pending?.targetKey === targetKey && pending?.command) {
+          requestAnimationFrame(() => {
+            if (this.pendingPageDragPreviewCommand?.targetKey !== targetKey) return
+            if (this.pageDragPreviewReadyKey !== targetKey) return
+            const command = this.pendingPageDragPreviewCommand.command
+            this.pendingPageDragPreviewCommand = null
+            this.previewPageDrag(command)
+          })
+        }
       }
     })
     .catch(error => {
@@ -582,11 +625,11 @@ function loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKe
     })
 }
 
-function ensurePageDragPreviewTarget({ direction, viewWidth = null, hidden = false }) {
+function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight = null, hidden = false }) {
   if (!direction) return null
   const targetIndex = this.adjacentReadableSectionIndex(direction)
   if (targetIndex == null) return null
-  const { width, height } = this.pageDragPreviewDimensions(viewWidth)
+  const { width, height } = this.pageDragPreviewDimensions(viewWidth, viewHeight)
   const side = direction === 'previous' ? 'left' : 'right'
   const palette = readerThemePalette(this.readerSettings?.theme)
   const { layer, frame } = this.ensurePageDragPreviewLayer()
@@ -664,28 +707,60 @@ function preloadPageDragPreviewTargets(label = 'unknown') {
   }
 }
 
-function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) {
+function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, viewHeight, renderer }) {
   if (!direction || !this.safeNativeDragPreviewAtSectionBoundary(renderer, direction)) {
     this.removePageDragPreviewLayer()
     return
   }
-  const preview = this.ensurePageDragPreviewTarget({ direction, viewWidth })
+  const preview = this.ensurePageDragPreviewTarget({ direction, viewWidth, viewHeight })
   if (!preview) {
     this.removePageDragPreviewLayer()
     return
   }
   const { layer, frame, targetIndex, targetKey, side, width, height, palette } = preview
-  const exposedWidth = Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
-  const left = side === 'right' ? width - exposedWidth : 0
+  const ready = this.pageDragPreviewReadyKey === targetKey
+  layer.dataset.navicPageDragPreviewReady = String(ready)
+  if (!ready) {
+    setStylesImportant(layer, {
+      position: 'fixed',
+      top: '0px',
+      left: '-1px',
+      width: '1px',
+      height: `${height}px`,
+      'min-height': `${height}px`,
+      overflow: 'hidden',
+      opacity: '0',
+      'z-index': '2147483642',
+      'pointer-events': 'none',
+      background: palette.background,
+      'background-color': palette.background,
+      color: palette.foreground,
+      'box-sizing': 'border-box',
+    })
+    readerTrace('page-drag-preview:underlay-waiting', {
+      direction,
+      side,
+      targetIndex,
+      currentIndex: this.currentLoadedSectionIndex(),
+    })
+    return false
+  }
+  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
+  const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
+  const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
+  const left = vertical || side !== 'right' ? 0 : width - exposedWidth
+  const top = vertical && direction === 'next' ? height - exposedHeight : 0
+  const frameLeft = vertical || side !== 'right' ? '0px' : `-${width - exposedWidth}px`
+  const frameTop = vertical && direction === 'next' ? `-${height - exposedHeight}px` : '0px'
   layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
-  layer.dataset.navicPageDragPreviewReady = String(this.pageDragPreviewReadyKey === targetKey)
+  layer.dataset.navicPageDragPreviewExposedHeight = String(exposedHeight)
   setStylesImportant(layer, {
     position: 'fixed',
-    top: '0px',
+    top: `${top}px`,
     left: `${left}px`,
     width: `${exposedWidth}px`,
-    height: `${height}px`,
-    'min-height': `${height}px`,
+    height: `${exposedHeight}px`,
+    'min-height': `${exposedHeight}px`,
     overflow: 'hidden',
     'z-index': '2147483642',
     'pointer-events': 'none',
@@ -696,8 +771,8 @@ function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) 
   })
   setStylesImportant(frame, {
     position: 'absolute',
-    top: '0px',
-    left: side === 'right' ? `-${width - exposedWidth}px` : '0px',
+    top: frameTop,
+    left: frameLeft,
     width: `${width}px`,
     height: `${height}px`,
     border: '0',
@@ -714,9 +789,11 @@ function updatePageDragPreviewLayer({ direction, deltaX, viewWidth, renderer }) 
     side,
     targetIndex,
     exposedWidth,
-    ready: this.pageDragPreviewReadyKey === targetKey,
+    exposedHeight,
+    ready,
     currentIndex: this.currentLoadedSectionIndex(),
   })
+  return true
 }
 
 function previewPageDrag(command) {
@@ -729,34 +806,72 @@ function previewPageDrag(command) {
       ? 'cancel'
       : 'update'
   if (phase === 'cancel') {
-    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
-      ? Number(this.nativePageDragPreview?.deltaX) || 0
-      : 0
-    if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
-    readerTrace('page-drag-preview:cancel', { deltaX: previousDeltaX })
+    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+      ? {
+        x: Number(this.nativePageDragPreview?.deltaX) || 0,
+        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+      }
+      : { x: 0, y: 0 }
+    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
+      renderer.scrollBy(previousDelta.x, previousDelta.y)
+    }
+    readerTrace('page-drag-preview:cancel', {
+      deltaX: previousDelta.x,
+      deltaY: previousDelta.y,
+    })
     this.nativePageDragPreview = null
+    this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
+    this.surfacePaperTextureFallbackDirection = null
     this.renderSurfacePaperTextureLayers()
     return
   }
   if (phase === 'release') {
-    const previousDeltaX = this.nativePageDragPreview?.renderer === renderer
-      ? Number(this.nativePageDragPreview?.deltaX) || 0
-      : 0
-    if (previousDeltaX !== 0) renderer.scrollBy(previousDeltaX, 0)
-    readerTrace('page-drag-preview:release', { deltaX: previousDeltaX })
+    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+      ? {
+        x: Number(this.nativePageDragPreview?.deltaX) || 0,
+        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+      }
+      : { x: 0, y: 0 }
+    const releaseDeltaX = Number(command?.deltaX)
+    const releaseDeltaY = Number(command?.deltaY)
+    const releaseTextureDirection = readerPaperTextureDragDirection({
+      deltaX: Number.isFinite(releaseDeltaX) ? releaseDeltaX : previousDelta.x,
+      deltaY: Number.isFinite(releaseDeltaY) ? releaseDeltaY : previousDelta.y,
+      flowMode: this.readerFlowModeValue,
+      readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
+      threshold: 1,
+    })
+    if (releaseTextureDirection) {
+      this.surfacePaperTextureFallbackDirection = releaseTextureDirection
+      readerTrace('texture:drag-direction', {
+        direction: releaseTextureDirection,
+        source: 'native-preview-release',
+      })
+    }
+    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
+      renderer.scrollBy(previousDelta.x, previousDelta.y)
+    }
+    readerTrace('page-drag-preview:release', {
+      deltaX: previousDelta.x,
+      deltaY: previousDelta.y,
+    })
     this.nativePageDragPreview = null
+    this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
     this.renderSurfacePaperTextureLayers()
     return
   }
   const deltaX = Number(command?.deltaX)
-  if (!Number.isFinite(deltaX)) return
+  const deltaY = Number(command?.deltaY)
+  if (!Number.isFinite(deltaX) && !Number.isFinite(deltaY)) return
+  const currentDeltaX = Number.isFinite(deltaX) ? deltaX : 0
+  const currentDeltaY = Number.isFinite(deltaY) ? deltaY : 0
   const textureDirection = readerPaperTextureDragDirection({
-    deltaX,
-    deltaY: 0,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
     flowMode: this.readerFlowModeValue,
     readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
     threshold: 1,
@@ -772,24 +887,74 @@ function previewPageDrag(command) {
   const lastDeltaX = this.nativePageDragPreview?.renderer === renderer
     ? Number(this.nativePageDragPreview?.deltaX) || 0
     : 0
-  const incrementalDeltaX = deltaX - lastDeltaX
-  if (incrementalDeltaX !== 0) renderer.scrollBy(-incrementalDeltaX, 0)
+  const lastDeltaY = this.nativePageDragPreview?.renderer === renderer
+    ? Number(this.nativePageDragPreview?.deltaY) || 0
+    : 0
+  const { incrementalDelta } = readerPageDragPreviewMotion({
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
+    lastDeltaX,
+    lastDeltaY,
+    flowMode: this.readerFlowModeValue,
+  })
+  const boundaryDirection = textureDirection && this.safeNativeDragPreviewAtSectionBoundary(renderer, textureDirection)
+    ? textureDirection
+    : ''
+  let waitingForBoundaryPreview = false
+  if (boundaryDirection) {
+    const preview = this.ensurePageDragPreviewTarget({
+      direction: boundaryDirection,
+      viewWidth: command?.viewWidth,
+      viewHeight: command?.viewHeight,
+      hidden: true,
+    })
+    const previewReady = preview && this.pageDragPreviewReadyKey === preview.targetKey
+    if (!previewReady) {
+      this.pendingPageDragPreviewCommand = preview
+        ? {
+          targetKey: preview.targetKey,
+          command: {
+            type: 'previewPageDrag',
+            phase: 'update',
+            deltaX: currentDeltaX,
+            deltaY: currentDeltaY,
+            viewWidth: command?.viewWidth,
+            viewHeight: command?.viewHeight,
+          },
+        }
+        : null
+      waitingForBoundaryPreview = true
+      readerTrace('page-drag-preview:underlay-waiting', {
+        direction: boundaryDirection,
+        targetIndex: preview?.targetIndex ?? null,
+        currentIndex: this.currentLoadedSectionIndex(),
+      })
+    }
+  }
+  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
+    renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
+  }
   this.updatePageDragPreviewLayer({
     direction: textureDirection,
-    deltaX,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
     viewWidth: command?.viewWidth,
+    viewHeight: command?.viewHeight,
     renderer,
   })
   this.nativePageDragPreview = phase === 'release'
     ? null
-    : { deltaX, renderer }
+    : { deltaX: currentDeltaX, deltaY: currentDeltaY, renderer }
   readerTrace('page-drag-preview', {
     phase,
-    deltaX,
-    incrementalDeltaX,
+    deltaX: currentDeltaX,
+    deltaY: currentDeltaY,
+    incrementalDeltaX: incrementalDelta.x,
+    incrementalDeltaY: incrementalDelta.y,
     start: renderer.start,
     end: renderer.end,
     viewSize: renderer.viewSize,
+    source: waitingForBoundaryPreview ? 'boundary-preview-loading' : 'native-preview',
   })
 }
 
@@ -989,7 +1154,7 @@ function attachScrolledEdgeTurnGestures(doc) {
       x: touch.screenX ?? touch.clientX ?? 0,
       y: touch.screenY ?? touch.clientY ?? 0,
     }
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchmove', event => {
     if (!touchState || event.touches?.length > 1) {
       touchState = null
@@ -999,7 +1164,7 @@ function attachScrolledEdgeTurnGestures(doc) {
     if (!touch) return
     touchState.lastX = touch.screenX ?? touch.clientX ?? touchState.x
     touchState.lastY = touch.screenY ?? touch.clientY ?? touchState.y
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchend', event => {
     const state = touchState
     touchState = null
@@ -1014,7 +1179,7 @@ function attachScrolledEdgeTurnGestures(doc) {
     if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return
     if (Math.abs(deltaY) < ScrollEdgeTurnSwipeThreshold || Math.abs(deltaY) <= Math.abs(deltaX)) return
     this.turnScrolledEdgePage(deltaY)
-  }, { passive: true })
+  }, { capture: true, passive: true })
   doc.addEventListener('touchcancel', () => {
     touchState = null
   }, { passive: true })
@@ -1039,7 +1204,7 @@ function turnScrolledEdgePage(deltaY) {
   }
   if (deltaY < -ScrollEdgeTurnSwipeThreshold && atEnd) {
     log('page-turn:edge-swipe', 'next', `remaining=${renderer.viewSize - renderer.end}`)
-    post({ type: 'pullUp' })
+    post({ type: 'pullUp', source: 'scrolled-edge-swipe' })
     void this.nextPage()
     return true
   }
@@ -1109,6 +1274,7 @@ export const NavicReaderPageTurnMethods = {
   previousPage,
   currentLoadedSectionIndex,
   adjacentReadableSectionIndex,
+  handleDuplicatePageTurnRelocation,
   nativeDragPreviewAtSectionBoundary,
   readerRendererReadyForPageDrag,
   safeNativeDragPreviewAtSectionBoundary,

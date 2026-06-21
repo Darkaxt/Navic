@@ -37,8 +37,16 @@ class FoliateAnxParityTest {
 		anxReferenceFile("lib/models/book_style.dart").readText()
 	}
 
+	private val anxFootnotesText: String by lazy {
+		anxReferenceFile("assets/foliate-js/src/footnotes.js").readText()
+	}
+
 	private val navicViewText: String by lazy {
 		readerAssetRoot().resolve("vendor/foliate-js/view.js").readText()
+	}
+
+	private val navicFoliateReaderText: String by lazy {
+		readerAssetRoot().resolve("vendor/foliate-js/reader.js").readText()
 	}
 
 	private val navicContentInteractionsText: String by lazy {
@@ -46,11 +54,11 @@ class FoliateAnxParityTest {
 	}
 
 	private val navicReaderMainText: String by lazy {
-		readerAssetRoot().resolve("navic-reader.js").readText()
+		readerRuntimeImplementationText()
 	}
 
 	private val navicReaderHelpersText: String by lazy {
-		readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		readerBridgeText()
 	}
 
 	private val navicReaderPaginationText: String by lazy {
@@ -209,7 +217,9 @@ class FoliateAnxParityTest {
 		"onLoadEnd" to exists(
 			"LoadDoc event with serializable payload",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
-			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+			controllerTest("loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp"),
+			routeStop("ReaderController.kt", "loadedDocument = document"),
+			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
 		),
 		"onExternalLink" to exists(
 			"ExternalLink distinct event",
@@ -230,12 +240,13 @@ class FoliateAnxParityTest {
 			readerUiRoute("ReaderRoot.kt", "controllerState.annotationPopup")
 		),
 		"onPushState" to exists(
-			"PushState event",
-			controllerTest("pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine"),
+			"PushState event updates history capabilities without auto-surfacing chrome",
+			controllerTest("pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault"),
 			readerUiRoute("ReaderRoot.kt", "KomikkuReaderHistoryCapsule"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryBack()"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryForward()"),
 			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState"),
+			routeStop("ReaderController.kt", "visible = false"),
 			routeStop("ReaderController.kt", "ReaderEngineCommand.NavigateHistory"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryBack"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryForward"),
@@ -243,8 +254,16 @@ class FoliateAnxParityTest {
 			routeStop("navic-reader.js", "case 'historyForward':")
 		),
 		"onFootnoteClose" to exists(
-			"FootnoteClose event on overlay dismissal",
-			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			"Footnote popup lifecycle with controller-owned open and close routes",
+			controllerTest("footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt"),
+			readerUiRoute("ReaderFootnoteDialog.kt", "KomikkuReaderFootnoteDialog"),
+			readerUiRoute("ReaderRoot.kt", "controllerState.footnotePopup"),
+			routeStop("ReaderController.kt", "footnotePopup ="),
+			routeStop("navic-reader-content-interactions.js", "type: 'footnoteOpen'"),
+			routeStop("navic-reader-content-interactions.js", "readerResolvedFootnoteOpenPayload"),
+			routeStop("navic-reader-content-interactions.js", "book?.resolveHref"),
+			routeStop("navic-reader-content-interactions.js", "section.load"),
+			routeStop("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt", "footnoteOpen("),
 			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
 		"onPullUp" to exists(
@@ -262,7 +281,9 @@ class FoliateAnxParityTest {
 		"load" to exists(
 			"LoadDoc event",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
-			routeStop("ReaderController.kt", "loadedDocument = ReaderLoadedDocument")
+			controllerTest("loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection"),
+			routeStop("ReaderController.kt", "loadedDocument = document"),
+			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
 		),
 		"external-link" to exists(
 			"ExternalLink event",
@@ -272,6 +293,7 @@ class FoliateAnxParityTest {
 		"draw-annotation" to exists(
 			"AnnotationDrawn event",
 			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			routeStop("navic-reader.js", "Overlayer.highlight"),
 			routeStop("ReaderController.kt", "ReaderAnnotationInteractionKind.Drawn")
 		),
 		"show-annotation" to exists(
@@ -585,6 +607,36 @@ class FoliateAnxParityTest {
 	}
 
 	@Test
+	fun drawAnnotationRuntimePaintsFoliateOverlayBeforeReportingBridgeEvent() {
+		val anxAnnotationBody = anxViewText
+			.substringAfter("async addAnnotation(annotation, remove)")
+			.substringBefore("deleteAnnotation(annotation)")
+		val foliateReaderAnnotationBody = navicFoliateReaderText
+			.substringAfter("addEventListener('draw-annotation'")
+			.substringBefore("addEventListener('show-annotation'")
+
+		assertTrue(
+			anxAnnotationBody.contains("draw") &&
+				anxAnnotationBody.contains("draw-annotation"),
+			"Anx/Foliate draw-annotation emits a draw callback, not just an informational event."
+		)
+		assertTrue(
+			foliateReaderAnnotationBody.contains("draw(Overlayer.highlight") &&
+				foliateReaderAnnotationBody.contains("{ color }"),
+			"Foliate's reader paints annotation ranges by calling draw(Overlayer.highlight, { color })."
+		)
+		assertTrue(
+			navicReaderMainText.contains("import { Overlayer } from './vendor/foliate-js/overlayer.js'") &&
+				navicReaderMainText.contains("readerDrawNoteAnnotation") &&
+				navicReaderMainText.contains("annotation.note") &&
+				navicReaderMainText.contains("Overlayer.squiggly") &&
+				navicReaderMainText.contains("hasNote ? readerDrawNoteAnnotation : Overlayer.highlight") &&
+				navicReaderMainText.contains("type: 'annotationDrawn'"),
+			"Navic must paint annotation ranges before reporting annotationDrawn, with note-bearing annotations visibly distinct from plain highlights."
+		)
+	}
+
+	@Test
 	fun phase3AnxBridgeEventsHaveControllerBehaviorRoutes() {
 		data class ControllerRoute(
 			val engineEvent: String,
@@ -635,7 +687,7 @@ class FoliateAnxParityTest {
 			ControllerRoute(
 				engineEvent = "PullUp",
 				controllerStateSymbol = "lastOverlayInteraction",
-				noOpBranch = "ReaderEngineEvent.PullUp -> ReaderControllerStep(this)"
+				noOpBranch = "is ReaderEngineEvent.PullUp -> ReaderControllerStep(this)"
 			)
 		)
 
@@ -653,6 +705,34 @@ class FoliateAnxParityTest {
 				"${route.engineEvent} must not be discarded with `${route.noOpBranch}`."
 			)
 		}
+	}
+
+	@Test
+	fun footnotePopupRouteResolvesCrossSectionTargetsLikeAnxFootnoteHandler() {
+		for (symbol in listOf("book.resolveHref(href)", "document.createElement('foliate-view')", "view.open(book)", "view.goTo(index)")) {
+			assertTrue(
+				anxFootnotesText.contains(symbol),
+				"Anx FootnoteHandler must prove '$symbol' is part of the reference cross-section footnote route."
+			)
+		}
+		assertTrue(
+			navicContentInteractionsText.contains("readerResolvedFootnoteOpenPayload"),
+			"Navic footnote route must have an async resolved-footnote helper instead of only reading the current document."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("this.view?.book?.resolveHref") ||
+				navicContentInteractionsText.contains("book.resolveHref") ||
+				navicContentInteractionsText.contains("book?.resolveHref"),
+			"Navic footnote route must use Foliate book.resolveHref so same-document and cross-section references share Anx semantics."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("section.load"),
+			"Navic footnote route must load the resolved target section before extracting cross-section footnote content."
+		)
+		assertTrue(
+			navicContentInteractionsText.contains("readerFootnoteElementFromTarget"),
+			"Navic footnote route must handle Foliate anchor results that are Element or Range targets."
+		)
 	}
 
 	@Test
@@ -808,10 +888,51 @@ class FoliateAnxParityTest {
 			"readerContentCss must apply Anx text style dimensions with matching CSS semantics."
 		)
 		assertTrue(
+			navicReaderHelpersText.contains("--reader-content-font-size") &&
+				navicReaderHelpersText.contains("font-size: var(--reader-content-font-size") &&
+				navicReaderHelpersText.contains("body {\n    font-size: 1rem !important;") &&
+				navicReaderHelpersText.contains("p span,\n  p font,") &&
+				navicReaderHelpersText.contains("body > span:not(:has(img)):not(:has(svg)):not(:has(canvas))"),
+			"Reader font-size controls must scale publisher inline ebook body text, not only headings."
+		)
+		assertTrue(
 			navicReaderMainText.contains("setAttribute('top-margin'") &&
 				navicReaderMainText.contains("setAttribute('bottom-margin'") &&
 				navicReaderMainText.contains("setAttribute('gap'"),
 			"Navic Foliate renderer setup must apply Anx top/bottom/gap attributes."
+		)
+		val paginatorObservedAttributes = navicPaginatorText
+			.substringAfter("static observedAttributes = [")
+			.substringBefore("]")
+		assertTrue(
+			paginatorObservedAttributes.contains("'top-margin'") &&
+				paginatorObservedAttributes.contains("'bottom-margin'"),
+			"Bundled Foliate paginator must observe Anx topMargin/bottomMargin attributes; handling them in attributeChangedCallback is inert unless the custom element observes them."
+		)
+		assertTrue(
+			navicPaginatorText.contains("case 'top-margin':") &&
+				navicPaginatorText.contains("case 'bottom-margin':") &&
+				navicPaginatorText.contains("--_top-margin") &&
+				navicPaginatorText.contains("--_bottom-margin") &&
+				navicPaginatorText.contains("var(--_top-margin)") &&
+				navicPaginatorText.contains("var(--_bottom-margin)"),
+			"Bundled Foliate paginator must consume Anx topMargin/bottomMargin separately; a single uniform margin is not Anx parity."
+		)
+	}
+
+	@Test
+	fun foliatePaginatorObservesAnxVerticalMarginAttributes() {
+		val paginatorObservedAttributes = navicPaginatorText
+			.substringAfter("static observedAttributes = [")
+			.substringBefore("]")
+
+		assertTrue(
+			paginatorObservedAttributes.contains("'top-margin'"),
+			"Foliate paginator must observe the top-margin attribute that Navic sets from Anx topMargin."
+		)
+		assertTrue(
+			paginatorObservedAttributes.contains("'bottom-margin'"),
+			"Foliate paginator must observe the bottom-margin attribute that Navic sets from Anx bottomMargin."
 		)
 	}
 
@@ -853,12 +974,20 @@ class FoliateAnxParityTest {
 		}
 		assertTrue(
 			navicReaderHelpersText.contains("readerMaxColumnCountValue") &&
+				navicReaderHelpersText.contains("readerEffectiveMaxColumnCount") &&
 				navicReaderHelpersText.contains("readerColumnThresholdValue") &&
 				navicReaderHelpersText.contains("columnThreshold: `${'$'}{Math.round(columnThreshold)}px`") &&
 				navicReaderMainText.contains("setAttribute('column-threshold', pageBox.columnThreshold)") &&
 				navicPaginatorText.contains("'column-threshold'") &&
 				navicPaginatorText.contains("maxColumnCount === 0"),
-			"readerAdaptiveFoliatePageBox and the bundled paginator must derive columns from Anx maxColumnCount/columnThreshold settings."
+			"readerAdaptiveFoliatePageBox must carry Anx maxColumnCount/columnThreshold settings through Navic shell resolution and the bundled paginator."
+		)
+		val adaptivePageBoxBody = navicReaderHelpersText
+			.substringAfter("export const readerAdaptiveFoliatePageBox")
+			.substringBefore("\n}\n\nexport const readerStartLocatorHasPosition")
+		assertTrue(
+			!adaptivePageBoxBody.contains(": columnThreshold"),
+			"Auto column mode must not hard-cap the full page inline size to columnThreshold; threshold decides splitting, not tablet page width."
 		)
 	}
 

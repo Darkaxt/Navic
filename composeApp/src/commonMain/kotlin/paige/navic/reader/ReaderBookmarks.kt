@@ -25,8 +25,8 @@ data class ReaderBookmark(
 
 	fun toLocator(): ReaderLocator =
 		ReaderLocator(
-			href = href,
-			cfi = cfi,
+			href = href?.trim()?.takeIf { it.isNotEmpty() },
+			cfi = cfi?.trim()?.takeIf { it.isNotEmpty() },
 			progress = progress
 		)
 }

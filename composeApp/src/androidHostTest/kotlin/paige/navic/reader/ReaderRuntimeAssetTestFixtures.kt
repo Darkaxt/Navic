@@ -17,22 +17,36 @@ internal fun readerAssetRoot(): File =
 
 internal fun readerBridgeText(root: File = readerAssetRoot()): String =
 	listOf(
+		"navic-reader-bridge-core.js",
+		"navic-reader-settings-core.js",
 		"navic-reader-settings.js",
+		"navic-reader-media.js",
+		"navic-reader-identity.js",
+		"navic-reader-pagination-model.js",
+		"navic-reader-typography.js",
 		"navic-reader-helpers.js",
+		"navic-reader-motion.js",
 		"navic-reader-page-turns.js",
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",
 		"navic-reader-appearance.js",
+		"navic-reader-shell-cover.js",
+		"navic-reader-viewport.js",
+		"navic-reader-location.js",
 		"navic-reader.js"
 	)
 		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
 
 internal fun readerRuntimeImplementationText(root: File = readerAssetRoot()): String =
 	listOf(
+		"navic-reader-motion.js",
 		"navic-reader-page-turns.js",
 		"navic-reader-content-interactions.js",
 		"navic-reader-pagination.js",
 		"navic-reader-appearance.js",
+		"navic-reader-shell-cover.js",
+		"navic-reader-viewport.js",
+		"navic-reader-location.js",
 		"navic-reader.js"
 	)
 		.joinToString(separator = "\n") { fileName -> root.resolve(fileName).readText() }
@@ -64,6 +78,19 @@ internal fun settingsFile(fileName: String): File =
 		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/$fileName")
 	).firstOrNull { it.isFile }
 		?: error("Could not locate settings file $fileName")
+
+internal fun settingsSearchSourceText(): String {
+	val settingsDir = listOf(
+		File("src/commonMain/kotlin/paige/navic/ui/screens/settings"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings")
+	).firstOrNull { it.isDirectory }
+		?: error("Could not locate common settings source directory")
+	return settingsDir
+		.listFiles { file -> file.isFile && file.name.startsWith("SettingsSearch") && file.extension == "kt" }
+		.orEmpty()
+		.sortedBy { it.name }
+		.joinToString(separator = "\n") { it.readText() }
+}
 
 internal fun readerScreenFile(): File =
 	listOf(

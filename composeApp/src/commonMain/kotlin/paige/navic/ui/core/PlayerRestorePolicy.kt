@@ -13,6 +13,7 @@ fun restoredPlayerStateForPreferences(
 	return restoredState.copy(
 		isPaused = !resumePlaybackOnStartup,
 		isLoading = false,
+		playbackDownloadProgress = null,
 		playbackSpeed = normalizedPlaybackSpeed(restoredState.playbackSpeed),
 		playbackPitch = normalizedPlaybackPitch(restoredState.playbackPitch)
 	)

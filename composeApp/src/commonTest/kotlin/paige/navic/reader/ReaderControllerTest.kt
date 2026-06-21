@@ -3,6 +3,8 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.repositories.BinderyReadingProgress
@@ -168,7 +170,7 @@ class ReaderControllerTest {
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false)
 		).controller
 		val footnoteClosed = navigation.onEngineEvent(ReaderEngineEvent.FootnoteClose).controller
-		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp)
+		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp())
 
 		assertEquals(
 			ReaderLinkInteraction.Internal(
@@ -208,7 +210,7 @@ class ReaderControllerTest {
 			overlayCreated.state.lastOverlayInteraction
 		)
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = false),
 			navigation.state.engineNavigation
 		)
 		assertEquals(
@@ -224,13 +226,30 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pushStateShowsNativeHistoryCapsuleAndRoutesHistoryCommandsThroughEngine() {
+	fun scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu() {
+		val controller = ReaderController().onViewerAction(ReaderViewerAction.Menu).controller
+			.onViewerAction(ReaderViewerAction.Menu).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe)
+		)
+
+		assertEquals(
+			ReaderOverlayInteraction.PullUp,
+			step.controller.state.lastOverlayInteraction
+		)
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault() {
 		val controller = ReaderController().onEngineEvent(
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
 		).controller
 
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
 			controller.state.engineNavigation
 		)
 
@@ -300,6 +319,45 @@ class ReaderControllerTest {
 			dismissed.controller.state.lastLinkInteraction
 		)
 		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
+	fun footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt() {
+		val opened = ReaderController().onEngineEvent(
+			ReaderEngineEvent.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			)
+		)
+
+		assertEquals(
+			ReaderFootnotePopupState(
+				href = "Text/chapter-01.xhtml#fn1",
+				text = "This is the footnote body.",
+				noteType = "footnote",
+				hidden = true
+			),
+			opened.controller.state.footnotePopup
+		)
+		assertEquals(
+			ReaderOverlayInteraction.FootnoteOpened(
+				href = "Text/chapter-01.xhtml#fn1",
+				noteType = "footnote"
+			),
+			opened.controller.state.lastOverlayInteraction
+		)
+		assertEquals(emptyList(), opened.engineCommands)
+
+		val closed = opened.controller.onEngineEvent(ReaderEngineEvent.FootnoteClose)
+
+		assertNull(closed.controller.state.footnotePopup)
+		assertEquals(
+			ReaderOverlayInteraction.FootnoteClosed,
+			closed.controller.state.lastOverlayInteraction
+		)
+		assertEquals(emptyList(), closed.engineCommands)
 	}
 
 	@Test
@@ -423,6 +481,46 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun chapterHrefChangeWithoutLocalPageMetadataClearsStaleRailPages() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-13.xhtml",
+						chapterProgress = 1.0,
+						chapterPageIndex = 11,
+						chapterPageCount = 12
+					),
+					tocTitle = "Chapter XIII"
+				)
+			).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "chapter-14.xhtml",
+					progress = 0.84,
+					pageIndex = 513,
+					pageCount = 1748
+				),
+				tocTitle = "Chapter XIV: Fire and Water"
+			)
+		)
+
+		assertEquals(
+			ReaderChapterProgressState(
+				href = "chapter-14.xhtml",
+				title = "Chapter XIV: Fire and Water",
+				pageIndex = 0,
+				pageCount = 1,
+				progress = 0.0
+			),
+			step.controller.state.chapterProgress
+		)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun engineRelocationsBuildControllerOwnedProgressSnapshotsAfterPublicationReady() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
@@ -493,7 +591,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun contentActionClaimsSuppressOnlyTheNextNativeViewerAction() {
+	fun contentActionClaimsDoNotSuppressNativeViewerActions() {
 		val claimed = ReaderController().onEngineEvent(
 			ReaderEngineEvent.ContentActionClaimed(ReaderContentAction.Image)
 		).controller
@@ -502,9 +600,8 @@ class ReaderControllerTest {
 		val next = toggled.controller.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
 
 		assertEquals(ReaderContentAction.Image, claimed.state.lastContentActionClaim?.action)
-		assertFalse(toggled.controller.state.menuVisible)
+		assertTrue(toggled.controller.state.menuVisible)
 		assertNull(toggled.controller.state.lastContentActionClaim)
-		assertEquals(emptyList(), toggled.engineCommands)
 		assertEquals(
 			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Next)),
 			next.engineCommands
@@ -543,6 +640,94 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun previousFromFrontmatterStartReturnsToNativeCoverEvenWhenGlobalPageIndexIsPastOne() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val frontmatter = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.0007927082115140601,
+						pageIndex = 10,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = "Synopsis"
+				)
+			).controller
+
+		val previous = frontmatter.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous))
+
+		assertTrue(previous.controller.state.shellCoverVisible)
+		assertFalse(previous.controller.state.menuVisible)
+		assertEquals(emptyList(), previous.engineCommands)
+	}
+
+	@Test
+	fun previousFromLaterFrontmatterPageUsesEngineInsteadOfJumpingBackToNativeCover() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val firstFrontmatter = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/sinopsis.xhtml",
+						progress = 0.0007927082115140601,
+						pageIndex = 10,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = "Synopsis"
+				)
+			).controller
+		val laterFrontmatter = firstFrontmatter
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/TitlePage-01.xhtml",
+						progress = 0.0024865680920030196,
+						pageIndex = 13,
+						pageCount = 1534,
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 2
+					),
+					tocTitle = null
+				)
+			).controller
+
+		val previous = laterFrontmatter.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous))
+
+		assertFalse(previous.controller.state.shellCoverVisible)
+		assertEquals(
+			listOf(ReaderEngineCommand.TurnPage(ReaderPageTurnDirection.Previous)),
+			previous.engineCommands,
+			"Only the first eligible EPUB-side locator after dismissing the native cover may reclaim the native cover."
+		)
+	}
+
+	@Test
 	fun contentActionClaimsKeepMetadataInControllerState() {
 		val claim = ReaderContentActionClaim(
 			action = ReaderContentAction.Link,
@@ -560,7 +745,7 @@ class ReaderControllerTest {
 
 		assertEquals(claim, claimed.state.lastContentActionClaim)
 		assertNull(toggled.controller.state.lastContentActionClaim)
-		assertFalse(toggled.controller.state.menuVisible)
+		assertTrue(toggled.controller.state.menuVisible)
 	}
 
 	@Test
@@ -587,7 +772,9 @@ class ReaderControllerTest {
 		val step = ReaderController().onViewerAction(
 			ReaderViewerAction.PreviewPageDrag(
 				deltaX = -184.0,
+				deltaY = -96.0,
 				viewWidth = 1440.0,
+				viewHeight = 2200.0,
 				phase = ReaderPageDragPreviewPhase.Update
 			)
 		)
@@ -597,7 +784,9 @@ class ReaderControllerTest {
 			listOf(
 				ReaderEngineCommand.PreviewPageDrag(
 					deltaX = -184.0,
+					deltaY = -96.0,
 					viewWidth = 1440.0,
+					viewHeight = 2200.0,
 					phase = ReaderPageDragPreviewPhase.Update
 				)
 			),
@@ -678,22 +867,26 @@ class ReaderControllerTest {
 	@Test
 	fun settingsDialogVisibilityIsControllerOwnedLikeKomikkuReaderSettingsDialog() {
 		val contents = ReaderController().openContentsDialog()
-		val readingMode = contents.controller.openReadingModeDialog()
-		val settings = readingMode.controller.openSettingsDialog()
+		val settings = contents.controller.openSettingsDialog()
 		val dismissed = settings.controller.closeDialog()
 
 		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
 		assertTrue(contents.controller.state.menuVisible)
 		assertEquals(emptyList(), contents.engineCommands)
-		assertEquals(ReaderControllerDialog.ReadingMode, readingMode.controller.state.dialog)
-		assertTrue(readingMode.controller.state.menuVisible)
-		assertEquals(emptyList(), readingMode.engineCommands)
 		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
 		assertTrue(settings.controller.state.menuVisible)
 		assertEquals(emptyList(), settings.engineCommands)
 		assertNull(dismissed.controller.state.dialog)
 		assertTrue(dismissed.controller.state.menuVisible)
 		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
+	fun readerSettingsDialogHasSingleControllerRoute() {
+		assertTrue(
+			ReaderControllerDialog.entries.none { it.name == "ReadingMode" },
+			"Reader settings must have one controller dialog route; duplicate settings modes recreate the old docked-options surface."
+		)
 	}
 
 	@Test
@@ -771,6 +964,68 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun savedBookmarkNavigationIsControllerOwned() {
+		val bookmark = ReaderBookmark(
+			id = "book-1|epubcfi(/6/8!/4/1:0)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			href = " chapter-01.xhtml ",
+			cfi = " epubcfi(/6/8!/4/1:0) ",
+			progress = 0.24,
+			sectionTitle = "Chapter 1"
+		)
+
+		val step = ReaderController()
+			.openContentsDialog().controller
+			.navigateToBookmark(bookmark)
+
+		assertNull(step.controller.state.dialog)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					)
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
+	fun savedAnnotationNavigationIsControllerOwned() {
+		val annotation = ReaderAnnotation(
+			id = "book-1|epubcfi(/6/8!/4/1:12)",
+			bookId = "book-1",
+			bookTitle = "The Hobbit",
+			href = " chapter-01.xhtml ",
+			cfi = " epubcfi(/6/8!/4/1:12) ",
+			text = "The note sentence",
+			note = "Remember this later",
+			sectionTitle = "Chapter 1"
+		)
+
+		val step = ReaderController()
+			.openContentsDialog().controller
+			.navigateToAnnotation(annotation)
+
+		assertNull(step.controller.state.dialog)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:12)"
+					)
+				)
+			),
+			step.engineCommands
+		)
+	}
+
+	@Test
 	fun navigateToIsControllerOwnedAndForwardedAsEngineCapability() {
 		val locator = ReaderLocator(progress = 0.42)
 
@@ -837,6 +1092,118 @@ class ReaderControllerTest {
 				)
 			),
 			next.engineCommands
+		)
+	}
+
+	@Test
+	fun loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Toc(
+					listOf(
+						ReaderTocItem(
+							id = "foreword",
+							title = "Foreword",
+							href = "EPUB/Text/foreword.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-1",
+							title = "Chapter 1",
+							href = "EPUB/Text/chapter-01.xhtml"
+						),
+						ReaderTocItem(
+							id = "chapter-2",
+							title = "Chapter 2",
+							href = "EPUB/Text/chapter-02.xhtml"
+						)
+					)
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "EPUB/Text/foreword.xhtml",
+						chapterPageIndex = 3,
+						chapterPageCount = 4,
+						chapterProgress = 1.0
+					),
+					tocTitle = "Foreword"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.DocLoaded(
+					index = 1,
+					href = "EPUB/Text/chapter-01.xhtml",
+					title = "Chapter 1",
+					sectionId = "chapter-1"
+				)
+			).controller
+
+		val previous = controller.navigateToPreviousChapter()
+		val next = controller.navigateToNextChapter()
+
+		assertEquals("EPUB/Text/chapter-01.xhtml", controller.state.chapterProgress.href)
+		assertEquals("Chapter 1", controller.state.chapterProgress.title)
+		assertEquals(0, controller.state.chapterProgress.pageIndex)
+		assertEquals(1, controller.state.chapterProgress.pageCount)
+		assertEquals(0.0, controller.state.chapterProgress.progress)
+		assertTrue(controller.state.canNavigateToPreviousChapter)
+		assertTrue(controller.state.canNavigateToNextChapter)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/foreword.xhtml")
+				)
+			),
+			previous.engineCommands
+		)
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(href = "EPUB/Text/chapter-02.xhtml")
+				)
+			),
+			next.engineCommands
+		)
+	}
+
+	@Test
+	fun loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "EPUB/Text/foreword.xhtml",
+						chapterPageIndex = 3,
+						chapterPageCount = 4,
+						chapterProgress = 1.0
+					),
+					tocTitle = "Foreword"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.DocLoaded(
+					index = 1,
+					href = "EPUB/Text/chapter-01.xhtml",
+					title = "Chapter 1",
+					sectionId = "chapter-1"
+				)
+			).controller
+
+		val seek = controller.navigateToChapterPage(2)
+
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.NavigateTo(
+					ReaderLocator(
+						href = "EPUB/Text/chapter-01.xhtml",
+						chapterProgress = 0.0,
+						chapterPageIndex = 0,
+						chapterPageCount = 1
+					)
+				)
+			),
+			seek.engineCommands
 		)
 	}
 
@@ -926,6 +1293,406 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncVisibleTextRangeFeedsControllerSyncAndAudioSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		)
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+
+		val repeated = step.controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "/Text/chapter1.xhtml",
+				visibleStart = 85,
+				visibleEnd = 130
+			)
+		)
+		assertEquals(emptyList(), repeated.engineCommands)
+		assertNull(repeated.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun loadingWhispersyncSidecarReplaysExistingVisibleTextRange() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140,
+					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				)
+			).controller
+
+		val step = controller.loadWhispersyncSidecar(testWhispersyncSidecar())
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+	}
+
+	@Test
+	fun pausedAudiobookPositionDoesNotClearVisibleRangeWhispersyncOverlay() {
+		val synced = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140,
+					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				)
+			).controller
+		val visibleOverlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			synced.state.whispersync.sync.engineCommand
+		).fragment
+
+		val paused = synced.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 393_734L,
+				durationMs = 1_000_000L
+			)
+		)
+
+		assertEquals(emptyList(), paused.engineCommands)
+		assertEquals(visibleOverlay, paused.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", paused.controller.state.audioMetadataLabel)
+		assertEquals(ReaderWhispersyncStatusKind.SeekingAudio, paused.controller.state.whispersync.status.kind)
+	}
+
+	@Test
+	fun loadedWhispersyncSidecarExposesControllerOwnedReadyStatus() {
+		val step = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar())
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Ready,
+				label = "Whispersync ready",
+				detail = "2 synced segments"
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
+	fun whispersyncLoadFailureSurfacesControllerOwnedAttentionStatus() {
+		val step = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.reportWhispersyncLoadFailure(
+				label = "Whispersync audio unavailable",
+				detail = "audiobook=69"
+			)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.LoadFailed,
+				label = "Whispersync audio unavailable",
+				detail = "audiobook=69"
+			),
+			step.controller.state.whispersync.status
+		)
+		assertEquals(true, step.controller.state.whispersync.status.requiresAttention)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun visibleTextRangeUpdatesWhispersyncStatusWithSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				detail = "Second sentence",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_000L
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
+	fun visibleTextRangeWithoutCueDemotesWhispersyncToReadyAndClearsOverlay() {
+		val synced = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140
+				)
+			).controller
+		assertNotNull(synced.state.whispersync.audioSeekTarget)
+		assertNotNull(synced.state.activeMediaOverlay)
+
+		val step = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/appendix.xhtml",
+				visibleStart = 1,
+				visibleEnd = 60
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Ready,
+				label = "Whispersync ready",
+				detail = "2 synced segments"
+			),
+			step.controller.state.whispersync.status
+		)
+		assertNull(step.controller.state.whispersync.audioSeekTarget)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
+		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun audiobookPlaybackOutsideTimelineSurfacesWhispersyncMismatchStatus() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Mismatch,
+				label = "Whispersync mismatch",
+				detail = "Audio/chapter99.m4b",
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L
+			),
+			step.controller.state.whispersync.status
+		)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchReusesVisibleTextRangeSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val synced = controller.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			)
+		).controller
+		val mismatched = synced.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				detail = "Second sentence",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_000L
+			),
+			step.controller.state.whispersync.status
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchNoopsWithoutVisibleTextRangeSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val mismatched = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		).controller
+
+		val step = mismatched.repairWhispersyncMismatch()
+
+		assertEquals(mismatched, step.controller)
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun repairWhispersyncMismatchNoopsForLoadFailureStatus() {
+		val visible = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140
+				)
+			).controller
+		val failed = visible.reportWhispersyncLoadFailure(
+			label = "Whispersync audio unavailable",
+			detail = "audiobook=69"
+		).controller
+
+		val step = failed.repairWhispersyncMismatch()
+
+		assertEquals(failed, step.controller)
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport() {
+		val playing = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+		val audioOverlay = playing.state.activeMediaOverlay
+
+		val step = playing.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 10,
+				visibleEnd = 42,
+				source = "media-overlay-follow"
+			)
+		)
+
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertEquals(audioOverlay, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 10,
+				visibleEnd = 42,
+				source = "media-overlay-follow"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.controller.state.whispersync.status.kind)
+	}
+
+	@Test
 	fun selectionActionStateIsControllerOwnedAndClearedByEngine() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val textOnly = opened.onEngineEvent(
@@ -942,7 +1709,8 @@ class ReaderControllerTest {
 				href = " chapter-01.xhtml "
 			)
 		).controller
-		val cleared = actionable.onEngineEvent(ReaderEngineEvent.SelectionCleared).controller
+		val draftingNote = actionable.startSelectionNote().controller
+		val cleared = draftingNote.onEngineEvent(ReaderEngineEvent.SelectionCleared).controller
 
 		assertEquals(ReaderSelectionActionState(), opened.state.selectionActions)
 		assertEquals(
@@ -966,6 +1734,7 @@ class ReaderControllerTest {
 		)
 		assertEquals(ReaderSelectionActionState(), cleared.state.selectionActions)
 		assertNull(cleared.state.selection)
+		assertNull(cleared.state.selectionNoteDraft)
 	}
 
 	@Test
@@ -1002,6 +1771,26 @@ class ReaderControllerTest {
 			),
 			step.controller.state.selectionNoteDraft
 		)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun selectionActionsDismissAfterCopyWithoutEngineCommands() {
+		val controller = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The copied sentence ",
+					cfi = " epubcfi(/6/8!/4/1:16) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+
+		val step = controller.dismissSelectionActions()
+
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertEquals(emptyList(), step.engineCommands)
 	}
 
@@ -1041,11 +1830,58 @@ class ReaderControllerTest {
 		)
 
 		assertEquals(ReaderAnnotationState(listOf(annotation)), step.controller.state.annotations)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertNull(step.controller.state.selectionNoteDraft)
 		assertEquals(
 			listOf(ReaderEngineCommand.ApplyAnnotations(listOf(annotation))),
 			step.engineCommands
 		)
+	}
+
+	@Test
+	fun annotationClicksResolveSavedNoteBodyFromControllerStore() {
+		val annotated = ReaderController().open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "chapter-01.xhtml",
+						cfi = "epubcfi(/6/8!/4/1:0)",
+						progress = 0.24
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+			.onEngineEvent(
+				ReaderEngineEvent.SelectionChanged(
+					text = " The note sentence ",
+					cfi = " epubcfi(/6/8!/4/1:12) ",
+					href = " chapter-01.xhtml "
+				)
+			).controller
+			.startSelectionNote().controller
+			.saveSelectionNote("  Remember this later  ").controller
+
+		val step = annotated.onEngineEvent(
+			ReaderEngineEvent.AnnotationClicked(
+				value = "epubcfi(/6/8!/4/1:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/1:12,/1:0,/1:8)"
+			)
+		)
+
+		assertEquals(
+			ReaderAnnotationPopupState(
+				value = "epubcfi(/6/8!/4/1:12)",
+				index = 3,
+				rangeCfi = "epubcfi(/6/8!/4/1:12,/1:0,/1:8)",
+				text = "The note sentence",
+				note = "Remember this later",
+				color = DefaultReaderHighlightColor
+			),
+			step.controller.state.annotationPopup
+		)
+		assertEquals(emptyList(), step.engineCommands)
 	}
 
 	@Test
@@ -1083,6 +1919,8 @@ class ReaderControllerTest {
 		val duplicate = step.controller.addSelectionHighlight(color = "#ffcc66")
 
 		assertEquals(ReaderAnnotationState(listOf(annotation)), step.controller.state.annotations)
+		assertNull(step.controller.state.selection)
+		assertEquals(ReaderSelectionActionState(), step.controller.state.selectionActions)
 		assertEquals(
 			listOf(ReaderEngineCommand.ApplyAnnotations(listOf(annotation))),
 			step.engineCommands
@@ -1212,5 +2050,39 @@ class ReaderControllerTest {
 			),
 			url = "https://appassets.androidplatform.net/reader-cache/book-1/publication.epub",
 			settings = defaultReaderSettings()
+		)
+
+	private fun testWhispersyncSidecar(): WhispersyncSidecar =
+		WhispersyncSidecar(
+			artifactId = "artifact-3",
+			ebookBookFileId = "3913",
+			audiobookBookFileId = "694",
+			timeline = WhispersyncTimeline(
+				segments = listOf(
+					WhispersyncSegment(
+						id = "a",
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 1_250,
+						endMs = 3_500,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-1",
+						textStart = 10,
+						textEnd = 42,
+						label = "Opening sentence"
+					),
+					WhispersyncSegment(
+						id = "b",
+						audioResource = "Audio/chapter01.m4b",
+						startMs = 5_000,
+						endMs = 8_000,
+						textHref = "Text/chapter1.xhtml",
+						fragmentId = "seg-2",
+						rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+						textStart = 80,
+						textEnd = 140,
+						label = "Second sentence"
+					)
+				)
+			)
 		)
 }

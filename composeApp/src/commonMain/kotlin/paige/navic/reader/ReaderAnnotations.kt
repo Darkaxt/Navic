@@ -26,6 +26,12 @@ data class ReaderAnnotation(
 ) {
 	val displayTitle: String
 		get() = sectionTitle ?: text
+
+	fun toLocator(): ReaderLocator =
+		ReaderLocator(
+			href = href?.trim()?.takeIf { it.isNotEmpty() },
+			cfi = cfi.trim().takeIf { it.isNotEmpty() }
+		)
 }
 
 data class ReaderAnnotationState(

@@ -4,7 +4,8 @@ import paige.navic.domain.repositories.BinderyReadingProgress
 
 data class ReaderCoordinatorStep(
 	val coordinator: ReaderCoordinator,
-	val progressToSave: BinderyReadingProgress? = null
+	val progressToSave: BinderyReadingProgress? = null,
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
 )
 
 data class ReaderCoordinator(
@@ -41,6 +42,12 @@ data class ReaderCoordinator(
 	fun navigateToSearchResult(result: ReaderSearchResult): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateToSearchResult(result))
 
+	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToBookmark(bookmark))
+
+	fun navigateToAnnotation(annotation: ReaderAnnotation): ReaderCoordinatorStep =
+		applyControllerStep(controller.navigateToAnnotation(annotation))
+
 	fun navigateTo(locator: ReaderLocator): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateTo(locator))
 
@@ -75,6 +82,15 @@ data class ReaderCoordinator(
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderCoordinatorStep =
 		applyControllerStep(controller.onReadaloudPlaybackState(playbackState))
 
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderCoordinatorStep =
+		applyControllerStep(controller.loadWhispersyncSidecar(sidecar))
+
+	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderCoordinatorStep =
+		applyControllerStep(controller.reportWhispersyncLoadFailure(label = label, detail = detail))
+
+	fun repairWhispersyncMismatch(): ReaderCoordinatorStep =
+		applyControllerStep(controller.repairWhispersyncMismatch())
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 
@@ -84,11 +100,17 @@ data class ReaderCoordinator(
 	fun saveSelectionNote(note: String): ReaderCoordinatorStep =
 		applyControllerStep(controller.saveSelectionNote(note))
 
+	fun dismissSelectionActions(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissSelectionActions())
+
 	fun dismissSelectionNote(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissSelectionNote())
 
 	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissAnnotationPopup())
+
+	fun dismissFootnotePopup(): ReaderCoordinatorStep =
+		applyControllerStep(controller.dismissFootnotePopup())
 
 	fun dismissExternalLinkPrompt(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissExternalLinkPrompt())
@@ -104,9 +126,6 @@ data class ReaderCoordinator(
 
 	fun openContentsDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openContentsDialog())
-
-	fun openReadingModeDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openReadingModeDialog())
 
 	fun openSearchDialog(): ReaderCoordinatorStep =
 		applyControllerStep(controller.openSearchDialog())
@@ -133,7 +152,8 @@ data class ReaderCoordinator(
 		}
 		return ReaderCoordinatorStep(
 			coordinator = next,
-			progressToSave = step.progressToSave
+			progressToSave = step.progressToSave,
+			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget
 		)
 	}
 

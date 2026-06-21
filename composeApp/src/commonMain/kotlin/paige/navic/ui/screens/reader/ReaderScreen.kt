@@ -4,6 +4,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,10 +23,12 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
+import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -37,12 +40,28 @@ import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
+import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.applyReaderCoordinatorStep
+import paige.navic.reader.decodeReaderReadingProgress
+import paige.navic.reader.encodeReaderReadingProgress
+import paige.navic.reader.persistReaderMarksIfChanged
+import paige.navic.reader.readerAnnotationState
+import paige.navic.reader.readerBookmarkState
+import paige.navic.reader.readerWhispersyncPlaybackCommandForSeekTarget
+import paige.navic.reader.ReaderReadingProgressState
+import paige.navic.shared.AudiobookPlaybackManager
+import paige.navic.ui.core.AudiobookMiniPlayerUiState
+import paige.navic.ui.screens.bindery.binderyAudiobookPlaybackPlan
+import paige.navic.ui.screens.bindery.binderyAudiobookResumeProgressForWhispersyncReader
+import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
+import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
+import kotlin.time.Clock
 
 private const val ReaderScreenTag = "ReaderScreen"
 
@@ -50,6 +69,8 @@ private const val ReaderScreenTag = "ReaderScreen"
 fun ReaderScreen(reader: Screen.Reader) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyRepository = koinInject<BinderyRepository>()
+	val audiobookPlaybackManager = koinInject<AudiobookPlaybackManager>()
+	val audiobookMiniPlayerState by audiobookPlaybackManager.uiState.collectAsState()
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
 	val coroutineScope = rememberCoroutineScope()
@@ -110,7 +131,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 			ReaderCoordinator(
 				controller = ReaderController(
 					state = ReaderControllerState(
-						chrome = ReaderChromeState(settings = defaultReaderSettings)
+						chrome = ReaderChromeState(settings = defaultReaderSettings),
+						annotations = preferenceManager.readerAnnotationState(),
+						bookmarks = preferenceManager.readerBookmarkState()
 					)
 				)
 			)
@@ -128,8 +151,23 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var readaloudCommandKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf(0L)
 	}
+	var whispersyncPlaybackPlan by remember(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl,
+		reader.whispersyncAudiobookId
+	) {
+		mutableStateOf<ReadaloudPlaybackPlan?>(null)
+	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
+	val readaloudSyncEnabled = settings.readaloudSyncEnabled != false
+	val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
+		playbackPlan = whispersyncPlaybackPlan,
+		bookId = reader.bookId,
+		versionRowId = reader.whispersyncAudiobookId,
+		syncEnabled = readaloudSyncEnabled
+	)
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
 	val readerFocusRequester = remember { FocusRequester() }
@@ -138,10 +176,36 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun applyCoordinatorStep(step: ReaderCoordinatorStep) {
+		val previousControllerState = coordinator.controller.state
 		applyReaderCoordinatorStep(
 			step = step,
-			updateCoordinator = { coordinator = it },
+			updateCoordinator = { nextCoordinator ->
+				preferenceManager.persistReaderMarksIfChanged(
+					previous = previousControllerState,
+					next = nextCoordinator.controller.state
+				)
+				coordinator = nextCoordinator
+			},
 			saveProgress = { progress ->
+				val updatedAtMs = Clock.System.now().toEpochMilliseconds()
+				val localProgress = progress.copy(updatedAt = updatedAtMs.toString())
+				preferenceManager.readerReadingProgressJson = encodeReaderReadingProgress(
+					ReaderReadingProgressState(
+						decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+					).upsert(localProgress).progresses
+				)
+				binderyWhispersyncCompanionProgressForReader(
+					reader = reader,
+					progress = localProgress,
+					updatedAtMs = updatedAtMs,
+					audioSeekTarget = coordinator.controller.state.whispersync.audioSeekTarget
+				)?.let { companionProgress ->
+					preferenceManager.binderyWhispersyncCompanionProgressJson =
+						binderyWhispersyncCompanionProgressJsonWithUpdate(
+							json = preferenceManager.binderyWhispersyncCompanionProgressJson,
+							progress = companionProgress
+						)
+				}
 				coroutineScope.launch(Dispatchers.IO) {
 					binderyRepository.putReadingProgress(progress).onFailure { error ->
 						Logger.w(ReaderScreenTag, "Reader progress save failed", error)
@@ -149,6 +213,24 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
+		step.whispersyncAudioSeekTarget?.let { target ->
+			val command = readerWhispersyncPlaybackCommandForSeekTarget(
+				playbackPlan = whispersyncPlaybackPlan,
+				seekTarget = target
+			)
+			if (command != null) {
+				Logger.i(
+					ReaderScreenTag,
+					"Whispersync audiobook seek audio=${target.audioResource} positionMs=${target.positionMs}"
+				)
+				audiobookPlaybackManager.dispatch(command)
+			} else {
+				Logger.w(
+					ReaderScreenTag,
+					"Whispersync audiobook seek ignored; no playback plan match for audio=${target.audioResource}"
+				)
+			}
+		}
 	}
 
 	fun applyReadaloudEngineCommand(command: ReaderEngineCommand) {
@@ -196,19 +278,123 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readerFocusRequester.requestFocus()
 	}
 
+	LaunchedEffect(
+		audiobookMiniPlayerState,
+		whispersyncPlaybackPlan,
+		reader.bookId,
+		reader.whispersyncAudiobookId,
+		settings.readaloudSyncEnabled
+	) {
+		whispersyncReadaloudPlaybackState?.let { playbackState ->
+			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
+		}
+	}
+
 	ReaderPublicationRuntimeHost(
 		reader = reader,
 		onPublicationReady = { publicationUrl, shellCoverUrl, savedProgress ->
+			val localStartLocator = ReaderReadingProgressState(
+				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+			).startLocatorFor(
+				bookId = reader.bookId,
+				resourceHref = reader.resourceHref,
+				kind = reader.kind
+			)
 			applyCoordinatorStep(
 				coordinator.open(
 					reader.toReaderEngineOpenRequest(
 						publicationUrl = publicationUrl,
 						shellCoverUrl = shellCoverUrl,
 						savedProgress = savedProgress,
+						localStartLocator = localStartLocator,
 						settings = settings
 					)
 				)
 			)
+			reader.whispersyncLaunchAttachment()?.let { attachment ->
+				coroutineScope.launch {
+					withContext(Dispatchers.IO) {
+						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+					}.fold(
+						onSuccess = { sidecar ->
+							Logger.i(
+								ReaderScreenTag,
+								"Whispersync sidecar loaded artifact=${attachment.artifactId} " +
+									"audiobook=${attachment.audiobookId} " +
+									"bookFile=${attachment.audiobookBookFileId} " +
+									"segments=${sidecar.timeline.segments.size}"
+							)
+							applyCoordinatorStep(coordinator.loadWhispersyncSidecar(sidecar))
+						},
+						onFailure = { error ->
+							applyCoordinatorStep(
+								coordinator.reportWhispersyncLoadFailure(
+									label = "Whispersync unavailable",
+									detail = "artifact=${attachment.artifactId}"
+								)
+							)
+							Logger.w(
+								ReaderScreenTag,
+								"Whispersync sidecar load failed artifact=${attachment.artifactId} " +
+									"path=${attachment.sidecarPath}",
+								error
+							)
+						}
+					)
+					withContext(Dispatchers.IO) {
+						binderyRepository.getAudiobookManifest(attachment.audiobookId)
+					}.fold(
+						onSuccess = { manifest ->
+							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+							val resumeProgress = binderyAudiobookResumeProgressForWhispersyncReader(
+								audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
+								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
+								bookId = reader.bookId,
+								versionRowId = attachment.audiobookId,
+								manifest = manifest
+							)
+							val playbackPlan = binderyAudiobookPlaybackPlan(
+								manifest = manifest,
+								versionRowId = attachment.audiobookId,
+								opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+								requestHeaders = requestHeaders,
+								resumeProgress = resumeProgress,
+								progressBookId = reader.bookId
+							)
+							whispersyncPlaybackPlan = playbackPlan
+							audiobookPlaybackManager.load(
+								playbackPlan = playbackPlan,
+								bookId = reader.bookId,
+								bookTitle = attachment.audiobookTitle ?: reader.title,
+								versionRowId = attachment.audiobookId,
+								coverUrl = null,
+								coverCacheKey = null,
+								imageRequestHeaders = requestHeaders,
+								playWhenReady = false
+							)
+							Logger.i(
+								ReaderScreenTag,
+								"Whispersync audiobook plan loaded audiobook=${attachment.audiobookId} " +
+									"items=${playbackPlan.mediaItems.size}"
+							)
+						},
+						onFailure = { error ->
+							whispersyncPlaybackPlan = null
+							applyCoordinatorStep(
+								coordinator.reportWhispersyncLoadFailure(
+									label = "Whispersync audio unavailable",
+									detail = "audiobook=${attachment.audiobookId}"
+								)
+							)
+							Logger.w(
+								ReaderScreenTag,
+								"Whispersync audiobook plan load failed audiobook=${attachment.audiobookId}",
+								error
+							)
+						}
+					)
+				}
+			}
 		},
 		onError = { message ->
 			applyCoordinatorStep(
@@ -273,8 +459,21 @@ fun ReaderScreen(reader: Screen.Reader) {
 		settingsScope = readerSettingsScope,
 		hasBookSettings = hasReaderBookSettings,
 		publicationFormat = reader.publicationFormat,
+		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
-		onViewerAction = { action -> applyCoordinatorStep(coordinator.onViewerAction(action)) },
+		onViewerAction = { action ->
+			val beforeMenuVisible = coordinator.controller.state.menuVisible
+			val step = coordinator.onViewerAction(action)
+			Logger.i(
+				ReaderScreenTag,
+				"Reader viewer action=$action menuVisible=$beforeMenuVisible->${step.coordinator.controller.state.menuVisible} " +
+					"shellCover=${coordinator.controller.state.shellCoverVisible}->${step.coordinator.controller.state.shellCoverVisible}"
+			)
+			applyCoordinatorStep(step)
+		},
+		onWhispersyncPlaybackCommand = { command ->
+			audiobookPlaybackManager.dispatch(command)
+		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.navigateToPreviousChapter())
 		},
@@ -331,6 +530,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 				applyCoordinatorStep(navigateStep.coordinator.closeDialog())
 			}
 		},
+		onNavigateToBookmark = { bookmark ->
+			applyCoordinatorStep(coordinator.navigateToBookmark(bookmark))
+		},
+		onNavigateToAnnotation = { annotation ->
+			applyCoordinatorStep(coordinator.navigateToAnnotation(annotation))
+		},
 		onToggleCurrentBookmark = {
 			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
 		},
@@ -340,11 +545,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onCopySelection = { text ->
 			clipboard.setText(AnnotatedString(text))
 			Logger.i(ReaderScreenTag, "Reader selection copied length=${text.length}")
+			applyCoordinatorStep(coordinator.dismissSelectionActions())
 		},
 		onStartSelectionNote = {
 			applyCoordinatorStep(coordinator.startSelectionNote())
 		},
 		onSaveSelectionNote = { note ->
+			Logger.i(ReaderScreenTag, "Reader selection note save length=${note.length}")
 			applyCoordinatorStep(coordinator.saveSelectionNote(note))
 		},
 		onDismissSelectionNote = {
@@ -352,6 +559,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onDismissAnnotationPopup = {
 			applyCoordinatorStep(coordinator.dismissAnnotationPopup())
+		},
+		onDismissFootnotePopup = {
+			applyCoordinatorStep(coordinator.dismissFootnotePopup())
 		},
 		onOpenExternalLink = { url ->
 			uriHandler.openUri(url)
@@ -368,6 +578,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onResetBookSettings = {
 			resetReaderBookSettings()
+		},
+		onRepairWhispersyncMismatch = {
+			applyCoordinatorStep(coordinator.repairWhispersyncMismatch())
 		},
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.closeDialog())
@@ -400,5 +613,30 @@ fun ReaderScreen(reader: Screen.Reader) {
 					else -> false
 				}
 			}
+	)
+}
+
+private fun AudiobookMiniPlayerUiState.toWhispersyncReadaloudPlaybackUiState(
+	playbackPlan: ReadaloudPlaybackPlan?,
+	bookId: String,
+	versionRowId: String?,
+	syncEnabled: Boolean
+): ReaderReadaloudPlaybackUiState? {
+	if (playbackPlan == null || !isAvailable) return null
+	if (this.bookId != bookId) return null
+	if (versionRowId != null && this.versionRowId != versionRowId) return null
+	val item = playbackPlan.mediaItems.getOrNull(trackIndex)
+		?: mediaId?.let { id -> playbackPlan.mediaItems.firstOrNull { item -> item.mediaId == id } }
+	val audioResource = item?.resourceKey ?: item?.uri ?: mediaId ?: return null
+	return ReaderReadaloudPlaybackUiState(
+		isAvailable = isAvailable,
+		isPlaying = isPlaying,
+		trackIndex = trackIndex,
+		audioResource = audioResource,
+		positionMs = positionMs,
+		durationMs = durationMs,
+		playbackSpeed = playbackSpeed,
+		activeAudioMetadata = activeAudioMetadata,
+		syncEnabled = syncEnabled
 	)
 }

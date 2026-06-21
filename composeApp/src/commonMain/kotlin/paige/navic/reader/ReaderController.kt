@@ -44,7 +44,6 @@ data class ReaderSelectionNoteDraft(
 
 enum class ReaderControllerDialog {
 	Contents,
-	ReadingMode,
 	Search,
 	Settings
 }
@@ -100,14 +99,37 @@ data class ReaderAnnotationInteraction(
 data class ReaderAnnotationPopupState(
 	val value: String? = null,
 	val index: Int? = null,
-	val rangeCfi: String? = null
+	val rangeCfi: String? = null,
+	val text: String? = null,
+	val note: String? = null,
+	val color: String? = null
 ) {
 	val visible: Boolean
-		get() = !value.isNullOrBlank() || index != null || !rangeCfi.isNullOrBlank()
+		get() = !value.isNullOrBlank() ||
+			index != null ||
+			!rangeCfi.isNullOrBlank() ||
+			!text.isNullOrBlank() ||
+			!note.isNullOrBlank()
+}
+
+data class ReaderFootnotePopupState(
+	val href: String? = null,
+	val text: String? = null,
+	val noteType: String? = null,
+	val hidden: Boolean = false
+) {
+	val visible: Boolean
+		get() = !href.isNullOrBlank() ||
+			!text.isNullOrBlank() ||
+			!noteType.isNullOrBlank()
 }
 
 sealed interface ReaderOverlayInteraction {
 	data class Created(val index: Int? = null) : ReaderOverlayInteraction
+	data class FootnoteOpened(
+		val href: String? = null,
+		val noteType: String? = null
+	) : ReaderOverlayInteraction
 	data object FootnoteClosed : ReaderOverlayInteraction
 	data object PullUp : ReaderOverlayInteraction
 }
@@ -128,10 +150,12 @@ data class ReaderControllerState(
 	val externalLinkPrompt: ReaderExternalLinkPromptState? = null,
 	val lastAnnotationInteraction: ReaderAnnotationInteraction? = null,
 	val annotationPopup: ReaderAnnotationPopupState? = null,
+	val footnotePopup: ReaderFootnotePopupState? = null,
 	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
 	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
 	val nativeShellCoverUrl: String? = null,
+	val nativeShellCoverReturnLocatorKey: String? = null,
 	val canReturnToShellCover: Boolean = false,
 	val menuVisible: Boolean = false,
 	val dialog: ReaderControllerDialog? = null,
@@ -143,6 +167,7 @@ data class ReaderControllerState(
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
 	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
+	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,
@@ -193,7 +218,8 @@ data class ReaderControllerState(
 data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
-	val progressToSave: BinderyReadingProgress? = null
+	val progressToSave: BinderyReadingProgress? = null,
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
 )
 
 data class ReaderController(
@@ -220,16 +246,19 @@ data class ReaderController(
 					externalLinkPrompt = null,
 					lastAnnotationInteraction = null,
 					annotationPopup = null,
+					footnotePopup = null,
 					lastOverlayInteraction = null,
 					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
+					nativeShellCoverReturnLocatorKey = null,
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
 					selection = null,
 					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
+					whispersync = ReaderWhispersyncSessionState(),
 					lastContentActionClaim = null
 				)
 			),
@@ -257,13 +286,27 @@ data class ReaderController(
 					)
 				}
 				val nextReadingProgress = progress?.let(state.readingProgress::upsert) ?: state.readingProgress
+				val nextNativeShellCoverReturnLocatorKey = state.nativeShellCoverReturnLocatorKey
+					?: if (
+						state.canReturnToShellCover &&
+						readerShouldReturnToNativeShellCover(
+							shellCoverUrl = state.nativeShellCoverUrl,
+							shellCoverVisible = state.shellCoverVisible,
+							locator = event.locator
+						)
+					) {
+						readerNativeShellCoverReturnLocatorKey(event.locator)
+					} else {
+						null
+					}
 				ReaderControllerStep(
 					controller = copy(
 						progressSaveGate = decision.state,
 						state = state.copy(
 							chrome = nextChrome,
 							chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
-							readingProgress = nextReadingProgress
+							readingProgress = nextReadingProgress,
+							nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey
 						)
 					),
 					progressToSave = progress
@@ -324,14 +367,17 @@ data class ReaderController(
 			)
 			is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(
 				copy(
-					state = state.copy(
-						loadedDocument = ReaderLoadedDocument(
-							index = event.index,
-							href = event.href,
-							title = event.title,
-							sectionId = event.sectionId
+					state = ReaderLoadedDocument(
+						index = event.index,
+						href = event.href,
+						title = event.title,
+						sectionId = event.sectionId
+					).let { document ->
+						state.copy(
+							loadedDocument = document,
+							chapterProgress = state.chapterProgress.updatedFrom(document)
 						)
-					)
+					}
 				)
 			)
 			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(
@@ -340,22 +386,48 @@ data class ReaderController(
 						engineNavigation = ReaderEngineNavigationState(
 							canGoBack = event.canGoBack,
 							canGoForward = event.canGoForward,
-							visible = event.canGoBack || event.canGoForward
+							visible = false
+						)
+					)
+				)
+			)
+			is ReaderEngineEvent.FootnoteOpened -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						footnotePopup = ReaderFootnotePopupState(
+							href = event.href,
+							text = event.text,
+							noteType = event.noteType,
+							hidden = event.hidden
+						),
+						lastOverlayInteraction = ReaderOverlayInteraction.FootnoteOpened(
+							href = event.href,
+							noteType = event.noteType
 						)
 					)
 				)
 			)
 			ReaderEngineEvent.FootnoteClose -> ReaderControllerStep(
-				copy(state = state.copy(lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed))
-			)
-			ReaderEngineEvent.PullUp -> ReaderControllerStep(
 				copy(
 					state = state.copy(
-						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
-						menuVisible = true
+						footnotePopup = null,
+						lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed
 					)
 				)
 			)
+			is ReaderEngineEvent.PullUp -> ReaderControllerStep(
+				copy(
+					state = state.copy(
+						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
+						menuVisible = if (event.source == ReaderPullUpSourceScrolledEdgeSwipe) {
+							state.menuVisible
+						} else {
+							true
+						}
+					)
+				)
+			)
+			is ReaderEngineEvent.VisibleTextRange -> onVisibleTextRange(event)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
 					state = state.copy(
@@ -388,7 +460,7 @@ data class ReaderController(
 				)
 			)
 			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
-				copy(state = state.copy(selection = null))
+				copy(state = state.copy(selection = null, selectionNoteDraft = null))
 			)
 			is ReaderEngineEvent.MediaOverlayActive -> ReaderControllerStep(
 				copy(
@@ -469,6 +541,12 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
 		)
 
+	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderControllerStep =
+		navigateToSavedMark(bookmark.toLocator())
+
+	fun navigateToAnnotation(annotation: ReaderAnnotation): ReaderControllerStep =
+		navigateToSavedMark(annotation.toLocator())
+
 	fun navigateToChapterPage(pageIndex: Int): ReaderControllerStep {
 		val chapter = state.chapterProgress
 		val href = chapter.href?.takeIf { it.isNotBlank() }
@@ -540,6 +618,17 @@ data class ReaderController(
 		return navigateTo(ReaderLocator(href = targetHref))
 	}
 
+	private fun navigateToSavedMark(locator: ReaderLocator): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					dialog = null,
+					menuVisible = true
+				)
+			),
+			engineCommands = listOf(ReaderEngineCommand.NavigateTo(locator))
+		)
+
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
 		ReaderControllerStep(
 			controller = copy(
@@ -551,14 +640,214 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.ApplyMediaOverlay(fragment))
 		)
 
-	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep =
+	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
+			currentWhispersync.sync
+		} else {
+			currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
+		}
+		val playbackStep = if (!playbackState.isPlaying) {
+			ReaderWhispersyncPlaybackPositionStep(state = baseSync)
+		} else {
+			playbackState.audioResource
+				?.takeIf { it.isNotBlank() }
+				?.let { audioResource ->
+					baseSync.onAudiobookPlaybackPositionStep(
+						timeline = currentWhispersync.timeline,
+						audioResource = audioResource,
+						audioTrackIndex = playbackState.trackIndex,
+						positionMs = playbackState.positionMs
+					)
+				}
+		}
+		val syncState = playbackStep?.state ?: currentWhispersync.sync
+		val command = syncState.engineCommand
+			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			copy(
+				state = state.copy(
+					chrome = state.chrome.onReadaloudPlaybackState(playbackState),
+					whispersync = currentWhispersync.copy(
+						sync = syncState,
+						status = playbackStep?.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command)
+		)
+	}
+
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val visibleRange = currentWhispersync.visibleTextRange
+		val baseWhispersync = ReaderWhispersyncSessionState(
+			sidecar = sidecar,
+			visibleTextRange = visibleRange,
+			status = readerWhispersyncReadyStatus(sidecar.timeline)
+		)
+		val syncStep = visibleRange?.let { range ->
+			baseWhispersync.sync.onVisibleTextRange(
+				timeline = sidecar.timeline,
+				textHref = range.textHref,
+				visibleStart = range.visibleStart,
+				visibleEnd = range.visibleEnd
+			)
+		}
+		val command = syncStep?.state?.engineCommand
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			copy(
+				state = state.copy(
+					whispersync = baseWhispersync.copy(
+						sync = syncStep?.state ?: baseWhispersync.sync,
+						audioSeekTarget = syncStep?.audioSeekTarget,
+						status = syncStep?.status ?: baseWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep?.audioSeekTarget
+		)
+	}
+
+	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderControllerStep =
 		ReaderControllerStep(
 			copy(
 				state = state.copy(
-					chrome = state.chrome.onReadaloudPlaybackState(playbackState)
+					whispersync = state.whispersync.copy(
+						status = ReaderWhispersyncStatus(
+							kind = ReaderWhispersyncStatusKind.LoadFailed,
+							label = label.trim().takeIf { it.isNotEmpty() } ?: "Whispersync unavailable",
+							detail = detail?.trim()?.takeIf { it.isNotEmpty() }
+						)
+					)
 				)
 			)
 		)
+
+	fun repairWhispersyncMismatch(): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		if (!currentWhispersync.status.repairable) {
+			return ReaderControllerStep(this)
+		}
+		val visibleRange = currentWhispersync.visibleTextRange
+			?: return ReaderControllerStep(this)
+		val syncStep = currentWhispersync.sync
+			.copy(activeSegmentKey = null)
+			.onVisibleTextRange(
+				timeline = currentWhispersync.timeline,
+				textHref = visibleRange.textHref,
+				visibleStart = visibleRange.visibleStart,
+				visibleEnd = visibleRange.visibleEnd
+			)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		)
+	}
+
+	private fun onVisibleTextRange(event: ReaderEngineEvent.VisibleTextRange): ReaderControllerStep {
+		val visibleRange = ReaderWhispersyncVisibleTextRange(
+			textHref = event.textHref,
+			visibleStart = event.visibleStart,
+			visibleEnd = event.visibleEnd,
+			rangeCfi = event.rangeCfi,
+			source = event.source
+		)
+		val currentWhispersync = state.whispersync
+		if (event.isWhispersyncAudioFollowRange()) {
+			return ReaderControllerStep(
+				controller = copy(
+					state = state.copy(
+						whispersync = currentWhispersync.copy(
+							visibleTextRange = visibleRange
+						)
+					)
+				)
+			)
+		}
+		val syncStep = currentWhispersync.sync.onVisibleTextRange(
+			timeline = currentWhispersync.timeline,
+			textHref = event.textHref,
+			visibleStart = event.visibleStart,
+			visibleEnd = event.visibleEnd
+		)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						visibleTextRange = visibleRange,
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		)
+	}
 
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderControllerStep {
 		val publication = state.publication ?: return ReaderControllerStep(this)
@@ -576,7 +865,7 @@ data class ReaderController(
 			return ReaderControllerStep(this)
 		}
 		return ReaderControllerStep(
-			controller = copy(state = state.copy(annotations = nextAnnotations)),
+			controller = copy(state = state.copy(annotations = nextAnnotations, selection = null)),
 			engineCommands = listOf(
 				ReaderEngineCommand.ApplyAnnotations(
 					nextAnnotations.annotationsForBook(publication.bookId)
@@ -593,6 +882,7 @@ data class ReaderController(
 		return ReaderControllerStep(
 			copy(
 				state = state.copy(
+					selection = null,
 					selectionNoteDraft = ReaderSelectionNoteDraft(
 						bookId = publication.bookId,
 						bookTitle = publication.title,
@@ -614,7 +904,13 @@ data class ReaderController(
 			return ReaderControllerStep(this)
 		}
 		return ReaderControllerStep(
-			controller = copy(state = state.copy(annotations = nextAnnotations, selectionNoteDraft = null)),
+			controller = copy(
+				state = state.copy(
+					annotations = nextAnnotations,
+					selection = null,
+					selectionNoteDraft = null
+				)
+			),
 			engineCommands = listOf(
 				ReaderEngineCommand.ApplyAnnotations(
 					nextAnnotations.annotationsForBook(publication.bookId)
@@ -623,11 +919,24 @@ data class ReaderController(
 		)
 	}
 
+	fun dismissSelectionActions(): ReaderControllerStep =
+		ReaderControllerStep(copy(state = state.copy(selection = null)))
+
 	fun dismissSelectionNote(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(selectionNoteDraft = null)))
 
 	fun dismissAnnotationPopup(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(annotationPopup = null)))
+
+	fun dismissFootnotePopup(): ReaderControllerStep =
+		ReaderControllerStep(
+			copy(
+				state = state.copy(
+					footnotePopup = null,
+					lastOverlayInteraction = ReaderOverlayInteraction.FootnoteClosed
+				)
+			)
+		)
 
 	fun dismissExternalLinkPrompt(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(externalLinkPrompt = null)))
@@ -667,28 +976,28 @@ data class ReaderController(
 	}
 
 	fun onViewerAction(action: ReaderViewerAction): ReaderControllerStep {
-		if (state.lastContentActionClaim != null) {
-			return ReaderControllerStep(
-				copy(state = state.copy(lastContentActionClaim = null))
-			)
+		val controller = if (state.lastContentActionClaim != null) {
+			copy(state = state.copy(lastContentActionClaim = null))
+		} else {
+			this
 		}
 
-		if (state.shellCoverVisible) {
-			return onShellCoverViewerAction(action)
+		if (controller.state.shellCoverVisible) {
+			return controller.onShellCoverViewerAction(action)
 		}
 
 		return when (action) {
 			ReaderViewerAction.Menu -> ReaderControllerStep(
-				copy(
-					state = state.copy(
-						menuVisible = !state.menuVisible
+				controller.copy(
+					state = controller.state.copy(
+						menuVisible = !controller.state.menuVisible
 					)
 				)
 			)
-			is ReaderViewerAction.TurnPage -> turnPage(action.direction)
-			is ReaderViewerAction.PreviewPageDrag -> previewPageDrag(action)
-			is ReaderViewerAction.ScrollViewport -> scrollViewport(action.direction)
-			is ReaderViewerAction.ContentLongPressAt -> contentLongPressAt(action)
+			is ReaderViewerAction.TurnPage -> controller.turnPage(action.direction)
+			is ReaderViewerAction.PreviewPageDrag -> controller.previewPageDrag(action)
+			is ReaderViewerAction.ScrollViewport -> controller.scrollViewport(action.direction)
+			is ReaderViewerAction.ContentLongPressAt -> controller.contentLongPressAt(action)
 		}
 	}
 
@@ -697,7 +1006,8 @@ data class ReaderController(
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
-					chrome = state.chrome.copy(settings = normalized)
+					chrome = state.chrome.copy(settings = normalized),
+					nativeShellCoverReturnLocatorKey = null
 				)
 			),
 			engineCommands = listOf(
@@ -708,9 +1018,6 @@ data class ReaderController(
 
 	fun openContentsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Contents)
-
-	fun openReadingModeDialog(): ReaderControllerStep =
-		openDialog(ReaderControllerDialog.ReadingMode)
 
 	fun openSearchDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Search)
@@ -773,6 +1080,7 @@ data class ReaderController(
 		if (
 			direction == ReaderPageTurnDirection.Previous &&
 			state.canReturnToShellCover &&
+			state.nativeShellCoverReturnLocatorKey == readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator) &&
 			readerShouldReturnToNativeShellCover(
 				shellCoverUrl = state.nativeShellCoverUrl,
 				shellCoverVisible = state.shellCoverVisible,
@@ -783,6 +1091,7 @@ data class ReaderController(
 				copy(
 					state = state.copy(
 						shellCoverVisible = true,
+						nativeShellCoverReturnLocatorKey = readerNativeShellCoverReturnLocatorKey(state.chrome.currentLocator),
 						menuVisible = false,
 						dialog = null
 					)
@@ -807,7 +1116,9 @@ data class ReaderController(
 			engineCommands = listOf(
 				ReaderEngineCommand.PreviewPageDrag(
 					deltaX = action.deltaX,
+					deltaY = action.deltaY,
 					viewWidth = action.viewWidth,
+					viewHeight = action.viewHeight,
 					phase = action.phase
 				)
 			)
@@ -850,6 +1161,9 @@ private fun ReaderControllerState.onExternalLinkOpened(
 private fun ReaderControllerState.onAnnotationClicked(
 	event: ReaderEngineEvent.AnnotationClicked
 ): ReaderControllerState {
+	val value = event.value?.trim()?.takeIf { it.isNotEmpty() }
+	val rangeCfi = event.rangeCfi?.trim()?.takeIf { it.isNotEmpty() }
+	val savedAnnotation = savedAnnotationForClick(value = value, rangeCfi = rangeCfi)
 	val interaction = ReaderAnnotationInteraction(
 		kind = ReaderAnnotationInteractionKind.Clicked,
 		value = event.value,
@@ -857,9 +1171,12 @@ private fun ReaderControllerState.onAnnotationClicked(
 		rangeCfi = event.rangeCfi
 	)
 	val popup = ReaderAnnotationPopupState(
-		value = event.value?.trim()?.takeIf { it.isNotEmpty() },
+		value = value,
 		index = event.index,
-		rangeCfi = event.rangeCfi?.trim()?.takeIf { it.isNotEmpty() }
+		rangeCfi = rangeCfi,
+		text = savedAnnotation?.text?.trim()?.takeIf { it.isNotEmpty() },
+		note = savedAnnotation?.note?.trim()?.takeIf { it.isNotEmpty() },
+		color = savedAnnotation?.color?.trim()?.takeIf { it.isNotEmpty() }
 	).takeIf { it.visible }
 	return copy(
 		lastAnnotationInteraction = interaction,
@@ -867,31 +1184,93 @@ private fun ReaderControllerState.onAnnotationClicked(
 	)
 }
 
+private fun ReaderControllerState.savedAnnotationForClick(
+	value: String?,
+	rangeCfi: String?
+): ReaderAnnotation? {
+	val bookId = publication?.bookId
+	return annotations.annotations.firstOrNull { annotation ->
+		(bookId == null || annotation.bookId == bookId) &&
+			(annotation.cfi == value || annotation.cfi == rangeCfi)
+	}
+}
+
+private fun readerNativeShellCoverReturnLocatorKey(locator: ReaderLocator?): String? {
+	locator ?: return null
+	val href = locator.href
+		?.trim()
+		?.replace('\\', '/')
+		.orEmpty()
+	val pageIndex = locator.pageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
+	val pageCount = locator.pageCount?.takeIf { it > 0 }?.toString().orEmpty()
+	val chapterPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }?.toString().orEmpty()
+	val chapterPageCount = locator.chapterPageCount?.takeIf { it > 0 }?.toString().orEmpty()
+	return listOf(
+		href.substringBefore('#').substringBefore('?'),
+		pageIndex,
+		pageCount,
+		chapterPageIndex,
+		chapterPageCount
+	).joinToString("|")
+}
+
 private fun ReaderChapterProgressState.updatedFrom(
 	locator: ReaderLocator,
 	tocTitle: String?
 ): ReaderChapterProgressState {
+	val nextHref = locator.href?.trim()?.takeIf { it.isNotEmpty() }
+	val hrefChanged = nextHref != null &&
+		readerTocHrefKey(nextHref) != readerTocHrefKey(href)
 	val nextPageCount = locator.chapterPageCount?.takeIf { it > 0 }
-		?: pageCount
+		?: if (hrefChanged) 1 else pageCount
 	val normalizedPageCount = nextPageCount.coerceAtLeast(1)
 	val nextPageIndex = locator.chapterPageIndex?.takeIf { it >= 0 }
-		?: pageIndex
+		?: if (hrefChanged) 0 else pageIndex
 	val normalizedPageIndex = nextPageIndex.coerceIn(0, normalizedPageCount - 1)
 	val normalizedProgress = locator.chapterProgress
 		?.takeIf(Double::isFinite)
 		?.coerceIn(0.0, 1.0)
 		?: if (locator.chapterPageIndex != null && normalizedPageCount > 1) {
 			(normalizedPageIndex.toDouble() / (normalizedPageCount - 1)).coerceIn(0.0, 1.0)
+		} else if (hrefChanged) {
+			0.0
 		} else {
 			progress
 		}
 	return copy(
-		href = locator.href?.trim()?.takeIf { it.isNotEmpty() } ?: href,
+		href = nextHref ?: href,
 		title = tocTitle?.trim()?.takeIf { it.isNotEmpty() } ?: title,
 		pageIndex = normalizedPageIndex,
 		pageCount = normalizedPageCount,
 		progress = normalizedProgress
 	)
+}
+
+private fun ReaderChapterProgressState.updatedFrom(
+	document: ReaderLoadedDocument
+): ReaderChapterProgressState {
+	val nextHref = document.href?.trim()?.takeIf { it.isNotEmpty() }
+	val nextTitle = document.title?.trim()?.takeIf { it.isNotEmpty() }
+	if (nextHref == null) {
+		return copy(title = nextTitle ?: title)
+	}
+	val currentHrefKey = readerTocHrefKey(href)
+	val nextHrefKey = readerTocHrefKey(nextHref)
+	val documentChanged = nextHrefKey != null && nextHrefKey != currentHrefKey
+	return if (documentChanged) {
+		copy(
+			href = nextHref,
+			title = nextTitle ?: title,
+			pageIndex = 0,
+			pageCount = 1,
+			progress = 0.0
+		)
+	} else {
+		copy(
+			href = nextHref,
+			title = nextTitle ?: title
+		)
+	}
 }
 
 private fun ReaderControllerState.adjacentTocChapter(direction: Int): ReaderTocItem? {
@@ -921,6 +1300,9 @@ private fun readerTocHrefKey(href: String?): String? {
 		.trimStart('.', '/')
 		.takeIf { it.isNotEmpty() }
 }
+
+private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
+	source.equals("media-overlay-follow", ignoreCase = true)
 
 private fun String?.normalizedReaderSelectionValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

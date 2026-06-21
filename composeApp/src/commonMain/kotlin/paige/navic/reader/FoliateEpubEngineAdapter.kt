@@ -63,7 +63,9 @@ sealed class FoliateWebViewEngineAdapter(
 			is ReaderEngineCommand.PreviewPageDrag -> dispatch(
 				ReaderBridgeCommand.PreviewPageDrag(
 					deltaX = command.deltaX,
+					deltaY = command.deltaY,
 					viewWidth = command.viewWidth,
+					viewHeight = command.viewHeight,
 					phase = command.phase
 				)
 			)
@@ -155,8 +157,21 @@ sealed class FoliateWebViewEngineAdapter(
 				canGoBack = event.canGoBack,
 				canGoForward = event.canGoForward
 			)
+			is ReaderBridgeEvent.FootnoteOpen -> ReaderEngineEvent.FootnoteOpened(
+				href = event.href,
+				text = event.text,
+				noteType = event.noteType,
+				hidden = event.hidden
+			)
 			ReaderBridgeEvent.FootnoteClose -> ReaderEngineEvent.FootnoteClose
-			ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp
+			is ReaderBridgeEvent.PullUp -> ReaderEngineEvent.PullUp(source = event.source)
+			is ReaderBridgeEvent.VisibleTextRange -> ReaderEngineEvent.VisibleTextRange(
+				textHref = event.textHref,
+				visibleStart = event.visibleStart,
+				visibleEnd = event.visibleEnd,
+				rangeCfi = event.rangeCfi,
+				source = event.source
+			)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(

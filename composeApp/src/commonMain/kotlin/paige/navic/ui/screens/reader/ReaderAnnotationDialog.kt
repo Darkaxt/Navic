@@ -27,6 +27,13 @@ internal fun KomikkuReaderAnnotationDialog(
 	annotation: ReaderAnnotationPopupState,
 	onDismissAnnotationPopup: () -> Unit
 ) {
+	val selectedText = annotation.text?.trim()?.takeIf { it.isNotEmpty() }
+	val noteText = annotation.note?.trim()?.takeIf { it.isNotEmpty() }
+	val fallbackText = annotation.value
+		?.takeIf { it.isNotBlank() }
+		?: annotation.rangeCfi
+		?: annotation.index?.let { "Annotation $it" }
+		.orEmpty()
 	BasicAlertDialog(onDismissRequest = onDismissAnnotationPopup) {
 		Surface(
 			shape = RoundedCornerShape(24.dp),
@@ -39,19 +46,24 @@ internal fun KomikkuReaderAnnotationDialog(
 				modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp)
 			) {
 				Text(
-					text = "Annotation",
+					text = if (noteText != null) "Note" else "Annotation",
 					style = MaterialTheme.typography.titleMedium,
 					fontWeight = FontWeight.Bold
 				)
+				if (selectedText != null) {
+					Text(
+						text = selectedText,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+						maxLines = 5,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
 				Text(
-					text = annotation.value
-						?.takeIf { it.isNotBlank() }
-						?: annotation.rangeCfi
-						?: annotation.index?.let { "Annotation $it" }
-						.orEmpty(),
+					text = noteText ?: fallbackText,
 					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-					maxLines = 6,
+					color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (noteText != null) 0.9f else 0.78f),
+					maxLines = 8,
 					overflow = TextOverflow.Ellipsis
 				)
 				Row(

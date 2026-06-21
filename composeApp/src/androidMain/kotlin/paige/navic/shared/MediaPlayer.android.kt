@@ -129,7 +129,6 @@ import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
@@ -244,7 +243,6 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		mediaSession = MediaSession.Builder(this, player)
 			.setSessionActivity(sessionPendingIntent)
-			.setBitmapLoader(CoilBitmapLoader(this, preferenceManager::serverRequestHeadersMap))
 			.setCallback(PlaybackSessionCallback(player))
 			.build()
 			.also { session ->

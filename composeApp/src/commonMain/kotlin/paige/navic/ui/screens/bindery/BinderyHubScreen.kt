@@ -3,33 +3,47 @@ package paige.navic.ui.screens.bindery
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
+import navic.composeapp.generated.resources.title_audiobook_continue_listening
+import navic.composeapp.generated.resources.title_audiobook_continue_reading
 import navic.composeapp.generated.resources.title_audiobook_findings
 import navic.composeapp.generated.resources.title_audiobook_genres
 import navic.composeapp.generated.resources.title_audiobook_last_read
@@ -67,6 +81,7 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.components.layouts.horizontalSectionWithAvailableWidth
+import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.library.components.libraryScreenOverviewButton
@@ -94,6 +109,9 @@ fun BinderyHubScreen() {
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
+	var continueWhispersyncPrompt by remember {
+		mutableStateOf<BinderyContinueReadingLaunchDecision.AskWhispersync?>(null)
+	}
 	BackToTopScrollHandler(viewModel.gridState)
 
 	LaunchedEffect(
@@ -180,6 +198,26 @@ fun BinderyHubScreen() {
 								if (data == null) {
 									artGridPlaceholder()
 								} else {
+									binderyContinueRows(
+										continueListening = data.continueListening,
+										continueReading = data.continueReading,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
+										onOpenListening = { item ->
+											platformContext.clickSound()
+											backStack.add(item.destination)
+										},
+										onOpenReading = { item ->
+											platformContext.clickSound()
+											when (val decision = binderyContinueReadingLaunchDecision(item)) {
+												is BinderyContinueReadingLaunchDecision.OpenEbook ->
+													backStack.add(decision.destination)
+												is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+													continueWhispersyncPrompt = decision
+											}
+										}
+									)
 									binderyHubRows(
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
@@ -208,6 +246,26 @@ fun BinderyHubScreen() {
 								if (data == null) {
 									artGridError(state)
 								} else {
+									binderyContinueRows(
+										continueListening = data.continueListening,
+										continueReading = data.continueReading,
+										baseUrl = preferenceManager.binderyOpdsBaseUrl,
+										imageRequestHeaders = imageRequestHeaders,
+										bookGridColumns = bookGridColumns,
+										onOpenListening = { item ->
+											platformContext.clickSound()
+											backStack.add(item.destination)
+										},
+										onOpenReading = { item ->
+											platformContext.clickSound()
+											when (val decision = binderyContinueReadingLaunchDecision(item)) {
+												is BinderyContinueReadingLaunchDecision.OpenEbook ->
+													backStack.add(decision.destination)
+												is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+													continueWhispersyncPrompt = decision
+											}
+										}
+									)
 									binderyHubRows(
 										rows = data.rows,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
@@ -231,27 +289,49 @@ fun BinderyHubScreen() {
 									)
 								}
 							}
-							is UiState.Success -> binderyHubRows(
-								rows = state.data.rows,
-								baseUrl = preferenceManager.binderyOpdsBaseUrl,
-								imageRequestHeaders = imageRequestHeaders,
-								bookGridColumns = bookGridColumns,
-								languageFilter = languageFilter,
-								collectionArtworkByPath = collectionArtworkByPath,
-								onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
-								onOpenBook = { book ->
-									platformContext.clickSound()
-									backStack.add(binderyDestinationForBook(book))
-								},
-								onOpenCatalog = { link ->
-									platformContext.clickSound()
-									backStack.add(binderyDestinationForLink(link))
-								},
-								onOpenFinding = { finding ->
-									platformContext.clickSound()
-									backStack.add(binderyDestinationForCard(finding))
-								}
-							)
+							is UiState.Success -> {
+								binderyContinueRows(
+									continueListening = state.data.continueListening,
+									continueReading = state.data.continueReading,
+									baseUrl = preferenceManager.binderyOpdsBaseUrl,
+									imageRequestHeaders = imageRequestHeaders,
+									bookGridColumns = bookGridColumns,
+									onOpenListening = { item ->
+										platformContext.clickSound()
+										backStack.add(item.destination)
+									},
+									onOpenReading = { item ->
+										platformContext.clickSound()
+										when (val decision = binderyContinueReadingLaunchDecision(item)) {
+											is BinderyContinueReadingLaunchDecision.OpenEbook ->
+												backStack.add(decision.destination)
+											is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+												continueWhispersyncPrompt = decision
+										}
+									}
+								)
+								binderyHubRows(
+									rows = state.data.rows,
+									baseUrl = preferenceManager.binderyOpdsBaseUrl,
+									imageRequestHeaders = imageRequestHeaders,
+									bookGridColumns = bookGridColumns,
+									languageFilter = languageFilter,
+									collectionArtworkByPath = collectionArtworkByPath,
+									onResolveCollectionArtwork = viewModel::resolveCollectionArtwork,
+									onOpenBook = { book ->
+										platformContext.clickSound()
+										backStack.add(binderyDestinationForBook(book))
+									},
+									onOpenCatalog = { link ->
+										platformContext.clickSound()
+										backStack.add(binderyDestinationForLink(link))
+									},
+									onOpenFinding = { finding ->
+										platformContext.clickSound()
+										backStack.add(binderyDestinationForCard(finding))
+									}
+								)
+							}
 						}
 					}
 				}
@@ -274,6 +354,207 @@ fun BinderyHubScreen() {
 		error = (hubState as? UiState.Error)?.error,
 		onClearError = { viewModel.clearError() }
 	)
+
+	continueWhispersyncPrompt?.let { prompt ->
+		BinderyContinueWhispersyncSheet(
+			decision = prompt,
+			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+			onDismissRequest = { continueWhispersyncPrompt = null },
+			onOpenReader = { destination ->
+				continueWhispersyncPrompt = null
+				backStack.add(destination)
+			}
+		)
+	}
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueRows(
+	continueListening: List<BinderyContinueListeningItem>,
+	continueReading: List<BinderyContinueReadingItem>,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
+	onOpenListening: (BinderyContinueListeningItem) -> Unit,
+	onOpenReading: (BinderyContinueReadingItem) -> Unit
+) {
+	binderyContinueListeningRow(
+		items = continueListening,
+		baseUrl = baseUrl,
+		imageRequestHeaders = imageRequestHeaders,
+		bookGridColumns = bookGridColumns,
+		onOpen = onOpenListening
+	)
+	binderyContinueReadingRow(
+		items = continueReading,
+		baseUrl = baseUrl,
+		imageRequestHeaders = imageRequestHeaders,
+		bookGridColumns = bookGridColumns,
+		onOpen = onOpenReading
+	)
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueListeningRow(
+	items: List<BinderyContinueListeningItem>,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
+	onOpen: (BinderyContinueListeningItem) -> Unit
+) {
+	if (items.isEmpty()) return
+	horizontalSectionWithAvailableWidth(
+		title = Res.string.title_audiobook_continue_listening,
+		destination = Screen.Audiobooks,
+		state = UiState.Success(items),
+		key = { it.key },
+		seeAll = false
+	) { item, availableWidth ->
+		val cardWidth = binderyCarouselCardWidthDp(
+			columns = bookGridColumns,
+			availableWidthDp = availableWidth.value.roundToInt()
+		).dp
+		ArtGridItem(
+			modifier = Modifier.animateItem().width(cardWidth),
+			onClick = { onOpen(item) },
+			coverArtId = null,
+			imageUrl = item.imageHref?.let { binderyEndpoint(baseUrl, it) },
+			imageRequestHeaders = imageRequestHeaders,
+			title = item.title,
+			subtitle = item.subtitle,
+			coverAspectRatio = 2f / 3f,
+			coverContentScale = ContentScale.Fit,
+			fallbackKind = "Audiobook",
+			id = item.key,
+			tab = "bindery-continue-listening"
+		)
+	}
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueReadingRow(
+	items: List<BinderyContinueReadingItem>,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
+	onOpen: (BinderyContinueReadingItem) -> Unit
+) {
+	if (items.isEmpty()) return
+	horizontalSectionWithAvailableWidth(
+		title = Res.string.title_audiobook_continue_reading,
+		destination = Screen.Audiobooks,
+		state = UiState.Success(items),
+		key = { it.key },
+		seeAll = false
+	) { item, availableWidth ->
+		val cardWidth = binderyCarouselCardWidthDp(
+			columns = bookGridColumns,
+			availableWidthDp = availableWidth.value.roundToInt()
+		).dp
+		ArtGridItem(
+			modifier = Modifier.animateItem().width(cardWidth),
+			onClick = { onOpen(item) },
+			coverArtId = null,
+			imageUrl = item.imageHref?.let { binderyEndpoint(baseUrl, it) },
+			imageRequestHeaders = imageRequestHeaders,
+			title = item.title,
+			subtitle = item.subtitle,
+			coverAspectRatio = 2f / 3f,
+			coverContentScale = ContentScale.Fit,
+			fallbackKind = "Book",
+			id = item.key,
+			tab = "bindery-continue-reading"
+		)
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BinderyContinueWhispersyncSheet(
+	decision: BinderyContinueReadingLaunchDecision.AskWhispersync,
+	opdsBaseUrl: String,
+	onDismissRequest: () -> Unit,
+	onOpenReader: (Screen.Reader) -> Unit
+) {
+	ModalBottomSheet(onDismissRequest = onDismissRequest) {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 20.dp, vertical = 8.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp)
+		) {
+			Text(
+				text = "Open with Whispersync?",
+				style = MaterialTheme.typography.titleMedium,
+				fontWeight = FontWeight.SemiBold
+			)
+			Text(
+				text = decision.ebookDestination.title,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+			Button(
+				onClick = { onOpenReader(decision.ebookDestination) },
+				modifier = Modifier.fillMaxWidth()
+			) {
+				Text("Ebook only")
+			}
+			decision.matches.forEach { match ->
+				val destination = binderyWhispersyncReaderDestinationForMatch(
+					ebookRow = decision.ebookRow,
+					match = match,
+					bookId = decision.ebookDestination.bookId,
+					bookTitle = decision.ebookDestination.title,
+					opdsBaseUrl = opdsBaseUrl
+				)
+				Surface(
+					modifier = Modifier.fillMaxWidth(),
+					shape = RoundedCornerShape(8.dp),
+					color = MaterialTheme.colorScheme.surfaceContainerHighest
+				) {
+					Row(
+						modifier = Modifier.padding(12.dp),
+						horizontalArrangement = Arrangement.spacedBy(12.dp),
+						verticalAlignment = Alignment.CenterVertically
+					) {
+						Column(
+							modifier = Modifier.weight(1f),
+							verticalArrangement = Arrangement.spacedBy(3.dp)
+						) {
+							Text(
+								text = match.oppositeTitle,
+								style = MaterialTheme.typography.titleSmall,
+								maxLines = 2,
+								overflow = TextOverflow.Ellipsis
+							)
+							Text(
+								text = listOfNotNull(
+									"Ready",
+									match.coveragePercent?.let { "Coverage $it%" },
+									match.scorePercent?.let { "Score $it%" }
+								).joinToString("  "),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Button(
+							onClick = {
+								destination?.let(onOpenReader)
+							},
+							enabled = destination != null
+						) {
+							Text("Open")
+						}
+					}
+				}
+			}
+			TextButton(
+				onClick = onDismissRequest,
+				modifier = Modifier.align(Alignment.End)
+			) {
+				Text("Cancel")
+			}
+		}
+	}
 }
 
 private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubRows(

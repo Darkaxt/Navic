@@ -41,6 +41,25 @@ class ReaderOpenRequestFactoryTest {
 	}
 
 	@Test
+	fun openRequestUsesLocalProgressWhenBinderySavedProgressIsUnavailable() {
+		val localStartLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-37.xhtml",
+			cfi = "epubcfi(/6/98!/4/2,/1406,/1480/1:227)",
+			progress = 0.8186814367781696
+		)
+
+		val request = hobbitReader().toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/3693/cover.jpg",
+			settings = defaultReaderSettings(),
+			savedProgress = null,
+			localStartLocator = localStartLocator
+		)
+
+		assertEquals(localStartLocator, request.startLocator)
+	}
+
+	@Test
 	fun openRequestKeepsExplicitRouteStartLocatorOverOlderSavedProgress() {
 		val savedProgress = BinderyReadingProgress(
 			bookId = "3693",
@@ -68,9 +87,24 @@ class ReaderOpenRequestFactoryTest {
 		assertEquals(routeLocator, request.startLocator)
 	}
 
+	@Test
+	fun openRequestCarriesExplicitRouteProgressForReaderDevResumeValidation() {
+		val request = hobbitReader(
+			startProgress = 0.37
+		).toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = null,
+			settings = defaultReaderSettings(),
+			savedProgress = null
+		)
+
+		assertEquals(ReaderLocator(progress = 0.37), request.startLocator)
+	}
+
 	private fun hobbitReader(
 		startHref: String? = null,
-		startCfi: String? = null
+		startCfi: String? = null,
+		startProgress: Double? = null
 	): Screen.Reader =
 		Screen.Reader(
 			title = "The Hobbit",
@@ -81,6 +115,7 @@ class ReaderOpenRequestFactoryTest {
 			publicationFormat = ReaderPublicationFormat.Epub,
 			mediaOverlayEnabled = false,
 			startHref = startHref,
-			startCfi = startCfi
+			startCfi = startCfi,
+			startProgress = startProgress
 		)
 }

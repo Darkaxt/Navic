@@ -403,8 +403,18 @@ fun readerShellCoverSwipeAction(
 fun readerNativeReaderSwipeAction(
 	deltaX: Float,
 	deltaY: Float,
-	thresholdPx: Float
+	thresholdPx: Float,
+	verticalPageDragPreview: Boolean = false
 ): ReaderTapZoneAction? {
+	if (verticalPageDragPreview) {
+		if (kotlin.math.abs(deltaY) <= thresholdPx) return null
+		if (kotlin.math.abs(deltaY) <= kotlin.math.abs(deltaX)) return null
+		return if (deltaY < 0f) {
+			ReaderTapZoneAction.Right
+		} else {
+			ReaderTapZoneAction.Left
+		}
+	}
 	if (kotlin.math.abs(deltaX) <= thresholdPx) return null
 	if (kotlin.math.abs(deltaX) <= kotlin.math.abs(deltaY)) return null
 	return if (deltaX < 0f) {
@@ -422,8 +432,13 @@ fun readerShouldReturnToNativeShellCover(
 		!shellCoverVisible &&
 		!shellCoverUrl.isNullOrBlank() &&
 		readerLocatorCanRepresentNativeShellCoverBoundary(locator) &&
-		(locator?.pageIndex ?: -1) <= 1 &&
-		(locator?.pageCount ?: 0) > 0
+		readerLocatorIsNativeShellCoverPageBoundary(locator)
+
+private fun readerLocatorIsNativeShellCoverPageBoundary(locator: ReaderLocator?): Boolean {
+	if ((locator?.pageCount ?: 0) <= 0) return false
+	if ((locator?.pageIndex ?: Int.MAX_VALUE) <= 1) return true
+	return (locator?.progress ?: 1.0) <= 0.02
+}
 
 private fun readerLocatorCanRepresentNativeShellCoverBoundary(locator: ReaderLocator?): Boolean {
 	val progress = locator?.progress
@@ -1036,6 +1051,7 @@ data class ReaderReadaloudPlaybackUiState(
 	val isAvailable: Boolean = false,
 	val isPlaying: Boolean = false,
 	val trackIndex: Int = 0,
+	val audioResource: String? = null,
 	val positionMs: Long = 0L,
 	val durationMs: Long? = null,
 	val playbackSpeed: Float = 1f,

@@ -1,12 +1,17 @@
 package paige.navic.androidApp
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -35,6 +40,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		ReaderWebRuntime.setForceWebContentsDebuggingEnabled(BuildConfig.NAVIC_READER_DEV)
 		applyReaderDevIntentSeed(intent)
 		enableEdgeToEdge()
+		requestNotificationPermissionIfNeeded()
 		setContent { App(initialScreenOverride = readerDevInitialScreen) }
 	}
 
@@ -72,7 +78,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		}
 		var applied = false
 		var binderySeeded = false
-		preferenceManager.showedSideloadingWarning = true
 		val binderyOpdsUrl = intent.stringExtra(
 			ReaderDevExtraBinderyOpdsUrl,
 			"BINDERY_OPDS_URL",
@@ -116,8 +121,27 @@ class MainActivity : ComponentActivity(), KoinComponent {
 			Log.i("MainActivity", "Applied readerDev seed extras")
 		}
 	}
+
+	private fun requestNotificationPermissionIfNeeded() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+		if (
+			ContextCompat.checkSelfPermission(
+				this,
+				Manifest.permission.POST_NOTIFICATIONS
+			) == PackageManager.PERMISSION_GRANTED
+		) {
+			return
+		}
+
+		ActivityCompat.requestPermissions(
+			this,
+			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+			NotificationPermissionRequestCode
+		)
+	}
 }
 
+private const val NotificationPermissionRequestCode = 3101
 private const val ReaderDevExtraBinderyOpdsUrl = "navic.dev.bindery.opds_url"
 private const val ReaderDevExtraBinderyApiKey = "navic.dev.bindery.api_key"
 private const val ReaderDevExtraBinderyLanguage = "navic.dev.bindery.language_filter"
@@ -130,6 +154,12 @@ private const val ReaderDevExtraKind = "navic.dev.reader.kind"
 private const val ReaderDevExtraFormat = "navic.dev.reader.format"
 private const val ReaderDevExtraStartHref = "navic.dev.reader.start_href"
 private const val ReaderDevExtraStartCfi = "navic.dev.reader.start_cfi"
+private const val ReaderDevExtraStartProgress = "navic.dev.reader.start_progress"
+private const val ReaderDevExtraWhispersyncSidecarUrl = "navic.dev.reader.whispersync_sidecar_url"
+private const val ReaderDevExtraWhispersyncArtifactId = "navic.dev.reader.whispersync_artifact_id"
+private const val ReaderDevExtraWhispersyncAudiobookId = "navic.dev.reader.whispersync_audiobook_id"
+private const val ReaderDevExtraWhispersyncAudiobookBookFileId = "navic.dev.reader.whispersync_audiobook_book_file_id"
+private const val ReaderDevExtraWhispersyncAudiobookTitle = "navic.dev.reader.whispersync_audiobook_title"
 
 private fun Intent.stringExtra(primaryKey: String, vararg fallbackKeys: String): String? {
 	getStringExtra(primaryKey)?.let { return it }
@@ -165,7 +195,33 @@ private fun Intent.toReaderDevInitialScreen(): Screen.Reader? {
 		publicationFormat = readerDevPublicationFormat(),
 		mediaOverlayEnabled = readerDevPublicationKind() == ReaderPublicationKind.Readaloud,
 		startCfi = stringExtra(ReaderDevExtraStartCfi, "NAVIC_READER_DEV_START_CFI")?.trim()?.takeIf { it.isNotEmpty() },
-		startHref = stringExtra(ReaderDevExtraStartHref, "NAVIC_READER_DEV_START_HREF")?.trim()?.takeIf { it.isNotEmpty() }
+		startHref = stringExtra(ReaderDevExtraStartHref, "NAVIC_READER_DEV_START_HREF")?.trim()?.takeIf { it.isNotEmpty() },
+		startProgress = stringExtra(ReaderDevExtraStartProgress, "NAVIC_READER_DEV_START_PROGRESS")
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.toDoubleOrNull()
+			?.takeIf(Double::isFinite)
+			?.coerceIn(0.0, 1.0),
+		whispersyncSidecarUrl = stringExtra(
+			ReaderDevExtraWhispersyncSidecarUrl,
+			"NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncArtifactId = stringExtra(
+			ReaderDevExtraWhispersyncArtifactId,
+			"NAVIC_READER_DEV_WHISPERSYNC_ARTIFACT_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookId = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookId,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookBookFileId = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookBookFileId,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookTitle = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookTitle,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE"
+		)?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
 

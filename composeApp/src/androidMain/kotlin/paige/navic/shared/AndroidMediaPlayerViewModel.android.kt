@@ -26,7 +26,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -51,7 +50,6 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -64,6 +62,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.PlaylistDao
 import paige.navic.data.database.dao.SongDao
@@ -73,23 +73,18 @@ import paige.navic.domain.manager.AndroidScrobbleManager
 import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.manager.PlaybackOriginCredit
-import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
-import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
-import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
-import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.collectionShufflePlaybackPlan
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
@@ -98,17 +93,12 @@ import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
-import paige.navic.domain.models.playbackPrefetchIndexes
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.mediaNotificationActions
-import paige.navic.domain.models.queueAutoFillAppendCount
-import paige.navic.domain.models.queueAutoFillCandidateSongs
-import paige.navic.domain.models.QueueAutoFillRemainingTrigger
 import paige.navic.domain.models.replayGainLoudnessBoostMillibels
 import paige.navic.domain.models.replayGainVolumeMultiplier
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
-import paige.navic.domain.models.shouldAutoFillQueue
 import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
@@ -116,29 +106,24 @@ import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
-import paige.navic.domain.models.shouldSendNowPlayingWidgetUpdate
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
 import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
-import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.settings.MediaNotificationAction
 import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.repositories.SongRepository
-import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
 import java.io.File
 import kotlin.time.Clock
-import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-
-private const val PlaybackOriginCheckpointIntervalMs = 30_000L
+import coil3.PlatformContext as CoilPlatformContext
 
 class AndroidMediaPlayerViewModel(
 	private val application: Application,
@@ -149,11 +134,13 @@ class AndroidMediaPlayerViewModel(
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
+	private val platformContext: CoilPlatformContext,
 	private val songRepository: SongRepository,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val snackBarManager: SnackBarManager
 ) : MediaPlayerViewModel(
 	stateRepository = stateRepository,
 	downloadManager = downloadManager,
@@ -167,16 +154,55 @@ class AndroidMediaPlayerViewModel(
 
 	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
-	private var playbackFadeJob: Job? = null
-	private var playbackFadeRestoreVolume: Float? = null
-	private var autoFillQueueJob: Job? = null
-	private var lastMusicBrainzArtworkPrefetchSongId: String? = null
-	private var lastPlaybackPrefetchSignature: String? = null
-	private var lastNowPlayingWidgetSongId: String? = null
-	private var lastNowPlayingWidgetIsPlaying: Boolean? = null
+	private var pendingSourceErrorRecovery: PendingSourceErrorRecovery? = null
+	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
-	private val playbackOriginTracker = PlaybackOriginTracker()
-	private var lastPlaybackOriginCheckpointMillis = 0L
+	private val mediaItemFactory = AndroidMediaItemFactory(
+		sessionManager = sessionManager,
+		downloadManager = downloadManager,
+		platformContext = platformContext,
+		streamUriForSongId = ::getStreamUrl
+	)
+	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
+		application = application,
+		sessionManager = sessionManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+	)
+	private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(
+		scope = viewModelScope,
+		downloadManager = downloadManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository,
+		upNextCount = { preferenceManager.nowPlayingUpNextCount },
+		onCurrentSongArtworkPrefetched = { prefetchedSong ->
+			val state = _uiState.value
+			if (state.currentSong?.id == prefetchedSong.id) {
+				nowPlayingBroadcaster.send(
+					currentSong = state.currentSong,
+					isPlaying = !state.isPaused,
+					force = true
+				)
+			}
+		}
+	)
+	private val playbackVolumeFader = AndroidPlaybackVolumeFader(
+		scope = viewModelScope,
+		effectiveVolume = ::effectivePlaybackVolume
+	)
+	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
+	private val radioMediaItemFactory = AndroidRadioMediaItemFactory()
+	private val queueAutoFiller = AndroidQueueAutoFiller(
+		scope = viewModelScope,
+		preferenceManager = preferenceManager,
+		songRepository = songRepository,
+		mediaItemFactory = mediaItemFactory,
+		controller = { controller },
+		state = { _uiState.value },
+		isAvailable = { songId -> isAvailable(songId) },
+		fetchServerSimilarSongs = ::fetchServerSimilarSongs,
+		appendSongs = { songs ->
+			_uiState.update { state -> state.copy(queue = state.queue + songs) }
+		}
+	)
 
 	init {
 		connectToService()
@@ -245,33 +271,42 @@ class AndroidMediaPlayerViewModel(
 								}
 							}
 						}
-						maybeAutoFillQueue()
+						queueAutoFiller.maybeAutoFillQueue()
 					}
 
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
 						_uiState.update { it.copy(isPaused = !isPlaying) }
 						val nowMillis = Clock.System.now().toEpochMilliseconds()
-						recordPlaybackOriginCredit(
-							playbackOriginTracker.onPlaybackState(
-								isPlaying = isPlaying,
-								nowMillis = nowMillis
-							)
+						playbackOriginRecorder.onPlaybackState(
+							isPlaying = isPlaying,
+							nowMillis = nowMillis
 						)
 						if (isPlaying) {
-							lastPlaybackOriginCheckpointMillis = nowMillis
 							startProgressLoop()
-							maybeAutoFillQueue()
-							prefetchMusicBrainzArtworkForCurrentSong(_uiState.value.currentSong, isPlaying = true)
-							prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = true)
+							queueAutoFiller.maybeAutoFillQueue()
+							playbackAssetPrefetcher.prefetchCurrentSongArtwork(
+								_uiState.value.currentSong,
+								isPlaying = true
+							)
+							playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = true)
 						}
-						sendNowPlayingBroadcast(isPlaying)
+						nowPlayingBroadcaster.send(
+							currentSong = _uiState.value.currentSong,
+							isPlaying = isPlaying
+						)
 					}
 
 					override fun onPlaybackStateChanged(playbackState: Int) {
-						_uiState.update { it.copy(isLoading = playbackState == Player.STATE_BUFFERING) }
+						_uiState.update {
+							it.copy(
+								isLoading = playbackState == Player.STATE_BUFFERING ||
+									pendingSourceErrorRecovery != null
+							)
+						}
+						updatePlaybackDownloadProgress()
 						updatePlaybackState()
 						if (playbackState == Player.STATE_READY) {
-							maybeAutoFillQueue()
+							queueAutoFiller.maybeAutoFillQueue()
 						}
 					}
 
@@ -283,14 +318,20 @@ class AndroidMediaPlayerViewModel(
 								"code=${error.errorCodeName} message=${error.message}",
 							error
 						)
+						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
+							return
+						}
 						val shouldSkip = shouldSkipMediaAfterPlaybackError(
 							skipMediaOnError = preferenceManager.skipMediaOnError,
 							hasNextMediaItem = hasNextMediaItem()
 						)
 						if (shouldSkip) {
+							clearPendingSourceErrorRecovery()
 							seekToNextMediaItem()
 							prepare()
 							play()
+						} else {
+							beginPendingSourceErrorRecovery(this@apply)
 						}
 					}
 
@@ -326,7 +367,7 @@ class AndroidMediaPlayerViewModel(
 				}
 
 				combine(
-					downloadManager.downloadedSongs,
+					downloadManager.allDownloads,
 					connectivityManager.isCellular,
 					snapshotFlow { preferenceManager.streamingQualityWifi },
 					snapshotFlow { preferenceManager.streamingQualityCellular },
@@ -335,7 +376,14 @@ class AndroidMediaPlayerViewModel(
 					snapshotFlow { preferenceManager.customMaxBitrateCellular }
 				) { it }.collectLatest { args ->
 					@Suppress("UNCHECKED_CAST")
-					val downloadedMap = args[0] as Map<String, String>
+					val downloads = args[0] as List<DownloadEntity>
+					latestDownloadsById = downloads.associateBy { download -> download.songId }
+					updatePlaybackDownloadProgress()
+					val downloadedMap = downloads
+						.filter { download ->
+							download.status == DownloadStatus.DOWNLOADED && download.filePath != null
+						}
+						.associate { download -> download.songId to download.filePath!! }
 					val player = controller ?: return@collectLatest
 					val currentIndex = player.currentMediaItemIndex
 
@@ -343,13 +391,15 @@ class AndroidMediaPlayerViewModel(
 						val item = player.getMediaItemAt(i)
 						val id = item.mediaId
 						val localPath = downloadedMap[id]
+						val isRecoveringCurrentItem = pendingSourceErrorRecovery?.songId == id
 
 						val isCurrentlyLocal = item.localConfiguration?.uri?.scheme == "file"
 						if (
 							!shouldReplaceQueuedMediaItemForDownloadAvailability(
 								isCurrentItem = i == currentIndex,
 								hasDownloadedFile = localPath != null,
-								isCurrentlyLocal = isCurrentlyLocal
+								isCurrentlyLocal = isCurrentlyLocal,
+								isRecoveringFromSourceError = isRecoveringCurrentItem
 							)
 						) {
 							continue
@@ -372,9 +422,18 @@ class AndroidMediaPlayerViewModel(
 
 						if (newItem != null) {
 							if (i == player.currentMediaItemIndex) {
-								val currentPosition = player.currentPosition
+								val recovery = pendingSourceErrorRecovery?.takeIf { it.songId == id }
+								val currentPosition = recovery?.positionMs ?: player.currentPosition
 								player.replaceMediaItem(i, newItem)
 								player.seekTo(i, currentPosition)
+								if (recovery != null) {
+									player.prepare()
+									if (recovery.shouldResume) {
+										claimMusicPlayback()
+										player.play()
+									}
+									clearPendingSourceErrorRecovery()
+								}
 							} else {
 								player.replaceMediaItem(i, newItem)
 							}
@@ -405,42 +464,12 @@ class AndroidMediaPlayerViewModel(
 	override fun setNowPlayingVideoClipAudioActive(active: Boolean) {
 		if (nowPlayingVideoClipAudioActive == active) return
 		nowPlayingVideoClipAudioActive = active
-		cancelPlaybackFade()
+		playbackVolumeFader.cancel(controller)
 		refreshPlaybackVolume()
 	}
 
 	override fun setPlaybackOrigin(origin: PlaybackOrigin?) {
-		viewModelScope.launch {
-			setPlaybackOriginNow(origin)
-		}
-	}
-
-	private fun setPlaybackOriginNow(origin: PlaybackOrigin?) {
-		val nowMillis = Clock.System.now().toEpochMilliseconds()
-		recordPlaybackOriginCredit(playbackOriginTracker.setOrigin(origin, nowMillis))
-		lastPlaybackOriginCheckpointMillis = nowMillis
-	}
-
-	private fun recordPlaybackOriginCredit(credit: PlaybackOriginCredit?) {
-		if (credit == null) return
-		viewModelScope.launch(Dispatchers.IO) {
-			runCatching {
-				playbackOriginRepository.credit(
-					origin = credit.origin,
-					durationMillis = credit.durationMillis
-				)
-			}.onFailure { error ->
-				Logger.w("MediaPlayer", "Failed to credit playback origin", error)
-			}
-		}
-	}
-
-	private fun checkpointPlaybackOriginIfNeeded(nowMillis: Long) {
-		if (nowMillis - lastPlaybackOriginCheckpointMillis < PlaybackOriginCheckpointIntervalMs) {
-			return
-		}
-		recordPlaybackOriginCredit(playbackOriginTracker.checkpoint(nowMillis))
-		lastPlaybackOriginCheckpointMillis = nowMillis
+		playbackOriginRecorder.setOrigin(origin)
 	}
 
 	private fun refreshCurrentCollection(albumId: String) {
@@ -487,10 +516,13 @@ class AndroidMediaPlayerViewModel(
 			)
 		}
 		applyReplayGain()
-		prefetchMusicBrainzArtworkForCurrentSong(currentSong, isPlaying = controller.isPlaying)
-		prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
+		playbackAssetPrefetcher.prefetchCurrentSongArtwork(currentSong, isPlaying = controller.isPlaying)
+		playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
 		updateProgress()
-		sendNowPlayingBroadcast(isPlaying = controller.isPlaying)
+		nowPlayingBroadcaster.send(
+			currentSong = _uiState.value.currentSong,
+			isPlaying = controller.isPlaying
+		)
 	}
 
 	private fun MediaController.upcomingMediaItemIndexes(): List<Int> {
@@ -521,96 +553,88 @@ class AndroidMediaPlayerViewModel(
 		return indexes
 	}
 
-	private fun prefetchMusicBrainzArtworkForCurrentSong(
-		currentSong: DomainSong?,
-		isPlaying: Boolean
-	) {
-		if (!isPlaying || currentSong == null) return
-		if (lastMusicBrainzArtworkPrefetchSongId == currentSong.id) return
-		lastMusicBrainzArtworkPrefetchSongId = currentSong.id
-
-		viewModelScope.launch(Dispatchers.IO) {
-			val artwork = musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(currentSong)
-				.getOrNull()
-			if (artwork?.imageUrl.isNullOrBlank()) return@launch
-
-			withContext(Dispatchers.Main.immediate) {
-				val state = _uiState.value
-				if (state.currentSong?.id == currentSong.id) {
-					sendNowPlayingBroadcast(isPlaying = !state.isPaused, force = true)
-				}
-			}
+	private fun beginPendingSourceErrorRecovery(player: MediaController) {
+		val mediaId = player.currentMediaItem?.mediaId ?: return
+		val song = _uiState.value.queue.getOrNull(player.currentMediaItemIndex)
+			?: _uiState.value.currentSong?.takeIf { it.id == mediaId }
+			?: return
+		val songDurationMs = song.duration.inWholeMilliseconds
+		val fallbackPositionMs = if (songDurationMs > 0L) {
+			(_uiState.value.progress * songDurationMs).toLong()
+		} else {
+			0L
 		}
-	}
-
-	private fun prefetchUpcomingPlaybackAssets(
-		state: PlayerUiState,
-		isPlaying: Boolean
-	) {
-		if (!isPlaying) return
-		val indexes = playbackPrefetchIndexes(
-			upcomingIndexes = state.upcomingIndexes,
-			upNextCount = preferenceManager.nowPlayingUpNextCount
+		val positionMs = player.currentPosition.takeIf { it > 0L } ?: fallbackPositionMs
+		pendingSourceErrorRecovery = PendingSourceErrorRecovery(
+			songId = mediaId,
+			positionMs = positionMs.coerceAtLeast(0L),
+			shouldResume = player.playWhenReady || !_uiState.value.isPaused
 		)
-		val songs = indexes.mapNotNull { index -> state.queue.getOrNull(index) }
-			.distinctBy { it.id }
-		if (songs.isEmpty()) return
-
-		val signature = songs.joinToString("|") { song -> song.id }
-		if (signature == lastPlaybackPrefetchSignature) return
-		lastPlaybackPrefetchSignature = signature
-
-		downloadManager.prefetchPlaybackSongs(songs)
-		viewModelScope.launch(Dispatchers.IO) {
-			songs.forEach { song ->
-				runCatching {
-					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
-				}.onFailure { error ->
-					Logger.w("MediaPlayer", "Failed to prefetch artwork for upcoming song ${song.id}", error)
-				}
-			}
-		}
+		updatePlaybackDownloadProgress()
+		downloadManager.prefetchPlaybackSongs(listOf(song))
 	}
 
-	private fun sendNowPlayingBroadcast(isPlaying: Boolean, force: Boolean = false) {
-		val currentSong = _uiState.value.currentSong
-		val currentSongId = currentSong?.id
-		val previousIsPlaying = lastNowPlayingWidgetIsPlaying
-		if (
-			!force &&
-			previousIsPlaying != null &&
-			!shouldSendNowPlayingWidgetUpdate(
-				previousSongId = lastNowPlayingWidgetSongId,
-				currentSongId = currentSongId,
-				previousIsPlaying = previousIsPlaying,
-				currentIsPlaying = isPlaying
+	private fun recoverCurrentMediaItemFromDownloadedFile(player: MediaController): Boolean {
+		val recovery = pendingSourceErrorRecovery
+		val mediaId = player.currentMediaItem?.mediaId ?: return false
+		val localPath = downloadManager.getDownloadedFilePath(mediaId) ?: return false
+		val currentItem = player.currentMediaItem ?: return false
+		if (currentItem.localConfiguration?.uri?.scheme == "file") return false
+
+		val effectiveRecovery = recovery?.takeIf { it.songId == mediaId }
+			?: PendingSourceErrorRecovery(
+				songId = mediaId,
+				positionMs = player.currentPosition.coerceAtLeast(0L),
+				shouldResume = player.playWhenReady || !_uiState.value.isPaused
 			)
-		) {
-			return
-		}
-
-		lastNowPlayingWidgetSongId = currentSongId
-		lastNowPlayingWidgetIsPlaying = isPlaying
-
-		val intent = Intent("${application.packageName}.NOW_PLAYING_UPDATED").apply {
-			setPackage(application.packageName)
-			putExtra("isPlaying", isPlaying)
-			putExtra("title", currentSong?.title ?: "Unknown song")
-			putExtra("artist", currentSong?.artistName ?: "Unknown artist")
-			putExtra("artUrl", currentSong?.let(::currentArtworkUrl))
-		}
-
-		application.sendBroadcast(intent)
-	}
-
-	private fun currentArtworkUrl(song: DomainSong): String? =
-		activeArtworkUrl(
-			serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) },
-			externalArtworkUrl = externalFallbackArtworkUrl(
-				serverCoverArtId = song.coverArtId,
-				externalArtworkUrl = musicBrainzArtworkRepository.artworkBySongId.value[song.id]?.imageUrl
-			)
+		val index = player.currentMediaItemIndex
+		player.replaceMediaItem(
+			index,
+			currentItem.buildUpon()
+				.setUri(File(localPath).toUri())
+				.build()
 		)
+		player.seekTo(index, effectiveRecovery.positionMs)
+		player.prepare()
+		if (effectiveRecovery.shouldResume) {
+			claimMusicPlayback()
+			player.play()
+		}
+		clearPendingSourceErrorRecovery()
+		return true
+	}
+
+	private fun updatePlaybackDownloadProgress() {
+		val recovery = pendingSourceErrorRecovery
+		val songId = recovery?.songId ?: _uiState.value.currentSong?.id
+		val shouldShowProgress = recovery != null || _uiState.value.isLoading
+		val download = songId?.let { latestDownloadsById[it] }
+		val progress = when (download?.status) {
+			DownloadStatus.DOWNLOADING -> download.progress.coerceIn(0f, 1f)
+			DownloadStatus.QUEUED -> 0f
+			null -> if (recovery != null) 0f else null
+			DownloadStatus.DOWNLOADED,
+			DownloadStatus.FAILED,
+			DownloadStatus.NOT_DOWNLOADED -> null
+		}
+			?.takeIf { shouldShowProgress }
+		_uiState.update { state ->
+			state.copy(
+				isLoading = if (recovery != null) progress != null else state.isLoading,
+				playbackDownloadProgress = progress
+			)
+		}
+	}
+
+	private fun clearPendingSourceErrorRecovery() {
+		pendingSourceErrorRecovery = null
+		_uiState.update { state ->
+			state.copy(
+				isLoading = false,
+				playbackDownloadProgress = null
+			)
+		}
+	}
 
 	private fun applyReplayGain() {
 		val replayGain = _uiState.value.currentSong?.replayGain
@@ -679,7 +703,7 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			while (controller?.isPlaying == true) {
 				val player = controller ?: break
-				checkpointPlaybackOriginIfNeeded(Clock.System.now().toEpochMilliseconds())
+				playbackOriginRecorder.checkpointIfNeeded(Clock.System.now().toEpochMilliseconds())
 				val duration = player.duration
 				if (duration > 0) {
 					val progress =
@@ -698,92 +722,6 @@ class AndroidMediaPlayerViewModel(
 				val pos = player.currentPosition
 				val progress = (pos.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
 				_uiState.update { it.copy(progress = progress) }
-			}
-		}
-	}
-
-	private fun maybeAutoFillQueue() {
-		val player = controller ?: return
-		val state = _uiState.value
-		if (
-			!shouldAutoFillQueue(
-				autoFillQueue = preferenceManager.autoFillQueue,
-				isPlaying = player.isPlaying,
-				isRadioQueue = state.queue.any { it.id.startsWith("radio_") },
-				queueSize = state.queue.size,
-				currentIndex = state.currentIndex,
-				remainingTrigger = QueueAutoFillRemainingTrigger,
-				targetSize = preferenceManager.autoFillQueueTargetSize
-			)
-		) {
-			return
-		}
-		if (autoFillQueueJob?.isActive == true) return
-
-		autoFillQueueJob = viewModelScope.launch {
-			try {
-				val allSongs = withContext(Dispatchers.IO) {
-					songRepository.getAllSongs()
-				}.shuffled()
-
-				val currentPlayer = controller ?: return@launch
-				val currentState = _uiState.value
-				if (
-					!shouldAutoFillQueue(
-						autoFillQueue = preferenceManager.autoFillQueue,
-						isPlaying = currentPlayer.isPlaying,
-						isRadioQueue = currentState.queue.any { it.id.startsWith("radio_") },
-						queueSize = currentState.queue.size,
-						currentIndex = currentState.currentIndex,
-						remainingTrigger = QueueAutoFillRemainingTrigger,
-						targetSize = preferenceManager.autoFillQueueTargetSize
-					)
-				) {
-					return@launch
-				}
-
-				val appendCount = queueAutoFillAppendCount(
-					queueSize = currentState.queue.size,
-					targetSize = preferenceManager.autoFillQueueTargetSize
-				)
-				val serverSimilarSongs = if (
-					preferenceManager.autoFillQueueSource == AutoFillQueueSource.SimilarToCurrentSong &&
-					currentState.currentSong != null
-				) {
-					withContext(Dispatchers.IO) {
-						fetchServerSimilarSongs(
-							songId = currentState.currentSong.id,
-							limit = appendCount * 2
-						)
-					}
-				} else {
-					emptyList()
-				}
-				val preferredSongIds = serverSimilarSongs.map { it.id }
-				val queuedIds = currentState.queue.mapTo(mutableSetOf()) { it.id }
-				val recentQueueSongs = currentState.queue
-					.take(currentState.currentIndex + 1)
-					.takeLast(10)
-				val songsToAppend = queueAutoFillCandidateSongs(
-					candidateSongs = (serverSimilarSongs + allSongs).filter { isAvailable(it.id) },
-					queuedIds = queuedIds,
-					limit = appendCount,
-					source = preferenceManager.autoFillQueueSource,
-					currentSong = currentState.currentSong,
-					preferredSongIds = preferredSongIds,
-					recentSongs = recentQueueSongs
-				)
-				if (songsToAppend.isEmpty()) return@launch
-
-				val mediaItems = withContext(Dispatchers.Default) {
-					songsToAppend.map { it.toMediaItem() }
-				}
-				currentPlayer.addMediaItems(mediaItems)
-				_uiState.update { it.copy(queue = it.queue + songsToAppend) }
-			} catch (error: Exception) {
-				Logger.w("MediaPlayer", "Queue auto-fill failed", error)
-			} finally {
-				autoFillQueueJob = null
 			}
 		}
 	}
@@ -809,7 +747,7 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override fun addToQueueSingle(song: DomainSong) {
+	override fun addToQueueSingle(song: DomainSong, notify: Boolean) {
 		viewModelScope.launch {
 			val player = controller
 			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
@@ -822,29 +760,34 @@ class AndroidMediaPlayerViewModel(
 				)
 			}
 			player?.let(::playPendingIndexIfAvailable)
+			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
 
-	override fun addToQueue(collection: DomainSongCollection) {
+	override fun addToQueue(collection: DomainSongCollection, notify: Boolean) {
+		val songs = if (collection is DomainAlbum) {
+			collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
+		} else {
+			collection.songs
+		}
+		addToQueue(songs, notify)
+	}
+
+	override fun addToQueue(songs: List<DomainSong>, notify: Boolean) {
 		viewModelScope.launch {
-			val (items, newCollection) = withContext(Dispatchers.Default) {
-				val newCollection = if (collection is DomainAlbum) collection.songs.sortedWith(compareBy(
-					{ it.discNumber },
-					{ it.trackNumber }
-				)) else collection.songs
-				newCollection.map { it.toMediaItem() } to newCollection
-			}
+			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 			val player = controller
 			player?.addMediaItems(items)
 			_uiState.update { state ->
-				val newQueue = state.queue + newCollection
+				val newQueue = state.queue + songs
 				state.copy(
 					queue = newQueue,
 					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
+					currentSong = if (state.currentIndex == -1) songs.firstOrNull() else state.currentSong
 				)
 			}
 			player?.let(::playPendingIndexIfAvailable)
+			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
 
@@ -950,10 +893,9 @@ class AndroidMediaPlayerViewModel(
 
 	override fun clearQueue() {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
+			playbackOriginRecorder.setOriginNow(null)
 			pendingPlayIndex = null
-			autoFillQueueJob?.cancel()
-			autoFillQueueJob = null
+			queueAutoFiller.cancel()
 			_uiState.update {
 				it.copy(
 					queue = emptyList(),
@@ -1041,6 +983,7 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) song else state.currentSong
 				)
 			}
+			snackBarManager.notifyPlayNext()
 		}
 	}
 
@@ -1068,12 +1011,13 @@ class AndroidMediaPlayerViewModel(
 					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
 				)
 			}
+			snackBarManager.notifyPlayNext()
 		}
 	}
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
+			playbackOriginRecorder.setOriginNow(null)
 			try {
 				val serverSimilarSongs = withContext(Dispatchers.IO) {
 					fetchServerSimilarSongs(
@@ -1096,8 +1040,7 @@ class AndroidMediaPlayerViewModel(
 					radioQueue.map { it.toMediaItem() }
 				}
 				pendingPlayIndex = null
-				autoFillQueueJob?.cancel()
-				autoFillQueueJob = null
+				queueAutoFiller.cancel()
 				controller?.let { player ->
 					player.shuffleModeEnabled = false
 					player.setMediaItems(mediaItems, 0, 0L)
@@ -1136,63 +1079,13 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
-			setPlaybackOriginNow(null)
-			val radioId = "radio_${radio.name.hashCode()}"
-
-			val dummyRadioSong = DomainSong(
-				id = radioId,
-				title = radio.name,
-				artistName = "Live Radio",
-				albumId = "radio_album",
-				albumTitle = "Live Stream",
-				duration = Duration.ZERO,
-				trackNumber = 1,
-				coverArtId = null,
-				artistId = "",
-				parentId = "",
-				comment = null,
-				discNumber = null,
-				isrc = emptyList(),
-				year = null,
-				genre = null,
-				genres = emptyList(),
-				moods = emptyList(),
-				bpm = null,
-				contributors = emptyList(),
-				playCount = 0,
-				userRating = 0,
-				averageRating = null,
-				bitRate = null,
-				bitDepth = null,
-				sampleRate = null,
-				audioChannelCount = null,
-				replayGain = null,
-				fileSize = 0,
-				fileExtension = "",
-				mimeType = "",
-				filePath = radio.streamUrl,
-				starredAt = null,
-				musicBrainzId = null,
-				explicitStatus = DomainExplicitStatus.Unknown
-			)
-
-			val metadata = MediaMetadata.Builder()
-				.setTitle(radio.name)
-				.setArtist("Live Radio")
-				.setIsPlayable(true)
-				.build()
-
-			val mediaItem = MediaItem.Builder()
-				.setUri(radio.streamUrl)
-				.setMediaId("radio_${radio.name.hashCode()}")
-				.setMediaMetadata(metadata)
-				.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
-				.build()
+			playbackOriginRecorder.setOriginNow(null)
+			val radioItem = radioMediaItemFactory.create(radio)
 
 			controller?.let { player ->
 				player.stop()
 				player.clearMediaItems()
-				player.setMediaItem(mediaItem)
+				player.setMediaItem(radioItem.mediaItem)
 				player.prepare()
 				claimMusicPlayback()
 				player.play()
@@ -1200,9 +1093,9 @@ class AndroidMediaPlayerViewModel(
 
 			_uiState.update { state ->
 				state.copy(
-					queue = listOf(dummyRadioSong),
+					queue = listOf(radioItem.song),
 					currentIndex = 0,
-					currentSong = dummyRadioSong,
+					currentSong = radioItem.song,
 					isLoading = true
 				)
 			}
@@ -1242,7 +1135,7 @@ class AndroidMediaPlayerViewModel(
 	override fun pause() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
-			cancelPlaybackFade(player)
+			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
 				!shouldFadePlaybackCommand(
@@ -1255,7 +1148,7 @@ class AndroidMediaPlayerViewModel(
 			}
 
 			val originalVolume = player.volume.coerceIn(0f, 1f)
-			startPlaybackVolumeFade(
+			playbackVolumeFader.start(
 				player = player,
 				startVolume = originalVolume,
 				targetVolume = 0f,
@@ -1272,7 +1165,7 @@ class AndroidMediaPlayerViewModel(
 	override fun resume() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
-			cancelPlaybackFade(player)
+			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
 				!shouldFadePlaybackCommand(
@@ -1294,7 +1187,7 @@ class AndroidMediaPlayerViewModel(
 				),
 				forceMuted = nowPlayingVideoClipAudioActive
 			)
-			startPlaybackVolumeFade(
+			playbackVolumeFader.start(
 				player = player,
 				startVolume = 0f,
 				targetVolume = targetVolume,
@@ -1309,45 +1202,8 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	private fun cancelPlaybackFade(player: MediaController? = controller) {
-		playbackFadeJob?.cancel()
-		playbackFadeJob = null
-		playbackFadeRestoreVolume?.let { volume ->
-			player?.volume = effectivePlaybackVolume(volume)
-		}
-		playbackFadeRestoreVolume = null
-	}
-
 	private fun effectivePlaybackVolume(volume: Float): Float =
 		if (nowPlayingVideoClipAudioActive) 0f else volume.coerceIn(0f, 1f)
-
-	private fun startPlaybackVolumeFade(
-		player: MediaController,
-		startVolume: Float,
-		targetVolume: Float,
-		durationMs: Long,
-		restoreVolumeOnCancel: Float,
-		onStart: () -> Unit = {},
-		onEnd: () -> Unit = {}
-	) {
-		playbackFadeJob?.cancel()
-		playbackFadeRestoreVolume = restoreVolumeOnCancel
-		playbackFadeJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-			onStart()
-			val steps = (durationMs / 16L).coerceAtLeast(1L).toInt()
-			repeat(steps) { step ->
-				val progress = (step + 1).toFloat() / steps.toFloat()
-				player.volume = effectivePlaybackVolume(
-					startVolume + ((targetVolume - startVolume) * progress)
-				)
-				delay(16L)
-			}
-			player.volume = effectivePlaybackVolume(targetVolume)
-			playbackFadeJob = null
-			playbackFadeRestoreVolume = null
-			onEnd()
-		}
-	}
 
 	override fun next() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
@@ -1408,9 +1264,8 @@ class AndroidMediaPlayerViewModel(
 
 	override fun onCleared() {
 		viewModelScope.launch {
-			cancelPlaybackFade()
-			autoFillQueueJob?.cancel()
-			autoFillQueueJob = null
+			playbackVolumeFader.cancel(controller)
+			queueAutoFiller.cancel()
 			super.onCleared()
 			controllerFuture?.let { MediaController.releaseFuture(it) }
 		}
@@ -1451,44 +1306,12 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	private fun DomainSong.toMediaItem(): MediaItem {
-		val metadata = MediaMetadata.Builder()
-			.setTitle(title)
-			.setArtist(artistName)
-			.setAlbumTitle(albumTitle)
-			.setArtworkUri(
-				coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
-			)
-			.build()
-
-		val uri = when {
-			id.startsWith(AurralFlowSongIdPrefix) && !filePath.isNullOrEmpty() -> {
-				filePath.toUri()
-			}
-
-			id.startsWith("radio_") && !filePath.isNullOrEmpty() -> {
-				filePath.toUri()
-			}
-
-			else -> {
-				val localPath = downloadManager.getDownloadedFilePath(id)
-				if (localPath != null) {
-					File(localPath).toUri()
-				} else {
-					getStreamUrl(id)
-				}
-			}
-		}
-
-		val builder = MediaItem.Builder()
-			.setUri(uri)
-			.setMediaId(id)
-			.setMediaMetadata(metadata)
-
-		if (id.startsWith("radio_")) {
-			builder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().build())
-		}
-
-		return builder.build()
-	}
+	private fun DomainSong.toMediaItem(): MediaItem =
+		mediaItemFactory.toMediaItem(this)
 }
+
+private data class PendingSourceErrorRecovery(
+	val songId: String,
+	val positionMs: Long,
+	val shouldResume: Boolean
+)

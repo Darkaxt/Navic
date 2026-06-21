@@ -203,7 +203,11 @@ fun NowPlayingButtonsRow(
 						contentAlignment = Alignment.Center
 					) {
 						val painter = playPauseIconPainter(playerState.isPaused)
-						AnimatedContent(playerState.isLoading) { isBuffering ->
+						AnimatedContent(
+							playerState.isLoading to playerState.playbackDownloadProgress?.coerceIn(0f, 1f)
+						) { loadingState ->
+							val isBuffering = loadingState.first
+							val downloadProgress = loadingState.second
 							if (!isBuffering) {
 								Box(
 									modifier = Modifier.size(48.dp),
@@ -243,11 +247,20 @@ fun NowPlayingButtonsRow(
 									}
 								}
 							} else {
-								CircularProgressIndicator(
-									Modifier.size(40.dp),
-									color = playButtonContentColor,
-									trackColor = playButtonContentColor.copy(alpha = .5f),
-								)
+								if (downloadProgress != null) {
+									CircularProgressIndicator(
+										progress = { downloadProgress },
+										modifier = Modifier.size(40.dp),
+										color = playButtonContentColor,
+										trackColor = playButtonContentColor.copy(alpha = .5f),
+									)
+								} else {
+									CircularProgressIndicator(
+										Modifier.size(40.dp),
+										color = playButtonContentColor,
+										trackColor = playButtonContentColor.copy(alpha = .5f),
+									)
+								}
 							}
 						}
 					}

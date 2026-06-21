@@ -13,7 +13,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesKomikkuStyleTapZonePresets() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerTapZoneMode")
 		assertContains(bridgeText, "KomikkuNavigationRegionMenu")
@@ -181,12 +181,27 @@ class ReaderRuntimeSettingsBridgeTest {
 			"Native tap-zone settings must be applied before Foliate loads content documents; otherwise onLoad can attach JS reader-wide tap handlers before Android owns taps."
 		)
 		assertContains(tapHandler, "if (this.nativeTapZones === true)")
+		assertContains(tapHandler, "this.attachNativeTapZoneTouchSuppressor(target)")
 		assertContains(tapHandler, "this.renderTapZoneOverlayLayer()")
 		assertContains(
 			tapHandler,
 			"return",
 			message = "Android native reader-surface ownership must disable JS reader-wide page/menu dispatch to avoid double page turns."
 		)
+
+		val touchSuppressor = runtimeText
+			.substringAfter("function attachNativeTapZoneTouchSuppressor(target) {")
+			.substringBefore("\nfunction handleReaderTapZoneTap")
+		assertContains(touchSuppressor, "__navicNativeTapZoneTouchSuppressorAttached")
+		assertContains(touchSuppressor, "this.nativeTapZones !== true")
+		assertContains(touchSuppressor, "event.stopPropagation?.()")
+		assertContains(touchSuppressor, "event.stopImmediatePropagation?.()")
+		assertContains(touchSuppressor, "if (event.type === 'touchmove' && event.cancelable)")
+		assertContains(touchSuppressor, "event.preventDefault?.()")
+		assertContains(touchSuppressor, "target.addEventListener('touchstart'")
+		assertContains(touchSuppressor, "target.addEventListener('touchmove'")
+		assertContains(touchSuppressor, "target.addEventListener('touchend'")
+		assertContains(touchSuppressor, "target.addEventListener('touchcancel'")
 	}
 
 	@Test
@@ -194,7 +209,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val runtimeText = readerBridgeText()
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
@@ -218,7 +233,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val developerSettingsText = settingsFile("DeveloperScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val chromeStateText = readerCommonFile("ReaderChromeState.kt").readText()
@@ -255,7 +270,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		).firstOrNull { it.isFile }
 		val readerScreenText = readerScreenFile().readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 		val preferenceText = readerCommonFile("ReaderPreferenceSettings.kt").readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
@@ -281,7 +296,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesExpandedThemePalettes() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "ReaderThemePalettes")
 		assertContains(bridgeText, "sepia: {")
@@ -297,7 +312,7 @@ class ReaderRuntimeSettingsBridgeTest {
 	fun androidReaderExposesParagraphSpacingAndPublisherStyleControls() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val searchSettingsText = settingsFile("SettingsSearchResults.kt").readText()
+		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerParagraphSpacingEm")
 		assertContains(bridgeText, "--reader-paragraph-spacing")
@@ -334,6 +349,98 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+		val applyDocumentTheme = bridgeText
+			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
+			.substringBefore("\n  applyReaderDirection")
+
+		assertFalse(
+			typographyCss.contains("if (settings.publisherStyles === true) return ''"),
+			"Publisher styles must not disable the user Font size control; absolute book paragraph sizes still need to collapse to the reader root size."
+		)
+		assertContains(typographyCss, "const usePublisherStyles = settings.publisherStyles === true")
+		assertContains(typographyCss, "font-size: var(--reader-content-font-size")
+		assertContains(typographyCss, "font-size: 1rem !important")
+		assertContains(typographyCss, "font-size: 1em !important")
+		assertContains(
+			typographyCss,
+			"td,",
+			message = "Font-size control must reset table-cell prose; older EPUBs commonly put body text in table-like wrappers."
+		)
+		assertTrue(
+			typographyCss.indexOf("font-size: 1rem !important") <
+				typographyCss.indexOf("font-size: 1em !important"),
+			"Prose block containers must reset to reader-root size before inline descendants inherit from them; otherwise fixed publisher wrapper sizes can pin body text while headings scale."
+		)
+		assertContains(
+			bridgeText,
+			"normalizeReaderInlineTypography",
+			message = "PDF-converted EPUB prose can use inline font-size declarations with !important; the reader must rewrite inline prose font-size ownership after injecting the reader stylesheet."
+		)
+		assertContains(
+			bridgeText,
+			"style.getPropertyPriority('font-size')",
+			message = "The inline typography normalizer must specifically detect important publisher font-size declarations that stylesheet selectors cannot override."
+		)
+		assertContains(
+			applyDocumentTheme,
+			"normalizeReaderInlineTypography(doc, settings)",
+			message = "Every loaded EPUB document must normalize inline prose typography before pagination/reflow evidence is trusted."
+		)
+	}
+
+	@Test
+	fun androidReaderFontSizeControlScalesPreformattedTypewriterProse() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(
+			typographyCss,
+			"pre,",
+			message = "Reader font-size controls must reset preformatted/typewriter ebook prose, not only headings and paragraph tags."
+		)
+		assertContains(
+			typographyCss,
+			"code,",
+			message = "Inline code/typewriter wrappers in EPUB prose must inherit the reader root font size."
+		)
+		assertContains(
+			typographyCss,
+			"pre span,",
+			message = "Nested inline text inside preformatted ebook prose must inherit the reader root font size."
+		)
+	}
+
+	@Test
+	fun androidReaderLetsProseUseAdaptiveFolioWidth() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(
+			typographyCss,
+			"max-width: none !important",
+			message = "Publisher max-width rules on body/prose wrappers must not shrink tablet folio pages into a phone-width column."
+		)
+		assertContains(
+			typographyCss,
+			"width: auto !important",
+			message = "Publisher fixed-width rules on body/prose wrappers must yield to the adaptive Foliate page box."
+		)
+		assertTrue(
+			typographyCss.indexOf("body {") < typographyCss.indexOf("max-width: none !important"),
+			"The reader must normalize body/prose width after establishing reader-root typography."
+		)
+	}
+
+	@Test
 	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText
@@ -356,24 +463,45 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderAppliesFontCssBeforeSettingsReflow() {
+		val bridgeText = readerBridgeText()
+		val applySettings = bridgeText
+			.substringAfter("applySettings(settings) {")
+			.substringBefore("\nfunction applyThemeToLoadedContent")
+
+		assertContains(applySettings, "this.view?.renderer?.setStyles?.(readerContentCss(settings))")
+		assertContains(applySettings, "this.applyThemeToLoadedContent(settings)")
+		assertContains(applySettings, "this.applyReaderViewportLayout('settings')")
+		assertTrue(
+			applySettings.indexOf("this.view?.renderer?.setStyles?.(readerContentCss(settings))") <
+				applySettings.indexOf("this.applyReaderViewportLayout('settings')"),
+			"Font-size settings must update Foliate renderer CSS before the explicit settings reflow; otherwise body text can keep the old page geometry while headings repaint."
+		)
+		assertTrue(
+			applySettings.indexOf("this.applyThemeToLoadedContent(settings)") <
+				applySettings.indexOf("this.applyReaderViewportLayout('settings')"),
+			"Loaded EPUB documents need the new readerContentCss before settings reflow so prose, headings, and page geometry scale together."
+		)
+	}
+
+	@Test
 	fun androidReaderCapsExcessiveChapterOpeningTopMargins() {
 		val bridgeText = readerBridgeText()
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
 
-		assertContains(helperText, "readerNormalizeChapterOpeningMargins")
-		assertContains(helperText, "data-navic-chapter-opening-margin-capped")
-		assertContains(helperText, "margin-block-start")
-		assertContains(helperText, "margin-top")
+		assertContains(bridgeText, "readerNormalizeChapterOpeningMargins")
+		assertContains(bridgeText, "data-navic-chapter-opening-margin-capped")
+		assertContains(bridgeText, "margin-block-start")
+		assertContains(bridgeText, "margin-top")
 		assertContains(
-			helperText,
+			bridgeText,
 			"0.045",
 			message = "Chapter opening heading top margins should be capped to a tight Komikku-like page-relative value instead of preserving large publisher margins."
 		)
 		assertContains(
-			helperText,
+			bridgeText,
 			"Math.min(96",
 			message = "Chapter opening headings should not be allowed to drift far down large EPUB page boxes."
 		)

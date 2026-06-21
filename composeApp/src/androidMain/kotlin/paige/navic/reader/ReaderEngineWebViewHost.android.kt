@@ -164,6 +164,14 @@ actual fun ReaderEngineWebViewHost(
 			factory = {
 				WebView(context).apply {
 					webView = this
+					isLongClickable = false
+					setOnLongClickListener {
+						Logger.i(
+							ReaderEngineWebViewHostTag,
+							"Reader WebView native long-click suppressed; native frame owns selection actions"
+						)
+						true
+					}
 					webChromeClient = object : WebChromeClient() {
 						override fun onConsoleMessage(message: ConsoleMessage): Boolean {
 							val logMessage =
@@ -299,7 +307,10 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 		is ReaderBridgeCommand.ScrollViewport -> "scrollViewport(${direction.name.lowercase()})"
 		is ReaderBridgeCommand.ContentLongPressAt -> "contentLongPressAt"
 		is ReaderBridgeCommand.ApplyHighlight -> "applyHighlight"
-		is ReaderBridgeCommand.ApplyHighlights -> "applyHighlights(count=${highlights.size})"
+		is ReaderBridgeCommand.ApplyHighlights -> {
+			val noteCount = highlights.count { it.note?.trim()?.isNotEmpty() == true }
+			"applyHighlights(count=${highlights.size}, notes=$noteCount)"
+		}
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"
@@ -332,8 +343,11 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 		is ReaderBridgeEvent.OverlayCreated -> "overlayCreated(index=${index ?: ""})"
 		is ReaderBridgeEvent.LoadDoc -> "loadDoc(index=${index ?: ""}, href=${href?.engineUrlLabel().orEmpty()})"
 		is ReaderBridgeEvent.PushState -> "pushState(back=$canGoBack, forward=$canGoForward)"
+		is ReaderBridgeEvent.FootnoteOpen -> "footnoteOpen(${href?.engineUrlLabel().orEmpty()}, type=${noteType.orEmpty()})"
 		ReaderBridgeEvent.FootnoteClose -> "footnoteClose()"
-		ReaderBridgeEvent.PullUp -> "pullUp()"
+		is ReaderBridgeEvent.PullUp -> "pullUp(source=${source.orEmpty()})"
+		is ReaderBridgeEvent.VisibleTextRange ->
+			"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.SearchResults -> "searchResults(count=${results.size})"

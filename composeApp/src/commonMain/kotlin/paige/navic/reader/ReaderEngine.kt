@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+const val ReaderPullUpSourceScrolledEdgeSwipe = "scrolled-edge-swipe"
+
 data class ReaderPublicationIdentity(
 	val bookId: String,
 	val title: String = "",
@@ -27,7 +29,9 @@ sealed interface ReaderEngineCommand {
 	data class TurnPage(val direction: ReaderPageTurnDirection) : ReaderEngineCommand
 	data class PreviewPageDrag(
 		val deltaX: Double,
+		val deltaY: Double = 0.0,
 		val viewWidth: Double? = null,
+		val viewHeight: Double? = null,
 		val phase: ReaderPageDragPreviewPhase = ReaderPageDragPreviewPhase.Update
 	) : ReaderEngineCommand
 	data class ScrollViewport(val direction: ReaderViewportScrollDirection) : ReaderEngineCommand
@@ -136,8 +140,21 @@ sealed interface ReaderEngineEvent {
 		val canGoBack: Boolean = false,
 		val canGoForward: Boolean = false
 	) : ReaderEngineEvent
+	data class FootnoteOpened(
+		val href: String? = null,
+		val text: String? = null,
+		val noteType: String? = null,
+		val hidden: Boolean = false
+	) : ReaderEngineEvent
 	data object FootnoteClose : ReaderEngineEvent
-	data object PullUp : ReaderEngineEvent
+	data class PullUp(val source: String? = null) : ReaderEngineEvent
+	data class VisibleTextRange(
+		val textHref: String,
+		val visibleStart: Int,
+		val visibleEnd: Int,
+		val rangeCfi: String? = null,
+		val source: String? = null
+	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
 	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent

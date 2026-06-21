@@ -138,6 +138,227 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun companionProgressCanBuildPlaybackResumePositionFromManifestDurations() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Chapter 1", "file-one"),
+				audioItem("one-b", "Chapter 2", "file-one"),
+				audioItem("one-c", "Chapter 3", "file-one")
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "book-1",
+			ebookResourceHref = "/opds/books/book-1/resources/ebook-1",
+			audiobookId = "69",
+			audiobookBookFileId = "file-one",
+			artifactId = "3",
+			progressFraction = 0.5,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "69"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 1,
+				mediaId = "readaloud:one-b",
+				positionMs = 30_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
+	fun companionProgressUsesExactWhispersyncAudioPositionBeforeFractionEstimate() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Chapter 1", "file-one"),
+				audioItem("one-b", "Chapter 2", "file-one"),
+				audioItem("one-c", "Chapter 3", "file-one")
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "book-1",
+			ebookResourceHref = "/opds/books/book-1/resources/ebook-1",
+			audiobookId = "69",
+			audiobookBookFileId = "file-one",
+			artifactId = "3",
+			progressFraction = 0.5,
+			audioResource = "one-c",
+			audioPositionMs = 12_345L,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "69"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 2,
+				mediaId = "readaloud:one-c",
+				positionMs = 12_345L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
+	fun companionProgressUsesSidecarTrackIndexWhenAudioResourceDiffersFromManifest() {
+		val manifest = BinderyManifest(
+			id = "audiobook-34",
+			title = "Bastille",
+			readingOrder = listOf(
+				audioItem(
+					href = "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+					title = "Bastille",
+					bookFileId = "633"
+				)
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "3809",
+			ebookResourceHref = "/opds/books/3809/resources/ebook-426",
+			audiobookId = "34",
+			audiobookBookFileId = "633",
+			artifactId = "3",
+			progressFraction = 0.5,
+			audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			audioPositionMs = 42_000L,
+			audioTrackIndex = 0,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "34"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "3809",
+				versionRowId = "34",
+				trackIndex = 0,
+				mediaId = "readaloud:https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+				positionMs = 42_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
+	fun resumeProgressUsesNewestDirectOrWhispersyncCompanionProgress() {
+		val direct = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "69",
+			trackIndex = 0,
+			mediaId = "readaloud:one-a",
+			positionMs = 1_000L,
+			durationMs = 60_000L,
+			updatedAtMs = 100L
+		)
+		val companion = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "69",
+			trackIndex = 2,
+			mediaId = "readaloud:one-c",
+			positionMs = 12_345L,
+			durationMs = 60_000L,
+			updatedAtMs = 700L
+		)
+
+		assertEquals(
+			companion,
+			binderyAudiobookBestResumeProgress(
+				direct = direct,
+				companion = companion
+			)
+		)
+		assertEquals(
+			direct.copy(updatedAtMs = 900L),
+			binderyAudiobookBestResumeProgress(
+				direct = direct.copy(updatedAtMs = 900L),
+				companion = companion
+			)
+		)
+	}
+
+	@Test
+	fun whispersyncReaderResumeProgressUsesNewestDirectOrCompanionStoreEntry() {
+		val manifest = BinderyManifest(
+			id = "audiobook-69",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("one-a", "Chapter 1", "file-one"),
+				audioItem("one-b", "Chapter 2", "file-one"),
+				audioItem("one-c", "Chapter 3", "file-one")
+			)
+		)
+		val staleDirect = BinderyAudiobookPlaybackProgress(
+			bookId = "book-1",
+			versionRowId = "69",
+			trackIndex = 0,
+			mediaId = "readaloud:one-a",
+			positionMs = 1_000L,
+			durationMs = 60_000L,
+			updatedAtMs = 100L
+		)
+		val newerCompanion = BinderyWhispersyncCompanionProgress(
+			bookId = "book-1",
+			ebookResourceHref = "/opds/books/book-1/resources/ebook-1",
+			audiobookId = "69",
+			audiobookBookFileId = "file-one",
+			artifactId = "3",
+			progressFraction = 0.1,
+			audioResource = "one-c",
+			audioPositionMs = 12_345L,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookResumeProgressForWhispersyncReader(
+			audiobookProgressJson = binderyAudiobookProgressJsonWithUpdate("", staleDirect),
+			companionProgressJson = binderyWhispersyncCompanionProgressJsonWithUpdate("", newerCompanion),
+			bookId = "book-1",
+			versionRowId = "69",
+			manifest = manifest
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "book-1",
+				versionRowId = "69",
+				trackIndex = 2,
+				mediaId = "readaloud:one-c",
+				positionMs = 12_345L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
 	fun progressStoreKeepsIndependentPositionsPerEdition() {
 		val first = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

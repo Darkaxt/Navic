@@ -2,6 +2,7 @@
 // (callback catalog, including translateText at 864)
 // tmp/references/anx-reader/assets/foliate-js/src/view.js:216-327 (link/image taxonomy)
 // :335-397 (annotations)
+// tmp/references/anx-reader/assets/foliate-js/src/footnotes.js:45-109 (cross-section footnote resolution)
 
 import {
   CenterTapMovementSlop,
@@ -272,6 +273,24 @@ function shouldIgnoreReaderTapZoneTarget(event, sourceTarget) {
   return false
 }
 
+function attachNativeTapZoneTouchSuppressor(target) {
+  const host = this.readerTapZoneGestureHost(target)
+  if (!target || !host || host.__navicNativeTapZoneTouchSuppressorAttached) return
+  host.__navicNativeTapZoneTouchSuppressorAttached = true
+  const suppressFoliateTouch = event => {
+    if (this.nativeTapZones !== true) return
+    if (event.type === 'touchmove' && event.cancelable) {
+      event.preventDefault?.()
+    }
+    event.stopPropagation?.()
+    event.stopImmediatePropagation?.()
+  }
+  target.addEventListener('touchstart', suppressFoliateTouch, { capture: true, passive: true })
+  target.addEventListener('touchmove', suppressFoliateTouch, { capture: true, passive: false })
+  target.addEventListener('touchend', suppressFoliateTouch, { capture: true, passive: true })
+  target.addEventListener('touchcancel', suppressFoliateTouch, { capture: true, passive: true })
+}
+
 function rememberReaderContentActionTouch(doc, event, detail = {}) {
   const rootPoint = readerRootTapPoint(event, doc) || readerEventClientPoint(event)
   const x = Number(rootPoint?.x ?? rootPoint?.clientX)
@@ -362,6 +381,9 @@ async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = n
     }
     if (hit.kind === 'link') {
       return this.activateReaderLinkFromEvent(entry.doc, event, hit.index, source)
+    }
+    if (hit.kind === 'text') {
+      return this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
     }
     return true
   }
@@ -520,10 +542,98 @@ function readerContentActionInDocumentAtPoint(doc, rootX, rootY, index = null) {
     return {
       handled: true,
       kind: 'control',
+      target,
+      x,
+      y,
+      index,
+    }
+  }
+  if (target?.textContent?.trim?.()) {
+    return {
+      handled: true,
+      kind: 'text',
+      target,
+      x,
+      y,
       index,
     }
   }
   return null
+}
+
+function readerCaretRangeFromPoint(doc, x, y) {
+  const localX = Number(x)
+  const localY = Number(y)
+  if (!doc || !Number.isFinite(localX) || !Number.isFinite(localY)) return null
+  const rangeFromPoint = doc.caretRangeFromPoint?.(localX, localY)
+  if (rangeFromPoint) return rangeFromPoint
+  const position = doc.caretPositionFromPoint?.(localX, localY)
+  if (position?.offsetNode) {
+    const range = doc.createRange()
+    range.setStart(position.offsetNode, position.offset)
+    range.collapse(true)
+    return range
+  }
+  return null
+}
+
+function readerTextNodeForRange(range) {
+  const doc = range?.startContainer?.ownerDocument
+  const textNodeType = doc?.defaultView?.Node?.TEXT_NODE || 3
+  if (range?.startContainer?.nodeType === textNodeType) return range.startContainer
+  const candidate = range?.startContainer?.childNodes?.[range.startOffset] ||
+    range?.startContainer?.childNodes?.[Math.max(0, range.startOffset - 1)]
+  if (candidate?.nodeType === textNodeType) return candidate
+  const walker = doc?.createTreeWalker?.(candidate || range?.startContainer, textNodeType)
+  return walker?.nextNode?.() || null
+}
+
+function readerWordRangeAroundCaret(doc, caretRange) {
+  const textNode = readerTextNodeForRange(caretRange)
+  const text = textNode?.textContent || ''
+  if (!doc || !textNode || !text.trim()) return null
+  let offset = Number(caretRange?.startContainer === textNode ? caretRange.startOffset : 0)
+  offset = Math.max(0, Math.min(text.length, Number.isFinite(offset) ? offset : 0))
+  if (offset >= text.length && offset > 0) offset -= 1
+  while (offset > 0 && /\s/.test(text[offset]) && !/\s/.test(text[offset - 1])) offset -= 1
+  while (offset < text.length && /\s/.test(text[offset])) offset += 1
+  if (offset >= text.length) return null
+  let start = offset
+  let end = offset
+  while (start > 0 && !/\s/.test(text[start - 1])) start -= 1
+  while (end < text.length && !/\s/.test(text[end])) end += 1
+  if (start === end) return null
+  const range = doc.createRange()
+  range.setStart(textNode, start)
+  range.setEnd(textNode, end)
+  return range
+}
+
+function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'content-long-press-command') {
+  const selection = doc?.getSelection?.()
+  if (!selection) return false
+  const caretRange = this.readerCaretRangeFromPoint(doc, x, y)
+  const range = this.readerWordRangeAroundCaret(doc, caretRange)
+  if (!range) {
+    readerTrace('native-tap-zones:text-long-press-selection-miss', {
+      source,
+      index,
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+    return false
+  }
+  selection.removeAllRanges()
+  selection.addRange(range)
+  doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  readerTrace('native-tap-zones:text-long-press-selection', {
+    source,
+    index,
+    textLength: selection.toString?.().trim?.().length || 0,
+    x: Math.round(Number(x) || 0),
+    y: Math.round(Number(y) || 0),
+  })
+  return true
 }
 
 function normalizeReaderContentRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {
@@ -624,6 +734,7 @@ function attachReaderTapZoneGesture(target) {
   if (!target || !host || host.__navicReaderTapZoneGestureAttached) return
   host.__navicReaderTapZoneGestureAttached = true
   if (this.nativeTapZones === true) {
+    this.attachNativeTapZoneTouchSuppressor(target)
     this.renderTapZoneOverlayLayer()
     return
   }
@@ -700,6 +811,143 @@ function attachLinkNavigation(doc, index) {
   }, { capture: true })
 }
 
+function readerElementTokenSet(element, attributeName, namespace = null) {
+  const rawValue = namespace
+    ? element?.getAttributeNS?.(namespace, attributeName)
+    : element?.getAttribute?.(attributeName)
+  return new Set(String(rawValue || '').split(/\s+/).filter(Boolean))
+}
+
+function readerFootnoteReferenceKind(anchor) {
+  const roles = readerElementTokenSet(anchor, 'role')
+  const epubTypes = readerElementTokenSet(anchor, 'type', 'http://www.idpf.org/2007/ops')
+  const localTypes = readerElementTokenSet(anchor, 'type')
+  const hasType = type => epubTypes.has(type) || localTypes.has(type)
+  if (roles.has('doc-biblioref') || hasType('biblioref')) return 'biblioentry'
+  if (roles.has('doc-glossref') || hasType('glossref')) return 'definition'
+  if (roles.has('doc-noteref') || hasType('noteref')) return 'footnote'
+  return null
+}
+
+function readerReferencedNoteType(element) {
+  const roles = readerElementTokenSet(element, 'role')
+  const epubTypes = readerElementTokenSet(element, 'type', 'http://www.idpf.org/2007/ops')
+  const localTypes = readerElementTokenSet(element, 'type')
+  const hasType = type => epubTypes.has(type) || localTypes.has(type)
+  if (roles.has('doc-biblioentry') || hasType('biblioentry')) return 'biblioentry'
+  if (roles.has('definition') || hasType('glossdef')) return 'definition'
+  if (roles.has('doc-endnote') || hasType('endnote') || hasType('rearnote')) return 'endnote'
+  if (roles.has('doc-footnote') || hasType('footnote')) return 'footnote'
+  if (roles.has('note') || hasType('note')) return 'note'
+  return null
+}
+
+function readerFootnoteElementForHref(doc, rawHref, resolvedHref) {
+  const href = String(rawHref || resolvedHref || '')
+  const fragment = href.includes('#') ? href.substring(href.indexOf('#') + 1) : ''
+  if (!fragment) return null
+  const decodedFragment = (() => {
+    try {
+      return decodeURIComponent(fragment)
+    } catch {
+      return fragment
+    }
+  })()
+  const target = doc?.getElementById?.(decodedFragment) || doc?.getElementById?.(fragment)
+  if (!target) return null
+  return readerFootnoteElementFromTarget(doc, target)
+}
+
+function readerFootnoteElementFromTarget(doc, target) {
+  if (!target) return null
+  let element = target
+  if (target.startContainer) {
+    const ancestor = target.commonAncestorContainer || target.startContainer
+    element = ancestor?.nodeType === 1 ? ancestor : ancestor?.parentElement
+  }
+  if (!element || element.nodeType !== 1) return null
+  const originalTarget = element
+  while (element?.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
+    const parent = element.parentElement
+    if (!parent) break
+    element = parent
+  }
+  if (element === doc.body) {
+    const sibling = originalTarget.nextElementSibling
+    if (sibling && !sibling.matches?.('a, span, sup, sub, em, strong, i, b, small, big')) {
+      return sibling
+    }
+    return originalTarget
+  }
+  return element
+}
+
+function readerFootnoteOpenPayload(doc, anchor, rawHref, resolvedHref) {
+  const referenceKind = readerFootnoteReferenceKind(anchor)
+  const target = readerFootnoteElementForHref(doc, rawHref, resolvedHref)
+  const noteType = readerReferencedNoteType(target) || referenceKind
+  if (!noteType) return null
+  const text = target?.textContent?.replace(/\s+/g, ' ')?.trim?.() || ''
+  if (!text) return null
+  return {
+    type: 'footnoteOpen',
+    href: resolvedHref || rawHref || '',
+    text,
+    noteType,
+    hidden: Boolean(target?.matches?.('aside') && noteType === 'footnote'),
+  }
+}
+
+async function readerFootnoteDocumentForResolvedTarget(book, resolvedTarget, currentDoc, currentIndex) {
+  const index = Number(resolvedTarget?.index)
+  if (!Number.isFinite(index) || index < 0) return null
+  if (index === currentIndex) return currentDoc
+  const section = book?.sections?.[index]
+  if (!section) return null
+  if (typeof section.createDocument === 'function') {
+    return section.createDocument()
+  }
+  if (typeof section.load !== 'function') return null
+  let loadedWithSectionLoad = false
+  try {
+    const src = await section.load()
+    loadedWithSectionLoad = true
+    if (typeof src !== 'string') return null
+    const response = await fetch(src)
+    if (!response.ok) return null
+    const text = await response.text()
+    return new DOMParser().parseFromString(text, 'text/html')
+  } finally {
+    if (loadedWithSectionLoad) section.unload?.()
+  }
+}
+
+async function readerResolvedFootnoteOpenPayload(runtime, doc, anchor, rawHref, resolvedHref, currentIndex) {
+  const sameDocumentPayload = readerFootnoteOpenPayload(doc, anchor, rawHref, resolvedHref)
+  if (sameDocumentPayload) return sameDocumentPayload
+  const referenceKind = readerFootnoteReferenceKind(anchor)
+  if (!referenceKind) return null
+  const book = runtime?.view?.book
+  const targetHref = resolvedHref || rawHref || ''
+  const resolvedTarget = await Promise.resolve(book?.resolveHref?.(targetHref))
+  if (!resolvedTarget || typeof resolvedTarget.anchor !== 'function') return null
+  const targetDoc = await readerFootnoteDocumentForResolvedTarget(book, resolvedTarget, doc, currentIndex)
+  if (!targetDoc) return null
+  const target = resolvedTarget.anchor(targetDoc)
+  const element = readerFootnoteElementFromTarget(targetDoc, target)
+  const noteType = readerReferencedNoteType(element) || referenceKind
+  if (!noteType) return null
+  const text = element?.textContent?.replace(/\s+/g, ' ')?.trim?.() || ''
+  if (!text) return null
+  return {
+    type: 'footnoteOpen',
+    href: targetHref,
+    text,
+    noteType,
+    hidden: Boolean(element?.matches?.('aside') && noteType === 'footnote'),
+  }
+}
+
 async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {
     const anchor = closestElement(event.target, 'a[href]')
     if (!anchor) return false
@@ -756,6 +1004,30 @@ async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {
     if (!rawHref) return false
     const section = this.view?.book?.sections?.[index]
     const href = section?.resolveHref?.(rawHref) ?? rawHref
+    const footnoteOpen = await readerResolvedFootnoteOpenPayload(this, doc, anchor, rawHref, href, index)
+    if (footnoteOpen) {
+      this.rememberReaderContentActionTouch(doc, event, {
+        kind: 'footnote',
+        href,
+        source,
+      })
+      post(this.readerContentActionClaimPayload(doc, event, {
+        kind: 'footnote',
+        href,
+        source,
+        anchor,
+      }))
+      post(footnoteOpen)
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+      readerTrace('footnote:open', {
+        href,
+        noteType: footnoteOpen.noteType,
+        length: footnoteOpen.text.length,
+      })
+      return true
+    }
     this.rememberReaderContentActionTouch(doc, event, {
       kind: 'link',
       href,
@@ -911,6 +1183,7 @@ export const NavicReaderContentInteractionMethods = {
   markReaderTapZoneTouchHandled,
   shouldSuppressReaderTapZoneClick,
   shouldIgnoreReaderTapZoneTarget,
+  attachNativeTapZoneTouchSuppressor,
   rememberReaderContentActionTouch,
   suppressReaderNativeTapZoneContentActivation,
   handleNativeTapZoneContentLongPress,
@@ -919,6 +1192,10 @@ export const NavicReaderContentInteractionMethods = {
   recentReaderContentActionAtRootPoint,
   claimReaderInteractiveContentTouch,
   readerContentActionInDocumentAtPoint,
+  readerCaretRangeFromPoint,
+  readerTextNodeForRange,
+  readerWordRangeAroundCaret,
+  selectReaderTextAtDocumentPoint,
   normalizeReaderContentRootPoint,
   readerContentActionAtRootPoint,
   handleReaderTapZoneTap,

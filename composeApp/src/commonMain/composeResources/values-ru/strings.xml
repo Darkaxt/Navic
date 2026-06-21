@@ -227,10 +227,6 @@
     <string name="info_no_playlists_short">Плейлисты отсутствуют</string>
     <string name="info_lyrics_provider">Текст песни предоставлен %1$s</string>
     <string name="info_image_failed_to_load">Не удалось загрузить</string>
-    <string name="sideloading_warning_title">СТОЙ, ЧИТАЙ!</string>
-    <string name="sideloading_warning_subtitle">Google планирует отключить загрузку из сторонних источников на всех устройствах с установленными сервисами Google Play!\n</string>
-    <string name="sideloading_warning_description">Хотя точные детали этого изменения пока полностью не известны, это может привести к блокировке всех сторонних приложений, если только пользователь, подписавший приложение, не отправит сообщение в Google (способ пока не известен).\n\nЕсли вы достаточно осведомлены, чтобы установить пользовательский ROM на свое устройство, СЕЙЧАС САМОЕ ВРЕМЯ ЭТО СДЕЛАТЬ.\n\nПожалуйста, прочитайте больше о том, что вы можете сделать и как добиться того, чтобы ваш голос был услышан</string>
-    <string name="sideloading_warning_link_mask">здесь.</string>
     <string name="theme_spotify">В центре внимания</string>
     <string name="info_track_replay_gain_effective">Текущее значение ReplayGain</string>
     <string name="title_data_storage">Данные и хранилище</string>
@@ -380,4 +376,5 @@
     <string name="info_no_starred">В избранном ничего нет</string>
     <string name="action_clear_queue">Очистить очередь</string>
     <string name="info_no_search_results">Нет результатов</string>
+    <string name="title_logs">Логи</string>
 </resources>
