@@ -968,6 +968,13 @@ class ReaderRuntimeCommonChromeTest {
 			"Navic keeps Komikku's ReaderBottomButton model, but must not render ReadingMode as a duplicate settings-sheet entry."
 		)
 		assertFalse(
+			bottomChromeBody.contains("showWhispersyncPlayer") ||
+				bottomChromeBody.contains("onWhispersyncPlayer") ||
+				bottomChromeBody.contains("Icons.Outlined.Audiobooks") ||
+				bottomChromeBody.contains("Whispersync player"),
+			"Whispersync playback belongs to the page-scoped headset/control surface; the Komikku bottom bar must not grow a Navic-specific audiobook shortcut."
+		)
+		assertFalse(
 			appBarsBody.contains("val bottomActions = listOf(") ||
 				appBarsText.contains("private sealed interface KomikkuReaderBottomAction") ||
 				bottomChromeBody.contains("contentDescription = \"Contents\"") ||

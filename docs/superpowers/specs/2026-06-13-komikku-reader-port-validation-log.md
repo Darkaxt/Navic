@@ -6625,3 +6625,27 @@ Results:
 - GREEN/HOST: focused `ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` passed.
 - GREEN/WHITESPACE: `git diff --check` exited `0`.
 - GREEN/EMULATOR: dirty readerdev installed on `emulator-5554`, launched the production book `3809` route, swiped from the cover into `Author's Foreword`, and `captures\reader-dev\readerdev-3809-headset-check-2.png` shows a bare low-opacity headset glyph in the top-left corner with no surrounding circle/ring.
+
+## 2026-06-21 Whispersync Player Route Belongs To Page Headset
+
+Scope:
+- Remove the Navic-specific Whispersync audiobook shortcut from the Komikku bottom chrome.
+- Keep the full Whispersync player dialog route available, but anchor it to the page-level headset control instead of growing the bottom action row.
+- Preserve the user's requested short-tap behavior: tapping the headset toggles audiobook playback; long-pressing the headset opens the controller-owned player dialog.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomBarUsesKomikkuBottomButtonActionModel --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+.\gradlew.bat --stop
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomBarUsesKomikkuBottomButtonActionModel --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+```
+
+Results:
+- RED/HOST: the focused guard failed while `KomikkuReaderBottomBar` still accepted `showWhispersyncPlayer`, rendered `Icons.Outlined.Audiobooks`, and exposed `contentDescription = "Whispersync player"`.
+- RED/HOST: the focused headset guard failed while `KomikkuWhispersyncPlaybackControl` had no `onOpenPlayer` route.
+- FIX/CHROME: `KomikkuReaderBottomBar` now keeps the Komikku-supported bottom actions only: chapters, search, and settings. It no longer receives or renders Whispersync player state.
+- FIX/HEADSET: `KomikkuWhispersyncPlaybackControl` now uses the bare headset as the single page-level audioebook affordance: short tap dispatches play/pause and long press opens the existing controller-owned `ReaderControllerDialog.WhispersyncPlayer`.
+- ENV: the first green rerun hit a stale Kotlin compile-cache deletion lock left by the killed Gradle wrapper process; `.\gradlew.bat --stop` cleared the stale daemon before rerunning the same focused checks.
+- GREEN/HOST: the focused Komikku bottom-bar guard and Whispersync headset-route guard passed after the production update.
+- Remaining: this is host/source proof. Readerdev/emulator validation still needs to confirm short tap toggles playback and long press opens the player dialog on the real page-level headset surface.

@@ -1777,6 +1777,10 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderRoot must render the native top-left Whispersync playback affordance."
 		)
 		assertTrue(
+			readerRootText.contains("onOpenPlayer = onWhispersyncPlayer"),
+			"The full Whispersync player route must stay anchored to the page-level headset, not a duplicate Komikku bottom-bar shortcut."
+		)
+		assertTrue(
 			statusBadgeText.contains("ReaderWhispersyncPlaybackControlState"),
 			"The Whispersync UI file must contain a dedicated playback control instead of overloading the mismatch badge."
 		)
@@ -1798,6 +1802,11 @@ class ReaderKomikkuBackboneResetTest {
 			playbackControlBody.contains("Icons.Outlined.Headset") &&
 				!playbackControlBody.contains("Icons.Outlined.Audiobooks"),
 			"The page-level Whispersync affordance must render a headset glyph, not the audiobook/library icon."
+		)
+		assertTrue(
+			playbackControlBody.contains("onOpenPlayer: () -> Unit") &&
+				playbackControlBody.contains("onLongPress = { latestOnOpenPlayer.value() }"),
+			"The page-level headset must own the full player route through a secondary gesture while short tap remains playback toggle."
 		)
 		assertFalse(
 			playbackControlBody.contains("Surface(") ||

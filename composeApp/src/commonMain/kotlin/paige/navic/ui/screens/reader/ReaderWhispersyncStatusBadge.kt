@@ -5,9 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,25 +39,26 @@ private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
 internal fun KomikkuWhispersyncPlaybackControl(
 	control: ReaderWhispersyncPlaybackControlState,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onOpenPlayer: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	val latestControl = rememberUpdatedState(control)
 	val latestOnCommand = rememberUpdatedState(onCommand)
+	val latestOnOpenPlayer = rememberUpdatedState(onOpenPlayer)
 	AnimatedVisibility(
 		visible = control.visible,
 		enter = fadeIn(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
 		exit = fadeOut(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
 		modifier = modifier.pointerInput(Unit) {
-			awaitEachGesture {
-				val down = awaitFirstDown(requireUnconsumed = false)
-				down.consume()
-				val up = waitForUpOrCancellation()
-				up?.consume()
-				val currentControl = latestControl.value
-				if (currentControl.enabled) {
-					currentControl.command?.let(latestOnCommand.value)
+			detectTapGestures(
+				onLongPress = { latestOnOpenPlayer.value() },
+				onTap = {
+					val currentControl = latestControl.value
+					if (currentControl.enabled) {
+						currentControl.command?.let(latestOnCommand.value)
+					}
 				}
-			}
+			)
 		}
 	) {
 		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (control.enabled) 0.52f else 0.34f)

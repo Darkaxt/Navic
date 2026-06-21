@@ -45,7 +45,6 @@ import navic.composeapp.generated.resources.title_settings
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
-import paige.navic.icons.outlined.Audiobooks
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
 import paige.navic.icons.outlined.FormatListNumbered
@@ -73,11 +72,9 @@ internal fun KomikkuReaderAppBars(
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
-	onWhispersyncPlayer: () -> Unit,
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
-	showWhispersyncPlayer: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	// Ported from Komikku ReaderAppBars: all controls are overlays, never content padding.
@@ -216,9 +213,7 @@ internal fun KomikkuReaderAppBars(
 					enabledButtons = enabledButtons,
 					onContents = onContents,
 					onSearch = onSearch,
-					onWhispersyncPlayer = onWhispersyncPlayer,
 					onSettings = onSettings,
-					showWhispersyncPlayer = showWhispersyncPlayer,
 					modifier = Modifier
 						.fillMaxWidth()
 						.background(backgroundColor)
@@ -348,9 +343,7 @@ private fun KomikkuReaderBottomBar(
 	enabledButtons: Set<String>,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
-	onWhispersyncPlayer: () -> Unit,
 	onSettings: () -> Unit,
-	showWhispersyncPlayer: Boolean,
 	modifier: Modifier = Modifier
 ) {
 	val iconColor = MaterialTheme.colorScheme.primary
@@ -378,16 +371,6 @@ private fun KomikkuReaderBottomBar(
 				Icon(
 					imageVector = Icons.Outlined.Search,
 					contentDescription = "Search",
-					tint = iconColor
-				)
-			}
-		}
-
-		if (showWhispersyncPlayer) {
-			IconButton(onClick = onWhispersyncPlayer) {
-				Icon(
-					imageVector = Icons.Outlined.Audiobooks,
-					contentDescription = "Whispersync player",
 					tint = iconColor
 				)
 			}

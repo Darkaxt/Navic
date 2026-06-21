@@ -309,11 +309,9 @@ private fun KomikkuComposeOverlay(
 			onGoToChapterPage = onGoToChapterPage,
 			onContents = onContents,
 			onSearch = onSearch,
-			onWhispersyncPlayer = onWhispersyncPlayer,
 			onNavigateBack = onNavigateBack,
 			onSettings = onSettings,
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
-			showWhispersyncPlayer = readaloudPlaybackState != null && controllerState.whispersync.status.visible,
 			modifier = Modifier.matchParentSize()
 		)
 		if (!controllerState.shellCoverVisible) {
@@ -353,6 +351,7 @@ private fun KomikkuComposeOverlay(
 			KomikkuWhispersyncPlaybackControl(
 				control = whispersyncPlaybackControl,
 				onCommand = onWhispersyncPlaybackCommand,
+				onOpenPlayer = onWhispersyncPlayer,
 				modifier = Modifier
 					.align(Alignment.TopStart)
 					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
