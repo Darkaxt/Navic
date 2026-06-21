@@ -6248,3 +6248,48 @@ Results:
 - GREEN/FOCUSED: the forced focused run passed after updating `ReaderWhispersyncPlaybackPolicy` and `ReaderWhispersyncSyncCoordinator`.
 - GREEN/REGRESSION: the broader reader/Whispersync host set passed.
 - Remaining: this is host-level proof. Release-device validation still needs to confirm the icon appears only on cue-covered pages for a real paired Bindery sidecar/audiobook session.
+
+## 2026-06-21 Whispersync Page-Scoped Control Emulator Check
+
+Scope:
+- Validated the page-scoped Whispersync audiobook affordance on the running readerdev emulator against production book `3809` and sidecar `/opds/books/3809/sync/3`.
+- Covered three states: native cover, unsupported EPUB page, cue-covered EPUB page, then unsupported page after an active cue.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-3809-eta77.env -RequireReaderLaunch
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-window.xml
+adb -s emulator-5554 exec-out screencap -p > tmp\page-scoped-control-initial.png
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe runtime-state -ArtifactDir tmp\readerdev-page-scoped-control-initial-runtime
+adb -s emulator-5554 shell input swipe 850 1200 200 1200 500
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe runtime-state -ArtifactDir tmp\readerdev-page-scoped-control-after-cover-swipe
+```
+
+Additional DevTools validation:
+- Dispatched `goToHref` to `OEBPS/xhtml/Authorforeword.xhtml`, then `diagnosticLocationSnapshot(reason=page-scoped-control-cue-covered)`.
+- Dispatched `goToHref` to `OEBPS/xhtml/mini_toc.xhtml`, then `diagnosticLocationSnapshot(reason=page-scoped-control-unsupported)`.
+- Captured UI hierarchy, screenshots, and filtered logcat after each state change.
+
+Artifacts:
+- `tmp\page-scoped-control-initial.png`
+- `tmp\page-scoped-control-window-initial.xml`
+- `tmp\page-scoped-control-after-cover-swipe.png`
+- `tmp\page-scoped-control-window-after-cover-swipe.xml`
+- `tmp\page-scoped-control-cue-covered.png`
+- `tmp\page-scoped-control-window-cue-covered.xml`
+- `tmp\page-scoped-control-unsupported-after-cue.png`
+- `tmp\page-scoped-control-window-unsupported-after-cue.xml`
+- `tmp\readerdev-page-scoped-control-initial-runtime\reader-devtools-probe.json`
+- `tmp\readerdev-page-scoped-control-after-cover-swipe\reader-devtools-probe.json`
+
+Results:
+- GREEN/READERDEV: readerdev `v1.0.11-eta77` installed, launched, emitted `publicationReady`, and remained debuggable on PID `31692`.
+- GREEN/COVER: the native cover UI dump had no `Whispersync` / `audiobook` control.
+- GREEN/UNSUPPORTED-FIRST-PAGE: after swiping off the cover to `mini_toc.xhtml`, the UI dump had no `Whispersync` / `audiobook` control.
+- GREEN/CUE-COVERED: the DevTools jump to `OEBPS/xhtml/Authorforeword.xhtml` produced `visibleTextRange(OEBPS/xhtml/Authorforeword.xhtml, 3-4923, source=page-scoped-control-cue-covered)`.
+- GREEN/CUE-CONTROL: the cue-covered UI dump contained `content-desc="Play Whispersync audiobook"` at the top-left control bounds.
+- GREEN/AUDIO-MATCH: logcat showed `Whispersync audiobook seek audio=6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b positionMs=263360`, proving the sidecar source-path identity now resolves to the actual audiobook playback plan.
+- GREEN/OVERLAY: logcat showed `applyOverlayFragment` and `overlayFragmentActive` for `OEBPS/xhtml/Authorforeword.xhtml` at `clipBeginSeconds=263.36`.
+- GREEN/DEMOTION: jumping from the cue-covered page back to `OEBPS/xhtml/mini_toc.xhtml` produced `visibleTextRange(OEBPS/xhtml/mini_toc.xhtml, 1-486, source=page-scoped-control-unsupported)`, removed the native Whispersync control from the UI dump, and dispatched `clearOverlay`.
+- Remaining: this is emulator/readerdev evidence. A clean release APK on a physical device still needs to confirm the same page-scoped control behavior.
