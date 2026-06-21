@@ -882,6 +882,19 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncPlayerDialogIsControllerOwnedLikeKomikkuReaderChrome() {
+		val step = ReaderController().openWhispersyncPlayerDialog()
+		val dismissed = step.controller.closeDialog()
+
+		assertEquals(ReaderControllerDialog.WhispersyncPlayer, step.controller.state.dialog)
+		assertTrue(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
+		assertNull(dismissed.controller.state.dialog)
+		assertTrue(dismissed.controller.state.menuVisible)
+		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
 	fun readerSettingsDialogHasSingleControllerRoute() {
 		assertTrue(
 			ReaderControllerDialog.entries.none { it.name == "ReadingMode" },

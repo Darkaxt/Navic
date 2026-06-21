@@ -45,7 +45,8 @@ data class ReaderSelectionNoteDraft(
 enum class ReaderControllerDialog {
 	Contents,
 	Search,
-	Settings
+	Settings,
+	WhispersyncPlayer
 }
 
 data class ReaderChapterProgressState(
@@ -1024,6 +1025,9 @@ data class ReaderController(
 
 	fun openSettingsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Settings)
+
+	fun openWhispersyncPlayerDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.WhispersyncPlayer)
 
 	private fun openDialog(dialog: ReaderControllerDialog): ReaderControllerStep =
 		ReaderControllerStep(

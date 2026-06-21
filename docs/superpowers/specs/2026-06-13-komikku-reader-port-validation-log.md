@@ -6513,3 +6513,35 @@ Results:
 - GREEN/BRIDGE: logcat captured `Reader bridge raw: {"type":"overlayFragmentActive","textHref":"OEBPS/Text/Chapter-37.xhtml","textStart":32,"textEnd":80,...}` and `Reader bridge event: overlayFragmentActive()`.
 - GREEN/CLEAR: the probe dispatched `clearOverlay` and verified no `data-navic-media-overlay-range="true"` markers remained in rendered Foliate contents.
 - Remaining: release-device validation still needs to prove the same character-offset sentence highlight during real paired audiobook playback.
+
+## 2026-06-21 Komikku Whispersync Player Chrome Surface
+
+Scope:
+- Add the first controller-owned audioebook player surface inside the Komikku reader shell.
+- Keep the page-scoped headset affordance as-is, but add a bottom-bar audiobook action when Whispersync/readaloud playback is available.
+- Route the action through `ReaderController` / `ReaderCoordinator` into `ReaderControllerDialog.WhispersyncPlayer`.
+- Reuse `ReaderReadaloudPlaybackUiState` and `ReaderReadaloudPlaybackCommand` for play/pause, seek, scrubber, speed, and sync toggle without embedding the full Bindery audiobook screen in the reader.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.whispersyncPlayerDialogIsControllerOwnedLikeKomikkuReaderChrome --tests paige.navic.reader.ReaderCoordinatorTest.bottomBarDialogsRouteThroughControllerWithoutEngineCommands --tests paige.navic.reader.ReaderViewerTest.whispersyncPlayerSurfaceIsKomikkuOwnedReaderChrome
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest
+git diff --check
+```
+
+Results:
+- RED/HOST: the focused player-surface tests first failed at compile time because `ReaderControllerDialog.WhispersyncPlayer` and `openWhispersyncPlayerDialog()` did not exist.
+- FIX/CONTROLLER: `ReaderController` now owns the Whispersync player dialog route and keeps the reader menu visible without emitting engine commands.
+- FIX/COORDINATOR: `ReaderCoordinator.openWhispersyncPlayerDialog()` routes the bottom-chrome action through controller state, matching the Komikku shell ownership model.
+- FIX/UI: `ReaderAppBars` exposes a conditional audiobook bottom-bar action, and `ReaderRoot` renders `KomikkuWhispersyncPlayerDialog` as reader chrome instead of embedding `BinderyAudiobookPlayerScreen`.
+- GREEN/FOCUSED: the three focused controller/coordinator/source-guard tests passed.
+- GREEN/READER-SLICE: `ReaderControllerTest`, `ReaderCoordinatorTest`, `ReaderViewerTest`, and `ReaderWhispersyncPlaybackPolicyTest` passed together.
+- RED/FULL-SUITE: the first full `testAndroidHostTest` pass exposed a stale `ReaderRuntimeCommonChromeTest` source guard still expecting the old `totalPages > 1` chapter-slider rule.
+- FIX/GUARD: the guard now matches the current tiny-section rule, `readerShouldShowChapterProgressSlider(totalPages) == totalPages > 2`, so one/two-page sections remain uncluttered.
+- GREEN/GUARD: focused `ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail` passed after the guard correction.
+- GREEN/FULL-SUITE: full `:composeApp:testAndroidHostTest` passed after the guard correction.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: this is host/source proof only. Readerdev or release-device validation still needs to prove the player opens from a real Whispersync-capable page, commands reach `AudiobookPlaybackManager`, and the UI matches the Komikku overlay feel on phone/tablet surfaces.

@@ -99,6 +99,33 @@ class ReaderViewerTest {
 	}
 
 	@Test
+	fun whispersyncPlayerSurfaceIsKomikkuOwnedReaderChrome() {
+		val appBarsSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt").readText()
+		val rootSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+
+		assertTrue(
+			appBarsSource.contains("onWhispersyncPlayer") &&
+				appBarsSource.contains("showWhispersyncPlayer") &&
+				appBarsSource.contains("Icons.Outlined.Audiobooks"),
+			"The reader bottom chrome must expose a Komikku-owned audiobook action when Whispersync is available."
+		)
+		assertTrue(
+			rootSource.contains("ReaderControllerDialog.WhispersyncPlayer") &&
+				rootSource.contains("KomikkuWhispersyncPlayerDialog"),
+			"The Whispersync player must be a controller-owned reader dialog, not a WebView-owned popup."
+		)
+		assertTrue(
+			screenSource.contains("coordinator.openWhispersyncPlayerDialog()"),
+			"The reader screen must route the audiobook action through the controller."
+		)
+		assertFalse(
+			rootSource.contains("BinderyAudiobookPlayerScreen"),
+			"The reader must not embed the full Bindery audiobook screen inside the Komikku shell."
+		)
+	}
+
+	@Test
 	fun readerContentsDialogSurfacesSavedMarksThroughControllerRoutes() {
 		val contentsSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderContentsDialog.kt").readText()
 		val rootSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()

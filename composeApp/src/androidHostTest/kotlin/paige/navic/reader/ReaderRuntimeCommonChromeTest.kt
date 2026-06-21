@@ -458,7 +458,7 @@ class ReaderRuntimeCommonChromeTest {
 			navigatorText.contains("KomikkuReaderVerticalRailHeightFraction"),
 			"Vertical rail height should come from Komikku's top/middle/bottom app-bar layout, not a Navic-only fraction constant."
 		)
-		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 1")
+		assertContains(navigatorText, "internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 2")
 		assertContains(navigatorText, "if (readerShouldShowChapterProgressSlider(totalPages))")
 		assertContains(navigatorText, "private fun KomikkuChapterProgressSlider(")
 		assertContains(navigatorText, "import navic.composeapp.generated.resources.Res")

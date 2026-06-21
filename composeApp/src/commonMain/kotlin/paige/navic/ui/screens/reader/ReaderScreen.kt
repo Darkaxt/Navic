@@ -498,6 +498,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onSearch = {
 			applyCoordinatorStep(coordinator.openSearchDialog())
 		},
+		onWhispersyncPlayer = {
+			applyCoordinatorStep(coordinator.openWhispersyncPlayerDialog())
+		},
 		onSearchQuery = { query ->
 			applyCoordinatorStep(coordinator.search(query))
 		},
