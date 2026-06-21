@@ -6096,3 +6096,36 @@ Results:
 - GREEN/RERUN: `tmp\codex-gradle\release-watcher-and-whispersync-regression-rerun.log` passed the same combined gate after the POC report references were added to the spec.
 - GREEN/BINDERY-JSON: `tmp\codex-gradle\bindery-book-sync-json-green.log` passed `BinderyBookSyncJsonTest`, covering both the direct book-sync payload and the live Bindery OPDS `publications[].properties` shape used by book `3809`.
 - GREEN/WHITESPACE: `git diff --check` passed after the script and documentation changes.
+
+## 2026-06-21 Eta77 Readerdev Komikku Matrix
+
+Target:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Version: `versionName=v1.0.11-eta77`, `versionCode=410`, `lastUpdateTime=2026-06-21 04:08:26`.
+- Source release: `v1.0.11-eta77` / commit `56735db9`.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -ArtifactRoot captures\reader-komikku-matrix\eta77-20260621-040936 -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -ArtifactDir captures\reader-komikku-matrix\eta77-20260621-040936\probe-chapter-progress-current-endpoints -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe chapter-progress-current-endpoints
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -ArtifactDir captures\reader-komikku-matrix\eta77-20260621-040936\probe-chapter-progress-endpoints -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe chapter-progress-endpoints
+```
+
+Artifacts:
+- Install/capture log: `tmp\codex-gradle\readerdev-eta77-install.log`.
+- Matrix log: `tmp\codex-gradle\readerdev-eta77-komikku-matrix.log`.
+- Matrix artifacts: `captures\reader-komikku-matrix\eta77-20260621-040936`.
+- Startup screenshot: `captures\reader-dev\reader-dev-20260621-040840.png`.
+
+Results:
+- GREEN/INSTALL: readerdev built, installed, granted notification permission, launched an EPUB target discovered from `bindery-debug.env`, emitted `publicationReady`, and captured the startup screenshot.
+- GREEN/MATRIX: all matrix steps passed: baseline current reader, native cover, cover center-tap toggle, cover drag next, center-tap toggle, native long press, edge tap next, drag next, texture next walk, edge tap previous, drag previous, and texture previous walk. `reader-matrix-failures.txt` reports `No matrix failures.`
+- GREEN/RAIL-CURRENT: `chapter-progress-current-endpoints` reached the current chapter endpoints: progress `0` produced `chapterPageIndex=0` / `chapterPageCount=3`; progress `1` produced `chapterPageIndex=2` / `chapterPageCount=3`.
+- GREEN/RAIL-BROAD: `chapter-progress-endpoints` selected `OEBPS/Text/Chapter-37.xhtml` with `chapterPageCount=44`; progress `0` produced `chapterPageIndex=0`, and progress `1` produced `chapterPageIndex=43`.
+- LIMIT: this is readerdev/emulator evidence. The release package on the emulator was still `v1.0.11-eta74`, so this does not close the physical/installed release validation item by itself.
+
+Next required fix:
+- Continue with physical/release validation when the phone or release package is available. If no physical device is available, the next implementation slice remains Priority 1: drag-preview black void / texture movement polish, or the Whispersync release-device paired playback validation after eta77 is installed.
