@@ -596,6 +596,108 @@ async function runVisibleRangeProbe(page) {
   }})()`)
 }
 
+async function runWhispersyncAudioFollowProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+
+    const observedPayloads = []
+    const latestVisibleRange = startIndex => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (payload?.type === 'visibleTextRange') return payload
+      }
+      return null
+    }
+
+    window.NavicAndroidBridge.postMessage = message => {
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const currentSnapshot = await Promise.resolve(readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason: 'whispersync-audio-follow-probe-initial',
+      }))
+      const currentHref = String(currentSnapshot?.message?.href || '').trim()
+      const sections = Array.from(view?.book?.sections || [])
+      const targetSection = sections.find(section => {
+        const href = String(section?.href || section?.id || '').trim()
+        return href && href !== currentHref && !/nav\.x?html|cover|title/i.test(href)
+      }) || sections.find(section => {
+        const href = String(section?.href || section?.id || '').trim()
+        return href && href !== currentHref
+      })
+      const targetHref = String(targetSection?.href || targetSection?.id || currentHref || '').trim()
+      if (!targetHref) {
+        throw new Error(`Could not choose Whispersync audio-follow target; current=${currentHref}`)
+      }
+
+      await Promise.resolve(readerBridgeDispatch({
+        type: 'applyOverlayFragment',
+        fragment: {
+          textHref: targetHref,
+          resourceHref: 'navic-whispersync-audio-follow-probe',
+          clipBeginSeconds: 1,
+          clipEndSeconds: 2,
+          label: 'Whispersync audio follow probe',
+        },
+      }))
+
+      const snapshotStartIndex = observedPayloads.length
+      const followSnapshot = await Promise.resolve(readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason: 'media-overlay-follow',
+      }))
+      const returnedVisibleRange = followSnapshot?.visibleTextRangeResult?.visibleRange || null
+      const visibleRange = latestVisibleRange(snapshotStartIndex) || returnedVisibleRange
+      if (!visibleRange) {
+        throw new Error(
+          `Expected media-overlay-follow snapshot to emit visibleTextRange; result=${
+            JSON.stringify(followSnapshot)
+          }; observed=${JSON.stringify(observedPayloads.slice(snapshotStartIndex))}`
+        )
+      }
+      if (visibleRange.source !== 'media-overlay-follow') {
+        throw new Error(`Expected visibleTextRange source media-overlay-follow, got ${JSON.stringify(visibleRange)}`)
+      }
+
+      return {
+        probe: 'whispersync-audio-follow',
+        currentHref,
+        targetHref,
+        followSnapshot,
+        visibleRange,
+        observedVisibleRanges: observedPayloads.filter(payload => payload?.type === 'visibleTextRange'),
+        expectedLogLabels: [
+          'Reader bridge event: visibleTextRange',
+          'source=media-overlay-follow',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+    }
+  }})()`)
+}
+
 async function runChapterProgressEndpointsProbe(page) {
   return evaluateOnPage(page, `window.__navicChapterProgressProbePromise = (${async () => {
     const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
@@ -1456,6 +1558,7 @@ async function main() {
       'selection-payload': runSelectionPayloadProbe,
       'relocation-payload': runRelocationPayloadProbe,
       'visible-range': runVisibleRangeProbe,
+      'whispersync-audio-follow': runWhispersyncAudioFollowProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,

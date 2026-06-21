@@ -6196,3 +6196,33 @@ Results:
 - GREEN/INSTALL: readerdev `v1.0.11-eta77` / `versionCode=410` installed at `2026-06-21 06:17:28`, launched, and emitted `publicationReady`.
 - EMULATOR: after leaving the native cover and starting playback, logcat showed `Dispatching reader engine command: applyOverlayFragment`, `controlled-relocate:begin media-overlay-follow`, `viewport-layout label=media-overlay-follow`, and `overlayFragmentActive` for production book `3809`.
 - LIMIT: the observed emulator run did not emit a new `visibleTextRange(source=media-overlay-follow)` bridge event because the target location was a duplicate. The native suppression branch is therefore host-test-proven and the WebView source marker is emulator-proven, but a non-duplicate audio-follow visible-range event remains open for full device observation.
+
+## 2026-06-21 Whispersync Audio-Follow DevTools Probe
+
+Scope:
+- Added a dedicated `whispersync-audio-follow` DevTools smoke probe to `tools\reader-harness\src\adb-webview-eval.mjs`.
+- Added the probe to `scripts\adb-reader-smoke.ps1` so it can be run through the standard ADB artifact path.
+- Added an Android-host source guard proving the smoke script and DevTools helper expose the probe.
+- The probe dispatches `applyOverlayFragment`, then forces a diagnostic location snapshot with reason `media-overlay-follow` so the WebView must return a `visibleTextRange` carrying that source.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncAudioFollowVisibleRangeSource --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCapturesFocusedReaderDiagnostics --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-3809-eta77.env -NoBuild -NoInstall -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta77 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-audio-follow -ArtifactDir tmp\readerdev-whispersync-audio-follow-probe -RequireReaderBridgeEvent visibleTextRange -RequireReaderLog source=media-overlay-follow
+```
+
+Artifacts:
+- `tmp\readerdev-whispersync-audio-follow-probe\reader-devtools-probe.json`
+- `tmp\readerdev-whispersync-audio-follow-probe\reader-bridge-events.log`
+- `tmp\readerdev-whispersync-audio-follow-probe\logcat-reader.log`
+
+Results:
+- GREEN/HOST: focused Android-host harness guards passed.
+- GREEN/JS: `node --check` passed for `tools\reader-harness\src\adb-webview-eval.mjs`.
+- GREEN/READERDEV: `darkaxt.navic.readerdev` `versionName=v1.0.11-eta77` was open on production book `3809`.
+- GREEN/BRIDGE: the probe moved from `OEBPS/xhtml/chapter1.xhtml` to `OEBPS/xhtml/mini_toc.xhtml` and captured `visibleTextRange(OEBPS/xhtml/mini_toc.xhtml, 1-486, source=media-overlay-follow)` in Android logcat.
+- GREEN/LOOP-GUARD: the same artifact contains no `Whispersync audiobook seek` after the `media-overlay-follow` visible range, proving the controller suppression path held for a non-duplicate WebView bridge event.
+- Remaining: this is readerdev/emulator evidence. Release-device validation of the paired Bindery sidecar/audiobook flow is still required.
