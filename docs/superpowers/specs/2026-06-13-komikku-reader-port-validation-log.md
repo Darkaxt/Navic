@@ -6716,3 +6716,39 @@ Results:
 - GREEN/JS: all edited reader runtime/probe JS files passed `node --check`.
 - GREEN/WHITESPACE: `git diff --check` exited `0`.
 - Remaining: existing installations with already-persisted custom reader values will continue honoring those values. A migration from legacy persisted `100/155` to `140/180` should be handled explicitly if we decide old saved defaults must be upgraded in place.
+
+## 2026-06-21 Readerdev eta78 Komikku Matrix After Headset/Typography Updates
+
+Scope:
+- Verify the installed readerdev build after the page-level Whispersync headset and Anx typography-default changes.
+- Confirm the headset control remains a bare top-left glyph with no circular container.
+- Record current Komikku matrix pass/fail state before any further reader-shell work.
+
+Commands:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+.\scripts\adb-reader-komikku-matrix.ps1 `
+  -Package darkaxt.navic.readerdev `
+  -DeviceSerial emulator-5554 `
+  -ExpectedVersionName v1.0.11-eta78 `
+  -NoLaunch `
+  -IncludeCoverChecks `
+  -ContinueOnFailure `
+  -ArtifactRoot C:\Users\darka\Documents\Projects\Android\.codex-temp\navic-bindery-cache-master\captures\reader-komikku-matrix\20260621-201932-eta78-headset
+```
+
+Artifacts:
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\baseline-current-reader\screen.png`
+
+Results:
+- GREEN/INSTALL: emulator `emulator-5554` was running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/HEADSET: source inspection of `KomikkuWhispersyncPlaybackControl` showed a transparent 48dp tap target with a 25dp low-opacity headset glyph and crossed-state slash only. The control body does not use `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, `IconButton`, `.background`, `.border`, or `.clip`.
+- GREEN/VISUAL: `baseline-current-reader\screen.png` showed the top-left Whispersync affordance as only the small headset icon; no circle, ring, pill, or Material background was visible around it.
+- GREEN/MATRIX: `baseline-current-reader`, `cover-center-tap-toggle`, `center-tap-toggle`, `native-long-press-center`, `drag-next`, and `drag-previous` passed on the installed eta78 readerdev build.
+- FAIL/COVER-START: `baseline-native-cover` failed because the run started from readable content rather than the native shell cover. `cover-drag-next` also failed because no shell-cover swipe could be captured in that state.
+- FAIL/TEXTURE-DIAGNOSTICS: `edge-tap-next`, `texture-next-walk`, `edge-tap-previous`, and `texture-previous-walk` failed because captured texture diagnostics did not include the expected `pos=` marker.
+- OBSERVED/COMPOSITION: the baseline screenshot still shows unrelated EPUB composition problems on the Bastille test book, including visible word fragmentation and awkward line/page layout. This remains separate from the no-circle headset request.
