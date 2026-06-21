@@ -6752,3 +6752,27 @@ Results:
 - FAIL/COVER-START: `baseline-native-cover` failed because the run started from readable content rather than the native shell cover. `cover-drag-next` also failed because no shell-cover swipe could be captured in that state.
 - FAIL/TEXTURE-DIAGNOSTICS: `edge-tap-next`, `texture-next-walk`, `edge-tap-previous`, and `texture-previous-walk` failed because captured texture diagnostics did not include the expected `pos=` marker.
 - OBSERVED/COMPOSITION: the baseline screenshot still shows unrelated EPUB composition problems on the Bastille test book, including visible word fragmentation and awkward line/page layout. This remains separate from the no-circle headset request.
+
+## 2026-06-21 Readerdev eta78 Headset No-Circle Confirmation
+
+Scope:
+- Re-check the user-facing Whispersync page control after clarification that it must be only a headset icon with no circle around it.
+- Distinguish the top-left headset from unrelated circular buttons in the right chapter rail.
+
+Commands:
+
+```powershell
+adb devices
+adb shell dumpsys package darkaxt.navic.readerdev
+adb exec-out screencap -p > captures\reader-headset-current\screen.png
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+```
+
+Artifacts:
+- `captures\reader-headset-current\screen.png`
+
+Results:
+- GREEN/INSTALL: emulator `emulator-5554` is still running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/HOST-GUARD: the focused host guard passed and still rejects `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, `IconButton`, `.background`, `.border`, `.clip`, and Material background usage inside `KomikkuWhispersyncPlaybackControl`.
+- GREEN/VISUAL: `captures\reader-headset-current\screen.png` shows the Whispersync affordance as a bare low-opacity headset icon at the top-left of the page. There is no circle, ring, pill, or visible tap container around the headset.
+- NOTE: the visible circular controls in the same screenshot belong to the right-side chapter rail, not to the Whispersync headset control.
