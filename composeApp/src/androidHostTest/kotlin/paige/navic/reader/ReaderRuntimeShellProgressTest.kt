@@ -1063,7 +1063,12 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, currentPageIndex + direction))")
 		assertContains(
 			bridgeText,
-			"this.scheduleControlledRelocationFallback('go-to')",
+			"async goTo(locator, reason = 'go-to')",
+			message = "Link and explicit href navigation must carry an explicit controlled-relocation reason, not blend into passive page-turn aftershocks."
+		)
+		assertContains(
+			bridgeText,
+			"this.scheduleControlledRelocationFallback(reason)",
 			message = "Link and explicit href navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
 		)
 		assertContains(bridgeText, "this.recentPageTurnDirection = null")

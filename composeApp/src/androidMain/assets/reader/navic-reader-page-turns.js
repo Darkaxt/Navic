@@ -900,6 +900,7 @@ function previewPageDrag(command) {
   const boundaryDirection = textureDirection && this.safeNativeDragPreviewAtSectionBoundary(renderer, textureDirection)
     ? textureDirection
     : ''
+  let waitingForBoundaryPreview = false
   if (boundaryDirection) {
     const preview = this.ensurePageDragPreviewTarget({
       direction: boundaryDirection,
@@ -922,12 +923,12 @@ function previewPageDrag(command) {
           },
         }
         : null
+      waitingForBoundaryPreview = true
       readerTrace('page-drag-preview:underlay-waiting', {
         direction: boundaryDirection,
         targetIndex: preview?.targetIndex ?? null,
         currentIndex: this.currentLoadedSectionIndex(),
       })
-      return
     }
   }
   if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
@@ -953,6 +954,7 @@ function previewPageDrag(command) {
     start: renderer.start,
     end: renderer.end,
     viewSize: renderer.viewSize,
+    source: waitingForBoundaryPreview ? 'boundary-preview-loading' : 'native-preview',
   })
 }
 

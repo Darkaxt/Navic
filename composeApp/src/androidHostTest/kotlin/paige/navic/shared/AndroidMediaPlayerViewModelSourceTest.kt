@@ -3,6 +3,7 @@ package paige.navic.shared
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidMediaPlayerViewModelSourceTest {
@@ -108,8 +109,9 @@ class AndroidMediaPlayerViewModelSourceTest {
 		val viewModelText = viewModel.readText()
 		val prefetcherText = prefetcher.readText()
 
-		assertTrue(
-			viewModel.readLines().size < 1_260,
+		assertFalse(
+			viewModelText.contains("private var lastCurrentArtworkPrefetchSongId") ||
+				viewModelText.contains("private var lastUpcomingPrefetchSignature"),
 			"AndroidMediaPlayerViewModel should not own playback asset prefetch dedupe state."
 		)
 		assertContains(viewModelText, "private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(")
@@ -128,8 +130,8 @@ class AndroidMediaPlayerViewModelSourceTest {
 		val viewModelText = viewModel.readText()
 		val queueAutoFillerText = queueAutoFiller.readText()
 
-		assertTrue(
-			viewModel.readLines().size < 1_200,
+		assertFalse(
+			viewModelText.contains("private var autoFillQueueJob"),
 			"AndroidMediaPlayerViewModel should not own queue auto-fill job state."
 		)
 		assertContains(viewModelText, "private val queueAutoFiller = AndroidQueueAutoFiller(")

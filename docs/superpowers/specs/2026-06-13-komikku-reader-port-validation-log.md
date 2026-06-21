@@ -6355,3 +6355,40 @@ Results:
 - Basic smoke artifacts: `tmp\release-eta78-basic-smoke`.
 - LIMIT: the release app opened to the Navidrome login screen with Android's notification permission dialog, so this smoke does not validate the reader or paired Whispersync route.
 - Remaining: physical release validation still needs to confirm the paired Bindery sidecar/audiobook path with the installed APK.
+
+## 2026-06-21 Boundary Drag Preview Loading Fallback
+
+Scope:
+- Address the Priority 1 black-void/drag-feel risk where a section-boundary native drag waited for the adjacent preview iframe before moving the current page.
+- Keep Komikku-native drag ownership intact: the current page now continues moving while the adjacent preview is still loading, records a `boundary-preview-loading` diagnostic source, and swaps to the real underlay when ready.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta78 -NoLaunch -IncludeCoverChecks -ArtifactRoot tmp\readerdev-boundary-preview-matrix-20260621
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-fixtures\publication.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderResolvesTocHrefNavigationBeforeCommittingLocation --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderClampsDelayedPassiveReflowableRelocationsAfterPageTurns --tests paige.navic.shared.AndroidMediaPlayerViewModelSourceTest.playbackAssetPrefetchStateLivesOutsideAndroidMediaPlayerViewModel --tests paige.navic.shared.AndroidMediaPlayerViewModelSourceTest.queueAutoFillJobStateLivesOutsideAndroidMediaPlayerViewModel
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest
+```
+
+Artifacts:
+- `tmp\readerdev-boundary-preview-matrix-20260621`
+- `tools\reader-harness\output\epub-native-drag-preview-underlay.json`
+
+Results:
+- RED/HOST: the new `androidReaderKeepsCurrentPageMovingWhileBoundaryPreviewLoads` guard first failed because the boundary-preview loading branch returned before current-page movement.
+- GREEN/HOST: `ReaderRuntimePaperSurfaceTest` passed after removing the early return and adding the `boundary-preview-loading` source.
+- GREEN/JS: `node --check` for `navic-reader-page-turns.js` passed.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- GREEN/READERDEV: `install-reader-dev.ps1` built, installed, launched `darkaxt.navic.readerdev` on `emulator-5554`, and observed `publicationReady`; installed evidence was `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 08:06:50`.
+- GREEN/MATRIX: all Komikku matrix steps passed with `No matrix failures.` The `drag-next` and `drag-previous` steps reported `readerNativeDragPreview=True` and `wrongTextureDirection=False`.
+- GREEN/BROWSER-HARNESS: `epub-native-drag-preview-underlay` forced a section-boundary drag and captured `page-drag-preview` with `source=boundary-preview-loading`, renderer movement from `start=722` to `start=863`, then a ready adjacent preview underlay.
+- GREEN/TEXTURE-LOGIC: `texture-offset-logic` passed.
+- GREEN/STALE-GUARDS: the five previously stale host guards passed after updating them to the current runtime signatures and direct media-helper state ownership checks.
+- GREEN/FULL-HOST: `:composeApp:testAndroidHostTest` passed with `BUILD SUCCESSFUL in 29s`.
+- Remaining: this proves the loading fallback and standard matrix on readerdev/emulator. Manual release/physical validation is still needed for perceived drag feel on the user's devices.

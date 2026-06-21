@@ -403,11 +403,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(locationText, "visibleStart")
 		assertContains(locationText, "visibleEnd")
 		assertContains(locationText, "lastPostedVisibleTextRangeKey")
-		assertContains(locationText, "postCurrentVisibleTextRange(detail, options)")
+		assertContains(locationText, "function postCurrentVisibleTextRange(detail = {}, options = {})")
 		assertContains(locationText, "visibleTextRangeResult")
 		assertContains(
 			bridgeText,
-			"this.postCurrentVisibleTextRange(detail, options)",
+			"this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })",
 			message = "Visible text range must be emitted from committed relocation snapshots, not from controller-owned UI state."
 		)
 	}

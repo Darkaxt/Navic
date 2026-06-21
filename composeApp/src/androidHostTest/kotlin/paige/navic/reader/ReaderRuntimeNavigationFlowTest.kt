@@ -53,8 +53,8 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderResolvesTocHrefNavigationBeforeCommittingLocation() {
 		val bridgeText = readerBridgeText()
 		val goTo = bridgeText
-			.substringAfter("async goTo(locator) {")
-			.substringBefore("\n  progressTargetForSections")
+			.substringAfter("async goTo(locator, reason = 'go-to') {")
+			.substringBefore("\n  async applyHighlight")
 
 		assertContains(goTo, "resolveReaderNavigationTarget(locator)")
 		assertContains(goTo, "this.view.renderer?.goTo")
@@ -63,10 +63,10 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "async resolveReaderNavigationTarget(locator) {")
 		assertContains(bridgeText, "this.view.resolveNavigation?.(target)")
 		assertContains(bridgeText, "this.view.book?.resolveHref?.(target)")
-		assertContains(goTo, "this.scheduleControlledRelocationFallback('go-to')")
+		assertContains(goTo, "this.scheduleControlledRelocationFallback(reason)")
 		assertTrue(
 			goTo.indexOf("this.view.renderer?.goTo") <
-				goTo.indexOf("this.scheduleControlledRelocationFallback('go-to')"),
+				goTo.indexOf("this.scheduleControlledRelocationFallback(reason)"),
 			"TOC href navigation must move Foliate to the resolved section before Navic commits a location update."
 		)
 		assertFalse(

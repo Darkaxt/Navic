@@ -468,6 +468,42 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderKeepsCurrentPageMovingWhileBoundaryPreviewLoads() {
+		val bridgeText = readerBridgeText()
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		val boundaryPreviewBlock = previewPageDrag
+			.substringAfter("if (boundaryDirection) {")
+			.substringBefore("\n  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0)")
+
+		assertContains(
+			previewPageDrag,
+			"let waitingForBoundaryPreview = false",
+			message = "Section-boundary drags need an explicit pending-preview state instead of returning before movement."
+		)
+		assertContains(
+			boundaryPreviewBlock,
+			"waitingForBoundaryPreview = true",
+			message = "Pending adjacent-page previews must be visible in source and runtime traces."
+		)
+		assertFalse(
+			boundaryPreviewBlock.contains("return"),
+			"Boundary drags must keep moving the current page while the adjacent iframe preview is still loading."
+		)
+		assertContains(
+			previewPageDrag,
+			"source: waitingForBoundaryPreview ? 'boundary-preview-loading' : 'native-preview'",
+			message = "Diagnostics must distinguish a real adjacent-page preview from the fallback surface shown while it loads."
+		)
+		assertTrue(
+			previewPageDrag.indexOf("waitingForBoundaryPreview = true") <
+				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"The boundary-preview loading branch must reach current-page movement instead of stopping before it."
+		)
+	}
+
+	@Test
 	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText
