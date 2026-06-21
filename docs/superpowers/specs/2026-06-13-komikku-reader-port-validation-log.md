@@ -7024,3 +7024,73 @@ Results:
 - GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - NOTE: no ADB device was connected for a live chapter-boundary drag; this closes the renderer fallback cause, but the next readerdev matrix still needs a real gesture pass.
+
+## 2026-06-22 Whispersync Icon Compose Vector Crash
+
+Scope:
+- Fix the CrashActivity failure on opening a Whispersync-capable Bindery book detail screen.
+- Keep the fix to the resource-parser root cause before resuming launcher work.
+
+Diagnosis:
+- CONFIRMED: the emulator crash stack reported `java.lang.IllegalArgumentException: Invalid color value @android:color/transparent` from Compose's vector parser while loading `Res.drawable.ic_whispersync` in `BinderyBookScreen`.
+- ROOT CAUSE: `composeResources/drawable/ic_whispersync.xml` used framework color references (`@android:color/transparent`) inside a common Compose resource. The Compose resource parser accepts literal color values here, not Android framework color resource references.
+
+Commands:
+
+```powershell
+rg "@android:color/transparent" composeApp\src\commonMain\composeResources\drawable
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.ui.components.common.ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors"
+git diff --check -- composeApp\src\commonMain\composeResources\drawable\ic_whispersync.xml composeApp\src\androidHostTest\kotlin\paige\navic\ui\components\common\ComposeVectorResourceSourceTest.kt
+adb -s emulator-5554 logcat -c
+adb -s emulator-5554 shell input tap 925 462
+adb -s emulator-5554 logcat -d -v brief
+```
+
+Artifacts:
+- `captures\reader-dev\navic-vector-before.png`
+- `captures\reader-dev\navic-vector-after-card.png`
+- Verification worktree guard log: `C:\Users\darka\Documents\Projects\Android\.codex-temp\navic-vector-crash-verify\tmp\codex-logs\vector-crash-verify-install.out.log`
+
+Results:
+- FIXED: all `@android:color/transparent` fills in `ic_whispersync.xml` were replaced with literal `#00000000`.
+- GUARD: `ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors` now scans common Compose drawables and fails if this parser-incompatible value returns.
+- GREEN/HOST-GUARD: the focused guard passed in the clean verification worktree (`BUILD SUCCESSFUL in 5m 6s`, `GuardExitCode=0`).
+- GREEN/INSTALL: the patched readerDev APK installed on `emulator-5554`.
+- GREEN/EMULATOR: after dismissing the update sheet and tapping the visible `Bastille vs. the Evil Librarians` card, the book detail screen rendered with Whispersync icons instead of CrashActivity.
+- GREEN/LOGCAT: the focused logcat check after the tap contained `Bindery book loaded bookId=3809 ... syncPairs=1`, and no `Invalid color value`, `XmlVectorParser`, `CrashActivity`, or app `FATAL EXCEPTION` entry for the repro path.
+- NEXT: fix the readerdev launcher so this route can be opened deterministically without manual tap coordinates or null intent extras.
+
+## 2026-06-22 Readerdev Launcher Explicit Target Overrides
+
+Scope:
+- Replace manual `am start` reader launches with a deterministic `install-reader-dev.ps1` path.
+- Avoid env-file edits when a validation run needs a specific EPUB/PDF, start location, or Whispersync sidecar target.
+
+Diagnosis:
+- CONFIRMED: the current `bindery-debug.env` has Bindery credentials but no nonblank `BINDERY_TEST_PUBLICATION_ID` / `BINDERY_TEST_RESOURCE_ID` direct target.
+- CONFIRMED: a manual direct launch with blank values can shift `am start --es` arguments and fall back to the Books grid instead of opening the reader.
+- ROOT CAUSE: `install-reader-dev.ps1` could discover from Bindery or read env-driven targets, but had no explicit CLI reader-target overrides for validation fixtures.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId "3809" -Title "Bastille vs. the Evil Librarians" -Format epub -Capture
+git diff --check -- scripts\install-reader-dev.ps1 composeApp\src\androidHostTest\kotlin\paige\navic\reader\ReaderDevEnvironmentContractTest.kt
+```
+
+Artifacts:
+- `tmp\codex-logs\launcher-contract-red.out.log`
+- `tmp\codex-logs\launcher-contract-green.out.log`
+- `tmp\codex-logs\launcher-direct-bastille.out.log`
+- `captures\reader-dev\reader-dev-20260622-013122.png`
+
+Results:
+- RED/HOST-GUARD: `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` failed before implementation because the launcher had no explicit reader-target CLI overrides.
+- FIXED: `install-reader-dev.ps1` now accepts explicit aliases for `-PublicationUrl`, `-ResourceHref`, `-BookId`, `-Title`, `-Kind`, `-Format`, `-StartHref`, `-StartCfi`, and Whispersync sidecar/audiobook fields.
+- FIXED: explicit CLI values override env-file values, then flow through the existing null-safe `Add-ShellStringExtra` path so blank values are not emitted as shifted `am start` arguments.
+- GREEN/HOST-GUARD: the focused launcher contract passed after the script change (`BUILD SUCCESSFUL in 14s`).
+- GREEN/LAUNCHER: the no-build/no-install launcher run opened `darkaxt.navic.readerdev` directly into production book `3809` using file `426`, waited for `Reader bridge raw: {"type":"publicationReady"}`, and pulled a rendered reader screenshot.
+- GREEN/LOGCAT: the direct launch produced real reader bridge data (`loadDoc`, cached pagination profile, `locationChanged`, `visibleTextRange`, `publicationReady`) for `OEBPS/xhtml/chapter4.xhtml`.
+- GREEN/WHITESPACE: `git diff --check` passed for the launcher and contract-test changes.
+- GREEN/COMBINED-GUARD: the focused rerun covering both `ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors` and `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` passed together (`BUILD SUCCESSFUL in 4m 7s`).
