@@ -6480,3 +6480,36 @@ Results:
 - GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader.js` passed.
 - GREEN/WHITESPACE: `git diff --check` exited `0`.
 - Remaining: this is host/source proof only. A readerdev or release-device probe still needs to prove that a production Bindery cue with `ebookStart`/`ebookEnd` visibly highlights the expected sentence in the WebView.
+
+## 2026-06-21 Readerdev Whispersync Character-Offset Overlay Probe
+
+Scope:
+- Promote the Whispersync ASR character-offset overlay fallback from host/source proof to live Android WebView proof.
+- Validate that the runtime can highlight a raw text-node character range when there is no EPUB fragment id, which is the Bindery ASR sidecar shape GLM flagged.
+- Keep this as readerdev/emulator validation; it does not claim release-device paired playback is complete.
+
+Commands:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-char-offset-overlay -RequireReaderBridgeEvent overlayFragmentActive -ArtifactDir tmp\readerdev-whispersync-char-offset-overlay-20260621-r3
+```
+
+Artifacts:
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3`
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3\reader-devtools-probe.json`
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3\logcat-reader.log`
+
+Results:
+- RED/HARNESS: the first live smoke probe failed because it required the DevTools monkey-patch to observe `overlayFragmentActive` directly, even though Android logcat is the authoritative bridge event sink for this script.
+- FIX/HARNESS: the probe now verifies the DOM marker directly inside the WebView and lets `adb-reader-smoke.ps1 -RequireReaderBridgeEvent overlayFragmentActive` validate the Android bridge event through logcat.
+- RED/HARNESS: the second live smoke probe failed because it expected `Dispatching reader engine command: clearOverlay`, which only appears for Android-controller dispatched commands. This probe clears through `NavicReaderBridge.dispatch(...)`, whose correct runtime evidence is `[NavicReader] dispatch clearOverlay`.
+- GREEN/HOST: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- GREEN/HOST: focused `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay` passed.
+- GREEN/EMULATOR: readerdev `v1.0.11-eta78` / `versionCode=411` on `emulator-5554` ran the `whispersync-char-offset-overlay` probe successfully.
+- GREEN/RANGE: the probe observed `visibleTextRange(OEBPS/Text/Chapter-37.xhtml, 8-3432, source=whispersync-char-offset-overlay-initial)`, targeted characters `32-80`, and found a live marker with class `navic-active-overlay-fragment navic-media-overlay-range`.
+- GREEN/MARKER: the wrapped text snippet was `ttle\n\n    \n      Dawn broke that morning on Polo`, proving raw text-node range wrapping rather than fragment-id lookup.
+- GREEN/BRIDGE: logcat captured `Reader bridge raw: {"type":"overlayFragmentActive","textHref":"OEBPS/Text/Chapter-37.xhtml","textStart":32,"textEnd":80,...}` and `Reader bridge event: overlayFragmentActive()`.
+- GREEN/CLEAR: the probe dispatched `clearOverlay` and verified no `data-navic-media-overlay-range="true"` markers remained in rendered Foliate contents.
+- Remaining: release-device validation still needs to prove the same character-offset sentence highlight during real paired audiobook playback.

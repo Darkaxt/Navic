@@ -282,6 +282,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "font-size-publisher-styles")
 		assertContains(scriptText, "chapter-progress-endpoints")
 		assertContains(scriptText, "whispersync-audio-follow")
+		assertContains(scriptText, "whispersync-char-offset-overlay")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
@@ -331,6 +332,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "relocation-payload")
 		assertContains(helperText, "visible-range")
 		assertContains(helperText, "whispersync-audio-follow")
+		assertContains(helperText, "whispersync-char-offset-overlay")
 		assertContains(helperText, "runtime-state")
 		assertContains(helperText, "page-box")
 		assertContains(helperText, "chapter-progress-endpoints")
@@ -389,6 +391,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "expectedLogLabels")
 		assertContains(probe, "Whispersync audiobook seek")
 		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncCharOffsetOverlayProbe(page)")
+			.substringBefore("async function runChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "whispersync-char-offset-overlay")
+		assertContains(helperText, "'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe")
+		assertContains(probe, "probe: 'whispersync-char-offset-overlay'")
+		assertContains(probe, "textStart")
+		assertContains(probe, "textEnd")
+		assertContains(probe, "type: 'applyOverlayFragment'")
+		assertContains(probe, "data-navic-media-overlay-range")
+		assertContains(probe, "navic-active-overlay-fragment")
+		assertContains(probe, "overlayFragmentActive")
+		assertContains(probe, "type: 'clearOverlay'")
 	}
 
 	@Test
