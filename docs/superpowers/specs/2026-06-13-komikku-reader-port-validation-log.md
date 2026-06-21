@@ -6326,3 +6326,23 @@ Results:
 - GREEN/UNSUPPORTED: probe JSON captured `OEBPS/xhtml/mini_toc.xhtml` with `visibleStart=1`, `visibleEnd=486`, and `source=page-scoped-control-unsupported`.
 - GREEN/CLEAR: Android logcat captured `Dispatching reader engine command: clearOverlay`.
 - Remaining: this probe automates the emulator/readerdev evidence. It still does not replace clean release APK validation on a physical device.
+
+## 2026-06-21 eta78 Whispersync Release-Candidate Preflight
+
+Scope:
+- Prepare a release candidate for the post-eta77 Whispersync milestone: native page-scoped top-left playback control, source-aware audio-follow loop suppression, and repeatable DevTools smoke probes.
+- Bump Android release metadata from `v1.0.11-eta77` / `versionCode=410` to `v1.0.11-eta78` / `versionCode=411`.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-eta78
+git diff --check
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeVisibleTextRangeForWhispersync --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncAudioFollowVisibleRangeSource --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+```
+
+Results:
+- GREEN/VERSION: `Android versionName matches v1.0.11-eta78`.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- GREEN/HOST: focused reader/Whispersync regression set passed with `BUILD SUCCESSFUL in 18s`, 24 actionable tasks, 2 executed.
+- Remaining: tag/push and GitHub release publication still need to complete before eta78 can be installed on a physical device. Physical release validation still needs to confirm the paired Bindery sidecar/audiobook path with the installed APK.
