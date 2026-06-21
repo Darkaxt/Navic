@@ -642,20 +642,25 @@ data class ReaderController(
 
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
 		val currentWhispersync = state.whispersync
-		val playbackStep = playbackState.audioResource
-			?.takeIf { it.isNotBlank() }
-			?.let { audioResource ->
-				val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
-					currentWhispersync.sync
-				} else {
-					currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
+		val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
+			currentWhispersync.sync
+		} else {
+			currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
+		}
+		val playbackStep = if (!playbackState.isPlaying) {
+			ReaderWhispersyncPlaybackPositionStep(state = baseSync)
+		} else {
+			playbackState.audioResource
+				?.takeIf { it.isNotBlank() }
+				?.let { audioResource ->
+					baseSync.onAudiobookPlaybackPositionStep(
+						timeline = currentWhispersync.timeline,
+						audioResource = audioResource,
+						audioTrackIndex = playbackState.trackIndex,
+						positionMs = playbackState.positionMs
+					)
 				}
-				baseSync.onAudiobookPlaybackPositionStep(
-					timeline = currentWhispersync.timeline,
-					audioResource = audioResource,
-					positionMs = playbackState.positionMs
-				)
-			}
+		}
 		val syncState = playbackStep?.state ?: currentWhispersync.sync
 		val command = syncState.engineCommand
 			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
@@ -685,17 +690,49 @@ data class ReaderController(
 		)
 	}
 
-	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep =
-		ReaderControllerStep(
+	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val visibleRange = currentWhispersync.visibleTextRange
+		val baseWhispersync = ReaderWhispersyncSessionState(
+			sidecar = sidecar,
+			visibleTextRange = visibleRange,
+			status = readerWhispersyncReadyStatus(sidecar.timeline)
+		)
+		val syncStep = visibleRange?.let { range ->
+			baseWhispersync.sync.onVisibleTextRange(
+				timeline = sidecar.timeline,
+				textHref = range.textHref,
+				visibleStart = range.visibleStart,
+				visibleEnd = range.visibleEnd
+			)
+		}
+		val command = syncStep?.state?.engineCommand
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		return ReaderControllerStep(
 			copy(
 				state = state.copy(
-					whispersync = ReaderWhispersyncSessionState(
-						sidecar = sidecar,
-						status = readerWhispersyncReadyStatus(sidecar.timeline)
-					)
+					whispersync = baseWhispersync.copy(
+						sync = syncStep?.state ?: baseWhispersync.sync,
+						audioSeekTarget = syncStep?.audioSeekTarget,
+						status = syncStep?.status ?: baseWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
 				)
-			)
+			),
+			engineCommands = listOfNotNull(command),
+			whispersyncAudioSeekTarget = syncStep?.audioSeekTarget
 		)
+	}
 
 	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderControllerStep =
 		ReaderControllerStep(

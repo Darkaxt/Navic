@@ -318,27 +318,34 @@ private fun binderyAudiobookExactProgressFromWhispersyncCompanion(
 	audioItems: List<BinderyReadingOrderItem>,
 	versionRowId: String
 ): BinderyAudiobookPlaybackProgress? {
-	val audioResource = progress.audioResource
-		?.trim()
-		?.takeIf { it.isNotEmpty() }
-		?: return null
 	val positionMs = progress.audioPositionMs
 		?.coerceAtLeast(0L)
 		?: return null
-	val candidates = audioResource.whispersyncAudioResourceCandidates()
-	if (candidates.isEmpty()) return null
-	val index = audioItems.indexOfFirst { item ->
-		val itemCandidates = listOfNotNull(item.href, item.properties.firstNonBlankValue("href", "url", "resource"))
-			.flatMap(String::whispersyncAudioResourceCandidates)
-			.toSet()
-		candidates.any { target ->
-			itemCandidates.any { candidate ->
-				candidate == target ||
-					candidate.endsWith("/$target") ||
-					target.endsWith("/$candidate")
+	val index = progress.audioResource
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.let { audioResource ->
+			val candidates = audioResource.whispersyncAudioResourceCandidates()
+			if (candidates.isEmpty()) {
+				null
+			} else {
+				audioItems.indexOfFirst { item ->
+					val itemCandidates = listOfNotNull(item.href, item.properties.firstNonBlankValue("href", "url", "resource"))
+						.flatMap(String::whispersyncAudioResourceCandidates)
+						.toSet()
+					candidates.any { target ->
+						itemCandidates.any { candidate ->
+							candidate == target ||
+								candidate.endsWith("/$target") ||
+								target.endsWith("/$candidate")
+						}
+					}
+				}.takeIf { it >= 0 }
 			}
 		}
-	}.takeIf { it >= 0 } ?: return null
+		?: progress.audioTrackIndex
+			?.takeIf { it in audioItems.indices }
+		?: return null
 	val durationMs = audioItems[index].durationMs()?.takeIf { it > 0L }
 	return BinderyAudiobookPlaybackProgress(
 		bookId = progress.bookId,

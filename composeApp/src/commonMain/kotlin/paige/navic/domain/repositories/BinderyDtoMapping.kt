@@ -3,6 +3,7 @@ package paige.navic.domain.repositories
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -142,6 +143,20 @@ internal fun decodeBinderyManifestJson(jsonText: String): BinderyManifest =
 
 internal fun decodeBinderyResourceCatalogJson(jsonText: String): BinderyResourceCatalog =
 	BinderyJson.decodeFromString<BinderyResourceCatalogDto>(jsonText).toResourceCatalog()
+
+internal fun decodeBinderyBookSyncJson(jsonText: String): BinderyBookSync {
+	val element = BinderyJson.parseToJsonElement(jsonText)
+	val root = element as? JsonObject ?: return BinderyJson.decodeFromJsonElement(element)
+	val properties = root["properties"] as? JsonObject
+	val propertiesSync = properties
+		?.takeIf { values ->
+			values.containsKey("syncPairs") ||
+				values.containsKey("syncPairCounts") ||
+				values.containsKey("whispersyncStatus")
+		}
+		?.let { values -> BinderyJson.decodeFromJsonElement<BinderyBookSync>(values) }
+	return propertiesSync ?: BinderyJson.decodeFromJsonElement(root)
+}
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null

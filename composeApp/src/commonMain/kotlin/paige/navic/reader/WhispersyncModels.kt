@@ -36,12 +36,16 @@ data class WhispersyncTimeline(
 ) {
 	fun activeSegment(
 		audioResource: String,
-		positionMs: Long
+		positionMs: Long,
+		audioTrackIndex: Int? = null
 	): WhispersyncSegment? {
 		val normalizedAudio = normalizedMediaOverlayResource(audioResource)
 		val position = positionMs.coerceAtLeast(0L)
 		return segments.firstOrNull { segment ->
-			normalizedMediaOverlayResource(segment.audioResource) == normalizedAudio &&
+			segment.matchesAudioResourceOrTrack(
+				normalizedAudio = normalizedAudio,
+				audioTrackIndex = audioTrackIndex
+			) &&
 				position >= segment.startMs &&
 				position < segment.endMs
 		}
@@ -82,6 +86,8 @@ data class WhispersyncTimeline(
 @Serializable
 data class WhispersyncSegment(
 	val id: String? = null,
+	val audioResourceId: String? = null,
+	val audioTrackIndex: Int? = null,
 	val audioResource: String,
 	val startMs: Long,
 	val endMs: Long,
@@ -179,6 +185,7 @@ private fun JsonObject.segmentArray(): List<JsonElement>? =
 	arrayValue("segments")
 		?: arrayValue("alignments")
 		?: arrayValue("clips")
+		?: arrayValue("cues")
 
 private fun JsonObject.toWhispersyncSegment(
 	defaultAudioResource: String?,
@@ -195,6 +202,7 @@ private fun JsonObject.toWhispersyncSegment(
 		?: return null
 	val textHref = stringValue("textHref")
 		?: stringValue("textResource")
+		?: stringValue("ebookHref")
 		?: stringValue("href")
 		?: text?.stringValue("href")
 		?: text?.stringValue("resource")
@@ -202,12 +210,14 @@ private fun JsonObject.toWhispersyncSegment(
 		?: return null
 	val startMs = millisecondValue("startMs")
 		?: millisecondValue("audioStartMs")
+		?: secondsValue("audioStart")
 		?: secondsValue("startSeconds")
 		?: secondsValue("audioStartSeconds")
 		?: secondsValue("start")
 		?: return null
 	val endMs = millisecondValue("endMs")
 		?: millisecondValue("audioEndMs")
+		?: secondsValue("audioEnd")
 		?: secondsValue("endSeconds")
 		?: secondsValue("audioEndSeconds")
 		?: secondsValue("end")
@@ -215,14 +225,21 @@ private fun JsonObject.toWhispersyncSegment(
 	if (endMs <= startMs) return null
 	return WhispersyncSegment(
 		id = stringValue("id"),
+		audioResourceId = stringValue("audioResourceId")
+			?: stringValue("audioId")
+			?: audio?.stringValue("resourceId")
+			?: audio?.stringValue("id"),
+		audioTrackIndex = intValue("audioTrackIndex")
+			?: intValue("trackIndex")
+			?: audio?.intValue("trackIndex"),
 		audioResource = audioResource,
 		startMs = startMs,
 		endMs = endMs,
 		textHref = textHref,
 		fragmentId = stringValue("fragmentId"),
 		rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
-		textStart = intValue("textStart") ?: intValue("startChar") ?: text?.intValue("start"),
-		textEnd = intValue("textEnd") ?: intValue("endChar") ?: text?.intValue("end"),
+		textStart = intValue("textStart") ?: intValue("ebookStart") ?: intValue("startChar") ?: text?.intValue("start"),
+		textEnd = intValue("textEnd") ?: intValue("ebookEnd") ?: intValue("endChar") ?: text?.intValue("end"),
 		label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
 	)
 }
@@ -257,3 +274,43 @@ private fun JsonObject.secondsValue(key: String): Long? =
 
 private fun JsonObject.valueFor(key: String): JsonElement? =
 	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value
+
+private fun WhispersyncSegment.matchesAudioResourceOrTrack(
+	normalizedAudio: String,
+	audioTrackIndex: Int?
+): Boolean {
+	val resourceMatches = audioResourceCandidates().any { candidate ->
+		candidate == normalizedAudio ||
+			candidate.endsWith("/$normalizedAudio") ||
+			normalizedAudio.endsWith("/$candidate")
+	}
+	if (resourceMatches) return true
+	return audioTrackIndex != null &&
+		this.audioTrackIndex != null &&
+		this.audioTrackIndex == audioTrackIndex
+}
+
+internal fun WhispersyncSegment.audioResourceCandidates(): List<String> =
+	listOfNotNull(audioResource, audioResourceId)
+		.flatMap(String::normalizedWhispersyncResourceCandidates)
+		.distinct()
+
+internal fun String.normalizedWhispersyncResourceCandidates(): List<String> {
+	val cleaned = trim()
+		.substringBefore('#')
+		.substringBefore('?')
+		.replace('\\', '/')
+		.trimStart('/')
+		.takeIf { it.isNotBlank() }
+		?: return emptyList()
+	val withoutScheme = cleaned.substringAfter("://", missingDelimiterValue = cleaned)
+	val urlPath = withoutScheme.substringAfter('/', missingDelimiterValue = withoutScheme)
+	return listOf(
+		cleaned,
+		withoutScheme,
+		urlPath
+	)
+		.map(::normalizedMediaOverlayResource)
+		.filter { it.isNotBlank() }
+		.distinct()
+}

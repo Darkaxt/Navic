@@ -241,6 +241,63 @@ class BinderyContinueShelfPolicyTest {
 	}
 
 	@Test
+	fun readerProgressCreatesWhispersyncCompanionProgressWithSidecarTrackIndex() {
+		val reader = Screen.Reader(
+			title = "Bastille",
+			publicationUrl = "https://bindery.local/opds/books/3809/resources/ebook-426",
+			bookId = "3809",
+			resourceHref = "/opds/books/3809/resources/ebook-426",
+			kind = ReaderPublicationKind.Ebook,
+			whispersyncArtifactId = "3",
+			whispersyncAudiobookId = "34",
+			whispersyncAudiobookBookFileId = "633",
+			whispersyncAudiobookTitle = "Bastille Audio"
+		)
+		val progress = BinderyReadingProgress(
+			bookId = "3809",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3809/resources/ebook-426",
+			progressFraction = 0.12
+		)
+		val audioTarget = WhispersyncAudioSeekTarget(
+			audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			positionMs = 263_360L,
+			segment = WhispersyncSegment(
+				id = "cue-001",
+				audioResourceId = "track-001",
+				audioTrackIndex = 0,
+				audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+				startMs = 263_360L,
+				endMs = 282_920L,
+				textHref = "OEBPS/xhtml/Authorforeword.xhtml",
+				textStart = 3,
+				textEnd = 4923
+			)
+		)
+
+		assertEquals(
+			BinderyWhispersyncCompanionProgress(
+				bookId = "3809",
+				ebookResourceHref = "/opds/books/3809/resources/ebook-426",
+				audiobookId = "34",
+				audiobookBookFileId = "633",
+				artifactId = "3",
+				progressFraction = 0.12,
+				audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+				audioPositionMs = 263_360L,
+				audioTrackIndex = 0,
+				updatedAtMs = 900L
+			),
+			binderyWhispersyncCompanionProgressForReader(
+				reader = reader,
+				progress = progress,
+				updatedAtMs = 900L,
+				audioSeekTarget = audioTarget
+			)
+		)
+	}
+
+	@Test
 	fun continueReadingItemsUseCachedBookVersionRowsAndReaderRoute() {
 		val progressJson = encodeReaderReadingProgress(
 			listOf(

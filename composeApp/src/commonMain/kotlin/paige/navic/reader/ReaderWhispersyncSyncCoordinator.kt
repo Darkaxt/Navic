@@ -83,18 +83,21 @@ fun ReaderWhispersyncSyncState.setSyncEnabled(enabled: Boolean): ReaderWhispersy
 fun ReaderWhispersyncSyncState.onAudiobookPlaybackPosition(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
-	positionMs: Long
+	positionMs: Long,
+	audioTrackIndex: Int? = null
 ): ReaderWhispersyncSyncState =
 	onAudiobookPlaybackPositionStep(
 		timeline = timeline,
 		audioResource = audioResource,
-		positionMs = positionMs
+		positionMs = positionMs,
+		audioTrackIndex = audioTrackIndex
 	).state
 
 fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
-	positionMs: Long
+	positionMs: Long,
+	audioTrackIndex: Int? = null
 ): ReaderWhispersyncPlaybackPositionStep {
 	if (!syncEnabled) {
 		return ReaderWhispersyncPlaybackPositionStep(
@@ -108,7 +111,11 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	if (timeline == null) {
 		return ReaderWhispersyncPlaybackPositionStep(state = this)
 	}
-	val segment = timeline.activeSegment(audioResource = audioResource, positionMs = positionMs)
+	val segment = timeline.activeSegment(
+		audioResource = audioResource,
+		positionMs = positionMs,
+		audioTrackIndex = audioTrackIndex
+	)
 		?: return ReaderWhispersyncPlaybackPositionStep(
 			state = clearOverlayIfNeeded(),
 			status = ReaderWhispersyncStatus(
@@ -206,6 +213,8 @@ private fun ReaderWhispersyncSyncState.withEngineCommand(
 
 private fun WhispersyncSegment.readerOverlaySyncKey(): String =
 	listOf(
+		audioResourceId.orEmpty(),
+		audioTrackIndex?.toString().orEmpty(),
 		normalizedMediaOverlayResource(audioResource),
 		normalizedMediaOverlayResource(textHref),
 		fragmentId.orEmpty(),

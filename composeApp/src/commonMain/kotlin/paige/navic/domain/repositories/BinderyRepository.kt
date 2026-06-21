@@ -254,14 +254,14 @@ class BinderyRepository(
 			path = bookId,
 			fetch = { baseUrl, headers -> apiClient.fetchBookSync(baseUrl, headers, bookId) },
 			encode = { sync -> BinderyJson.encodeToString(sync) },
-			decode = { json -> BinderyJson.decodeFromString<BinderyBookSync>(json) }
+			decode = { json -> decodeBinderyBookSyncJson(json) }
 		)
 
 	suspend fun getCachedBookSync(bookId: String): Result<BinderyBookSync?> =
 		getConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.BookSync,
 			path = bookId,
-			decode = { json -> BinderyJson.decodeFromString<BinderyBookSync>(json) }
+			decode = { json -> decodeBinderyBookSyncJson(json) }
 		)
 
 	suspend fun getWhispersyncSidecar(path: String): Result<WhispersyncSidecar> =

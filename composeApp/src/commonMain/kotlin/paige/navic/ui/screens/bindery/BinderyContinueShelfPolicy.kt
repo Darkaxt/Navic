@@ -33,6 +33,7 @@ data class BinderyWhispersyncCompanionProgress(
 	val progressFraction: Double,
 	val audioResource: String? = null,
 	val audioPositionMs: Long? = null,
+	val audioTrackIndex: Int? = null,
 	val updatedAtMs: Long
 )
 
@@ -245,6 +246,7 @@ fun binderyWhispersyncCompanionProgressJsonWithUpdate(
 		progressFraction = progress.progressFraction.coerceIn(0.0, 1.0),
 		audioResource = progress.audioResource?.trim()?.takeIf { it.isNotEmpty() },
 		audioPositionMs = progress.audioPositionMs?.coerceAtLeast(0L),
+		audioTrackIndex = progress.audioTrackIndex?.takeIf { it >= 0 },
 		updatedAtMs = progress.updatedAtMs.coerceAtLeast(0L)
 	)
 	if (
@@ -303,6 +305,10 @@ fun binderyWhispersyncCompanionProgressForReader(
 		audioPositionMs = audioSeekTarget
 			?.positionMs
 			?.coerceAtLeast(0L),
+		audioTrackIndex = audioSeekTarget
+			?.segment
+			?.audioTrackIndex
+			?.takeIf { it >= 0 },
 		updatedAtMs = updatedAtMs.coerceAtLeast(0L)
 	)
 }

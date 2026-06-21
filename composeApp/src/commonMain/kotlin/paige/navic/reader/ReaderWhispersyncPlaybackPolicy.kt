@@ -5,19 +5,21 @@ fun readerWhispersyncPlaybackCommandForSeekTarget(
 	seekTarget: WhispersyncAudioSeekTarget?
 ): ReaderReadaloudPlaybackCommand? {
 	if (playbackPlan == null || seekTarget == null || playbackPlan.mediaItems.isEmpty()) return null
-	val trackIndex = playbackPlan.trackIndexForWhispersyncAudioResource(seekTarget.audioResource) ?: return null
+	val trackIndex = playbackPlan.trackIndexForWhispersyncAudioResource(seekTarget) ?: return null
 	return ReaderReadaloudPlaybackCommand.SeekToTrack(
 		trackIndex = trackIndex,
 		positionMs = seekTarget.positionMs.coerceAtLeast(0L)
 	)
 }
 
-private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(audioResource: String): Int? {
-	val targetCandidates = audioResource.whispersyncAudioResourceCandidates()
+private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
+	seekTarget: WhispersyncAudioSeekTarget
+): Int? {
+	val targetCandidates = listOf(seekTarget.audioResource) + seekTarget.segment.audioResourceCandidates()
 	if (targetCandidates.isEmpty()) return null
-	return mediaItems.indexOfFirst { item ->
+	val exactIndex = mediaItems.indexOfFirst { item ->
 		val itemCandidates = listOfNotNull(item.uri, item.mediaId, item.resourceKey)
-			.flatMap(String::whispersyncAudioResourceCandidates)
+			.flatMap(String::normalizedWhispersyncResourceCandidates)
 			.toSet()
 		targetCandidates.any { target ->
 			itemCandidates.any { candidate ->
@@ -27,24 +29,9 @@ private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(audioRes
 			}
 		}
 	}.takeIf { index -> index >= 0 }
-}
-
-private fun String.whispersyncAudioResourceCandidates(): List<String> {
-	val cleaned = trim()
-		.substringBefore('#')
-		.substringBefore('?')
-		.replace('\\', '/')
-		.trimStart('/')
-		.takeIf { it.isNotBlank() }
-		?: return emptyList()
-	val withoutScheme = cleaned.substringAfter("://", missingDelimiterValue = cleaned)
-	val urlPath = withoutScheme.substringAfter('/', missingDelimiterValue = withoutScheme)
-	return listOf(
-		cleaned,
-		withoutScheme,
-		urlPath
-	)
-		.map(::normalizedMediaOverlayResource)
-		.filter { it.isNotBlank() }
-		.distinct()
+	if (exactIndex != null) return exactIndex
+	seekTarget.segment.audioTrackIndex
+		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }
+		?.let { return it }
+	return 0.takeIf { mediaItems.size == 1 }
 }

@@ -5942,3 +5942,157 @@ Results:
 - `git diff --check` passed.
 - WARNING: the regression log still contains the pre-existing `ModalBottomSheet.kt` invisible-reference warning; no new warning from this slice remains after removing the unnecessary `ReaderScreen` safe call.
 - OPEN: this is host/source proof only. Release/device validation of the paired Bindery sidecar/audiobook flow remains required before claiming end-to-end Whispersync usability.
+
+## 2026-06-20 GLM Current-Progress Validation Review
+
+Scope:
+- Reviewed GLM's current-progress attachment against the live `master` worktree after the newest Whispersync slices.
+- The report is accurate as a historical overview of the foundation work, P0 reader stabilization, JS modularization, and emulator validation trend.
+- The report is stale where it says `onOpenSidecar` is still a no-op, `ReaderScreen` does not consume Whispersync launch parameters, live playback-to-text highlighting is deferred, visible-range polling is not wired, audio seek on page changes is not wired, progress save/restore with audio position is not built, and load failures are silent.
+
+Current branch corrections:
+- `BinderyWhispersyncMatchesSheet` routes through `binderyWhispersyncReaderDestinationForRowMatch(...)`, guarded by `BinderyBookVersionPolicySourceTest`.
+- `ReaderScreen` consumes `Screen.Reader.whispersyncLaunchAttachment()`, fetches the sidecar, loads it into `ReaderCoordinator`, prepares paired audiobook playback, dispatches Whispersync seek commands through the shared audiobook manager, persists exact companion audio progress, uses companion-aware reader resume policy, and surfaces sidecar/audiobook load failures through controller-owned status.
+- `ReaderController.onReadaloudPlaybackState(...)` maps audiobook position into Whispersync overlay commands, and visible text range events map to audio seek targets.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicySourceTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+```
+
+Results:
+- GREEN/REGRESSION: the focused Whispersync route/controller/playback/companion-progress/load-failure suite passed in 26s.
+- Log: `tmp\codex-gradle\glm-current-progress-whispersync-validation.log`.
+- OPEN: no clean release/physical-device validation has been run for the full paired Bindery sidecar/audiobook session, so end-to-end Whispersync usability is not claimed yet.
+
+## 2026-06-21 Whispersync Production Track Identity Matching
+
+Scope:
+- Registered the ASR matching POC folders from the user as diagnostic-only references in `docs\superpowers\specs\2026-06-18-whispersync-design.md`. A valid Bindery JSON sidecar remains authoritative.
+- Validated production book `3809` against Bindery sidecar `/opds/books/3809/sync/3`, EPUB file `426`, and audiobook file `633`.
+- Fixed the concrete production mismatch where sidecar cues identify the audio resource as the original internal `.m4b` path (`6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b`) while the reader playback plan identifies the playable media as a Bindery API-backed item (`audio-71ad8af54af0d403a1b5`).
+- Extended sidecar parsing and timeline segments with optional audio resource id and track index metadata.
+- Updated page-to-audio seek matching so it tries exact sidecar/playback resource candidates first, then sidecar track index, then the single-track playback-plan fallback.
+- Updated audio-position-to-text matching so audiobook playback state can use track index when playback resource identifiers differ from sidecar cue resources.
+- Prevented paused audiobook state from immediately clearing a visible-range Whispersync overlay after a successful page-to-audio seek.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:compileAndroidHostTest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest.productionSingleTrackBinderyPlanUsesSidecarTrackIndexWhenAudioHrefDiffers" --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest.playbackPositionUsesSidecarTrackIndexWhenPlaybackResourceDiffersFromAudioHref" --tests "paige.navic.reader.WhispersyncTimelineParserTest.productionBinderySidecarCuesParseIntoTimelineSegments"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest" --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest" --tests "paige.navic.reader.WhispersyncTimelineParserTest"
+```
+
+Results:
+- RED/COMPILE: `tmp\codex-gradle\whispersync-audio-track-match-red.log` failed at `compileAndroidHostTest` because the new tests referenced missing `audioResourceId`, `audioTrackIndex`, and playback-position track-index support.
+- FIX: added parsed audio resource id/track index metadata, resource-candidate normalization, track-index-aware playback seek matching, and track-index-aware reverse overlay matching.
+- GREEN/COMPILE: `tmp\codex-gradle\whispersync-audio-track-match-compile.log` passed.
+- GREEN/FOCUSED: `tmp\codex-gradle\whispersync-audio-track-match-focused-green.log` passed the production parser/playback/sync matching tests.
+- RED/REGRESSION: `tmp\codex-gradle\whispersync-paused-overlay-red.log` proved paused audiobook state could still clear a freshly applied visible-range overlay.
+- FIX: `ReaderController.onReadaloudPlaybackState(...)` now preserves chrome/status updates for paused playback but only drives reverse audio-to-text overlay commands while playback is active.
+- GREEN/FOCUSED: `tmp\codex-gradle\whispersync-paused-overlay-green.log` passed `ReaderControllerTest`, `ReaderWhispersyncPlaybackPolicyTest`, `ReaderWhispersyncSyncCoordinatorTest`, and `WhispersyncTimelineParserTest`.
+- EMULATOR: installed readerdev `v1.0.11-eta76` and launched book `3809` with sidecar/artifact/audiobook route metadata.
+- EMULATOR: `tmp\codex-gradle\readerdev-whispersync-paused-overlay-validation.log` shows `Whispersync sidecar loaded artifact=3 audiobook=34 bookFile=633 segments=4188`, `Whispersync audiobook plan loaded audiobook=34 items=1`, visible text range `OEBPS/xhtml/Authorforeword.xhtml`, and successful seek `positionMs=263360` for the sidecar `.m4b` cue.
+- EMULATOR: the same validation log contains no `Whispersync audiobook seek ignored` after the fix and no immediate `clearOverlay` after the successful seek.
+- SCREENSHOT: `captures\reader-dev\readerdev-3809-whispersync-paused-overlay-20260621-0233.png`.
+- AGGREGATE/BLOCKED: `tmp\codex-gradle\whispersync-audio-track-match-green.log` reached host tests but failed only in the existing `AndroidMediaPlayerViewModelSourceTest` size/source-guard checks. Those baseline failures are unrelated to Whispersync track identity matching.
+- OPEN: the top-left Whispersync headset affordance is only brainstormed. It must be implemented as native Komikku overlay state, hidden on pages with no cue coverage, low-opacity when ready, crossed when disabled/paused, and ringed while audio is still loading.
+
+## 2026-06-21 Whispersync Companion Progress Track Index
+
+Scope:
+- Closed the resume side of the production track-identity fix. Page-to-audio seek already uses sidecar track index when the sidecar `.m4b` resource differs from the Bindery playback-plan API media identity; companion progress now persists that same sidecar track index.
+- `BinderyWhispersyncCompanionProgress` now stores optional `audioTrackIndex` next to `audioResource` and `audioPositionMs`.
+- `binderyWhispersyncCompanionProgressForReader(...)` copies `WhispersyncAudioSeekTarget.segment.audioTrackIndex` into stored companion progress.
+- `binderyAudiobookProgressFromWhispersyncCompanion(...)` still prefers exact audio-resource matching, but falls back to stored track index for exact audiobook resume when the resource string cannot match the manifest reading-order href.
+- Updated `docs\superpowers\specs\2026-06-18-whispersync-design.md` so exact companion progress is defined as resource + track index + millisecond position.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest.readerProgressCreatesWhispersyncCompanionProgressWithSidecarTrackIndex --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest.companionProgressUsesSidecarTrackIndexWhenAudioResourceDiffersFromManifest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+```
+
+Results:
+- RED: `tmp\codex-gradle\whispersync-companion-track-index-red.log` failed at `compileAndroidHostTest` because `BinderyWhispersyncCompanionProgress.audioTrackIndex` did not exist.
+- FIX: added the stored field, normalized it during JSON update, copied it from the sidecar-derived seek target, and added track-index fallback to exact companion-progress audiobook resume.
+- RED/BEHAVIOR: the first green attempt compiled but failed the new audiobook policy test because the fake fixture track was only 60 seconds and the production-sized `263_360ms` position was correctly clamped. The test input was corrected to stay inside the fixture duration while still proving track-index matching.
+- GREEN/FOCUSED: `tmp\codex-gradle\whispersync-companion-track-index-green.log` passed the two new tests.
+- GREEN/REGRESSION: `tmp\codex-gradle\whispersync-companion-track-index-policy-green.log` passed full `BinderyContinueShelfPolicyTest` and `BinderyAudiobookPlayerPolicyTest`.
+- OPEN: release/device validation still needs to prove that exact companion progress restores the paired audiobook in a real book `3809` Whispersync session after app restart or route reopen.
+
+## 2026-06-21 Whispersync Sidecar Load Visible-Range Replay
+
+Scope:
+- Emulator validation of the clean readerdev build exposed a startup race: Foliate could emit `visibleTextRange` before the Bindery sidecar finished loading.
+- Before this fix, `ReaderController.loadWhispersyncSidecar(...)` replaced the whole Whispersync session and did not replay the already stored visible range through the newly loaded timeline. That meant a valid synced page could show no initial page-to-audio seek until a later relocation/page movement happened.
+- `loadWhispersyncSidecar(...)` now preserves `visibleTextRange`, replays it through the loaded timeline, emits the same `ApplyMediaOverlay` command and `WhispersyncAudioSeekTarget` as a normal post-sidecar visible-range event, and keeps the controller-owned overlay/audio metadata state in sync.
+- This is a controller-boundary fix; it does not move ownership into the WebView.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.loadingWhispersyncSidecarReplaysExistingVisibleTextRange
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+.\scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-3809.env -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+```
+
+Results:
+- RED: `tmp\codex-gradle\whispersync-sidecar-visible-range-replay-red.log` failed the new controller test with no engine command when sidecar loading followed a visible text range.
+- FIX: `ReaderController.loadWhispersyncSidecar(...)` now replays the existing visible range against the loaded sidecar timeline and returns the resulting overlay command and audio seek target.
+- GREEN/FOCUSED: `tmp\codex-gradle\whispersync-sidecar-visible-range-replay-green.log` passed the new race test.
+- GREEN/REGRESSION: `tmp\codex-gradle\whispersync-sidecar-visible-range-replay-regression-green.log` passed `ReaderControllerTest`, `ReaderWhispersyncSyncCoordinatorTest`, `ReaderWhispersyncPlaybackPolicyTest`, `BinderyContinueShelfPolicyTest`, and `BinderyAudiobookPlayerPolicyTest`.
+- EMULATOR: `tmp\codex-gradle\readerdev-3809-visible-range-replay-install.log` built, installed, launched, and captured readerdev `v1.0.11-eta76` on `emulator-5554`.
+- EMULATOR: `tmp\codex-gradle\readerdev-3809-visible-range-replay-validation.log` shows the paired production session loaded `segments=4188`, loaded audiobook `34`, received visible text range `OEBPS/xhtml/Authorforeword.xhtml`, emitted `Whispersync audiobook seek ... positionMs=263360`, dispatched `applyOverlayFragment`, and received `overlayFragmentActive`.
+- EMULATOR/CLEAN-DATA: `tmp\codex-gradle\readerdev-3809-companion-track-clean-validation.log` shows a first-run clean-data launch on `OEBPS/xhtml/title.xhtml`; that page has no matching cue coverage, so no companion progress was written. This is expected and is not evidence for exact companion restore.
+- EMULATOR/CLEAN-DATA/CUE-COVERED: from the same clean readerdev session, DevTools navigation to `OEBPS/xhtml/Authorforeword.xhtml` posted `visibleTextRange` `3-4923`, emitted `Whispersync audiobook seek ... positionMs=263360`, dispatched `applyOverlayFragment`, and received `overlayFragmentActive`.
+- EMULATOR/CLEAN-DATA/PERSISTENCE: `shared_prefs/darkaxt.navic.readerdev_preferences.xml` persisted `binderyWhispersyncCompanionProgressJson` for `bookId=3809`, `audiobookId=34`, `audiobookBookFileId=633`, sidecar `.m4b` `audioResource`, `audioPositionMs=263360`, and `audioTrackIndex=0`.
+- EMULATOR/REOPEN: a no-build/no-install paired readerdev route reopen preserved data and loaded the audiobook plan at `startTrack=0 startPositionMs=263360`, proving the companion progress is consumed for the paired route instead of falling back to zero.
+- EMULATOR/REOPEN: the same reopen log then received `visibleTextRange(OEBPS/xhtml/Authorforeword.xhtml, 3-4923)`, emitted the same `Whispersync audiobook seek ... positionMs=263360`, dispatched `applyOverlayFragment`, and received `overlayFragmentActive`.
+- OPEN: release/device validation still needs to prove the installed release APK consumes the same exact stored sidecar target.
+
+## 2026-06-21 Whispersync Release-Candidate Regression Check
+
+Scope:
+- Re-ran the focused host regression set for the current dirty Whispersync implementation before considering any release candidate.
+- Inspected release state: `androidApp` still declares `versionName = "v1.0.11-eta76"` / `versionCode = 409`, local tags include `v1.0.11-eta76`, and GitHub latest release is still `v1.0.11-eta76`.
+- Did not publish a new GitHub release from this pass. The existing `scripts\publish-github-release.ps1` watcher uses bounded polling/timeouts; under the current project guardrail, release publication should either use an approved existing release watcher invocation or a revised watcher that does not encode timeout-based cancellation as the release control path.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+git diff --check
+```
+
+Results:
+- GREEN/REGRESSION: `tmp\codex-gradle\whispersync-release-candidate-regression.out.log` passed in 17s with 24 actionable tasks: 2 executed, 22 up-to-date.
+- GREEN/WHITESPACE: `git diff --check` passed after the documentation update.
+- OPEN: no eta77 or newer release exists yet for the Whispersync track-index/replay/reopen fixes.
+
+## 2026-06-21 Release Watcher No-Timeout Guardrail
+
+Scope:
+- Aligned `scripts\publish-github-release.ps1` with the project guardrail that timeout-based cancellation must not control release publication.
+- Removed `TimeoutMinutes`, deadline arithmetic, and timeout failure exits from the release watcher.
+- The watcher now uses condition-based polling loops for GitHub Actions run discovery, workflow completion, and release visibility. It still emits heartbeat status through `PollSeconds`, but it does not cancel a release because a fixed wall-clock duration elapsed.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.releaseWatcherUsesConditionPollingWithoutTimeoutCancellation
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.releaseWatcherUsesConditionPollingWithoutTimeoutCancellation --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --tests paige.navic.ui.screens.bindery.BinderyAudiobookPlayerPolicyTest
+git diff --check
+```
+
+Results:
+- RED: `tmp\codex-gradle\release-watcher-timeout-red.log` failed the new contract test because the release script still exposed timeout/deadline cancellation.
+- FIX: removed timeout parameters and deadline loops from the release watcher while preserving status polling.
+- GREEN/FOCUSED: `tmp\codex-gradle\release-watcher-timeout-green.log` passed the new release watcher contract.
+- GREEN/REGRESSION: `tmp\codex-gradle\release-watcher-and-whispersync-regression.log` passed the release watcher contract plus the focused Whispersync regression set.
+- GREEN/RERUN: `tmp\codex-gradle\release-watcher-and-whispersync-regression-rerun.log` passed the same combined gate after the POC report references were added to the spec.
+- GREEN/BINDERY-JSON: `tmp\codex-gradle\bindery-book-sync-json-green.log` passed `BinderyBookSyncJsonTest`, covering both the direct book-sync payload and the live Bindery OPDS `publications[].properties` shape used by book `3809`.
+- GREEN/WHITESPACE: `git diff --check` passed after the script and documentation changes.

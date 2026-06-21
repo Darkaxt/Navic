@@ -10,6 +10,20 @@ This spec extends `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.
 
 Whispersync must not replace the Komikku shell or bypass the Anx/Foliate behavior boundary. It consumes Bindery sidecars and feeds tested timeline state into the existing reader/audio controller path.
 
+Diagnostic-only ASR matching references are available if a production sidecar is ambiguous or incomplete:
+
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\hobbit-sync-poc`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\whispersync-coverage-check`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\hobbit-sync-poc\sync_poc.py`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\hobbit-sync-poc\test_sync_poc.py`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\whispersync-coverage-check\anchor_gap_align.py`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\whispersync-coverage-check\merge_corrupt_windows_from_report.py`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\hobbit-sync-poc\work\hobbit-ch1-full-tiny-side-by-side-report.html`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\whispersync-coverage-check\alcatraz-ebook571-full-merged-window-report.html`
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\.codex-temp\whispersync-coverage-check\alcatraz-ebook571-full-anchor-gap-report.html`
+
+These POCs are not a runtime dependency and must not override a valid Bindery JSON sidecar. They are only evidence for debugging matching semantics when the sidecar contract itself is suspect.
+
 ## Goal
 
 Open an ebook with a selected compatible audiobook, fetch or receive the Bindery Whispersync sidecar, parse it into a deterministic audio/text timeline, and expose enough pure-domain behavior to later synchronize playback, visible text, highlights, and progress without destabilizing the reader shell.
@@ -46,10 +60,13 @@ Implemented and covered by source/tests:
 - Controller-owned Whispersync status state for ready, page-to-audio seek, audiobook playback, paused sync, and mismatch states.
 - Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.
 - One-tap mismatch repair routed through `ReaderCoordinator.repairWhispersyncMismatch()`, reusing the current visible text range to reapply the correct overlay and dispatch the existing audiobook seek target path.
-- Reader progress companion state now persists exact Whispersync audio resource and millisecond position when the controller has a sidecar-derived seek target, so audiobook resume can prefer the precise segment target over a total-duration fraction estimate.
+- Reader progress companion state now persists exact Whispersync audio resource, sidecar track index, and millisecond position when the controller has a sidecar-derived seek target, so audiobook resume can prefer the precise segment target over a total-duration fraction estimate.
 - Audiobook resume now compares direct audiobook progress against Whispersync companion progress by `updatedAtMs`; a newer ebook-derived sidecar target can resume the audiobook instead of being hidden behind stale direct audiobook progress.
 - Paired reader sessions now use the same newest direct-or-companion resume policy when preparing their Whispersync audiobook playback plan, so opening the ebook side cannot silently fall back to stale direct audiobook progress.
 - Whispersync sidecar and paired-audiobook manifest failures now surface through controller-owned native status instead of only logs; load failures are attention states but not repairable mismatch states.
+- Whispersync sidecar attachment now replays any visible text range already emitted by Foliate before the sidecar fetch completed, so page-to-audio seek does not depend on sidecar load winning a startup race.
+- Clean readerdev emulator validation for production book `3809` now proves a cue-covered page persists exact companion progress with sidecar track identity: `OEBPS/xhtml/Authorforeword.xhtml` visible range `3-4923` resolved to `263360ms`, dispatched `applyOverlayFragment`, received `overlayFragmentActive`, and stored `audioTrackIndex: 0` in `binderyWhispersyncCompanionProgressJson`.
+- A no-build/no-install paired readerdev route reopen with preserved data used that companion progress to load the audiobook plan at `startTrack=0 startPositionMs=263360`, then re-applied the same visible-range overlay for `OEBPS/xhtml/Authorforeword.xhtml`.
 
 Important correction to older audits:
 
@@ -59,6 +76,7 @@ Important correction to older audits:
 Still missing:
 
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
+- Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, but release-device validation still needs to prove the same behavior on the installed release APK.
 
 ## Non-Negotiable Guardrails
 

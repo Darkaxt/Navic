@@ -7,6 +7,38 @@ import kotlin.test.assertNull
 
 class ReaderWhispersyncSyncCoordinatorTest {
 	@Test
+	fun playbackPositionUsesSidecarTrackIndexWhenPlaybackResourceDiffersFromAudioHref() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "cue-999",
+					audioResourceId = "track-001",
+					audioTrackIndex = 0,
+					audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+					startMs = 263_360,
+					endMs = 282_920,
+					textHref = "OEBPS/xhtml/Authorforeword.xhtml",
+					textStart = 3,
+					textEnd = 4851,
+					label = "Author foreword"
+				)
+			)
+		)
+
+		val step = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+			audioTrackIndex = 0,
+			positionMs = 263_500
+		)
+
+		val command = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.state.engineCommand)
+		assertEquals("OEBPS/xhtml/Authorforeword.xhtml", command.fragment.textHref)
+		assertEquals("Author foreword", command.fragment.label)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.status?.kind)
+	}
+
+	@Test
 	fun playbackPositionPublishesReaderOverlayCommandsWithStableDispatchKeys() {
 		val timeline = whispersyncTimeline()
 		val initial = ReaderWhispersyncSyncState()

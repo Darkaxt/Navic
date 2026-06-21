@@ -222,6 +222,52 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun companionProgressUsesSidecarTrackIndexWhenAudioResourceDiffersFromManifest() {
+		val manifest = BinderyManifest(
+			id = "audiobook-34",
+			title = "Bastille",
+			readingOrder = listOf(
+				audioItem(
+					href = "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+					title = "Bastille",
+					bookFileId = "633"
+				)
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "3809",
+			ebookResourceHref = "/opds/books/3809/resources/ebook-426",
+			audiobookId = "34",
+			audiobookBookFileId = "633",
+			artifactId = "3",
+			progressFraction = 0.5,
+			audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			audioPositionMs = 42_000L,
+			audioTrackIndex = 0,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "34"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "3809",
+				versionRowId = "34",
+				trackIndex = 0,
+				mediaId = "readaloud:https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+				positionMs = 42_000L,
+				durationMs = 60_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
 	fun resumeProgressUsesNewestDirectOrWhispersyncCompanionProgress() {
 		val direct = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",

@@ -7,6 +7,56 @@ import kotlin.test.assertNull
 
 class WhispersyncTimelineParserTest {
 	@Test
+	fun productionBinderySidecarCuesParseIntoTimelineSegments() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "version": 1,
+			  "schema": "bindery.whispersync.sidecar.v1",
+			  "backend": "whispersync",
+			  "bookId": 3809,
+			  "ebookBookFileId": 426,
+			  "audiobookBookFileId": 633,
+			  "language": "en",
+			  "score": 0.995,
+			  "cues": [
+			    {
+			      "id": 1,
+			      "audioResourceId": "track-001",
+			      "audioTrackIndex": 0,
+			      "audioHref": "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			      "audioStart": 0,
+			      "audioEnd": 28.28,
+			      "text": "This is Audible.",
+			      "status": "matched",
+			      "score": 1,
+			      "ebookHref": "OEBPS/xhtml/Authorforeword.xhtml",
+			      "spineIndex": 6,
+			      "ebookStart": 0,
+			      "ebookEnd": 107,
+			      "methods": ["exact", "fuzzy", "sequence"]
+			    }
+			  ],
+			  "gaps": []
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("426", sidecar.ebookBookFileId)
+		assertEquals("633", sidecar.audiobookBookFileId)
+		val segment = sidecar.timeline.segments.single()
+		assertEquals("1", segment.id)
+		assertEquals("track-001", segment.audioResourceId)
+		assertEquals(0, segment.audioTrackIndex)
+		assertEquals("6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b", segment.audioResource)
+		assertEquals(0, segment.startMs)
+		assertEquals(28_280, segment.endMs)
+		assertEquals("OEBPS/xhtml/Authorforeword.xhtml", segment.textHref)
+		assertEquals(0, segment.textStart)
+		assertEquals(107, segment.textEnd)
+	}
+
+	@Test
 	fun binderySidecarParsesSegmentsAndFindsActiveAudioPosition() {
 		val sidecar = decodeWhispersyncSidecar(
 			"""

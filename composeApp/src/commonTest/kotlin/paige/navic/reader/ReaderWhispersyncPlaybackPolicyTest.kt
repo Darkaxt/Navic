@@ -7,6 +7,53 @@ import kotlin.test.assertNull
 
 class ReaderWhispersyncPlaybackPolicyTest {
 	@Test
+	fun productionSingleTrackBinderyPlanUsesSidecarTrackIndexWhenAudioHrefDiffers() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = ReadaloudPlaybackPlan(
+				sessionId = "audiobook-34",
+				title = "Bastille vs. the Evil Librarians",
+				kind = ReaderPublicationKind.Readaloud,
+				mediaItems = listOf(
+					ReadaloudMediaItemDescriptor(
+						mediaId = "readaloud:audio-71ad8af54af0d403a1b5",
+						uri = "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+						title = "Bastille vs. the Evil Librarians",
+						subtitle = null,
+						artist = "Ramon De Ocampo / Suzy Jackson",
+						albumTitle = "Bastille vs. the Evil Librarians",
+						albumArtist = "Brandon Sanderson",
+						trackNumber = 1,
+						discNumber = null,
+						requestHeaders = emptyMap(),
+						resourceKey = "audio-71ad8af54af0d403a1b5"
+					)
+				),
+				startTrackIndex = 0,
+				startPositionMs = 0L,
+				playbackSpeed = 1f
+			),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+				positionMs = 263_360L,
+				segment = WhispersyncSegment(
+					audioResourceId = "track-001",
+					audioTrackIndex = 0,
+					audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+					startMs = 263_360L,
+					endMs = 282_920L,
+					textHref = "OEBPS/xhtml/Authorforeword.xhtml",
+					textStart = 3,
+					textEnd = 4851
+				)
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(0, seekCommand.trackIndex)
+		assertEquals(263_360L, seekCommand.positionMs)
+	}
+
+	@Test
 	fun visibleRangeSeekTargetBuildsTrackSeekCommandForMatchingAudiobookPlan() {
 		val command = readerWhispersyncPlaybackCommandForSeekTarget(
 			playbackPlan = whispersyncPlaybackPlan(),

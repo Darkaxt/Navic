@@ -155,6 +155,11 @@ private const val ReaderDevExtraFormat = "navic.dev.reader.format"
 private const val ReaderDevExtraStartHref = "navic.dev.reader.start_href"
 private const val ReaderDevExtraStartCfi = "navic.dev.reader.start_cfi"
 private const val ReaderDevExtraStartProgress = "navic.dev.reader.start_progress"
+private const val ReaderDevExtraWhispersyncSidecarUrl = "navic.dev.reader.whispersync_sidecar_url"
+private const val ReaderDevExtraWhispersyncArtifactId = "navic.dev.reader.whispersync_artifact_id"
+private const val ReaderDevExtraWhispersyncAudiobookId = "navic.dev.reader.whispersync_audiobook_id"
+private const val ReaderDevExtraWhispersyncAudiobookBookFileId = "navic.dev.reader.whispersync_audiobook_book_file_id"
+private const val ReaderDevExtraWhispersyncAudiobookTitle = "navic.dev.reader.whispersync_audiobook_title"
 
 private fun Intent.stringExtra(primaryKey: String, vararg fallbackKeys: String): String? {
 	getStringExtra(primaryKey)?.let { return it }
@@ -196,7 +201,27 @@ private fun Intent.toReaderDevInitialScreen(): Screen.Reader? {
 			?.takeIf { it.isNotEmpty() }
 			?.toDoubleOrNull()
 			?.takeIf(Double::isFinite)
-			?.coerceIn(0.0, 1.0)
+			?.coerceIn(0.0, 1.0),
+		whispersyncSidecarUrl = stringExtra(
+			ReaderDevExtraWhispersyncSidecarUrl,
+			"NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncArtifactId = stringExtra(
+			ReaderDevExtraWhispersyncArtifactId,
+			"NAVIC_READER_DEV_WHISPERSYNC_ARTIFACT_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookId = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookId,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookBookFileId = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookBookFileId,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID"
+		)?.trim()?.takeIf { it.isNotEmpty() },
+		whispersyncAudiobookTitle = stringExtra(
+			ReaderDevExtraWhispersyncAudiobookTitle,
+			"NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE"
+		)?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
 

@@ -247,7 +247,7 @@ internal class KtorBinderyApiClient : BinderyApiClient {
 		if (!response.status.isSuccess()) {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery book sync", response.status))
 		}
-		return response.body<BinderyBookSync>()
+		return decodeBinderyBookSyncJson(response.bodyAsText())
 	}
 
 	override suspend fun fetchWhispersyncSidecarJson(

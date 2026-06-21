@@ -1335,6 +1335,73 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun loadingWhispersyncSidecarReplaysExistingVisibleTextRange() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140,
+					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				)
+			).controller
+
+		val step = controller.loadWhispersyncSidecar(testWhispersyncSidecar())
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(
+			ReaderWhispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+			),
+			step.controller.state.whispersync.visibleTextRange
+		)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+	}
+
+	@Test
+	fun pausedAudiobookPositionDoesNotClearVisibleRangeWhispersyncOverlay() {
+		val synced = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140,
+					rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
+				)
+			).controller
+		val visibleOverlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			synced.state.whispersync.sync.engineCommand
+		).fragment
+
+		val paused = synced.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				trackIndex = 0,
+				audioResource = "Audio/chapter99.m4b",
+				positionMs = 393_734L,
+				durationMs = 1_000_000L
+			)
+		)
+
+		assertEquals(emptyList(), paused.engineCommands)
+		assertEquals(visibleOverlay, paused.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", paused.controller.state.audioMetadataLabel)
+		assertEquals(ReaderWhispersyncStatusKind.SeekingAudio, paused.controller.state.whispersync.status.kind)
+	}
+
+	@Test
 	fun loadedWhispersyncSidecarExposesControllerOwnedReadyStatus() {
 		val step = ReaderController()
 			.open(hobbitOpenRequest()).controller
