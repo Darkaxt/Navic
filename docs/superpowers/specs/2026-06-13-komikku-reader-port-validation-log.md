@@ -6351,4 +6351,7 @@ Results:
 - Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-eta78`
 - APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-eta78/Navic.apk`
 - APK SHA-256: `998897CE5C2FF1BDE1C50AAB011B065DEFEB9FF1375853963FB4CC1B8FC63AFF`.
+- GREEN/EMULATOR-BASIC: downloaded `Navic.apk`, installed it on `emulator-5554`, launched `darkaxt.navic`, and verified `versionCode=411`, `versionName=v1.0.11-eta78`, `lastUpdateTime=2026-06-21 07:53:19`.
+- Basic smoke artifacts: `tmp\release-eta78-basic-smoke`.
+- LIMIT: the release app opened to the Navidrome login screen with Android's notification permission dialog, so this smoke does not validate the reader or paired Whispersync route.
 - Remaining: physical release validation still needs to confirm the paired Bindery sidecar/audiobook path with the installed APK.
