@@ -6592,3 +6592,36 @@ Results:
 - GREEN/PLAY: tapping `Play audiobook` changed Android MediaSession `darkaxt.navic.readerdev/androidx.media3.session.id.navic-readaloud/34` to `PLAYING(3)` at position `263360`, and the dialog changed to `Pause audiobook`.
 - GREEN/PAUSE: tapping the same control again changed the same MediaSession to `PAUSED(2)` at position `300794`.
 - Remaining: this is readerdev/emulator proof. A release-device pass is still needed before publishing a user-facing release claim, and the visual design of the dialog still needs Komikku-style polish after the feature path is stable.
+
+## 2026-06-21 Whispersync Headset Glyph Visual Correction
+
+Scope:
+- Correct the page-level Whispersync affordance after user feedback that the top-left indicator must not look like a mobile UI button.
+- Replace the audiobook/library glyph with a dedicated headset glyph.
+- Remove the circular button/progress-ring treatment from the page-level affordance while preserving its touch shield.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:generateValkyrieImageVector --rerun-tasks
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-whispersync-3809.env -NoBuild -NoInstall -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input swipe 1050 1100 220 1100 300
+adb -s emulator-5554 shell screencap -p /sdcard/navic-reader-headset-check-2.png
+adb -s emulator-5554 pull /sdcard/navic-reader-headset-check-2.png captures\reader-dev\readerdev-3809-headset-check-2.png
+```
+
+Artifacts:
+- `captures\reader-dev\reader-dev-20260621-183205.png`
+- `captures\reader-dev\reader-dev-20260621-183352.png`
+- `captures\reader-dev\readerdev-3809-headset-check-2.png`
+
+Results:
+- RED/HOST: the first focused guard failed because it expected literal `alpha = 0.52f` / `alpha = 0.34f` strings, while production used `copy(alpha = if (control.enabled) 0.52f else 0.34f)`.
+- FIX/ICON: added `composeApp/src/commonMain/valkyrieResources/outlined/ic_headset.svg` and switched `KomikkuWhispersyncPlaybackControl` from `Icons.Outlined.Audiobooks` to `Icons.Outlined.Headset`.
+- FIX/VISUAL: the page-level control now renders only a low-opacity headset glyph plus the crossed state line when muted/paused; no `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, or Material background is allowed in that control body.
+- GREEN/HOST: focused `ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` passed.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- GREEN/EMULATOR: dirty readerdev installed on `emulator-5554`, launched the production book `3809` route, swiped from the cover into `Author's Foreword`, and `captures\reader-dev\readerdev-3809-headset-check-2.png` shows a bare low-opacity headset glyph in the top-left corner with no surrounding circle/ring.

@@ -1785,6 +1785,27 @@ class ReaderKomikkuBackboneResetTest {
 				statusBadgeText.contains("modifier = modifier.pointerInput(Unit)"),
 			"The visible Whispersync playback control must shield its own touch area so disabled/loading states cannot leak taps to page navigation."
 		)
+		val playbackControlBody = statusBadgeText
+			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
+			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
+		assertTrue(
+			playbackControlBody.contains("copy(alpha =") &&
+				playbackControlBody.contains("0.52f") &&
+				playbackControlBody.contains("0.34f"),
+			"The page-level Whispersync headset must be a low-opacity paper-layer glyph, not high-contrast chrome."
+		)
+		assertTrue(
+			playbackControlBody.contains("Icons.Outlined.Headset") &&
+				!playbackControlBody.contains("Icons.Outlined.Audiobooks"),
+			"The page-level Whispersync affordance must render a headset glyph, not the audiobook/library icon."
+		)
+		assertFalse(
+			playbackControlBody.contains("Surface(") ||
+				playbackControlBody.contains("RoundedCornerShape(") ||
+				playbackControlBody.contains("CircularProgressIndicator(") ||
+				playbackControlBody.contains("color = MaterialTheme.colorScheme.surface"),
+			"The page-level Whispersync headset must not render a circular button, pill, progress ring, or Material background."
+		)
 		assertTrue(
 			statusBadgeText.contains("onRepairMismatch: () -> Unit"),
 			"The mismatch badge must expose a controller-owned repair action instead of being a passive UI-only warning."
