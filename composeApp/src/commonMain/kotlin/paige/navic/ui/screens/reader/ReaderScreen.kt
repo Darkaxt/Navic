@@ -161,6 +161,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
+	val readaloudSyncEnabled = settings.readaloudSyncEnabled != false
+	val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
+		playbackPlan = whispersyncPlaybackPlan,
+		bookId = reader.bookId,
+		versionRowId = reader.whispersyncAudiobookId,
+		syncEnabled = readaloudSyncEnabled
+	)
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
 	val readerFocusRequester = remember { FocusRequester() }
@@ -278,12 +285,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		reader.whispersyncAudiobookId,
 		settings.readaloudSyncEnabled
 	) {
-		audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
-			playbackPlan = whispersyncPlaybackPlan,
-			bookId = reader.bookId,
-			versionRowId = reader.whispersyncAudiobookId,
-			syncEnabled = settings.readaloudSyncEnabled != false
-		)?.let { playbackState ->
+		whispersyncReadaloudPlaybackState?.let { playbackState ->
 			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
 		}
 	}
@@ -457,6 +459,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		settingsScope = readerSettingsScope,
 		hasBookSettings = hasReaderBookSettings,
 		publicationFormat = reader.publicationFormat,
+		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
@@ -467,6 +470,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 					"shellCover=${coordinator.controller.state.shellCoverVisible}->${step.coordinator.controller.state.shellCoverVisible}"
 			)
 			applyCoordinatorStep(step)
+		},
+		onWhispersyncPlaybackCommand = { command ->
+			audiobookPlaybackManager.dispatch(command)
 		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.navigateToPreviousChapter())

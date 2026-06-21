@@ -1,5 +1,43 @@
 package paige.navic.reader
 
+data class ReaderWhispersyncPlaybackControlState(
+	val visible: Boolean = false,
+	val loading: Boolean = false,
+	val crossed: Boolean = true,
+	val enabled: Boolean = false,
+	val contentDescription: String = "Whispersync audiobook",
+	val command: ReaderReadaloudPlaybackCommand? = null
+)
+
+fun readerWhispersyncPlaybackControlState(
+	status: ReaderWhispersyncStatus,
+	playbackState: ReaderReadaloudPlaybackUiState?
+): ReaderWhispersyncPlaybackControlState {
+	if (!status.visible) return ReaderWhispersyncPlaybackControlState()
+	val availablePlayback = playbackState?.takeIf { it.isAvailable }
+		?: return ReaderWhispersyncPlaybackControlState(
+			visible = true,
+			loading = status.kind != ReaderWhispersyncStatusKind.LoadFailed,
+			crossed = true,
+			enabled = false,
+			contentDescription = "Whispersync audiobook loading"
+		)
+	val command = availablePlayback.toggleCommand()
+	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
+	return ReaderWhispersyncPlaybackControlState(
+		visible = true,
+		loading = false,
+		crossed = crossed,
+		enabled = command != null,
+		contentDescription = if (availablePlayback.isPlaying) {
+			"Pause Whispersync audiobook"
+		} else {
+			"Play Whispersync audiobook"
+		},
+		command = command
+	)
+}
+
 fun readerWhispersyncPlaybackCommandForSeekTarget(
 	playbackPlan: ReadaloudPlaybackPlan?,
 	seekTarget: WhispersyncAudioSeekTarget?

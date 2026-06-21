@@ -67,6 +67,8 @@ Implemented and covered by source/tests:
 - Whispersync sidecar attachment now replays any visible text range already emitted by Foliate before the sidecar fetch completed, so page-to-audio seek does not depend on sidecar load winning a startup race.
 - Clean readerdev emulator validation for production book `3809` now proves a cue-covered page persists exact companion progress with sidecar track identity: `OEBPS/xhtml/Authorforeword.xhtml` visible range `3-4923` resolved to `263360ms`, dispatched `applyOverlayFragment`, received `overlayFragmentActive`, and stored `audioTrackIndex: 0` in `binderyWhispersyncCompanionProgressJson`.
 - A no-build/no-install paired readerdev route reopen with preserved data used that companion progress to load the audiobook plan at `startTrack=0 startPositionMs=263360`, then re-applied the same visible-range overlay for `OEBPS/xhtml/Authorforeword.xhtml`.
+- Controller-owned top-left Whispersync playback control policy now derives hidden/loading/play/pause/crossed states from the reader Whispersync status and paired audiobook playback state, and routes taps through the audiobook playback manager rather than the WebView.
+- Readerdev emulator validation for production book `3809` proves the top-left control starts the paired readaloud session at the sidecar target `263360ms` and pauses it on the next tap; the control also follows the Komikku chrome touch-shield pattern so visible disabled/loading states do not leak taps into page navigation.
 
 Important correction to older audits:
 

@@ -6129,3 +6129,37 @@ Results:
 
 Next required fix:
 - Continue with physical/release validation when the phone or release package is available. If no physical device is available, the next implementation slice remains Priority 1: drag-preview black void / texture movement polish, or the Whispersync release-device paired playback validation after eta77 is installed.
+
+## 2026-06-21 Readerdev Whispersync Page Control Validation
+
+Scope:
+- Implemented and validated the controller-owned top-left Whispersync audiobook control for production book `3809`.
+- Verified the control uses the selected paired audiobook route instead of relying on WebView interaction.
+- Added a touch shield guard so the visible control area does not leak disabled/loading taps into page navigation.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-3809-eta77.env -RequireReaderLaunch
+adb -s emulator-5554 shell input swipe 850 1200 200 1200 500
+adb -s emulator-5554 shell input tap 78 78
+adb -s emulator-5554 shell input tap 78 78
+```
+
+Artifacts:
+- Install log: `tmp\codex-gradle\readerdev-whispersync-control-shield-install.out.log`.
+- Screenshots:
+  - `captures\reader-dev\navic-whispersync-shield-installed-after-cover-swipe.png`
+  - `captures\reader-dev\navic-whispersync-shield-installed-after-play-tap.png`
+  - `captures\reader-dev\navic-whispersync-shield-installed-after-pause-tap.png`
+
+Results:
+- RED/GREEN: the new source guard first failed because the Whispersync control did not include the same pointer shield pattern as other Komikku chrome controls, then passed after adding `modifier.pointerInput(Unit)`.
+- GREEN/HOST: focused Whispersync playback policy plus shell wiring tests passed in 10s with 24 actionable tasks: 2 executed, 22 up-to-date.
+- GREEN/INSTALL: readerdev `v1.0.11-eta77` / `versionCode=410` installed at `2026-06-21 05:46:28`, launched, and emitted `publicationReady`.
+- GREEN/PLAY: after leaving the shell cover, tapping the top-left control at the density-correct center coordinate `78,78` moved readaloud playback to `PLAYING(3)` at sidecar position `263360ms`.
+- GREEN/PAUSE: tapping the same control again moved readaloud playback to `PAUSED(2)` at the current audiobook position `284962ms`.
+- CORRECTION: an earlier tap at `52,52` was too close to the control edge after the emulator's 1.5 px/dp scaling. The control bounds are approximately `42..114` pixels in each axis with menus hidden, so the density-correct center is `78,78`.
+- OPEN: this validates readerdev/emulator behavior, not a public release APK on the user's phone.

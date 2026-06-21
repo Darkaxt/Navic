@@ -1760,6 +1760,32 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must dispatch resolved Whispersync audio commands through the shared audiobook manager."
 		)
 		assertTrue(
+			readerScreenText.contains("val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(") &&
+				readerScreenText.contains("readaloudPlaybackState = whispersyncReadaloudPlaybackState"),
+			"ReaderScreen must pass the active audiobook session into the native reader shell for the page-level Whispersync control."
+		)
+		assertTrue(
+			readerScreenText.contains("onWhispersyncPlaybackCommand = { command ->"),
+			"ReaderScreen must expose the native Whispersync control as an audiobook manager command, not as WebView-owned UI."
+		)
+		assertTrue(
+			readerRootText.contains("readerWhispersyncPlaybackControlState("),
+			"ReaderRoot must derive the Whispersync playback control state at the Komikku shell boundary."
+		)
+		assertTrue(
+			readerRootText.contains("KomikkuWhispersyncPlaybackControl("),
+			"ReaderRoot must render the native top-left Whispersync playback affordance."
+		)
+		assertTrue(
+			statusBadgeText.contains("ReaderWhispersyncPlaybackControlState"),
+			"The Whispersync UI file must contain a dedicated playback control instead of overloading the mismatch badge."
+		)
+		assertTrue(
+			statusBadgeText.contains("KomikkuWhispersyncPlaybackControl") &&
+				statusBadgeText.contains("modifier = modifier.pointerInput(Unit)"),
+			"The visible Whispersync playback control must shield its own touch area so disabled/loading states cannot leak taps to page navigation."
+		)
+		assertTrue(
 			statusBadgeText.contains("onRepairMismatch: () -> Unit"),
 			"The mismatch badge must expose a controller-owned repair action instead of being a passive UI-only warning."
 		)

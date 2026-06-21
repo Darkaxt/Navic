@@ -18,12 +18,16 @@ import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderPublicationFormat
+import paige.navic.reader.ReaderReadaloudPlaybackCommand
+import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
+import paige.navic.reader.readerWhispersyncPlaybackControlState
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -38,8 +42,10 @@ internal fun KomikkuReaderRoot(
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
+	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
+	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
@@ -85,7 +91,13 @@ internal fun KomikkuReaderRoot(
 	}
 
 	Box(modifier = modifier.fillMaxSize()) {
-		val overlayVisible = controllerState.hasVisibleReaderOverlay()
+		val whispersyncPlaybackControl = readerWhispersyncPlaybackControlState(
+			status = controllerState.whispersync.status,
+			playbackState = readaloudPlaybackState
+		).let { control ->
+			if (controllerState.shellCoverVisible) control.copy(visible = false) else control
+		}
+		val overlayVisible = controllerState.hasVisibleReaderOverlay() || whispersyncPlaybackControl.visible
 		SideEffect {
 			Logger.i(
 				KomikkuReaderRootTag,
@@ -152,6 +164,8 @@ internal fun KomikkuReaderRoot(
 					KomikkuComposeOverlay(
 						reader = reader,
 						controllerState = controllerState,
+						whispersyncPlaybackControl = whispersyncPlaybackControl,
+						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
 						onGoToChapterPage = onGoToChapterPage,
@@ -222,6 +236,8 @@ private fun shellCoverTitleFor(
 private fun KomikkuComposeOverlay(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
+	whispersyncPlaybackControl: ReaderWhispersyncPlaybackControlState,
+	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
@@ -326,6 +342,13 @@ private fun KomikkuComposeOverlay(
 				modifier = Modifier
 					.align(Alignment.BottomCenter)
 					.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)
+			)
+			KomikkuWhispersyncPlaybackControl(
+				control = whispersyncPlaybackControl,
+				onCommand = onWhispersyncPlaybackCommand,
+				modifier = Modifier
+					.align(Alignment.TopStart)
+					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
 			)
 		}
 		when (controllerState.dialog) {

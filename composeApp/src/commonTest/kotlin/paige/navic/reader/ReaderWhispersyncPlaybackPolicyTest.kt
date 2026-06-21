@@ -2,8 +2,10 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReaderWhispersyncPlaybackPolicyTest {
 	@Test
@@ -120,6 +122,76 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		)
 
 		assertNull(command)
+	}
+
+	@Test
+	fun whispersyncControlIsHiddenWhenReaderHasNoSyncedAudio() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(),
+			playbackState = null
+		)
+
+		assertFalse(control.visible)
+		assertNull(control.command)
+	}
+
+	@Test
+	fun whispersyncControlShowsLoadingWhenSidecarIsReadyButAudioIsNotLoaded() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Ready,
+				label = "Whispersync ready"
+			),
+			playbackState = null
+		)
+
+		assertTrue(control.visible)
+		assertTrue(control.loading)
+		assertTrue(control.crossed)
+		assertFalse(control.enabled)
+		assertNull(control.command)
+	}
+
+	@Test
+	fun whispersyncControlShowsPlayingStateAndPausesOnTap() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Playing,
+				label = "Whispersync playing"
+			),
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				syncEnabled = true
+			)
+		)
+
+		assertTrue(control.visible)
+		assertFalse(control.loading)
+		assertFalse(control.crossed)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, control.command)
+	}
+
+	@Test
+	fun whispersyncControlShowsCrossedPausedStateAndPlaysOnTap() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SyncDisabled,
+				label = "Whispersync paused"
+			),
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				syncEnabled = false
+			)
+		)
+
+		assertTrue(control.visible)
+		assertFalse(control.loading)
+		assertTrue(control.crossed)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
 	}
 
 	private fun whispersyncPlaybackPlan(): ReadaloudPlaybackPlan =
