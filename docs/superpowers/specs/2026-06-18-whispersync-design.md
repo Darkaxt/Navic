@@ -57,6 +57,7 @@ Implemented and covered by source/tests:
 - Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs.
 - Audiobook playback state fed back into `ReaderController.onReadaloudPlaybackState(...)` for Whispersync overlay/highlight commands.
 - Playback-position to text overlay matching through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`.
+- Character-offset ASR cues now survive `WhispersyncSegment -> ReaderOverlayFragment -> ReaderBridgeCommand.ApplyOverlayFragment -> overlayFragmentActive` and the Foliate runtime can mark a raw text-node range when a sidecar segment has no EPUB fragment id.
 - Controller-owned Whispersync status state for ready, page-to-audio seek, audiobook playback, paused sync, and mismatch states.
 - Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.
 - One-tap mismatch repair routed through `ReaderCoordinator.repairWhispersyncMismatch()`, reusing the current visible text range to reapply the correct overlay and dispatch the existing audiobook seek target path.
@@ -85,6 +86,7 @@ Still missing:
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
 - Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, but release-device validation still needs to prove the same behavior on the installed release APK.
 - Source-aware audio-follow visible range suppression is now host-tested and readerdev-emulator-proven with a non-duplicate `visibleTextRange(source=media-overlay-follow)` bridge event. Release-device validation is still required before calling the full paired flow release-ready.
+- Character-offset ASR overlay highlighting is host/source-tested only. Release-device validation still needs to confirm that a real production Bindery sidecar cue with `ebookStart`/`ebookEnd` visibly highlights the expected sentence in the installed APK.
 
 ## Non-Negotiable Guardrails
 

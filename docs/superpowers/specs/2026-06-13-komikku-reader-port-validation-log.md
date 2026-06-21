@@ -6456,3 +6456,27 @@ Results:
 - GREEN/TINY-SECTION-VISUAL: Chapter 38 is a one-page section and rendered only previous/next chapter buttons, with no decorative progress rail.
 - NOTE/COORDINATES: an earlier tap near `x=1215 y=1830` toggled the reader menu because it was inside the page area on the actual `1848x2960` surface. That was a coordinate error in the validation pass, not a rail failure.
 - Remaining: this validates the readerdev emulator path. Physical release validation is still needed for the user's phone/tablet feel and for any release-only regressions.
+
+## 2026-06-21 Whispersync Character-Offset Overlay Guard
+
+Scope:
+- Close GLM's confirmed gap where Bindery ASR sidecar segments carried `ebookStart`/`ebookEnd` character offsets, but `WhispersyncSegment.toReaderOverlayFragment()` dropped them and the Foliate runtime only highlighted EPUB fragment ids.
+- Preserve the existing fragment-id path for Storyteller/media-overlay style cues while adding a fallback for ASR cues with no DOM id.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+git diff --check
+```
+
+Results:
+- RED/HOST: the new parser/bridge assertions first failed because `ReaderOverlayFragment` had no `textStart` or `textEnd` fields.
+- FIX: `ReaderOverlayFragment` now carries `textStart`/`textEnd`, bridge command/event serialization preserves them, and `WhispersyncSegment.toReaderOverlayFragment()` forwards sidecar offsets.
+- FIX/RUNTIME: `applyOverlayFragment()` now falls back to `highlightMediaOverlayTextRange()` when no EPUB fragment id is highlighted. The helper walks the same raw content text-node offset space used by visible text range reporting, wraps the requested sentence range with the existing media-overlay CSS class, and unwraps old range markers in `clearOverlay()`.
+- GREEN/FOCUSED: `WhispersyncTimelineParserTest`, `ReaderBridgeProtocolTest`, and `ReaderRuntimeAssetsTest` passed after the fix.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader.js` passed.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: this is host/source proof only. A readerdev or release-device probe still needs to prove that a production Bindery cue with `ebookStart`/`ebookEnd` visibly highlights the expected sentence in the WebView.

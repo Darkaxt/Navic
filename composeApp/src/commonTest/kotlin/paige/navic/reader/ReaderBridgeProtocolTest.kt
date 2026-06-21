@@ -113,6 +113,8 @@ class ReaderBridgeProtocolTest {
 				textHref = "EPUB/Text/chapter1.xhtml",
 				clipBeginSeconds = 1.25,
 				clipEndSeconds = 3.5,
+				textStart = 10,
+				textEnd = 42,
 				label = "Chapter 1 / Paragraph 1"
 			)
 		).toJavaScript()
@@ -123,6 +125,8 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"textHref\":\"EPUB/Text/chapter1.xhtml\"")
 		assertContains(script, "\"clipBeginSeconds\":1.25")
 		assertContains(script, "\"clipEndSeconds\":3.5")
+		assertContains(script, "\"textStart\":10")
+		assertContains(script, "\"textEnd\":42")
 		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
 	}
 
@@ -328,6 +332,8 @@ class ReaderBridgeProtocolTest {
 			  "textHref": "chapter-01.xhtml#frag-1",
 			  "clipBeginSeconds": 12.4,
 			  "clipEndSeconds": 16.9,
+			  "textStart": 120,
+			  "textEnd": 180,
 			  "label": "Chapter 1 / Paragraph 4"
 			}
 			""".trimIndent()
@@ -351,6 +357,8 @@ class ReaderBridgeProtocolTest {
 		assertEquals("chapter-01.xhtml#frag-1", active.fragment.textHref)
 		assertEquals(12.4, active.fragment.clipBeginSeconds)
 		assertEquals(16.9, active.fragment.clipEndSeconds)
+		assertEquals(120, active.fragment.textStart)
+		assertEquals(180, active.fragment.textEnd)
 		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
 	}
 

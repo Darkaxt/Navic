@@ -105,6 +105,8 @@ data class WhispersyncSegment(
 			textHref = textHref,
 			clipBeginSeconds = startMs / 1000.0,
 			clipEndSeconds = endMs / 1000.0,
+			textStart = textStart,
+			textEnd = textEnd,
 			label = label
 		)
 }
