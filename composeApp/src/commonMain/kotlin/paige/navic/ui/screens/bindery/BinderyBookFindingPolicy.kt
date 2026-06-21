@@ -129,7 +129,7 @@ private fun BinderyBookVersionKind.representsFindingKind(kind: BinderyBookFindin
 			this == BinderyBookVersionKind.Readaloud
 	}
 
-private fun BinderyFindingMapping.matchesFindingKind(
+internal fun BinderyFindingMapping.matchesFindingKind(
 	kind: BinderyBookFindingKind,
 	metadata: BinderyFindingMetadata
 ): Boolean {
@@ -143,7 +143,7 @@ private fun BinderyFindingMapping.matchesFindingKind(
 	return actual == expected
 }
 
-private fun BinderyFindingMapping.matchesFindingLanguage(
+internal fun BinderyFindingMapping.matchesFindingLanguage(
 	language: String?,
 	metadata: BinderyFindingMetadata
 ): Boolean {

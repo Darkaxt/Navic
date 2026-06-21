@@ -50,7 +50,6 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.binderyApiKeyHeaders
@@ -82,7 +81,6 @@ fun BinderySearchScreen(
 	val actionInFlight by viewModel.actionInFlight.collectAsStateWithLifecycle()
 	val query = viewModel.searchQuery
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
-	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
@@ -122,7 +120,7 @@ fun BinderySearchScreen(
 			modifier = Modifier.fillMaxSize()
 		) { uiState ->
 			when (uiState) {
-				is UiState.Loading -> ArtGrid(contentPadding = contentPadding, fixedColumns = bookGridColumns) {
+				is UiState.Loading -> ArtGrid(contentPadding = contentPadding) {
 					artGridPlaceholder(coverAspectRatio = 2f / 3f)
 				}
 				is UiState.Error -> ErrorBox(uiState, padding = contentPadding)
@@ -138,7 +136,6 @@ fun BinderySearchScreen(
 						ArtGrid(
 							state = viewModel.gridState,
 							contentPadding = contentPadding,
-							fixedColumns = bookGridColumns,
 							verticalArrangement = Arrangement.spacedBy(12.dp)
 						) {
 							itemsIndexed(

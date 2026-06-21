@@ -178,7 +178,6 @@ fun BinderyDetailScreen(
 					modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
 					state = viewModel.gridState,
 					contentPadding = innerPadding.withoutTop(),
-					fixedColumns = bookGridColumns,
 					verticalArrangement = Arrangement.spacedBy(12.dp)
 				) {
 					if (binderyConfigured) {

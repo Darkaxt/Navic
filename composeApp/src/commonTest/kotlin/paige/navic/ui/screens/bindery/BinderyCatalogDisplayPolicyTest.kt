@@ -54,11 +54,10 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
-	fun carouselCardWidthFitsConfiguredVisibleCountInsideAvailableWidth() {
-		assertEquals(138, binderyCarouselCardWidthDp(columns = 5, availableWidthDp = 768))
-		assertEquals(113, binderyCarouselCardWidthDp(columns = 6, availableWidthDp = 768))
-		assertEquals(96, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 820))
-		assertEquals(96, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 320))
+	fun carouselCardWidthMatchesMusicShelfWidthInsteadOfScalingWithWindow() {
+		assertEquals(150, binderyCarouselCardWidthDp(columns = 5, availableWidthDp = 768))
+		assertEquals(150, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 1600))
+		assertEquals(150, binderyCarouselCardWidthDp(columns = 8, availableWidthDp = 320))
 	}
 
 	@Test
